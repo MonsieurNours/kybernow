@@ -1,0 +1,33 @@
+KyberNow - logiciels tiers inclus
+==================================
+
+KyberNow (installateur et console d'administration)
+  Les Lignes Claires - https://www.leslignesclaires.fr
+  Licence : GNU Affero General Public License v3.0 ou ultérieure (AGPL-3.0.txt)
+
+Kyber 0.29.0 - moteur de streaming
+  Kyber SAS - https://kyber.tech - https://gitlab.com/kyber
+  Licence : AGPL-3.0 (AGPL-3.0.txt) ; mentions d'origine dans Kyber.txt
+  Inclut VLC/libVLC (LGPL-2.1+), FFmpeg (LGPL-2.1+ / GPL-2.0+), x264 (GPL-2.0+),
+  Opus (BSD-3-Clause), SDL2 (Zlib). Sources : https://gitlab.com/kyber
+
+SudoVDA - pilote d'écran virtuel (version distribuée avec Apollo 0.4.6)
+  SudoMaker - https://github.com/SudoMaker/SudoVDA
+  Licence : MIT et CC0 (au choix, la moins restrictive)
+
+nefcon (nefconc.exe) - installation de pilotes
+  Benjamin Höglinger-Stelzer (nefarius) - https://github.com/nefarius/nefcon
+  Licence : MIT
+
+ViGEmBus 1.21.442 - pilote de manettes virtuelles
+  Nefarius Software Solutions - https://github.com/nefarius/ViGEmBus
+  Licence : BSD-3-Clause
+
+Polices de l'interface : Bricolage Grotesque, IBM Plex Sans, IBM Plex Mono
+  Licence : SIL Open Font License 1.1
+
+Interface et installateur : Svelte, wry, tao, axum et bibliothèques Rust/JavaScript
+  Licences : MIT et/ou Apache-2.0
+
+Le code source de KyberNow et des composants modifiés est disponible sur demande
+auprès de Les Lignes Claires, conformément à l'AGPL-3.0.

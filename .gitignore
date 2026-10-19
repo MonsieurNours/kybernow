@@ -1,0 +1,11 @@
+# Dépendances et builds
+/third_party/
+target/
+node_modules/
+server/web/dist/
+# Sessions de mesure
+tools/latency/runs/
+# Données locales du service d'admin en dev
+server/admin/dev-data/
+.DS_Store
+/server/dist/

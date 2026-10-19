@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chrono latence</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  body { display: grid; place-items: center; }
+  #ms { font-size: 18vw; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; height: 12vh; display: grid; grid-template-columns: repeat(10, 1fr); }
+  #bar div { border-right: 2px solid #000; }
+  #hint { position: fixed; top: 1em; left: 1em; font-size: 14px; opacity: .5; }
+</style>
+</head>
+<body>
+<div id="hint">F11 pour le plein écran · la case blanche avance d'une case par image</div>
+<div id="ms">0000000</div>
+<div id="bar"></div>
+<script>
+  const ms = document.getElementById('ms');
+  const bar = document.getElementById('bar');
+  for (let i = 0; i < 10; i++) bar.appendChild(document.createElement('div'));
+  let frame = 0;
+  function tick(t) {
+    ms.textContent = String(Math.floor(performance.timeOrigin + t) % 10000000).padStart(7, '0');
+    const cells = bar.children;
+    for (let i = 0; i < 10; i++) cells[i].style.background = i === frame % 10 ? '#fff' : '#222';
+    frame++;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+</script>
+</body>
+</html>

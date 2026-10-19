@@ -1,0 +1,61 @@
+[package]
+name = "kybernow-setup"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Installateur de KyberNow (serveur de streaming Kyber pour Windows)"
+license = "AGPL-3.0-or-later"
+authors = ["Les Lignes Claires"]
+
+[lib]
+name = "kybernow"
+path = "src/lib.rs"
+
+# Lanceur : porte le contenu à installer et démarre l'interface.
+# Il ne dépend pas de WebView2, pour pouvoir s'exécuter partout.
+[[bin]]
+name = "KyberNow-Setup"
+path = "src/bin/setup.rs"
+
+# Interface de l'installateur (fenêtre WebView2).
+[[bin]]
+name = "kybernow-ui"
+path = "src/bin/ui.rs"
+required-features = ["ui"]
+
+[features]
+ui = ["dep:wry", "dep:tao", "dep:rust-embed", "dep:mime_guess"]
+
+[dependencies]
+anyhow = "1.0.104"
+hex = "0.4.3"
+nvml-wrapper = "0.13.0"
+rand = "0.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha1 = "0.10"
+tar = "0.4.46"
+zstd = "0.14.3"
+mime_guess = { version = "2.0.5", optional = true }
+rust-embed = { version = "8.13.0", optional = true }
+tao = { version = "0.37.1", optional = true }
+wry = { version = "0.57.0", optional = true }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

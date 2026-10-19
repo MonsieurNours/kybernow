@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KyberNow">
+  <title>KyberNow</title>
+  <style>
+    .kn-wave { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: kn-draw 1.6s cubic-bezier(.6,.1,.2,1) forwards; }
+    #kn-wave-1 { animation-delay: .35s } #kn-wave-2 { animation-delay: .2s } #kn-wave-3 { animation-delay: .5s }
+    .kn-piece { transform-box: fill-box; transform-origin: center; opacity: 0; animation: kn-in .7s cubic-bezier(.2,.7,.2,1) forwards; }
+    #kn-stem { animation-delay: 0s } #kn-fold-top, #kn-fold-bottom { animation-delay: .15s }
+    #kn-arm-top { animation-delay: .1s } #kn-arm-bottom { animation-delay: .25s }
+    .kn-pulse { fill: none; stroke: #DFFBF2; stroke-width: 7; stroke-linecap: round; stroke-dasharray: 60 940; animation: kn-travel 2.4s linear 1.8s infinite; opacity: 0; }
+    @keyframes kn-draw { to { stroke-dashoffset: 0 } }
+    @keyframes kn-in { from { opacity: 0; transform: translateY(18px) scale(.96) } to { opacity: 1; transform: none } }
+    @keyframes kn-travel { 0% { stroke-dashoffset: 1000; opacity: 1 } 100% { stroke-dashoffset: 0; opacity: 1 } }
+    @media (prefers-reduced-motion: reduce) {
+      .kn-wave, .kn-piece { animation: none; stroke-dashoffset: 0; opacity: 1 }
+      .kn-pulse { display: none }
+    }
+  </style>
+  <rect width="512" height="512" fill="#0D1117"/>
+  <g id="kn-mark">
+    <defs>
+      <linearGradient id="kn-arm-shade" gradientUnits="userSpaceOnUse" x1="236" y1="268" x2="300" y2="340">
+        <stop offset="0" stop-color="#9AA6B4"/>
+        <stop offset="1" stop-color="#DCE3EA"/>
+      </linearGradient>
+    </defs>
+    <g id="kn-signal" fill="none" stroke="#6FE3C1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <path id="kn-wave-1" class="kn-wave" pathLength="1000" opacity="0.5" d="M70 248 H252 C272 248 280 294.0 300 294.0 C322 294.0 326 150.48 346 150.48 C366 150.48 368 248 388 248 H470"/>
+      <path id="kn-wave-2" class="kn-wave" pathLength="1000" d="M70 262 H252 C272 262 280 312 300 312 C322 312 326 156 346 156 C366 156 368 262 388 262 H470"/>
+      <path id="kn-wave-3" class="kn-wave" pathLength="1000" opacity="0.5" d="M70 276 H252 C272 276 280 322.0 300 322.0 C322 322.0 326 178.48 346 178.48 C366 178.48 368 276 388 276 H470"/>
+    </g>
+    <g id="kn-k">
+      <path id="kn-arm-bottom" class="kn-piece" fill="url(#kn-arm-shade)" d="M238 264.5 L404 416 H330 L206 306 Z"/>
+      <path id="kn-arm-top" class="kn-piece" fill="#F4F7FA" d="M206 224 L321 96 H392 L206 302 Z"/>
+      <path id="kn-stem" class="kn-piece" fill="#F4F7FA" d="M206 96 V416 H188 C167 416 150 399 150 378 V134 C150 113 167 96 188 96 Z"/>
+      <path id="kn-fold-top" class="kn-piece" fill="#B6C1CD" d="M150 158 C150 121 172 96 206 96 V112 C178 114 158 130 150 158 Z"/>
+      <path id="kn-fold-bottom" class="kn-piece" fill="#B6C1CD" d="M150 354 C150 391 172 416 206 416 V400 C178 398 158 382 150 354 Z"/>
+    </g>
+  </g>
+  <use href="#kn-wave-2" class="kn-pulse" pathLength="1000"/>
+</svg>
