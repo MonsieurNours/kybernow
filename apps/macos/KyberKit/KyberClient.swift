@@ -149,6 +149,12 @@ public final class KyberClient {
         try check(kyclient_client_start_streaming(client, session), "démarrage de l'image")
     }
 
+    public func stopStreaming() {
+        input?.stop()
+        input = nil
+        kyclient_client_stop_streaming(client)
+    }
+
     public func setBitrate(_ bitsPerSecond: UInt32) {
         kyclient_client_set_bitrate(client, bitsPerSecond)
     }

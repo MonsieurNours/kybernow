@@ -51,6 +51,7 @@ public final class StreamView: NSView {
         layout = kynput_video_layout_new(&window, &host)
         // AppKit ne transmet pas aux vues le relâchement d'une touche tapée
         // avec ⌘ : on le récupère avant qu'il ne se perde.
+        if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             guard let self, event.modifierFlags.contains(.command), self.window?.firstResponder === self else { return event }
             self.keyUp(with: event)

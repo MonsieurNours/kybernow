@@ -67,6 +67,7 @@ final class InputPipeline {
         // envoyées par StreamView.
         let wanted = [KYNPUT_INPUT_TYPE_KEYBOARD, KYNPUT_INPUT_TYPE_MOUSE_POSITION, KYNPUT_INPUT_TYPE_MOUSE_BUTTON, KYNPUT_INPUT_TYPE_MOUSE_WHEEL]
         let missing = wanted.filter { !kynput_pipeline_produces_type(pipeline, $0) }
+        KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(display.id))")
         if !missing.isEmpty {
             // Le tableau doit vivre aussi longtemps que le gestionnaire : on le garde.
             let types = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: missing.count)
@@ -94,25 +95,30 @@ final class InputPipeline {
         kynput_pipeline_flush_keys(pipeline)
     }
 
-    private func send(_ packet: OpaquePointer?) {
+    private var logged = Set<String>()
+
+    private func send(_ packet: OpaquePointer?, _ kind: String) {
         guard let packet else { return }
-        kynput_consumer_consume(sink, packet)
+        let rc = kynput_consumer_consume(sink, packet)
+        if logged.insert(kind).inserted {
+            KyberLog.app.notice("entrées : premier envoi \(kind, privacy: .public) (code \(rc))")
+        }
     }
 
     func key(scancode: UInt16, pressed: Bool) {
-        send(kynput_keyboard_key_to_packet(KYNPUT_INPUT_TARGET_HOST, scancode, pressed))
+        send(kynput_keyboard_key_to_packet(KYNPUT_INPUT_TARGET_HOST, scancode, pressed), "touche")
     }
 
     func mouse(x: Int16, y: Int16) {
-        send(kynput_mouse_position_to_packet(KYNPUT_INPUT_TARGET_HOST, displayID, x, y))
+        send(kynput_mouse_position_to_packet(KYNPUT_INPUT_TARGET_HOST, displayID, x, y), "position")
     }
 
     func mouseButton(_ button: MouseButton, pressed: Bool) {
-        send(kynput_mouse_button_to_packet(KYNPUT_INPUT_TARGET_HOST, button.sdk, pressed))
+        send(kynput_mouse_button_to_packet(KYNPUT_INPUT_TARGET_HOST, button.sdk, pressed), "clic")
     }
 
     func wheel(dx: Float, dy: Float) {
-        send(kynput_mouse_wheel_to_packet(KYNPUT_INPUT_TARGET_HOST, dx, dy))
+        send(kynput_mouse_wheel_to_packet(KYNPUT_INPUT_TARGET_HOST, dx, dy), "molette")
     }
 
     func flushKeys() {

@@ -29,6 +29,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private var heartbeat: Task<Void, Never>?
     private var prepared: PrepareResult?
     private var display: KyberDisplay?
+    /// Écrans annoncés par Kyber (la liste se met à jour quelques secondes
+    /// après la création de l'écran virtuel : les écrans éteints en sortent).
+    private var displays: [KyberDisplay] = []
+    private var streaming: UInt32?
+    private var settling: Task<Void, Never>?
 
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
@@ -47,6 +52,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         window.collectionBehavior = [.fullScreenPrimary]
         window.delegate = self
         window.isReleasedWhenClosed = false
+        window.acceptsMouseMovedEvents = true
 
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         container.autoresizingMask = [.width, .height]
@@ -116,16 +122,21 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func handle(_ event: KyberEvent) {
+        KyberLog.app.notice("événement : \(String(describing: event), privacy: .public)")
         switch event {
-        case let .connected(displays):
-            // L'écran virtuel est le seul actif ; sinon, celui au mode demandé, ou le premier.
-            let wanted = displays.first { $0.width == prepared?.width && $0.height == prepared?.height }
-            guard let chosen = wanted ?? displays.first else {
-                fail("l'ordinateur n'a annoncé aucun écran")
-                return
+        case let .connected(list):
+            displays = list
+            chooseDisplay()
+        case let .displaysChanged(list):
+            displays = list
+            if let streaming, !list.contains(where: { $0.id == streaming }) {
+                // L'écran suivi a disparu (écran physique éteint) : on passe au bon.
+                restartStreaming()
+            } else if settling != nil, list.count == 1 {
+                settling?.cancel()
+                settling = nil
+                chooseDisplay()
             }
-            display = chosen
-            startStreaming()
         case .streamingStarted:
             phase = .streaming
             host.lastSession = Date()
@@ -143,24 +154,66 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             phase = .reconnecting(attempt)
         case let .reconnected(restart):
             phase = .streaming
-            if restart { startStreaming() }
+            if restart {
+                streaming = nil
+                startStreaming()
+            }
         case .reconnectionFailed:
             fail("connexion perdue")
         case let .stopped(reason):
             if phase != .ending && phase != .ended { fail(reason) }
-        case .streamingStopped, .displaysChanged:
+        case .streamingStopped:
             break
         }
+    }
+
+    /// Avec l'écran virtuel, Kyber doit finir par n'annoncer qu'un écran :
+    /// on attend que sa liste se stabilise (6 s au plus) avant de démarrer.
+    private func chooseDisplay() {
+        if prepared?.virtualDisplay == true, displays.count > 1, settling == nil, streaming == nil {
+            phase = .starting
+            settling = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(6))
+                guard !Task.isCancelled, let self else { return }
+                self.settling = nil
+                self.chooseDisplay()
+            }
+            return
+        }
+        guard let best = bestDisplay() else {
+            fail("l'ordinateur n'a annoncé aucun écran")
+            return
+        }
+        if streaming == best.id { return }
+        display = best
+        startStreaming()
+    }
+
+    private func bestDisplay() -> KyberDisplay? {
+        if displays.count == 1 { return displays[0] }
+        let sameMode = displays.filter { $0.width == prepared?.width && $0.height == prepared?.height }
+        // L'écran virtuel est placé en haut à gauche du bureau.
+        return sameMode.first { $0.x == 0 && $0.y == 0 } ?? sameMode.first ?? displays.first
     }
 
     private func startStreaming() {
         guard let kyber, let display else { return }
         phase = .starting
         do {
+            KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")
             try kyber.startStreaming(display: display, view: streamView, options: host.profile.options)
+            streaming = display.id
         } catch {
             fail(error.localizedDescription)
         }
+    }
+
+    private func restartStreaming() {
+        guard let kyber, let best = bestDisplay() else { return }
+        kyber.stopStreaming()
+        streaming = nil
+        display = best
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.startStreaming() }
     }
 
     private func startHeartbeat(every seconds: Int) {
