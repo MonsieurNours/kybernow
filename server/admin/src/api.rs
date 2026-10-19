@@ -41,6 +41,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/audio", get(audio_status))
         .route("/api/audio/settings", put(audio_settings))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
+        .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
         .route("/api/stream/end", post(stream_end))
@@ -390,6 +391,35 @@ struct PrepareBody {
     /// Canaux audio voulus par l'appareil : 2, 6, 8, ou 0 pour garder le son sur l'ordinateur.
     #[serde(default)]
     audio_channels: Option<u16>,
+    /// `false` : l'appareil veut les écrans de l'ordinateur tels quels.
+    #[serde(default)]
+    virtual_display: Option<bool>,
+}
+
+/// Ce que l'app affiche d'un ordinateur : nom, carte graphique, possibilités.
+async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    stream_user(&s, &headers)?;
+    let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
+    let gpu_name = gpu.as_ref().and_then(|g| g.devices.first()).map(|d| d.name.clone());
+    // AV1 en NVENC : à partir des cartes Ada (RTX 40) et suivantes.
+    let av1 = gpu_name.as_deref().is_some_and(|n| ["RTX 40", "RTX 50", "RTX 2000 Ada", "RTX 4000 Ada", "RTX 5000 Ada", "RTX 6000 Ada", "L4", "L40"].iter().any(|m| n.contains(m)));
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let (display, audio) = blocking(move || Ok((d.status(), a.status()))).await?;
+    Ok(Json(json!({
+        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "gpu": gpu_name,
+        "av1": av1,
+        "virtual_display": {
+            "available": display["driver"]["available"].as_bool().unwrap_or(false),
+            "trigger": display["settings"]["trigger"],
+            "active": !display["session"].is_null(),
+        },
+        "audio": {
+            "speakers": !audio["devices"]["speakers"].is_null(),
+            "trigger": audio["settings"]["trigger"],
+        },
+        "admin_version": env!("CARGO_PKG_VERSION"),
+    })))
 }
 
 /// Une app annonce son écran avant de se connecter à Kyber.
@@ -411,7 +441,7 @@ async fn stream_prepare(
     let a = s.audio.clone();
     let channels = body.audio_channels;
     let audio = blocking(move || Ok(a.start(Origin::App, channels))).await?;
-    if trigger == Trigger::Off {
+    if trigger == Trigger::Off || body.virtual_display == Some(false) {
         return Ok(Json(json!({ "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })));
     }
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
