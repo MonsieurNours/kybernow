@@ -11,7 +11,9 @@
 //! - une session client sans nouvelles depuis 20 s, et sans flux NVENC, s'arrête.
 
 #[cfg(windows)]
-mod agent;
+pub mod agent;
+#[cfg(windows)]
+pub mod pointer;
 #[cfg(windows)]
 mod sudovda;
 #[cfg(windows)]
@@ -139,7 +141,7 @@ pub struct Manager {
     pub settings: Mutex<VdSettings>,
 }
 
-fn now_secs() -> u64 {
+pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 

@@ -17,6 +17,8 @@ pub struct SystemInfo {
     pub kyber_uninstaller: Option<String>,
     pub kyber_service_exists: bool,
     pub power_needs_tuning: bool,
+    /// Pilote des haut-parleurs virtuels de Steam (Steam Streaming Speakers).
+    pub steam_speakers_inf: Option<std::path::PathBuf>,
     pub stream_port: u16,
     pub console_port: u16,
 }
@@ -112,6 +114,14 @@ pub fn run(emit: &Emit) -> SystemInfo {
         emit_item(emit, Item { id: "power", status: CheckStatus::Warn, title: format!("Mode d'alimentation : {plan}"), detail: "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options.".into() });
     }
 
+    running(emit, "audio", "Son à distance");
+    info.steam_speakers_inf = steam_speakers_inf();
+    if info.steam_speakers_inf.is_some() {
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Ok, title: "Son à distance".into(), detail: "Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.".into() });
+    } else {
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Warn, title: "Son à distance".into(), detail: "Steam n'est pas installé : le son sortira aussi des haut-parleurs du PC, au format de Windows. Installez Steam puis relancez l'installation pour en profiter.".into() });
+    }
+
     let (uninstaller, service) = existing_kyber();
     info.kyber_uninstaller = uninstaller.clone();
     info.kyber_service_exists = service;
@@ -120,8 +130,25 @@ pub fn run(emit: &Emit) -> SystemInfo {
         emit_item(emit, Item { id: "existing", status: CheckStatus::Warn, title: "Une installation de Kyber existe".into(), detail: "Elle sera retirée puis remplacée par celle de KyberNow (même moteur, réglé pour vous).".into() });
     }
 
-    emit(Event::ChecksDone { stream_port: info.stream_port, console_port: info.console_port, busy, lan_ip: info.lan_ip.clone() });
+    emit(Event::ChecksDone {
+        stream_port: info.stream_port,
+        console_port: info.console_port,
+        busy,
+        lan_ip: info.lan_ip.clone(),
+        steam_speakers: info.steam_speakers_inf.is_some(),
+    });
     info
+}
+
+/// Pilote des haut-parleurs virtuels livré avec Steam (même emplacement que
+/// celui qu'utilise Sunshine), signé par Microsoft.
+pub fn steam_speakers_inf() -> Option<std::path::PathBuf> {
+    let common = std::env::var_os("CommonProgramFiles(x86)").or_else(|| std::env::var_os("CommonProgramFiles"))?;
+    let base = std::path::PathBuf::from(common).join("Steam").join("drivers");
+    ["Windows10", "Windows"]
+        .iter()
+        .map(|dir| base.join(dir).join("x64").join("SteamStreamingSpeakers.inf"))
+        .find(|p| p.is_file())
 }
 
 /// (nom du GPU, version du pilote)

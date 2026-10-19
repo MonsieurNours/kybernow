@@ -14,6 +14,7 @@
     firewall: { label: `Pare-feu : ports ${s} et ${c}`, meta: '', title: 'Ouverture du pare-feu', text: `Windows bloque par défaut les connexions entrantes. Nous autorisons seulement le stream (port ${s}) et la console (port ${c}), sur votre réseau privé.` },
     vdd: { label: "Pilote d'écran virtuel", meta: 'SudoVDA', title: 'Écran virtuel', text: "Le pilote SudoVDA est ajouté. Il reste invisible tant qu'aucun appareil n'est connecté." },
     gamepad: { label: 'Pilote de manettes', meta: 'ViGEmBus', title: 'Manettes', text: 'Le pilote ViGEmBus permet au PC de voir votre manette comme si elle était branchée en USB.' },
+    audio: { label: 'Haut-parleurs virtuels', meta: 'Steam', title: 'Son à distance', text: "Pendant le stream, le son du PC part vers ces haut-parleurs invisibles : le PC se tait, et votre appareil reçoit le son en stéréo, 5.1 ou 7.1." },
     admin: { label: "Console d'administration", meta: `port ${c}`, title: "Console d'administration", text: `La console démarre sur le port ${c}. Vous pourrez y régler la qualité d'image, les comptes et l'écran virtuel.` },
     power: { label: "Réglages d'alimentation", meta: '', title: 'Alimentation', text: 'Le mode Performances élevées empêche le processeur et le GPU de ralentir pendant le stream.' },
   })

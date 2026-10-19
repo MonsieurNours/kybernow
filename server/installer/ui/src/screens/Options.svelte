@@ -49,6 +49,14 @@
     <div class="row"><strong>Manettes</strong><Toggle bind:checked={app.options.gamepads} label="Manettes" /></div>
     <span>Votre manette Xbox ou PlayStation est vue par le PC comme une vraie manette (pilote ViGEmBus).</span>
   </section>
+  <section class="card small" class:on={app.options.virtualAudio} class:off={!app.steamSpeakers}>
+    <div class="row"><strong>Son à distance</strong><Toggle bind:checked={app.options.virtualAudio} label="Son à distance" disabled={!app.steamSpeakers} /></div>
+    {#if app.steamSpeakers}
+      <span>Pendant le stream, le PC se tait et le son part vers votre appareil en stéréo, 5.1 ou 7.1 (haut-parleurs virtuels de Steam).</span>
+    {:else}
+      <span>Demande Steam, qui fournit des haut-parleurs virtuels signés. Sans lui, le son sort aussi du PC.</span>
+    {/if}
+  </section>
   <section class="card small" class:on={app.options.maxPerformance}>
     <div class="row"><strong>Performances maximales</strong><Toggle bind:checked={app.options.maxPerformance} label="Performances maximales" /></div>
     <span>Empêche le processeur et le GPU de ralentir pendant le stream, pour une latence stable.</span>
@@ -173,7 +181,7 @@
   .grid {
     margin-top: 12px;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
   }
 

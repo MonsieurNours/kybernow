@@ -101,6 +101,27 @@ export interface DisplayStatus {
   last_error: string | null
 }
 
+export type AudioChannels = 'auto' | 'stereo' | '5.1' | '7.1'
+
+export interface AudioSettings {
+  trigger: Trigger
+  channels: AudioChannels
+}
+
+export interface AudioEndpoint {
+  id: string
+  name: string
+  channels: number
+}
+
+export interface AudioStatus {
+  supported: boolean
+  settings: AudioSettings
+  devices: { speakers?: AudioEndpoint | null; default?: AudioEndpoint | null; error?: string }
+  session: null | { origin: 'app' | 'auto' | 'test'; channels: number; started_at: number }
+  last_error: string | null
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
@@ -167,6 +188,8 @@ export const api = {
   displayTest: (mode: { width: number; height: number; refresh: number }, seconds: number) =>
     request<DisplayStatus>('POST', '/api/display/test', { ...mode, seconds }),
   displayStop: () => request<DisplayStatus>('POST', '/api/display/stop'),
+  audio: () => request<AudioStatus>('GET', '/api/audio'),
+  audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),
   logTail: (name: string, lines: number) =>

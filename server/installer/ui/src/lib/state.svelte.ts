@@ -13,7 +13,7 @@ export const STEPS: { screen: Screen; label: string }[] = [
   { screen: 'done', label: "C'est prêt" },
 ]
 
-export const CHECK_ORDER = ['gpu', 'driver', 'network', 'ports', 'display', 'power']
+export const CHECK_ORDER = ['gpu', 'driver', 'network', 'ports', 'display', 'power', 'audio']
 const CHECK_TITLES: Record<string, string> = {
   gpu: 'Carte graphique NVIDIA',
   driver: 'Pilote graphique',
@@ -21,6 +21,7 @@ const CHECK_TITLES: Record<string, string> = {
   ports: 'Ports réseau',
   display: 'Écran principal',
   power: "Mode d'alimentation",
+  audio: 'Son à distance',
 }
 
 export interface CheckItem {
@@ -30,7 +31,7 @@ export interface CheckItem {
   detail: string
 }
 
-export const TASK_ORDER = ['files', 'cert', 'service', 'firewall', 'vdd', 'gamepad', 'admin', 'power']
+export const TASK_ORDER = ['files', 'cert', 'service', 'firewall', 'vdd', 'gamepad', 'audio', 'admin', 'power']
 
 export const app = $state({
   screen: 'welcome' as Screen,
@@ -40,12 +41,13 @@ export const app = $state({
   checksDone: false,
   lanIp: null as string | null,
   busyPort: null as { port: number; process: string | null } | null,
+  steamSpeakers: false,
   ports: { stream: 0, console: 0 },
   portErrors: { stream: null as string | null, console: null as string | null },
   portsPending: false,
   user: '',
   password: '',
-  options: { virtualDisplay: true, gamepads: true, maxPerformance: true, startWithWindows: true },
+  options: { virtualDisplay: true, gamepads: true, virtualAudio: true, maxPerformance: true, startWithWindows: true },
   installing: false,
   percent: 0,
   tasks: Object.fromEntries(TASK_ORDER.map((id) => [id, 'pending'])) as Record<string, TaskStatus | 'pending'>,
@@ -73,6 +75,8 @@ function handle(event: BackendEvent) {
       app.checksDone = true
       app.lanIp = event.lanIp
       app.busyPort = event.busy
+      app.steamSpeakers = event.steamSpeakers
+      if (!event.steamSpeakers) app.options.virtualAudio = false
       app.ports = { stream: event.streamPort, console: event.consolePort }
       break
     case 'portsValidated':

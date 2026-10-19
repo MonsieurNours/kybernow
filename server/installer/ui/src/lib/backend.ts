@@ -12,6 +12,7 @@ export type BackendEvent =
       consolePort: number
       busy: { port: number; process: string | null } | null
       lanIp: string | null
+      steamSpeakers: boolean
     }
   | { type: 'portsValidated'; streamError: string | null; consoleError: string | null }
   | { type: 'task'; id: string; status: TaskStatus }
@@ -27,6 +28,7 @@ export interface InstallRequest {
   consolePort: number
   virtualDisplay: boolean
   gamepads: boolean
+  virtualAudio: boolean
   maxPerformance: boolean
   startWithWindows: boolean
 }
@@ -81,13 +83,14 @@ async function simulate(command: Command) {
         ['ports', 'ok', 'Ports réseau', `Le port habituel 8080 est déjà utilisé par httpd.exe. Tirés au hasard et vérifiés libres : stream ${stream} · console ${consolePort}`],
         ['display', 'ok', 'Écran principal', '3840 × 2160 · 160 Hz'],
         ['power', 'warn', "Mode d'alimentation : Équilibré", "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options."],
+        ['audio', 'ok', 'Son à distance', 'Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.'],
       ]
       for (const [id, status, title, detail] of items) {
         emit({ type: 'check', id, status: 'running', title, detail: '' })
         await wait(650)
         emit({ type: 'check', id, status, title, detail })
       }
-      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100' })
+      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100', steamSpeakers: true })
       break
     }
     case 'validatePorts': {
@@ -105,6 +108,7 @@ async function simulate(command: Command) {
         ['firewall', 60, true],
         ['vdd', 70, command.virtualDisplay],
         ['gamepad', 82, command.gamepads],
+        ['audio', 86, command.virtualAudio],
         ['admin', 92, true],
         ['power', 96, command.maxPerformance],
         ['finish', 100, true],

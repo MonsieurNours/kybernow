@@ -2,6 +2,7 @@
 
 mod api;
 mod assets;
+mod audio;
 mod auth;
 mod display;
 mod gpu;
@@ -111,22 +112,63 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Son vers les haut-parleurs virtuels, à `channels` canaux.
+    AudioRoute {
+        #[arg(long)]
+        channels: u16,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Rétablit la sortie audio d'avant la session.
+    AudioRestore {
+        #[arg(long, allow_hyphen_values = true)]
+        previous: String,
+        #[arg(long)]
+        previous_format: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        speakers: String,
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+/// Dossier de travail de l'agent (celui de son fichier de résultat).
+#[cfg(windows)]
+fn agent_dir(out: &std::path::Path) -> &std::path::Path {
+    out.parent().unwrap_or(std::path::Path::new("."))
 }
 
 /// Exécute une opération d'affichage et écrit son résultat (JSON) dans `out`.
 fn display_agent(action: AgentAction) -> Result<()> {
     #[cfg(windows)]
     let (out, result) = match action {
-        AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => (
-            out,
-            display::topology::isolate(luid_low, luid_high, target, width, height, refresh)
-                .and_then(|a| Ok(serde_json::to_value(a)?)),
-        ),
-        AgentAction::Restore { out } => (out, display::topology::restore().map(|_| serde_json::json!({ "ok": true }))),
+        AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => {
+            display::pointer::begin(agent_dir(&out));
+            let r = display::topology::isolate(luid_low, luid_high, target, width, height, refresh)
+                .and_then(|a| Ok(serde_json::to_value(a)?));
+            (out, r)
+        }
+        AgentAction::Restore { out } => {
+            display::pointer::end(agent_dir(&out));
+            (out, display::topology::restore().map(|_| serde_json::json!({ "ok": true })))
+        }
+        AgentAction::AudioRoute { channels, out } => {
+            display::pointer::begin(agent_dir(&out));
+            (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
+        }
+        AgentAction::AudioRestore { previous, previous_format, speakers, out } => {
+            display::pointer::end(agent_dir(&out));
+            let r = audio::endpoint::restore(&previous, previous_format.as_deref(), &speakers)
+                .map(|_| serde_json::json!({ "ok": true }));
+            (out, r)
+        }
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
-        AgentAction::Isolate { out, .. } | AgentAction::Restore { out } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        AgentAction::Isolate { out, .. }
+        | AgentAction::Restore { out }
+        | AgentAction::AudioRoute { out, .. }
+        | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
     };
     let value = match result {
         Ok(v) => v,
@@ -140,6 +182,7 @@ pub struct Inner {
     pub auth: Arc<auth::Auth>,
     pub kyber: KyberConfig,
     pub display: Arc<display::Manager>,
+    pub audio: Arc<audio::Router>,
     pub service: Box<dyn service::ServiceControl>,
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
@@ -286,10 +329,19 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     }
     display.clone().supervise();
 
+    // Sortie audio virtuelle : même principe.
+    let audio = audio::Router::new(data_dir.clone(), settings.virtual_audio.clone());
+    {
+        let a = audio.clone();
+        tokio::task::spawn_blocking(move || a.recover()).await?;
+    }
+    audio.clone().supervise();
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
         display,
+        audio,
         service,
         data_dir: data_dir.clone(),
         kyber_dir,

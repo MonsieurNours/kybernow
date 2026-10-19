@@ -32,7 +32,7 @@ pub struct BusyPort {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     Check { id: String, status: CheckStatus, title: String, detail: String },
-    ChecksDone { stream_port: u16, console_port: u16, busy: Option<BusyPort>, lan_ip: Option<String> },
+    ChecksDone { stream_port: u16, console_port: u16, busy: Option<BusyPort>, lan_ip: Option<String>, steam_speakers: bool },
     PortsValidated { stream_error: Option<String>, console_error: Option<String> },
     Task { id: String, status: TaskStatus },
     Progress { percent: f32 },
@@ -64,8 +64,15 @@ pub struct InstallRequest {
     pub console_port: u16,
     pub virtual_display: bool,
     pub gamepads: bool,
+    /// Haut-parleurs virtuels de Steam pour le son pendant le stream.
+    #[serde(default = "yes")]
+    pub virtual_audio: bool,
     pub max_performance: bool,
     pub start_with_windows: bool,
 }
 
 pub type Emit = std::sync::Arc<dyn Fn(Event) + Send + Sync>;
+
+fn yes() -> bool {
+    true
+}

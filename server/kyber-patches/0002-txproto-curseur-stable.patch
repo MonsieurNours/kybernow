@@ -1,0 +1,120 @@
+--- a/subprojects/txproto/src/dxgi_cursor.c	2026-10-19 20:17:12
++++ b/subprojects/txproto/src/dxgi_cursor.c	2026-10-19 20:17:12
+@@ -80,8 +80,17 @@
+     int first_frame;
+     uint8_t visible;
+     ArgbCursor cursor;
++
++    /* KyberNow: a "hide" is only sent once the cursor stayed hidden for
++     * HIDE_DELAY_US. Windows hides the pointer for a few frames on many
++     * occasions (typing, shape changes); forwarding each flip makes the
++     * client blink and switch to relative mouse mode. */
++    uint8_t sent_visible;
++    int64_t hide_deadline; /* av_gettime_relative(), 0 = none pending */
+ };
+ 
++#define HIDE_DELAY_US 250000
++
+ static void dxgi_cursor_free(void *opaque, uint8_t *data)
+ {
+     DxgiCursor *cursor = (DxgiCursor *)data;
+@@ -472,19 +481,40 @@
+     return updated;
+ }
+ 
++static int send_cursor_state(DxgiCursorHandler *ctx)
++{
++    int err = send_cursor(ctx);
++    if (err >= 0)
++        ctx->sent_visible = ctx->visible;
++    return err;
++}
++
+ static int handle_cursor_received(DxgiCursorHandler *ctx)
+ {
+     int updated = process_pending_cursors(ctx);
+-    if (updated) {
+-        int err = send_cursor(ctx);
+-        if (err < 0) {
+-            return err;
+-        }
++    if (!updated)
++        return 0;
++
++    if (!ctx->visible && ctx->sent_visible) {
++        /* Hidden: wait before telling the client, it may come back. */
++        if (!ctx->hide_deadline)
++            ctx->hide_deadline = av_gettime_relative() + HIDE_DELAY_US;
++        return 0;
+     }
+ 
+-    return 0;
++    ctx->hide_deadline = 0;
++    return send_cursor_state(ctx);
+ }
+ 
++/* Milliseconds to wait for the next cursor update. */
++static DWORD next_wait_ms(DxgiCursorHandler *ctx)
++{
++    if (!ctx->hide_deadline)
++        return INFINITE;
++    int64_t left = ctx->hide_deadline - av_gettime_relative();
++    return left <= 0 ? 0 : (DWORD)((left + 999) / 1000);
++}
++
+ static int handle_connecting(DxgiCursorHandler *ctx)
+ {
+     while (!atomic_load(&ctx->quit)) {
+@@ -514,13 +544,14 @@
+      * would not see the cursor bitmap until the next shape change (e.g.
+      * Alt+Tab). */
+     process_pending_cursors(ctx);
+-    err = send_cursor(ctx);
++    ctx->hide_deadline = 0;
++    err = send_cursor_state(ctx);
+     if (err < 0) {
+         return err;
+     }
+ 
+     while (!atomic_load(&ctx->quit)) {
+-        DWORD wait_err = WaitForSingleObject(ctx->fifo_event, INFINITE);
++        DWORD wait_err = WaitForSingleObject(ctx->fifo_event, next_wait_ms(ctx));
+ 
+         switch (wait_err) {
+             case WAIT_OBJECT_0:
+@@ -539,6 +570,17 @@
+                 return AVERROR_EXTERNAL;
+ 
+             case WAIT_TIMEOUT:
++                if (ctx->hide_deadline) {
++                    /* Still hidden after the delay: tell the client. */
++                    ctx->hide_deadline = 0;
++                    if (!ctx->visible) {
++                        err = send_cursor_state(ctx);
++                        if (err < 0)
++                            return err;
++                    }
++                    break;
++                }
++                /* fall through */
+             case WAIT_ABANDONED:
+             default:
+                 sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);
+@@ -658,12 +700,15 @@
+                 &required_size,
+                 &dxgi_cursor->shape_info);
+             if (FAILED(hr)) {
+-                return 0;
++                /* Keep position and visibility, drop the unusable shape. */
++                av_freep(&dxgi_cursor->data);
++                dxgi_cursor->size = 0;
+             }
+         }
+     }
+ 
+-    sp_bufferref_fifo_push(ctx->fifo, ref);
++    if (sp_bufferref_fifo_push(ctx->fifo, ref) < 0)
++        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
+     SetEvent(ctx->fifo_event);
+ 
+     av_buffer_unref(&ref);

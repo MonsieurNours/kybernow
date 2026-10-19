@@ -1,0 +1,338 @@
+diff -ruN a/kyavservice/src/avconv/audio.rs b/kyavservice/src/avconv/audio.rs
+--- a/kyavservice/src/avconv/audio.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/avconv/audio.rs	2026-10-19 19:21:44
+@@ -29,9 +29,8 @@
+ 
+ use super::Result;
+ use super::clock;
+-use crate::config::ClockType;
++use crate::config::{AudioBitrate, ClockType, opus_bitrate};
+ 
+-const BITRATE: i64 = 128_000;
+ const SAMPLE_RATE: i32 = 48_000;
+ 
+ #[cfg(target_os = "windows")]
+@@ -110,8 +109,8 @@
+ }
+ 
+ /// Configure the Opus encoder for a stereo 48 kHz stream.
+-fn configure_opus_encoder(enc: &EncoderBuilder) -> Result<()> {
+-    enc.set_bit_rate(BITRATE);
++fn configure_opus_encoder(enc: &EncoderBuilder, bitrate: i64) -> Result<()> {
++    enc.set_bit_rate(bitrate);
+     enc.set_sample_rate(SAMPLE_RATE);
+     enc.set_sample_fmt(sys::AVSampleFormat_AV_SAMPLE_FMT_FLT);
+     enc.enable_global_header();
+@@ -132,6 +131,7 @@
+     ctx: Arc<AvconvContext>,
+     output_hdl: Handle,
+     clock_type: &ClockType,
++    audio_bitrate: AudioBitrate,
+ ) -> Result<AudioPipeline> {
+     info!("Start audio grab (loopback), encoder libopus");
+ 
+@@ -150,7 +150,10 @@
+     )?;
+ 
+     let enc = EncoderBuilder::new(Arc::clone(&ctx), codec)?;
+-    configure_opus_encoder(&enc)?;
++    // This backend always downmixes to stereo (see the filter graph above).
++    let bitrate = opus_bitrate(2, audio_bitrate);
++    info!("Audio: Opus, 2 channels, {} kbit/s", bitrate / 1000);
++    configure_opus_encoder(&enc, bitrate)?;
+ 
+     // Opus has a fixed frame size (960 samples for 20 ms @ 48 kHz). libavconv
+     // requires a pre-encoding sync queue for every encoder whose on_open hook
+diff -ruN a/kyavservice/src/avconv/kymux.rs b/kyavservice/src/avconv/kymux.rs
+--- a/kyavservice/src/avconv/kymux.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/avconv/kymux.rs	2026-10-19 19:21:44
+@@ -33,7 +33,7 @@
+     AvconvAudioContext, AvconvVideoContext, Context, PipelineOutput, Result, VideoConfig, audio,
+     video,
+ };
+-use crate::config::ClockType;
++use crate::config::{AudioBitrate, ClockType};
+ 
+ pub(crate) fn start_video(
+     video_config: VideoConfig,
+@@ -97,6 +97,7 @@
+ pub(crate) fn start_audio(
+     uri: &str,
+     clock_type: ClockType,
++    audio_bitrate: AudioBitrate,
+     sender: EventSender<IpcApi>,
+ ) -> Result<Context> {
+     info!("Start kymux audio (avconv)");
+@@ -109,7 +110,7 @@
+     )?);
+     let on_item = kymux_sink::connect(uri, StreamKind::Audio, None)?;
+ 
+-    let pipeline = audio::configure(Arc::clone(&ctx), sink.handle(), &clock_type)?;
++    let pipeline = audio::configure(Arc::clone(&ctx), sink.handle(), &clock_type, audio_bitrate)?;
+     info!("Audio pipeline configured, starting context");
+ 
+     ctx.start()?;
+diff -ruN a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+--- a/kyavservice/src/avconv/mod.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/avconv/mod.rs	2026-10-19 19:20:39
+@@ -354,7 +354,7 @@
+         Command::RtpStartAudio { ip, port } => {
+             info!("Start RTP Audio: {ip}:{port}");
+ 
+-            let ret = rtp::start_audio(ip, port, config.clock_type(), sender.clone());
++            let ret = rtp::start_audio(ip, port, config.clock_type(), config.audio_bitrate(), sender.clone());
+             match ret {
+                 Ok(c) => set_ctx(ctx, c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+@@ -391,7 +391,7 @@
+         Command::KymuxStartAudio { uri } => {
+             info!("Start Kymux Audio: URI {uri:?}");
+ 
+-            let ret = kymux::start_audio(&uri, config.clock_type(), sender.clone());
++            let ret = kymux::start_audio(&uri, config.clock_type(), config.audio_bitrate(), sender.clone());
+             match ret {
+                 Ok(c) => set_ctx(ctx, c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+diff -ruN a/kyavservice/src/avconv/rtp.rs b/kyavservice/src/avconv/rtp.rs
+--- a/kyavservice/src/avconv/rtp.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/avconv/rtp.rs	2026-10-19 19:21:44
+@@ -36,7 +36,7 @@
+ use super::{
+     AvconvAudioContext, AvconvVideoContext, Context, Error, PipelineOutput, Result, audio, video,
+ };
+-use crate::config::ClockType;
++use crate::config::{AudioBitrate, ClockType};
+ 
+ const SDP_PROBE_PORT: u16 = 30_000;
+ const SDP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+@@ -265,6 +265,7 @@
+     ip: String,
+     port: u16,
+     clock_type: ClockType,
++    audio_bitrate: AudioBitrate,
+     sender: EventSender<IpcApi>,
+ ) -> Result<Context> {
+     info!("Start RTP audio (avconv), target {ip}:{port}");
+@@ -278,7 +279,7 @@
+         sys::AVMediaType_AVMEDIA_TYPE_AUDIO,
+     )?;
+ 
+-    let pipeline = audio::configure(Arc::clone(&ctx), stream_hdl, &clock_type)?;
++    let pipeline = audio::configure(Arc::clone(&ctx), stream_hdl, &clock_type, audio_bitrate)?;
+ 
+     ctx.start()?;
+     info!("RTP audio context started");
+diff -ruN a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+--- a/kyavservice/src/config.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/config.rs	2026-10-19 19:21:38
+@@ -238,6 +238,8 @@
+     encoder: Option<VideoEncoder>,
+     intra_refresh: Option<bool>,
+     minimum_bitrate: Option<u32>,
++    audio_quality: Option<AudioQuality>,
++    audio_bitrate: Option<u32>,
+     pub(crate) video_encoder_config: Option<EncoderConfig>,
+     clock_type: Option<ClockType>,
+     #[cfg(feature = "watermark")]
+@@ -273,6 +275,15 @@
+         self.minimum_bitrate.unwrap_or(5_000_000)
+     }
+ 
++    /// Opus quality preset and optional explicit bitrate (bits/s), from
++    /// `[kyavserver] audio_quality` and `audio_bitrate`.
++    pub(crate) fn audio_bitrate(&self) -> AudioBitrate {
++        AudioBitrate {
++            quality: self.audio_quality.unwrap_or_default(),
++            bitrate: self.audio_bitrate,
++        }
++    }
++
+     #[cfg(target_os = "linux")]
+     pub(crate) fn grab_backend(&self) -> GrabBackend {
+         self.grab_backend.unwrap_or_default()
+@@ -831,4 +842,38 @@
+         assert_eq!(source.source_size(), (1920, 1080));
+         assert_eq!(source.output_size(), (1280, 720));
+     }
++}
++
++/// Opus quality preset (`[kyavserver] audio_quality`).
++#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
++#[serde(rename_all = "lowercase")]
++pub(crate) enum AudioQuality {
++    /// 128 kbit/s whatever the channel count (Kyber's historical value).
++    Standard,
++    /// 256 kbit/s in stereo, 96 kbit/s per channel beyond.
++    #[default]
++    Hd,
++    /// The most libopus accepts: 510 kbit/s in stereo, 256 kbit/s per channel beyond.
++    Studio,
++}
++
++#[derive(Clone, Copy, Debug)]
++pub(crate) struct AudioBitrate {
++    pub quality: AudioQuality,
++    /// Explicit bitrate, wins over the preset.
++    pub bitrate: Option<u32>,
++}
++
++/// Opus bitrate (bits/s) for `channels` captured channels, clamped to what
++/// libopus accepts: 6 kbit/s to 510 kbit/s up to stereo, 256 kbit/s per
++/// channel in multichannel.
++pub(crate) fn opus_bitrate(channels: i32, audio: AudioBitrate) -> i64 {
++    let channels = i64::from(channels.max(1));
++    let max = if channels <= 2 { 510_000 } else { channels * 256_000 };
++    let preset = match audio.quality {
++        AudioQuality::Standard => 128_000,
++        AudioQuality::Hd => (channels * 96_000).max(256_000),
++        AudioQuality::Studio => max,
++    };
++    audio.bitrate.map_or(preset, i64::from).clamp(6_000, max)
+ }
+diff -ruN a/kyavservice/src/txproto/audio.rs b/kyavservice/src/txproto/audio.rs
+--- a/kyavservice/src/txproto/audio.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/txproto/audio.rs	2026-10-19 19:21:44
+@@ -26,9 +26,9 @@
+ use libkypc::EventSender;
+ use txproto_rs::{Dictionary, IOEntryType, IOSysEntry, IOSysType, Txproto};
+ 
++use crate::config::{AudioBitrate, opus_bitrate};
+ use crate::txproto::{Error, Event, Result};
+ 
+-const BITRATE: i64 = 128_000;
+ const FRAME_DURATION: i64 = 20;
+ 
+ fn plug_error_listener(
+@@ -58,6 +58,7 @@
+     ctx: &Txproto,
+     muxer: txproto_rs::Handle,
+     sender: &EventSender<IpcApi>,
++    audio_bitrate: AudioBitrate,
+ ) -> Result<Vec<txproto_rs::Event>> {
+     let mut events = vec![];
+ 
+@@ -66,7 +67,7 @@
+     let monitor_id_cb = monitor_id.clone();
+ 
+     let io_cb = move |entry: IOSysEntry| {
+-        let IOEntryType::Audio { .. } = entry.entry_type else {
++        let IOEntryType::Audio { channels, .. } = entry.entry_type else {
+             return;
+         };
+ 
+@@ -85,17 +86,17 @@
+         }
+ 
+         info!(
+-            "Found Audio monitor {} (Id: {})",
+-            entry.name, entry.identifier
++            "Found Audio monitor {} (Id: {}, {} channels)",
++            entry.name, entry.identifier, channels
+         );
+ 
+-        *monitor_id = Some(entry.identifier);
++        *monitor_id = Some((entry.identifier, channels));
+     };
+ 
+     let io_event = ctx.register_io_cb(io_cb, &[])?;
+     drop(io_event);
+ 
+-    let Some(monitor_id) = *monitor_id.lock()? else {
++    let Some((monitor_id, channels)) = *monitor_id.lock()? else {
+         warn!("No default audio monitor found");
+         return Err(Error::AudioNoDefaultMonitor);
+     };
+@@ -106,9 +107,12 @@
+     let options = Dictionary::from_entries(&[("buffer_ms", FRAME_DURATION).into()])?;
+     let audio_source = ctx.create_io(monitor_id, Some(options))?;
+ 
+-    // Configure Codec
++    // Configure Codec: the encoder keeps the monitor's channel layout
++    // (stereo, 5.1, 7.1…), so the bitrate follows the channel count.
++    let bitrate = opus_bitrate(channels, audio_bitrate);
++    info!("Audio: Opus, {channels} channels, {} kbit/s", bitrate / 1000);
+     let options = Dictionary::from_entries(&[
+-        ("b", BITRATE).into(),
++        ("b", bitrate).into(),
+         ("application", "audio").into(),
+         ("frame_duration", FRAME_DURATION).into(),
+         ("vbr", "on").into(),
+diff -ruN a/kyavservice/src/txproto/kymux.rs b/kyavservice/src/txproto/kymux.rs
+--- a/kyavservice/src/txproto/kymux.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/txproto/kymux.rs	2026-10-19 19:21:44
+@@ -24,7 +24,7 @@
+ use libkypc::EventSender;
+ 
+ use crate::TargetLogLevel;
+-use crate::config::ClockType;
++use crate::config::{AudioBitrate, ClockType};
+ use crate::txproto::metrics;
+ use crate::txproto::{Context, Result, VideoConfig, open_txproto};
+ use crate::txproto::{audio, configure_clock, video};
+@@ -60,6 +60,7 @@
+ pub(crate) fn start_audio(
+     uri: &str,
+     clock_type: ClockType,
++    audio_bitrate: AudioBitrate,
+     sender: &EventSender<IpcApi>,
+     log_levels: &dyn TargetLogLevel,
+ ) -> Result<Context> {
+@@ -69,7 +70,7 @@
+     configure_clock(&ctx, &clock_type)?;
+ 
+     let packet_sink = ctx.create_packet_sink(uri)?;
+-    let events = audio::configure(&ctx, packet_sink, sender)?;
++    let events = audio::configure(&ctx, packet_sink, sender, audio_bitrate)?;
+ 
+     ctx.commit()?;
+ 
+diff -ruN a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+--- a/kyavservice/src/txproto/rtp.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/txproto/rtp.rs	2026-10-19 19:21:44
+@@ -31,7 +31,7 @@
+ use txproto_rs::{Dictionary, Txproto};
+ 
+ use crate::TargetLogLevel;
+-use crate::config::{self, ClockType, VideoEncoder};
++use crate::config::{self, AudioBitrate, ClockType, VideoEncoder};
+ use crate::txproto::video::VideoConfig;
+ use crate::txproto::{Context, Error, Result, open_txproto};
+ use crate::txproto::{audio, configure_clock, utils, video};
+@@ -170,6 +170,7 @@
+     ip: String,
+     port: u16,
+     clock_type: ClockType,
++    audio_bitrate: AudioBitrate,
+     sender: &EventSender<IpcApi>,
+     log_levels: &dyn TargetLogLevel,
+ ) -> Result<Context> {
+@@ -179,7 +180,7 @@
+     configure_clock(&ctx, &clock_type)?;
+ 
+     let muxer = create_muxer(&ctx, &ip, port, None)?;
+-    let events = audio::configure(&ctx, muxer, sender)?;
++    let events = audio::configure(&ctx, muxer, sender, audio_bitrate)?;
+ 
+     ctx.commit()?;
+ 
+diff -ruN a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+--- a/kyavservice/src/txproto/run.rs	2026-10-19 19:20:39
++++ b/kyavservice/src/txproto/run.rs	2026-10-19 19:20:39
+@@ -200,7 +200,7 @@
+             response.send(Ok(Response::None))?;
+             info!("Start RTP Audio: {ip}:{port}");
+ 
+-            let ret = rtp::start_audio(ip, port, config.clock_type(), sender, log_levels);
++            let ret = rtp::start_audio(ip, port, config.clock_type(), config.audio_bitrate(), sender, log_levels);
+             match ret {
+                 Ok(c) => *ctx = Some(c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+@@ -251,7 +251,7 @@
+             response.send(Ok(Response::None))?;
+             info!("Start Kymux Audio: URI {uri:?}");
+ 
+-            let ret = kymux::start_audio(&uri, config.clock_type(), sender, log_levels);
++            let ret = kymux::start_audio(&uri, config.clock_type(), config.audio_bitrate(), sender, log_levels);
+             match ret {
+                 Ok(c) => *ctx = Some(c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),

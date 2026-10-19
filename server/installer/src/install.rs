@@ -1,7 +1,7 @@
 //! Installation de KyberNow, tâche par tâche.
 //!
 //! Les identifiants de tâche correspondent aux lignes de l'écran « Installation » :
-//! files, cert, service, firewall, vdd, gamepad, admin, power (puis finish, sans ligne).
+//! files, cert, service, firewall, vdd, gamepad, audio, admin, power (puis finish, sans ligne).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -214,6 +214,20 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         ctx.task("gamepad", TaskStatus::Skipped);
     }
 
+    match (&info.steam_speakers_inf, req.virtual_audio) {
+        (Some(inf), true) => step(ctx, "audio", || {
+            let inf = inf.display().to_string();
+            let out = run_ok("pnputil", &["/add-driver", &inf, "/install"], &[0, 259, 3010])?;
+            if out.status.code() == Some(3010) {
+                need_reboot = true;
+            }
+            ctx.log("Haut-parleurs virtuels de Steam installés : le son du PC sera coupé pendant le stream");
+            ctx.progress(86.0);
+            Ok(())
+        })?,
+        _ => ctx.task("audio", TaskStatus::Skipped),
+    }
+
     step(ctx, "admin", || {
         let admin = ctx.path(r"admin\kyber-admin.exe");
         run_ok(&admin, &["service", "install"], &[0])?;
@@ -394,13 +408,14 @@ fn simulate(ctx: &Ctx, req: &InstallRequest) -> Result<bool> {
         ("firewall", 60.0, "Pare-feu configuré (simulation)"),
         ("vdd", 70.0, "Pilote SudoVDA installé (simulation)"),
         ("gamepad", 82.0, "Pilote ViGEmBus installé (simulation)"),
+        ("audio", 86.0, "Haut-parleurs virtuels de Steam installés (simulation)"),
         ("admin", 92.0, "Console démarrée (simulation)"),
         ("power", 96.0, "Alimentation réglée (simulation)"),
         ("finish", 100.0, "Terminé (simulation)"),
     ];
     let mut last = 0.0;
     for (id, target, line) in tasks {
-        let skip = (id == "vdd" && !req.virtual_display) || (id == "gamepad" && !req.gamepads) || (id == "power" && !req.max_performance);
+        let skip = (id == "vdd" && !req.virtual_display) || (id == "gamepad" && !req.gamepads) || (id == "audio" && !req.virtual_audio) || (id == "power" && !req.max_performance);
         if skip {
             ctx.task(id, TaskStatus::Skipped);
             continue;

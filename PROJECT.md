@@ -70,7 +70,21 @@ kyber-apps/
 ### Qualité d'image : 4:4:4, HDR, VRR (Kyber 0.29)
 - **4:4:4** ✅ validé le 2026-10-19 (HEVC, 3840 × 2160 à 160 Hz, client `--444`). Coût par rapport au 4:2:0 : encodage NVENC ~9 ms en médiane (p95 46 ms), décodage ~6,6 ms, latence totale ~18 ms en médiane. À proposer dans le profil « Bureau » (texte net), pas dans le profil « Jeu ».
 - **HDR** ❌ impossible avec Kyber 0.29 : la capture (DXGI Desktop Duplication) est en BGRA 8 bits. Garder le HDR Windows désactivé sur l'écran virtuel.
+- **Son multicanal et HD** (correctif `server/kyber-patches/0001`) : le moteur txproto capture déjà la sortie Windows avec tous ses canaux ; le débit Opus, fixé à 128 kbit/s par Kyber, suit désormais le nombre de canaux. Réglage `[kyavserver] audio_quality` : `standard` (128 kbit/s), `hd` (défaut : 256 kbit/s en stéréo, 576 en 5.1, 768 en 7.1), `studio` (maximum d'Opus) ; `audio_bitrate` pour une valeur exacte. Le moteur libavconv reste en stéréo. L'app propose Auto, Stéréo, 5.1, 7.1 ou Aucun ; Auto suit la sortie audio du Mac.
 - **VRR** : côté serveur, Kyber envoie une image quand l'écran change (débit d'images suivant le contenu). Côté client, cela dépend du rendu : l'app macOS pourra présenter les images au rythme de leur arrivée (Metal, `CAMetalDisplayLink`) sur les écrans ProMotion / Adaptive-Sync. Pas de VRR sur Apple TV.
+
+### Sortie audio virtuelle (session de stream)
+- **Pourquoi** : sans elle, le son sort aussi des haut-parleurs du PC, au format réglé dans Windows, et disparaît si la sortie était l'HDMI d'un écran éteint par l'écran virtuel.
+- **Pilote** : Steam Streaming Speakers (Valve, signé par Microsoft, stéréo à 7.1), installé par l'installateur depuis le dossier de Steam s'il est présent (comme Sunshine et Apollo). Aucun pilote libre n'est signé (Virtual-Audio-Driver exige le mode test) ; plan B : notre propre pilote signé par Microsoft (certificat EV + Partner Center au nom des Lignes Claires).
+- **Session** : `prepare` reçoit `audio_channels` (2, 6, 8 ; 0 = son sur le PC). Le son bascule vers les haut-parleurs virtuels réglés à ce format (`IPolicyConfig`, comme le panneau Son) avant l'écran virtuel ; à la fin, la sortie d'origine revient après les écrans (elle peut revenir avec eux). Même filets de sécurité que l'écran virtuel (état sur disque, 20 s sans nouvelles). Page « Son » de la console : déclenchement et nombre de canaux.
+
+### Pointeur de souris
+- **Constat** : Kyber n'incruste pas le curseur dans l'image ; le client le dessine d'après les annonces du PC et bascule en souris relative dès que Windows le dit masqué, sans délai. D'où un curseur qui clignote ou disparaît.
+- **Correctifs** : txproto n'annonce un masquage qu'après 250 ms (`server/kyber-patches/0002`) ; la console coupe « Masquer le pointeur pendant la frappe » le temps de la session ; l'app macOS gardera un curseur toujours visible en usage bureau et réservera la souris relative aux jeux.
+- **Reste possible** : Windows sans souris physique masque son curseur en permanence ; à surveiller sur un PC sans souris.
+
+### Correctifs de Kyber
+- `server/kyber-patches/build.sh` recompile kyavserver et txproto pour Windows depuis macOS (voir docs/build-notes.md) et assemble `third_party/payload/kyber-overlay/`, posée par l'installateur par-dessus Kyber 0.29. La chaîne kyavserver (txproto, Lua, SPIRV-Cross, runtime MinGW) passe en UCRT ; aucun autre binaire de Kyber n'en dépend.
 
 ### Installeur
 - Kyber à une version épinglée (binaires repris depuis la release officielle), SudoVDA, ViGEmBus, kyber-admin.

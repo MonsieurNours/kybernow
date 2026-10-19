@@ -20,6 +20,9 @@ pub struct Settings {
     /// Écran virtuel (déclenchement et mode par défaut).
     #[serde(default)]
     pub virtual_display: crate::display::VdSettings,
+    /// Sortie audio virtuelle (déclenchement et nombre de canaux).
+    #[serde(default)]
+    pub virtual_audio: crate::audio::AudioSettings,
 }
 
 impl Settings {

@@ -7,6 +7,7 @@
   // Icône de chaque groupe (tracés 20 × 20, en trait).
   const groupIcons: Record<string, string> = {
     video: 'M3 5.5h14v9H3zM7.5 17h5M8.5 8l3.5 2-3.5 2z',
+    audio: 'M3.5 8h3l4-3.5v11l-4-3.5h-3zM13.5 7.5a3.5 3.5 0 010 5M15.5 5.5a6.5 6.5 0 010 9',
     network: 'M10 3.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM3.5 10h13M10 3.5c2 2 2 11 0 13M10 3.5c-2 2-2 11 0 13',
     input: 'M3 6.5h14v8H3zM6 9.5h1M9 9.5h1M12 9.5h1M6.5 12h7',
     auth: 'M5 9V7a5 5 0 0110 0v2M4 9h12v7.5H4zM10 12v2',

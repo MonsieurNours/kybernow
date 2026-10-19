@@ -65,6 +65,11 @@ pub const GROUPS: &[Group] = &[
         help: "Comment l'écran du PC est capturé, compressé puis envoyé. Ces réglages jouent sur la latence, la qualité d'image et la charge du GPU.",
     },
     Group {
+        id: "audio",
+        label: "Son",
+        help: "Comment le son de l'ordinateur est capturé puis envoyé. Le son suit la sortie audio de Windows : stéréo, 5.1 ou 7.1.",
+    },
+    Group {
         id: "network",
         label: "Réseau",
         help: "Comment vos appareils joignent ce PC. En général, rien à changer : l'installateur a déjà choisi un port libre.",
@@ -140,6 +145,22 @@ pub fn fields() -> Vec<Field> {
             advice: "5 Mbit/s convient au Wi-Fi. En Ethernet, 15 à 30 Mbit/s évitent les flous dans les scènes rapides.",
             caution: Some("Un plancher trop haut sur un réseau lent provoque des saccades au lieu d'une image simplement plus floue."),
             unit: Some("bps"),
+        },
+        Field {
+            id: "audio.quality", group: "audio",
+            table: &["kyavserver"], key: "audio_quality",
+            kind: Kind::Enum { options: &[
+                Choice { value: "standard", label: "Standard", hint: "128 kbit/s, quel que soit le nombre de canaux : la valeur d'origine de Kyber." },
+                Choice { value: "hd", label: "HD", hint: "256 kbit/s en stéréo, 576 en 5.1, 768 en 7.1 : indiscernable de l'original." },
+                Choice { value: "studio", label: "Studio", hint: "Le maximum d'Opus : 510 kbit/s en stéréo, 1 536 en 5.1, 2 048 en 7.1." },
+            ] },
+            default: json!("hd"),
+            label: "Qualité du son",
+            help: "Le débit du son, adapté au nombre de canaux de la sortie de Windows.",
+            details: "Le son est compressé en Opus, le format le plus efficace aujourd'hui. Son débit grandit avec le nombre de canaux : une sortie Windows réglée en 5.1 ou 7.1 envoie tous ses canaux, et l'appareil qui reçoit les réduit si sa propre sortie en a moins.",
+            advice: "HD convient à tout : à ce débit, on ne distingue plus le son compressé de l'original. Studio sert surtout à se rassurer, il ne coûte presque rien face à l'image.",
+            caution: None,
+            unit: None,
         },
         Field {
             id: "video.intra_refresh", group: "video",
