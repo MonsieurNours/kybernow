@@ -92,6 +92,7 @@ kyber-apps/
 - Désinstallation propre.
 
 ### Clients Apple
+- **État (2026-10-19)** : `apps/macos` (XcodeGen, `project.yml`). KyberKit = façade Swift de libkyclient/libkynput (module C `CKyber`), vue de session (VLC dessine dans une `NSView`), clavier (kVK → HID → scancode), souris absolue, curseur du PC affiché en `NSCursor` et jamais masqué en usage bureau. App : ajout manuel, mot de passe dans le Trousseau, profils Jeu/Bureau/Max, `prepare` (écran de ce Mac plafonné à la 4K, canaux de sa sortie audio), signal de vie, fin propre (⌃⌥⌘D), plein écran (⌃⌥⌘F). Avant le premier build : `scripts/vendor-kyber.sh`, puis `xcodegen generate`.
 - **KyberKit** : `libclient` + `libkynput` + VLC compilés en xcframework (macOS arm64/x86_64, tvOS arm64 + simulateur), façade Swift (connexion, surface vidéo, entrées, métriques).
 - **App** : liste des hôtes (Bonjour + ajout manuel), appairage, plein écran, réglages (résolution, fps, codec, débit, profil), manettes (framework GameController), clavier, souris et presse-papiers sur macOS, overlay de métriques.
 
