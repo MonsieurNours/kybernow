@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		035877273501931478CDD36E /* BricolageGrotesque-opsz-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2E52A2468E17E9C7D59192C6 /* BricolageGrotesque-opsz-wdth-wght.ttf */; };
+		0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = D171932E28609169E868FDC5 /* DecoderCapabilities.swift */; };
 		0B449D2989DD2AE43549432F /* Keymap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79554466D1E04F2A3C807DA1 /* Keymap.swift */; };
 		148075D1CF746CDD7F6FE166 /* IBMPlexSans-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1689EF4F776E41A31B8D894A /* IBMPlexSans-wdth-wght.ttf */; };
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
@@ -23,6 +24,8 @@
 		776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E79EB33EC59E27B02F415F /* InputPipeline.swift */; };
 		7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */; };
 		81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B2EC8B704608F092769F7C /* DisplayInfo.swift */; };
+		83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */; };
+		881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */; };
 		8A35461AFBB86EA42CA41F69 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63D40A4F73C24372966564C8 /* Assets.xcassets */; };
 		9201B232977D7D58B017F714 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
@@ -30,6 +33,7 @@
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
+		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
@@ -64,12 +68,14 @@
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		2E52A2468E17E9C7D59192C6 /* BricolageGrotesque-opsz-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BricolageGrotesque-opsz-wdth-wght.ttf"; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
+		323EA304E0762094819E42DC /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
 		44E79EB33EC59E27B02F415F /* InputPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPipeline.swift; sourceTree = "<group>"; };
 		5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChrome.swift; sourceTree = "<group>"; };
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
 		8731611A950718FECBB1AEFD /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
 		8C0DDB25384557B8B551045E /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		9284C96DE708C736853C8502 /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; };
@@ -81,7 +87,9 @@
 		B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadGate.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C709DF43577DD7820C0E652E /* IBMPlexMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexMono-Regular.ttf"; sourceTree = "<group>"; };
+		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
+		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 		F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostFlow.swift; sourceTree = "<group>"; };
 		FE88CA3F6B110EB52FD12E36 /* ConnectScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectScene.swift; sourceTree = "<group>"; };
@@ -141,12 +149,16 @@
 			isa = PBXGroup;
 			children = (
 				08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */,
+				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
 				B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */,
 				44E79EB33EC59E27B02F415F /* InputPipeline.swift */,
 				79554466D1E04F2A3C807DA1 /* Keymap.swift */,
 				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
+				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
+				83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */,
+				323EA304E0762094819E42DC /* VideoRenderer.swift */,
 			);
 			path = KyberKit;
 			sourceTree = "<group>";
@@ -305,12 +317,16 @@
 			buildActionMask = 2147483647;
 			files = (
 				EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */,
+				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
 				7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */,
 				776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */,
 				0B449D2989DD2AE43549432F /* Keymap.swift in Sources */,
 				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
+				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,
+				881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */,
+				DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

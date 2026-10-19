@@ -7,6 +7,7 @@ import os
 public enum KyberLog {
     public static let app = Logger(subsystem: "fr.leslignesclaires.kybernow", category: "app")
     static let sdk = Logger(subsystem: "fr.leslignesclaires.kybernow", category: "kyber")
+    static let video = Logger(subsystem: "fr.leslignesclaires.kybernow", category: "video")
 
     static func install() {
         kyclient_set_log_cb({ level, target, line, _ in

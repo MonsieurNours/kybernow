@@ -17,6 +17,20 @@ enum DisplayInfo {
         let hz = max(30, screen.maximumFramesPerSecond)
         return (Int(w), Int(h), hz)
     }
+
+    /// Fréquence variable (ProMotion, Adaptive-Sync) : l'écran attend l'image
+    /// au lieu de l'afficher au top suivant.
+    static func variableRefresh(_ screen: NSScreen) -> Bool {
+        screen.maximumRefreshInterval > screen.minimumRefreshInterval + 0.0005
+    }
+
+    /// « 120 Hz variable (60–120) », « 60 Hz ».
+    static func refreshLabel(_ screen: NSScreen) -> String {
+        let max = screen.maximumFramesPerSecond
+        guard variableRefresh(screen) else { return "\(max) Hz" }
+        let min = Int((1 / screen.maximumRefreshInterval).rounded())
+        return "\(max) Hz variable (\(min)–\(max))"
+    }
 }
 
 enum AudioOutput {

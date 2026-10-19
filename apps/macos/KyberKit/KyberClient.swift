@@ -29,6 +29,12 @@ public struct StreamOptions: Sendable {
     /// `true` : chaque image arrive, quitte à attendre ; `false` : une image
     /// perdue est réparée (correction d'erreurs) ou sautée, jamais attendue.
     public var reliable = false
+    /// Synchro verticale : sans elle, chaque image part dès qu'elle est
+    /// décodée (latence la plus basse, déchirure possible).
+    public var vsync = true
+    /// Décodage par l'app (VideoToolbox + Metal) plutôt que par VLC. L'AV1
+    /// passe toujours par VLC.
+    public var nativeVideo = true
 
     public init() {}
 }
@@ -68,9 +74,12 @@ public final class KyberClient {
     public var onGamepadCombo: (() -> Void)?
     /// Navigation à la manette pendant que l'app la tient.
     public var onGamepadNavigate: ((PadKey) -> Void)?
+    /// Mesures de l'image, une fois par seconde (fil principal).
+    public var onVideoStats: ((VideoStats) -> Void)?
 
     private var client: OpaquePointer?
     private var input: InputPipeline?
+    private var video: VideoPipeline?
     private let host: String
 
     private static let setup: Void = {
@@ -143,6 +152,18 @@ public final class KyberClient {
         defer { kyclient_video_player_config_unref(player) }
         var video: OpaquePointer?
         try check(kyclient_video_session_config_default(display.id, player, &video), "configuration vidéo")
+        if options.nativeVideo, options.codec != .av1, let pipeline = VideoPipeline() {
+            pipeline.renderer.vsync = options.vsync
+            pipeline.renderer.onStats = { [weak self] stats in
+                DispatchQueue.main.async { self?.onVideoStats?(stats) }
+            }
+            kyclient_video_player_config_set_packet_sink(player, VideoPipeline.callback, Unmanaged.passUnretained(pipeline).toOpaque())
+            retire(self.video)
+            self.video = pipeline
+            view.surface.show(pipeline.renderer)
+        } else {
+            view.surface.show(nil)
+        }
         kyclient_video_session_config_set_codec(video, options.codec.sdk)
         kyclient_video_session_config_set_yuv444(video, options.yuv444)
         kyclient_streaming_session_config_add_video(session, video)
@@ -165,6 +186,20 @@ public final class KyberClient {
         input?.stop()
         input = nil
         kyclient_client_stop_streaming(client)
+        retire(video)
+        video = nil
+    }
+
+    /// Synchro verticale à chaud.
+    public func setVSync(_ on: Bool) {
+        video?.renderer.vsync = on
+    }
+
+    /// Kyber peut finir de livrer un paquet après l'arrêt : le pipeline vit
+    /// encore un peu avant d'être libéré.
+    private func retire(_ pipeline: VideoPipeline?) {
+        guard let pipeline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { pipeline.stop() }
     }
 
     /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.
@@ -186,6 +221,8 @@ public final class KyberClient {
         if let client {
             kyclient_client_disconnect_and_stop(client, true)
         }
+        retire(video)
+        video = nil
     }
 
     // MARK: - Événements

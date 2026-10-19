@@ -1,5 +1,6 @@
-// Vue d'une session : l'image de l'ordinateur (dessinée par VLC dans
-// `videoView`) et la capture du clavier et de la souris.
+// Vue d'une session : l'image de l'ordinateur et la capture du clavier et
+// de la souris. L'image est décodée par l'app (VideoToolbox) et dessinée
+// avec Metal dans `surface` ; pour l'AV1, VLC la dessine dans `videoView`.
 //
 // Curseur : en usage bureau, le Mac affiche toujours un curseur, à la forme
 // de celui du PC. Un masquage annoncé par Windows (frappe, changement de
@@ -9,8 +10,10 @@ import AppKit
 @_implementationOnly import CKyber
 
 public final class StreamView: NSView {
-    /// Vue confiée au lecteur vidéo de Kyber.
+    /// Vue confiée au lecteur vidéo de Kyber (VLC).
     public let videoView = NSView()
+    /// Image décodée par l'app, dessinée avec Metal.
+    let surface = MetalSurface()
 
     /// « ⌘ envoyée comme Ctrl » (raccourcis Windows sous les doigts du Mac).
     public var commandAsControl = true
@@ -37,6 +40,10 @@ public final class StreamView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        surface.frame = bounds
+        surface.autoresizingMask = [.width, .height]
+        surface.isHidden = true
+        addSubview(surface)
     }
 
     @available(*, unavailable)
@@ -223,5 +230,39 @@ public final class StreamView: NSView {
         input?.flushKeys()
         pressedModifiers.removeAll()
         return super.resignFirstResponder()
+    }
+}
+
+/// Vue qui porte la couche Metal du rendu (vue « hébergeant » une couche).
+final class MetalSurface: NSView {
+    private var renderer: VideoRenderer?
+
+    /// Branche le rendu (nil : VLC dessine, la surface se cache).
+    func show(_ renderer: VideoRenderer?) {
+        self.renderer = renderer
+        isHidden = renderer == nil
+        guard let renderer else { return }
+        layer = renderer.layer
+        wantsLayer = true
+        updateDrawableSize()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateDrawableSize()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        updateDrawableSize()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    private func updateDrawableSize() {
+        guard let renderer else { return }
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        renderer.layer.contentsScale = scale
+        renderer.setDrawableSize(CGSize(width: bounds.width * scale, height: bounds.height * scale))
     }
 }

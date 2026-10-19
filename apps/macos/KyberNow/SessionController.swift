@@ -36,6 +36,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
+    /// Mesures de l'image (décodage par l'app), une fois par seconde.
+    @Published private(set) var stats: VideoStats?
     /// Rappel affiché quelques secondes après l'apparition.
     @Published private(set) var hint = false
 
@@ -211,6 +213,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             restartStreaming()
         } else {
             kyber?.setBitrate(after.bitrate)
+            kyber?.setVSync(after.vsync)
         }
     }
 
@@ -272,6 +275,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber.onEvent = { [weak self] in self?.handle($0) }
         kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
+        kyber.onVideoStats = { [weak self] in self?.stats = $0 }
         self.kyber = kyber
         try kyber.connect()
     }
@@ -399,6 +403,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         streamView.detach()
         kyber?.stop()
         kyber = nil
+        stats = nil
         let console = self.console
         Task {
             var report: EndReport?
@@ -447,6 +452,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         heartbeat?.cancel()
         kyber?.stop()
         kyber = nil
+        stats = nil
         setBar(false)
         phase = .failed(message)
         Task { try? await console?.end() }

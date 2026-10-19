@@ -150,6 +150,10 @@ private struct HoverBar: View {
                 Circle().fill(Theme.accent).frame(width: 8, height: 8)
                 Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
                 Chip(text: session.modeLabel)
+                if let stats = session.stats {
+                    Chip(text: String(format: "%.0f i/s · décodage %.1f ms", stats.fps, stats.decodeMs))
+                        .help("\(stats.width) × \(stats.height), \(stats.format). De la réception à l'écran : \(String(format: "%.1f", stats.displayMs)) ms. Images remplacées par une plus récente : \(stats.skipped)/s.")
+                }
                 Divider().frame(height: 24).overlay(Theme.line)
                 Menu {
                     ForEach(Profile.allCases) { profile in

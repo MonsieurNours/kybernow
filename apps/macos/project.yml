@@ -1,5 +1,6 @@
 # Projet Xcode de l'app KyberNow pour macOS (généré par XcodeGen :
-# `xcodegen generate`). Avant le premier build : scripts/vendor-kyber.sh.
+# `xcodegen generate`). Avant le premier build : scripts/vendor-kyber.sh puis
+# scripts/build-kyclient.sh (libkyclient avec les correctifs KyberNow).
 name: KyberNow
 options:
   bundleIdPrefix: fr.leslignesclaires

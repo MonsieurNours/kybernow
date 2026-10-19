@@ -51,6 +51,7 @@ private struct SettingsContent: View {
                             VStack(spacing: 18) {
                                 networkCard
                                 controlsCard
+                                machineCard
                             }
                             .frame(maxWidth: .infinity)
                         }
@@ -178,7 +179,7 @@ private struct SettingsContent: View {
                 Segmented(
                     options: [(VideoCodec.h264, "H.264"), (.hevc, "HEVC"), (.av1, "AV1")],
                     selection: Binding(get: { s.codec }, set: { c in if let c { update(custom: true) { $0.codec = c } } }),
-                    disabled: info?.av1 == true ? [] : [.av1],
+                    disabled: disabledCodecs,
                     fill: true
                 )
                 Text(codecHint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
@@ -190,17 +191,52 @@ private struct SettingsContent: View {
                     Text("Toutes les couleurs, pour chaque pixel").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("D'habitude, la couleur est envoyée pour un pixel sur quatre : invisible dans un jeu, mais le texte fin bave un peu. Le 4:4:4 garde tout.")
                     Text("+ Texte, code et tableurs parfaitement nets").foregroundStyle(Theme.accent)
-                    Text("− Environ 10 ms de latence en plus, débit plus élevé").foregroundStyle(Theme.warn)
+                    Text("− Débit plus élevé, encodage un peu plus long sur l'ordinateur").foregroundStyle(Theme.warn)
                 }
                 Spacer()
-                Switch(isOn: Binding(get: { s.yuv444 }, set: { v in update(custom: true) { $0.yuv444 = v } }), label: "Texte net (4:4:4)")
+                Switch(isOn: Binding(get: { s.yuv444 && can444 }, set: { v in update(custom: true) { $0.yuv444 = v } }), label: "Texte net (4:4:4)")
+                    .disabled(!can444)
+                    .opacity(can444 ? 1 : 0.4)
             }
             .padding(.top, 4)
+            if !can444 {
+                Text(s.codec == .h264 ? "Le 4:4:4 demande le HEVC." : "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0.")
+                    .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                Text("Synchro verticale").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
+                InfoTip(label: "Qu'est-ce que la synchro verticale ?") {
+                    Text("Afficher l'image au bon moment").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("Avec la synchro, chaque image attend le prochain rafraîchissement de l'écran : jamais coupée, au plus un rafraîchissement d'attente (8 ms à 120 Hz, 16 ms à 60 Hz).")
+                    Text("Sans elle, l'image s'affiche dès qu'elle est décodée : la latence la plus basse, mais l'écran peut montrer deux images coupées par une ligne (déchirure).")
+                    Text("Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), c'est l'écran qui attend l'image : gardez la synchro, elle ne coûte rien.").foregroundStyle(Theme.accent)
+                }
+                Spacer()
+                Switch(isOn: Binding(get: { s.vsync }, set: { v in update { $0.vsync = v } }), label: "Synchro verticale")
+            }
+            if !s.vsync {
+                Text(variableRefresh ? "Votre écran suit déjà l'image (fréquence variable) : sans synchro, vous ne gagnez presque rien." : "Latence la plus basse, déchirure possible dans les mouvements rapides.")
+                    .font(Theme.sans(12)).foregroundStyle(variableRefresh ? Theme.warnText : Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
 
             Spacer(minLength: 0)
             BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in update(custom: true) { $0.bitrateMbps = v } }))
         }
         .frame(minHeight: 590, alignment: .top)
+    }
+
+    private var can444: Bool { ConnectionSettings.decodes444(s.codec) }
+
+    private var variableRefresh: Bool { DisplayInfo.variableRefresh(NSScreen.main ?? NSScreen.screens[0]) }
+
+    /// Formats que l'ordinateur encode ET que ce Mac décode en matériel.
+    private var disabledCodecs: Set<VideoCodec> {
+        let caps = DecoderCapabilities.current
+        var off: Set<VideoCodec> = []
+        if !caps.hevc { off.insert(.hevc) }
+        if !(caps.av1 && info?.av1 == true) { off.insert(.av1) }
+        return off
     }
 
     private var codecHint: String {
@@ -210,7 +246,35 @@ private struct SettingsContent: View {
         case .hevc: base = "Recommandé : plus net à débit égal, décodé par la puce de ce Mac."
         case .av1: base = "Le plus efficace, décodé par les puces M3 et suivantes."
         }
+        if !DecoderCapabilities.current.av1 { return base + " Ce Mac ne décode pas l'AV1 en matériel." }
         return info?.av1 == true ? base : base + " AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur."
+    }
+
+    // MARK: - Ce Mac
+
+    /// Ce que KyberNow a mesuré de ce Mac : les profils s'y adaptent.
+    private var machineCard: some View {
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let size = screen.frame.size
+        let scale = screen.backingScaleFactor
+        return SettingsCard(symbol: "laptopcomputer", title: "Ce Mac") {
+            VStack(alignment: .leading, spacing: 8) {
+                fact("Écran", "\(Int(size.width * scale)) × \(Int(size.height * scale)) · \(DisplayInfo.refreshLabel(screen))")
+                fact("Décodage matériel", DecoderCapabilities.current.summary)
+            }
+            Text(variableRefresh
+                 ? "L'écran se cale sur chaque image : latence minimale sans déchirure."
+                 : "Les profils demandent l'image à la fréquence de cet écran.")
+                .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func fact(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+            Spacer(minLength: 12)
+            Text(value).font(Theme.mono(12)).foregroundStyle(Theme.text).multilineTextAlignment(.trailing)
+        }
     }
 
     // MARK: - Réseau

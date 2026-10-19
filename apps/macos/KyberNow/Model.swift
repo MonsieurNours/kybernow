@@ -109,17 +109,38 @@ struct ConnectionSettings: Codable, Hashable {
     var autoReconnect = true
     var commandAsControl = true
     var audio: AudioChoice = .auto
+    /// Synchro verticale : sans elle, chaque image s'affiche dès qu'elle est
+    /// décodée, quitte à couper l'écran en deux (déchirure).
+    var vsync = true
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
     static let maxBitrate = 4294
 
+    /// Applique un profil, ramené à ce que ce Mac décode en matériel : sans
+    /// HEVC, du H.264 ; sans 4:4:4 matériel, du 4:2:0 avec un peu plus de débit.
     mutating func apply(_ profile: Profile) {
         self.profile = profile
+        let caps = DecoderCapabilities.current
+        codec = caps.hevc ? .hevc : .h264
         switch profile {
-        case .jeu: codec = .hevc; yuv444 = false; bitrateMbps = 60; transport = .fast
-        case .bureau: codec = .hevc; yuv444 = true; bitrateMbps = 90; transport = .reliable
-        case .max: codec = .hevc; yuv444 = true; bitrateMbps = 300; transport = .fast
+        case .jeu: yuv444 = false; bitrateMbps = 60; transport = .fast
+        case .bureau: yuv444 = true; bitrateMbps = 90; transport = .reliable
+        case .max: yuv444 = true; bitrateMbps = 300; transport = .fast
+        }
+        if yuv444, !Self.decodes444(codec) {
+            yuv444 = false
+            bitrateMbps += bitrateMbps / 3
+        }
+        if codec == .h264 { bitrateMbps += bitrateMbps / 2 }
+    }
+
+    /// Le 4:4:4 n'est proposé que si ce Mac le décode en matériel.
+    static func decodes444(_ codec: VideoCodec) -> Bool {
+        switch codec {
+        case .hevc: return DecoderCapabilities.current.hevc444
+        case .av1: return DecoderCapabilities.current.av1
+        case .h264: return false
         }
     }
 
@@ -130,10 +151,39 @@ struct ConnectionSettings: Codable, Hashable {
         o.bitrate = UInt32(min(max(bitrateMbps, Self.minBitrate), Self.maxBitrate)) * 1_000_000
         o.reliable = transport == .reliable
         o.audio = audio != .off
+        o.yuv444 = yuv444 && Self.decodes444(codec)
+        o.vsync = vsync
         return o
     }
 
     var profileLabel: String { profile?.label ?? "Personnalisé" }
+}
+
+extension ConnectionSettings {
+    // Lecture tolérante : un réglage ajouté par une version récente garde
+    // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
+    private enum Keys: String, CodingKey {
+        case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
+        case autoReconnect, commandAsControl, audio, vsync
+    }
+
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: Keys.self)
+        profile = try? c.decodeIfPresent(Profile.self, forKey: .profile)
+        display = (try? c.decodeIfPresent(DisplayChoice.self, forKey: .display)) ?? display
+        customWidth = (try? c.decodeIfPresent(Int.self, forKey: .customWidth)) ?? customWidth
+        customHeight = (try? c.decodeIfPresent(Int.self, forKey: .customHeight)) ?? customHeight
+        customRefresh = (try? c.decodeIfPresent(Int.self, forKey: .customRefresh)) ?? customRefresh
+        codec = (try? c.decodeIfPresent(VideoCodec.self, forKey: .codec)) ?? codec
+        yuv444 = (try? c.decodeIfPresent(Bool.self, forKey: .yuv444)) ?? yuv444
+        bitrateMbps = (try? c.decodeIfPresent(Int.self, forKey: .bitrateMbps)) ?? bitrateMbps
+        transport = (try? c.decodeIfPresent(Transport.self, forKey: .transport)) ?? transport
+        autoReconnect = (try? c.decodeIfPresent(Bool.self, forKey: .autoReconnect)) ?? autoReconnect
+        commandAsControl = (try? c.decodeIfPresent(Bool.self, forKey: .commandAsControl)) ?? commandAsControl
+        audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
+        vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
+    }
 }
 
 struct Host: Codable, Identifiable, Hashable {
