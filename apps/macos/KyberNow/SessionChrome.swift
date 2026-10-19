@@ -26,10 +26,6 @@ struct SessionChrome: View {
     var body: some View {
         ZStack(alignment: .top) {
             WaitingLayer(session: session)
-            if session.showBurst, let revealed = session.revealedAt {
-                ParticleBurst(start: revealed)
-                    .allowsHitTesting(false)
-            }
             if session.barVisible {
                 HoverBar(session: session)
                     .padding(.top, 14)
@@ -60,11 +56,12 @@ private struct WaitingLayer: View {
                 .opacity(hidden ? 0 : 1)
                 .animation(.easeOut(duration: 1.2).delay(0.25), value: hidden)
             VStack(spacing: 18) {
-                Mark(size: 110)
-                    .scaleEffect(hidden ? 1.5 : 1)
-                    .blur(radius: hidden ? 10 : 0)
-                    .opacity(hidden ? 0 : 1)
-                    .animation(.easeOut(duration: 0.55), value: hidden)
+                // Le logo s'efface en grandissant, puis quitte la scène (son
+                // ondulation animée ne tourne plus sous l'image).
+                if !hidden {
+                    Mark(size: 110)
+                        .transition(.scale(scale: 1.5).combined(with: .opacity))
+                }
                 Text(session.host.name)
                     .font(Theme.display(30))
                     .foregroundStyle(Theme.text)
@@ -84,6 +81,7 @@ private struct WaitingLayer: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .animation(.easeOut(duration: 0.5), value: hidden)
         }
         .allowsHitTesting(!hidden)
     }
@@ -107,74 +105,6 @@ private struct WaitingLayer: View {
         case let .reconnecting(n): Text("Reconnexion (essai \(n))…")
         case let .failed(message): Text(message.prefix(1).uppercased() + message.dropFirst()).foregroundStyle(Theme.warn)
         default: Text(" ")
-        }
-    }
-}
-
-// MARK: - Apparition
-
-/// Gerbe de particules depuis le logo, au moment où l'image arrive.
-private struct ParticleBurst: View {
-    let start: Date
-    private static let duration = 2.2
-
-    private struct Particle {
-        let angle: Double
-        let distance: Double
-        let size: Double
-        let delay: Double
-        let color: Color
-    }
-
-    private static let particles: [Particle] = (0..<90).map { i in
-        func r(_ k: Double) -> Double {
-            let x = sin(Double(i) * 12.9898 + k * 78.233) * 43758.5453
-            return x - x.rounded(.down)
-        }
-        let palette = [Theme.accent, Color(red: 0.62, green: 0.94, blue: 0.85), Color(white: 0.97)]
-        return Particle(
-            angle: Double(i) / 90 * 2 * .pi + (r(1) - 0.5) * 0.3,
-            distance: 220 + r(2) * 560,
-            size: 2.5 + r(3) * 5,
-            delay: r(4) * 0.14,
-            color: palette[i % palette.count]
-        )
-    }
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { ctx, size in
-                let t = timeline.date.timeIntervalSince(start)
-                guard t < Self.duration else { return }
-                let center = CGPoint(x: size.width / 2, y: size.height / 2 - 20)
-                // Anneaux qui s'ouvrent
-                for (k, ring) in [(0.0, 1.0), (0.12, 0.6)].enumerated() {
-                    let p = min(1, max(0, (t - ring.0) / 1.1))
-                    guard p > 0, p < 1 else { continue }
-                    let e = 1 - pow(1 - p, 3)
-                    let radius = 60 + e * 900
-                    let rect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
-                    ctx.stroke(Path(ellipseIn: rect), with: .color(Theme.accent.opacity((1 - p) * ring.1 * 0.8)), lineWidth: k == 0 ? 2 : 1)
-                }
-                // Éclat central
-                let flash = max(0, 1 - t / 0.8)
-                if flash > 0 {
-                    let r = 260.0
-                    ctx.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
-                             with: .radialGradient(Gradient(colors: [Theme.accent.opacity(0.45 * flash), .clear]), center: center, startRadius: 0, endRadius: r))
-                }
-                // Particules
-                for p in Self.particles {
-                    let local = (t - p.delay) / (Self.duration - 0.3)
-                    guard local > 0, local < 1 else { continue }
-                    let e = 1 - pow(1 - local, 3)
-                    let x = center.x + cos(p.angle) * p.distance * e
-                    let y = center.y + sin(p.angle) * p.distance * e
-                    let s = p.size * (1 - local * 0.7)
-                    ctx.fill(Path(ellipseIn: CGRect(x: x - s / 2, y: y - s / 2, width: s, height: s)),
-                             with: .color(p.color.opacity(1 - local)))
-                }
-            }
         }
     }
 }

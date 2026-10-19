@@ -27,7 +27,6 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var phase: Phase = .preparing
     /// Instant où l'image est apparue (gerbe de particules).
     @Published private(set) var revealedAt: Date?
-    @Published private(set) var showBurst = false
     @Published private(set) var barVisible = false
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
@@ -37,6 +36,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private let onFinish: (SessionController) -> Void
 
     private let streamView = StreamView(frame: .zero)
+    private let burstView = BurstView(frame: .zero)
+    /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
+    /// synchronisation du son se calent, les premières images irrégulières
+    /// restent sous l'écran d'attente.
+    private static let revealDelay: TimeInterval = 0.9
     private var window: NSWindow?
     private var console: ConsoleClient?
     private var kyber: KyberClient?
@@ -79,6 +83,9 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         streamView.autoresizingMask = [.width, .height]
         streamView.onPointerMoved = { [weak self] distance in self?.pointerMoved(distanceFromTop: distance) }
         container.addSubview(streamView)
+        burstView.frame = container.bounds
+        burstView.autoresizingMask = [.width, .height]
+        container.addSubview(burstView)
         let chrome = ChromeHostingView(rootView: SessionChrome(session: self))
         chrome.session = self
         chrome.frame = container.bounds
@@ -213,15 +220,19 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 chooseDisplay()
             }
         case .streamingStarted:
-            if revealedAt == nil {
-                revealedAt = Date()
-                showBurst = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak self] in self?.showBurst = false }
-                host.lastSession = Date()
-                store.update(host)
+            guard revealedAt == nil else {
+                phase = .streaming
+                return
             }
-            phase = .streaming
-            window?.makeFirstResponder(streamView)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
+                guard let self, self.revealedAt == nil, self.kyber != nil else { return }
+                self.revealedAt = Date()
+                self.phase = .streaming
+                self.burstView.play()
+                self.host.lastSession = Date()
+                self.store.update(self.host)
+                self.window?.makeFirstResponder(self.streamView)
+            }
         case let .streamingFailed(reason), let .pipelineError(reason):
             fail(reason)
         case let .connectFailed(reason):
