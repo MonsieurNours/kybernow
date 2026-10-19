@@ -95,7 +95,9 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         Task {
             do {
                 phase = .preparing
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: AudioOutput.channels())
+                let channels = AudioOutput.channels()
+                KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels)
                 prepared = result
                 if host.consoleFingerprint == nil || host.streamPort != result.kyberPort {
                     host.consoleFingerprint = console.fingerprint

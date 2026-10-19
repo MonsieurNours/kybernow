@@ -41,11 +41,16 @@ enum AudioOutput {
         defer { raw.deallocate() }
         guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, raw) == noErr else { return 2 }
         let layout = raw.assumingMemoryBound(to: AudioChannelLayout.self)
-        // Enceintes réellement affectées (les sorties « inutilisées » ne comptent pas).
+        // Seules les positions d'enceintes comptent : une carte son déclare
+        // souvent ses sorties en canaux « discrets » sans configuration surround.
         let count = Int(layout.pointee.mNumberChannelDescriptions)
         let offset = MemoryLayout<AudioChannelLayout>.offset(of: \.mChannelDescriptions)!
         let descriptions = UnsafeBufferPointer(start: (raw + offset).assumingMemoryBound(to: AudioChannelDescription.self), count: count)
-        let speakers = descriptions.filter { $0.mChannelLabel != kAudioChannelLabel_Unused && $0.mChannelLabel != kAudioChannelLabel_Unknown }.count
-        return speakers >= 8 ? 8 : speakers >= 6 ? 6 : 2
+        let labels = Set(descriptions.map(\.mChannelLabel))
+        let surround: Set<AudioChannelLabel> = [kAudioChannelLabel_LeftSurround, kAudioChannelLabel_RightSurround]
+        let rear: Set<AudioChannelLabel> = [kAudioChannelLabel_RearSurroundLeft, kAudioChannelLabel_RearSurroundRight,
+                                            kAudioChannelLabel_LeftSurroundDirect, kAudioChannelLabel_RightSurroundDirect]
+        guard labels.contains(kAudioChannelLabel_Center), labels.isSuperset(of: surround) else { return 2 }
+        return labels.intersection(rear).count >= 2 ? 8 : 6
     }
 }
