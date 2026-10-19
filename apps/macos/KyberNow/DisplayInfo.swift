@@ -20,7 +20,10 @@ enum DisplayInfo {
 }
 
 enum AudioOutput {
-    /// Canaux de la sortie audio par défaut du Mac (2, 6 ou 8).
+    /// Canaux à demander à l'ordinateur : la configuration d'enceintes de la
+    /// sortie par défaut (Configuration audio et MIDI › Configurer les
+    /// enceintes), pas son nombre de sorties physiques (une carte son à
+    /// 8 sorties reste souvent branchée sur une paire d'enceintes).
     static func channels() -> Int {
         var device = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -31,14 +34,18 @@ enum AudioOutput {
         )
         guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr else { return 2 }
 
-        address.mSelector = kAudioDevicePropertyStreamConfiguration
+        address.mSelector = kAudioDevicePropertyPreferredChannelLayout
         address.mScope = kAudioDevicePropertyScopeOutput
-        guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size > 0 else { return 2 }
-        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size >= MemoryLayout<AudioChannelLayout>.size else { return 2 }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioChannelLayout>.alignment)
         defer { raw.deallocate() }
         guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, raw) == noErr else { return 2 }
-        let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
-        let total = list.reduce(0) { $0 + Int($1.mNumberChannels) }
-        return total >= 8 ? 8 : total >= 6 ? 6 : 2
+        let layout = raw.assumingMemoryBound(to: AudioChannelLayout.self)
+        // Enceintes réellement affectées (les sorties « inutilisées » ne comptent pas).
+        let count = Int(layout.pointee.mNumberChannelDescriptions)
+        let offset = MemoryLayout<AudioChannelLayout>.offset(of: \.mChannelDescriptions)!
+        let descriptions = UnsafeBufferPointer(start: (raw + offset).assumingMemoryBound(to: AudioChannelDescription.self), count: count)
+        let speakers = descriptions.filter { $0.mChannelLabel != kAudioChannelLabel_Unused && $0.mChannelLabel != kAudioChannelLabel_Unknown }.count
+        return speakers >= 8 ? 8 : speakers >= 6 ? 6 : 2
     }
 }
