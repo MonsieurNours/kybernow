@@ -105,6 +105,16 @@ impl KyberConfig {
             .collect())
     }
 
+    /// Vérifie un identifiant et un mot de passe Kyber (connexion Basic).
+    pub fn verify_login(&self, username: &str, password: &str) -> bool {
+        let Ok(doc) = self.load() else { return false };
+        let hash = hex::encode(Sha256::digest(password.as_bytes()));
+        read_logins(&doc).iter().any(|(u, h)| {
+            // Comparaison à temps constant des empreintes.
+            u == username && h.len() == hash.len() && h.bytes().zip(hash.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+        })
+    }
+
     /// Ajoute un utilisateur, ou change son mot de passe s'il existe déjà.
     pub fn upsert_user(&self, username: &str, password: &str) -> Result<()> {
         validate_username(username)?;
@@ -409,6 +419,8 @@ logins = [
         assert!(text.contains("# List of allowed login pairs."));
         assert!(text.contains(&hex::encode(Sha256::digest(b"un-mot-de-passe"))));
         assert!(cfg.upsert_user("a:b", "un-mot-de-passe").is_err());
+        assert!(cfg.verify_login("matthieu", "un-mot-de-passe"));
+        assert!(!cfg.verify_login("matthieu", "mauvais-mot-de-passe"));
         assert!(cfg.upsert_user("bob", "court").is_err());
     }
 

@@ -43,6 +43,19 @@ fn nvml() -> Option<&'static Nvml> {
     .as_ref()
 }
 
+/// Nombre de flux encodés par NVENC en ce moment (tous GPU confondus).
+pub fn encoder_sessions() -> Option<u32> {
+    let nvml = nvml()?;
+    let count = nvml.device_count().ok()?;
+    Some(
+        (0..count)
+            .filter_map(|i| nvml.device_by_index(i).ok())
+            .filter_map(|d| d.encoder_stats().ok())
+            .map(|s| s.session_count)
+            .sum(),
+    )
+}
+
 /// Appel bloquant : à lancer dans `spawn_blocking`.
 pub fn status() -> Option<GpuStatus> {
     let nvml = nvml()?;

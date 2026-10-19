@@ -165,7 +165,8 @@ pub fn clear_cookie(secure: bool) -> String {
 /// Protège les routes `/api/*` autres que la connexion et l'initialisation.
 pub async fn require_session(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
-    let public = matches!(path, "/api/session" | "/api/login" | "/api/setup");
+    // Les appels des appareils s'authentifient eux-mêmes (compte Kyber).
+    let public = matches!(path, "/api/session" | "/api/login" | "/api/setup") || path.starts_with("/api/stream/");
     if req.method() != Method::GET && req.headers().get(CSRF_HEADER).is_none() {
         return (StatusCode::FORBIDDEN, "en-tête x-kyber-admin manquant").into_response();
     }

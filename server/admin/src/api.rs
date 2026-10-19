@@ -12,6 +12,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::display::{Mode, Origin, Trigger, VdSettings};
 use crate::{AppState, auth, gpu, logs, schema, service};
 
 pub fn router(state: AppState) -> Router<AppState> {
@@ -30,6 +31,14 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/service/{action}", post(service_action))
         .route("/api/logs", get(log_list))
         .route("/api/logs/{name}", get(log_tail))
+        .route("/api/display", get(display_status))
+        .route("/api/display/settings", put(display_settings))
+        .route("/api/display/test", post(display_test))
+        .route("/api/display/stop", post(display_stop))
+        // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
+        .route("/api/stream/prepare", post(stream_prepare))
+        .route("/api/stream/heartbeat", post(stream_heartbeat))
+        .route("/api/stream/end", post(stream_end))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
 }
 
@@ -248,4 +257,131 @@ async fn log_tail(
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok(Json(json!({ "text": text })))
+}
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> ApiResult<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(ApiError::from)
+}
+
+async fn display_status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let d = s.display.clone();
+    Ok(Json(blocking(move || Ok(d.status())).await?))
+}
+
+async fn display_settings(State(s): State<AppState>, Json(body): Json<VdSettings>) -> ApiResult<Json<Value>> {
+    Mode { width: body.width, height: body.height, refresh: body.refresh }.validate()?;
+    s.update_settings(|st| st.virtual_display = body.clone())?;
+    *s.display.settings.lock().unwrap() = body.clone();
+    if body.trigger == Trigger::Off {
+        let d = s.display.clone();
+        blocking(move || {
+            d.stop("écran virtuel désactivé");
+            Ok(())
+        })
+        .await?;
+    }
+    display_status(State(s)).await
+}
+
+#[derive(Deserialize)]
+struct TestBody {
+    width: u32,
+    height: u32,
+    refresh: u32,
+    seconds: Option<u64>,
+}
+
+async fn display_test(State(s): State<AppState>, Json(body): Json<TestBody>) -> ApiResult<Json<Value>> {
+    let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
+    let seconds = body.seconds.unwrap_or(20).clamp(5, 300);
+    let d = s.display.clone();
+    blocking(move || d.start(Origin::Test, mode, None, Some(Duration::from_secs(seconds)))).await?;
+    display_status(State(s)).await
+}
+
+async fn display_stop(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let d = s.display.clone();
+    blocking(move || {
+        d.stop("arrêt demandé depuis la console");
+        Ok(())
+    })
+    .await?;
+    display_status(State(s)).await
+}
+
+/// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
+fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
+    let bad = || ApiError(StatusCode::UNAUTHORIZED, "identifiants Kyber requis".into());
+    let value = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).ok_or_else(bad)?;
+    let encoded = value.strip_prefix("Basic ").ok_or_else(bad)?;
+    let decoded = base64_decode(encoded.trim()).ok_or_else(bad)?;
+    let (user, pass) = decoded.split_once(':').ok_or_else(bad)?;
+    if s.kyber.verify_login(user, pass) { Ok(user.to_string()) } else { Err(bad()) }
+}
+
+fn base64_decode(input: &str) -> Option<String> {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut bits = 0u32;
+    let mut count = 0;
+    let mut out = Vec::new();
+    for c in input.bytes().filter(|c| *c != b'=') {
+        let v = ALPHABET.iter().position(|a| *a == c)? as u32;
+        bits = (bits << 6) | v;
+        count += 6;
+        if count >= 8 {
+            count -= 8;
+            out.push((bits >> count) as u8);
+            bits &= (1 << count) - 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+#[derive(Deserialize)]
+struct PrepareBody {
+    width: u32,
+    height: u32,
+    refresh: u32,
+}
+
+/// Une app annonce son écran avant de se connecter à Kyber.
+async fn stream_prepare(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PrepareBody>,
+) -> ApiResult<Json<Value>> {
+    let user = stream_user(&s, &headers)?;
+    let trigger = s.display.settings.lock().unwrap().trigger;
+    let port = s
+        .kyber
+        .values()
+        .ok()
+        .and_then(|v| v.into_iter().find(|f| f.id == "network.port"))
+        .and_then(|f| f.value.as_u64());
+    if trigger == Trigger::Off {
+        return Ok(Json(json!({ "virtual_display": false, "kyber_port": port })));
+    }
+    let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
+    let d = s.display.clone();
+    let applied = blocking(move || d.start(Origin::App, mode, Some(user), None)).await?;
+    Ok(Json(json!({ "virtual_display": true, "applied": applied, "kyber_port": port, "heartbeat_seconds": 5 })))
+}
+
+async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    stream_user(&s, &headers)?;
+    Ok(Json(json!({ "active": s.display.heartbeat() })))
+}
+
+async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    stream_user(&s, &headers)?;
+    let d = s.display.clone();
+    blocking(move || {
+        d.stop("l'appareil s'est déconnecté");
+        Ok(())
+    })
+    .await?;
+    Ok(Json(json!({ "ok": true })))
 }

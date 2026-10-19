@@ -77,6 +77,30 @@ export interface LogFile {
   modified: number
 }
 
+export type Trigger = 'off' | 'apps' | 'all'
+
+export interface VdSettings {
+  trigger: Trigger
+  width: number
+  height: number
+  refresh: number
+}
+
+export interface DisplayStatus {
+  supported: boolean
+  settings: VdSettings
+  driver: { available: boolean; info?: { version: string; watchdog_seconds: number }; error?: string }
+  session: null | {
+    origin: 'app' | 'auto' | 'test'
+    mode: { width: number; height: number; refresh: number }
+    user: string | null
+    started_at: number
+    seconds_left: number | null
+    applied: { gdi_name?: string; width?: number; height?: number; refresh?: number; disabled_others?: number }
+  }
+  last_error: string | null
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
@@ -137,6 +161,12 @@ export const api = {
 
   service: (action: 'start' | 'stop' | 'restart') =>
     request<{ state: ServiceState }>('POST', `/api/service/${action}`),
+
+  display: () => request<DisplayStatus>('GET', '/api/display'),
+  displaySettings: (settings: VdSettings) => request<DisplayStatus>('PUT', '/api/display/settings', settings),
+  displayTest: (mode: { width: number; height: number; refresh: number }, seconds: number) =>
+    request<DisplayStatus>('POST', '/api/display/test', { ...mode, seconds }),
+  displayStop: () => request<DisplayStatus>('POST', '/api/display/stop'),
 
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),
   logTail: (name: string, lines: number) =>

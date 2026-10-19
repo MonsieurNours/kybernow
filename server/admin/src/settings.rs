@@ -17,6 +17,9 @@ pub struct Settings {
     pub kyber_dir: Option<PathBuf>,
     /// Empreinte argon2 du mot de passe administrateur.
     pub admin_password_hash: Option<String>,
+    /// Écran virtuel (déclenchement et mode par défaut).
+    #[serde(default)]
+    pub virtual_display: crate::display::VdSettings,
 }
 
 impl Settings {

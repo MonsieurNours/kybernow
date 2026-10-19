@@ -3,6 +3,7 @@
 mod api;
 mod assets;
 mod auth;
+mod display;
 mod gpu;
 mod kyber_config;
 mod logs;
@@ -70,6 +71,12 @@ enum Command {
     },
     /// Efface le mot de passe administrateur (un nouveau code d'initialisation sera émis)
     ResetPassword,
+    /// Agent d'affichage, lancé par le service dans la session de l'écran
+    #[command(hide = true)]
+    DisplayAgent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
     /// Gestion du service Windows kyber-admin
     #[cfg(windows)]
     Service {
@@ -82,9 +89,57 @@ enum Command {
     ServiceRun,
 }
 
+#[derive(Subcommand)]
+enum AgentAction {
+    Isolate {
+        #[arg(long, allow_hyphen_values = true)]
+        luid_low: u32,
+        #[arg(long, allow_hyphen_values = true)]
+        luid_high: i32,
+        #[arg(long)]
+        target: u32,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+        #[arg(long)]
+        refresh: u32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    Restore {
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+/// Exécute une opération d'affichage et écrit son résultat (JSON) dans `out`.
+fn display_agent(action: AgentAction) -> Result<()> {
+    #[cfg(windows)]
+    let (out, result) = match action {
+        AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => (
+            out,
+            display::topology::isolate(luid_low, luid_high, target, width, height, refresh)
+                .and_then(|a| Ok(serde_json::to_value(a)?)),
+        ),
+        AgentAction::Restore { out } => (out, display::topology::restore().map(|_| serde_json::json!({ "ok": true }))),
+    };
+    #[cfg(not(windows))]
+    let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
+        AgentAction::Isolate { out, .. } | AgentAction::Restore { out } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+    };
+    let value = match result {
+        Ok(v) => v,
+        Err(e) => serde_json::json!({ "error": format!("{e:#}") }),
+    };
+    std::fs::write(out, serde_json::to_vec(&value)?)?;
+    Ok(())
+}
+
 pub struct Inner {
     pub auth: Arc<auth::Auth>,
     pub kyber: KyberConfig,
+    pub display: Arc<display::Manager>,
     pub service: Box<dyn service::ServiceControl>,
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
@@ -121,6 +176,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Some(Command::Init { user, kyber_port, encoder }) => init(&cli.run, &data_dir, &user, kyber_port, encoder),
+        Some(Command::DisplayAgent { action }) => display_agent(action),
         Some(Command::ResetPassword) => {
             let mut s = Settings::load(&data_dir)?;
             s.admin_password_hash = None;
@@ -213,9 +269,18 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         tracing::warn!("service Kyber simulé (pas sous Windows) : démarrer/arrêter ne fait rien");
     }
 
+    // Écran virtuel : nettoyage d'une session interrompue, puis surveillance.
+    let display = display::Manager::new(data_dir.clone(), settings.virtual_display.clone());
+    {
+        let d = display.clone();
+        tokio::task::spawn_blocking(move || d.recover()).await?;
+    }
+    display.clone().supervise();
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
+        display,
         service,
         data_dir: data_dir.clone(),
         kyber_dir,

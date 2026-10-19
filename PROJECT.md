@@ -60,7 +60,10 @@ kyber-apps/
 - **Début de session** : le client annonce sa résolution et sa fréquence à kyber-admin (nos apps) ou on prend le mode par défaut ; kyber-admin crée l'écran virtuel SudoVDA à ce mode, mémorise la disposition des écrans, n'active que l'écran virtuel, et la capture Kyber le suit.
 - **Fin de session** : écran virtuel retiré, disposition d'origine restaurée.
 - **Filet de sécurité** : le pilote retire l'écran s'il ne reçoit plus de signal de vie (3 s) ; kyber-admin restaure la disposition à son démarrage et quand plus aucun flux n'est encodé ; raccourci clavier d'urgence.
-- **Risque non levé** (prototype C sauté à la demande) : que la capture de Kyber suive le changement d'écrans en cours de session.
+- ✅ **Validé le 2026-10-19** sur le PC (RTX 3080 Ti, 2 écrans 4K) : écran virtuel 3840 × 2160 à 160 Hz créé avant la connexion, écrans physiques éteints puis restaurés, stream reçu à 152 i/s, 8,3 ms de latence médiane.
+- **Piège connu** : l'énumérateur d'écrans de Kyber voit l'ancienne disposition pendant ~50 ms ; `prepare` attend que Windows n'affiche plus que l'écran virtuel, puis 1,5 s, avant de répondre. Les apps devront choisir l'écran d'après la liste mise à jour.
+- **Reste à valider** : le mode « Pour toute connexion » (écran créé en cours de flux), et la reprise de main par un 2e appareil (déconnexion du 1er).
+- **Architecture** : le service pilote SudoVDA (IOCTL, signal de vie) ; un agent éphémère `kyber-admin display-agent`, lancé avec le jeton SYSTEM dans la session console, change la disposition (API CCD).
 - **Concession de sécurité** : SudoVDA est auto-signé, son certificat est ajouté aux autorités racines du PC.
 
 ### Installeur
