@@ -16,6 +16,16 @@ use crate::sys::{self, run, run_ok};
 pub const SUDOVDA_HWID: &str = r"root\sudomaker\sudovda";
 pub const DISPLAY_CLASS_GUID: &str = "4D36E968-E325-11CE-BFC1-08002BE10318";
 pub const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KyberNow";
+/// Icône de la zone de notification, relative au dossier d'installation.
+pub const TRAY_EXE: &str = r"tray\kybernow-tray.exe";
+/// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`).
+pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Droits des services `kyber` et `kyber-admin` : ceux de Windows par défaut,
+/// plus démarrer, arrêter et suspendre (RP, WP, DT) pour les utilisateurs
+/// interactifs (IU), afin que l'icône pilote le serveur sans élévation.
+/// Changer la configuration (DC) reste réservé aux administrateurs.
+pub const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\
+    (A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
 pub const FIREWALL_RULES: &[&str] = &[
     "KyberNow-stream-TCP",
     "KyberNow-stream-UDP",
@@ -136,6 +146,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", "KyberNow - serveur de streaming"], &[0])?;
         let _ = run("sc", &["description", "kyber", "Serveur de streaming Kyber, installé et géré par KyberNow."]);
         let _ = run("sc", &["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"]);
+        run_ok("sc", &["sdset", "kyber", SERVICE_SDDL], &[0])?;
         ctx.log(format!("Service Windows « kyber » créé (démarrage {start})"));
         ctx.progress(52.0);
         Ok(())
@@ -231,6 +242,10 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     step(ctx, "admin", || {
         let admin = ctx.path(r"admin\kyber-admin.exe");
         run_ok(&admin, &["service", "install"], &[0])?;
+        run_ok("sc", &["sdset", "kyber-admin", SERVICE_SDDL], &[0])?;
+        if !req.start_with_windows {
+            run_ok("sc", &["config", "kyber-admin", "start=", "demand"], &[0])?;
+        }
         ctx.log(format!("Console d'administration démarrée sur le port {}", req.console_port));
         ctx.progress(92.0);
         Ok(())
@@ -264,6 +279,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         write_shortcut(req.console_port);
         run_ok("sc", &["start", "kyber"], &[0, 1056])?; // 1056 : déjà démarré
         ctx.log("Serveur de streaming démarré");
+        setup_tray(ctx, req.start_with_windows);
         ctx.progress(100.0);
         Ok(())
     })?;
@@ -289,7 +305,7 @@ fn prepare(ctx: &Ctx, info: &SystemInfo) -> Result<()> {
             let _ = run("sc", &["delete", service]);
         }
     }
-    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe"] {
+    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe", "kybernow-tray.exe"] {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
     Ok(())
@@ -363,6 +379,39 @@ fn register_uninstaller(ctx: &Ctx, uninstaller: &Path) -> Result<()> {
     let kb = dir_size(&ctx.dir) / 1024;
     add("EstimatedSize", "REG_DWORD", &kb.to_string())?;
     Ok(())
+}
+
+/// Icône de la zone de notification : raccourci « KyberNow » dans le menu
+/// Démarrer, lancement à l'ouverture de session, puis lancement tout de suite.
+///
+/// L'installateur tourne en administrateur ; l'icône doit tourner sans. On la
+/// lance donc par l'Explorateur, qui la démarre dans la session de
+/// l'utilisateur avec ses droits ordinaires.
+fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
+    let exe = ctx.path(TRAY_EXE);
+    if !Path::new(&exe).exists() {
+        ctx.log("Icône de la zone de notification absente du contenu");
+        return;
+    }
+    let lnk = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
+        .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow\KyberNow.lnk");
+    let _ = sys::powershell(&format!(
+        "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; \
+         $s.Description = 'KyberNow dans la zone de notification'; $s.Save()",
+        lnk.display(),
+        exe
+    ));
+    let _ = if start_with_windows {
+        run("reg", &["add", RUN_KEY, "/v", "KyberNow", "/t", "REG_SZ", "/d", &format!("\"{exe}\""), "/f"])
+    } else {
+        run("reg", &["delete", RUN_KEY, "/v", "KyberNow", "/f"])
+    };
+    let _ = std::process::Command::new(sys::system_root().join("explorer.exe")).arg(&exe).spawn();
+    ctx.log(if start_with_windows {
+        "Icône KyberNow lancée (et à chaque ouverture de session)"
+    } else {
+        "Icône KyberNow lancée"
+    });
 }
 
 /// Raccourci « Console KyberNow » dans le menu Démarrer.

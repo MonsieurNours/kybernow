@@ -365,12 +365,12 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     if args.http {
         tracing::info!("kyber-admin en écoute sur http://{listen} (sans TLS)");
-        axum_server::bind(listen).handle(handle).serve(app.into_make_service()).await?;
+        axum_server::bind(listen).handle(handle).serve(app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     } else {
         let (cert, key) = tls::ensure_certificate(&data_dir)?;
         let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
         tracing::info!("kyber-admin en écoute sur https://{listen}");
-        axum_server::bind_rustls(listen, tls).handle(handle).serve(app.into_make_service()).await?;
+        axum_server::bind_rustls(listen, tls).handle(handle).serve(app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     }
     Ok(())
 }

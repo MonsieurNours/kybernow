@@ -1,10 +1,11 @@
 //! Routes JSON de l'interface (`/api/*`).
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
@@ -24,6 +25,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/logout", post(logout))
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
+        .route("/api/local/state", get(local_state))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -161,6 +163,24 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "controller": { "port": port, "reachable": reachable },
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
         "gpu": gpu,
+    })))
+}
+
+/// État résumé pour l'icône de la zone de notification, réservé à l'ordinateur
+/// lui-même : serveur en marche ou non, session d'un appareil en cours ou non.
+async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> ApiResult<Json<Value>> {
+    if !peer.ip().is_loopback() {
+        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
+    }
+    let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let (display, audio) = blocking(move || Ok((d.status()["session"].clone(), a.status()["session"].clone()))).await?;
+    let user = display["user"].as_str().map(str::to_owned);
+    Ok(Json(json!({
+        "service": service_state,
+        "session": !display.is_null() || !audio.is_null(),
+        "user": user,
+        "restart_pending": s.restart_pending.load(Ordering::Relaxed),
     })))
 }
 

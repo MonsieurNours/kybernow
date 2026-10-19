@@ -22,8 +22,11 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 echo "==> Console d'administration (kyber-admin.exe)"
 "$ROOT/server/build-windows.sh" > /dev/null
 
+echo "==> Icône de la zone de notification (kybernow-tray.exe)"
+(cd "$ROOT/server/tray" && cargo build --release --target $TARGET)
+
 echo "==> Contenu à installer"
-rm -rf "$STAGE" && mkdir -p "$STAGE"/{kyber,admin,drivers/sudovda,drivers/vigembus,licenses}
+rm -rf "$STAGE" && mkdir -p "$STAGE"/{kyber,admin,tray,drivers/sudovda,drivers/vigembus,licenses}
 rsync -a --exclude '$PLUGINSDIR' --exclude '*.bat' --exclude 'INSTALL.md' \
     "$PAYLOAD_SRC/kyber-0.29.0/" "$STAGE/kyber/"
 # Correctifs KyberNow (son HD, curseur stable) : server/kyber-patches/build.sh
@@ -33,6 +36,7 @@ else
     echo "    (pas de surcouche : Kyber 0.29 d'origine, lancez server/kyber-patches/build.sh)"
 fi
 cp "$ROOT/server/dist/kyber-admin.exe" "$STAGE/admin/"
+cp "$ROOT/server/tray/target/$TARGET/release/kybernow-tray.exe" "$STAGE/tray/"
 for f in SudoVDA.dll SudoVDA.inf sudovda.cat sudovda.cer nefconc.exe; do
     cp "$PAYLOAD_SRC/apollo-0.4.6/drivers/sudovda/$f" "$STAGE/drivers/sudovda/"
 done

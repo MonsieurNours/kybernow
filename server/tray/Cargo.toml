@@ -1,0 +1,36 @@
+[package]
+name = "kybernow-tray"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Icône KyberNow dans la zone de notification de Windows"
+license = "AGPL-3.0-or-later"
+authors = ["Les Lignes Claires"]
+
+[dependencies]
+anyhow = "1.0.104"
+serde_json = "1.0.154"
+
+[target."cfg(windows)".dependencies]
+png = "0.18"
+tray-icon = "0.21"
+ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_Services",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1

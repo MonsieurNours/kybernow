@@ -63,7 +63,7 @@
   </section>
   <section class="card small" class:on={app.options.startWithWindows}>
     <div class="row"><strong>Démarrer avec Windows</strong><Toggle bind:checked={app.options.startWithWindows} label="Démarrer avec Windows" /></div>
-    <span>Le serveur est prêt dès l'allumage du PC, même avant votre connexion à Windows.</span>
+    <span>Le serveur est prêt dès l'allumage du PC, même avant votre connexion à Windows. L'icône KyberNow s'affiche près de l'horloge à l'ouverture de votre session.</span>
   </section>
 </div>
 

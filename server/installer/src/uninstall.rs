@@ -4,7 +4,7 @@
 
 use anyhow::Result;
 
-use crate::install::{DISPLAY_CLASS_GUID, InstallRecord, SUDOVDA_HWID, UNINSTALL_KEY, remove_firewall_rules, wait_stopped};
+use crate::install::{DISPLAY_CLASS_GUID, InstallRecord, RUN_KEY, SUDOVDA_HWID, UNINSTALL_KEY, remove_firewall_rules, wait_stopped};
 use crate::sys::{self, run};
 
 pub fn run_uninstall() -> Result<()> {
@@ -18,9 +18,11 @@ pub fn run_uninstall() -> Result<()> {
         wait_stopped(service);
         let _ = run("sc", &["delete", service]);
     }
-    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe"] {
+    for exe in ["kyclient.exe", "kycontroller.exe", "kyavserver.exe", "kynputserver.exe", "kyservice.exe", "kyber-admin.exe", "kybernow-tray.exe"] {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
+    // Icône : lancement à l'ouverture de session (celle de l'utilisateur qui désinstalle).
+    let _ = run("reg", &["delete", RUN_KEY, "/v", "KyberNow", "/f"]);
     remove_firewall_rules();
 
     if record.as_ref().is_none_or(|r| r.virtual_display) {
