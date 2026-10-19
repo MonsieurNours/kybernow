@@ -3,9 +3,15 @@
 //! Ces fonctions doivent s'exécuter dans la session de l'écran (la console
 //! Windows), pas dans la session 0 des services : voir `agent.rs`.
 //!
-//! On n'écrit jamais dans la base de configuration d'affichage de Windows
-//! (pas de `SDC_SAVE_TO_DATABASE`) : elle garde la disposition habituelle des
-//! écrans physiques, qu'on réapplique pour restaurer.
+//! La disposition de session est enregistrée dans la base de configuration
+//! d'affichage de Windows (`SDC_SAVE_TO_DATABASE`), comme le font Sunshine et
+//! Apollo. Cette base est indexée par l'ensemble des écrans branchés : l'entrée
+//! « écrans physiques + écran virtuel » devient « écran virtuel seul ». Sans
+//! cela, dès qu'un écran éteint se met en veille et se « rebranche » (fréquent
+//! en DisplayPort), Windows réapplique l'ancienne disposition étendue : écrans
+//! physiques rallumés, écran virtuel à son mode par défaut, image instable.
+//! L'entrée « écrans physiques seuls » n'est jamais touchée : une fois l'écran
+//! virtuel retiré, on la réapplique pour restaurer.
 
 use std::ptr::null_mut;
 use std::time::{Duration, Instant};
@@ -14,11 +20,12 @@ use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
     DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
     DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
-    QDC_ONLY_ACTIVE_PATHS, QueryDisplayConfig, SDC_ALLOW_CHANGES, SDC_APPLY, SDC_TOPOLOGY_EXTEND, SDC_USE_DATABASE_CURRENT,
+    QDC_ONLY_ACTIVE_PATHS, QueryDisplayConfig, SDC_ALLOW_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE, SDC_TOPOLOGY_EXTEND,
+    SDC_USE_DATABASE_CURRENT,
     SDC_USE_SUPPLIED_DISPLAY_CONFIG, SetDisplayConfig,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    CDS_TYPE, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH,
+    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH,
     ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
 };
 use serde::Serialize;
@@ -123,7 +130,7 @@ pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u
                 &path,
                 new_modes.len() as u32,
                 new_modes.as_ptr(),
-                SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES,
+                SDC_APPLY | SDC_USE_SUPPLIED_DISPLAY_CONFIG | SDC_ALLOW_CHANGES | SDC_SAVE_TO_DATABASE,
             )
         };
         if err != 0 {
@@ -157,7 +164,8 @@ pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u
         mode.dmPelsHeight = height;
         mode.dmDisplayFrequency = refresh;
         mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
-        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), 0 as CDS_TYPE, std::ptr::null());
+        // Mode enregistré lui aussi, pour que Windows le réapplique tel quel.
+        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY, std::ptr::null());
         if r != DISP_CHANGE_SUCCESSFUL {
             tracing::warn!("changement de mode refusé ({r}) : le mode préféré de l'écran est conservé");
         }

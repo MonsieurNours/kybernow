@@ -141,6 +141,9 @@ pub struct Manager {
     pub settings: Mutex<VdSettings>,
 }
 
+/// « KyberNow écran virtuel », identifiant stable du moniteur SudoVDA.
+const VIRTUAL_DISPLAY_GUID: [u8; 16] = *b"KyberNow-Display";
+
 pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
@@ -209,7 +212,9 @@ impl Manager {
         // Mode différent (un autre appareil prend la main) : on repart de zéro.
         self.stop_locked("remplacée par une nouvelle session");
 
-        let guid: [u8; 16] = rand::random();
+        // Identifiant fixe : Windows retrouve la disposition de session
+        // enregistrée pour cet écran (voir topology.rs).
+        let guid = VIRTUAL_DISPLAY_GUID;
         let begun = Instant::now();
         let created = self.backend.create(guid, mode).inspect_err(|e| self.fail(e))?;
         // Pinguer dès maintenant : l'isolement peut durer plus que le chien de garde.
