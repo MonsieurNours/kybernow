@@ -2,7 +2,7 @@
 //!
 //! Un seul compte administrateur, protégé par un mot de passe (empreinte
 //! argon2). Au premier lancement, sans mot de passe, un code d'initialisation
-//! est écrit dans le dossier de données : il faut avoir accès au PC pour le lire.
+//! est écrit dans le dossier de données : il faut avoir accès à l'ordinateur pour le lire.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

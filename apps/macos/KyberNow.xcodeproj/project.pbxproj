@@ -21,6 +21,7 @@
 		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
 		71215DF8CF2F6AD2C6D2259D /* IBMPlexMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = C709DF43577DD7820C0E652E /* IBMPlexMono-Regular.ttf */; };
 		73369CA48A1A5A22C82DFFCD /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0DDB25384557B8B551045E /* Model.swift */; };
+		74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD1367F24F0927922BB40DD /* LatencyTracker.swift */; };
 		776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E79EB33EC59E27B02F415F /* InputPipeline.swift */; };
 		7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */; };
 		7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2105139B92C07E1555E99C60 /* AudioPlayer.swift */; };
@@ -33,7 +34,9 @@
 		9E22CA206C86BC010E6685B1 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8731611A950718FECBB1AEFD /* OFL.txt */; };
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
+		BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */; };
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
+		D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */; };
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
@@ -75,14 +78,17 @@
 		5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChrome.swift; sourceTree = "<group>"; };
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		6AD1367F24F0927922BB40DD /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
 		8731611A950718FECBB1AEFD /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
+		8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeMouse.swift; sourceTree = "<group>"; };
 		8C0DDB25384557B8B551045E /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		9284C96DE708C736853C8502 /* IBMPlexMono-Medium.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexMono-Medium.ttf"; sourceTree = "<group>"; };
 		94C101B09449F09428C0AF60 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		9E6C27264097C061402863DD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A78F7EAA3D887DF32857AA27 /* KyberClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberClient.swift; sourceTree = "<group>"; };
 		B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KyberNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
@@ -151,6 +157,7 @@
 			isa = PBXGroup;
 			children = (
 				2105139B92C07E1555E99C60 /* AudioPlayer.swift */,
+				A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */,
 				08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
 				B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */,
@@ -158,6 +165,8 @@
 				79554466D1E04F2A3C807DA1 /* Keymap.swift */,
 				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
+				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
+				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
 				83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */,
@@ -320,6 +329,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */,
+				D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */,
 				EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
 				7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */,
@@ -327,6 +337,8 @@
 				0B449D2989DD2AE43549432F /* Keymap.swift in Sources */,
 				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
+				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
+				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,
 				881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */,

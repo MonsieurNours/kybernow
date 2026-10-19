@@ -45,7 +45,7 @@
     </div>
 
     {#if configured}
-      <p class="muted">Connectez-vous pour gérer le serveur de streaming de ce PC.</p>
+      <p class="muted">Connectez-vous pour gérer le serveur de streaming de cet ordinateur.</p>
       <label class="field">
         Mot de passe (celui choisi à l'installation)
         <!-- svelte-ignore a11y_autofocus -->
@@ -54,7 +54,7 @@
     {:else}
       <p class="muted">
         Première connexion : choisissez le mot de passe administrateur. Le code d'initialisation se trouve sur
-        le PC, dans <code>{setupCodeFile}</code>.
+        l'ordinateur, dans <code>{setupCodeFile}</code>.
       </p>
       <label class="field">
         Code d'initialisation

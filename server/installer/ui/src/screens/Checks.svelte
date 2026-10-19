@@ -30,7 +30,7 @@
 
 <span class="eyebrow kn-enter">Étape 2 sur 6</span>
 <h1 class="kn-enter kn-d1" style="font-size: 32px">
-  {running ? 'Analyse de votre PC…' : 'Votre PC est prêt pour le streaming.'}
+  {running ? 'Analyse de votre ordinateur…' : 'Votre ordinateur est prêt pour le streaming.'}
 </h1>
 <p class="lead kn-enter kn-d2" style="margin-top: 6px">
   Nous vérifions ce qui compte pour une image fluide et une latence basse. Rien n'est modifié à cette étape.

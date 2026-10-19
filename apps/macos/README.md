@@ -6,13 +6,17 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
 
 - **Accueil** : l'ordinateur utilisé en dernier en grand, les autres à côté, en ligne ou non (sondage de la console toutes les 8 s).
 - **Ajouter un ordinateur** : sur le réseau local (annonce Bonjour `_kybernow._tcp` de la console), par adresse et port de la console, ou par QR code (caméra du Mac) ou lien `kybernow://adresse:port?name=…&fp=sha256:…` affichés dans la console, page Appareils. L'empreinte du certificat de la console est vérifiée : automatiquement si le lien ou l'annonce la donne, sinon à l'œil (les quatre premiers groupes). Puis le compte, vérifié auprès de la console et gardé dans le Trousseau. Un lien `kybernow://` ouvert ailleurs ouvre directement l'ajout.
-- **Réglages par ordinateur** : profils Jeu, Bureau et Max (ajuster un réglage rend le profil « Personnalisé ») ; écran de l'ordinateur (comme cet écran, taille de la fenêtre, sur mesure, ou ses écrans tels quels) ; format (H.264, HEVC, AV1), 4:4:4, synchro verticale, débit de 5 à 4 294 Mbit/s avec avertissements ; transport (rapide ou fiable), reconnexion ; ⌘ envoyée comme Ctrl, son (Auto, stéréo, 5.1, 7.1, aucun) ; carte « Ce Mac ».
-- **Session** : scène de connexion animée (Core Animation), apparition de l'image ; barre au survol du haut de l'écran (profil, plein écran, déconnexion, mesures) ; fin propre avec vérification que l'ordinateur a retrouvé ses écrans.
+- **Réglages par ordinateur** : profils Jeu, Bureau et Max (ajuster un réglage rend le profil « Personnalisé ») ; écran de l'ordinateur (comme cet écran, au besoin « au plus 4K », taille de la fenêtre, sur mesure, ou ses écrans tels quels) ; format (H.264, HEVC, AV1), 4:4:4, synchro verticale, débit de 5 à 4 294 Mbit/s avec avertissements ; transport (rapide ou fiable), reconnexion ; ⌘ envoyée comme Ctrl, souris des jeux, presse-papiers partagé, son (Auto, stéréo, 5.1, 7.1, aucun) ; carte « Ce Mac ».
+- **Débit** : celui d'un profil est calé sur la 4K à 60 Hz et suit le nombre de pixels par seconde de la session (puissance 0,75, entre 0,4 et 3 fois). Par exemple, le profil Max à 300 Mbit/s part à environ 460 Mbit/s en 5K à 60 Hz. Un débit réglé à la main reste tel quel. Les réglages affichent le débit réel.
+- **Souris des jeux** : quand l'ordinateur masque son pointeur plus de 250 ms (jeu en vue subjective), la souris passe en relative. Le pointeur du Mac est figé et caché, et seuls les déplacements bruts partent (GCMouse, sans l'accélération de macOS ; déplacements AppKit sans GCMouse). Elle revient en absolue, pointeur replacé au même endroit, dès que l'ordinateur remontre le sien, à l'ouverture de la barre ou quand la fenêtre perd le focus. ⌃⌥⌘M rend la souris au Mac ; un clic dans l'image la redonne au jeu.
+- **Presse-papiers partagé** : texte, dans les deux sens, jusqu'à 60 Ko (`ClipboardBridge`, protocole de kynput, fonctions C de `kyber-patches/0002`). Ce que l'ordinateur annonce est demandé tout de suite, pour que ⌘V marche aussitôt ; ce que le Mac copie est annoncé (vérifié deux fois par seconde) et envoyé à la demande. La console peut l'interdire dans un sens ou dans l'autre.
+- **Session** : scène de connexion animée (Core Animation), apparition de l'image ; barre au survol du haut de l'écran (profil, plein écran, déconnexion, mesures) ; fin propre avec vérification que l'ordinateur a retrouvé ses écrans. La latence médiane de la session est gardée et affichée sur l'accueil.
 
 | Raccourci | Effet |
 |---|---|
 | ⌃⌥⌘D | Se déconnecter |
 | ⌃⌥⌘F | Plein écran ou fenêtre |
+| ⌃⌥⌘M | Rendre la souris au Mac quand un jeu la tient (un clic dans l'image la redonne) |
 | ⌘ + touche | Ctrl + touche sur l'ordinateur (réglable) |
 | L1 + R1 + START + SELECT | La manette pilote la barre de l'app (croix, A, B) ; même combinaison ou barre fermée : elle revient à l'ordinateur |
 
@@ -21,6 +25,11 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
 ## Image et son
 
 Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode lui-même pour la latence et la synchro : `kyber-patches/0001` ajoute à libkyclient une sortie des paquets vers l'app (voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
+
+**Latence de bout en bout** (`LatencyTracker`)
+- Mesures de Kyber actives : le serveur horodate la capture de chaque image (horloge QPC), et les pings de Kyber donnent le décalage d'horloge (médiane des 15 derniers).
+- Le rendu signale l'instant où chaque image est montrée, sur l'horloge `CLOCK_MONOTONIC` de Kyber.
+- Latence = affichage − (capture − décalage), médiane de chaque seconde, dans la barre. La médiane de la session va sur l'accueil.
 
 **Image** (`VideoDecoder`, `VideoRenderer`, `VideoPipeline`)
 - VideoToolbox, décodeur matériel exigé (logiciel en dernier recours), mode temps réel, une image par appel, sans file d'attente.
@@ -39,7 +48,7 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode 
 - Les profils s'y ramènent : sans 4:4:4 matériel, 4:2:0 avec un tiers de débit en plus ; sans HEVC, H.264 avec moitié plus. Les réglages grisent ce que la machine ne décode pas.
 - Écran : définition réelle (5K, 6K au pixel près, jusqu'à 7680 × 4320 ; 4096 de large au plus en H.264, limite de NVENC), option « Au plus 4K », fréquence maximale, fréquence variable ou non.
 
-Mesures en direct (barre de session) : images par seconde, décodage, réception → écran, images remplacées, tampon et sortie du son.
+Mesures en direct (barre de session) : latence de bout en bout, images par seconde, décodage, réception → écran, images remplacées, tampon et sortie du son.
 
 ## Organisation du code
 
@@ -51,7 +60,10 @@ apps/macos/
 │   ├── ConsoleClient      # API de la console (prepare, heartbeat, end, info), empreinte épinglée
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AudioPlayer
+│   ├── LatencyTracker     # latence de bout en bout (mesures de Kyber)
 │   ├── StreamView         # vue de session : surface Metal, clavier, souris, curseur
+│   ├── RelativeMouse      # souris des jeux (GCMouse)
+│   ├── ClipboardBridge    # presse-papiers partagé
 │   ├── InputPipeline, Keymap, GamepadGate   # entrées via libkynput
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
@@ -59,7 +71,7 @@ apps/macos/
 │   ├── HomeView, AddHostFlow, SettingsView
 │   ├── SessionController, SessionChrome, ConnectScene
 │   └── Theme, DisplayInfo, Fonts/ (Bricolage Grotesque, IBM Plex, OFL)
-├── kyber-patches/         # correctifs KyberNow sur libkyclient
+├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
 ├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh
 ├── tests/                 # tests hors ligne (vidéo, son)
 └── Vendor/                # SDK Kyber compilé (ignoré par git)
@@ -73,22 +85,23 @@ Prérequis : Xcode 27, XcodeGen, Rust 1.89 + `cargo-c`, le client Kyber 0.29 com
 
 ```bash
 apps/macos/scripts/vendor-kyber.sh      # SDK Kyber (en-têtes, bibliothèques, plugins VLC) → Vendor/
-apps/macos/scripts/build-kyclient.sh    # libkyclient avec les correctifs KyberNow → Vendor/
+apps/macos/scripts/build-kyclient.sh    # libkyclient et libkynput avec les correctifs KyberNow → Vendor/
 cd apps/macos && xcodegen generate
 xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Debug -derivedDataPath build build
 open build/Build/Products/Debug/KyberNow.app
 ```
 
-`build-kyclient.sh` est à relancer après chaque `vendor-kyber.sh` : sans lui, l'app reprend une libkyclient sans les correctifs. Signature : certificat « Apple Development: info@leslignesclaires.fr », équipe P6DB682S4K (`project.yml`). Elle reste la même d'une compilation à l'autre, ce qui évite que le Trousseau redemande l'accès au mot de passe ; prévoir un Developer ID pour distribuer.
+`build-kyclient.sh` est à relancer après chaque `vendor-kyber.sh` : sans lui, l'app reprend des bibliothèques sans les correctifs. Signature : certificat « Apple Development: info@leslignesclaires.fr », équipe P6DB682S4K (`project.yml`). Elle reste la même d'une compilation à l'autre, ce qui évite que le Trousseau redemande l'accès au mot de passe ; prévoir un Developer ID pour distribuer.
 
 ## Tester sans ordinateur distant
 
 ```bash
 apps/macos/tests/video/run.sh   # flux HEVC/H.264 générés par ffmpeg : décodage, temps, couleurs rendues
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
+apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
 ```
 
-Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4, couleurs à ±4 niveaux près ; son : 15 à 23 ms de tampon en paquets de 20 ms, 14 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés.
+Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4, couleurs à ±4 niveaux près ; son : 15 à 23 ms de tampon en paquets de 20 ms, 14 à 22 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés.
 
 ## Journaux
 
@@ -105,4 +118,4 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow"' --level inf
 
 ## Vers iOS et Apple TV
 
-Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `ConsoleClient`, `GamepadGate`. À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.
+Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`. À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.

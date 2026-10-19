@@ -114,6 +114,10 @@ struct ConnectionSettings: Codable, Hashable {
     var vsync = true
     /// « Comme cet écran » ramené à la 4K au plus (écrans 5K, 6K).
     var limit4K = false
+    /// Souris relative quand l'ordinateur masque son pointeur (jeux en vue subjective).
+    var relativeMouse = true
+    /// Presse-papiers partagé avec l'ordinateur (texte).
+    var clipboard = true
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -146,15 +150,31 @@ struct ConnectionSettings: Codable, Hashable {
         }
     }
 
-    var options: StreamOptions {
+    /// Débit des profils, calé sur la 4K à 60 Hz.
+    static let referencePixelRate = 3840.0 * 2160 * 60
+
+    /// Débit de la session pour `w` × `h` à `hz` : un profil suit le nombre de
+    /// pixels par seconde (moins que proportionnellement : l'encodeur profite
+    /// des détails plus fins), un débit réglé à la main reste tel quel.
+    func bitrate(width w: Int, height h: Int, refresh hz: Int) -> Int {
+        guard profile != nil, w > 0, h > 0, hz > 0 else { return bitrateMbps }
+        let scale = pow(Double(w * h * hz) / Self.referencePixelRate, 0.75)
+        let mbps = (Double(bitrateMbps) * min(max(scale, 0.4), 3)).rounded()
+        return min(max(Int(mbps), Self.minBitrate), Self.maxBitrate)
+    }
+
+    var options: StreamOptions { options(width: 0, height: 0, refresh: 0) }
+
+    func options(width: Int, height: Int, refresh: Int) -> StreamOptions {
         var o = StreamOptions()
         o.codec = codec
         o.yuv444 = yuv444
-        o.bitrate = UInt32(min(max(bitrateMbps, Self.minBitrate), Self.maxBitrate)) * 1_000_000
+        o.bitrate = UInt32(bitrate(width: width, height: height, refresh: refresh)) * 1_000_000
         o.reliable = transport == .reliable
         o.audio = audio != .off
         o.yuv444 = yuv444 && Self.decodes444(codec)
         o.vsync = vsync
+        o.clipboard = clipboard
         return o
     }
 
@@ -166,7 +186,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, relativeMouse, clipboard
     }
 
     init(from decoder: Decoder) throws {
@@ -186,6 +206,8 @@ extension ConnectionSettings {
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
+        relativeMouse = (try? c.decodeIfPresent(Bool.self, forKey: .relativeMouse)) ?? relativeMouse
+        clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
     }
 }
 

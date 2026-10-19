@@ -1,0 +1,120 @@
+diff --git a/kynput/src/capi/mod.rs b/kynput/src/capi/mod.rs
+index ca128ee..2e3ea50 100644
+--- a/kynput/src/capi/mod.rs
++++ b/kynput/src/capi/mod.rs
+@@ -1713,3 +1713,115 @@ pub unsafe extern "C" fn kynput_xkb_keycode_to_scancode(
+ ) -> bool {
+     unsafe { kynput_keycode_xkb_to_kyber(keycode, out_scancode) }
+ }
++
++// KyberNow: clipboard packets for applications that run their own clipboard
++// handler (macOS, iOS). Text only. The protocol is lazy: a `Change` announces
++// new content, the other side asks with a `DataRequest`, the owner answers
++// with `Data` (at most MAX_CLIPBOARD_SIZE bytes) or `DataUnavailable`.
++
++/// Kind of a clipboard packet.
++#[repr(C)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum ClipboardEventKind {
++    Change,
++    Data,
++    DataRequest,
++    DataUnavailable,
++}
++
++/// `Change`: text is available on this side.
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_clipboard_text_change_to_packet(target: InputTarget) -> Box<InputPacket> {
++    Box::new(crate::InputPacket::new(
++        target,
++        crate::Payload::Clipboard(crate::types::ClipboardEvent::Change {
++            formats: vec![crate::types::ClipboardFormat::Text],
++        }),
++    ))
++}
++
++/// `DataRequest` for text.
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_clipboard_text_request_to_packet(target: InputTarget) -> Box<InputPacket> {
++    Box::new(crate::InputPacket::new(
++        target,
++        crate::Payload::Clipboard(crate::types::ClipboardEvent::DataRequest {
++            format: crate::types::ClipboardFormat::Text,
++        }),
++    ))
++}
++
++/// `DataUnavailable` for text.
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_clipboard_text_unavailable_to_packet(target: InputTarget) -> Box<InputPacket> {
++    Box::new(crate::InputPacket::new(
++        target,
++        crate::Payload::Clipboard(crate::types::ClipboardEvent::DataUnavailable {
++            format: crate::types::ClipboardFormat::Text,
++        }),
++    ))
++}
++
++/// `Data` with UTF-8 text, truncated to MAX_CLIPBOARD_SIZE. NULL if the
++/// bytes are not valid UTF-8.
++///
++/// # Safety
++/// `text` must point to `len` readable bytes.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn kynput_clipboard_text_data_to_packet(
++    target: InputTarget,
++    text: *const u8,
++    len: usize,
++) -> Option<Box<InputPacket>> {
++    let bytes = if text.is_null() { &[][..] } else { unsafe { std::slice::from_raw_parts(text, len) } };
++    let text = std::str::from_utf8(bytes).ok()?;
++    let mut data = crate::types::ClipboardData::Text(text.to_string());
++    data.truncate();
++    Some(Box::new(crate::InputPacket::new(
++        target,
++        crate::Payload::Clipboard(crate::types::ClipboardEvent::Data(data)),
++    )))
++}
++
++/// Kind of a clipboard packet, and whether it is about text (`Change`: text
++/// among the formats; `Data`, `DataRequest`, `DataUnavailable`: text format).
++/// False if the packet is not a clipboard packet.
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_clipboard_event_from_packet(
++    packet: &InputPacket,
++    out_kind: &mut ClipboardEventKind,
++    out_text: &mut bool,
++) -> bool {
++    use crate::types::{ClipboardData, ClipboardEvent, ClipboardFormat};
++    let crate::Payload::Clipboard(event) = &packet.payload else {
++        return false;
++    };
++    let (kind, text) = match event {
++        ClipboardEvent::Change { formats } => (ClipboardEventKind::Change, formats.contains(&ClipboardFormat::Text)),
++        ClipboardEvent::Data(data) => (ClipboardEventKind::Data, matches!(data, ClipboardData::Text(_))),
++        ClipboardEvent::DataRequest { format } => (ClipboardEventKind::DataRequest, *format == ClipboardFormat::Text),
++        ClipboardEvent::DataUnavailable { format } => {
++            (ClipboardEventKind::DataUnavailable, *format == ClipboardFormat::Text)
++        }
++        #[allow(unreachable_patterns)]
++        _ => return false,
++    };
++    *out_kind = kind;
++    *out_text = text;
++    true
++}
++
++/// Text of a `Data` packet (UTF-8, not NUL-terminated), valid as long as the
++/// packet. NULL for any other packet.
++#[unsafe(no_mangle)]
++pub extern "C" fn kynput_clipboard_text_from_packet(packet: &InputPacket, out_len: &mut usize) -> *const u8 {
++    if let crate::Payload::Clipboard(crate::types::ClipboardEvent::Data(crate::types::ClipboardData::Text(s))) =
++        &packet.payload
++    {
++        *out_len = s.len();
++        s.as_ptr()
++    } else {
++        *out_len = 0;
++        ptr::null()
++    }
++}

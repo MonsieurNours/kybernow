@@ -9,12 +9,12 @@
   const c = $derived(app.ports.console)
   const rows = $derived<Record<string, { label: string; meta: string; title: string; text: string }>>({
     files: { label: 'Fichiers du serveur de streaming', meta: 'Kyber 0.29', title: 'Copie des fichiers', text: 'Nous copions le moteur Kyber, ses bibliothèques vidéo (VLC, FFmpeg) et le client web dans C:\\Program Files\\KyberNow.' },
-    cert: { label: 'Certificat de sécurité du serveur', meta: '', title: 'Certificat de sécurité', text: 'Un certificat unique est créé pour ce PC. Il chiffre tout ce qui circule entre vos appareils et lui.' },
+    cert: { label: 'Certificat de sécurité du serveur', meta: '', title: 'Certificat de sécurité', text: 'Un certificat unique est créé pour cet ordinateur. Il chiffre tout ce qui circule entre vos appareils et lui.' },
     service: { label: 'Service Windows « kyber »', meta: '', title: 'Service Windows', text: 'Le serveur est enregistré comme service : il démarre seul, même avant que vous ouvriez votre session Windows.' },
     firewall: { label: `Pare-feu : ports ${s} et ${c}`, meta: '', title: 'Ouverture du pare-feu', text: `Windows bloque par défaut les connexions entrantes. Nous autorisons seulement le stream (port ${s}) et la console (port ${c}), sur votre réseau privé.` },
     vdd: { label: "Pilote d'écran virtuel", meta: 'SudoVDA', title: 'Écran virtuel', text: "Le pilote SudoVDA est ajouté. Il reste invisible tant qu'aucun appareil n'est connecté." },
-    gamepad: { label: 'Pilote de manettes', meta: 'ViGEmBus', title: 'Manettes', text: 'Le pilote ViGEmBus permet au PC de voir votre manette comme si elle était branchée en USB.' },
-    audio: { label: 'Haut-parleurs virtuels', meta: 'Steam', title: 'Son à distance', text: "Pendant le stream, le son du PC part vers ces haut-parleurs invisibles : le PC se tait, et votre appareil reçoit le son en stéréo, 5.1 ou 7.1." },
+    gamepad: { label: 'Pilote de manettes', meta: 'ViGEmBus', title: 'Manettes', text: "Le pilote ViGEmBus permet à l'ordinateur de voir votre manette comme si elle était branchée en USB." },
+    audio: { label: 'Haut-parleurs virtuels', meta: 'Steam', title: 'Son à distance', text: "Pendant le stream, le son de l'ordinateur part vers ces haut-parleurs invisibles : l'ordinateur se tait, et votre appareil reçoit le son en stéréo, 5.1 ou 7.1." },
     admin: { label: "Console d'administration", meta: `port ${c}`, title: "Console d'administration", text: `La console démarre sur le port ${c}. Vous pourrez y régler la qualité d'image, les comptes et l'écran virtuel.` },
     power: { label: "Réglages d'alimentation", meta: '', title: 'Alimentation', text: 'Le mode Performances élevées empêche le processeur et le GPU de ralentir pendant le stream.' },
   })
@@ -35,7 +35,7 @@
 
   const done = (id: string) => app.tasks[id] === 'done' || app.tasks[id] === 'skipped'
   const nodes = $derived([
-    { label: 'Ce PC', on: done('service') },
+    { label: 'Cet ordinateur', on: done('service') },
     { label: 'Votre réseau', on: done('firewall') },
     { label: 'Vos appareils', on: done('admin') },
   ])

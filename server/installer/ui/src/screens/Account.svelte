@@ -42,7 +42,7 @@
 <span class="eyebrow kn-enter">Étape 3 sur 6</span>
 <h1 class="kn-enter kn-d1">Un seul compte pour tout.</h1>
 <p class="lead kn-enter kn-d2">
-  Choisissez l'identifiant et le mot de passe que vous saisirez sur vos appareils. Ils protègent l'accès à ce PC :
+  Choisissez l'identifiant et le mot de passe que vous saisirez sur vos appareils. Ils protègent l'accès à cet ordinateur :
   personne d'autre sur votre réseau ne pourra s'y connecter.
 </p>
 
@@ -95,7 +95,7 @@
     </div>
     <div class="lock">
       <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="#9AA7B8" stroke-width="1.4" /><path d="M5.5 7V5a2.5 2.5 0 015 0v2" fill="none" stroke="#9AA7B8" stroke-width="1.4" /></svg>
-      <span>Le mot de passe n'est jamais enregistré en clair : seule une empreinte est conservée sur ce PC.</span>
+      <span>Le mot de passe n'est jamais enregistré en clair : seule une empreinte est conservée sur cet ordinateur.</span>
     </div>
   </aside>
 </div>

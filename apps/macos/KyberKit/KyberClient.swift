@@ -37,6 +37,8 @@ public struct StreamOptions: Sendable {
     public var nativeVideo = true
     /// Son décodé par l'app (Opus + Core Audio) plutôt que par VLC.
     public var nativeAudio = true
+    /// Presse-papiers partagé (texte), dans les deux sens.
+    public var clipboard = true
 
     public init() {}
 }
@@ -85,6 +87,11 @@ public final class KyberClient {
     private var input: InputPipeline?
     private var video: VideoPipeline?
     private var audio: AudioPlayer?
+    /// Latence de bout en bout, à partir des mesures de Kyber.
+    private let latency = LatencyTracker()
+
+    /// Médiane de la latence sur la session en cours, en millisecondes.
+    public var sessionLatencyMs: Double? { latency.sessionMedian }
     private let host: String
 
     private static let setup: Void = {
@@ -104,10 +111,12 @@ public final class KyberClient {
         // Premier contact : on retient le certificat (TOFU). La console a déjà
         // été vérifiée par empreinte ; une invite dédiée viendra ensuite.
         try check(kyclient_connect_config_enable_tofu_auto_accept(config), "vérification du certificat")
-        guard let c = kyclient_client_new(config, false) else {
+        // Mesures actives : horodatages des images côté ordinateur et recalage d'horloge.
+        guard let c = kyclient_client_new(config, true) else {
             throw KyberError.sdk("création du client", -1)
         }
         client = c
+        kyclient_client_set_metrics_callback(c, LatencyTracker.callback, Unmanaged.passUnretained(latency).toOpaque())
         let handler = kyclient_EventHandler(
             on_event: { event, userdata in
                 guard let event, let userdata else { return }
@@ -135,7 +144,7 @@ public final class KyberClient {
     /// Démarre l'image de `display` dans `view`, avec le son et les entrées.
     public func startStreaming(display: KyberDisplay, view: StreamView, options: StreamOptions) throws {
         // Les gestionnaires d'entrées ne redémarrent pas : un pipeline neuf par session.
-        let input = InputPipeline(display: display, view: view)
+        let input = InputPipeline(display: display, view: view, clipboard: options.clipboard)
         input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
         input.gamepad.onNavigate = { [weak self] key in self?.onGamepadNavigate?(key) }
         self.input = input
@@ -159,6 +168,8 @@ public final class KyberClient {
         try check(kyclient_video_session_config_default(display.id, player, &video), "configuration vidéo")
         if options.nativeVideo, options.codec != .av1, let pipeline = VideoPipeline() {
             pipeline.renderer.vsync = options.vsync
+            latency.reset()
+            pipeline.renderer.latency = latency
             pipeline.renderer.onStats = { [weak self] stats in
                 DispatchQueue.main.async { self?.onVideoStats?(stats) }
             }
@@ -188,10 +199,11 @@ public final class KyberClient {
 
         var inputConfig: OpaquePointer?
         try check(kyclient_input_session_config_default(kynput_pipeline_ref(input.pipeline), &inputConfig), "configuration des entrées")
-        kyclient_input_session_config_clipboard(inputConfig, false)
+        kyclient_input_session_config_clipboard(inputConfig, options.clipboard)
         kyclient_streaming_session_config_set_input(session, inputConfig)
 
         try check(kyclient_client_start_streaming(client, session), "démarrage de l'image")
+        input.startClipboard()
     }
 
     public func stopStreaming() {

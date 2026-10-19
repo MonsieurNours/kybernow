@@ -17,7 +17,7 @@
     {
       value: 'off',
       title: 'Jamais',
-      text: 'Le son reste sur la sortie de Windows : il sort aussi des haut-parleurs du PC, au format réglé dans Windows.',
+      text: "Le son reste sur la sortie de Windows : il sort aussi des haut-parleurs de l'ordinateur, au format réglé dans Windows.",
     },
   ]
 
@@ -70,8 +70,8 @@
   <span class="eyebrow">Son à distance</span>
   <h1>Son</h1>
   <p class="muted intro">
-    Pendant une session, le son de Windows part vers des haut-parleurs invisibles : le PC se tait, et votre appareil
-    reçoit le son au bon format, de la stéréo au 7.1. À la fin, la sortie habituelle du PC revient.
+    Pendant une session, le son de Windows part vers des haut-parleurs invisibles : l'ordinateur se tait, et votre appareil
+    reçoit le son au bon format, de la stéréo au 7.1. À la fin, la sortie habituelle de l'ordinateur revient.
   </p>
 </header>
 
@@ -125,8 +125,8 @@
 
     {#if !speakers}
       <div class="notice warn">
-        Installez Steam sur ce PC, puis relancez l'installateur KyberNow : il ajoutera les haut-parleurs virtuels. Sans
-        eux, le son sort aussi des haut-parleurs du PC, au format réglé dans Windows.
+        Installez Steam sur cet ordinateur, puis relancez l'installateur KyberNow : il ajoutera les haut-parleurs virtuels. Sans
+        eux, le son sort aussi des haut-parleurs de l'ordinateur, au format réglé dans Windows.
       </div>
     {/if}
     {#if status.last_error}

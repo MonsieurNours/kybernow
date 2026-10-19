@@ -29,7 +29,7 @@
     {
       value: 'off',
       title: 'Jamais',
-      text: 'Vos appareils voient les écrans physiques du PC, à leur résolution actuelle.',
+      text: "Vos appareils voient les écrans physiques de l'ordinateur, à leur résolution actuelle.",
     },
   ]
 
@@ -100,14 +100,14 @@
   <span class="eyebrow">Affichage à distance</span>
   <h1>Écran virtuel</h1>
   <p class="muted intro">
-    Au lieu de vous envoyer les écrans physiques du PC, KyberNow peut créer un écran à la taille exacte de l'appareil
+    Au lieu de vous envoyer les écrans physiques de l'ordinateur, KyberNow peut créer un écran à la taille exacte de l'appareil
     qui se connecte : pas de bandes noires, pas de mise à l'échelle, et vos écrans restent éteints pendant la session.
   </p>
 </header>
 
 <div class="phases">
   <div class="phase"><span class="num">1</span><div><strong>À la connexion</strong><span>Un écran virtuel est créé au mode de votre appareil, et il devient le seul écran actif.</span></div></div>
-  <div class="phase"><span class="num">2</span><div><strong>Pendant la session</strong><span>Les écrans branchés au PC sont éteints : personne ne voit ce que vous faites à distance.</span></div></div>
+  <div class="phase"><span class="num">2</span><div><strong>Pendant la session</strong><span>Les écrans branchés à l'ordinateur sont éteints : personne ne voit ce que vous faites à distance.</span></div></div>
   <div class="phase"><span class="num">3</span><div><strong>À la déconnexion</strong><span>L'écran virtuel disparaît et vos écrans reviennent avec leur disposition habituelle.</span></div></div>
 </div>
 
@@ -239,7 +239,7 @@
   </div>
   <p class="muted">
     Crée l'écran virtuel quelques secondes puis rallume vos écrans automatiquement. Lancez le test depuis un autre
-    appareil (votre Mac par exemple) : l'écran du PC va s'éteindre pendant le test. Si vous êtes connecté au stream, vous
+    appareil (votre Mac par exemple) : l'écran de l'ordinateur va s'éteindre pendant le test. Si vous êtes connecté au stream, vous
     devez voir l'image passer au nouveau mode.
   </p>
   <div class="row test">

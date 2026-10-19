@@ -10,7 +10,7 @@
 
   const phases = [
     ['1 · À la connexion', "Un écran virtuel est créé, par exemple en 3840 × 2160 à 60 Hz pour l'Apple TV."],
-    ['2 · Pendant la session', "Les écrans branchés au PC s'éteignent : personne ne voit ce que vous faites."],
+    ['2 · Pendant la session', "Les écrans branchés à l'ordinateur s'éteignent : personne ne voit ce que vous faites."],
     ['3 · À la déconnexion', "L'écran virtuel disparaît, vos écrans reviennent avec leur disposition."],
   ]
 </script>
@@ -47,14 +47,14 @@
 <div class="grid kn-enter kn-d4">
   <section class="card small" class:on={app.options.gamepads}>
     <div class="row"><strong>Manettes</strong><Toggle bind:checked={app.options.gamepads} label="Manettes" /></div>
-    <span>Votre manette Xbox ou PlayStation est vue par le PC comme une vraie manette (pilote ViGEmBus).</span>
+    <span>Votre manette Xbox ou PlayStation est vue par l'ordinateur comme une vraie manette (pilote ViGEmBus).</span>
   </section>
   <section class="card small" class:on={app.options.virtualAudio} class:off={!app.steamSpeakers}>
     <div class="row"><strong>Son à distance</strong><Toggle bind:checked={app.options.virtualAudio} label="Son à distance" disabled={!app.steamSpeakers} /></div>
     {#if app.steamSpeakers}
-      <span>Pendant le stream, le PC se tait et le son part vers votre appareil en stéréo, 5.1 ou 7.1 (haut-parleurs virtuels de Steam).</span>
+      <span>Pendant le stream, l'ordinateur se tait et le son part vers votre appareil en stéréo, 5.1 ou 7.1 (haut-parleurs virtuels de Steam).</span>
     {:else}
-      <span>Demande Steam, qui fournit des haut-parleurs virtuels signés. Sans lui, le son sort aussi du PC.</span>
+      <span>Demande Steam, qui fournit des haut-parleurs virtuels signés. Sans lui, le son sort aussi de l'ordinateur.</span>
     {/if}
   </section>
   <section class="card small" class:on={app.options.maxPerformance}>
@@ -63,7 +63,7 @@
   </section>
   <section class="card small" class:on={app.options.startWithWindows}>
     <div class="row"><strong>Démarrer avec Windows</strong><Toggle bind:checked={app.options.startWithWindows} label="Démarrer avec Windows" /></div>
-    <span>Le serveur est prêt dès l'allumage du PC, même avant votre connexion à Windows. L'icône KyberNow s'affiche près de l'horloge à l'ouverture de votre session.</span>
+    <span>Le serveur est prêt dès l'allumage de l'ordinateur, même avant votre connexion à Windows. L'icône KyberNow s'affiche près de l'horloge à l'ouverture de votre session.</span>
   </section>
 </div>
 

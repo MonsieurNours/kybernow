@@ -1,4 +1,4 @@
-//! Diagnostic du PC avant installation. Rien n'est modifié ici.
+//! Diagnostic de l'ordinateur avant installation. Rien n'est modifié ici.
 
 use std::time::Duration;
 
@@ -117,9 +117,9 @@ pub fn run(emit: &Emit) -> SystemInfo {
     running(emit, "audio", "Son à distance");
     info.steam_speakers_inf = steam_speakers_inf();
     if info.steam_speakers_inf.is_some() {
-        emit_item(emit, Item { id: "audio", status: CheckStatus::Ok, title: "Son à distance".into(), detail: "Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.".into() });
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Ok, title: "Son à distance".into(), detail: "Haut-parleurs virtuels de Steam disponibles : pendant le stream, l'ordinateur se tait et le son part en stéréo, 5.1 ou 7.1.".into() });
     } else {
-        emit_item(emit, Item { id: "audio", status: CheckStatus::Warn, title: "Son à distance".into(), detail: "Steam n'est pas installé : le son sortira aussi des haut-parleurs du PC, au format de Windows. Installez Steam puis relancez l'installation pour en profiter.".into() });
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Warn, title: "Son à distance".into(), detail: "Steam n'est pas installé : le son sortira aussi des haut-parleurs de l'ordinateur, au format de Windows. Installez Steam puis relancez l'installation pour en profiter.".into() });
     }
 
     let (uninstaller, service) = existing_kyber();

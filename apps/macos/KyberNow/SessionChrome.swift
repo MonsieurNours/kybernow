@@ -27,8 +27,8 @@ struct SessionChrome: View {
     var body: some View {
         ZStack(alignment: .top) {
             WaitingLayer(session: session)
-            if session.hint && !session.barVisible {
-                HintToast()
+            if let hint = session.hint, !session.barVisible {
+                HintToast(hint: hint)
                     .padding(.top, 20)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
@@ -118,10 +118,15 @@ private struct WaitingLayer: View {
 
 /// Rappel après l'apparition.
 private struct HintToast: View {
+    let hint: SessionController.Hint
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
-            Text("Les commandes sont en haut de l'écran, au survol").font(Theme.sans(13)).foregroundStyle(Theme.text2)
+            Image(systemName: hint == .commands ? "arrow.up" : "computermouse").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+            Text(hint == .commands
+                 ? "Les commandes sont en haut de l'écran, au survol"
+                 : "Souris confiée au jeu · ⌃⌥⌘M pour la reprendre")
+                .font(Theme.sans(13)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 18)
         .frame(height: 44)
@@ -151,7 +156,8 @@ private struct HoverBar: View {
                 Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
                 Chip(text: session.modeLabel)
                 if let stats = session.stats {
-                    Chip(text: String(format: "%.0f i/s · décodage %.1f ms", stats.fps, stats.decodeMs))
+                    Chip(text: stats.latencyMs.map { String(format: "%.0f ms · %.0f i/s · décodage %.1f ms", $0, stats.fps, stats.decodeMs) }
+                         ?? String(format: "%.0f i/s · décodage %.1f ms", stats.fps, stats.decodeMs))
                         .help(statsHelp(stats, session.audioStats))
                 }
                 Divider().frame(height: 24).overlay(Theme.line)
@@ -235,7 +241,8 @@ private struct PadBanner: View {
 
 /// Détail des mesures : image, son, et écart entre les deux.
 private func statsHelp(_ v: VideoStats, _ a: AudioStats?) -> String {
-    var text = "Image : \(v.width) × \(v.height), \(v.format). De la réception à l'écran : \(String(format: "%.1f", v.displayMs)) ms. Images remplacées par une plus récente : \(v.skipped)/s."
+    var text = v.latencyMs.map { String(format: "Latence : %.1f ms de la capture sur l'ordinateur à l'affichage ici (médiane de la seconde).\n", $0) } ?? ""
+    text += "Image : \(v.width) × \(v.height), \(v.format). De la réception à l'écran : \(String(format: "%.1f", v.displayMs)) ms. Images remplacées par une plus récente : \(v.skipped)/s."
     if let a {
         let audio = a.bufferMs + a.outputMs
         text += "\nSon : \(a.channels) voies, tampon \(String(format: "%.0f", a.bufferMs)) ms, sortie \(String(format: "%.0f", a.outputMs)) ms."

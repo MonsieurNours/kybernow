@@ -239,11 +239,28 @@ private struct SettingsContent: View {
 
             Spacer(minLength: 0)
             BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in update(custom: true) { $0.bitrateMbps = v } }))
+            if s.profile != nil {
+                let m = sessionMode
+                let effective = s.bitrate(width: m.width, height: m.height, refresh: m.refresh)
+                if effective != s.bitrateMbps {
+                    Text("Débit du profil calé sur la 4K à 60 Hz : à \(m.width) × \(m.height) et \(m.refresh) Hz, la session part à \(effective) Mbit/s. Un débit réglé à la main reste tel quel.")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .frame(minHeight: 590, alignment: .top)
     }
 
     private var can444: Bool { ConnectionSettings.decodes444(s.codec) }
+
+    /// Mode probable de la session (l'ordinateur peut l'ajuster).
+    private var sessionMode: (width: Int, height: Int, refresh: Int) {
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        switch s.display {
+        case .custom: return (s.customWidth, s.customHeight, s.customRefresh)
+        default: return DisplayInfo.mode(for: screen, codec: s.codec, limit4K: s.limit4K)
+        }
+    }
 
     private var variableRefresh: Bool { DisplayInfo.variableRefresh(NSScreen.main ?? NSScreen.screens[0]) }
 
@@ -320,6 +337,26 @@ private struct SettingsContent: View {
                 Text("Touche ⌘ envoyée comme Ctrl").font(Theme.sans(14)).foregroundStyle(Theme.text)
                 Spacer()
                 Switch(isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }), label: "Touche ⌘ envoyée comme Ctrl")
+            }
+            HStack(spacing: 8) {
+                Text("Souris des jeux").font(Theme.sans(14)).foregroundStyle(Theme.text)
+                InfoTip(label: "Souris des jeux") {
+                    Text("Viser comme sur l'ordinateur").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("Quand un jeu cache le pointeur (vue subjective), celui du Mac se fige et seuls les déplacements bruts de la souris partent, sans l'accélération de macOS.")
+                    Text("⌃⌥⌘M rend la souris au Mac ; un clic dans l'image la redonne au jeu. Dès que l'ordinateur remontre son pointeur, celui du Mac réapparaît au même endroit.")
+                }
+                Spacer()
+                Switch(isOn: Binding(get: { s.relativeMouse }, set: { v in update { $0.relativeMouse = v } }), label: "Souris des jeux")
+            }
+            HStack(spacing: 8) {
+                Text("Presse-papiers partagé").font(Theme.sans(14)).foregroundStyle(Theme.text)
+                InfoTip(label: "Presse-papiers partagé") {
+                    Text("Copier ici, coller là-bas").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("Le texte copié sur le Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Les images et les fichiers restent de leur côté.")
+                    Text("La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers).")
+                }
+                Spacer()
+                Switch(isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }), label: "Presse-papiers partagé")
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Son").font(Theme.sans(14)).foregroundStyle(Theme.text)

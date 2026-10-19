@@ -4,17 +4,17 @@
 
 <span class="eyebrow kn-enter">Étape 1 sur 6</span>
 <h1 class="kn-enter kn-d1" style="font-size: 40px; line-height: 1.08; max-width: 620px">
-  Ce PC devient votre machine de jeu et de travail, partout chez vous.
+  Cet ordinateur devient votre machine de jeu et de travail, partout chez vous.
 </h1>
 <p class="lead kn-enter kn-d2" style="font-size: 16px">
-  Depuis votre Mac ou votre Apple TV, vous retrouvez l'écran de ce PC comme s'il était branché devant vous : l'image
+  Depuis votre Mac ou votre Apple TV, vous retrouvez l'écran de cet ordinateur comme s'il était branché devant vous : l'image
   arrive en quelques millisecondes, votre clavier, votre souris et votre manette répondent instantanément.
 </p>
 
 <div class="schema card kn-enter kn-d3">
   <div class="pc">
     <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true"><rect x="7" y="5" width="26" height="30" rx="3" fill="none" stroke="#E9EEF5" stroke-width="1.8" /><rect class="kn-glow" x="12" y="10" width="16" height="7" rx="1.5" fill="none" stroke="#6FE3C1" stroke-width="1.6" /><circle cx="20" cy="27" r="3" fill="none" stroke="#E9EEF5" stroke-width="1.6" /></svg>
-    <strong>Ce PC</strong>
+    <strong>Cet ordinateur</strong>
     <span class="mono">GPU NVIDIA · NVENC</span>
   </div>
   <div class="links">

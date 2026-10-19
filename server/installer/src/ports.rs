@@ -45,7 +45,7 @@ fn bindable(port: u16) -> bool {
     if TcpListener::bind(v4).is_err() || UdpSocket::bind(v4).is_err() {
         return false;
     }
-    // IPv6 absent du PC : seul un « déjà utilisé » compte.
+    // IPv6 absent de l'ordinateur : seul un « déjà utilisé » compte.
     let tcp6 = !matches!(TcpListener::bind(v6), Err(e) if e.kind() == AddrInUse);
     let udp6 = !matches!(UdpSocket::bind(v6), Err(e) if e.kind() == AddrInUse);
     tcp6 && udp6

@@ -13,11 +13,19 @@ public struct RemoteCursor {
     public let visible: Bool
     public let image: NSImage?
     public let hotSpot: CGPoint
+    /// Position sur l'écran de l'ordinateur, en pixels.
+    public let position: CGPoint
 }
 
 private let cursorTypes: UnsafeMutablePointer<kynput_InputType> = {
     let p = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: 1)
     p.initialize(to: KYNPUT_INPUT_TYPE_CURSOR)
+    return p
+}()
+
+private let clipboardTypes: UnsafeMutablePointer<kynput_InputType> = {
+    let p = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: 1)
+    p.initialize(to: KYNPUT_INPUT_TYPE_CLIPBOARD)
     return p
 }()
 
@@ -32,8 +40,10 @@ final class InputPipeline {
     let displayID: UInt32
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
+    /// Presse-papiers partagé (nil : désactivé dans les réglages).
+    private(set) var clipboard: ClipboardBridge?
 
-    init(display: KyberDisplay, view: StreamView) {
+    init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
         displayID = display.id
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
@@ -65,9 +75,34 @@ final class InputPipeline {
         kynput_pipeline_plug_handler(pipeline, cursor)
         kynput_handler_unref(cursor)
 
+        // Presse-papiers : reçoit les paquets de l'ordinateur, produit les nôtres.
+        if shareClipboard {
+            let bridge = ClipboardBridge()
+            let handler = kynput_handler_new(kynput_HandlerInterface(
+                start: nil,
+                stop: nil,
+                handled_types: clipboardTypes,
+                handled_types_count: 1,
+                consume: { packet, userdata in
+                    guard let packet, let userdata else { return }
+                    Unmanaged<ClipboardBridge>.fromOpaque(userdata).takeUnretainedValue().received(packet)
+                },
+                produced_types: clipboardTypes,
+                produced_types_count: 1,
+                query_type_metadata: nil,
+                destroy: { userdata in
+                    if let userdata { Unmanaged<ClipboardBridge>.fromOpaque(userdata).release() }
+                },
+                userdata: Unmanaged.passRetained(bridge).toOpaque()
+            ))
+            kynput_pipeline_plug_handler(pipeline, handler)
+            kynput_handler_unref(handler)
+            clipboard = bridge
+        }
+
         // Entrées que le pipeline ne produit pas lui-même : déclarées ici,
         // envoyées par StreamView.
-        let wanted = [KYNPUT_INPUT_TYPE_KEYBOARD, KYNPUT_INPUT_TYPE_MOUSE_POSITION, KYNPUT_INPUT_TYPE_MOUSE_BUTTON, KYNPUT_INPUT_TYPE_MOUSE_WHEEL]
+        let wanted = [KYNPUT_INPUT_TYPE_KEYBOARD, KYNPUT_INPUT_TYPE_MOUSE_POSITION, KYNPUT_INPUT_TYPE_MOUSE_MOVE, KYNPUT_INPUT_TYPE_MOUSE_BUTTON, KYNPUT_INPUT_TYPE_MOUSE_WHEEL]
         let missing = wanted.filter { !kynput_pipeline_produces_type(pipeline, $0) }
         KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(display.id))")
         if !missing.isEmpty {
@@ -107,7 +142,12 @@ final class InputPipeline {
         }
 
         // Souris absolue au départ : le curseur du PC suit celui du Mac.
-        kynput_pipeline_set_type_processing_state(pipeline, KYNPUT_INPUT_TYPE_MOUSE_MOVE, kynput_router_processing_state_bool(false))
+        setRelative(false)
+    }
+
+    /// Souris relative (jeux) : seuls les déplacements partent.
+    func setRelative(_ on: Bool) {
+        kynput_pipeline_set_type_processing_state(pipeline, KYNPUT_INPUT_TYPE_MOUSE_MOVE, kynput_router_processing_state_bool(on))
     }
 
     deinit {
@@ -116,17 +156,34 @@ final class InputPipeline {
     }
 
     func stop() {
+        clipboard?.stop()
         kynput_pipeline_flush_keys(pipeline)
     }
 
-    private var logged = Set<String>()
+    /// À appeler une fois le pipeline branché au réseau.
+    func startClipboard() {
+        guard let clipboard else { return }
+        clipboard.send = { [weak self] packet in self?.send(packet, "presse-papiers") }
+        clipboard.start()
+    }
 
+    private var logged = Set<String>()
+    private let logLock = NSLock()
+
+    /// Appelé du fil principal, et du fil de la souris relative.
     private func send(_ packet: OpaquePointer?, _ kind: String) {
         guard let packet else { return }
         let rc = kynput_consumer_consume(sink, packet)
-        if logged.insert(kind).inserted {
+        logLock.lock()
+        let first = logged.insert(kind).inserted
+        logLock.unlock()
+        if first {
             KyberLog.app.notice("entrées : premier envoi \(kind, privacy: .public) (code \(rc))")
         }
+    }
+
+    func mouseMove(dx: Int16, dy: Int16) {
+        send(kynput_mouse_move_to_packet(KYNPUT_INPUT_TARGET_HOST, dx, dy), "déplacement relatif")
     }
 
     func key(scancode: UInt16, pressed: Bool) {
@@ -169,11 +226,12 @@ final class InputPipeline {
         let width = Int(kynput_cursor_width(c))
         let height = Int(kynput_cursor_height(c))
         let hot = CGPoint(x: Int(kynput_cursor_xhot(c)), y: Int(kynput_cursor_yhot(c)))
+        let position = CGPoint(x: Int(kynput_cursor_x(c)), y: Int(kynput_cursor_y(c)))
         var count: UInt32 = 0
         guard kynput_cursor_format(c) == KYNPUT_CURSOR_FORMAT_RAW,
               let raw = kynput_cursor_raw_data(c, &count),
               width > 0, height > 0, Int(count) >= width * height
-        else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot) }
+        else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
 
         var pixels = [UInt32](repeating: 0, count: width * height)
         for i in 0..<(width * height) {
@@ -192,6 +250,6 @@ final class InputPipeline {
             ), let cg = ctx.makeImage() else { return nil }
             return NSImage(cgImage: cg, size: NSSize(width: width, height: height))
         }
-        return RemoteCursor(visible: visible, image: image, hotSpot: hot)
+        return RemoteCursor(visible: visible, image: image, hotSpot: hot, position: position)
     }
 }

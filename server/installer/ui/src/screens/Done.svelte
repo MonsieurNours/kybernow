@@ -39,11 +39,11 @@
   C'est prêt. Allumez votre Mac ou votre Apple TV.
 </h1>
 <p class="lead kn-enter" style="margin-top: 6px; animation-delay: 0.65s">
-  Le serveur tourne déjà. Vos appareils trouveront ce PC tout seuls sur le réseau ; sinon, saisissez son adresse.
+  Le serveur tourne déjà. Vos appareils trouveront cet ordinateur tout seuls sur le réseau ; sinon, saisissez son adresse.
 </p>
 
 <div class="link card kn-enter" style="animation-delay: 0.8s">
-  <div class="node"><span></span>Ce PC</div>
+  <div class="node"><span></span>Cet ordinateur</div>
   <div class="wire"><div class="wire-line"></div><span class="packet"></span></div>
   <div class="node late"><span></span>Votre Apple TV</div>
   <span class="mono">prêt à se connecter</span>
@@ -54,7 +54,7 @@
     <span class="label-mono">Pour jouer ou travailler</span>
     <strong>Ouvrez l'app sur votre Mac ou votre Apple TV</strong>
     <div class="address">
-      <span>Adresse de ce PC</span>
+      <span>Adresse de cet ordinateur</span>
       <span class="big">{ip}<span>:{streamPort}</span></span>
     </div>
     <span class="hint">
@@ -78,7 +78,7 @@
 {#if needReboot}
   <div class="reboot kn-enter" style="animation-delay: 1.1s">
     <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M14.5 9a5.5 5.5 0 11-1.6-3.9M14.5 3v3.2h-3.2" fill="none" stroke="#F5B65A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    <span>Les manettes fonctionneront après un redémarrage du PC. Le reste est déjà actif.</span>
+    <span>Les manettes fonctionneront après un redémarrage de l'ordinateur. Le reste est déjà actif.</span>
   </div>
 {/if}
 

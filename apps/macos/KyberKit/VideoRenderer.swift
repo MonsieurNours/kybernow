@@ -26,6 +26,8 @@ public struct VideoStats: Sendable {
     public var displayMs: Double = 0
     /// Images remplacées par une plus récente avant d'être affichées.
     public var skipped = 0
+    /// De la capture sur l'ordinateur à l'affichage sur le Mac (médiane de la seconde), en millisecondes.
+    public var latencyMs: Double?
     public var width = 0
     public var height = 0
     /// « 4:2:0 8 bits », « 4:4:4 10 bits »…
@@ -37,6 +39,8 @@ final class VideoRenderer {
     /// Format que le rendu ne sait pas lire : le décodeur doit en produire un autre.
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
+    /// Latence de bout en bout (mesures de Kyber), si elles sont actives.
+    var latency: LatencyTracker?
 
     /// Synchro verticale (macOS). Sans elle, l'image part dès qu'elle est prête.
     var vsync = true {
@@ -114,7 +118,12 @@ final class VideoRenderer {
     }
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
-    private func presented(_ drawable: MTLDrawable, received: UInt64) {
+    private func presented(_ drawable: MTLDrawable, received: UInt64, pts: UInt64) {
+        if drawable.presentedTime > 0, let latency {
+            // presentedTime est sur l'horloge de CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
+            let ago = CACurrentMediaTime() - drawable.presentedTime
+            latency.displayed(pts: pts, at: LatencyTracker.nowMicros() - Int64(ago * 1_000_000))
+        }
         lock.lock()
         inFlight = false
         let go = pending != nil && !scheduled
@@ -151,8 +160,8 @@ final class VideoRenderer {
               draw(buffer, layout: layout, into: drawable.texture, commands: commands)
         else { return }
 
-        let received = frame.received
-        drawable.addPresentedHandler { [weak self] d in self?.presented(d, received: received) }
+        let received = frame.received, pts = frame.pts
+        drawable.addPresentedHandler { [weak self] d in self?.presented(d, received: received, pts: pts) }
         lock.lock()
         inFlight = vsync
         inFlightSince = CACurrentMediaTime()
@@ -224,6 +233,7 @@ final class VideoRenderer {
         current.width = width
         current.height = height
         current.format = layout.label
+        current.latencyMs = latency?.drainMedian()
         onStats?(current)
         window = (now, 0, 0, 0, 0)
     }

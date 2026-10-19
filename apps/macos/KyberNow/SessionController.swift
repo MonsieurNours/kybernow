@@ -36,11 +36,20 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
+    /// Mode de l'écran de la session (celui obtenu de l'ordinateur), pour le débit.
+    private var streamMode = (width: 0, height: 0, refresh: 0)
+
+    private var streamOptions: StreamOptions {
+        host.settings.options(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
+    }
     /// Mesures de l'image (décodage par l'app), une fois par seconde.
     @Published private(set) var stats: VideoStats?
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
-    @Published private(set) var hint = false
+    enum Hint { case commands, mouse }
+    /// Rappel affiché quelques secondes en haut de l'écran.
+    @Published private(set) var hint: Hint?
+    private var mouseHintShown = false
 
     private let store: HostStore
     private let onFinish: (SessionController) -> Void
@@ -160,6 +169,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         guard visible != barVisible else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barVisible = visible }
         streamView.reservedTopBand = visible ? 150 : 0
+        streamView.relativeSuspended = visible
         window?.invalidateCursorRects(for: streamView)
     }
 
@@ -206,10 +216,10 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     /// le 4:4:4 ou le format relancent l'image (une seconde environ).
     func select(_ profile: Profile) {
         guard profile != host.settings.profile else { return }
-        let before = host.settings.options
+        let before = streamOptions
         host.settings.apply(profile)
         store.update(host)
-        let after = host.settings.options
+        let after = streamOptions
         if before.yuv444 != after.yuv444 || before.codec != after.codec {
             restartStreaming()
         } else {
@@ -241,6 +251,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             mode = DisplayInfo.mode(for: screen, codec: settings.codec, limit4K: settings.limit4K)
         }
         modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
+        streamMode = mode
         let console = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
         self.console = console
 
@@ -253,6 +264,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     modeLabel = "\(w) × \(h) · \(hz) Hz"
+                    streamMode = (w, h, hz)
                 }
                 if host.consoleFingerprint == nil || host.streamPort != result.kyberPort {
                     host.consoleFingerprint = console.fingerprint
@@ -369,7 +381,14 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         do {
             KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")
             streamView.commandAsControl = host.settings.commandAsControl
-            try kyber.startStreaming(display: display, view: streamView, options: host.settings.options)
+            streamView.mouseMode = host.settings.relativeMouse ? .auto : .absolute
+            streamView.onRelativeChanged = { [weak self] on in
+                // Première capture par un jeu : on dit comment reprendre la souris.
+                guard let self, on, !self.mouseHintShown else { return }
+                self.mouseHintShown = true
+                self.showHint(.mouse, after: 0)
+            }
+            try kyber.startStreaming(display: display, view: streamView, options: streamOptions)
             streaming = display.id
         } catch {
             fail(error.localizedDescription)
@@ -403,6 +422,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         withAnimation(.easeInOut(duration: 0.7)) { phase = .ending }
         heartbeat?.cancel()
         streamView.detach()
+        // Latence médiane de la session, montrée sur l'accueil.
+        if let latency = kyber?.sessionLatencyMs {
+            host.lastLatencyMs = latency
+            store.update(host)
+        }
         kyber?.stop()
         kyber = nil
         stats = nil
@@ -433,13 +457,19 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
-    private func showHint() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-            withAnimation(.easeOut(duration: 0.35)) { self?.hint = true }
+    private func showHint(_ which: Hint = .commands, after delay: TimeInterval = 1.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            withAnimation(.easeOut(duration: 0.35)) { self?.hint = which }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-            withAnimation(.easeIn(duration: 0.35)) { self?.hint = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay + 3.4) { [weak self] in
+            guard self?.hint == which else { return }
+            withAnimation(.easeIn(duration: 0.35)) { self?.hint = nil }
         }
+    }
+
+    /// ⌃⌥⌘M : la souris revient au Mac, ou retourne au jeu.
+    func toggleMouseCapture() {
+        streamView.toggleMouseCapture()
     }
 
     func finish() {

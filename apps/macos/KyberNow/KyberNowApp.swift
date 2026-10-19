@@ -89,6 +89,9 @@ struct KyberNowApp: App {
                 Button("Plein écran") { app.session?.toggleFullScreen() }
                     .keyboardShortcut("f", modifiers: [.control, .option, .command])
                     .disabled(app.session == nil)
+                Button("Reprendre ou rendre la souris") { app.session?.toggleMouseCapture() }
+                    .keyboardShortcut("m", modifiers: [.control, .option, .command])
+                    .disabled(app.session == nil)
             }
         }
     }

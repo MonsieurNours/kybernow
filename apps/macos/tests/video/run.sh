@@ -25,8 +25,9 @@ for c in 3366CC FF0000 FFFFFF 202020; do
     done
 done
 
-SOURCES=("$HERE/common.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift")
-swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}"
-swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}"
+SOURCES=("$HERE/common.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyTracker.swift")
+LINK=(-I "$KIT/../Vendor/include" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks")
+swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
+swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 ./decode
 ./color

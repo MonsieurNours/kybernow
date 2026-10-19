@@ -3,8 +3,10 @@
 // avec Metal dans `surface` ; pour l'AV1, VLC la dessine dans `videoView`.
 //
 // Curseur : en usage bureau, le Mac affiche toujours un curseur, à la forme
-// de celui du PC. Un masquage annoncé par Windows (frappe, changement de
-// forme) ne le fait jamais disparaître : on garde la dernière forme connue.
+// de celui de l'ordinateur. Un masquage bref (frappe, changement de forme)
+// ne le fait jamais disparaître : le serveur ne l'annonce qu'après 250 ms
+// (kyber-patches serveur 0002). Un masquage durable (jeu en vue
+// subjective) passe la souris en relative, en mode Auto (RelativeMouse).
 
 import AppKit
 @_implementationOnly import CKyber
@@ -23,6 +25,20 @@ public final class StreamView: NSView {
     public var onPointerMoved: ((CGFloat) -> Void)?
     /// Bande du haut réservée à l'app (barre ouverte) : rien n'y part vers l'ordinateur.
     public var reservedTopBand: CGFloat = 0
+
+    public enum MouseMode { case auto, absolute }
+    /// Auto : souris relative quand l'ordinateur masque son pointeur (jeux).
+    public var mouseMode: MouseMode = .auto { didSet { evaluateRelative() } }
+    /// Barre de l'app ouverte : la souris redevient absolue pour s'en servir.
+    public var relativeSuspended = false { didSet { evaluateRelative() } }
+    /// La souris est-elle relative en ce moment (pour la barre et les menus).
+    public var onRelativeChanged: ((Bool) -> Void)?
+    private let relative = RelativeMouse()
+    private var remoteHidden = false
+    private var remotePosition: CGPoint?
+    /// Libérée par l'utilisateur (⌃⌥⌘M) : reprise au prochain clic dans l'image.
+    private var releasedByUser = false
+    private var windowObservers: [NSObjectProtocol] = []
 
     private var input: InputPipeline?
     private var layout: OpaquePointer?
@@ -62,6 +78,7 @@ public final class StreamView: NSView {
         layout = kynput_video_layout_new(&window, &host)
         // AppKit ne transmet pas aux vues le relâchement d'une touche tapée
         // avec ⌘ : on le récupère avant qu'il ne se perde.
+        relative.onMove = { [weak input] dx, dy in input?.mouseMove(dx: dx, dy: dy) }
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
             guard let self, event.modifierFlags.contains(.command), self.window?.firstResponder === self else { return event }
@@ -71,6 +88,8 @@ public final class StreamView: NSView {
     }
 
     public func detach() {
+        endRelative(warp: false)
+        remoteHidden = false
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
         input?.flushKeys()
@@ -107,6 +126,11 @@ public final class StreamView: NSView {
     // MARK: - Curseur
 
     func remoteCursorChanged(_ remote: RemoteCursor) {
+        remotePosition = remote.position
+        if remote.visible == remoteHidden {
+            remoteHidden = !remote.visible
+            evaluateRelative()
+        }
         // Forme nouvelle : on l'adopte. Masquage : on garde la dernière forme.
         guard let image = remote.image else { return }
         let scale = window?.backingScaleFactor ?? 2
@@ -125,6 +149,62 @@ public final class StreamView: NSView {
         addCursorRect(bounds, cursor: cursor)
     }
 
+    // MARK: - Souris relative
+
+    /// ⌃⌥⌘M : rend la souris au Mac (ou la reprend).
+    public func toggleMouseCapture() {
+        if relative.active {
+            releasedByUser = true
+        } else {
+            releasedByUser = false
+        }
+        evaluateRelative()
+    }
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers = []
+        guard let window else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                self?.evaluateRelative()
+            })
+        }
+    }
+
+    private func evaluateRelative() {
+        let want = mouseMode == .auto && remoteHidden && !relativeSuspended && !releasedByUser
+            && input != nil && window?.isKeyWindow == true
+        if want, !relative.active {
+            // On n'entre qu'avec le pointeur sur l'image (pas pendant un tour dans les menus).
+            guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
+            input?.setRelative(true)
+            relative.start()
+            onRelativeChanged?(true)
+        } else if !want, relative.active {
+            endRelative(warp: true)
+        }
+    }
+
+    /// Le pointeur du Mac réapparaît là où est celui de l'ordinateur.
+    private func endRelative(warp: Bool) {
+        guard relative.active else { return }
+        relative.stop()
+        input?.setRelative(false)
+        onRelativeChanged?(false)
+        guard warp, let layout, let host = remotePosition, let window, let screen = window.screen ?? NSScreen.screens.first else { return }
+        var hostPos = kynput_Position(x: host.x, y: host.y)
+        var local = kynput_Position(x: 0, y: 0)
+        kynput_video_layout_host_to_local(layout, &hostPos, &local)
+        let inView = NSPoint(x: local.x, y: bounds.height - local.y)
+        let onScreen = window.convertPoint(toScreen: convert(inView, to: nil))
+        // CGWarp compte en points depuis le coin haut gauche de l'écran principal.
+        let top = NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY
+        CGWarpMouseCursorPosition(CGPoint(x: onScreen.x, y: top - onScreen.y))
+        CGAssociateMouseAndMouseCursorPosition(1)
+    }
+
     // MARK: - Souris
 
     private func inReservedBand(_ event: NSEvent) -> Bool {
@@ -133,6 +213,10 @@ public final class StreamView: NSView {
     }
 
     private func sendPosition(_ event: NSEvent) {
+        if relative.active {
+            relative.appKitMoved(dx: event.deltaX, dy: event.deltaY)
+            return
+        }
         let p = convert(event.locationInWindow, from: nil)
         onPointerMoved?(bounds.height - p.y)
         guard let input, let layout, !inReservedBand(event) else { return }
@@ -149,7 +233,12 @@ public final class StreamView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        if inReservedBand(event) { return }
+        if releasedByUser {
+            // Clic dans l'image après ⌃⌥⌘M : le jeu reprend la souris.
+            releasedByUser = false
+            evaluateRelative()
+        }
+        if !relative.active, inReservedBand(event) { return }
         sendPosition(event)
         input?.mouseButton(.left, pressed: true)
     }

@@ -237,7 +237,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
             if out.status.code() == Some(3010) {
                 need_reboot = true;
             }
-            ctx.log("Haut-parleurs virtuels de Steam installés : le son du PC sera coupé pendant le stream");
+            ctx.log("Haut-parleurs virtuels de Steam installés : le son de l'ordinateur sera coupé pendant le stream");
             ctx.progress(86.0);
             Ok(())
         })?,

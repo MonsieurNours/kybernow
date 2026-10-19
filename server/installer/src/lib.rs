@@ -1,4 +1,4 @@
-//! Cœur de l'installateur KyberNow : vérifications du PC, choix des ports,
+//! Cœur de l'installateur KyberNow : vérifications de l'ordinateur, choix des ports,
 //! installation et désinstallation. Partagé par le lanceur et l'interface.
 
 pub mod checks;
