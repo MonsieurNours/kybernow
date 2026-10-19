@@ -1,5 +1,6 @@
-// Ce qui se dessine par-dessus l'image : l'attente, l'apparition (gerbe de
-// particules et fondu), la barre au survol, la fin de session.
+// Ce qui se dessine par-dessus la scène et l'image : les textes de l'attente
+// et de la fin, le rappel, la barre au survol (le décor animé est dans
+// ConnectScene).
 
 import AppKit
 import KyberKit
@@ -26,6 +27,12 @@ struct SessionChrome: View {
     var body: some View {
         ZStack(alignment: .top) {
             WaitingLayer(session: session)
+            if session.hint && !session.barVisible {
+                HintToast()
+                    .padding(.top, 20)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
             if session.barVisible {
                 HoverBar(session: session)
                     .padding(.top, 14)
@@ -42,46 +49,46 @@ struct SessionChrome: View {
 
 // MARK: - Attente
 
+/// Textes de l'attente, sous le logo de la scène (ConnectScene dessine le
+/// décor, les ondes, le halo et le logo).
 private struct WaitingLayer: View {
     @ObservedObject var session: SessionController
 
-    private var hidden: Bool {
-        session.revealedAt != nil && session.phase != .preparing
-            && !{ if case .failed = session.phase { return true } else { return false } }()
-    }
+    private var failed: Bool { if case .failed = session.phase { return true } else { return false } }
+    private var hidden: Bool { session.revealedAt != nil && !failed }
 
     var body: some View {
-        ZStack {
-            Theme.background
-                .opacity(hidden ? 0 : 1)
-                .animation(.easeOut(duration: 1.2).delay(0.25), value: hidden)
-            VStack(spacing: 18) {
-                // Le logo s'efface en grandissant, puis quitte la scène (son
-                // ondulation animée ne tourne plus sous l'image).
-                if !hidden {
-                    Mark(size: 110)
-                        .transition(.scale(scale: 1.5).combined(with: .opacity))
-                }
+        GeometryReader { geo in
+            VStack(spacing: 10) {
                 Text(session.host.name)
                     .font(Theme.display(30))
                     .foregroundStyle(Theme.text)
-                    .opacity(hidden ? 0 : 1)
-                    .animation(.easeOut(duration: 0.3), value: hidden)
-                status
-                    .font(.system(size: 16))
-                    .foregroundStyle(Theme.muted)
-                    .opacity(hidden ? 0 : 1)
-                    .animation(.easeOut(duration: 0.3), value: session.phase)
-                    .id(statusKey)
-                    .transition(.opacity.combined(with: .offset(y: 6)))
-                if case .failed = session.phase {
+                ZStack {
+                    status
+                        .id(statusKey)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))
+                }
+                .font(Theme.sans(16))
+                .foregroundStyle(Theme.muted)
+                .animation(.easeOut(duration: 0.45), value: statusKey)
+                if failed {
                     Button("Revenir à l'accueil") { session.dismissFailure() }
                         .buttonStyle(PrimaryButton())
-                        .padding(.top, 8)
+                        .padding(.top, 14)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .animation(.easeOut(duration: 0.5), value: hidden)
+            .frame(width: geo.size.width)
+            .padding(.top, geo.size.height / 2 + 62)
+            .opacity(hidden ? 0 : 1)
+            .animation(.easeOut(duration: 0.3), value: hidden)
+            if !hidden && !failed {
+                Button("Annuler") { session.end() }
+                    .buttonStyle(.plain)
+                    .font(Theme.sans(14))
+                    .foregroundStyle(Theme.muted)
+                    .frame(width: geo.size.width)
+                    .position(x: geo.size.width / 2, y: geo.size.height - 56)
+            }
         }
         .allowsHitTesting(!hidden)
     }
@@ -109,6 +116,20 @@ private struct WaitingLayer: View {
     }
 }
 
+/// Rappel après l'apparition.
+private struct HintToast: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
+            Text("Les commandes sont en haut de l'écran, au survol").font(Theme.sans(13)).foregroundStyle(Theme.text2)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 44)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.14)))
+    }
+}
+
 // MARK: - Barre au survol
 
 private struct HoverBar: View {
@@ -125,7 +146,7 @@ private struct HoverBar: View {
                     Button {
                         session.select(profile)
                     } label: {
-                        if profile == session.host.profile {
+                        if profile == session.host.settings.profile {
                             Label(profile.label, systemImage: "checkmark")
                         } else {
                             Text(profile.label)
@@ -133,7 +154,7 @@ private struct HoverBar: View {
                     }
                 }
             } label: {
-                Text("Profil \(session.host.profile.label)").font(.system(size: 13, weight: .semibold))
+                Text("Profil \(session.host.settings.profileLabel)").font(Theme.sans(13, .semibold))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -197,12 +218,14 @@ private struct BarButton: View {
 private struct ClosingLayer: View {
     @ObservedObject var session: SessionController
 
+    private var trouble: Bool {
+        session.closing.done && (session.closing.error != nil || session.closing.displayRestored == false || session.closing.audioRestored == false)
+    }
+
     var body: some View {
-        ZStack {
-            Theme.background.opacity(0.94)
-            VStack(spacing: 24) {
-                Mark(size: 92)
-                Text(session.closing.done && session.closing.error == nil ? "À bientôt" : "Fin de la session")
+        GeometryReader { geo in
+            VStack(spacing: 22) {
+                Text(session.closing.done && !trouble ? "À bientôt" : "Fin de la session")
                     .font(Theme.display(30))
                     .foregroundStyle(Theme.text)
                     .contentTransition(.opacity)
@@ -217,10 +240,10 @@ private struct ClosingLayer: View {
                     }
                 }
                 .frame(minHeight: 60, alignment: .top)
-                if session.closing.done, session.closing.error != nil || session.closing.displayRestored == false || session.closing.audioRestored == false {
+                if trouble {
                     VStack(spacing: 12) {
                         Text("Rien n'est perdu : l'ordinateur rétablit aussi tout au prochain redémarrage de KyberNow.")
-                            .font(.system(size: 13))
+                            .font(Theme.sans(13))
                             .foregroundStyle(Theme.muted)
                         Button("Revenir à l'accueil") { session.finish() }
                             .buttonStyle(PrimaryButton())
@@ -228,6 +251,8 @@ private struct ClosingLayer: View {
                     .transition(.opacity)
                 }
             }
+            .frame(width: geo.size.width)
+            .padding(.top, geo.size.height / 2 + 62)
         }
     }
 }
@@ -241,7 +266,7 @@ private struct Check: View {
             Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                 .font(.system(size: 18))
                 .foregroundStyle(ok ? Theme.accent : Theme.warn)
-            Text(text).font(.system(size: 15)).foregroundStyle(ok ? Theme.text : Theme.warn)
+            Text(text).font(Theme.sans(15)).foregroundStyle(ok ? Theme.text : Theme.warn)
         }
     }
 }

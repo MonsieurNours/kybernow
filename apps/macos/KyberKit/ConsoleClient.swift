@@ -18,6 +18,15 @@ public struct PrepareResult: Sendable {
     public let audioChannels: Int?
 }
 
+/// Ce que la console dit de l'ordinateur.
+public struct HostInfo: Sendable, Equatable {
+    public let hostname: String?
+    public let gpu: String?
+    public let av1: Bool
+    public let virtualDisplay: Bool
+    public let speakers: Bool
+}
+
 /// Ce que la console confirme en fin de session.
 public struct EndReport: Sendable {
     public let displayRestored: Bool
@@ -53,10 +62,10 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         self.fingerprint = fingerprint
     }
 
-    private func call(_ method: String, _ path: String, body: [String: Any]? = nil) async throws -> [String: Any] {
+    private func call(_ method: String, _ path: String, body: [String: Any]? = nil, timeout: TimeInterval = 20) async throws -> [String: Any] {
         var request = URLRequest(url: base.appendingPathComponent(path))
         request.httpMethod = method
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         request.setValue("1", forHTTPHeaderField: "x-kyber-admin")
         if let body {
@@ -79,10 +88,24 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         return json
     }
 
+    public func info() async throws -> HostInfo {
+        let json = try await call("GET", "api/stream/info", timeout: 4)
+        let vd = json["virtual_display"] as? [String: Any]
+        let audio = json["audio"] as? [String: Any]
+        return HostInfo(
+            hostname: json["hostname"] as? String,
+            gpu: json["gpu"] as? String,
+            av1: json["av1"] as? Bool ?? false,
+            virtualDisplay: vd?["available"] as? Bool ?? false,
+            speakers: audio?["speakers"] as? Bool ?? false
+        )
+    }
+
     /// Annonce l'écran de ce Mac et le son voulu, avant de se connecter à Kyber.
-    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int) async throws -> PrepareResult {
+    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int, virtualDisplay: Bool = true) async throws -> PrepareResult {
         let json = try await call("POST", "api/stream/prepare", body: [
             "width": width, "height": height, "refresh": refresh, "audio_channels": audioChannels,
+            "virtual_display": virtualDisplay,
         ])
         let applied = json["applied"] as? [String: Any]
         let audio = json["audio"] as? [String: Any]

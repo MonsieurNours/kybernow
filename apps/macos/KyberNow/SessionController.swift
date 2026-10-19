@@ -31,12 +31,14 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
+    /// Rappel affiché quelques secondes après l'apparition.
+    @Published private(set) var hint = false
 
     private let store: HostStore
     private let onFinish: (SessionController) -> Void
 
     private let streamView = StreamView(frame: .zero)
-    private let burstView = BurstView(frame: .zero)
+    private let scene = ConnectScene(frame: .zero)
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
     /// synchronisation du son se calent, les premières images irrégulières
     /// restent sous l'écran d'attente.
@@ -83,9 +85,10 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         streamView.autoresizingMask = [.width, .height]
         streamView.onPointerMoved = { [weak self] distance in self?.pointerMoved(distanceFromTop: distance) }
         container.addSubview(streamView)
-        burstView.frame = container.bounds
-        burstView.autoresizingMask = [.width, .height]
-        container.addSubview(burstView)
+        scene.frame = container.bounds
+        scene.autoresizingMask = [.width, .height]
+        container.addSubview(scene)
+        scene.hide(streamView)
         let chrome = ChromeHostingView(rootView: SessionChrome(session: self))
         chrome.session = self
         chrome.frame = container.bounds
@@ -94,7 +97,13 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         window.contentView = container
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(streamView)
-        window.toggleFullScreen(nil)
+        if host.settings.display == .window {
+            // Session fenêtrée : l'écran virtuel suivra la taille de la fenêtre.
+            let visible = screen.visibleFrame
+            window.setFrame(visible.insetBy(dx: visible.width * 0.1, dy: visible.height * 0.1), display: true)
+        } else {
+            window.toggleFullScreen(nil)
+        }
         self.window = window
     }
 
@@ -143,11 +152,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     /// Change de profil en cours de session : le débit change en direct,
     /// le 4:4:4 ou le format relancent l'image (une seconde environ).
     func select(_ profile: Profile) {
-        guard profile != host.profile else { return }
-        let before = host.profile.options
-        host.profile = profile
+        guard profile != host.settings.profile else { return }
+        let before = host.settings.options
+        host.settings.apply(profile)
         store.update(host)
-        let after = profile.options
+        let after = host.settings.options
         if before.yuv444 != after.yuv444 || before.codec != after.codec {
             restartStreaming()
         } else {
@@ -164,7 +173,19 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             return
         }
         let screen = window?.screen ?? NSScreen.main ?? NSScreen.screens[0]
-        let mode = DisplayInfo.mode(for: screen)
+        let settings = host.settings
+        let mode: (width: Int, height: Int, refresh: Int)
+        switch settings.display {
+        case .custom:
+            mode = (settings.customWidth, settings.customHeight, settings.customRefresh)
+        case .window:
+            // Session fenêtrée : l'écran virtuel prend la taille de la fenêtre, en pixels.
+            let content = window?.contentLayoutRect.size ?? screen.frame.size
+            let scale = screen.backingScaleFactor
+            mode = (Int(content.width * scale) / 2 * 2, Int(content.height * scale) / 2 * 2, max(30, screen.maximumFramesPerSecond))
+        case .match, .physical:
+            mode = DisplayInfo.mode(for: screen)
+        }
         modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
         let console = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
         self.console = console
@@ -172,9 +193,9 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         Task {
             do {
                 phase = .preparing
-                let channels = AudioOutput.channels()
+                let channels = settings.audio.channels
                 KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     modeLabel = "\(w) × \(h) · \(hz) Hz"
@@ -197,7 +218,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             throw ConsoleError.http(0, "port du flux inconnu")
         }
         phase = .connecting
-        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password)
+        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect)
         kyber.onEvent = { [weak self] in self?.handle($0) }
         self.kyber = kyber
         try kyber.connect()
@@ -228,7 +249,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 guard let self, self.revealedAt == nil, self.kyber != nil else { return }
                 self.revealedAt = Date()
                 self.phase = .streaming
-                self.burstView.play()
+                self.scene.reveal(self.streamView)
+                self.showHint()
                 self.host.lastSession = Date()
                 self.store.update(self.host)
                 self.window?.makeFirstResponder(self.streamView)
@@ -288,7 +310,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         if revealedAt == nil { phase = .starting }
         do {
             KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")
-            try kyber.startStreaming(display: display, view: streamView, options: host.profile.options)
+            streamView.commandAsControl = host.settings.commandAsControl
+            try kyber.startStreaming(display: display, view: streamView, options: host.settings.options)
             streaming = display.id
         } catch {
             fail(error.localizedDescription)
@@ -318,6 +341,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     func end() {
         guard phase != .ending && phase != .ended else { return }
         setBar(false)
+        if revealedAt != nil { scene.close(streamView) }
         withAnimation(.easeInOut(duration: 0.7)) { phase = .ending }
         heartbeat?.cancel()
         streamView.detach()
@@ -346,6 +370,15 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 try? await Task.sleep(for: .milliseconds(1100))
                 finish()
             }
+        }
+    }
+
+    private func showHint() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            withAnimation(.easeOut(duration: 0.35)) { self?.hint = true }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            withAnimation(.easeIn(duration: 0.35)) { self?.hint = false }
         }
     }
 

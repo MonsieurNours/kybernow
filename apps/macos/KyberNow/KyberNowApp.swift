@@ -2,9 +2,15 @@
 
 import SwiftUI
 
+enum Route: Equatable {
+    case home
+    case settings(UUID)
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     let store = HostStore()
+    @Published var route: Route = .home
     @Published private(set) var session: SessionController?
     @Published var toast: String?
 
@@ -33,10 +39,20 @@ final class AppModel: ObservableObject {
 struct KyberNowApp: App {
     @StateObject private var app = AppModel()
 
+    init() {
+        Theme.registerFonts()
+    }
+
     var body: some Scene {
         WindowGroup("KyberNow") {
-            HomeView()
-                .environmentObject(app)
+            Group {
+                switch app.route {
+                case .home: HomeView()
+                case let .settings(id): SettingsView(hostID: id)
+                }
+            }
+            .animation(.easeInOut(duration: 0.25), value: app.route)
+            .environmentObject(app)
                 .onReceive(app.store.objectWillChange) { app.objectWillChange.send() }
         }
         .windowStyle(.hiddenTitleBar)

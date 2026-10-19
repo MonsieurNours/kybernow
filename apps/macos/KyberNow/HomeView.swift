@@ -1,5 +1,7 @@
-// Accueil : vos ordinateurs, ajout manuel, connexion.
+// Accueil : l'ordinateur principal en grand, les autres à côté, l'ajout.
+// Fidèle à l'écran « 1 · Accueil » de la maquette.
 
+import KyberKit
 import SwiftUI
 
 struct HomeView: View {
@@ -9,22 +11,30 @@ struct HomeView: View {
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Theme.background.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
-                    header
-                    if app.store.hosts.isEmpty {
-                        empty
-                    } else {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 380), spacing: 18)], spacing: 18) {
-                            ForEach(app.store.hosts) { host in
-                                HostCard(host: host)
-                            }
-                            addTile
+            SignalBackground().ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 28) {
+                header
+                if let main = app.store.ordered.first {
+                    HStack(alignment: .top, spacing: 20) {
+                        FeaturedCard(host: main)
+                            .frame(maxWidth: .infinity)
+                            .layoutPriority(2)
+                        VStack(spacing: 20) {
+                            ForEach(app.store.ordered.dropFirst()) { HostTile(host: $0) }
+                            AddTile { adding = true }
                         }
+                        .frame(width: 340)
                     }
+                    .frame(maxHeight: 470)
+                } else {
+                    EmptyState { adding = true }
                 }
-                .padding(40)
+                Spacer(minLength: 0)
+                footer
             }
+            .padding(.horizontal, 56)
+            .padding(.top, 36)
+            .padding(.bottom, 18)
             if let toast = app.toast {
                 Toast(text: toast).padding(24)
                     .transition(.move(edge: .top).combined(with: .opacity))
@@ -32,98 +42,232 @@ struct HomeView: View {
         }
         .sheet(isPresented: $adding) { AddHostSheet() }
         .preferredColorScheme(.dark)
-        .frame(minWidth: 860, minHeight: 560)
+        .frame(minWidth: 1100, minHeight: 760)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { adding = true } label: { Label("Ajouter un ordinateur", systemImage: "plus") }
+            }
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 12) {
                 Mark(size: 44)
-                (Text("Kyber").foregroundStyle(Theme.text) + Text("Now").foregroundStyle(Theme.accent))
-                    .font(Theme.display(26))
+                Wordmark(size: 26)
             }
             Text("Sur quel ordinateur allez-vous ?")
-                .font(Theme.display(40))
+                .font(Theme.display(44))
                 .foregroundStyle(Theme.text)
-            Text("Ajoutez un ordinateur équipé de KyberNow avec son adresse et le port de sa console.")
-                .font(.system(size: 15))
+            Text("Ajoutez un ordinateur équipé de KyberNow avec son adresse et le port de sa console. Par VPN, utilisez son adresse dans le VPN.")
+                .font(Theme.sans(15))
+                .foregroundStyle(Theme.muted)
+                .frame(maxWidth: 620, alignment: .leading)
+                .lineSpacing(3)
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("KyberNow · basé sur Kyber 0.29").font(Theme.sans(12)).foregroundStyle(Theme.faint)
+            Spacer()
+            Link("À propos", destination: URL(string: "https://www.leslignesclaires.fr")!)
+                .font(Theme.sans(12))
                 .foregroundStyle(Theme.muted)
         }
     }
-
-    private var empty: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Aucun ordinateur pour l'instant.").foregroundStyle(Theme.muted)
-            Button("Ajouter un ordinateur") { adding = true }.buttonStyle(PrimaryButton())
-        }
-    }
-
-    private var addTile: some View {
-        Button { adding = true } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Ajouter un ordinateur", systemImage: "plus")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.text)
-                Text("Par adresse et port de la console")
-                    .font(.system(size: 13)).foregroundStyle(Theme.muted)
-            }
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-            .padding(20)
-            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line, style: StrokeStyle(lineWidth: 1, dash: [5])))
-        }
-        .buttonStyle(.plain)
-    }
 }
 
-struct HostCard: View {
+// MARK: - Carte principale
+
+private struct FeaturedCard: View {
     @EnvironmentObject var app: AppModel
     let host: Host
 
+    private var status: HostStatus? { app.store.status[host.id] }
+
+    private var profile: Binding<Profile?> {
+        Binding(get: { host.settings.profile }, set: { p in
+            guard let p else { return }
+            var h = host
+            h.settings.apply(p)
+            app.store.update(h)
+        })
+    }
+
+    private var screenLine: String {
+        switch host.settings.display {
+        case .physical: return "Écran de l'ordinateur tel quel, sans écran virtuel"
+        case .window: return "Écran virtuel à la taille de la fenêtre"
+        case .custom: return "Écran virtuel \(host.settings.customWidth) × \(host.settings.customHeight) à \(host.settings.customRefresh) Hz"
+        case .match:
+            let m = DisplayInfo.mode(for: NSScreen.main ?? NSScreen.screens[0])
+            return "Écran virtuel \(m.width) × \(m.height) à \(m.refresh) Hz, comme cet écran"
+        }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 22) {
             HStack {
-                Text(host.name).font(Theme.display(26)).foregroundStyle(Theme.text)
+                StatusPill(online: status?.online, text: status == nil ? "Recherche…" : status!.online ? "En ligne · réseau local" : "Hors ligne")
                 Spacer()
+                Button { app.route = .settings(host.id) } label: {
+                    Label("Réglages", systemImage: "slider.horizontal.3").font(Theme.sans(13))
+                }
+                .buttonStyle(GhostButton(height: 34, tint: Theme.text2))
                 Menu {
                     Button("Oublier cet ordinateur", role: .destructive) { app.store.remove(host) }
                 } label: {
-                    Image(systemName: "ellipsis.circle").foregroundStyle(Theme.muted)
+                    Image(systemName: "ellipsis").foregroundStyle(Theme.muted)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .frame(width: 30)
             }
-            Text("\(host.address) · console \(host.consolePort)\(host.streamPort.map { " · flux \($0)" } ?? "")")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(Theme.muted)
-            Picker("Profil", selection: Binding(
-                get: { host.profile },
-                set: { var h = host; h.profile = $0; app.store.update(h) }
-            )) {
-                ForEach(Profile.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 260)
-            Text(host.profile.hint).font(.system(size: 13)).foregroundStyle(Theme.muted)
-            HStack(spacing: 14) {
-                Button {
-                    app.connect(host)
-                } label: {
-                    Label("Se connecter", systemImage: "arrow.right")
+
+            HStack(spacing: 32) {
+                MonitorArt().frame(width: 250)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(host.name).font(Theme.display(34)).foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.6)
+                    if let gpu = status?.info?.gpu {
+                        Text(gpu).font(Theme.sans(14)).foregroundStyle(Theme.text2)
+                    }
+                    Text("\(host.address)\(host.streamPort.map { " · flux \($0)" } ?? "")")
+                        .font(Theme.mono(13))
+                        .foregroundStyle(Theme.muted)
+                    Label(screenLine, systemImage: "display")
+                        .font(Theme.sans(13))
+                        .foregroundStyle(Theme.text2)
+                        .labelStyle(AccentIconLabel())
+                        .padding(.top, 4)
                 }
-                .buttonStyle(PrimaryButton())
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                Theme.eyebrow("Profil")
+                HStack(spacing: 16) {
+                    Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile, height: 36)
+                        .fixedSize()
+                    Text(host.settings.profile?.hint ?? "Personnalisé : vos propres réglages, dans Réglages.")
+                        .font(Theme.sans(13))
+                        .foregroundStyle(Theme.muted)
+                        .frame(maxWidth: 380, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 18) {
+                Button { app.connect(host) } label: {
+                    HStack(spacing: 10) {
+                        Text("Se connecter")
+                        Image(systemName: "arrow.right").font(.system(size: 15, weight: .bold))
+                    }
+                }
+                .buttonStyle(PrimaryButton(height: 52))
                 .disabled(app.session != nil)
+                .keyboardShortcut(.defaultAction)
                 if let last = host.lastSession {
-                    Text("Dernière session : \(last.formatted(.relative(presentation: .named)))")
-                        .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                    Text("Dernière session : \(last.formatted(.relative(presentation: .named)))\(host.lastLatencyMs.map { String(format: " · %.0f ms de latence médiane", $0) } ?? "")")
+                        .font(Theme.sans(13))
+                        .foregroundStyle(Theme.faint)
                 }
             }
         }
-        .padding(24)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line))
+        .padding(28)
+        .frame(height: 470)
+        .background(Theme.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line2))
     }
 }
+
+private struct AccentIconLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon.foregroundStyle(Theme.accent)
+            configuration.title
+        }
+    }
+}
+
+// MARK: - Autres ordinateurs
+
+private struct HostTile: View {
+    @EnvironmentObject var app: AppModel
+    let host: Host
+
+    private var status: HostStatus? { app.store.status[host.id] }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle().fill(status?.online == true ? Theme.accent : Theme.rgb(0x5B6778)).frame(width: 8, height: 8)
+                Text(status?.online == true ? "En ligne" : "Hors ligne").font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                Spacer()
+                Button { app.route = .settings(host.id) } label: { Image(systemName: "slider.horizontal.3") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.muted)
+                    .help("Réglages de connexion")
+            }
+            Text(host.name).font(Theme.display(22)).foregroundStyle(status?.online == true ? Theme.text : Theme.text2).lineLimit(1)
+            Text(status?.info?.gpu ?? host.address).font(Theme.sans(13)).foregroundStyle(Theme.faint).lineLimit(1)
+            Button(status?.online == true ? "Se connecter" : "Réessayer") {
+                if status?.online == true { app.connect(host) } else { Task { await app.store.refresh(host) } }
+            }
+            .buttonStyle(GhostButton(height: 36, tint: status?.online == true ? Theme.accentLight : Theme.text2, border: status?.online == true ? Theme.accentLine : Theme.line2))
+            .padding(.top, 6)
+            .disabled(app.session != nil)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.rail.opacity(0.9), in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line))
+    }
+}
+
+private struct AddTile: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 30, height: 30)
+                        .background(Theme.surface2, in: RoundedRectangle(cornerRadius: 9))
+                    Text("Ajouter un ordinateur").font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
+                }
+                Text("Par adresse et port de la console").font(Theme.sans(13)).foregroundStyle(Theme.muted)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line2, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 110)
+    }
+}
+
+private struct EmptyState: View {
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Aucun ordinateur pour l'instant.").font(Theme.sans(15)).foregroundStyle(Theme.muted)
+            Button("Ajouter un ordinateur", action: action).buttonStyle(PrimaryButton())
+        }
+        .padding(28)
+        .frame(maxWidth: 520, alignment: .leading)
+        .background(Theme.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line2))
+    }
+}
+
+// MARK: - Ajout
 
 struct AddHostSheet: View {
     @EnvironmentObject var app: AppModel
@@ -146,24 +290,32 @@ struct AddHostSheet: View {
     private var valid: Bool { missing.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Ajouter un ordinateur").font(Theme.display(26)).foregroundStyle(Theme.text)
-            Text("Le port de la console s'affiche à la fin de l'installation sur l'ordinateur. Le compte est celui créé pendant l'installation.")
-                .font(.system(size: 13)).foregroundStyle(Theme.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            Form {
-                TextField("Nom", text: $name, prompt: Text("facultatif, ex. PC du salon"))
-                TextField("Adresse", text: $address, prompt: Text("ex. 192.168.1.100"))
-                TextField("Port de la console", text: $port, prompt: Text("ex. 37462"))
-                TextField("Identifiant", text: $username)
-                SecureField("Mot de passe", text: $password)
-            }
-            .formStyle(.grouped)
-            Text(valid ? "Le mot de passe est gardé dans le Trousseau de ce Mac." : "Il manque " + ListFormatter.localizedString(byJoining: missing) + ".")
-                .font(.system(size: 12)).foregroundStyle(valid ? Theme.muted : Theme.warn)
-            HStack {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Ajouter un ordinateur").font(Theme.display(30)).foregroundStyle(Theme.text)
+                    Text("Le compte est celui créé pendant l'installation sur l'ordinateur.").font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                }
                 Spacer()
-                Button("Annuler") { dismiss() }.buttonStyle(GhostButton())
+                Button { dismiss() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(GhostButton(height: 34))
+                    .keyboardShortcut(.cancelAction)
+            }
+            HStack(alignment: .top, spacing: 14) {
+                field("Adresse de l'ordinateur", text: $address, prompt: "ex. 192.168.1.100", mono: true)
+                field("Port de la console", text: $port, prompt: "ex. 37462", mono: true).frame(width: 170)
+            }
+            field("Nom (facultatif)", text: $name, prompt: "ex. PC du salon")
+            HStack(alignment: .top, spacing: 14) {
+                field("Identifiant", text: $username, prompt: "")
+                field("Mot de passe", text: $password, prompt: "", secure: true)
+            }
+            Notice(kind: .info, text: "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Le mot de passe est gardé dans le Trousseau de ce Mac.")
+            HStack {
+                Text(valid ? " " : "Il manque " + ListFormatter.localizedString(byJoining: missing) + ".")
+                    .font(Theme.sans(12)).foregroundStyle(Theme.warn)
+                Spacer()
+                Button("Annuler") { dismiss() }.buttonStyle(GhostButton(height: 44))
                 Button("Ajouter") {
                     let a = address.trimmingCharacters(in: .whitespaces)
                     app.store.add(Host(name: name.isEmpty ? a : name, address: a, consolePort: UInt16(port.trimmingCharacters(in: .whitespaces))!, username: username), password: password)
@@ -171,11 +323,33 @@ struct AddHostSheet: View {
                 }
                 .buttonStyle(PrimaryButton())
                 .disabled(!valid)
+                .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(28)
-        .frame(width: 520)
+        .padding(.horizontal, 36).padding(.vertical, 32)
+        .frame(width: 760)
         .background(Theme.surface)
+        .preferredColorScheme(.dark)
+    }
+
+    private func field(_ label: String, text: Binding<String>, prompt: String, mono: Bool = false, secure: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+            Group {
+                if secure {
+                    SecureField("", text: text, prompt: Text(prompt))
+                } else {
+                    TextField("", text: text, prompt: Text(prompt).foregroundColor(Theme.rgb(0x6B7789)))
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(mono ? Theme.mono(15) : Theme.sans(15))
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 14)
+            .frame(height: 46)
+            .background(Theme.bar, in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.line2))
+        }
     }
 }
 
@@ -183,12 +357,17 @@ struct Toast: View {
     let text: String
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
-            Text(text).font(.system(size: 13)).foregroundStyle(Theme.text)
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.accentInk)
+                .frame(width: 24, height: 24)
+                .background(Theme.accent, in: Circle())
+            Text(text).font(Theme.sans(13)).foregroundStyle(Theme.text)
         }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line))
+        .padding(.horizontal, 16).padding(.vertical, 14)
+        .background(Theme.surface.opacity(0.95), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.line2))
+        .shadow(color: .black.opacity(0.45), radius: 20, y: 10)
     }
 }

@@ -26,6 +26,9 @@ public struct StreamOptions: Sendable {
     /// Débit en bits par seconde.
     public var bitrate: UInt32 = 80_000_000
     public var audio = true
+    /// `true` : chaque image arrive, quitte à attendre ; `false` : une image
+    /// perdue est réparée (correction d'erreurs) ou sautée, jamais attendue.
+    public var reliable = false
 
     public init() {}
 }
@@ -71,7 +74,7 @@ public final class KyberClient {
         KyberLog.install()
     }()
 
-    public init(host: String, port: UInt16, username: String, password: String) throws {
+    public init(host: String, port: UInt16, username: String, password: String, autoReconnect: Bool = true) throws {
         _ = Self.setup
         self.host = host
         let creds = kyclient_auth_credentials_new_basic(username, password)
@@ -79,7 +82,7 @@ public final class KyberClient {
         try check(kyclient_connect_config_default(host, creds, &config), "configuration de la connexion")
         defer { kyclient_connect_config_unref(config) }
         kyclient_connect_config_set_streamer_port(config, port)
-        kyclient_connect_config_set_auto_reconnection(config, true)
+        kyclient_connect_config_set_auto_reconnection(config, autoReconnect)
         // Premier contact : on retient le certificat (TOFU). La console a déjà
         // été vérifiée par empreinte ; une invite dédiée viendra ensuite.
         try check(kyclient_connect_config_enable_tofu_auto_accept(config), "vérification du certificat")
@@ -118,7 +121,10 @@ public final class KyberClient {
         self.input = input
         view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
 
-        let protocolRef = kyclient_streaming_protocol_kymux(KYCLIENT_KYMUX_VIDEO_PROTOCOL_RELIABLE, KYCLIENT_KYMUX_AUDIO_PROTOCOL_RELIABLE)
+        let protocolRef = kyclient_streaming_protocol_kymux(
+            options.reliable ? KYCLIENT_KYMUX_VIDEO_PROTOCOL_RELIABLE : KYCLIENT_KYMUX_VIDEO_PROTOCOL_UNRELIABLE_FEC,
+            KYCLIENT_KYMUX_AUDIO_PROTOCOL_RELIABLE
+        )
         defer { kyclient_streaming_protocol_unref(protocolRef) }
         var session: OpaquePointer?
         try check(kyclient_streaming_session_config_default(protocolRef, &session), "configuration de la session")
