@@ -238,7 +238,7 @@ async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -
 }
 
 async fn log_list(State(s): State<AppState>) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({ "files": logs::list(&s.log_dir())? })))
+    Ok(Json(json!({ "files": logs::list(&s.log_sources())? })))
 }
 
 #[derive(Deserialize)]
@@ -252,8 +252,8 @@ async fn log_tail(
     Query(q): Query<TailQuery>,
 ) -> ApiResult<Json<Value>> {
     let lines = q.lines.unwrap_or(500).min(5000);
-    let dir = s.log_dir();
-    let text = tokio::task::spawn_blocking(move || logs::tail(&dir, &name, lines))
+    let sources = s.log_sources();
+    let text = tokio::task::spawn_blocking(move || logs::tail(&sources, &name, lines))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))??;
     Ok(Json(json!({ "text": text })))

@@ -159,8 +159,17 @@ impl Deref for AppState {
 }
 
 impl AppState {
-    pub fn log_dir(&self) -> PathBuf {
-        self.kyber_dir.join("log")
+    /// Dossiers de journaux : Kyber 0.29 écrit dans `%ProgramData%\\Kyber\\logs`
+    /// (les versions précédentes à côté de l'exécutable), la console dans son
+    /// dossier de données.
+    pub fn log_sources(&self) -> Vec<logs::Source> {
+        let mut sources = Vec::new();
+        if let Some(pd) = std::env::var_os("ProgramData") {
+            sources.push(logs::Source { prefix: "kyber", dir: PathBuf::from(pd).join("Kyber").join("logs") });
+        }
+        sources.push(logs::Source { prefix: "kyber", dir: self.kyber_dir.join("log") });
+        sources.push(logs::Source { prefix: "kybernow", dir: self.data_dir.clone() });
+        sources
     }
 
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings)) -> Result<()> {

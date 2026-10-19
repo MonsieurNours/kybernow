@@ -63,8 +63,14 @@ kyber-apps/
 - ✅ **Validé le 2026-10-19** sur le PC (RTX 3080 Ti, 2 écrans 4K) : écran virtuel 3840 × 2160 à 160 Hz créé avant la connexion, écrans physiques éteints puis restaurés, stream reçu à 152 i/s, 8,3 ms de latence médiane.
 - **Piège connu** : l'énumérateur d'écrans de Kyber voit l'ancienne disposition pendant ~50 ms ; `prepare` attend que Windows n'affiche plus que l'écran virtuel, puis 1,5 s, avant de répondre. Les apps devront choisir l'écran d'après la liste mise à jour.
 - **Reste à valider** : le mode « Pour toute connexion » (écran créé en cours de flux), et la reprise de main par un 2e appareil (déconnexion du 1er).
+- **Piège corrigé** : le chien de garde de SudoVDA (3 s) est armé dès la création de l'écran. Le signal de vie part donc d'un fil dédié dès `add`, pas seulement une fois la session active : sinon l'écran disparaissait pendant la mise en place (écran blanc côté client, échec d'initialisation de l'encodeur côté serveur).
 - **Architecture** : le service pilote SudoVDA (IOCTL, signal de vie) ; un agent éphémère `kyber-admin display-agent`, lancé avec le jeton SYSTEM dans la session console, change la disposition (API CCD).
 - **Concession de sécurité** : SudoVDA est auto-signé, son certificat est ajouté aux autorités racines du PC.
+
+### Qualité d'image : 4:4:4, HDR, VRR (Kyber 0.29)
+- **4:4:4** ✅ validé le 2026-10-19 (HEVC, 3840 × 2160 à 160 Hz, client `--444`). Coût par rapport au 4:2:0 : encodage NVENC ~9 ms en médiane (p95 46 ms), décodage ~6,6 ms, latence totale ~18 ms en médiane. À proposer dans le profil « Bureau » (texte net), pas dans le profil « Jeu ».
+- **HDR** ❌ impossible avec Kyber 0.29 : la capture (DXGI Desktop Duplication) est en BGRA 8 bits. Garder le HDR Windows désactivé sur l'écran virtuel.
+- **VRR** : côté serveur, Kyber envoie une image quand l'écran change (débit d'images suivant le contenu). Côté client, cela dépend du rendu : l'app macOS pourra présenter les images au rythme de leur arrivée (Metal, `CAMetalDisplayLink`) sur les écrans ProMotion / Adaptive-Sync. Pas de VRR sur Apple TV.
 
 ### Installeur
 - Kyber à une version épinglée (binaires repris depuis la release officielle), SudoVDA, ViGEmBus, kyber-admin.
@@ -92,5 +98,4 @@ kyber-apps/
 ## Questions ouvertes
 
 - Nom du produit / identifiant de bundle.
-- HDR et 4K à 120 Hz nécessaires dès la v1 ?
 - Plusieurs utilisateurs simultanés sur le même PC ?

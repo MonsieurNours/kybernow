@@ -18,6 +18,7 @@ mod sudovda;
 pub mod topology;
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -133,6 +134,8 @@ pub struct Manager {
     /// Sérialise les opérations longues (création, isolement, restauration).
     ops: Mutex<()>,
     last_error: Mutex<Option<String>>,
+    /// Un écran virtuel existe : le fil des signaux de vie doit pinguer le pilote.
+    alive: AtomicBool,
     pub settings: Mutex<VdSettings>,
 }
 
@@ -152,6 +155,7 @@ impl Manager {
             session: Mutex::new(None),
             ops: Mutex::new(()),
             last_error: Mutex::new(None),
+            alive: AtomicBool::new(false),
             settings: Mutex::new(settings),
         })
     }
@@ -176,6 +180,7 @@ impl Manager {
                 }
             }
         }
+        self.alive.store(false, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(500));
         if let Err(e) = self.backend.restore() {
             self.fail(&e);
@@ -203,20 +208,30 @@ impl Manager {
         self.stop_locked("remplacée par une nouvelle session");
 
         let guid: [u8; 16] = rand::random();
+        let begun = Instant::now();
         let created = self.backend.create(guid, mode).inspect_err(|e| self.fail(e))?;
+        // Pinguer dès maintenant : l'isolement peut durer plus que le chien de garde.
+        self.alive.store(true, Ordering::SeqCst);
         let _ = std::fs::write(self.record_path(), serde_json::to_vec(&Record { guid: hex::encode(guid) })?);
         let applied = match self.backend.isolate(created, mode) {
             Ok(v) => v,
             Err(e) => {
                 self.fail(&e);
                 let _ = self.backend.remove(guid);
+                self.alive.store(false, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(500));
                 let _ = self.backend.restore();
                 let _ = std::fs::remove_file(self.record_path());
                 return Err(e);
             }
         };
-        tracing::info!("écran virtuel {}×{} à {} Hz actif ({origin:?})", mode.width, mode.height, mode.refresh);
+        tracing::info!(
+            "écran virtuel {}×{} à {} Hz actif ({origin:?}), prêt en {} ms",
+            mode.width,
+            mode.height,
+            mode.refresh,
+            begun.elapsed().as_millis()
+        );
         *self.last_error.lock().unwrap() = None;
         *self.session.lock().unwrap() = Some(Session {
             origin,
@@ -252,6 +267,7 @@ impl Manager {
         if let Err(e) = self.backend.remove(session.guid) {
             self.fail(&e);
         }
+        self.alive.store(false, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(500));
         if let Err(e) = self.backend.restore() {
             self.fail(&e);
@@ -284,11 +300,33 @@ impl Manager {
         })
     }
 
-    /// Boucle de surveillance (fil dédié) : signal de vie, fins de session, mode automatique.
+    /// Fils dédiés : signaux de vie du pilote, puis surveillance des sessions.
     pub fn supervise(self: Arc<Self>) {
+        // Signaux de vie : un fil à part, que rien d'autre ne retarde (NVML,
+        // arrêt d'une session…), pour que le chien de garde (3 s) ne se déclenche
+        // pas en pleine session.
+        let pinger = self.clone();
+        std::thread::spawn(move || {
+            let mut ping_failed = false;
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                if !pinger.alive.load(Ordering::SeqCst) {
+                    ping_failed = false;
+                    continue;
+                }
+                match pinger.backend.ping() {
+                    Ok(()) => ping_failed = false,
+                    Err(e) if !ping_failed => {
+                        ping_failed = true;
+                        pinger.fail(&e);
+                    }
+                    Err(_) => {}
+                }
+            }
+        });
+
         std::thread::spawn(move || {
             let mut idle_since: Option<Instant> = None;
-            let mut ping_failed = false;
             loop {
                 std::thread::sleep(Duration::from_secs(1));
                 let encoding = crate::gpu::encoder_sessions().unwrap_or(0) > 0;
@@ -306,14 +344,6 @@ impl Manager {
                 };
 
                 if active {
-                    match self.backend.ping() {
-                        Ok(()) => ping_failed = false,
-                        Err(e) if !ping_failed => {
-                            ping_failed = true;
-                            self.fail(&e);
-                        }
-                        Err(_) => {}
-                    }
                     idle_since = if encoding { None } else { idle_since.or(Some(Instant::now())) };
                     let idle_long = idle_since.is_some_and(|t| t.elapsed() > Duration::from_secs(10));
                     if expired_test {

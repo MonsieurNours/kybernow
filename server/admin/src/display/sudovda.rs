@@ -146,7 +146,8 @@ impl Device {
         let mut returned = 0u32;
         let ok = unsafe { DeviceIoControl(self.0, code, in_ptr, in_len, out_ptr, out_len, &mut returned, null_mut()) };
         if ok == 0 {
-            bail!("SudoVDA (code {code:#x}) : {}", std::io::Error::last_os_error());
+            let err = std::io::Error::last_os_error();
+            return Err(anyhow::Error::new(err).context(format!("SudoVDA (code {code:#x})")));
         }
         Ok(())
     }
@@ -188,7 +189,14 @@ impl Device {
 
     pub fn remove(&self, guid: [u8; 16]) -> Result<()> {
         let params = RemoveParams { monitor_guid: guid_from_bytes(guid) };
-        self.ioctl::<_, ()>(IOCTL_REMOVE, Some(&params), None)
+        match self.ioctl::<_, ()>(IOCTL_REMOVE, Some(&params), None) {
+            // ERROR_NOT_FOUND : le pilote l'a déjà retiré (chien de garde, rechargement).
+            Err(e) if e.downcast_ref::<std::io::Error>().and_then(|e| e.raw_os_error()) == Some(1168) => {
+                tracing::warn!("l'écran virtuel avait déjà été retiré par le pilote");
+                Ok(())
+            }
+            other => other,
+        }
     }
 }
 
