@@ -134,9 +134,16 @@ struct AddHostSheet: View {
     @State private var username = ""
     @State private var password = ""
 
-    private var valid: Bool {
-        !address.trimmingCharacters(in: .whitespaces).isEmpty && UInt16(port) != nil && !username.isEmpty && !password.isEmpty
+    private var missing: [String] {
+        var m: [String] = []
+        if address.trimmingCharacters(in: .whitespaces).isEmpty { m.append("l'adresse") }
+        if UInt16(port.trimmingCharacters(in: .whitespaces)) == nil { m.append(port.isEmpty ? "le port de la console" : "un port valide (1 à 65535)") }
+        if username.isEmpty { m.append("l'identifiant") }
+        if password.isEmpty { m.append("le mot de passe") }
+        return m
     }
+
+    private var valid: Bool { missing.isEmpty }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -145,21 +152,21 @@ struct AddHostSheet: View {
                 .font(.system(size: 13)).foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             Form {
-                TextField("Nom", text: $name, prompt: Text("PC du salon"))
-                TextField("Adresse", text: $address, prompt: Text("192.168.1.100 ou pc.local"))
-                TextField("Port de la console", text: $port, prompt: Text("37462"))
+                TextField("Nom", text: $name, prompt: Text("facultatif, ex. PC du salon"))
+                TextField("Adresse", text: $address, prompt: Text("ex. 192.168.1.100"))
+                TextField("Port de la console", text: $port, prompt: Text("ex. 37462"))
                 TextField("Identifiant", text: $username)
                 SecureField("Mot de passe", text: $password)
             }
             .formStyle(.grouped)
-            Text("Le mot de passe est gardé dans le Trousseau de ce Mac.")
-                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+            Text(valid ? "Le mot de passe est gardé dans le Trousseau de ce Mac." : "Il manque " + ListFormatter.localizedString(byJoining: missing) + ".")
+                .font(.system(size: 12)).foregroundStyle(valid ? Theme.muted : Theme.warn)
             HStack {
                 Spacer()
                 Button("Annuler") { dismiss() }.buttonStyle(GhostButton())
                 Button("Ajouter") {
                     let a = address.trimmingCharacters(in: .whitespaces)
-                    app.store.add(Host(name: name.isEmpty ? a : name, address: a, consolePort: UInt16(port)!, username: username), password: password)
+                    app.store.add(Host(name: name.isEmpty ? a : name, address: a, consolePort: UInt16(port.trimmingCharacters(in: .whitespaces))!, username: username), password: password)
                     dismiss()
                 }
                 .buttonStyle(PrimaryButton())

@@ -55,12 +55,22 @@ struct Mark: View {
 
 struct PrimaryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 15, weight: .semibold))
-            .padding(.horizontal, 22)
-            .frame(height: 44)
-            .background(Theme.accent.opacity(configuration.isPressed ? 0.8 : 1), in: RoundedRectangle(cornerRadius: 11))
-            .foregroundStyle(Theme.accentInk)
+        PrimaryLabel(configuration: configuration)
+    }
+
+    private struct PrimaryLabel: View {
+        let configuration: Configuration
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.horizontal, 22)
+                .frame(height: 44)
+                .background(enabled ? Theme.accent.opacity(configuration.isPressed ? 0.8 : 1) : Theme.surface2, in: RoundedRectangle(cornerRadius: 11))
+                .foregroundStyle(enabled ? Theme.accentInk : Theme.muted)
+                .animation(.easeOut(duration: 0.2), value: enabled)
+        }
     }
 }
 
