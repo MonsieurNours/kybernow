@@ -1,0 +1,73 @@
+--- a/subprojects/txproto/src/iosys_wasapi.c	2026-10-19 23:19:31
++++ b/subprojects/txproto/src/iosys_wasapi.c	2026-10-19 23:19:41
+@@ -19,6 +19,7 @@
+ #define COBJMACROS
+ #define CONST_VTABLE
+ 
++#include <stdlib.h>
+ #include <initguid.h>
+ #include <mmdeviceapi.h>
+ #include <functiondiscoverykeys_devpkey.h>
+@@ -27,6 +28,7 @@
+ 
+ #include <libavutil/channel_layout.h>
+ #include <libavutil/crc.h>
++#include <libavutil/mathematics.h>
+ #include <libavutil/time.h>
+ 
+ #include "iosys_common.h"
+@@ -58,8 +60,18 @@
+     int pool_entry_size;
+ 
+     int dropped_frames;
++
++    /* KyberNow: timestamps follow the sample count, resynchronised on the
++     * capture clock when it drifts. Wall-clock time at GetBuffer() made
++     * packets read in a burst share almost the same pts, so audio went
++     * "backward in time" for the encoder and the player. */
++    int64_t sync_pts;     /* us, pts of the first sample since the last sync */
++    int64_t sync_samples; /* samples captured since the last sync */
++    int synced;
+ } WasapiCapture;
+ 
++#define WASAPI_RESYNC_US 40000
++
+ static uint32_t gen_identifier(const LPWSTR s)
+ {
+     const AVCRC *table = av_crc_get_table(AV_CRC_32_IEEE);
+@@ -296,7 +308,21 @@
+         f->nb_samples       = frames;
+         f->opaque_ref       = av_buffer_allocz(sizeof(FormatExtraData));
+ 
+-        f->pts              = av_gettime_relative() - priv->epoch;
++        /* u64QPCPosition is in 100 ns units, on the same clock as
++         * av_gettime_relative() (QueryPerformanceCounter). */
++        int64_t captured = qpc ? (int64_t)(qpc / 10) - priv->epoch
++                               : av_gettime_relative() - priv->epoch;
++        int64_t expected = priv->sync_pts +
++                           av_rescale(priv->sync_samples, 1000000, entry->sample_rate);
++        if (!priv->synced || (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) ||
++            llabs(captured - expected) > WASAPI_RESYNC_US) {
++            priv->sync_pts = captured;
++            priv->sync_samples = 0;
++            priv->synced = 1;
++            expected = captured;
++        }
++        f->pts = expected;
++        priv->sync_samples += frames;
+ 
+         FormatExtraData *fe = (FormatExtraData *)f->opaque_ref->data;
+         fe->time_base       = av_make_q(1, 1000000);
+@@ -321,7 +347,11 @@
+         f->data[0] = f->buf[0]->data;
+         f->extended_data = f->data;
+ 
+-        memcpy(f->data[0], buf, frames * priv->sample_size);
++        /* A silent packet's buffer content is undefined: send zeros. */
++        if (flags & AUDCLNT_BUFFERFLAGS_SILENT)
++            memset(f->data[0], 0, frames * priv->sample_size);
++        else
++            memcpy(f->data[0], buf, frames * priv->sample_size);
+ 
+         IAudioCaptureClient_ReleaseBuffer(capture, frames);
+ 

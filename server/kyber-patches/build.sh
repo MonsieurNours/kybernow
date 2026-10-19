@@ -7,6 +7,7 @@
 #   0001  son HD : débit Opus selon le nombre de canaux, réglages
 #         audio_quality (standard, hd, studio) et audio_bitrate
 #   0002  curseur stable : masquage transmis après 250 ms seulement
+#   0003  son continu : horodatage audio au fil des échantillons, silences à zéro
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans

@@ -20,37 +20,9 @@ enum DisplayInfo {
 }
 
 enum AudioOutput {
-    /// Canaux à demander à l'ordinateur : la configuration d'enceintes de la
-    /// sortie par défaut (Configuration audio et MIDI › Configurer les
-    /// enceintes), pas son nombre de sorties physiques (une carte son à
-    /// 8 sorties reste souvent branchée sur une paire d'enceintes).
-    static func channels() -> Int {
-        var device = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &device) == noErr else { return 2 }
-
-        address.mSelector = kAudioDevicePropertyPreferredChannelLayout
-        address.mScope = kAudioDevicePropertyScopeOutput
-        guard AudioObjectGetPropertyDataSize(device, &address, 0, nil, &size) == noErr, size >= MemoryLayout<AudioChannelLayout>.size else { return 2 }
-        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioChannelLayout>.alignment)
-        defer { raw.deallocate() }
-        guard AudioObjectGetPropertyData(device, &address, 0, nil, &size, raw) == noErr else { return 2 }
-        let layout = raw.assumingMemoryBound(to: AudioChannelLayout.self)
-        // Seules les positions d'enceintes comptent : une carte son déclare
-        // souvent ses sorties en canaux « discrets » sans configuration surround.
-        let count = Int(layout.pointee.mNumberChannelDescriptions)
-        let offset = MemoryLayout<AudioChannelLayout>.offset(of: \.mChannelDescriptions)!
-        let descriptions = UnsafeBufferPointer(start: (raw + offset).assumingMemoryBound(to: AudioChannelDescription.self), count: count)
-        let labels = Set(descriptions.map(\.mChannelLabel))
-        let surround: Set<AudioChannelLabel> = [kAudioChannelLabel_LeftSurround, kAudioChannelLabel_RightSurround]
-        let rear: Set<AudioChannelLabel> = [kAudioChannelLabel_RearSurroundLeft, kAudioChannelLabel_RearSurroundRight,
-                                            kAudioChannelLabel_LeftSurroundDirect, kAudioChannelLabel_RightSurroundDirect]
-        guard labels.contains(kAudioChannelLabel_Center), labels.isSuperset(of: surround) else { return 2 }
-        return labels.intersection(rear).count >= 2 ? 8 : 6
-    }
+    /// Canaux à demander à l'ordinateur. Stéréo par défaut : le nombre de
+    /// sorties d'une carte son ne dit rien des enceintes branchées (une
+    /// Focusrite à 8 sorties pilote souvent une simple paire). Le 5.1 et le
+    /// 7.1 viendront d'un choix explicite dans les réglages de l'app.
+    static func channels() -> Int { 2 }
 }
