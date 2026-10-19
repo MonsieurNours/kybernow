@@ -114,9 +114,26 @@ private struct SettingsContent: View {
             Text("L'ordinateur peut créer un écran virtuel à la taille du vôtre et mettre ses vrais écrans en veille le temps de la session. L'image remplit votre écran, sans bandes noires.")
                 .font(Theme.sans(13)).foregroundStyle(Theme.muted).lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
-            let m = DisplayInfo.mode(for: NSScreen.main ?? NSScreen.screens[0])
+            let screen = NSScreen.main ?? NSScreen.screens[0]
+            let m = DisplayInfo.mode(for: screen, codec: s.codec, limit4K: s.limit4K)
+            let native = DisplayInfo.mode(for: screen, codec: s.codec)
+            let full = DisplayInfo.mode(for: screen, codec: .hevc)
             VStack(spacing: 8) {
                 option(.match, "Comme cet écran", "\(m.width) × \(m.height) · \(m.refresh) Hz")
+                if s.display == .match, full.width > 3840 || full.height > 2160 {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Au plus 4K").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                            Text(s.codec == .h264 && native.width < full.width
+                                 ? "En H.264, l'ordinateur encode au plus 4096 pixels de large."
+                                 : "Plus léger à encoder, décoder et transporter. Sans : le texte au pixel près.")
+                                .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer()
+                        Switch(isOn: Binding(get: { s.limit4K }, set: { v in update { $0.limit4K = v } }), label: "Au plus 4K")
+                    }
+                    .padding(.leading, 28)
+                }
                 option(.window, "Taille de la fenêtre", "session fenêtrée, l'écran suit la fenêtre")
                 option(.custom, "Sur mesure", "\(s.customWidth) × \(s.customHeight) · \(s.customRefresh) Hz")
                 if s.display == .custom { customMode }

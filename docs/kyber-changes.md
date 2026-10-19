@@ -1,0 +1,29 @@
+# Ce que KyberNow change dans Kyber
+
+KyberNow s'appuie sur Kyber 0.29 (AGPL-3.0, sources dans `third_party/kyber-desktop`). Le code de Kyber n'est jamais modifié en place dans ce dépôt : chaque changement est un correctif rangé ici, appliqué par un script au moment de compiler. Le reste (écran virtuel, sortie audio virtuelle, curseur, comptes) passe par la console KyberNow et par la configuration de Kyber, sans toucher à son code.
+
+| Correctif | Où | Ce qu'il change | Pourquoi |
+|---|---|---|---|
+| `server/kyber-patches/0001-kyavservice-son-hd.patch` | kyavservice (serveur) | Débit Opus selon le nombre de voies, réglable : `[kyavserver] audio_quality` = `standard` (128 kbit/s, la valeur fixe de Kyber), `hd` (par défaut : 256 kbit/s en stéréo, 96 kbit/s par voie au-delà), `studio` (510 kbit/s en stéréo, 256 kbit/s par voie) ; `audio_bitrate` en bit/s l'emporte. Le moteur txproto garde la disposition de la sortie capturée (stéréo, 5.1, 7.1). | 128 kbit/s pour tout, même en 7.1 : son pauvre. |
+| `server/kyber-patches/0002-txproto-curseur-stable.patch` | txproto `dxgi_cursor.c` (serveur) | Un masquage du pointeur n'est transmis qu'après 250 ms sans retour ; une forme inutilisable est ignorée sans changer la position ni la visibilité. | Windows masque le pointeur quelques images à la moindre frappe ou au moindre changement de forme : chez le client, le pointeur clignotait et passait en souris relative. |
+| `server/kyber-patches/0003-txproto-son-continu.patch` | txproto `iosys_wasapi.c` (serveur) | Horodatage du son au fil des échantillons, recalé sur l'horloge de capture WASAPI (QPC) s'il s'en écarte de plus de 40 ms ou à chaque discontinuité. Les paquets marqués silencieux sont remplis de zéros. | Les paquets lus en rafale partageaient presque le même horodatage (« Queue input is backward in time ») : son haché et distordu. Le contenu d'un paquet silencieux n'est pas défini par Windows. |
+| `server/kyber-patches/0004-txproto-son-basse-latence.patch` | kyavservice `txproto/audio.rs` (serveur) | Capture WASAPI et paquets Opus de 10 ms au lieu de 20, Opus en mode `lowdelay` (CELT seul, sans l'anticipation de SILK). | Environ 15 ms de latence en moins sur le son. Aux débits de 0001, la qualité ne change pas à l'oreille. |
+| `apps/macos/kyber-patches/0001-kyclient-paquets-audio-video.patch` | libkyclient (client) | `kyclient_video_player_config_set_packet_sink` et `kyclient_audio_session_config_set_packet_sink` : les paquets (`kyclient_MediaPacket` : type, codec, config, image clé, pts, échantillons perdus, données) vont à un rappel de l'app au lieu de VLC. Sans rappel, rien ne change. Nouveau module `media_sink.rs`, tâche de transfert dans `kymux_backend/desktop.rs`. | L'app décode elle-même (VideoToolbox + Metal, Opus + Core Audio) : décodage en 1 à 3 ms, image la plus récente toujours affichée, écrans à fréquence variable suivis, son à une vingtaine de millisecondes de tampon au lieu de 50 ms fixes, sans dépendre de VLC (sur iOS et tvOS aussi). |
+
+## Appliquer et recompiler
+
+- **Serveur** : `server/kyber-patches/build.sh` remet les fichiers concernés dans leur état d'origine (git), applique tous les correctifs dans l'ordre, recompile kyavserver et txproto pour Windows depuis macOS (MinGW, UCRT), puis assemble `third_party/payload/kyber-overlay/`. L'installateur et `update.ps1` posent cette surcouche par-dessus les fichiers de Kyber 0.29 ; l'ancienne version est gardée dans `kyber\avant-maj`. Détails de la compilation croisée : [build-notes.md](build-notes.md).
+- **Client macOS** : `apps/macos/scripts/build-kyclient.sh` applique les correctifs au dépôt `kysdk/kyctl`, recompile libkyclient (`cargo cinstall`) et la remplace dans `apps/macos/Vendor/`.
+
+Ajouter un correctif : modifier les sources dans `third_party/kyber-desktop`, puis enregistrer la différence ici. Pour le serveur, un fichier `NNNN-sujet.patch` au format `diff -u` (chemins `a/…` et `b/…` relatifs à `kysdk/kymedia`). Pour le client, `git -C kysdk/kyctl diff -- kyclient`. Ensuite, compléter le tableau ci-dessus.
+
+## Réglé sans modifier le code de Kyber
+
+- **Configuration** (`kyber_config.toml`, par la console) : port, encodeur, compte Basic unique, secret JWT tiré au hasard à l'installation (à la place de la clé de développement fournie par Kyber), réglages de la console (pages Réglages et Avancé), commentaires préservés et sauvegarde à chaque écriture.
+- **Écran virtuel** : SudoVDA (pilote d'Apollo 0.4.6), créé par la console à chaque session à la taille de l'écran du client. La disposition est enregistrée par Windows (`SDC_SAVE_TO_DATABASE`, `CDS_UPDATEREGISTRY`) pour qu'il ne la réapplique pas en boucle. Retiré en fin de session, écrans d'origine restaurés.
+- **Son** : sortie par défaut basculée sur les haut-parleurs virtuels de Steam (Steam Streaming Speakers) au bon nombre de voies pendant la session, puis remise comme avant. Le son ne sort ainsi plus sur les haut-parleurs du PC.
+- **Pointeur** : « Masquer le pointeur pendant la frappe » coupé le temps de la session, puis remis.
+
+## Pour remonter à l'équipe Kyber
+
+Les correctifs serveur 0001 à 0004 corrigent des défauts ou des limites générales : débit Opus fixe, clignotement du curseur, horodatage WASAPI, latence du son. Ils pourraient être proposés tels quels. Le correctif client est une extension d'API, sans effet si l'app ne l'utilise pas.

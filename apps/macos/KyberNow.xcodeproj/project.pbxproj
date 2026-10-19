@@ -23,6 +23,7 @@
 		73369CA48A1A5A22C82DFFCD /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0DDB25384557B8B551045E /* Model.swift */; };
 		776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E79EB33EC59E27B02F415F /* InputPipeline.swift */; };
 		7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */; };
+		7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2105139B92C07E1555E99C60 /* AudioPlayer.swift */; };
 		81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B2EC8B704608F092769F7C /* DisplayInfo.swift */; };
 		83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */; };
 		881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */; };
@@ -65,6 +66,7 @@
 /* Begin PBXFileReference section */
 		08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClient.swift; sourceTree = "<group>"; };
 		1689EF4F776E41A31B8D894A /* IBMPlexSans-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-wdth-wght.ttf"; sourceTree = "<group>"; };
+		2105139B92C07E1555E99C60 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		2E52A2468E17E9C7D59192C6 /* BricolageGrotesque-opsz-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BricolageGrotesque-opsz-wdth-wght.ttf"; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
@@ -148,6 +150,7 @@
 		7EB036315CA2FC7D7B5D515C /* KyberKit */ = {
 			isa = PBXGroup;
 			children = (
+				2105139B92C07E1555E99C60 /* AudioPlayer.swift */,
 				08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
 				B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */,
@@ -316,6 +319,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */,
 				EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
 				7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */,

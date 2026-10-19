@@ -1,0 +1,24 @@
+--- a/kyavservice/src/txproto/audio.rs	2026-10-20 00:45:28
++++ b/kyavservice/src/txproto/audio.rs	2026-10-20 00:45:28
+@@ -29,7 +29,9 @@
+ use crate::config::{AudioBitrate, opus_bitrate};
+ use crate::txproto::{Error, Event, Result};
+ 
+-const FRAME_DURATION: i64 = 20;
++// KyberNow: 10 ms instead of 20 for both the WASAPI capture buffer and the
++// Opus frame, about 15 ms less latency end to end.
++const FRAME_DURATION: i64 = 10;
+ 
+ fn plug_error_listener(
+     ctx: &Txproto,
+@@ -113,7 +115,9 @@
+     info!("Audio: Opus, {channels} channels, {} kbit/s", bitrate / 1000);
+     let options = Dictionary::from_entries(&[
+         ("b", bitrate).into(),
+-        ("application", "audio").into(),
++        // KyberNow: CELT only, without the SILK look-ahead (a few ms less);
++        // at these bitrates music and voice stay transparent.
++        ("application", "lowdelay").into(),
+         ("frame_duration", FRAME_DURATION).into(),
+         ("vbr", "on").into(),
+         ("flags", "+global_header").into(),

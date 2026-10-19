@@ -15,13 +15,14 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 ## Ce que fait l'installation
 
 1. Arrête et retire une version précédente ou Kyber officiel (désinstalleur NSIS lancé avec `_?=` pour l'attendre).
-2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`).
+2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). Dans `kyber\`, les fichiers de Kyber 0.29 recouverts par la surcouche corrigée (`kyavserver.exe`, txproto et leur runtime, voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
 3. Génère le certificat TLS de Kyber (`cert-gen.exe`).
 4. `kyber-admin init` : port, encodeur, compte unique (Kyber Basic + console), secret JWT aléatoire à la place de la clé de développement de Kyber.
 5. Crée le service `kyber` (chemin entre guillemets, redémarrage automatique en cas d'échec) et ouvre son démarrage et son arrêt aux utilisateurs interactifs (`sc sdset`, voir plus bas).
-6. Pare-feu : ports du stream (TCP/UDP) et de la console (TCP) sur les profils privé et domaine ; réseau « Public » passé en « Privé ».
+6. Pare-feu : ports du stream (TCP/UDP) et de la console (TCP), annonce Bonjour de la console (UDP 5353, pour que les apps trouvent l'ordinateur), sur les profils privé et domaine ; réseau « Public » passé en « Privé ».
 7. SudoVDA : certificat dans Racine + Éditeurs approuvés, nœud de périphérique et pilote via `nefconc`.
 8. ViGEmBus, s'il n'est pas déjà présent (`/quiet /norestart`).
+8. bis. Son à distance (option) : haut-parleurs virtuels de Steam (`SteamStreamingSpeakers.inf` via `pnputil /add-driver /install`) si Steam est installé. La console y bascule la sortie de Windows pendant les sessions : le son quitte les haut-parleurs du PC et part au bon nombre de voies.
 9. Service `kyber-admin` (console, mêmes droits que `kyber`), mode d'alimentation Performances élevées, inscription dans « Applications installées », raccourcis de la console et de l'icône dans le menu Démarrer.
 10. Icône de la zone de notification : lancée à la fin de l'installation, et à chaque ouverture de session si « Démarrer avec Windows » est coché (valeur `KyberNow` de `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Sans cette option, les deux services passent en démarrage manuel.
 

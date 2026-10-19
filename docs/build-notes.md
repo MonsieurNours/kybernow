@@ -27,7 +27,7 @@ s=$(otool -l rootfs-arm64-macos/lib/libkyclient.0.1.0.dylib | awk '/stroff/{prin
 
 ### libkyclient avec les correctifs KyberNow
 
-`apps/macos/scripts/build-kyclient.sh` applique `apps/macos/kyber-patches/*.patch` au dépôt `kysdk/kyctl`, recompile libkyclient (`cargo cinstall`, quelques secondes) et la remplace dans `apps/macos/Vendor/`. À relancer après chaque `vendor-kyber.sh`.
+`apps/macos/scripts/build-kyclient.sh` applique `apps/macos/kyber-patches/*.patch` au dépôt `kysdk/kyctl`, recompile libkyclient (`cargo cinstall`, quelques secondes) et la remplace dans `apps/macos/Vendor/`. À relancer après chaque `vendor-kyber.sh`. `vendor-kyber.sh` copie aussi les en-têtes d'Opus (module `COpus`) : le son est décodé par l'app.
 
 - **strip** : avec le `strip` par défaut du profil release, l'éditeur de liens d'Xcode 27 refuse la bibliothèque (« mis-aligned LINKEDIT string pool »). Le script compile avec `CARGO_PROFILE_RELEASE_STRIP=false`.
 

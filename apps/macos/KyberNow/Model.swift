@@ -112,6 +112,8 @@ struct ConnectionSettings: Codable, Hashable {
     /// Synchro verticale : sans elle, chaque image s'affiche dès qu'elle est
     /// décodée, quitte à couper l'écran en deux (déchirure).
     var vsync = true
+    /// « Comme cet écran » ramené à la 4K au plus (écrans 5K, 6K).
+    var limit4K = false
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -164,7 +166,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync
+        case autoReconnect, commandAsControl, audio, vsync, limit4K
     }
 
     init(from decoder: Decoder) throws {
@@ -183,6 +185,7 @@ extension ConnectionSettings {
         commandAsControl = (try? c.decodeIfPresent(Bool.self, forKey: .commandAsControl)) ?? commandAsControl
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
+        limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
     }
 }
 

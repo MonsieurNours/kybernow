@@ -152,7 +152,7 @@ private struct HoverBar: View {
                 Chip(text: session.modeLabel)
                 if let stats = session.stats {
                     Chip(text: String(format: "%.0f i/s · décodage %.1f ms", stats.fps, stats.decodeMs))
-                        .help("\(stats.width) × \(stats.height), \(stats.format). De la réception à l'écran : \(String(format: "%.1f", stats.displayMs)) ms. Images remplacées par une plus récente : \(stats.skipped)/s.")
+                        .help(statsHelp(stats, session.audioStats))
                 }
                 Divider().frame(height: 24).overlay(Theme.line)
                 Menu {
@@ -231,6 +231,17 @@ private struct PadBanner: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.35)))
     }
+}
+
+/// Détail des mesures : image, son, et écart entre les deux.
+private func statsHelp(_ v: VideoStats, _ a: AudioStats?) -> String {
+    var text = "Image : \(v.width) × \(v.height), \(v.format). De la réception à l'écran : \(String(format: "%.1f", v.displayMs)) ms. Images remplacées par une plus récente : \(v.skipped)/s."
+    if let a {
+        let audio = a.bufferMs + a.outputMs
+        text += "\nSon : \(a.channels) voies, tampon \(String(format: "%.0f", a.bufferMs)) ms, sortie \(String(format: "%.0f", a.outputMs)) ms."
+        text += "\nLe son arrive \(String(format: "%.0f", audio - v.displayMs)) ms après l'image (imperceptible sous 45 ms)."
+    }
+    return text
 }
 
 private struct Chip: View {

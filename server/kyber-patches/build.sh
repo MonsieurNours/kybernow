@@ -8,6 +8,7 @@
 #         audio_quality (standard, hd, studio) et audio_bitrate
 #   0002  curseur stable : masquage transmis après 250 ms seulement
 #   0003  son continu : horodatage audio au fil des échantillons, silences à zéro
+#   0004  son basse latence : capture et paquets Opus de 10 ms, Opus « lowdelay »
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans
@@ -38,13 +39,17 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-pc-windows-gnu --sysroot=$MINGW
 
 echo "==> Correctifs"
 cd "$KYMEDIA"
+# Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
+# toujours des sources d'origine, puis on les applique tous, dans l'ordre.
+for f in $(grep -h '^+++ b/' "$HERE"/*.patch | sed 's|^+++ b/||; s|[[:space:]].*||' | sort -u); do
+    case "$f" in
+        subprojects/txproto/*) git -C subprojects/txproto checkout -q -- "${f#subprojects/txproto/}" ;;
+        *) git checkout -q -- "$f" ;;
+    esac
+done
 for p in "$HERE"/*.patch; do
-    if patch -p1 -R --dry-run -s -f < "$p" > /dev/null 2>&1; then
-        echo "    $(basename "$p") : déjà appliqué"
-    else
-        patch -p1 -s < "$p"
-        echo "    $(basename "$p") : appliqué"
-    fi
+    patch -p1 -s --forward --no-backup-if-mismatch < "$p"
+    echo "    $(basename "$p")"
 done
 
 echo "==> Compilation (dépendances, txproto, kyavserver)"

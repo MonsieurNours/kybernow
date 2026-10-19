@@ -1,4 +1,5 @@
 // Chemin de l'image sans VLC : paquets de Kyber → VideoToolbox → Metal.
+// (Le son suit le même principe : AudioPlayer.)
 //
 // Kyber appelle `handle` depuis son fil réseau, un paquet à la fois ; on
 // décode dans la foulée (quelques millisecondes en matériel) et l'image
@@ -24,17 +25,17 @@ final class VideoPipeline {
     }
 
     /// Rappel C donné à Kyber (`userdata` : ce pipeline, non retenu).
-    static let callback: kyclient_VideoPacketCb = { packet, userdata in
+    static let callback: kyclient_MediaPacketCb = { packet, userdata in
         guard let packet, let userdata else { return }
         let me = Unmanaged<VideoPipeline>.fromOpaque(userdata).takeUnretainedValue()
         me.handle(packet.pointee)
     }
 
-    private func handle(_ p: kyclient_VideoPacket) {
+    private func handle(_ p: kyclient_MediaPacket) {
         switch p.kind {
-        case KYCLIENT_VIDEO_PACKET_KIND_CODEC:
+        case KYCLIENT_MEDIA_PACKET_KIND_CODEC:
             decoder.setCodec(p.codec)
-        case KYCLIENT_VIDEO_PACKET_KIND_MEDIA:
+        case KYCLIENT_MEDIA_PACKET_KIND_MEDIA:
             guard let data = p.data, p.len > 0 else { return }
             decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
         default:

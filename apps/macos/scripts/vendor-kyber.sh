@@ -17,12 +17,20 @@ OUT="$HERE/Vendor"
 
 rm -rf "$OUT" && mkdir -p "$OUT/include" "$OUT/Frameworks"
 cp "$KYBER/rootfs-arm64-macos/include/kyclient/kyclient.h" "$KYBER/rootfs-arm64-macos/include/kynput/kynput.h" "$OUT/include/"
+# Décodeur Opus (le son est décodé par l'app, voir kyber-patches/0001).
+mkdir -p "$OUT/include/opus"
+cp "$KYBER"/rootfs-arm64-macos/include/opus/opus*.h "$OUT/include/opus/"
 cat > "$OUT/include/module.modulemap" <<'EOF'
 module CKyber {
     header "kyclient.h"
     header "kynput.h"
     link "kyclient.0.1"
     link "kynput.0.1"
+    export *
+}
+module COpus {
+    header "opus/opus_multistream.h"
+    link "opus.0"
     export *
 }
 EOF

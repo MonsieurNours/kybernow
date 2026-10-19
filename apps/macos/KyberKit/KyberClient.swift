@@ -35,6 +35,8 @@ public struct StreamOptions: Sendable {
     /// Décodage par l'app (VideoToolbox + Metal) plutôt que par VLC. L'AV1
     /// passe toujours par VLC.
     public var nativeVideo = true
+    /// Son décodé par l'app (Opus + Core Audio) plutôt que par VLC.
+    public var nativeAudio = true
 
     public init() {}
 }
@@ -76,10 +78,13 @@ public final class KyberClient {
     public var onGamepadNavigate: ((PadKey) -> Void)?
     /// Mesures de l'image, une fois par seconde (fil principal).
     public var onVideoStats: ((VideoStats) -> Void)?
+    /// Mesures du son, une fois par seconde (fil principal).
+    public var onAudioStats: ((AudioStats) -> Void)?
 
     private var client: OpaquePointer?
     private var input: InputPipeline?
     private var video: VideoPipeline?
+    private var audio: AudioPlayer?
     private let host: String
 
     private static let setup: Void = {
@@ -171,6 +176,13 @@ public final class KyberClient {
         if options.audio {
             var audio: OpaquePointer?
             try check(kyclient_audio_session_config_default(&audio), "configuration du son")
+            if options.nativeAudio {
+                let player = AudioPlayer()
+                player.onStats = { [weak self] in self?.onAudioStats?($0) }
+                kyclient_audio_session_config_set_packet_sink(audio, AudioPlayer.callback, Unmanaged.passUnretained(player).toOpaque())
+                retire(self.audio)
+                self.audio = player
+            }
             kyclient_streaming_session_config_set_audio(session, audio)
         }
 
@@ -188,6 +200,8 @@ public final class KyberClient {
         kyclient_client_stop_streaming(client)
         retire(video)
         video = nil
+        retire(audio)
+        audio = nil
     }
 
     /// Synchro verticale à chaud.
@@ -202,6 +216,13 @@ public final class KyberClient {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { pipeline.stop() }
     }
 
+    private func retire(_ player: AudioPlayer?) {
+        guard let player else { return }
+        // La sortie se tait tout de suite ; le lecteur vit encore un peu (Kyber peut finir un paquet).
+        player.volume = 0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { player.stop() }
+    }
+
     /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.
     public func setGamepadCaptured(_ captured: Bool) {
         input?.gamepad.setCaptured(captured)
@@ -212,6 +233,7 @@ public final class KyberClient {
     }
 
     public func setVolume(_ volume: Float) {
+        audio?.volume = volume
         kyclient_client_audio_set_volume(client, volume)
     }
 
@@ -223,6 +245,8 @@ public final class KyberClient {
         }
         retire(video)
         video = nil
+        retire(audio)
+        audio = nil
     }
 
     // MARK: - Événements

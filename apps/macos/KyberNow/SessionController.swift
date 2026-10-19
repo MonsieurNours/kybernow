@@ -38,6 +38,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var modeLabel = ""
     /// Mesures de l'image (décodage par l'app), une fois par seconde.
     @Published private(set) var stats: VideoStats?
+    @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
     @Published private(set) var hint = false
 
@@ -237,7 +238,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             let scale = screen.backingScaleFactor
             mode = (Int(content.width * scale) / 2 * 2, Int(content.height * scale) / 2 * 2, max(30, screen.maximumFramesPerSecond))
         case .match, .physical:
-            mode = DisplayInfo.mode(for: screen)
+            mode = DisplayInfo.mode(for: screen, codec: settings.codec, limit4K: settings.limit4K)
         }
         modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
         let console = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
@@ -276,6 +277,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
         kyber.onVideoStats = { [weak self] in self?.stats = $0 }
+        kyber.onAudioStats = { [weak self] in self?.audioStats = $0 }
         self.kyber = kyber
         try kyber.connect()
     }
@@ -404,6 +406,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber?.stop()
         kyber = nil
         stats = nil
+        audioStats = nil
         let console = self.console
         Task {
             var report: EndReport?
@@ -453,6 +456,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber?.stop()
         kyber = nil
         stats = nil
+        audioStats = nil
         setBar(false)
         phase = .failed(message)
         Task { try? await console?.end() }

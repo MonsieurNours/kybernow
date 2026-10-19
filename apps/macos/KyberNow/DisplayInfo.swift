@@ -3,15 +3,19 @@
 
 import AppKit
 import CoreAudio
+import KyberKit
 
 enum DisplayInfo {
-    /// Mode de l'écran en pixels réels, ramené à la 4K au plus (au-delà,
-    /// l'encodeur n'apporte rien de visible et coûte en latence).
-    static func mode(for screen: NSScreen) -> (width: Int, height: Int, refresh: Int) {
+    /// Mode de l'écran en pixels réels : 5K ou 6K au pixel près si l'écran
+    /// l'est. Garde-fous : l'encodeur H.264 de NVIDIA s'arrête à 4096 de
+    /// large, l'écran virtuel et les autres formats à 7680 × 4320 ; « au plus
+    /// 4K » allège l'encodage, le décodage et le débit.
+    static func mode(for screen: NSScreen, codec: VideoCodec = .hevc, limit4K: Bool = false) -> (width: Int, height: Int, refresh: Int) {
         let scale = screen.backingScaleFactor
         var w = screen.frame.width * scale
         var h = screen.frame.height * scale
-        let fit = min(1, 3840 / w, 2160 / h)
+        let (maxW, maxH): (CGFloat, CGFloat) = limit4K ? (3840, 2160) : codec == .h264 ? (4096, 4096) : (7680, 4320)
+        let fit = min(1, maxW / w, maxH / h)
         w = (w * fit / 2).rounded() * 2
         h = (h * fit / 2).rounded() * 2
         let hz = max(30, screen.maximumFramesPerSecond)

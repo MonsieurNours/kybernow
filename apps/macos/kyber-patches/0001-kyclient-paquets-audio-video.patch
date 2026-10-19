@@ -1,5 +1,5 @@
 diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
-index 897c92d..7af4f0a 100644
+index 897c92d..422c24a 100644
 --- a/kyclient/src/capi.rs
 +++ b/kyclient/src/capi.rs
 @@ -811,6 +811,7 @@ pub unsafe extern "C" fn kyclient_video_player_config_default(
@@ -10,7 +10,7 @@ index 897c92d..7af4f0a 100644
          };
  
          *out_config = Box::into_raw(Box::new(VideoPlayerConfig { config }));
-@@ -848,6 +849,20 @@ pub extern "C" fn kyclient_video_player_config_set_software_decode(
+@@ -848,6 +849,34 @@ pub extern "C" fn kyclient_video_player_config_set_software_decode(
      config.config.software_decode = software_decode;
  }
  
@@ -19,10 +19,24 @@ index 897c92d..7af4f0a 100644
 +#[unsafe(no_mangle)]
 +pub extern "C" fn kyclient_video_player_config_set_packet_sink(
 +    config: &mut VideoPlayerConfig,
-+    cb: crate::video_sink::VideoPacketCb,
++    cb: crate::media_sink::MediaPacketCb,
 +    userdata: *mut std::ffi::c_void,
 +) {
-+    config.config.packet_sink = Some(crate::platform::PacketSink {
++    config.config.packet_sink = Some(crate::media_sink::PacketSink {
++        cb,
++        userdata: userdata as usize,
++    });
++}
++
++/// KyberNow: deliver Opus packets to `cb` instead of VLC. `cb` is called
++/// from a network thread.
++#[unsafe(no_mangle)]
++pub extern "C" fn kyclient_audio_session_config_set_packet_sink(
++    config: &mut AudioSessionConfig,
++    cb: crate::media_sink::MediaPacketCb,
++    userdata: *mut std::ffi::c_void,
++) {
++    config.config.packet_sink = Some(crate::media_sink::PacketSink {
 +        cb,
 +        userdata: userdata as usize,
 +    });
@@ -31,8 +45,20 @@ index 897c92d..7af4f0a 100644
  #[unsafe(no_mangle)]
  pub extern "C" fn kyclient_video_player_config_set_video_buffer(
      config: &mut VideoPlayerConfig,
+@@ -892,7 +921,10 @@ pub unsafe extern "C" fn kyclient_audio_session_config_default(
+     out_config: *mut *mut AudioSessionConfig,
+ ) -> c_int {
+     unsafe {
+-        let config = crate::AudioSessionConfig { audio_buffer: None };
++        let config = crate::AudioSessionConfig {
++            audio_buffer: None,
++            packet_sink: None,
++        };
+         *out_config = Box::into_raw(Box::new(AudioSessionConfig { config }));
+         0
+     }
 diff --git a/kyclient/src/kymux_backend/desktop.rs b/kyclient/src/kymux_backend/desktop.rs
-index c33eb83..d3af06b 100644
+index c33eb83..91c5fb8 100644
 --- a/kyclient/src/kymux_backend/desktop.rs
 +++ b/kyclient/src/kymux_backend/desktop.rs
 @@ -19,7 +19,7 @@
@@ -48,25 +74,26 @@ index c33eb83..d3af06b 100644
  use crate::metrics::MetricsProducer;
  use crate::platform::message::MessageForwarder;
  use crate::platform::player;
-+use crate::platform::{PacketSink, VideoPacket, VideoPacketKind};
++use crate::platform::{MediaPacket, MediaPacketKind, PacketSink};
 +use crate::runtime::Task;
  use crate::platform::{InputClient, InputPipeline};
  use crate::{BackendDriver, MessageSender};
  use crate::{Error, Result};
-@@ -43,10 +45,59 @@ impl Player {
+@@ -43,10 +45,61 @@ impl Player {
      }
  }
  
-+/// KyberNow: forward video packets to the application (native decoding).
++/// KyberNow: forward audio or video packets to the application (native
++/// decoding). Audio and video endpoints share the same packet type.
 +async fn packet_sink_task(source_id: u32, endpoint: types::VideoClientEndpoint, sink: PacketSink) {
 +    let mut recv = match endpoint.ready().await {
 +        Ok(recv) => recv,
 +        Err(err) => {
-+            warn!("Video endpoint not ready for packet sink: {err:?}");
++            warn!("Endpoint not ready for packet sink: {err:?}");
 +            return;
 +        }
 +    };
-+    info!("Video packets for display {source_id} go to the application");
++    info!("Packets of stream {source_id} go to the application");
 +    loop {
 +        let packet = match recv.recv().await {
 +            Ok(Some(packet)) => packet,
@@ -76,30 +103,31 @@ index c33eb83..d3af06b 100644
 +                break;
 +            }
 +        };
-+        let mut out = VideoPacket {
-+            kind: VideoPacketKind::Hole,
++        let mut out = MediaPacket {
++            kind: MediaPacketKind::Hole,
 +            source_id,
 +            codec: 0,
 +            is_config: false,
 +            is_key: false,
 +            pts: 0,
++            missing_samples: 0,
 +            data: std::ptr::null(),
 +            len: 0,
 +        };
 +        match &packet {
 +            types::AVPacket::Codec(p) => {
-+                out.kind = VideoPacketKind::Codec;
++                out.kind = MediaPacketKind::Codec;
 +                out.codec = p.header.codec;
 +            }
 +            types::AVPacket::Media(p) => {
-+                out.kind = VideoPacketKind::Media;
++                out.kind = MediaPacketKind::Media;
 +                out.is_config = p.header.is_config;
 +                out.is_key = p.header.is_key;
 +                out.pts = p.header.pts;
 +                out.data = p.payload.as_ptr();
 +                out.len = p.payload.len();
 +            }
-+            types::AVPacket::Hole(_) => {}
++            types::AVPacket::Hole(p) => out.missing_samples = p.header.missing_audio_samples,
 +        }
 +        (sink.cb)(&out, sink.userdata as *mut std::ffi::c_void);
 +    }
@@ -113,7 +141,7 @@ index c33eb83..d3af06b 100644
  ) -> Result<Option<Vec<player::VideoConfig>>> {
      if endpoints.is_empty() {
          return Ok(None);
-@@ -67,6 +118,10 @@ fn create_video_config(
+@@ -67,6 +120,10 @@ fn create_video_config(
      let mut player_config_list = vec![];
  
      for (config, endpoint) in video_config.iter().zip(endpoints.into_iter()) {
@@ -124,7 +152,7 @@ index c33eb83..d3af06b 100644
          let uri = kycom.register_and_forward(endpoint)?.url();
  
          let player_config = player::VideoConfig {
-@@ -80,6 +135,9 @@ fn create_video_config(
+@@ -80,6 +137,9 @@ fn create_video_config(
          player_config_list.push(player_config);
      }
  
@@ -134,7 +162,27 @@ index c33eb83..d3af06b 100644
      Ok(Some(player_config_list))
  }
  
-@@ -113,8 +171,9 @@ fn create_player(
+@@ -87,6 +147,7 @@ fn create_audio_config(
+     kycom: &mut kycom::KyCom,
+     backend_config: &KymuxBackendConfig<'_>,
+     endpoint: Option<types::AudioClientEndpoint>,
++    sinks: &mut Vec<Task>,
+ ) -> Result<Option<player::AudioConfig>> {
+     let Some(endpoint) = endpoint else {
+         return Ok(None);
+@@ -98,6 +159,11 @@ fn create_audio_config(
+         .as_ref()
+         .expect("called without audio config");
+ 
++    if let Some(sink) = audio_config.packet_sink {
++        sinks.push(Task::spawn(packet_sink_task(u32::MAX, endpoint, sink)));
++        return Ok(None);
++    }
++
+     let uri = kycom.register_and_forward(endpoint)?.url();
+     let player_config = player::AudioConfig {
+         uri,
+@@ -113,10 +179,11 @@ fn create_player(
      metrics: Option<&MetricsProducer>,
      video_endpoints: Vec<types::VideoClientEndpoint>,
      audio_endpoint: Option<types::AudioClientEndpoint>,
@@ -143,9 +191,12 @@ index c33eb83..d3af06b 100644
 -    let video_config = create_video_config(kycom, backend_config, video_endpoints)?;
 +    let video_config = create_video_config(kycom, backend_config, video_endpoints, sinks)?;
  
-     let audio_config = create_audio_config(kycom, backend_config, audio_endpoint)?;
+-    let audio_config = create_audio_config(kycom, backend_config, audio_endpoint)?;
++    let audio_config = create_audio_config(kycom, backend_config, audio_endpoint, sinks)?;
  
-@@ -190,6 +249,7 @@ struct InputService {
+     let player = if video_config.is_some() || audio_config.is_some() {
+         let audio_buffer = audio_config.as_ref().map(|config| config.audio_buffer);
+@@ -190,6 +257,7 @@ struct InputService {
  
  pub(super) struct KymuxDesktop {
      _kycom: kycom::KyCom,
@@ -153,7 +204,7 @@ index c33eb83..d3af06b 100644
      player: Option<Player>,
      input_service: Option<InputService>,
  }
-@@ -204,12 +264,14 @@ impl KymuxDesktop {
+@@ -204,12 +272,14 @@ impl KymuxDesktop {
          let mut kycom = kycom::KyCom::start_on_any_port(IPC_PORTS).await?;
  
          // Play Video and Audio
@@ -168,7 +219,7 @@ index c33eb83..d3af06b 100644
          )?;
  
          // Start input
-@@ -222,6 +284,7 @@ impl KymuxDesktop {
+@@ -222,6 +292,7 @@ impl KymuxDesktop {
  
          Ok(Self {
              _kycom: kycom,
@@ -176,7 +227,7 @@ index c33eb83..d3af06b 100644
              player,
              input_service,
          })
-@@ -268,6 +331,9 @@ impl BackendDriver for KymuxDesktop {
+@@ -268,6 +339,9 @@ impl BackendDriver for KymuxDesktop {
      }
  
      async fn stop(&mut self) -> Result<()> {
@@ -187,46 +238,97 @@ index c33eb83..d3af06b 100644
              player.stop().await?;
          }
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index f09fec4..072e631 100644
+index f09fec4..a5f0211 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
 @@ -28,6 +28,7 @@ mod message_bus;
  pub mod metrics;
  pub(crate) mod runtime;
  mod util;
-+pub mod video_sink;
++pub mod media_sink;
  
  #[cfg_attr(not(target_family = "wasm"), path = "./platform/desktop/mod.rs")]
  #[cfg_attr(target_family = "wasm", path = "./platform/web/mod.rs")]
+@@ -840,6 +841,8 @@ pub struct VideoSessionConfig {
+ #[derive(Clone, Debug)]
+ pub struct AudioSessionConfig {
+     pub audio_buffer: Option<u32>, // None means default value
++    /// KyberNow: when set, audio packets go to the application instead of VLC.
++    pub packet_sink: Option<media_sink::PacketSink>,
+ }
+ 
+ impl AudioSessionConfig {
+diff --git a/kyclient/src/media_sink.rs b/kyclient/src/media_sink.rs
+new file mode 100644
+index 0000000..3598f74
+--- /dev/null
++++ b/kyclient/src/media_sink.rs
+@@ -0,0 +1,40 @@
++// KyberNow: audio and video packets handed to the application for native
++// decoding (VideoToolbox + Metal, Opus + Core Audio on Apple platforms)
++// instead of VLC.
++
++/// Kind of a packet handed to a `PacketSink`.
++#[repr(C)]
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum MediaPacketKind {
++    /// Codec change: `codec` is set, no data.
++    Codec,
++    /// Encoded data. Video: Annex B, `is_config` marks parameter sets.
++    /// Audio: Opus packets, `is_config` marks the OpusHead.
++    Media,
++    /// Lost data (`missing_samples` for audio).
++    Hole,
++}
++
++/// Packet handed to the application. `data` is only valid during the
++/// callback.
++#[repr(C)]
++pub struct MediaPacket {
++    pub kind: MediaPacketKind,
++    pub source_id: u32,
++    pub codec: u32,
++    pub is_config: bool,
++    pub is_key: bool,
++    pub pts: u64,
++    pub missing_samples: u32,
++    pub data: *const u8,
++    pub len: usize,
++}
++
++pub type MediaPacketCb = extern "C" fn(packet: *const MediaPacket, userdata: *mut std::ffi::c_void);
++
++/// Application callback receiving the packets of one stream.
++#[derive(Clone, Copy, Debug)]
++pub struct PacketSink {
++    pub cb: MediaPacketCb,
++    pub userdata: usize,
++}
 diff --git a/kyclient/src/platform/desktop/mod.rs b/kyclient/src/platform/desktop/mod.rs
-index d4a8d65..a0eace9 100644
+index d4a8d65..76b2cf0 100644
 --- a/kyclient/src/platform/desktop/mod.rs
 +++ b/kyclient/src/platform/desktop/mod.rs
 @@ -36,6 +36,7 @@ pub(crate) use host_events::{WsClient, WsClientBuilder};
  pub(crate) use input_service::{InputClient, InputError, InputPipeline, get_cursor_format};
  pub(crate) use mainloop_engine::MainLoopEngine;
  pub(crate) use player::WindowHandle;
-+pub(crate) use crate::video_sink::{VideoPacket, VideoPacketCb, VideoPacketKind};
++pub(crate) use crate::media_sink::{MediaPacket, MediaPacketKind, PacketSink};
  
  use crate::{AuthCredentials, Error, Result};
  
-@@ -111,6 +112,15 @@ pub struct VideoPlayerConfig {
+@@ -111,14 +112,19 @@ pub struct VideoPlayerConfig {
      pub window_handle: WindowHandle,
      pub software_decode: bool,
      pub video_buffer: u32, // ms
 +    /// KyberNow: when set, video packets go to the application (native
 +    /// decoding) instead of VLC.
 +    pub packet_sink: Option<PacketSink>,
-+}
-+
-+#[derive(Clone, Copy, Debug)]
-+pub struct PacketSink {
-+    pub cb: VideoPacketCb,
-+    pub userdata: usize,
  }
  
++
  impl VideoPlayerConfig {
-@@ -119,6 +129,7 @@ impl VideoPlayerConfig {
+     pub fn print(&self) {
+         info!("VideoPlayerConfig");
          info!("\twindow_handle: {:?}", self.window_handle);
          info!("\tsoftware_decode: {}", self.software_decode);
          info!("\tvideo_buffer: {}", self.video_buffer);
@@ -234,40 +336,3 @@ index d4a8d65..a0eace9 100644
      }
  }
  
-diff --git a/kyclient/src/video_sink.rs b/kyclient/src/video_sink.rs
-new file mode 100644
-index 0000000..3f66883
---- /dev/null
-+++ b/kyclient/src/video_sink.rs
-@@ -0,0 +1,31 @@
-+// KyberNow: video packets handed to the application for native decoding
-+// (VideoToolbox + Metal on Apple platforms) instead of VLC.
-+
-+/// Kind of a packet handed to a `PacketSink`.
-+#[repr(C)]
-+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-+pub enum VideoPacketKind {
-+    /// Codec change: `codec` is set, no data.
-+    Codec,
-+    /// Encoded data (Annex B). `is_config` marks parameter sets.
-+    Media,
-+    /// Lost data.
-+    Hole,
-+}
-+
-+/// Video packet handed to the application. `data` is only valid during the
-+/// callback.
-+#[repr(C)]
-+pub struct VideoPacket {
-+    pub kind: VideoPacketKind,
-+    pub source_id: u32,
-+    pub codec: u32,
-+    pub is_config: bool,
-+    pub is_key: bool,
-+    pub pts: u64,
-+    pub data: *const u8,
-+    pub len: usize,
-+}
-+
-+pub type VideoPacketCb = extern "C" fn(packet: *const VideoPacket, userdata: *mut std::ffi::c_void);
-+
