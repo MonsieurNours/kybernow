@@ -30,6 +30,8 @@ final class InputPipeline {
     let pipeline: OpaquePointer
     private let sink: OpaquePointer
     let displayID: UInt32
+    /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
+    let gamepad = GamepadGate()
 
     init(display: KyberDisplay, view: StreamView) {
         displayID = display.id
@@ -80,6 +82,28 @@ final class InputPipeline {
             ))
             kynput_pipeline_plug_handler(pipeline, producer)
             kynput_handler_unref(producer)
+        }
+
+        // Manettes : chaque paquet passe par la combinaison avant de partir.
+        let gate = Unmanaged.passRetained(gamepad).toOpaque()
+        var hook = kynput_RouterHook(
+            on_packet: { packet, userdata in
+                guard let packet, let userdata else { return kynput_RouterHookPacketResult(process_event: true) }
+                let gate = Unmanaged<GamepadGate>.fromOpaque(userdata).takeUnretainedValue()
+                return kynput_RouterHookPacketResult(process_event: gate.filter(packet))
+            },
+            on_control_event: nil,
+            on_destroy: { userdata in
+                if let userdata { Unmanaged<GamepadGate>.fromOpaque(userdata).release() }
+            },
+            userdata: gate
+        )
+        kynput_pipeline_set_hook(pipeline, &hook)
+        gamepad.release = { [weak self] releases in
+            for (id, button) in releases {
+                var b = kynput_GamepadEventButton(id: id, type_: button, pressed: false)
+                self?.send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
+            }
         }
 
         // Souris absolue au départ : le curseur du PC suit celui du Mac.

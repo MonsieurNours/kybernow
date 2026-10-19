@@ -64,6 +64,10 @@ private func check(_ code: Int32, _ what: String) throws {
 
 public final class KyberClient {
     public var onEvent: ((KyberEvent) -> Void)?
+    /// L1 + R1 + START + SELECT : la manette passe de l'ordinateur à l'app, ou revient.
+    public var onGamepadCombo: (() -> Void)?
+    /// Navigation à la manette pendant que l'app la tient.
+    public var onGamepadNavigate: ((PadKey) -> Void)?
 
     private var client: OpaquePointer?
     private var input: InputPipeline?
@@ -118,6 +122,8 @@ public final class KyberClient {
     public func startStreaming(display: KyberDisplay, view: StreamView, options: StreamOptions) throws {
         // Les gestionnaires d'entrées ne redémarrent pas : un pipeline neuf par session.
         let input = InputPipeline(display: display, view: view)
+        input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
+        input.gamepad.onNavigate = { [weak self] key in self?.onGamepadNavigate?(key) }
         self.input = input
         view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
 
@@ -159,6 +165,11 @@ public final class KyberClient {
         input?.stop()
         input = nil
         kyclient_client_stop_streaming(client)
+    }
+
+    /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.
+    public func setGamepadCaptured(_ captured: Bool) {
+        input?.gamepad.setCaptured(captured)
     }
 
     public func setBitrate(_ bitsPerSecond: UInt32) {

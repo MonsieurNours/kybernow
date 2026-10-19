@@ -17,7 +17,7 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
         guard session.barVisible else { return nil }
         let local = convert(point, from: superview)
         let fromTop = isFlipped ? local.y : bounds.height - local.y
-        return fromTop < SessionController.barBand ? super.hitTest(point) : nil
+        return fromTop < session.barHeight ? super.hitTest(point) : nil
     }
 }
 
@@ -135,50 +135,97 @@ private struct HintToast: View {
 private struct HoverBar: View {
     @ObservedObject var session: SessionController
 
+    /// Anneau de focus en mode manette.
+    private func ring(_ index: Int) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .stroke(Theme.accent, lineWidth: 2)
+            .shadow(color: Theme.accent.opacity(0.45), radius: 9)
+            .opacity(session.padMode && session.padFocus == index ? 1 : 0)
+            .animation(.easeOut(duration: 0.15), value: session.padFocus)
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(Theme.accent).frame(width: 8, height: 8)
-            Text(session.host.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
-            Chip(text: session.modeLabel)
-            Divider().frame(height: 24).overlay(Theme.line)
-            Menu {
-                ForEach(Profile.allCases) { profile in
-                    Button {
-                        session.select(profile)
-                    } label: {
-                        if profile == session.host.settings.profile {
-                            Label(profile.label, systemImage: "checkmark")
-                        } else {
-                            Text(profile.label)
+        VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Circle().fill(Theme.accent).frame(width: 8, height: 8)
+                Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
+                Chip(text: session.modeLabel)
+                Divider().frame(height: 24).overlay(Theme.line)
+                Menu {
+                    ForEach(Profile.allCases) { profile in
+                        Button {
+                            session.select(profile)
+                        } label: {
+                            if profile == session.host.settings.profile {
+                                Label(profile.label, systemImage: "checkmark")
+                            } else {
+                                Text(profile.label)
+                            }
                         }
                     }
+                } label: {
+                    Text("Profil \(session.host.settings.profileLabel)").font(Theme.sans(13, .semibold))
                 }
-            } label: {
-                Text("Profil \(session.host.settings.profileLabel)").font(Theme.sans(13, .semibold))
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(height: 36)
+                .overlay(ring(0))
+                BarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Plein écran (⌃⌥⌘F)") { session.toggleFullScreen() }
+                    .overlay(ring(1))
+                Button {
+                    session.end()
+                } label: {
+                    Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
+                        .font(Theme.sans(13, .semibold))
+                        .foregroundStyle(Theme.rgb(0xFF9B94))
+                        .padding(.horizontal, 12)
+                        .frame(height: 36)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Se déconnecter (⌃⌥⌘D)")
+                .overlay(ring(2))
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .padding(.horizontal, 10)
-            BarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Plein écran (⌃⌥⌘F)") { session.toggleFullScreen() }
-            Button {
-                session.end()
-            } label: {
-                Label("Se déconnecter", systemImage: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(red: 1, green: 0.61, blue: 0.58))
-                    .padding(.horizontal, 12)
-                    .frame(height: 36)
-                    .contentShape(Rectangle())
+            .padding(.leading, 16)
+            .padding(.trailing, 8)
+            .frame(height: 52)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.14)))
+            .shadow(color: .black.opacity(0.45), radius: 22, y: 12)
+
+            if session.padMode {
+                PadBanner().transition(.opacity.combined(with: .offset(y: -6)))
             }
-            .buttonStyle(.plain)
-            .help("Se déconnecter (⌃⌥⌘D)")
         }
-        .padding(.leading, 16)
-        .padding(.trailing, 8)
-        .frame(height: 52)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.14)))
-        .shadow(color: .black.opacity(0.45), radius: 22, y: 12)
+    }
+}
+
+/// Rappel des touches quand la manette pilote la barre.
+private struct PadBanner: View {
+    private func key(_ k: String, _ label: String) -> some View {
+        HStack(spacing: 5) {
+            Text(k).font(Theme.mono(12, .medium)).foregroundStyle(Theme.text)
+            Text(label).font(Theme.sans(12)).foregroundStyle(Theme.text2)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Label("La manette pilote KyberNow", systemImage: "gamecontroller")
+                .font(Theme.sans(12, .semibold))
+                .foregroundStyle(Theme.accentLight)
+            Text("L'ordinateur ne la reçoit plus").font(Theme.sans(12)).foregroundStyle(Theme.faint)
+            Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 18)
+            key("◀ ▶", "naviguer")
+            key("A / ✕", "choisir")
+            key("B / ○", "fermer")
+            key("L1 R1 START SELECT", "revenir à l'ordinateur")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 40)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.accent.opacity(0.35)))
     }
 }
 
@@ -187,7 +234,7 @@ private struct Chip: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 12, design: .monospaced))
+            .font(Theme.mono(12))
             .foregroundStyle(Theme.accent)
             .padding(.horizontal, 10)
             .frame(height: 26)

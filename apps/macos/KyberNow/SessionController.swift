@@ -28,6 +28,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     /// Instant où l'image est apparue (gerbe de particules).
     @Published private(set) var revealedAt: Date?
     @Published private(set) var barVisible = false
+    /// La manette pilote la barre (L1 + R1 + START + SELECT).
+    @Published private(set) var padMode = false
+    /// Élément de la barre qui a le focus en mode manette.
+    @Published private(set) var padFocus = 0
+    static let padItems = 3 // profil, plein écran, déconnexion
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
@@ -58,6 +63,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
 
     /// Hauteur de la bande où vit la barre au survol.
     static let barBand: CGFloat = 96
+    /// Bande occupée par la barre (plus haute avec le bandeau manette).
+    var barHeight: CGFloat { padMode ? 150 : Self.barBand }
 
     init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
@@ -132,7 +139,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         if distance < 3 {
             hideBar?.cancel()
             setBar(true)
-        } else if barVisible, distance > Self.barBand + 30 {
+        } else if barVisible, !padMode, distance > Self.barBand + 30 {
             hideBar?.cancel()
             hideBar = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(350))
@@ -143,10 +150,53 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     func setBar(_ visible: Bool) {
+        if !visible, padMode {
+            padMode = false
+            kyber?.setGamepadCaptured(false)
+        }
         guard visible != barVisible else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barVisible = visible }
-        streamView.reservedTopBand = visible ? Self.barBand : 0
+        streamView.reservedTopBand = visible ? 150 : 0
         window?.invalidateCursorRects(for: streamView)
+    }
+
+    // MARK: - Manette
+
+    private func gamepadCombo() {
+        guard phase == .streaming else { return }
+        if padMode {
+            setBar(false)
+        } else {
+            hideBar?.cancel()
+            padFocus = 0
+            withAnimation(.easeOut(duration: 0.2)) { padMode = true }
+            setBar(true)
+        }
+    }
+
+    private func gamepadNavigate(_ key: PadKey) {
+        guard padMode else { return }
+        switch key {
+        case .left: padFocus = (padFocus + Self.padItems - 1) % Self.padItems
+        case .right: padFocus = (padFocus + 1) % Self.padItems
+        case .back: setBar(false)
+        case .accept: activatePadFocus()
+        case .up, .down: break
+        }
+    }
+
+    private func activatePadFocus() {
+        switch padFocus {
+        case 0:
+            // Profil suivant (Jeu → Bureau → Max).
+            let all = Profile.allCases
+            let next = host.settings.profile.flatMap { all.firstIndex(of: $0) }.map { all[($0 + 1) % all.count] } ?? .jeu
+            select(next)
+        case 1:
+            toggleFullScreen()
+        default:
+            end()
+        }
     }
 
     /// Change de profil en cours de session : le débit change en direct,
@@ -220,6 +270,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         phase = .connecting
         let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect)
         kyber.onEvent = { [weak self] in self?.handle($0) }
+        kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
+        kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
         self.kyber = kyber
         try kyber.connect()
     }
