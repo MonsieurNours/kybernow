@@ -52,8 +52,8 @@ kyber-apps/
 - **Config** : lecture/écriture de `kyber_config.toml` en préservant les commentaires (`toml_edit`), validation par schéma, application avec redémarrage contrôlé du service Kyber.
 - **Service** : start / stop / restart / état du service Kyber.
 - **Supervision** : GPU, pilote, charge de l'encodeur (NVML), session active, logs en direct.
-- **Appairage** : code/QR affiché dans l'UI → le client reçoit un jeton (JWT signé avec la clé du serveur), stocké dans le trousseau Apple.
-- **Découverte** : annonce Bonjour/mDNS (`_kyber._tcp`).
+- **Appairage** : page « Appareils » de la console : QR code et lien `kybernow://adresse:port?name=…&fp=sha256:…` (adresse, port de la console, empreinte de son certificat ; aucun secret). L'app lit le QR code à la caméra du Mac ou le lien collé (ou ouvert : schéma `kybernow://`). L'empreinte vue est comparée à celle du lien ou de l'annonce ; par simple adresse, l'utilisateur la compare à celle de la console (4 premiers groupes). Puis compte de la console, vérifié et gardé dans le Trousseau ; certificat épinglé.
+- **Découverte** : annonce Bonjour/mDNS `_kybernow._tcp` de la console (TXT `v`, `name`, `fp`), règle de pare-feu UDP 5353 pour kyber-admin.
 - **Profils** : « Jeu » (faible latence, manette, haut fps) / « Bureau » (4:4:4, presse-papiers, multi-écrans).
 
 ### Écran virtuel (session de stream)

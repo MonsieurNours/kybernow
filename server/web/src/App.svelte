@@ -10,6 +10,7 @@
   import Advanced from './pages/Advanced.svelte'
   import VirtualDisplay from './pages/VirtualDisplay.svelte'
   import Audio from './pages/Audio.svelte'
+  import Devices from './pages/Devices.svelte'
   import Mark from './lib/Mark.svelte'
   import SignalBackground from './lib/SignalBackground.svelte'
 
@@ -19,6 +20,7 @@
     { id: 'settings', label: 'Réglages', component: Settings, icon: 'M3 5h7M13 5h2M3 13h2M8 13h7M10 3v4M5 11v4' },
     { id: 'display', label: 'Écran virtuel', component: VirtualDisplay, icon: 'M2.5 4h13v8.5h-13zM6.5 15.5h5M9 12.5v3M5.5 7.5l2 2 3-3.5' },
     { id: 'audio', label: 'Son', component: Audio, icon: 'M3 7h2.5L9 4v10l-3.5-3H3zM12 6.5a3.5 3.5 0 010 5M14 4.5a6.5 6.5 0 010 9' },
+    { id: 'devices', label: 'Appareils', component: Devices, icon: 'M2.5 3.5h9v7h-9zM5 13h4M7 10.5V13M12.5 6.5h3v8h-3zM14 12.5h0' },
     { id: 'users', label: 'Utilisateurs', component: Users, icon: 'M6.5 8.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2 15c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4M12 4.5a2.3 2.3 0 010 4.4M13.5 11c1.3.5 2.1 1.8 2.5 4' },
     { id: 'logs', label: 'Journaux', component: Logs, icon: 'M4 2.5h7l3 3v10H4zM6.5 8h5M6.5 11h5M6.5 5h2.5' },
     { id: 'advanced', label: 'Avancé', component: Advanced, icon: 'M6 5L2.5 9 6 13M12 5l3.5 4-3.5 4M10 3.5l-2 11' },

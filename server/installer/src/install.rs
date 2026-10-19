@@ -30,6 +30,7 @@ pub const FIREWALL_RULES: &[&str] = &[
     "KyberNow-stream-TCP",
     "KyberNow-stream-UDP",
     "KyberNow-console-TCP",
+    "KyberNow-bonjour-UDP",
     "KyberNow-kycontroller",
     "KyberNow-kyavserver",
     "KyberNow-kynputserver",
@@ -169,6 +170,10 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         port("KyberNow-stream-TCP", "TCP", req.stream_port)?;
         port("KyberNow-stream-UDP", "UDP", req.stream_port)?;
         port("KyberNow-console-TCP", "TCP", req.console_port)?;
+        // Annonce Bonjour de la console : l'app la trouve seule sur le réseau local.
+        let admin = format!("program={}", ctx.path(r"admin\kyber-admin.exe"));
+        run_ok("netsh", &["advfirewall", "firewall", "add", "rule", "name=KyberNow-bonjour-UDP", "dir=in", "action=allow",
+            "protocol=UDP", "localport=5353", &admin, profile], &[0])?;
         for exe in ["kycontroller", "kyavserver", "kynputserver"] {
             let program = format!("program={}", ctx.kyber().join(format!("{exe}.exe")).display());
             run_ok("netsh", &["advfirewall", "firewall", "add", "rule", &format!("name=KyberNow-{exe}"), "dir=in",

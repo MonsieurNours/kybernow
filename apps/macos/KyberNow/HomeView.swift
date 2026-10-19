@@ -6,8 +6,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var app: AppModel
-    @State private var adding = false
-
+    
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Theme.background.ignoresSafeArea()
@@ -21,13 +20,13 @@ struct HomeView: View {
                             .layoutPriority(2)
                         VStack(spacing: 20) {
                             ForEach(app.store.ordered.dropFirst()) { HostTile(host: $0) }
-                            AddTile { adding = true }
+                            AddTile { app.add() }
                         }
                         .frame(width: 340)
                     }
                     .frame(maxHeight: 470)
                 } else {
-                    EmptyState { adding = true }
+                    EmptyState { app.add() }
                 }
                 Spacer(minLength: 0)
                 footer
@@ -40,12 +39,12 @@ struct HomeView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .sheet(isPresented: $adding) { AddHostSheet() }
+        .sheet(isPresented: $app.adding) { AddHostSheet(initialLink: app.pendingLink) }
         .preferredColorScheme(.dark)
         .frame(minWidth: 1100, minHeight: 760)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { adding = true } label: { Label("Ajouter un ordinateur", systemImage: "plus") }
+                Button { app.add() } label: { Label("Ajouter un ordinateur", systemImage: "plus") }
             }
         }
     }
@@ -264,92 +263,6 @@ private struct EmptyState: View {
         .frame(maxWidth: 520, alignment: .leading)
         .background(Theme.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.line2))
-    }
-}
-
-// MARK: - Ajout
-
-struct AddHostSheet: View {
-    @EnvironmentObject var app: AppModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var address = ""
-    @State private var port = ""
-    @State private var username = ""
-    @State private var password = ""
-
-    private var missing: [String] {
-        var m: [String] = []
-        if address.trimmingCharacters(in: .whitespaces).isEmpty { m.append("l'adresse") }
-        if UInt16(port.trimmingCharacters(in: .whitespaces)) == nil { m.append(port.isEmpty ? "le port de la console" : "un port valide (1 à 65535)") }
-        if username.isEmpty { m.append("l'identifiant") }
-        if password.isEmpty { m.append("le mot de passe") }
-        return m
-    }
-
-    private var valid: Bool { missing.isEmpty }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Ajouter un ordinateur").font(Theme.display(30)).foregroundStyle(Theme.text)
-                    Text("Le compte est celui créé pendant l'installation sur l'ordinateur.").font(Theme.sans(14)).foregroundStyle(Theme.muted)
-                }
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(GhostButton(height: 34))
-                    .keyboardShortcut(.cancelAction)
-            }
-            HStack(alignment: .top, spacing: 14) {
-                field("Adresse de l'ordinateur", text: $address, prompt: "ex. 192.168.1.100", mono: true)
-                field("Port de la console", text: $port, prompt: "ex. 37462", mono: true).frame(width: 170)
-            }
-            field("Nom (facultatif)", text: $name, prompt: "ex. PC du salon")
-            HStack(alignment: .top, spacing: 14) {
-                field("Identifiant", text: $username, prompt: "")
-                field("Mot de passe", text: $password, prompt: "", secure: true)
-            }
-            Notice(kind: .info, text: "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Le mot de passe est gardé dans le Trousseau de ce Mac.")
-            HStack {
-                Text(valid ? " " : "Il manque " + ListFormatter.localizedString(byJoining: missing) + ".")
-                    .font(Theme.sans(12)).foregroundStyle(Theme.warn)
-                Spacer()
-                Button("Annuler") { dismiss() }.buttonStyle(GhostButton(height: 44))
-                Button("Ajouter") {
-                    let a = address.trimmingCharacters(in: .whitespaces)
-                    app.store.add(Host(name: name.isEmpty ? a : name, address: a, consolePort: UInt16(port.trimmingCharacters(in: .whitespaces))!, username: username), password: password)
-                    dismiss()
-                }
-                .buttonStyle(PrimaryButton())
-                .disabled(!valid)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(.horizontal, 36).padding(.vertical, 32)
-        .frame(width: 760)
-        .background(Theme.surface)
-        .preferredColorScheme(.dark)
-    }
-
-    private func field(_ label: String, text: Binding<String>, prompt: String, mono: Bool = false, secure: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
-            Group {
-                if secure {
-                    SecureField("", text: text, prompt: Text(prompt))
-                } else {
-                    TextField("", text: text, prompt: Text(prompt).foregroundColor(Theme.rgb(0x6B7789)))
-                }
-            }
-            .textFieldStyle(.plain)
-            .font(mono ? Theme.mono(15) : Theme.sans(15))
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 14)
-            .frame(height: 46)
-            .background(Theme.bar, in: RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Theme.line2))
-        }
     }
 }
 

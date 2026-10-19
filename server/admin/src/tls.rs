@@ -32,6 +32,17 @@ pub fn ensure_certificate(data_dir: &Path) -> Result<(PathBuf, PathBuf)> {
     Ok((cert, key))
 }
 
+/// Empreinte SHA-256 du certificat, au format « sha256:aa:bb:… » : les apps
+/// la comparent à celle du certificat présenté à la connexion.
+pub fn fingerprint(cert: &Path) -> Option<String> {
+    use rustls::pki_types::{CertificateDer, pem::PemObject};
+    use sha2::{Digest, Sha256};
+    let der = CertificateDer::from_pem_file(cert).ok()?;
+    let digest = Sha256::digest(der.as_ref());
+    let hex: Vec<String> = digest.iter().map(|b| format!("{b:02x}")).collect();
+    Some(format!("sha256:{}", hex.join(":")))
+}
+
 /// Adresse IP locale utilisée pour sortir vers le réseau (aucun paquet n'est envoyé).
 pub fn lan_ip() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;

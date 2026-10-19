@@ -122,6 +122,14 @@ export interface AudioStatus {
   last_error: string | null
 }
 
+export interface Pairing {
+  link: string
+  hostname: string
+  address: string
+  port: number
+  fingerprint: string | null
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
@@ -189,6 +197,7 @@ export const api = {
     request<DisplayStatus>('POST', '/api/display/test', { ...mode, seconds }),
   displayStop: () => request<DisplayStatus>('POST', '/api/display/stop'),
   audio: () => request<AudioStatus>('GET', '/api/audio'),
+  pairing: () => request<Pairing>('GET', '/api/pairing'),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),

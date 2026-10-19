@@ -13,6 +13,30 @@ final class AppModel: ObservableObject {
     @Published var route: Route = .home
     @Published private(set) var session: SessionController?
     @Published var toast: String?
+    /// Feuille « Ajouter un ordinateur », avec le lien kybernow:// qui l'a ouverte.
+    @Published var adding = false
+    var pendingLink: Candidate?
+
+    func add(link: Candidate? = nil) {
+        pendingLink = link
+        route = .home
+        adding = true
+    }
+
+    /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
+    func open(_ url: URL) {
+        guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }
+        if known(candidate) {
+            show("\(candidate.name) est déjà dans vos ordinateurs")
+            return
+        }
+        adding = false
+        DispatchQueue.main.async { self.add(link: candidate) }
+    }
+
+    private func known(_ c: Candidate) -> Bool {
+        store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == c.expected) || ($0.address == c.address && $0.consolePort == c.port) }
+    }
 
     func connect(_ host: Host) {
         guard session == nil else { return }
@@ -27,7 +51,7 @@ final class AppModel: ObservableObject {
         session.start()
     }
 
-    private func show(_ text: String) {
+    func show(_ text: String) {
         withAnimation { toast = text }
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
             withAnimation { self?.toast = nil }
@@ -53,7 +77,8 @@ struct KyberNowApp: App {
             }
             .animation(.easeInOut(duration: 0.25), value: app.route)
             .environmentObject(app)
-                .onReceive(app.store.objectWillChange) { app.objectWillChange.send() }
+            .onOpenURL { app.open($0) }
+            .onReceive(app.store.objectWillChange) { app.objectWillChange.send() }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {

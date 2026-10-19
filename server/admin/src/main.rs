@@ -4,6 +4,7 @@ mod api;
 mod assets;
 mod audio;
 mod auth;
+mod discovery;
 mod display;
 mod gpu;
 mod kyber_config;
@@ -189,6 +190,10 @@ pub struct Inner {
     pub settings: Mutex<Settings>,
     pub restart_pending: AtomicBool,
     pub secure_cookies: bool,
+    /// Empreinte du certificat de la console (appairage des apps).
+    pub tls_fingerprint: Option<String>,
+    /// Port d'écoute de la console.
+    pub listen_port: u16,
 }
 
 #[derive(Clone)]
@@ -337,6 +342,11 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     }
     audio.clone().supervise();
 
+    // Certificat (créé au premier lancement) et annonce sur le réseau local.
+    let (cert, key) = tls::ensure_certificate(&data_dir)?;
+    let tls_fingerprint = tls::fingerprint(&cert);
+    let _bonjour = discovery::announce(listen.port(), tls_fingerprint.as_deref());
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
@@ -348,6 +358,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         settings: Mutex::new(settings),
         restart_pending: AtomicBool::new(false),
         secure_cookies: !args.http,
+        tls_fingerprint,
+        listen_port: listen.port(),
     }));
 
     let app = Router::new()
@@ -367,7 +379,6 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         tracing::info!("kyber-admin en écoute sur http://{listen} (sans TLS)");
         axum_server::bind(listen).handle(handle).serve(app.into_make_service_with_connect_info::<SocketAddr>()).await?;
     } else {
-        let (cert, key) = tls::ensure_certificate(&data_dir)?;
         let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
         tracing::info!("kyber-admin en écoute sur https://{listen}");
         axum_server::bind_rustls(listen, tls).handle(handle).serve(app.into_make_service_with_connect_info::<SocketAddr>()).await?;

@@ -43,6 +43,14 @@ targets:
     dependencies:
       - target: KyberKit
         embed: true
+    # Complète l'Info.plist généré : lien kybernow:// et service Bonjour.
+    info:
+      path: KyberNow/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
+            CFBundleURLSchemes: [kybernow]
+        NSBonjourServices: [_kybernow._tcp]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow

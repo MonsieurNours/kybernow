@@ -120,6 +120,13 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         )
     }
 
+    /// Empreinte du certificat présenté par la console, sans compte : la
+    /// poignée de main TLS suffit (la console répond ensuite « non autorisé »).
+    public func probeFingerprint() async -> String? {
+        _ = try? await call("GET", "api/stream/info", timeout: 6)
+        return fingerprint
+    }
+
     public func heartbeat() async {
         _ = try? await call("POST", "api/stream/heartbeat")
     }

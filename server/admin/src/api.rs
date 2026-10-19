@@ -41,6 +41,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/audio", get(audio_status))
         .route("/api/audio/settings", put(audio_settings))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
+        .route("/api/pairing", get(pairing))
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
@@ -394,6 +395,26 @@ struct PrepareBody {
     /// `false` : l'appareil veut les écrans de l'ordinateur tels quels.
     #[serde(default)]
     virtual_display: Option<bool>,
+}
+
+/// Lien d'appairage pour les apps (aussi affiché en QR code par la console) :
+/// adresse, port et empreinte du certificat, pour une première connexion
+/// vérifiée sans question.
+async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let hostname = hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    let address = crate::tls::lan_ip().unwrap_or_else(|| "localhost".into());
+    let mut link = format!("kybernow://{address}:{}?name={}", s.listen_port, urlencoding::encode(&hostname));
+    if let Some(fp) = &s.tls_fingerprint {
+        link.push_str("&fp=");
+        link.push_str(&urlencoding::encode(fp));
+    }
+    Ok(Json(json!({
+        "link": link,
+        "hostname": hostname,
+        "address": address,
+        "port": s.listen_port,
+        "fingerprint": s.tls_fingerprint,
+    })))
 }
 
 /// Ce que l'app affiche d'un ordinateur : nom, carte graphique, possibilités.
