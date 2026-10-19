@@ -13,6 +13,7 @@
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132FE7F8A22F4F68C254657 /* Theme.swift */; };
+		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
 		73369CA48A1A5A22C82DFFCD /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0DDB25384557B8B551045E /* Model.swift */; };
 		776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E79EB33EC59E27B02F415F /* InputPipeline.swift */; };
 		81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B2EC8B704608F092769F7C /* DisplayInfo.swift */; };
@@ -53,6 +54,7 @@
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
 		44E79EB33EC59E27B02F415F /* InputPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPipeline.swift; sourceTree = "<group>"; };
+		5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChrome.swift; sourceTree = "<group>"; };
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
@@ -104,6 +106,7 @@
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */,
 				8C0DDB25384557B8B551045E /* Model.swift */,
+				5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */,
 				F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */,
 				2132FE7F8A22F4F68C254657 /* Theme.swift */,
 			);
@@ -244,6 +247,7 @@
 				4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */,
 				9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */,
 				73369CA48A1A5A22C82DFFCD /* Model.swift in Sources */,
+				6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */,
 				16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */,
 				651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */,
 			);

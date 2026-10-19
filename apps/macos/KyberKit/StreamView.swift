@@ -16,6 +16,10 @@ public final class StreamView: NSView {
     public var commandAsControl = true
     /// Raccourcis gardés par le Mac (menus de l'app) : ⌃⌥⌘ + lettre.
     public static let reservedModifiers: NSEvent.ModifierFlags = [.control, .option, .command]
+    /// Distance du pointeur au bord supérieur, à chaque mouvement (barre au survol).
+    public var onPointerMoved: ((CGFloat) -> Void)?
+    /// Bande du haut réservée à l'app (barre ouverte) : rien n'y part vers l'ordinateur.
+    public var reservedTopBand: CGFloat = 0
 
     private var input: InputPipeline?
     private var layout: OpaquePointer?
@@ -116,9 +120,15 @@ public final class StreamView: NSView {
 
     // MARK: - Souris
 
-    private func sendPosition(_ event: NSEvent) {
-        guard let input, let layout else { return }
+    private func inReservedBand(_ event: NSEvent) -> Bool {
         let p = convert(event.locationInWindow, from: nil)
+        return bounds.height - p.y < reservedTopBand
+    }
+
+    private func sendPosition(_ event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        onPointerMoved?(bounds.height - p.y)
+        guard let input, let layout, !inReservedBand(event) else { return }
         var local = kynput_Position(x: p.x, y: bounds.height - p.y)
         var host = kynput_Position(x: 0, y: 0)
         guard kynput_video_layout_local_to_host(layout, &local, false, &host) else { return }
@@ -132,6 +142,7 @@ public final class StreamView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if inReservedBand(event) { return }
         sendPosition(event)
         input?.mouseButton(.left, pressed: true)
     }

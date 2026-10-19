@@ -18,6 +18,13 @@ public struct PrepareResult: Sendable {
     public let audioChannels: Int?
 }
 
+/// Ce que la console confirme en fin de session.
+public struct EndReport: Sendable {
+    public let displayRestored: Bool
+    public let audioRestored: Bool
+    public let error: String?
+}
+
 public enum ConsoleError: LocalizedError {
     case http(Int, String)
     case certificateChanged
@@ -95,8 +102,14 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
     }
 
     /// Fin de session : la console retire l'écran virtuel et rétablit le son.
-    public func end() async throws {
-        _ = try await call("POST", "api/stream/end")
+    @discardableResult
+    public func end() async throws -> EndReport {
+        let json = try await call("POST", "api/stream/end")
+        return EndReport(
+            displayRestored: json["display_restored"] as? Bool ?? true,
+            audioRestored: json["audio_restored"] as? Bool ?? true,
+            error: json["error"] as? String
+        )
     }
 
     // MARK: - Certificat

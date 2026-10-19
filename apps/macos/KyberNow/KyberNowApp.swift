@@ -12,7 +12,7 @@ final class AppModel: ObservableObject {
         guard session == nil else { return }
         let session = SessionController(host: host, store: store) { [weak self] finished in
             guard let self else { return }
-            if case .ended = finished.phase {
+            if finished.closing.displayRestored == true {
                 self.show("Session terminée · \(finished.host.name) a retrouvé ses écrans")
             }
             self.session = nil

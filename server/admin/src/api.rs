@@ -409,12 +409,20 @@ async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap) -> ApiR
 async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     stream_user(&s, &headers)?;
     let (d, a) = (s.display.clone(), s.audio.clone());
-    blocking(move || {
+    let report = blocking(move || {
         // Les écrans d'abord : la sortie audio d'origine revient avec eux.
         d.stop("l'appareil s'est déconnecté");
         a.stop("l'appareil s'est déconnecté");
-        Ok(())
+        // Ce que l'app affiche à l'utilisateur en fin de session.
+        let display = d.status();
+        let audio = a.status();
+        Ok(json!({
+            "ok": true,
+            "display_restored": display["session"].is_null(),
+            "audio_restored": audio["session"].is_null(),
+            "error": display["last_error"].as_str().or(audio["last_error"].as_str()),
+        }))
     })
     .await?;
-    Ok(Json(json!({ "ok": true })))
+    Ok(Json(report))
 }
