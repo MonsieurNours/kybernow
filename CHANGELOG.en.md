@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: pressing L1 + R1 + Start + Select during a reconnection or before the first frame no longer leaves the gamepad silent until the next combination. The gamepad is only taken when the bar (Mac) or the menu (Apple TV) really opens, and a picture restart no longer hands it back to the game while the menu is open.
 - Mac app: after ⌘Tab, ⌘Space or a trip to another app, the ⌘ key (sent as Ctrl) no longer stays pressed on the computer. Everything is released when the window loses the keyboard, and the modifiers really held are sent again when it gets it back.
 
 ## 0.2.5

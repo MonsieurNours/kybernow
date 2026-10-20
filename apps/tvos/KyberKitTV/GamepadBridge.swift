@@ -6,7 +6,10 @@
 // session, son bouton Retour ouvre le menu, et son pavé peut servir de souris.
 //
 // L1 + R1 + Start + Select (comme sur Mac) ouvre aussi le menu : la manette
-// pilote alors KyberNow et le jeu ne reçoit plus rien.
+// pilote alors KyberNow et le jeu ne reçoit plus rien. Le pont ne décide pas :
+// il signale la combinaison, et c'est le contrôleur de session qui prend la
+// manette (`setCaptured`) quand le menu s'ouvre vraiment. Hors session
+// (connexion, reconnexion), rien n'est pris et la manette reste au jeu.
 
 import Combine
 import CoreHaptics
@@ -124,7 +127,8 @@ public final class GamepadBridge: ObservableObject {
     /// Branche les manettes sur la chaîne d'entrées de la session.
     func attach(_ input: InputPipeline) {
         self.input = input
-        captured = false
+        // `captured` reste au contrôleur de session : l'image redémarre
+        // (changement de profil) sans que le menu se ferme.
         input.onRumble = { [weak self] in self?.rumble($0) }
         // Les manettes s'annoncent une fois les entrées reliées à l'ordinateur :
         // avant, l'annonce se perd, et l'ordinateur rejette ensuite les boutons
@@ -283,13 +287,9 @@ public final class GamepadBridge: ObservableObject {
         if menuFromCombo, pressed, Self.combo.contains(button), slot.pressed.isSuperset(of: Self.combo) {
             KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
             slot.comboSeen = true
-            if !captured {
-                // L'ordinateur a vu les premières touches : on les relâche pour lui.
-                if !padMouse {
-                    for b in slot.pressed where b != button { input.gamepadButton(id: slot.id, b, pressed: false) }
-                }
-                captured = true
-            }
+            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
+            // contrôleur de session : prendre la manette (il relâche alors
+            // pour l'ordinateur les touches qu'il a vues), ou la rendre.
             onMenuRequest?()
             return
         }

@@ -4,6 +4,12 @@
 // Branché comme « hook » du routeur kynput : chaque paquet de manette y
 // passe avant de partir vers l'ordinateur. Le routeur appelle le hook sous
 // son verrou : on ne réinjecte donc jamais de paquet depuis le rappel.
+//
+// Le hook ne décide pas : il signale la combinaison, et c'est le contrôleur
+// de session qui prend la manette (`setCaptured`) quand la barre s'ouvre
+// vraiment. Hors session (connexion, reconnexion), rien n'est pris et la
+// manette reste à l'ordinateur ; avant, le hook basculait tout seul et la
+// manette restait muette jusqu'à la combinaison suivante.
 
 import Foundation
 @_implementationOnly import CKyber
@@ -31,11 +37,29 @@ final class GamepadGate: @unchecked Sendable {
         KYNPUT_GAMEPAD_BUTTON_START.rawValue, KYNPUT_GAMEPAD_BUTTON_BACK.rawValue,
     ]
 
-    /// L'app rend (ou prend) la manette, par exemple quand la barre se ferme.
+    /// L'app prend la manette (barre ouverte) ou la rend (barre fermée).
     func setCaptured(_ value: Bool) {
         lock.lock()
+        let was = captured
         captured = value
+        guard value, !was else {
+            if !value { allowed = [:] }
+            lock.unlock()
+            return
+        }
+        // L'ordinateur a vu les touches tenues (les trois premières de la
+        // combinaison) : on les relâche pour lui.
+        var releases: [(UInt32, kynput_GamepadButton)] = []
+        for (id, buttons) in pressed {
+            for b in buttons {
+                releases.append((id, kynput_GamepadButton(rawValue: b)))
+                allowed[id, default: []].insert(b)
+            }
+        }
         lock.unlock()
+        if !releases.isEmpty {
+            DispatchQueue.global().async { [weak self] in self?.release?(releases) }
+        }
     }
 
     /// `true` : le paquet part vers l'ordinateur.
@@ -54,15 +78,8 @@ final class GamepadGate: @unchecked Sendable {
         if b.pressed { pressed[b.id, default: []].insert(button) } else { pressed[b.id]?.remove(button) }
 
         if b.pressed, Self.combo.contains(button), pressed[b.id, default: []].isSuperset(of: Self.combo) {
-            captured.toggle()
-            if captured {
-                // L'ordinateur a vu les trois premières touches : on les relâche pour lui.
-                let held = Self.combo.subtracting([button])
-                allowed[b.id, default: []].formUnion(held)
-                let id = b.id
-                let releases = held.map { (id, kynput_GamepadButton(rawValue: $0)) }
-                DispatchQueue.global().async { [weak self] in self?.release?(releases) }
-            }
+            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
+            // contrôleur de session : prendre la manette, ou la rendre.
             DispatchQueue.main.async { [weak self] in self?.onCombo?() }
             return false
         }

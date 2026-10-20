@@ -227,6 +227,9 @@ final class SessionController: NSObject, ObservableObject {
 
     // MARK: - Manette
 
+    /// L1 + R1 + START + SELECT : la barre s'ouvre et la manette la pilote,
+    /// ou se ferme et la manette revient à l'ordinateur. Hors session
+    /// (connexion, reconnexion), rien : la manette reste à l'ordinateur.
     private func gamepadCombo() {
         guard phase == .streaming else { return }
         if padMode {
@@ -235,6 +238,7 @@ final class SessionController: NSObject, ObservableObject {
             hideBar?.cancel()
             padFocus = 0
             withAnimation(.easeOut(duration: 0.2)) { padMode = true }
+            kyber?.setGamepadCaptured(true)
             setBar(true)
         }
     }
@@ -559,6 +563,8 @@ final class SessionController: NSObject, ObservableObject {
             }
             let options = streamOptions
             try kyber.startStreaming(display: display, view: streamView, options: options)
+            // Chaîne d'entrées neuve : si la barre a la manette, elle la garde.
+            kyber.setGamepadCaptured(padMode)
             streaming = display.id
             shownDisplay = display.id
             streamingFallback = fallback
