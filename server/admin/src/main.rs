@@ -61,6 +61,10 @@ pub struct RunArgs {
     /// HTTP sans TLS, réservé au développement local
     #[arg(long)]
     http: bool,
+    /// Annonce Bonjour avec `kyber=1` même sans serveur Kyber (développement :
+    /// tester l'ajout et l'appairage depuis les apps)
+    #[arg(long)]
+    announce_kyber: bool,
 }
 
 #[derive(Subcommand)]
@@ -397,7 +401,12 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // Certificat (créé au premier lancement) et annonce sur le réseau local.
     let (cert, key) = tls::ensure_certificate(&data_dir)?;
     let tls_fingerprint = tls::fingerprint(&cert);
-    let _bonjour = discovery::announce(listen.port(), tls_fingerprint.as_deref());
+    // Les apps n'affichent que les consoles qui ont un serveur Kyber derrière.
+    let kyber_ready = discovery::kyber_ready(args.announce_kyber, config_path.exists(), service.as_ref());
+    if !kyber_ready {
+        tracing::warn!("pas de serveur Kyber utilisable : annoncée avec kyber=0, les apps ne la proposent pas");
+    }
+    let _bonjour = discovery::announce(listen.port(), tls_fingerprint.as_deref(), kyber_ready);
 
     // Mises à jour : vérification de fond, et relance de l'icône après une installation.
     let updater = Arc::new(update::Updater::new(&data_dir));
