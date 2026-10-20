@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.6
+
+- Client web : un clic dans la barre de session (Quitter, Son, Touches…) ou sur un bouton tactile ne clique plus aussi sur l'ordinateur, sous la barre.
+
 ## 0.2.5
 
 - App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.

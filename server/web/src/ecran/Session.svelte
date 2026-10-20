@@ -12,6 +12,7 @@
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
   import { forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
+  import { installInputGuard, removeInputGuard } from './guard'
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
@@ -381,6 +382,8 @@
 
   onMount(() => {
     installDiag()
+    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur.
+    installInputGuard((t) => t === canvas() || (!!touchLayer && t === touchLayer))
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
     watchInputSocket()
@@ -488,6 +491,7 @@
       releasePointer()
       removePointerGate()
       removeAbsoluteMouse()
+      removeInputGuard()
       setPositionMapper(() => null)
       forgetInputSocket()
       if (barTimer) clearTimeout(barTimer)
@@ -638,12 +642,12 @@
   <!-- Tactile : languette, barre compacte, clavier -->
   {#if isTouch && phase === 'live'}
     {#if !touchBar}
-      <button type="button" class="tab glass" aria-label="Afficher la barre de session" onclick={() => { touchBar = true; guide = false }}>
+      <button type="button" class="tab glass" aria-label="Afficher la barre de session" onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = false }}>
         <span class="mono">{latencyText}</span>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
     {:else}
-      <div class="tbar glass" role="toolbar" aria-label="Session">
+      <div class="tbar glass" role="toolbar" tabindex="-1" aria-label="Session" onpointerdown={(e) => e.preventDefault()}>
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
         <span class="sep" aria-hidden="true"></span>
@@ -670,7 +674,7 @@
     {/if}
 
     {#if !keyboardOpen}
-      <button type="button" class="fab glass" onclick={openKeyboard} aria-label="Ouvrir le clavier">
+      <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label="Ouvrir le clavier">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
       </button>
     {:else}
