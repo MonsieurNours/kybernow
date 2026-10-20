@@ -58,6 +58,13 @@ struct SessionView: View {
                     .transition(.opacity)
             }
 
+            if let note = session.notice, session.fallbackNote == nil, !session.menuOpen {
+                MenuHint(text: note)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 48)
+                    .transition(.opacity)
+            }
+
             if let note = session.fallbackNote, !session.menuOpen {
                 MenuHint(text: note)
                     .frame(maxHeight: .infinity, alignment: .top)

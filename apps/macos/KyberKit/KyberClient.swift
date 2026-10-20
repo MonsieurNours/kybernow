@@ -18,6 +18,11 @@ public struct KyberDisplay: Sendable, Hashable {
     public let height: Int
     public let x: Int
     public let y: Int
+
+    /// Le même écran à une autre taille (mode changé sur l'ordinateur).
+    public func resized(width: Int, height: Int) -> KyberDisplay {
+        KyberDisplay(id: id, width: width, height: height, x: x, y: y)
+    }
 }
 
 public enum VideoCodec: String, Sendable, CaseIterable, Codable {
@@ -124,11 +129,22 @@ public final class KyberClient {
     public var onVideoStalled: (() -> Void)?
     /// Mesures du son, une fois par seconde (fil principal).
     public var onAudioStats: ((AudioStats) -> Void)?
+    /// L'écran affiché a changé de taille sur l'ordinateur (un jeu qui passe
+    /// en 1080p) : le repère des entrées a déjà été recalé (fil principal).
+    public var onHostSizeChanged: ((_ width: Int, _ height: Int) -> Void)?
 
     private var client: OpaquePointer?
     private var input: InputPipeline?
     private var video: VideoPipeline?
     private var audio: AudioPlayer?
+    /// Vue de la session en cours, et taille de l'écran de l'ordinateur dans
+    /// le repère de ses entrées.
+    private weak var view: StreamView?
+    private var hostSize = (width: 0, height: 0)
+    /// Taille des dernières images décodées par l'app, et celle que la liste
+    /// de Kyber donne à l'écran affiché.
+    private var frameSize: (width: Int, height: Int)?
+    private var listSize = (width: 0, height: 0)
     /// Latence de bout en bout, à partir des mesures de Kyber.
     private let latency = LatencyTracker()
 
@@ -170,10 +186,16 @@ public final class KyberClient {
             on_event: { event, userdata in
                 guard let event, let userdata else { return }
                 let me = Unmanaged<KyberClient>.fromOpaque(userdata).takeUnretainedValue()
-                // Entrées reliées à l'ordinateur : ce qui a été envoyé avant
-                // (manettes branchées) s'est perdu, la chaîne le renvoie.
+                // Entrées reliées à l'ordinateur (début de session, ou relance :
+                // Kyber relance alors son service d'entrées, qui ne tient plus
+                // rien) : ce qui a été envoyé avant s'est perdu. La chaîne
+                // renvoie les manettes branchées, la vue l'état qu'elle tient
+                // (mode de la souris, modificateurs, pointeur).
                 if kyclient_event_get_type(event) == KYCLIENT_EVENT_TYPE_INPUT_SERVICE_CONNECTED {
-                    DispatchQueue.main.async { me.input?.networkConnected() }
+                    DispatchQueue.main.async {
+                        me.input?.networkConnected()
+                        me.view?.inputConnected()
+                    }
                 }
                 if let e = KyberClient.unpack(event) {
                     // Nouveau flux (démarrage, reconnexion) : les pts repartent de zéro.
@@ -211,6 +233,10 @@ public final class KyberClient {
         input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
         input.gamepad.onNavigate = { [weak self] key in self?.onGamepadNavigate?(key) }
         self.input = input
+        self.view = view
+        hostSize = (display.width, display.height)
+        listSize = hostSize
+        frameSize = nil
         view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
 
         let protocolRef = kyclient_streaming_protocol_kymux(
@@ -243,8 +269,13 @@ public final class KyberClient {
             pipeline.renderer.paused = occluded
             latency.reset()
             pipeline.renderer.latency = latency
-            pipeline.renderer.onStats = { [weak self] stats in
-                DispatchQueue.main.async { self?.onVideoStats?(stats) }
+            pipeline.renderer.onStats = { [weak self, weak pipeline] stats in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    // Mesures d'une image arrêtée entre-temps : sa taille ne compte plus.
+                    if let pipeline, self.video === pipeline { self.decoded(width: stats.width, height: stats.height) }
+                    self.onVideoStats?(stats)
+                }
             }
             pipeline.decoder.onLostReference = { [weak self] in DispatchQueue.main.async { self?.keyframeNeeded() } }
             pipeline.decoder.onRecovered = { [weak self] in DispatchQueue.main.async { self?.keyframeArrived() } }
@@ -301,6 +332,47 @@ public final class KyberClient {
         video = nil
         retire(audio)
         audio = nil
+    }
+
+    // MARK: - Taille de l'écran de l'ordinateur
+
+    /// Images d'une autre taille (txproto recrée l'encodeur quand le mode de
+    /// l'écran change, le décodeur suit les nouveaux SPS/PPS) : les positions
+    /// de souris se calent sur elles, avant même que Kyber annonce la liste.
+    /// Seul un *changement* de taille compte : la première image peut être
+    /// à l'échelle (encodeur limité, libavconv), la liste reste alors la
+    /// référence. Une image qui change de taille en cours de flux annonce un
+    /// changement de mode, que la liste confirmera ou corrigera.
+    private func decoded(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        guard let previous = frameSize else {
+            frameSize = (width, height)
+            return
+        }
+        guard previous != (width, height) else { return }
+        frameSize = (width, height)
+        // Quelques pixels d'écart : l'alignement de l'encodeur (2234 → 2240
+        // lignes), pas un changement de mode.
+        if abs(width - hostSize.width) <= 16, abs(height - hostSize.height) <= 16 { return }
+        setHostSize(width: width, height: height, from: "image décodée")
+    }
+
+    /// Taille que la liste de Kyber donne à l'écran affiché (à chaque liste).
+    /// Quand elle change, elle fait foi : avec libavconv, l'image garde sa
+    /// taille de départ (mise à l'échelle) alors que les positions suivent
+    /// l'écran, et avec VLC l'app ne voit pas les images.
+    public func displayResized(width: Int, height: Int) {
+        guard width > 0, height > 0, listSize != (width, height) else { return }
+        listSize = (width, height)
+        setHostSize(width: width, height: height, from: "liste des écrans")
+    }
+
+    private func setHostSize(width: Int, height: Int, from source: String) {
+        guard input != nil, hostSize != (width, height) else { return }
+        KyberLog.app.notice("écran de l'ordinateur : \(self.hostSize.width)×\(self.hostSize.height) → \(width)×\(height) (\(source, privacy: .public))")
+        hostSize = (width, height)
+        view?.setHostSize(CGSize(width: width, height: height))
+        onHostSizeChanged?(width, height)
     }
 
     // MARK: - Image clé après une perte

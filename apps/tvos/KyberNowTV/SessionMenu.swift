@@ -17,7 +17,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, quit }
+    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, quit, restoreMode }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -57,7 +57,21 @@ struct SessionMenu: View {
                         Text("Retour ou L1 + R1 + Start + Select : fermer le menu")
                     }
                     Spacer()
-                    Text("Pendant le menu, les manettes pilotent KyberNow ; le jeu ne reçoit rien.")
+                    if let offer = session.modeRestoreOffer {
+                        // L'ordinateur a changé de définition (profil Bureau).
+                        Button { session.restoreMode() } label: {
+                            HStack(spacing: 12) {
+                                Icon("monitor", size: 26).foregroundStyle(Theme.accent)
+                                Text(offer).foregroundStyle(Theme.text)
+                            }
+                            .padding(.horizontal, 24)
+                            .frame(height: 56)
+                        }
+                        .buttonStyle(GlassButton(radius: 18, scale: 1.05))
+                        .focused($focus, equals: .restoreMode)
+                    } else {
+                        Text("Pendant le menu, les manettes pilotent KyberNow ; le jeu ne reçoit rien.")
+                    }
                 }
                 .font(Theme.sans(19))
                 .foregroundStyle(Theme.muted)

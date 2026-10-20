@@ -244,6 +244,19 @@ struct ConnectionSettings: Codable, Hashable {
     }
 
     var profileLabel: String { profile?.label ?? "Personnalisé" }
+
+    /// Si le mode de l'écran de l'ordinateur change en session (un jeu qui
+    /// passe en 1080p) : Jeu laisse faire, Bureau le fait remettre ; sinon
+    /// (`default`), la console décide (son réglage « Si un jeu change la
+    /// définition ») : dit explicitement, pour qu'un profil changé en session
+    /// défasse le choix du précédent.
+    var modePolicy: String {
+        switch profile {
+        case .jeu?: return "follow"
+        case .bureau?: return "restore"
+        default: return "default"
+        }
+    }
 }
 
 extension ConnectionSettings {

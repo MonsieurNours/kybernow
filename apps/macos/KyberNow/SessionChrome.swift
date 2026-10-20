@@ -224,6 +224,9 @@ private struct HintToast: View {
             case let .fallback(text):
                 Icon("warning", size: 14, bold: true).foregroundStyle(Theme.warn)
                 Text(text)
+            case let .notice(text):
+                Icon("monitor", size: 14, bold: true).foregroundStyle(Theme.accent)
+                Text(text)
             }
         }
         .font(Theme.sans(12.5))
@@ -339,6 +342,13 @@ private struct SessionBar: View {
                     }) {
                         chip(icon: "monitor", text: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)", caret: true)
                     }
+                }
+                if let offer = session.modeRestoreOffer {
+                    Button { session.restoreMode() } label: {
+                        chip(icon: "arrow-counter-clockwise", text: offer, tint: Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("L'ordinateur a changé de définition : remettre celle de ce Mac")
                 }
                 divider
                 Button { session.toggleFullScreen() } label: {

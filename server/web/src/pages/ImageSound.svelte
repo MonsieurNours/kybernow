@@ -4,7 +4,7 @@
   choix s'applique tout de suite.
 -->
 <script lang="ts">
-  import { api, type AudioChannels, type AudioStatus, type DisplayStatus, type Trigger } from '../lib/api'
+  import { api, type AudioChannels, type AudioStatus, type DisplayStatus, type ModePolicy, type Trigger } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, notify, setValues, value } from '../lib/store.svelte'
   import { mode } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
@@ -27,6 +27,12 @@
     { value: 'apps', label: 'Avec les apps' },
     { value: 'all', label: 'Toujours' },
     { value: 'off', label: 'Jamais' },
+  ]
+
+  // Un jeu qui change la définition de l'écran virtuel pendant la session.
+  const MODE_POLICIES: { value: ModePolicy; label: string }[] = [
+    { value: 'follow', label: 'Laisser faire' },
+    { value: 'restore', label: 'Remettre' },
   ]
 
   const CHANNELS: { value: AudioChannels; label: string; hint: string }[] = [
@@ -200,6 +206,16 @@
             <button type="submit" class="ghost" disabled={busy}>Enregistrer</button>
           </form>
         {/if}
+      </div>
+      <div class="set">
+        <div>
+          <h3>Si un jeu change la définition</h3>
+          <p>Laisser faire : l'image suit le jeu. Remettre : l'écran revient à la taille de l'appareil. Les apps choisissent selon leur profil (Jeu : laisser faire, Bureau : remettre) ; ce choix vaut pour les autres. Avec le moteur libavconv, un changement de définition peut couper l'image.</p>
+          {#if display.session && display.mode && (display.mode.width !== display.session.mode.width || display.mode.height !== display.session.mode.height)}
+            <p>En ce moment : {mode(display.mode)} (demandé : {mode(display.session.mode)}).</p>
+          {/if}
+        </div>
+        <Segmented label="Si un jeu change la définition" options={MODE_POLICIES} value={display.settings.on_mode_change ?? 'follow'} disabled={busy} onchange={(p) => setDisplay({ on_mode_change: p }, 'Enregistré.')} />
       </div>
       <div class="set">
         <div>

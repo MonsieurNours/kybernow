@@ -151,11 +151,15 @@ export interface LogFile {
 
 export type Trigger = 'off' | 'apps' | 'all'
 
+/** Si le mode de l'écran virtuel change en session : laisser faire ou le remettre. */
+export type ModePolicy = 'follow' | 'restore'
+
 export interface VdSettings {
   trigger: Trigger
   width: number
   height: number
   refresh: number
+  on_mode_change: ModePolicy
 }
 
 export interface DisplayStatus {
@@ -169,7 +173,11 @@ export interface DisplayStatus {
     started_at: number
     seconds_left: number | null
     applied: { gdi_name?: string; width?: number; height?: number; refresh?: number; disabled_others?: number }
+    mode_policy: ModePolicy
   }
+  /** Mode courant de l'écran virtuel et écrans actifs, relus chaque seconde en session. */
+  mode: { width: number; height: number; refresh: number } | null
+  displays: number | null
   last_error: string | null
 }
 

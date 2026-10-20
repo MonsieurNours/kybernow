@@ -124,12 +124,39 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Remet un mode sur l'écran `gdi_name` (politique « restore »).
+    SetMode {
+        #[arg(long)]
+        gdi_name: String,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+        #[arg(long)]
+        refresh: u32,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Son vers les haut-parleurs virtuels, à `channels` canaux.
     AudioRoute {
         #[arg(long)]
         channels: u16,
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Veille de l'écran virtuel (mode courant, écrans actifs) pendant une session.
+    Watch {
+        #[arg(long)]
+        dir: PathBuf,
+        /// Jeton de la session : l'agent s'arrête quand `run` en porte un autre.
+        #[arg(long)]
+        token: String,
+        #[arg(long, allow_hyphen_values = true)]
+        luid_low: u32,
+        #[arg(long, allow_hyphen_values = true)]
+        luid_high: i32,
+        #[arg(long)]
+        target: u32,
     },
     /// Veille de l'app au premier plan (plein écran, jeu) pendant une session.
     Foreground {
@@ -170,6 +197,15 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
+    if let AgentAction::Watch { dir, token, luid_low, luid_high, target } = &action {
+        #[cfg(windows)]
+        return display::watch::run_agent(dir, token, *luid_low, *luid_high, *target);
+        #[cfg(not(windows))]
+        {
+            let _ = (dir, token, luid_low, luid_high, target);
+            anyhow::bail!("réservé à Windows");
+        }
+    }
     #[cfg(windows)]
     let (out, result) = match action {
         AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => {
@@ -182,6 +218,10 @@ fn display_agent(action: AgentAction) -> Result<()> {
             display::pointer::end(agent_dir(&out));
             (out, display::topology::restore().map(|_| serde_json::json!({ "ok": true })))
         }
+        AgentAction::SetMode { gdi_name, width, height, refresh, out } => {
+            let (w, h, hz) = display::topology::set_mode(&gdi_name, width, height, refresh);
+            (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
+        }
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
             (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
@@ -193,16 +233,17 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, r)
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
-        AgentAction::Foreground { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
         | AgentAction::Restore { out }
+        | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
-        AgentAction::Foreground { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     let value = match result {
         Ok(v) => v,
@@ -414,6 +455,13 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     updater.clone().supervise();
     update::relaunch_tray_if_asked(&data_dir);
 
+    // Fil des événements : l'écran virtuel y annonce ce que la veille voit.
+    let activity = Arc::new(activity::Activity::new(&data_dir));
+    {
+        let a = activity.clone();
+        display.on_event(Arc::new(move |kind: &str, text: &str| a.event(kind, text)));
+    }
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
@@ -421,7 +469,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         audio,
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
-        activity: Arc::new(activity::Activity::new(&data_dir)),
+        activity,
         pairing: pairing::Pairing::new(),
         updater: updater.clone(),
         service,

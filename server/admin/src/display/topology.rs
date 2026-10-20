@@ -156,24 +156,7 @@ pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u
         .copied()
         .unwrap_or(path);
     let name = gdi_name(&vd_path).unwrap_or_default();
-    let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
-    let (w, h, hz) = unsafe {
-        let mut mode: DEVMODEW = std::mem::zeroed();
-        mode.dmSize = size_of::<DEVMODEW>() as u16;
-        mode.dmPelsWidth = width;
-        mode.dmPelsHeight = height;
-        mode.dmDisplayFrequency = refresh;
-        mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
-        // Mode enregistré lui aussi, pour que Windows le réapplique tel quel.
-        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY, std::ptr::null());
-        if r != DISP_CHANGE_SUCCESSFUL {
-            tracing::warn!("changement de mode refusé ({r}) : le mode préféré de l'écran est conservé");
-        }
-        let mut current: DEVMODEW = std::mem::zeroed();
-        current.dmSize = size_of::<DEVMODEW>() as u16;
-        EnumDisplaySettingsW(wname.as_ptr(), ENUM_CURRENT_SETTINGS, &mut current);
-        (current.dmPelsWidth, current.dmPelsHeight, current.dmDisplayFrequency)
-    };
+    let (w, h, hz) = set_mode(&name, width, height, refresh);
 
     // 5. Laisser le reste du système voir la nouvelle disposition. Sans ce délai,
     //    l'énumérateur d'écrans de Kyber, lancé à la connexion du client, voit
@@ -181,6 +164,60 @@ pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u
     //    client choisit un écran qui n'existe plus (refus 403).
     std::thread::sleep(Duration::from_millis(1500));
     Ok(Applied { gdi_name: name, width: w, height: h, refresh: hz, disabled_others })
+}
+
+/// Impose un mode à l'écran `name` (nom GDI) et rend celui qu'il a ensuite.
+/// Le mode est enregistré lui aussi, pour que Windows le réapplique tel quel.
+pub fn set_mode(name: &str, width: u32, height: u32, refresh: u32) -> (u32, u32, u32) {
+    let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let mut mode: DEVMODEW = std::mem::zeroed();
+        mode.dmSize = size_of::<DEVMODEW>() as u16;
+        mode.dmPelsWidth = width;
+        mode.dmPelsHeight = height;
+        mode.dmDisplayFrequency = refresh;
+        mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
+        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY, std::ptr::null());
+        if r != DISP_CHANGE_SUCCESSFUL {
+            tracing::warn!("changement de mode refusé ({r}) : le mode préféré de l'écran est conservé");
+        }
+    }
+    current_mode(name)
+}
+
+/// Mode actuel de l'écran `name` (nom GDI) : 0 × 0 s'il n'est pas actif.
+fn current_mode(name: &str) -> (u32, u32, u32) {
+    let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let mut current: DEVMODEW = std::mem::zeroed();
+        current.dmSize = size_of::<DEVMODEW>() as u16;
+        if EnumDisplaySettingsW(wname.as_ptr(), ENUM_CURRENT_SETTINGS, &mut current) == 0 {
+            return (0, 0, 0);
+        }
+        (current.dmPelsWidth, current.dmPelsHeight, current.dmDisplayFrequency)
+    }
+}
+
+/// Ce que Windows affiche en ce moment : mode de l'écran virtuel (0 × 0 s'il
+/// n'est plus actif), nombre d'écrans actifs, et combien d'entre eux ne sont
+/// pas l'écran virtuel (des écrans physiques rallumés pendant la session).
+#[derive(Debug, Serialize)]
+pub struct Seen {
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    pub gdi_name: String,
+    pub displays: u32,
+    pub others: u32,
+}
+
+pub fn observe(luid_low: u32, luid_high: i32, target: u32) -> Result<Seen> {
+    let (paths, _) = active_config()?;
+    let vd = paths.iter().find(|p| is_target(p, luid_low, luid_high, target));
+    let name = vd.and_then(gdi_name).unwrap_or_default();
+    let (width, height, refresh) = if name.is_empty() { (0, 0, 0) } else { current_mode(&name) };
+    let displays = paths.len() as u32;
+    Ok(Seen { width, height, refresh, gdi_name: name, displays, others: displays - u32::from(vd.is_some()) })
 }
 
 /// Réapplique la disposition habituelle des écrans physiques.
