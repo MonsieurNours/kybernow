@@ -6,6 +6,8 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.5
 
+- Apple TV app: gamepads finally respond on the computer. They announced themselves before the inputs were connected, and the computer then ignored their buttons; the remote and the gamepad as a mouse did work.
+- Mac and Apple TV apps: every gamepad, PlayStation ones included, becomes an Xbox 360 gamepad on the computer.
 - Apple TV app: if the computer announces only screens that are off (0 × 0), the session says so instead of waiting forever.
 
 ## 0.2.4

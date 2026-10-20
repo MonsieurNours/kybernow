@@ -126,10 +126,22 @@ public final class GamepadBridge: ObservableObject {
         self.input = input
         captured = false
         input.onRumble = { [weak self] in self?.rumble($0) }
+        // Les manettes s'annoncent une fois les entrées reliées à l'ordinateur :
+        // avant, l'annonce se perd, et l'ordinateur rejette ensuite les boutons
+        // d'une manette qu'il ne connaît pas. (Une annonce en double est refusée
+        // sans dommage ; après une reconnexion, elle est nécessaire.)
+        input.onConnected = { [weak self, weak input] in
+            guard let self, let input, self.input === input else { return }
+            self.plugAll(input)
+        }
+        plugAll(input)
+        updateMouseTimer()
+    }
+
+    private func plugAll(_ input: InputPipeline) {
         for slot in orderedSlots {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(slot.controller)?.vendor, product: Self.usbIDs(slot.controller)?.product)
         }
-        updateMouseTimer()
     }
 
     func detach() {

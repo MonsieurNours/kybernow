@@ -135,6 +135,11 @@ public final class KyberClient {
             on_event: { event, userdata in
                 guard let event, let userdata else { return }
                 let me = Unmanaged<KyberClient>.fromOpaque(userdata).takeUnretainedValue()
+                // Entrées reliées à l'ordinateur : ce qui a été envoyé avant
+                // (manettes branchées) s'est perdu, la chaîne le renvoie.
+                if kyclient_event_get_type(event) == KYCLIENT_EVENT_TYPE_INPUT_SERVICE_CONNECTED {
+                    DispatchQueue.main.async { me.input?.networkConnected() }
+                }
                 if let e = KyberClient.unpack(event) {
                     DispatchQueue.main.async { me.onEvent?(e) }
                 }
@@ -232,6 +237,9 @@ public final class KyberClient {
         var inputConfig: OpaquePointer?
         try check(kyclient_input_session_config_default(kynput_pipeline_ref(input.pipeline), &inputConfig), "configuration des entrées")
         kyclient_input_session_config_clipboard(inputConfig, options.clipboard)
+        // Toutes les manettes deviennent des manettes Xbox 360 sur
+        // l'ordinateur, Sony comprises : c'est ce que les jeux gèrent tous.
+        kyclient_input_session_config_gamepad_force_xbox360(inputConfig, true)
         kyclient_streaming_session_config_set_input(session, inputConfig)
 
         try check(kyclient_client_start_streaming(client, session), "démarrage de l'image")

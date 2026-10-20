@@ -327,6 +327,15 @@ final class InputPipeline {
         send(kynput_mouse_wheel_to_packet(KYNPUT_INPUT_TARGET_HOST, dx, dy), "molette")
     }
 
+    /// Appelé quand les entrées rejoignent l'ordinateur (début de session,
+    /// reconnexion) : l'Apple TV y réannonce ses manettes.
+    var onConnected: (() -> Void)?
+
+    func networkConnected() {
+        KyberLog.app.notice("entrées reliées à l'ordinateur")
+        onConnected?()
+    }
+
     func flushKeys() {
         kynput_pipeline_flush_keys(pipeline)
     }

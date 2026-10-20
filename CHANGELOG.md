@@ -7,6 +7,8 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.5
 
+- App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.
+- Apps Mac et Apple TV : toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur.
 - App Apple TV : si l'ordinateur n'annonce que des écrans éteints (0 × 0), la session le dit au lieu d'attendre sans fin.
 
 ## 0.2.4
