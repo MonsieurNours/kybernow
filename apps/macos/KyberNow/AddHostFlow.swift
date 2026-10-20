@@ -188,6 +188,7 @@ struct AddHostSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// Lien ouvert depuis l'extérieur (kybernow://…), s'il y en a un.
     var initialLink: Candidate?
+    var initialTab: Tab = .network
 
     enum Tab: Hashable { case network, address, link }
     enum Step { case find, trust, account }
@@ -210,9 +211,15 @@ struct AddHostSheet: View {
                 }
             }
         }
-        .background(Theme.surface)
+        .background {
+            ZStack {
+                Theme.background
+                RadialGradient(colors: [Theme.accentFill.opacity(0.22), .clear], center: .topTrailing, startRadius: 0, endRadius: 520)
+            }
+        }
         .preferredColorScheme(.dark)
         .onAppear {
+            tab = initialTab
             if let initialLink {
                 candidate = initialLink
                 step = .trust
@@ -236,7 +243,7 @@ private struct FindStep: View {
                     Text("Trois façons de faire, choisissez la plus simple pour vous.").font(Theme.sans(14)).foregroundStyle(Theme.muted)
                 }
                 Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark") }
+                Button { dismiss() } label: { Icon("x", size: 15, bold: true) }
                     .buttonStyle(GhostButton(height: 34))
                     .keyboardShortcut(.cancelAction)
             }
@@ -259,7 +266,9 @@ private struct NetworkTab: View {
     let found: (Candidate) -> Void
     @EnvironmentObject var app: AppModel
     @StateObject private var discovery = Discovery()
-    @State private var resolving: String?
+    /// Annonces joignables (une annonce périmée ne se résout pas : on la tait).
+    @State private var resolved: [String: Candidate] = [:]
+    @State private var searched = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -268,33 +277,27 @@ private struct NetworkTab: View {
                 Text("La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour).")
                     .font(Theme.sans(13)).foregroundStyle(Theme.muted)
             }
-            ForEach(discovery.found) { f in
-                let known = app.store.hosts.contains { $0.consoleFingerprint != nil && $0.consoleFingerprint == f.fingerprint }
+            ForEach(discovery.found.filter { resolved[$0.id] != nil }) { f in
+                let c = resolved[f.id]!
+                let known = app.store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == f.fingerprint) || ($0.address == c.address && $0.consolePort == c.port) }
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(f.name).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
-                        Text(f.fingerprint == nil ? "annonce sans empreinte" : "empreinte annoncée").font(Theme.mono(12)).foregroundStyle(Theme.faint)
+                        Text("\(c.address) · \(f.fingerprint == nil ? "annonce sans empreinte" : "empreinte annoncée")").font(Theme.mono(12)).foregroundStyle(Theme.faint)
                     }
                     Spacer()
                     if known {
-                        Text("Déjà ajouté").font(Theme.sans(13)).foregroundStyle(Theme.accent)
+                        Text("Déjà ajouté").font(Theme.sans(13)).foregroundStyle(Theme.muted)
                     } else {
-                        Button(resolving == f.id ? "…" : "Ajouter") {
-                            resolving = f.id
-                            Task {
-                                if let c = await Discovery.resolve(f) { found(c) }
-                                resolving = nil
-                            }
-                        }
-                        .buttonStyle(PrimaryButton(height: 38))
-                        .disabled(resolving != nil)
+                        Button("Ajouter") { found(c) }
+                            .buttonStyle(PrimaryButton(height: 38))
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 16)
                 .background(known ? Theme.well : Theme.accentSoft.opacity(0.35), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(known ? Theme.line : Theme.accentLine))
             }
-            if discovery.found.isEmpty {
+            if resolved.isEmpty, searched {
                 Text("Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse.")
                     .font(Theme.sans(13)).foregroundStyle(Theme.faint).padding(.top, 6)
                     .fixedSize(horizontal: false, vertical: true)
@@ -302,6 +305,15 @@ private struct NetworkTab: View {
         }
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
+        .task(id: discovery.found.map(\.id)) {
+            for f in discovery.found where resolved[f.id] == nil {
+                if let c = await Discovery.resolve(f) { resolved[f.id] = c }
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(6))
+            searched = true
+        }
     }
 }
 
@@ -370,7 +382,7 @@ private struct LinkTab: View {
                     Text("Ce n'est pas un lien KyberNow.").font(Theme.sans(12)).foregroundStyle(Theme.warn)
                 }
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "checkmark.shield").foregroundStyle(Theme.accent)
+                    Icon("shield-check", size: 18).foregroundStyle(Theme.accent)
                     Text("Le lien contient l'adresse, le port et l'empreinte du certificat de l'ordinateur : la connexion est sûre dès la première fois, sans question.")
                         .font(Theme.sans(13)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
@@ -448,7 +460,7 @@ struct LabeledField: View {
                 if secure {
                     SecureField("", text: $text, prompt: Text(prompt))
                 } else {
-                    TextField("", text: $text, prompt: Text(prompt).foregroundColor(Theme.rgb(0x6B7789)))
+                    TextField("", text: $text, prompt: Text(prompt).foregroundColor(Theme.ghost))
                 }
             }
             .textFieldStyle(.plain)
@@ -469,6 +481,7 @@ private struct VerifyAndAccount: View {
     let candidate: Candidate
     @Binding var step: AddHostSheet.Step
     let done: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     @State private var seen: String?
     @State private var probed = false
@@ -482,7 +495,7 @@ private struct VerifyAndAccount: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            rail.frame(width: 300)
+            rail
             VStack(alignment: .leading, spacing: 20) {
                 if step == .trust { trust } else { account }
             }
@@ -490,6 +503,15 @@ private struct VerifyAndAccount: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .frame(width: 880, height: 600)
+        // On peut toujours renoncer : croix en haut à droite, ou Échap.
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: { Icon("x", size: 15, bold: true) }
+                .buttonStyle(GhostButton(height: 34))
+                .keyboardShortcut(.cancelAction)
+                .help("Ne pas ajouter cet ordinateur")
+                .accessibilityLabel("Fermer")
+                .padding(.top, 28).padding(.trailing, 28)
+        }
         .task {
             let console = ConsoleClient(host: candidate.address, port: candidate.port, username: "", password: "", fingerprint: nil)
             seen = await console.probeFingerprint()
@@ -505,7 +527,7 @@ private struct VerifyAndAccount: View {
         VStack(alignment: .leading, spacing: 26) {
             ZStack {
                 Circle().fill(Theme.accentSoft)
-                Image(systemName: "display").font(.system(size: 26)).foregroundStyle(Theme.accent)
+                Icon("desktop-tower", size: 28).foregroundStyle(Theme.accent)
             }
             .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 4) {
@@ -519,6 +541,8 @@ private struct VerifyAndAccount: View {
             Spacer()
         }
         .padding(.horizontal, 28).padding(.vertical, 32)
+        // Largeur fixée avant le fond : le fond couvre toute la colonne.
+        .frame(width: 300, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Theme.well)
         .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
@@ -527,9 +551,13 @@ private struct VerifyAndAccount: View {
     private func stepRow(_ n: Int, _ title: String, _ sub: String, done: Bool, now: Bool) -> some View {
         HStack(alignment: .top, spacing: 12) {
             ZStack {
-                Circle().fill(done ? Theme.accent : now ? Theme.accentSoft : Theme.surface2)
+                Circle().fill(done ? Theme.accentFill : now ? Theme.accentSoft : Theme.surface2)
                 if now { Circle().stroke(Theme.accent, lineWidth: 1.5) }
-                Text(done ? "✓" : "\(n)").font(Theme.sans(13, .semibold)).foregroundStyle(done ? Theme.accentInk : now ? Theme.accentLight : Theme.faint)
+                if done {
+                    Icon("check", size: 13, bold: true).foregroundStyle(Theme.accentInk)
+                } else {
+                    Text("\(n)").font(Theme.sans(13, .semibold)).foregroundStyle(now ? Theme.accentLight : Theme.faint)
+                }
             }
             .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
@@ -553,7 +581,7 @@ private struct VerifyAndAccount: View {
             HStack { Spacer(); Button("Retour") { step = .find }.buttonStyle(GhostButton(height: 44)) }
         } else if verified {
             HStack(spacing: 10) {
-                Image(systemName: "checkmark.seal.fill").font(.system(size: 22)).foregroundStyle(Theme.accent)
+                Icon("check-circle", size: 24).foregroundStyle(Theme.ok)
                 Text("Empreinte vérifiée : c'est bien l'ordinateur annoncé.").font(Theme.sans(15)).foregroundStyle(Theme.text)
             }
             Text("Le lien ou l'annonce de l'ordinateur contenait l'empreinte de son certificat, et elle correspond à celui qu'il présente.")
@@ -582,7 +610,7 @@ private struct VerifyAndAccount: View {
         LabeledField(label: "Identifiant", text: $username)
         LabeledField(label: "Mot de passe", text: $password, secure: true)
         HStack(spacing: 12) {
-            Image(systemName: "key.fill").foregroundStyle(Theme.accent)
+            Icon("key", size: 18).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Gardé dans le Trousseau").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
                 Text("La prochaine fois, un clic sur Se connecter suffit.").font(Theme.sans(13)).foregroundStyle(Theme.muted)

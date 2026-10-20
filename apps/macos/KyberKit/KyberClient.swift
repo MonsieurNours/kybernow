@@ -95,6 +95,13 @@ public final class KyberClient {
 
     /// Médiane de la latence sur la session en cours, en millisecondes.
     public var sessionLatencyMs: Double? { latency.sessionMedian }
+    public var sessionLatencyP95Ms: Double? { latency.sessionP95 }
+
+    /// Photographie de l'image affichée en ce moment (décodage par l'app), au
+    /// plus `maxWidth` pixels de large.
+    public func snapshot(maxWidth: Int = 1600) -> CGImage? {
+        video?.renderer.snapshot(maxWidth: maxWidth)
+    }
     private let host: String
 
     private static let setup: Void = {
@@ -249,6 +256,7 @@ public final class KyberClient {
     private func keyframeNeeded() {
         guard keyframeAsked == nil, let client else { return }
         keyframeAsked = Date()
+        latency.keyframeRequested()
         kyclient_client_request_keyframe(client)
         keyframeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self, let asked = self.keyframeAsked, let client = self.client else { return }
@@ -257,6 +265,7 @@ public final class KyberClient {
                 self.stopKeyframeWait()
                 self.onVideoStalled?()
             } else {
+                self.latency.keyframeRequested()
                 kyclient_client_request_keyframe(client)
             }
         }

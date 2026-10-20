@@ -112,11 +112,21 @@ final class VideoDecoder {
             guard !frame.isEmpty else { return }
             makeSample = { Self.sample(frame, format: $0) }
         }
-        guard let session, let format else { return }
+        guard let session, let format else {
+            // Des images sans les paramètres du flux : l'image clé du début
+            // s'est perdue en route. Sans demande, l'ordinateur n'en renverrait pas.
+            markLost()
+            return
+        }
         if waitingKey {
             // Sans image clé, une image qui s'appuie sur une référence perdue
-            // est refusée : inutile de la donner au décodeur.
-            guard isKey else { return }
+            // est refusée : inutile de la donner au décodeur. On en demande
+            // une, même sans trou signalé (image clé perdue entière, au début
+            // d'un flux lourd en 4:4:4 par exemple).
+            guard isKey else {
+                markLost()
+                return
+            }
             waitingKey = false
             if lostReference {
                 lostReference = false

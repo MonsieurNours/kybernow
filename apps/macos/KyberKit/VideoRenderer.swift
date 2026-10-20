@@ -11,6 +11,7 @@
 // sans copie (CVMetalTextureCache) et convertit en RGB dans le shader.
 // Indépendant d'AppKit : sert tel quel sur iOS et tvOS.
 
+import CoreGraphics
 import CoreVideo
 import Metal
 import QuartzCore
@@ -32,6 +33,22 @@ public struct VideoStats: Sendable {
     public var height = 0
     /// « 4:2:0 8 bits », « 4:4:4 10 bits »…
     public var format = ""
+    /// Temps de chaque étape, de la capture à l'affichage (si l'ordinateur les envoie).
+    public var chain: ChainTimes?
+    /// Images envoyées par l'ordinateur et jamais montrées, dans la seconde.
+    public var lostFrames = 0
+    /// Trous dans le flux (paquets perdus au-delà de la correction d'erreurs).
+    public var holes = 0
+    /// Images clés demandées après une perte.
+    public var keyframeRequests = 0
+    /// Paquets perdus d'après Kyber (mesure toutes les quelques secondes).
+    public var lostPackets = 0
+    /// Aller-retour réseau, en millisecondes.
+    public var rttMs: Double?
+    /// Débit reçu pour l'image, en mégabits par seconde.
+    public var mbps: Double = 0
+
+    public init() {}
 }
 
 final class VideoRenderer {
@@ -58,6 +75,8 @@ final class VideoRenderer {
     private let renderQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.render", qos: .userInteractive)
 
     private let lock = NSLock()
+    /// Dernière image affichée, pour la photographier (fin de session).
+    private var shown: (buffer: CVPixelBuffer, layout: Layout)?
     private var pending: DecodedFrame?
     private var scheduled = false
     private var inFlight = false
@@ -107,7 +126,10 @@ final class VideoRenderer {
     /// Nouvelle image (fil du décodeur) : elle remplace celle qui attendait.
     func submit(_ frame: DecodedFrame) {
         lock.lock()
-        if pending != nil { skipped += 1 }
+        if let replaced = pending {
+            skipped += 1
+            latency?.skipped(pts: replaced.pts)
+        }
         pending = frame
         // Garde-fou : un affichage jamais confirmé ne bloque pas l'image.
         if inFlight, CACurrentMediaTime() - inFlightSince > 0.1 { inFlight = false }
@@ -118,13 +140,21 @@ final class VideoRenderer {
     }
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
-    private func presented(_ drawable: MTLDrawable, received: UInt64, pts: UInt64) {
+    private func presented(_ drawable: MTLDrawable, received: UInt64, decoded: UInt64, pts: UInt64) {
         if drawable.presentedTime > 0, let latency {
-            // presentedTime est sur l'horloge de CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
-            let ago = CACurrentMediaTime() - drawable.presentedTime
-            latency.displayed(pts: pts, at: LatencyTracker.nowMicros() - Int64(ago * 1_000_000))
+            // presentedTime et les instants mach sont sur l'horloge de
+            // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
+            let now = CACurrentMediaTime(), micros = LatencyTracker.nowMicros()
+            func monotonic(_ t: Double) -> Int64 { micros - Int64((now - t) * 1_000_000) }
+            latency.displayed(pts: pts, received: monotonic(Self.seconds(received)), decoded: monotonic(Self.seconds(decoded)),
+                              at: monotonic(drawable.presentedTime))
         }
         lock.lock()
+        if drawable.presentedTime == 0 {
+            // Écartée par l'écran (une plus récente l'a devancée) : remplacée, pas perdue.
+            skipped += 1
+            latency?.skipped(pts: pts)
+        }
         inFlight = false
         let go = pending != nil && !scheduled
         if go { scheduled = true }
@@ -158,16 +188,22 @@ final class VideoRenderer {
         }
         guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
               draw(buffer, layout: layout, into: drawable.texture, commands: commands)
-        else { return }
+        else {
+            latency?.skipped(pts: frame.pts)
+            return
+        }
 
-        let received = frame.received, pts = frame.pts
-        drawable.addPresentedHandler { [weak self] d in self?.presented(d, received: received, pts: pts) }
+        let received = frame.received, decoded = frame.decoded, pts = frame.pts
+        drawable.addPresentedHandler { [weak self] d in self?.presented(d, received: received, decoded: decoded, pts: pts) }
         lock.lock()
         inFlight = vsync
         inFlightSince = CACurrentMediaTime()
         lock.unlock()
         commands.present(drawable)
         commands.commit()
+        lock.lock()
+        shown = (buffer, layout)
+        lock.unlock()
 
         account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
     }
@@ -204,6 +240,37 @@ final class VideoRenderer {
         return true
     }
 
+    /// Photographie de la dernière image affichée, réduite à `maxWidth` pixels
+    /// de large (la dernière image d'un ordinateur, sur l'accueil).
+    func snapshot(maxWidth: Int) -> CGImage? {
+        lock.lock()
+        let last = shown
+        lock.unlock()
+        guard let last else { return nil }
+        let w = CVPixelBufferGetWidth(last.buffer), h = CVPixelBufferGetHeight(last.buffer)
+        guard w > 0, h > 0 else { return nil }
+        let scale = min(1, Double(maxWidth) / Double(w))
+        let tw = max(2, Int(Double(w) * scale)), th = max(2, Int(Double(h) * scale))
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: tw, height: th, mipmapped: false)
+        desc.usage = [.renderTarget, .shaderRead]
+        desc.storageMode = .managed
+        guard let target = device.makeTexture(descriptor: desc), let commands = queue.makeCommandBuffer(),
+              draw(last.buffer, layout: last.layout, into: target, commands: commands),
+              let blit = commands.makeBlitCommandEncoder()
+        else { return nil }
+        blit.synchronize(resource: target)
+        blit.endEncoding()
+        commands.commit()
+        commands.waitUntilCompleted()
+        let rowBytes = tw * 4
+        var bytes = [UInt8](repeating: 0, count: rowBytes * th)
+        target.getBytes(&bytes, bytesPerRow: rowBytes, from: MTLRegionMake2D(0, 0, tw, th), mipmapLevel: 0)
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData) else { return nil }
+        return CGImage(width: tw, height: th, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: rowBytes,
+                       space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.noneSkipFirst.rawValue),
+                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+    }
+
     /// File de commandes du rendu (tests hors écran).
     var commandQueue: MTLCommandQueue { queue }
 
@@ -233,7 +300,15 @@ final class VideoRenderer {
         current.width = width
         current.height = height
         current.format = layout.label
-        current.latencyMs = latency?.drainMedian()
+        let second = latency?.drain() ?? LatencyTracker.Second()
+        current.latencyMs = second.latencyMs
+        current.chain = second.chain
+        current.lostFrames = second.lostFrames
+        current.holes = second.holes
+        current.keyframeRequests = second.keyframeRequests
+        current.lostPackets = second.lostPackets
+        current.rttMs = second.rttMs
+        current.mbps = Double(second.bytes) * 8 / elapsed / 1_000_000
         onStats?(current)
         window = (now, 0, 0, 0, 0)
     }

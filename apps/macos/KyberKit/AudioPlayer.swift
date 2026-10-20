@@ -27,6 +27,10 @@ public struct AudioStats: Sendable {
     public var outputMs: Double = 0
     /// Trous comblés (pertes réseau ou tampon vide) dans la seconde.
     public var gaps = 0
+
+    public init(channels: Int = 0, bufferMs: Double = 0, outputMs: Double = 0, gaps: Int = 0) {
+        (self.channels, self.bufferMs, self.outputMs, self.gaps) = (channels, bufferMs, outputMs, gaps)
+    }
 }
 
 final class AudioPlayer {

@@ -17,9 +17,13 @@ final class AppModel: ObservableObject {
     /// Feuille « Ajouter un ordinateur », avec le lien kybernow:// qui l'a ouverte.
     @Published var adding = false
     var pendingLink: Candidate?
+    var addTab: AddHostSheet.Tab = .network
+    /// Ordinateurs annoncés sur le réseau local (Bonjour), montrés sur l'accueil.
+    let discovery = Discovery()
 
-    func add(link: Candidate? = nil) {
+    func add(link: Candidate? = nil, tab: AddHostSheet.Tab = .network) {
         pendingLink = link
+        addTab = tab
         route = .home
         adding = true
     }
@@ -41,20 +45,31 @@ final class AppModel: ObservableObject {
 
     func connect(_ host: Host) {
         guard session == nil else { return }
-        let session = SessionController(host: host, store: store) { [weak self] finished in
-            guard let self else { return }
-            if finished.closing.displayRestored == true {
-                self.show("Session terminée · \(finished.host.name) a retrouvé ses écrans")
+        // La session se joue dans la fenêtre de l'accueil.
+        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+        let session = SessionController(host: host, store: store, window: window) { [weak self] _ in
+            self?.session = nil
+        }
+        // La console confirme la remise en état après le retour à l'accueil.
+        session.onReport = { [weak self] host, closing in
+            if closing.displayRestored == true, closing.audioRestored == true, closing.error == nil {
+                self?.show("\(host.name) a retrouvé ses écrans et son son")
+            } else if closing.displayRestored == false {
+                self?.show("Les écrans de \(host.name) ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow", warning: true)
+            } else {
+                self?.show("Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow", warning: true)
             }
-            self.session = nil
         }
         self.session = session
         session.start()
     }
 
-    func show(_ text: String) {
+    @Published var toastWarning = false
+
+    func show(_ text: String, warning: Bool = false) {
+        toastWarning = warning
         withAnimation { toast = text }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + (warning ? 8 : 4)) { [weak self] in
             withAnimation { self?.toast = nil }
         }
     }
@@ -62,6 +77,13 @@ final class AppModel: ObservableObject {
 
 @main
 struct KyberNowApp: App {
+    @ViewBuilder private var route: some View {
+        switch app.route {
+        case .home: HomeView()
+        case let .settings(id): SettingsView(hostID: id)
+        }
+    }
+
     @StateObject private var app = AppModel()
     /// Mises à jour (Sparkle) : vérification quotidienne, et à la demande.
     private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
@@ -73,10 +95,15 @@ struct KyberNowApp: App {
     var body: some Scene {
         WindowGroup("KyberNow") {
             Group {
-                switch app.route {
-                case .home: HomeView()
-                case let .settings(id): SettingsView(hostID: id)
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["KN_STATS_PREVIEW"] != nil {
+                    StatsPanelPreview()
+                } else {
+                    route
                 }
+                #else
+                route
+                #endif
             }
             .animation(.easeInOut(duration: 0.25), value: app.route)
             .environmentObject(app)
@@ -97,6 +124,9 @@ struct KyberNowApp: App {
                     .disabled(app.session == nil)
                 Button("Souris : mode jeu ou bureau") { app.session?.toggleMouseCapture() }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
+                    .disabled(app.session == nil)
+                Button("Mesures détaillées") { app.session?.toggleStatsPanel() }
+                    .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(app.session == nil)
             }
         }

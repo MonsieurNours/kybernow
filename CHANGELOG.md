@@ -9,6 +9,9 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Mode jeu : le pointeur de l'ordinateur (menus, inventaires) est dessiné par l'app à sa vraie place. L'ordinateur transmet maintenant aussi les déplacements du pointeur.
 - AV1 décodé par l'app, choix de l'écran de l'ordinateur dans la barre (sans écran virtuel).
 - Console : aperçu de l'écran de l'ordinateur et nom de son système (« Windows 11 Pro 24H2 ») pour l'accueil des apps ; le système est aussi affiché au tableau de bord.
+- App Mac : nouvelle identité (charte v2). L'accueil montre l'image de chaque ordinateur (dernière image de sa session, aperçu à jour ou sa signature), la session s'ouvre dans la même fenêtre par un passage en deux moitiés, néon sur les moments importants, nouvelle icône (Icon Composer).
+- App Mac : mesures détaillées en session (clic sur les mesures de la barre ou ⌃⌥⌘S) : trajet d'une image étape par étape, latence et débit sur 30 s, pertes.
+- App Mac : une image clé perdue au démarrage ne laisse plus l'écran noir ; si l'image ne vient pas, la session allège le flux (débit, puis 4:2:0).
 
 ## 0.2.0
 

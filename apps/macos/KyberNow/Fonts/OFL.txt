@@ -1,8 +1,10 @@
-Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage)
+Archivo : Copyright 2020 The Archivo Project Authors. Martian Mono : Copyright 2021 The Martian Mono Project Authors. Toutes deux sous SIL Open Font License 1.1 (texte ci-dessous).
+
+Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
-https://scripts.sil.org/OFL
+http://scripts.sil.org/OFL
 
 
 -----------------------------------------------------------

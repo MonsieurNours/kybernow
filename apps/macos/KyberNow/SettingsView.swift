@@ -1,6 +1,6 @@
-// Réglages de connexion d'un ordinateur, fidèles à l'écran « 4 · Réglages
-// de connexion » de la maquette. Chaque changement est enregistré tout de
-// suite ; toucher à l'image ou au réseau rend le profil « Personnalisé ».
+// Réglages de connexion d'un ordinateur (charte v2) : l'image de l'ordinateur
+// en fond, floutée, et des cartes en verre. Chaque changement est enregistré
+// tout de suite ; toucher à l'image ou au réseau rend le profil « Personnalisé ».
 
 import GameController
 import KyberKit
@@ -40,6 +40,12 @@ private struct SettingsContent: View {
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
+            HostBackdrop(host: host, picture: app.store.imagery.pictures[host.id], online: app.store.status[host.id]?.online, drift: false)
+                .blur(radius: 40)
+                .opacity(0.55)
+                .ignoresSafeArea()
+            LinearGradient(colors: [Theme.background.opacity(0.35), Theme.background.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
             VStack(spacing: 0) {
                 topBar
                 ScrollView {
@@ -70,36 +76,38 @@ private struct SettingsContent: View {
 
     private var topBar: some View {
         ZStack {
-            Text(host.name).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.muted)
+            HStack(spacing: 8) {
+                Mark(size: 16)
+                Wordmark(size: 13)
+            }
             HStack {
                 Button { app.route = .home } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold))
+                    HStack(spacing: 8) {
+                        Icon("arrow-left", size: 14, bold: true)
                         Text("Vos ordinateurs")
                     }
-                    .font(Theme.sans(13))
-                    .foregroundStyle(Theme.text2)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(GhostButton(height: 30))
                 .keyboardShortcut(.cancelAction)
                 Spacer()
             }
             .padding(.leading, 84)
         }
         .frame(height: 52)
-        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 
     private var header: some View {
         HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Réglages de connexion").font(Theme.display(36)).foregroundStyle(Theme.text)
-                Text("Pour \(host.name), sur ce Mac. Partez d'un profil, ajustez ensuite si besoin : il devient « Personnalisé ».")
+            VStack(alignment: .leading, spacing: 10) {
+                Theme.eyebrow("Réglages de connexion", color: Theme.muted)
+                Text(host.name).font(Theme.display(44, .bold)).tracking(-44 * 0.035).foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.6)
+                Text("Sur ce Mac. Partez d'un profil, ajustez ensuite si besoin : il devient « Personnalisé ».")
                     .font(Theme.sans(14)).foregroundStyle(Theme.muted)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
-                Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile)
+                Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
+                          icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 38)
                     .fixedSize()
                 Text(s.profile?.summary ?? "Personnalisé : vous avez ajusté un profil.")
                     .font(Theme.sans(13)).foregroundStyle(Theme.muted)
@@ -110,7 +118,7 @@ private struct SettingsContent: View {
     // MARK: - Écran
 
     private var displayCard: some View {
-        SettingsCard(symbol: "display", title: "Écran de l'ordinateur") {
+        SettingsCard(icon: "monitor", title: "Écran de l'ordinateur") {
             Text("L'ordinateur peut créer un écran virtuel à la taille du vôtre et mettre ses vrais écrans en veille le temps de la session. L'image remplit votre écran, sans bandes noires.")
                 .font(Theme.sans(13)).foregroundStyle(Theme.muted).lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -190,7 +198,7 @@ private struct SettingsContent: View {
     // MARK: - Image
 
     private var imageCard: some View {
-        SettingsCard(symbol: "photo", title: "Image") {
+        SettingsCard(icon: "image", title: "Image") {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Format de compression").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
                 Segmented(
@@ -232,12 +240,26 @@ private struct SettingsContent: View {
                 Spacer()
                 Switch(isOn: Binding(get: { s.vsync }, set: { v in update { $0.vsync = v } }), label: "Synchro verticale")
             }
+            HStack(spacing: 8) {
+                Text("Garder la dernière image").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
+                InfoTip(label: "Pourquoi garder la dernière image ?") {
+                    Text("Le fond de l'accueil").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("À la fin de chaque session, l'app garde une petite image de l'écran de l'ordinateur, sur ce Mac seulement. Elle sert de fond à l'accueil.")
+                    Text("Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur.")
+                }
+                Spacer()
+                Switch(isOn: Binding(get: { s.keepLastImage }, set: { v in
+                    update { $0.keepLastImage = v }
+                    if !v { app.store.imagery.forgetLast(host) }
+                }), label: "Garder la dernière image")
+            }
             if !s.vsync {
                 Text(variableRefresh ? "Votre écran suit déjà l'image (fréquence variable) : sans synchro, vous ne gagnez presque rien." : "Latence la plus basse, déchirure possible dans les mouvements rapides.")
                     .font(Theme.sans(12)).foregroundStyle(variableRefresh ? Theme.warnText : Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
 
-            Spacer(minLength: 0)
+            // Le débit suit les autres réglages de l'image, sous un filet.
+            Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.vertical, 6)
             BitrateControl(value: Binding(get: { s.bitrateMbps }, set: { v in update(custom: true) { $0.bitrateMbps = v } }))
             if s.profile != nil {
                 let m = sessionMode
@@ -290,7 +312,7 @@ private struct SettingsContent: View {
     private var machineCard: some View {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let native = DisplayInfo.nativePixels(screen)
-        return SettingsCard(symbol: "laptopcomputer", title: "Ce Mac") {
+        return SettingsCard(icon: "cpu", title: "Ce Mac") {
             VStack(alignment: .leading, spacing: 8) {
                 fact("Écran", "\(screen.localizedName) · \(native.width) × \(native.height) · \(DisplayInfo.refreshLabel(screen))")
                 if let looks = DisplayInfo.scaledLooksLike(screen) {
@@ -316,7 +338,7 @@ private struct SettingsContent: View {
     // MARK: - Réseau
 
     private var networkCard: some View {
-        SettingsCard(symbol: "waveform.path.ecg", title: "Réseau") {
+        SettingsCard(icon: "wifi-high", title: "Réseau") {
             Segmented(
                 options: Transport.allCases.map { ($0, $0.label) },
                 selection: Binding(get: { s.transport }, set: { t in if let t { update(custom: true) { $0.transport = t } } }),
@@ -334,7 +356,7 @@ private struct SettingsContent: View {
     // MARK: - Contrôles et son
 
     private var controlsCard: some View {
-        SettingsCard(symbol: "gamecontroller", title: "Contrôles et son") {
+        SettingsCard(icon: "game-controller", title: "Contrôles et son") {
             HStack {
                 Text("Touche ⌘ envoyée comme Ctrl").font(Theme.sans(14)).foregroundStyle(Theme.text)
                 Spacer()
@@ -485,7 +507,7 @@ private struct GamepadStatus: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle().fill(name != nil ? Theme.accent : Theme.rgb(0x5B6778)).frame(width: 8, height: 8)
+            Circle().fill(name != nil ? Theme.ok : Theme.faint).frame(width: 8, height: 8)
             Text(name.map { "Manette prête : \($0)" } ?? "Aucune manette branchée")
                 .font(Theme.sans(13)).foregroundStyle(Theme.text2)
         }

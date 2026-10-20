@@ -1,5 +1,7 @@
-// Thème KyberNow (maquette Claude Design « KyberNow macOS ») : sombre,
-// menthe #6FE3C1, Bricolage Grotesque pour les titres, IBM Plex pour le reste.
+// Thème KyberNow, identité v2 (brand/v2, charte : brand/v2/charte/index.html).
+// Encre presque noire et givre, un seul signal (Spectre) qui s'allume en néon
+// dans les moments actifs, Archivo (élargie pour les titres) et Martian Mono
+// pour les données. Icônes Phosphor (Assets.xcassets/Icons).
 
 import AppKit
 import CoreText
@@ -10,215 +12,643 @@ enum Theme {
         Color(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255).opacity(alpha)
     }
 
-    static let background = rgb(0x0D1117)
-    static let bar = rgb(0x0A0E13)
-    static let rail = rgb(0x10151C)
-    static let surface = rgb(0x121922)
-    static let surface2 = rgb(0x18202B)
-    static let well = rgb(0x0F151D)
-    static let line = rgb(0x1F2733)
-    static let line2 = rgb(0x2B3646)
-    static let line3 = rgb(0x3A4A5E)
-    static let text = rgb(0xE9EEF5)
-    static let text2 = rgb(0xC9D3DF)
-    static let muted = rgb(0x9AA7B8)
-    static let faint = rgb(0x8794A6)
-    static let accent = rgb(0x6FE3C1)
-    static let accentLight = rgb(0x9FF0D8)
-    static let accentInk = rgb(0x06251D)
-    static let accentSoft = rgb(0x1C3A33)
-    static let accentLine = rgb(0x3D7A69)
-    static let warn = rgb(0xF5B65A)
-    static let warnText = rgb(0xD9C59E)
+    // Encre
+    static let background = rgb(0x05070A)
+    static let bar = rgb(0x090D12)
+    static let rail = rgb(0x0C1218)
+    static let surface = rgb(0x0E141A)
+    static let surface2 = rgb(0x141B23)
+    static let well = rgb(0x0A0F14)
+    static let line = rgb(0x1E2832)
+    static let line2 = rgb(0x2B3742)
+    static let line3 = rgb(0x3A4855)
+    // Givre
+    static let text = rgb(0xE3EDF0)
+    static let text2 = rgb(0xC9D3DC)
+    static let muted = rgb(0xB4C2C9)
+    static let faint = rgb(0x8A99A3)
+    static let ghost = rgb(0x65737E)
+    // Signal (Spectre) et néon
+    static let accent = rgb(0x9A8CFF)
+    static let accentFill = rgb(0x6D5BFF)
+    static let accentInk = rgb(0xFFFFFF)
+    static let accentLight = rgb(0xD4CEFF)
+    static let accentSoft = rgb(0x6D5BFF, 0.14)
+    static let accentLine = rgb(0x9A8CFF, 0.5)
+    static let neonCore = rgb(0xF4F1FF)
+    // États : jamais le signal.
+    static let ok = rgb(0x4CD68A)
+    static let warn = rgb(0xF5B841)
+    static let warnText = rgb(0xEAD7A8)
     static let warnBg = rgb(0x1E1A12)
     static let warnLine = rgb(0x4A3A1E)
-    static let danger = rgb(0xFF7B72)
+    static let danger = rgb(0xFF6B6B)
     static let dangerText = rgb(0xFFC9C4)
     static let dangerBg = rgb(0x2A1414)
     static let dangerLine = rgb(0x5C2A26)
 
+    // MARK: Polices
+
     /// Polices livrées avec l'app (licence OFL), à enregistrer au lancement.
     static func registerFonts() {
-        let urls = ["BricolageGrotesque-opsz-wdth-wght", "IBMPlexSans-wdth-wght", "IBMPlexMono-Regular", "IBMPlexMono-Medium"]
+        let urls = ["Archivo-wdth-wght", "MartianMono-wdth-wght"]
             .compactMap { Bundle.main.url(forResource: $0, withExtension: "ttf") }
         CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil)
     }
 
+    private static let wght = NSNumber(value: 0x7767_6874) // 'wght'
+    private static let wdth = NSNumber(value: 0x7764_7468) // 'wdth'
+    nonisolated(unsafe) private static var fonts: [String: NSFont] = [:]
+
+    /// Instance d'une police variable, réglée par ses axes de graisse et de largeur.
+    static func variable(_ family: String, _ size: CGFloat, weight: CGFloat, width: CGFloat) -> NSFont {
+        let key = "\(family)|\(size)|\(weight)|\(width)"
+        if let f = fonts[key] { return f }
+        let desc = CTFontDescriptorCreateWithAttributes([
+            kCTFontFamilyNameAttribute: family,
+            kCTFontVariationAttribute: [wght: weight, wdth: width],
+        ] as CFDictionary)
+        let font = CTFontCreateWithFontDescriptor(desc, size, nil) as NSFont
+        fonts[key] = font
+        return font
+    }
+
+    private static func numeric(_ w: Font.Weight) -> CGFloat {
+        switch w {
+        case .ultraLight: return 200
+        case .thin: return 250
+        case .light: return 320
+        case .medium: return 500
+        case .semibold: return 600
+        case .bold: return 700
+        case .heavy: return 780
+        case .black: return 860
+        default: return 400
+        }
+    }
+
+    /// Titres : Archivo élargie (largeur 125), approche serrée.
     static func display(_ size: CGFloat, _ weight: Font.Weight = .semibold) -> Font {
-        .custom("Bricolage Grotesque", size: size).weight(weight)
+        let w: CGFloat = weight == .semibold ? 640 : weight == .bold ? 680 : numeric(weight)
+        return Font(variable("Archivo", size, weight: w, width: 125))
     }
 
+    /// Texte courant et interface : Archivo, largeur normale.
     static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("IBM Plex Sans", size: size).weight(weight)
+        Font(variable("Archivo", size, weight: numeric(weight), width: 100))
     }
 
+    /// Données (adresses, mesures, étiquettes) : Martian Mono, chiffres à chasse fixe.
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom(weight == .medium ? "IBMPlexMono-Medium" : "IBMPlexMono-Regular", size: size)
+        Font(variable("Martian Mono", size, weight: numeric(weight), width: 100))
     }
 
-    /// Petit intertitre en capitales (« PROFIL »).
-    static func eyebrow(_ text: String) -> some View {
+    /// Étiquette en capitales (« PROFIL »).
+    static func eyebrow(_ text: String, color: Color = faint) -> some View {
         Text(text.uppercased())
-            .font(sans(12, .semibold))
-            .tracking(1)
-            .foregroundStyle(faint)
+            .font(mono(10.5, .medium))
+            .tracking(0.85)
+            .foregroundStyle(color)
+    }
+
+    // MARK: Formes et mouvement
+
+    static let radiusControl: CGFloat = 8
+    static let radiusCard: CGFloat = 16
+    static let radiusSheet: CGFloat = 22
+    /// Sortie : cubic-bezier(.2, .9, .1, 1).
+    static let easeOut = Animation.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.32)
+    static let join = Animation.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.42)
+}
+
+// MARK: - Icônes (Phosphor)
+
+/// Icône Phosphor du catalogue : regular au-dessus de 16 points, bold en dessous.
+struct Icon: View {
+    let name: String
+    var size: CGFloat = 18
+    var bold: Bool?
+
+    init(_ name: String, size: CGFloat = 18, bold: Bool? = nil) {
+        self.name = name
+        self.size = size
+        self.bold = bold
+    }
+
+    var body: some View {
+        // Image de taille fixe (et non redimensionnable) : respectée aussi dans
+        // les menus et barres d'outils, qui ignorent les cadres de SwiftUI.
+        Image(nsImage: Self.image(name, size: size, bold: bold ?? (size <= 16)))
+            .renderingMode(.template)
+            .accessibilityHidden(true)
+    }
+
+    nonisolated(unsafe) private static var cache: [String: NSImage] = [:]
+
+    static func image(_ name: String, size: CGFloat, bold: Bool) -> NSImage {
+        let key = "\(name)|\(size)|\(bold)"
+        if let image = cache[key] { return image }
+        let image = (NSImage(named: "Icons/\(name)\(bold ? "-bold" : "")")?.copy() as? NSImage) ?? NSImage(size: NSSize(width: size, height: size))
+        image.size = NSSize(width: size, height: size)
+        image.isTemplate = true
+        cache[key] = image
+        return image
     }
 }
 
-// MARK: - Logo
-
-/// Le « K » de KyberNow et ses ondes (même dessin que brand/kybernow-mark.svg).
-struct Mark: View {
-    var size: CGFloat = 44
-    var animated = true
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30, paused: !animated)) { timeline in
-            canvas(phase: animated ? CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.4) / 2.4 * 200) : 0)
-        }
-        .frame(width: size, height: size)
+/// Menu en verre (barre de session) : un bouton, et la liste dans une bulle.
+struct GlassMenu<Label: View>: View {
+    struct Item: Identifiable {
+        let id: String
+        let title: String
+        var checked = false
+        let action: () -> Void
     }
 
-    private func canvas(phase: CGFloat) -> some View {
-        Canvas { ctx, canvas in
-            let s = canvas.width / 512
-            func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
-            for (dy, alpha) in [(-14.0, 0.5), (0.0, 1.0), (14.0, 0.5)] {
-                var wave = Path()
-                wave.move(to: p(70, 262 + dy))
-                wave.addLine(to: p(252, 262 + dy))
-                wave.addCurve(to: p(300, 312 + dy), control1: p(272, 262 + dy), control2: p(280, 312 + dy))
-                wave.addCurve(to: p(346, 156 + dy), control1: p(322, 312 + dy), control2: p(326, 156 + dy))
-                wave.addCurve(to: p(388, 262 + dy), control1: p(366, 156 + dy), control2: p(368, 262 + dy))
-                wave.addLine(to: p(470, 262 + dy))
-                let style = animated
-                    ? StrokeStyle(lineWidth: 9 * s, lineCap: .round, lineJoin: .round, dash: [140 * s, 60 * s], dashPhase: -phase * s)
-                    : StrokeStyle(lineWidth: 9 * s, lineCap: .round, lineJoin: .round)
-                ctx.stroke(wave, with: .color(Theme.accent.opacity(alpha)), style: style)
+    let items: [Item]
+    @ViewBuilder var label: Label
+    @State private var open = false
+    @State private var hovering = false
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            label
+                .background(Color.white.opacity(hovering || open ? 0.07 : 0), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(items) { item in
+                    MenuRow(item: item) { open = false }
+                }
             }
-            var arm = Path()
-            arm.addLines([p(238, 264.5), p(404, 416), p(330, 416), p(206, 306)])
-            ctx.fill(arm, with: .color(Theme.rgb(0xC9D2DC)))
-            var top = Path()
-            top.addLines([p(206, 224), p(321, 96), p(392, 96), p(206, 302)])
-            ctx.fill(top, with: .color(Theme.rgb(0xF4F7FA)))
-            ctx.fill(Path(roundedRect: CGRect(x: 150 * s, y: 96 * s, width: 56 * s, height: 320 * s), cornerRadius: 38 * s), with: .color(Theme.rgb(0xF4F7FA)))
+            .padding(6)
+            .frame(minWidth: 200)
+            .preferredColorScheme(.dark)
+        }
+    }
+
+    private struct MenuRow: View {
+        let item: Item
+        let close: () -> Void
+        @State private var hovering = false
+
+        var body: some View {
+            Button {
+                item.action()
+                close()
+            } label: {
+                HStack(spacing: 10) {
+                    Icon("check", size: 14, bold: true)
+                        .foregroundStyle(Theme.accent)
+                        .opacity(item.checked ? 1 : 0)
+                    Text(item.title).font(Theme.sans(13.5, item.checked ? .semibold : .regular)).foregroundStyle(Theme.text)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(hovering ? Theme.accentFill.opacity(0.35) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hovering = $0 }
         }
     }
 }
 
-struct Wordmark: View {
-    var size: CGFloat = 26
+// MARK: - Lumière (néon)
 
-    var body: some View {
-        (Text("Kyber").foregroundColor(Theme.rgb(0xF4F7FA)) + Text("Now").foregroundColor(Theme.accent))
-            .font(Theme.display(size, .bold))
+/// Niveaux de la charte : 0 éteint (repos), 1 veille (survol, focus), 2 allumé (actif), 3 éclair (clic).
+enum NeonLevel: Int, Comparable {
+    case off, hover, lit, flash
+    static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+}
+
+/// Lueur à trois couches (cœur, gaine, halo) autour d'une forme. Coupée avec
+/// « Réduire la transparence » ; la respiration, avec « Réduire les animations ».
+struct NeonGlow: ViewModifier {
+    var level: NeonLevel
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathe = false
+
+    func body(content: Content) -> some View {
+        let s: (core: Double, sheath: Double, halo: Double, radius: CGFloat) = switch level {
+        case .off: (0, 0, 0, 0)
+        case .hover: (0.2, 0.8, 0.45, 8)
+        case .lit: (1, 1, breathe ? 0.55 : 0.8, 16)
+        case .flash: (1, 1, 1, 28)
+        }
+        let k = reduceTransparency ? 0.0 : 1.0
+        return content
+            .shadow(color: Theme.neonCore.opacity(s.core * k), radius: 1)
+            .shadow(color: Theme.accent.opacity(s.sheath * k), radius: max(1, s.radius / 3))
+            .shadow(color: Theme.accentFill.opacity(s.halo * k), radius: max(1, s.radius))
+            .animation(.easeOut(duration: level == .flash ? 0.04 : 0.2), value: level)
+            .onChange(of: level, initial: true) { _, new in
+                guard new == .lit, !reduceMotion else { breathe = false; return }
+                withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+            }
     }
 }
 
-// MARK: - Fond « signal »
+/// Allumage : grésillement d'une seconde, une fois par valeur du déclencheur.
+struct NeonIgnition<Trigger: Equatable>: ViewModifier {
+    var trigger: Trigger
+    var delay: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-/// Ondes qui traversent le bas de la fenêtre (comme l'installateur).
-struct SignalBackground: View {
+    /// (durée, intensité) : 0, .06, .10, .16, .22, .30, .34, .44, puis retour.
+    static var steps: [(Double, Double)] {
+        [(0.06, 1), (0.04, 0.1), (0.06, 0.9), (0.06, 0.05), (0.08, 1), (0.04, 0.3), (0.10, 1), (0.56, 0)]
+    }
 
-    private func wave(_ w: CGFloat, _ h: CGFloat, base: CGFloat, dip: CGFloat, peak: CGFloat, x0: CGFloat) -> Path {
+    func body(content: Content) -> some View {
+        if reduceMotion {
+            content
+        } else {
+            content.keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, glow in
+                view
+                    .shadow(color: Theme.neonCore.opacity(glow), radius: 1)
+                    .shadow(color: Theme.accent.opacity(glow), radius: 5)
+                    .shadow(color: Theme.accentFill.opacity(glow * 0.8), radius: 16)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    LinearKeyframe(0.0, duration: delay)
+                    for (duration, value) in Self.steps {
+                        LinearKeyframe(value, duration: duration)
+                    }
+                }
+            }
+        }
+    }
+}
+
+extension View {
+    func neon(_ level: NeonLevel) -> some View { modifier(NeonGlow(level: level)) }
+    func neonIgnition<T: Equatable>(trigger: T, delay: Double = 0) -> some View { modifier(NeonIgnition(trigger: trigger, delay: delay)) }
+
+    /// Verre sombre : flou de ce qui est derrière, voile d'encre, filet clair.
+    func glass(_ radius: CGFloat = 12, tint: Double = 0.45) -> some View {
+        background {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.background.opacity(tint)))
+                .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.07), .clear], startPoint: .top, endPoint: .center))
+                )
+        }
+        .environment(\.colorScheme, .dark)
+    }
+}
+
+// MARK: - Le symbole « Relais »
+
+/// Géométrie du symbole sur la grille de 48 (brand/v2/tools/generate.mjs).
+enum MarkGeometry {
+    private static let g: CGFloat = 48
+    private static let c: CGFloat = 2 * 2.squareRoot()
+
+    private static func rounded(_ pts: [CGPoint], _ radii: [CGFloat], in rect: CGRect) -> Path {
+        let s = rect.width / g
+        let p = pts.map { CGPoint(x: rect.minX + $0.x * s, y: rect.minY + $0.y * s) }
+        var path = Path()
+        let n = p.count
+        path.move(to: CGPoint(x: (p[n - 1].x + p[0].x) / 2, y: (p[n - 1].y + p[0].y) / 2))
+        for i in 0 ..< n {
+            path.addArc(tangent1End: p[i], tangent2End: p[(i + 1) % n], radius: radii[i] * s)
+        }
+        path.closeSubpath()
+        return path
+    }
+
+    /// L'ordinateur, en haut à gauche.
+    static func source(in r: CGRect) -> Path { rounded([.zero, CGPoint(x: g - c, y: 0), CGPoint(x: 0, y: g - c)], [7, 1.2, 1.2], in: r) }
+    /// Vous, en bas à droite.
+    static func dest(in r: CGRect) -> Path { rounded([CGPoint(x: g, y: c), CGPoint(x: g, y: g), CGPoint(x: c, y: g)], [1.2, 7, 1.2], in: r) }
+    /// Axe de la couture.
+    static func seam(in r: CGRect) -> Path {
+        let s = r.width / g
         var p = Path()
-        p.move(to: CGPoint(x: -20, y: base))
-        p.addLine(to: CGPoint(x: x0, y: base))
-        p.addCurve(to: CGPoint(x: x0 + 120, y: dip), control1: CGPoint(x: x0 + 50, y: base), control2: CGPoint(x: x0 + 70, y: dip))
-        p.addCurve(to: CGPoint(x: x0 + 240, y: peak), control1: CGPoint(x: x0 + 180, y: dip), control2: CGPoint(x: x0 + 190, y: peak))
-        p.addCurve(to: CGPoint(x: x0 + 350, y: base), control1: CGPoint(x: x0 + 290, y: peak), control2: CGPoint(x: x0 + 300, y: base))
-        p.addLine(to: CGPoint(x: w + 20, y: base))
+        p.move(to: CGPoint(x: r.minX + 5.6 * s, y: r.minY + 42.4 * s))
+        p.addLine(to: CGPoint(x: r.minX + 42.4 * s, y: r.minY + 5.6 * s))
         return p
     }
+}
+
+struct MarkPart: Shape {
+    enum Part { case source, dest, seam }
+    let part: Part
+    func path(in rect: CGRect) -> Path {
+        switch part {
+        case .source: MarkGeometry.source(in: rect)
+        case .dest: MarkGeometry.dest(in: rect)
+        case .seam: MarkGeometry.seam(in: rect)
+        }
+    }
+}
+
+/// Le symbole, dans l'un de ses trois états, avec son néon.
+/// `now` : l'app et l'écosystème (la moitié « vous » allumée) ; `server` : la
+/// moitié « ordinateur » ; `console` : la couture seule.
+struct Mark: View {
+    enum State { case now, server, console }
+
+    var size: CGFloat = 44
+    var state: State = .now
+    var level: NeonLevel = .off
+    /// Couleurs pour un fond clair ou une icône ; par défaut, givre et Spectre.
+    var ice: Color = Theme.text
+    var signal: Color = Theme.accent
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @SwiftUI.State private var breathe = false
+
+    init(size: CGFloat = 44, state: State = .now, level: NeonLevel = .off, ice: Color = Theme.text, signal: Color = Theme.accent) {
+        self.size = size
+        self.state = state
+        self.level = level
+        self.ice = ice
+        self.signal = signal
+    }
+
+    private var dim: Color { Theme.rgb(0x33404B) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-            let flow = CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 9) / 9)
-            Canvas { ctx, size in
-                let w = size.width, h = size.height
-                let a = wave(w, h, base: h * 0.76, dip: h * 0.85, peak: h * 0.59, x0: w * 0.33)
-                let b = wave(w, h, base: h * 0.81, dip: h * 0.88, peak: h * 0.70, x0: w * 0.41)
-                let dash = [w * 0.18, w * 1.2]
-                ctx.stroke(a, with: .color(Theme.accent.opacity(0.07)), lineWidth: 2)
-                ctx.stroke(a, with: .color(Theme.accent.opacity(0.35)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: dash, dashPhase: -flow * w * 1.38))
-                ctx.stroke(b, with: .color(Theme.accent.opacity(0.05)), lineWidth: 2)
-                ctx.stroke(b, with: .color(Theme.accent.opacity(0.25)), style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: dash, dashPhase: -(flow + 0.43) * w * 1.38))
-            }
+        let s = size / 48
+        let (halo, sheath, core): (Double, Double, Double) = switch level {
+        case .off: (0, 0, state == .console ? 1 : 0)
+        case .hover: (0.5, 0.7, 0.85)
+        case .lit: (breathe ? 0.7 : 1, 1, 1)
+        case .flash: (1, 1, 1)
         }
-        .allowsHitTesting(false)
+        let litDest = state == .now && level >= .lit
+        ZStack {
+            MarkPart(part: .source).fill(state == .server ? signal : state == .console ? dim : ice)
+            MarkPart(part: .dest).fill(state == .now ? (litDest ? Theme.accentLight.mix(signal, 0.6) : signal) : state == .console ? dim : ice)
+            if !reduceTransparency {
+                MarkPart(part: .seam)
+                    .stroke(signal, style: StrokeStyle(lineWidth: (level == .flash ? 13 : 9) * s, lineCap: .round))
+                    .blur(radius: 3.2 * s)
+                    .opacity(halo)
+                MarkPart(part: .seam)
+                    .stroke(signal, style: StrokeStyle(lineWidth: 2.6 * s, lineCap: .round))
+                    .blur(radius: 0.7 * s)
+                    .opacity(sheath)
+            }
+            MarkPart(part: .seam)
+                .stroke(level == .off && state == .console ? signal : Theme.neonCore, style: StrokeStyle(lineWidth: 1.8 * s, lineCap: .round))
+                .opacity(core)
+        }
+        .frame(width: size, height: size)
+        .animation(.easeOut(duration: 0.2), value: level)
+        .onChange(of: level, initial: true) { _, new in
+            guard new == .lit, !reduceMotion else { breathe = false; return }
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { breathe = true }
+        }
         .accessibilityHidden(true)
+    }
+}
+
+/// Allumage du symbole : la couture grésille une seconde, puis revient à son niveau.
+struct MarkIgnition: View {
+    var size: CGFloat
+    var trigger: Int
+    var delay: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let s = size / 48
+        if !reduceMotion {
+            ZStack {
+                MarkPart(part: .seam)
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 9 * s, lineCap: .round))
+                    .blur(radius: 3.2 * s)
+                MarkPart(part: .seam)
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 2.6 * s, lineCap: .round))
+                    .blur(radius: 0.7 * s)
+                MarkPart(part: .seam)
+                    .stroke(Theme.neonCore, style: StrokeStyle(lineWidth: 1.8 * s, lineCap: .round))
+            }
+            .frame(width: size, height: size)
+            .keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, v in
+                view.opacity(v)
+            } keyframes: { _ in
+                KeyframeTrack {
+                    LinearKeyframe(0.0, duration: delay)
+                    for (duration, value) in NeonIgnition<Int>.steps {
+                        LinearKeyframe(value, duration: duration)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+    }
+}
+
+extension Color {
+    /// Mélange simple de deux couleurs (sRGB).
+    func mix(_ other: Color, _ t: Double) -> Color {
+        let a = NSColor(self).usingColorSpace(.sRGB) ?? .white
+        let b = NSColor(other).usingColorSpace(.sRGB) ?? .white
+        return Color(red: a.redComponent + (b.redComponent - a.redComponent) * t,
+                     green: a.greenComponent + (b.greenComponent - a.greenComponent) * t,
+                     blue: a.blueComponent + (b.blueComponent - a.blueComponent) * t)
+    }
+}
+
+/// Le nom : « Kyber » léger, « Now » gras, Archivo élargie.
+struct Wordmark: View {
+    var size: CGFloat = 26
+    var color: Color = Theme.text
+
+    var body: some View {
+        (Text("Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
+            + Text("Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
+            .tracking(-size * 0.012)
+            .foregroundStyle(color)
+            .accessibilityLabel("KyberNow")
     }
 }
 
 // MARK: - Contrôles
 
+/// Pan coupé à 45° en bas à droite : le coin de signal (un seul par écran).
+struct SignalCorner: Shape {
+    var radius: CGFloat = 8
+    var chamfer: CGFloat = 10
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + radius, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - radius, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + radius), control: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - chamfer))
+        p.addLine(to: CGPoint(x: r.maxX - chamfer, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX + radius, y: r.maxY))
+        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY - radius), control: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.minY + radius))
+        p.addQuadCurve(to: CGPoint(x: r.minX + radius, y: r.minY), control: CGPoint(x: r.minX, y: r.minY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// Le liseré du pan coupé, qui devient un fil de néon quand le bouton s'allume.
+private struct ChamferEdge: Shape {
+    var chamfer: CGFloat
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.maxX, y: r.maxY - chamfer))
+        p.addLine(to: CGPoint(x: r.maxX - chamfer, y: r.maxY))
+        return p
+    }
+}
+
+/// Bouton principal : aplat Spectre, pan coupé ; veille au survol, éclair au
+/// clic, allumé tant que `lit` (connexion en cours).
 struct PrimaryButton: ButtonStyle {
     var height: CGFloat = 44
+    var lit = false
 
     func makeBody(configuration: Configuration) -> some View {
-        Label(configuration: configuration, height: height)
+        Styled(configuration: configuration, height: height, lit: lit)
     }
 
-    private struct Label: View {
+    private struct Styled: View {
         let configuration: Configuration
         let height: CGFloat
+        let lit: Bool
         @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
 
         var body: some View {
+            let big = height > 46
+            let chamfer: CGFloat = big ? 12 : 10
+            let level: NeonLevel = !enabled ? .off : configuration.isPressed ? .flash : lit ? .lit : hovering ? .hover : .off
             configuration.label
-                .font(Theme.sans(height > 46 ? 16 : 15, .semibold))
-                .padding(.horizontal, height > 46 ? 26 : 22)
+                .font(Theme.sans(big ? 17 : 15, .semibold))
+                .padding(.horizontal, big ? 24 : 20)
                 .frame(height: height)
-                .background(enabled ? (configuration.isPressed ? Theme.rgb(0x8AEBCF) : Theme.accent) : Theme.surface2, in: RoundedRectangle(cornerRadius: height > 46 ? 12 : 11))
-                .foregroundStyle(enabled ? Theme.accentInk : Theme.muted)
+                .background(SignalCorner(radius: big ? 10 : 8, chamfer: chamfer).fill(enabled ? Theme.accentFill : Theme.surface2))
+                .overlay(ChamferEdge(chamfer: chamfer).stroke(Theme.neonCore, lineWidth: 1.6).opacity(level == .off ? 0 : 1))
+                .foregroundStyle(enabled ? Theme.accentInk : Theme.faint)
                 .contentShape(Rectangle())
+                .neon(level)
+                .onHover { hovering = $0 }
                 .animation(.easeOut(duration: 0.2), value: enabled)
         }
     }
 }
 
+/// Bouton secondaire : verre sombre et filet.
 struct GhostButton: ButtonStyle {
     var height: CGFloat = 38
     var tint: Color = Theme.text
-    var border: Color = Theme.line2
+    var border: Color = Color.white.opacity(0.09)
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.sans(14))
-            .padding(.horizontal, 14)
-            .frame(height: height)
-            .background(configuration.isPressed ? Theme.surface2 : .clear, in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).stroke(border))
-            .foregroundStyle(tint)
-            .contentShape(Rectangle())
+        Styled(configuration: configuration, height: height, tint: tint, border: border)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let height: CGFloat
+        let tint: Color
+        let border: Color
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(Theme.sans(14))
+                .padding(.horizontal, 14)
+                .frame(height: height)
+                .glass(9, tint: configuration.isPressed ? 0.15 : hovering ? 0.3 : 0.45)
+                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(border))
+                .foregroundStyle(tint)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
     }
 }
 
-/// Sélecteur à segments de la maquette (fond creux, choix en menthe).
+/// Bouton d'action positive, pas principale (« Ajouter ») : voile de signal.
+struct SignalButton: ButtonStyle {
+    var height: CGFloat = 34
+
+    func makeBody(configuration: Configuration) -> some View {
+        Styled(configuration: configuration, height: height)
+    }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let height: CGFloat
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(Theme.sans(13.5, .semibold))
+                .padding(.horizontal, 14)
+                .frame(height: height)
+                .background(Theme.accent.opacity(configuration.isPressed ? 0.3 : 0.18), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.accent.opacity(0.6)))
+                .foregroundStyle(Theme.text)
+                .neon(configuration.isPressed ? .flash : hovering ? .hover : .off)
+                .contentShape(Rectangle())
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// Sélecteur à segments : verre, choix souligné de Spectre, éclair au changement.
 struct Segmented<Value: Hashable>: View {
     let options: [(Value, String)]
     @Binding var selection: Value?
     var disabled: Set<Value> = []
+    var icons: [Value: String] = [:]
     var height: CGFloat = 34
     var fill = false
+    @State private var flash: Value?
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             ForEach(options, id: \.0) { value, label in
                 let on = selection == value
                 let off = disabled.contains(value)
                 Button {
-                    if !off { selection = value }
+                    guard !off, selection != value else { return }
+                    selection = value
+                    flash = value
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { if flash == value { flash = nil } }
                 } label: {
-                    Text(label)
-                        .font(Theme.sans(13, .semibold))
-                        .padding(.horizontal, fill ? 0 : 16)
-                        .frame(maxWidth: fill ? .infinity : nil)
-                        .frame(height: height)
-                        .background(on ? Theme.accent : .clear, in: RoundedRectangle(cornerRadius: 8))
-                        .foregroundStyle(off ? Theme.rgb(0x5B6778) : on ? Theme.accentInk : Theme.text2)
-                        .contentShape(Rectangle())
+                    HStack(spacing: 8) {
+                        if let icon = icons[value] {
+                            Icon(icon, size: 17).foregroundStyle(on ? Theme.accent : off ? Theme.ghost : Theme.muted)
+                        }
+                        Text(label)
+                    }
+                    .font(Theme.sans(13.5, .semibold))
+                    .padding(.horizontal, fill ? 0 : 15)
+                    .frame(maxWidth: fill ? .infinity : nil)
+                    .frame(height: height)
+                    .background {
+                        if on {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(Color.white.opacity(0.08))
+                                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
+                                .overlay(alignment: .bottom) {
+                                    Rectangle().fill(Theme.accent).frame(height: 2).padding(.horizontal, 6)
+                                }
+                                .neon(flash == value ? .flash : .off)
+                        }
+                    }
+                    .foregroundStyle(off ? Theme.ghost : on ? Theme.text : Theme.muted)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(off)
@@ -226,13 +656,12 @@ struct Segmented<Value: Hashable>: View {
             }
         }
         .padding(4)
-        .background(Theme.bar, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.line))
+        .glass(11)
         .animation(.easeOut(duration: 0.15), value: selection)
     }
 }
 
-/// Interrupteur menthe de la maquette.
+/// Interrupteur : Spectre quand il est activé.
 struct Switch: View {
     @Binding var isOn: Bool
     var label: String
@@ -242,10 +671,11 @@ struct Switch: View {
             isOn.toggle()
         } label: {
             ZStack(alignment: isOn ? .trailing : .leading) {
-                Capsule().fill(isOn ? Theme.accent : Theme.line2)
-                Circle().fill(isOn ? Theme.accentInk : Theme.text2).padding(3)
+                Capsule().fill(isOn ? Theme.accentFill : Theme.surface2)
+                    .overlay(Capsule().strokeBorder(isOn ? Color.clear : Theme.line2))
+                Circle().fill(isOn ? Color.white : Theme.text2).padding(3)
             }
-            .frame(width: 44, height: 26)
+            .frame(width: 40, height: 24)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isOn)
         }
         .buttonStyle(.plain)
@@ -256,26 +686,24 @@ struct Switch: View {
 
 /// Carte de réglages (icône, titre, contenu).
 struct SettingsCard<Content: View>: View {
-    let symbol: String
+    let icon: String
     let title: String
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .medium))
+                Icon(icon, size: 18)
                     .foregroundStyle(Theme.accent)
                     .frame(width: 32, height: 32)
-                    .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 9))
-                Text(title).font(Theme.sans(17, .semibold)).foregroundStyle(Theme.text)
+                    .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                Text(title).font(Theme.display(17, .semibold)).foregroundStyle(Theme.text)
             }
             content
         }
         .padding(22)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Theme.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line2))
+        .glass(Theme.radiusCard, tint: 0.55)
     }
 }
 
@@ -287,11 +715,9 @@ struct InfoTip<Content: View>: View {
 
     var body: some View {
         Button { open.toggle() } label: {
-            Text("i")
-                .font(Theme.sans(12, .semibold))
-                .foregroundStyle(Theme.muted)
-                .frame(width: 22, height: 22)
-                .overlay(Circle().stroke(Theme.line3))
+            Icon("info", size: 18)
+                .foregroundStyle(Theme.faint)
+                .frame(width: 24, height: 24)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -314,80 +740,98 @@ struct Notice: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: kind == .info ? "info.circle" : kind == .warn ? "exclamationmark.triangle" : "exclamationmark.octagon")
-                .font(.system(size: 14))
-                .foregroundStyle(kind == .info ? Theme.accent : kind == .warn ? Theme.warn : Theme.danger)
-                .padding(.top, 1)
+            Icon(kind == .info ? "info" : "warning", size: 17)
+                .foregroundStyle(kind == .info ? Theme.faint : kind == .warn ? Theme.warn : Theme.danger)
             Text(text)
-                .font(Theme.sans(12))
+                .font(Theme.sans(12.5))
                 .foregroundStyle(kind == .info ? Theme.muted : kind == .warn ? Theme.warnText : Theme.dangerText)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(kind == .info ? Theme.well : kind == .warn ? Theme.warnBg : Theme.dangerBg, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(kind == .info ? Theme.line : kind == .warn ? Theme.warnLine : Theme.dangerLine))
+        .background(kind == .info ? Color.white.opacity(0.03) : kind == .warn ? Theme.warnBg : Theme.dangerBg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(kind == .info ? Color.white.opacity(0.08) : kind == .warn ? Theme.warnLine : Theme.dangerLine))
     }
 }
 
-/// Pastille d'état (« En ligne · réseau local »).
+/// Pastille d'état d'un ordinateur. Le point porte l'état, le texte le précise ;
+/// le signal n'y apparaît jamais.
 struct StatusPill: View {
     let online: Bool?
     let text: String
     @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(online == true ? Theme.accent : Theme.rgb(0x5B6778))
-                .frame(width: 8, height: 8)
-                .overlay(
-                    Circle().stroke(Theme.accent.opacity(pulse ? 0 : 0.55), lineWidth: pulse ? 6 : 0)
-                        .opacity(online == true ? 1 : 0)
-                )
-            Text(text).font(Theme.sans(13, .medium))
+        HStack(spacing: 9) {
+            ZStack {
+                if online == true {
+                    Circle().fill(Theme.ok)
+                    Circle().stroke(Theme.ok.opacity(pulse ? 0 : 0.5), lineWidth: pulse ? 6 : 1)
+                } else if online == nil {
+                    Circle().fill(Theme.text2).opacity(pulse ? 0.35 : 1)
+                } else {
+                    Circle().strokeBorder(Theme.faint, lineWidth: 1.2)
+                }
+            }
+            .frame(width: 7, height: 7)
+            Text(text).font(Theme.sans(13))
         }
-        .padding(.horizontal, 12)
-        .frame(height: 28)
-        .background(online == true ? Theme.accentSoft : Theme.surface2, in: Capsule())
-        .foregroundStyle(online == true ? Theme.accentLight : Theme.muted)
+        .padding(.leading, 10).padding(.trailing, 12)
+        .frame(height: 30)
+        .glass(15)
+        .foregroundStyle(online == false ? Theme.faint : Theme.text)
         .onAppear {
-            withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: false)) { pulse = true }
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: online == nil ? 1.2 : 2.4).repeatForever(autoreverses: online == nil)) { pulse = true }
         }
     }
 }
 
-/// Moniteur stylisé de la carte d'accueil, avec son onde animée.
-struct MonitorArt: View {
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { timeline in
-            art(flow: CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 4) / 4))
-        }
-        .aspectRatio(250 / 170, contentMode: .fit)
-        .accessibilityHidden(true)
-    }
+/// Règle de trame : la latence lue contre la durée d'une image (160, 120, 60 Hz).
+struct FrameRuler: View {
+    var median: Double
+    var p95: Double?
+    var live = false
+    /// Échelle en millisecondes : 20, ou plus si la mesure la dépasse.
+    var scale: Double? = nil
 
-    private func art(flow: CGFloat) -> some View {
-        Canvas { ctx, size in
-            let s = size.width / 250
-            func r(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect { CGRect(x: x * s, y: y * s, width: w * s, height: h * s) }
-            ctx.fill(Path(roundedRect: r(6, 6, 238, 134), cornerRadius: 12 * s), with: .color(Theme.bar))
-            ctx.stroke(Path(roundedRect: r(6, 6, 238, 134), cornerRadius: 12 * s), with: .color(Theme.line3), lineWidth: 2 * s)
-            ctx.fill(Path(roundedRect: r(16, 16, 218, 114), cornerRadius: 6 * s), with: .color(Theme.rgb(0x0F1A1C)))
-            var wave = Path()
-            wave.move(to: CGPoint(x: 24 * s, y: 82 * s))
-            wave.addLine(to: CGPoint(x: 96 * s, y: 82 * s))
-            wave.addCurve(to: CGPoint(x: 128 * s, y: 104 * s), control1: CGPoint(x: 110 * s, y: 82 * s), control2: CGPoint(x: 114 * s, y: 104 * s))
-            wave.addCurve(to: CGPoint(x: 160 * s, y: 46 * s), control1: CGPoint(x: 144 * s, y: 104 * s), control2: CGPoint(x: 146 * s, y: 46 * s))
-            wave.addCurve(to: CGPoint(x: 190 * s, y: 82 * s), control1: CGPoint(x: 174 * s, y: 46 * s), control2: CGPoint(x: 176 * s, y: 82 * s))
-            wave.addLine(to: CGPoint(x: 226 * s, y: 82 * s))
-            ctx.stroke(wave, with: .color(Theme.accent.opacity(0.18)), style: StrokeStyle(lineWidth: 3 * s, lineCap: .round, lineJoin: .round))
-            ctx.stroke(wave, with: .color(Theme.accent), style: StrokeStyle(lineWidth: 3 * s, lineCap: .round, lineJoin: .round, dash: [40 * s, 220 * s], dashPhase: -flow * 260 * s))
-            var stand = Path()
-            stand.addLines([CGPoint(x: 104 * s, y: 140 * s), CGPoint(x: 98 * s, y: 160 * s), CGPoint(x: 152 * s, y: 160 * s), CGPoint(x: 146 * s, y: 140 * s)])
-            ctx.fill(stand, with: .color(Theme.surface2))
-            ctx.stroke(stand, with: .color(Theme.line3), lineWidth: 2 * s)
-            ctx.fill(Path(roundedRect: r(84, 158, 82, 6), cornerRadius: 3 * s), with: .color(Theme.line2))
+    var body: some View {
+        let scale = self.scale ?? max(20, ((max(median, p95 ?? 0) * 1.25) / 10).rounded(.up) * 10)
+        GeometryReader { geo in
+            let w = geo.size.width
+            let x = { (ms: Double) in CGFloat(min(ms, scale) / scale) * w }
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Color.white.opacity(0.16)).frame(height: 2).offset(y: 16)
+                if let p95 {
+                    let lo = max(0, median - (p95 - median) * 0.6)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Theme.accent.opacity(live ? 0.26 : 0.2))
+                        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.accent.opacity(0.5)))
+                        .frame(width: max(4, x(p95) - x(lo)), height: 10)
+                        .offset(x: x(lo), y: 12)
+                }
+                // Repères d'une image à 160, 120 et 60 Hz ; une étiquette seulement si elle a la place.
+                let ticks = [(1000 / 160.0, "160 Hz", true), (1000 / 120.0, "120 Hz", false), (1000 / 60.0, "60 Hz", false)]
+                ForEach(ticks, id: \.1) { ms, label, up in
+                    let crowded = ticks.contains { $0.2 == up && $0.0 > ms && x($0.0) - x(ms) < 38 }
+                    Rectangle().fill(Theme.faint.opacity(0.7)).frame(width: 1, height: 18).offset(x: x(ms), y: 8)
+                    if !crowded {
+                        Text(label).font(Theme.mono(9)).foregroundStyle(Theme.faint)
+                            .fixedSize()
+                            .offset(x: x(ms) - 18, y: up ? -6 : 28)
+                    }
+                }
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(live ? Theme.neonCore : Theme.accent)
+                    .frame(width: 3, height: 24)
+                    .offset(x: x(median) - 1.5, y: 5)
+                    .neon(live ? .lit : .off)
+                    .animation(Theme.easeOut, value: median)
+            }
         }
+        .frame(height: 40)
+        .accessibilityElement()
+        .accessibilityLabel(String(format: "Latence médiane %.1f millisecondes", median))
     }
 }

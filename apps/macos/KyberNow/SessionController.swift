@@ -1,13 +1,16 @@
 // Une session avec un ordinateur : préparation par la console (écran
 // virtuel à la taille de ce Mac, son), connexion à Kyber, image en plein
 // écran, barre au survol, signal de vie, puis fin propre et vérifiée.
+//
+// La session se joue dans la fenêtre de l'accueil : le passage (Passage.swift)
+// ouvre l'accueil en deux sur l'image, et l'y referme à la fin.
 
 import AppKit
 import KyberKit
 import SwiftUI
 
 @MainActor
-final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
+final class SessionController: NSObject, ObservableObject {
     enum Phase: Equatable {
         case preparing, connecting, starting, streaming
         case reconnecting(Int)
@@ -40,10 +43,36 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private var streamMode = (width: 0, height: 0, refresh: 0)
 
     private var streamOptions: StreamOptions {
-        host.settings.options(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
+        var o = host.settings.options(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
+        // Repli de cette session seulement (les réglages ne changent pas).
+        if fallback >= 1 { o.bitrate = min(o.bitrate, Self.fallbackBitrate) }
+        if fallback >= 2 { o.yuv444 = false }
+        return o
     }
+
+    /// L'image ne vient pas : 1 = débit ramené à `fallbackBitrate`, 2 = 4:2:0 en plus.
+    private var fallback = 0
+    private static let fallbackBitrate: UInt32 = 250_000_000
+    /// Une image a été montrée depuis le dernier démarrage du flux.
+    private var hasImage = false
+    private var imageWatch: Task<Void, Never>?
+    /// Cran de repli du flux en cours (Kyber relance l'ancien après une reconnexion).
+    private var streamingFallback = 0
     /// Mesures de l'image (décodage par l'app), une fois par seconde.
     @Published private(set) var stats: VideoStats?
+    /// Latences des dernières secondes (courbe de la barre).
+    @Published private(set) var latencyHistory: [Double] = []
+    /// Mesures des 30 dernières secondes (panneau des mesures).
+    @Published private(set) var statsHistory: [VideoStats] = []
+    /// Pertes depuis le début de la session.
+    @Published private(set) var sessionLosses = (frames: 0, packets: 0)
+    /// Panneau des mesures détaillées, en bas à droite (⌃⌥⌘S).
+    @Published private(set) var statsPanel = false
+    /// Bouton de fermeture du panneau, dans la couche de la session : seul
+    /// endroit du panneau qui prend les clics.
+    var statsCloseRect: CGRect = .zero
+    /// Quelques secondes après l'apparition : « Vous entrez dans… ».
+    @Published private(set) var entering = false
     /// Souris en mode jeu en ce moment.
     @Published private(set) var mouseCaptured = false
     /// Jeu en plein écran sur l'ordinateur (nom de l'exécutable), d'après la console.
@@ -53,7 +82,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private var lastStallRestart = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
-    enum Hint { case commands, mouse }
+    enum Hint: Equatable { case commands, mouse, fallback(String) }
     /// Rappel affiché quelques secondes en haut de l'écran.
     @Published private(set) var hint: Hint?
     private var mouseHintShown = false
@@ -62,7 +91,12 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private let onFinish: (SessionController) -> Void
 
     private let streamView = StreamView(frame: .zero)
-    private let scene = ConnectScene(frame: .zero)
+    private let scene = PassageScene(frame: .zero)
+    /// L'accueil, retiré de la fenêtre le temps de la session, et sa photographie.
+    private var homeView: NSView?
+    private var homeImage: CGImage?
+    private let windowDelegate = SessionWindowDelegate()
+    private var enteredFullScreen = false
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
     /// synchronisation du son se calent, les premières images irrégulières
     /// restent sous l'écran d'attente.
@@ -91,27 +125,20 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     /// Bande occupée par la barre (plus haute avec le bandeau manette).
     var barHeight: CGFloat { padMode ? 150 : Self.barBand }
 
-    init(host: Host, store: HostStore, onFinish: @escaping (SessionController) -> Void) {
+    init(host: Host, store: HostStore, window: NSWindow?, onFinish: @escaping (SessionController) -> Void) {
         self.host = host
         self.store = store
+        self.window = window
         self.onFinish = onFinish
     }
 
     // MARK: - Fenêtre
 
     private func openWindow() {
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        let window = NSWindow(contentRect: screen.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.title = host.name
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.backgroundColor = .black
-        window.collectionBehavior = [.fullScreenPrimary]
-        window.delegate = self
-        window.isReleasedWhenClosed = false
-        window.acceptsMouseMovedEvents = true
-
-        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        guard let window, let home = window.contentView else { return }
+        homeView = home
+        homeImage = Self.photograph(home)
+        let container = NSView(frame: home.frame)
         container.autoresizingMask = [.width, .height]
         streamView.frame = container.bounds
         streamView.autoresizingMask = [.width, .height]
@@ -120,36 +147,38 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         scene.frame = container.bounds
         scene.autoresizingMask = [.width, .height]
         container.addSubview(scene)
-        scene.hide(streamView)
+        scene.prepare(home: homeImage)
         let chrome = ChromeHostingView(rootView: SessionChrome(session: self))
         chrome.session = self
         chrome.frame = container.bounds
         chrome.autoresizingMask = [.width, .height]
         container.addSubview(chrome)
         window.contentView = container
-        window.makeKeyAndOrderFront(nil)
+        windowDelegate.original = window.delegate
+        windowDelegate.onClose = { [weak self] in
+            guard let self, self.phase != .ended else { return }
+            self.end()
+        }
+        window.delegate = windowDelegate
+        window.acceptsMouseMovedEvents = true
         window.makeFirstResponder(streamView)
-        if host.settings.display == .window {
-            // Session fenêtrée : l'écran virtuel suivra la taille de la fenêtre.
-            let visible = screen.visibleFrame
-            window.setFrame(visible.insetBy(dx: visible.width * 0.1, dy: visible.height * 0.1), display: true)
-        } else {
+        scene.ignite()
+        // Session fenêtrée : l'écran virtuel suivra la taille de la fenêtre.
+        if host.settings.display != .window, !window.styleMask.contains(.fullScreen) {
+            enteredFullScreen = true
             window.toggleFullScreen(nil)
         }
-        self.window = window
+    }
+
+    /// Photographie de l'accueil, pour les deux moitiés du passage.
+    private static func photograph(_ view: NSView) -> CGImage? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return nil }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        return rep.cgImage
     }
 
     func toggleFullScreen() {
         window?.toggleFullScreen(nil)
-    }
-
-    // Plein écran sans barre des menus ni Dock : le haut de l'écran est à la barre KyberNow.
-    func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
-        [.fullScreen, .hideDock, .hideMenuBar]
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        if phase != .ended { end() }
     }
 
     /// Les couches SwiftUI captent-elles tout (attente, fin) ?
@@ -237,6 +266,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         let before = streamOptions
         host.settings.apply(profile)
         store.update(host)
+        // Profil choisi à la main : le repli de la session repart de zéro.
+        fallback = 0
         let after = streamOptions
         if before.yuv444 != after.yuv444 || before.codec != after.codec {
             restartStreaming()
@@ -308,10 +339,28 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber.onEvent = { [weak self] in self?.handle($0) }
         kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
-        kyber.onVideoStats = { [weak self] in self?.stats = $0 }
+        kyber.onVideoStats = { [weak self] stats in
+            guard let self else { return }
+            self.stats = stats
+            if stats.fps > 0, !self.hasImage {
+                self.hasImage = true
+                self.imageWatch?.cancel()
+            }
+            if let ms = stats.latencyMs {
+                self.latencyHistory.append(ms)
+                if self.latencyHistory.count > 40 { self.latencyHistory.removeFirst() }
+            }
+            self.statsHistory.append(stats)
+            if self.statsHistory.count > 30 { self.statsHistory.removeFirst() }
+            self.sessionLosses.frames += stats.lostFrames
+            self.sessionLosses.packets += stats.lostPackets
+        }
         kyber.onVideoStalled = { [weak self] in
+            guard let self else { return }
+            // Jamais d'image depuis le démarrage : le flux est trop lourd, on l'allège.
+            if !self.hasImage, self.degrade() { return }
             // Ordinateur sans le correctif d'image clé : un flux neuf repart sur une image clé.
-            guard let self, Date().timeIntervalSince(self.lastStallRestart) > 5 else { return }
+            guard Date().timeIntervalSince(self.lastStallRestart) > 5 else { return }
             self.lastStallRestart = Date()
             self.restartStreaming()
         }
@@ -349,8 +398,12 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 guard let self, self.revealedAt == nil, self.kyber != nil else { return }
                 self.revealedAt = Date()
                 self.phase = .streaming
-                self.scene.reveal(self.streamView)
-                self.showHint()
+                self.scene.open()
+                withAnimation(Theme.easeOut) { self.entering = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { [weak self] in
+                    withAnimation(.easeIn(duration: 0.35)) { self?.entering = false }
+                }
+                self.showHint(after: 5)
                 self.host.lastSession = Date()
                 self.store.update(self.host)
                 self.window?.makeFirstResponder(self.streamView)
@@ -367,6 +420,9 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 streaming = nil
                 if let best = bestDisplay() { display = best }
                 startStreaming()
+            } else if streamingFallback != fallback {
+                // Repli décidé pendant la coupure : Kyber a relancé l'ancien flux.
+                restartStreaming()
             }
         case .reconnectionFailed:
             fail("connexion perdue")
@@ -424,12 +480,50 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 self.mouseHintShown = true
                 self.showHint(.mouse, after: 0)
             }
-            try kyber.startStreaming(display: display, view: streamView, options: streamOptions)
+            let options = streamOptions
+            try kyber.startStreaming(display: display, view: streamView, options: options)
             streaming = display.id
             shownDisplay = display.id
+            streamingFallback = fallback
+            KyberLog.app.notice("flux : \(options.yuv444 ? "4:4:4" : "4:2:0", privacy: .public), \(options.bitrate / 1_000_000) Mb/s\(self.fallback > 0 ? " (repli \(self.fallback))" : "", privacy: .public)")
+            watchForImage(native: options.nativeVideo)
         } catch {
             fail(error.localizedDescription)
         }
+    }
+
+    /// Pas d'image 4 s après le démarrage du flux : on l'allège.
+    private func watchForImage(native: Bool) {
+        hasImage = false
+        imageWatch?.cancel()
+        // Avec VLC, l'app ne voit pas les images passer.
+        guard native else { return }
+        imageWatch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, let self, !self.hasImage, self.phase == .streaming || self.phase == .starting else { return }
+            KyberLog.app.error("aucune image en 4 s")
+            self.degrade()
+        }
+    }
+
+    /// Allège le flux d'un cran (débit, puis 4:2:0) et le relance. Faux s'il
+    /// n'y a plus rien à alléger.
+    @discardableResult
+    private func degrade() -> Bool {
+        let current = streamOptions
+        var next = fallback + 1
+        // Cran sans effet (débit déjà bas) : on passe au suivant.
+        if next == 1, current.bitrate <= Self.fallbackBitrate { next = 2 }
+        if next == 2, !current.yuv444 { next = 3 }
+        guard next <= 2 else { return false }
+        fallback = next
+        // Le délai repart du prochain démarrage du flux.
+        imageWatch?.cancel()
+        KyberLog.app.error("pas d'image : repli \(next, privacy: .public) (\(next == 1 ? "débit \(Self.fallbackBitrate / 1_000_000) Mb/s" : "4:2:0", privacy: .public))")
+        showHint(.fallback(next == 1 ? "L'image ne passait pas : débit ramené à \(Self.fallbackBitrate / 1_000_000) Mb/s pour cette session." : "L'image ne passait pas : 4:2:0 pour cette session."), after: 0, for: 6)
+        lastStallRestart = Date()
+        restartStreaming()
+        return true
     }
 
     /// Sans écran virtuel : afficher un autre écran de l'ordinateur.
@@ -464,20 +558,30 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     func end() {
         guard phase != .ending && phase != .ended else { return }
         setBar(false)
-        if revealedAt != nil { scene.close(streamView) }
-        withAnimation(.easeInOut(duration: 0.7)) { phase = .ending }
+        // La dernière image : gardée pour l'accueil, et figée sous le passage qui se referme.
+        let last = kyber?.snapshot(maxWidth: 1600)
+        if let last { store.imagery.saveLast(last, for: host) }
+        if let revealedAt { host.lastDuration = Date().timeIntervalSince(revealedAt) }
+        // Les moitiés se referment, puis l'accueil revient tout de suite ; la
+        // console vérifie la remise en état en arrière-plan (onReport).
+        scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
+        withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
         heartbeat?.cancel()
         foregroundPoll?.cancel()
         streamView.detach()
         // Latence médiane de la session, montrée sur l'accueil.
         if let latency = kyber?.sessionLatencyMs {
             host.lastLatencyMs = latency
-            store.update(host)
+            host.lastLatencyP95Ms = kyber?.sessionLatencyP95Ms
         }
+        store.update(host)
         kyber?.stop()
         kyber = nil
         stats = nil
         audioStats = nil
+        statsPanel = false
+        statsCloseRect = .zero
+        imageWatch?.cancel()
         let console = self.console
         Task {
             var report: EndReport?
@@ -487,34 +591,33 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             } catch {
                 problem = error.localizedDescription
             }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                closing.displayRestored = report?.displayRestored ?? false
-            }
-            try? await Task.sleep(for: .milliseconds(450))
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                closing.audioRestored = report?.audioRestored ?? false
-                closing.error = problem ?? report?.error
-            }
-            let clean = report?.displayRestored == true && report?.audioRestored == true && problem == nil
-            withAnimation { closing.done = true }
-            if clean {
-                try? await Task.sleep(for: .milliseconds(1100))
-                finish()
-            }
+            closing.displayRestored = report?.displayRestored ?? false
+            closing.audioRestored = report?.audioRestored ?? false
+            closing.error = problem ?? report?.error
+            closing.done = true
+            onReport?(host, closing)
         }
     }
 
-    private func showHint(_ which: Hint = .commands, after delay: TimeInterval = 1.6) {
+    /// Résultat de la remise en état par la console, après le retour à l'accueil.
+    var onReport: ((Host, Closing) -> Void)?
+
+    private func showHint(_ which: Hint = .commands, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             withAnimation(.easeOut(duration: 0.35)) { self?.hint = which }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay + 3.4) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay + duration) { [weak self] in
             guard self?.hint == which else { return }
             withAnimation(.easeIn(duration: 0.35)) { self?.hint = nil }
         }
     }
 
     /// ⌃⌥⌘M : mode jeu si la souris est en mode bureau, et inversement.
+    func toggleStatsPanel() {
+        withAnimation(Theme.easeOut) { statsPanel.toggle() }
+        if !statsPanel { statsCloseRect = .zero }
+    }
+
     func toggleMouseCapture() {
         setMouse(streamView.isRelative ? .desktop : .game)
     }
@@ -552,11 +655,25 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
+    /// Retour à l'accueil : l'accueil reprend la fenêtre tout de suite (il est
+    /// utilisable pendant que la fenêtre quitte le plein écran).
     func finish() {
+        guard phase != .ended else { return }
         phase = .ended
-        window?.delegate = nil
-        if window?.styleMask.contains(.fullScreen) == true { window?.toggleFullScreen(nil) }
-        window?.close()
+        let wasFullScreen = enteredFullScreen && window?.styleMask.contains(.fullScreen) == true
+        restoreHome()
+        if wasFullScreen { window?.toggleFullScreen(nil) }
+    }
+
+    private func restoreHome() {
+        windowDelegate.onExitFullScreen = nil
+        windowDelegate.onClose = nil
+        if let window {
+            window.delegate = windowDelegate.original
+            if let homeView { window.contentView = homeView }
+            window.makeFirstResponder(nil)
+        }
+        homeView = nil
         onFinish(self)
     }
 
@@ -568,7 +685,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber = nil
         stats = nil
         audioStats = nil
+        statsPanel = false
+        statsCloseRect = .zero
+        imageWatch?.cancel()
         setBar(false)
+        scene.dim()
         phase = .failed(message)
         Task { try? await console?.end() }
     }

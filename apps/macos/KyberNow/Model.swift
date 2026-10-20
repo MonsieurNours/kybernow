@@ -152,6 +152,8 @@ struct ConnectionSettings: Codable, Hashable {
     var mouse: MouseChoice = .auto
     /// Presse-papiers partagé avec l'ordinateur (texte).
     var clipboard = true
+    /// Garder la dernière image de la session sur ce Mac (fond de l'accueil).
+    var keepLastImage = true
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -220,7 +222,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard, keepLastImage
     }
 
     init(from decoder: Decoder) throws {
@@ -242,6 +244,7 @@ extension ConnectionSettings {
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
         mouse = (try? c.decodeIfPresent(MouseChoice.self, forKey: .mouse)) ?? mouse
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
+        keepLastImage = (try? c.decodeIfPresent(Bool.self, forKey: .keepLastImage)) ?? keepLastImage
     }
 }
 
@@ -259,6 +262,9 @@ struct Host: Codable, Identifiable, Hashable {
     var lastSession: Date?
     /// Latence médiane de la dernière session, en millisecondes.
     var lastLatencyMs: Double?
+    /// 95e centile de la dernière session, et sa durée.
+    var lastLatencyP95Ms: Double?
+    var lastDuration: TimeInterval?
 
     init(name: String, address: String, consolePort: UInt16, username: String) {
         self.name = name
@@ -270,7 +276,7 @@ struct Host: Codable, Identifiable, Hashable {
     // Lecture tolérante : les ordinateurs enregistrés par les versions
     // précédentes n'avaient qu'un profil.
     private enum CodingKeys: String, CodingKey {
-        case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, profile
+        case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
     }
 
     init(from decoder: Decoder) throws {
@@ -284,6 +290,8 @@ struct Host: Codable, Identifiable, Hashable {
         consoleFingerprint = try c.decodeIfPresent(String.self, forKey: .consoleFingerprint)
         lastSession = try c.decodeIfPresent(Date.self, forKey: .lastSession)
         lastLatencyMs = try c.decodeIfPresent(Double.self, forKey: .lastLatencyMs)
+        lastLatencyP95Ms = try c.decodeIfPresent(Double.self, forKey: .lastLatencyP95Ms)
+        lastDuration = try c.decodeIfPresent(TimeInterval.self, forKey: .lastDuration)
         if let s = try c.decodeIfPresent(ConnectionSettings.self, forKey: .settings) {
             settings = s
         } else if let p = try c.decodeIfPresent(Profile.self, forKey: .profile) {
@@ -303,6 +311,8 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encode(settings, forKey: .settings)
         try c.encodeIfPresent(lastSession, forKey: .lastSession)
         try c.encodeIfPresent(lastLatencyMs, forKey: .lastLatencyMs)
+        try c.encodeIfPresent(lastLatencyP95Ms, forKey: .lastLatencyP95Ms)
+        try c.encodeIfPresent(lastDuration, forKey: .lastDuration)
     }
 }
 
@@ -316,6 +326,8 @@ struct HostStatus: Equatable {
 final class HostStore: ObservableObject {
     @Published private(set) var hosts: [Host] = []
     @Published private(set) var status: [UUID: HostStatus] = [:]
+    /// Image de chaque ordinateur sur l'accueil.
+    let imagery = HostImagery()
     private let key = "hosts"
     private var polling: Task<Void, Never>?
 
@@ -356,6 +368,7 @@ final class HostStore: ObservableObject {
     }
 
     func remove(_ host: Host) {
+        imagery.forget(host)
         hosts.removeAll { $0.id == host.id }
         status[host.id] = nil
         Keychain.delete(host.id)
@@ -383,12 +396,18 @@ final class HostStore: ObservableObject {
         }
     }
 
+    func console(for host: Host) -> ConsoleClient? {
+        guard let password = password(for: host) else { return nil }
+        return ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
+    }
+
     func refresh(_ host: Host) async {
-        guard let password = password(for: host) else { return }
-        let console = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
+        guard let console = console(for: host) else { return }
         do {
             let info = try await console.info()
             status[host.id] = HostStatus(online: true, info: info)
+            // Jamais ouvert depuis ce Mac (ou image non gardée) : un aperçu à jour.
+            if imagery.wantsPreview(host) { await imagery.fetchPreview(for: host, console: console) }
             if host.consoleFingerprint == nil, let fp = console.fingerprint, var h = self.host(host.id) {
                 h.consoleFingerprint = fp
                 update(h)

@@ -25,6 +25,14 @@ public struct HostInfo: Sendable, Equatable {
     public let av1: Bool
     public let virtualDisplay: Bool
     public let speakers: Bool
+    /// Système de l'ordinateur (« Windows 11 Pro 24H2 »), si la console le dit.
+    public let os: String?
+}
+
+/// Aperçu de l'écran de l'ordinateur, capturé par la console.
+public struct ScreenPreview: Sendable {
+    public let jpeg: Data
+    public let capturedAt: Date
 }
 
 /// Ce que la console confirme en fin de session.
@@ -97,8 +105,27 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
             gpu: json["gpu"] as? String,
             av1: json["av1"] as? Bool ?? false,
             virtualDisplay: vd?["available"] as? Bool ?? false,
-            speakers: audio?["speakers"] as? Bool ?? false
+            speakers: audio?["speakers"] as? Bool ?? false,
+            os: (json["os"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
+    }
+
+    /// Aperçu de l'écran en ce moment (`GET /api/stream/preview`). Nil si la
+    /// console ne sait pas le faire (version plus ancienne) ou ne peut pas
+    /// capturer l'écran (personne de connecté, écran verrouillé).
+    public func preview(width: Int = 960) async -> ScreenPreview? {
+        var components = URLComponents(url: base.appendingPathComponent("api/stream/preview"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "width", value: String(width))]
+        var request = URLRequest(url: components.url!)
+        request.timeoutInterval = 8
+        request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        request.setValue("1", forHTTPHeaderField: "x-kyber-admin")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              (http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("image/jpeg"), !data.isEmpty
+        else { return nil }
+        let at = http.value(forHTTPHeaderField: "X-Captured-At").flatMap { ISO8601DateFormatter().date(from: $0) } ?? Date()
+        return ScreenPreview(jpeg: data, capturedAt: at)
     }
 
     /// Annonce l'écran de ce Mac et le son voulu, avant de se connecter à Kyber.

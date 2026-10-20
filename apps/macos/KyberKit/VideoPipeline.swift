@@ -37,9 +37,11 @@ final class VideoPipeline {
             decoder.setCodec(p.codec)
         case KYCLIENT_MEDIA_PACKET_KIND_MEDIA:
             guard let data = p.data, p.len > 0 else { return }
+            renderer.latency?.received(bytes: Int(p.len))
             decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
         case KYCLIENT_MEDIA_PACKET_KIND_HOLE:
             // Données perdues : l'image suivante n'a plus sa référence.
+            renderer.latency?.hole()
             decoder.dataLost()
         default:
             break

@@ -24,3 +24,18 @@ func check(_ ok: Bool, _ what: String) { print(ok ? "ok   " : "ÉCHEC", what); i
 check(lost == 1, "la perte est signalée une seule fois (\(lost))")
 check(after.first == 200, "rien n'est affiché entre la perte et l'image clé, reprise à \(after.first ?? -1)")
 check(recovered == 1 && after.count == aus.count - 200, "tout est décodé après l'image clé (\(after.count)/\(aus.count - 200))")
+
+// Image clé du début perdue entière, sans trou signalé (flux lourd en 4:4:4) :
+// le décodeur doit en demander une au lieu d'attendre en silence.
+let late = VideoDecoder()
+late.setCodec(0x68323635)
+var lateLost = 0, lateRecovered = 0, lateFirst: Int?
+late.onFrame = { _ in if lateFirst == nil { lateFirst = current } }
+late.onLostReference = { lateLost += 1 }
+late.onRecovered = { lateRecovered += 1 }
+for (i, au) in aus.enumerated() where i > 0 {
+    current = i
+    au.withUnsafeBufferPointer { late.decode($0, isConfig: false, isKey: i == 200, pts: UInt64(i)) }
+}
+check(lateLost == 1, "image clé du début perdue : une demande (\(lateLost))")
+check(lateFirst == 200 && lateRecovered == 1, "reprise sur l'image clé suivante (\(lateFirst ?? -1))")
