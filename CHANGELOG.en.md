@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: when the computer changes resolution mid-session (a game switching to 1080p), the mouse lands in the right place again; a capsule says so, and in the Desktop profile the app offers to put the device's resolution back.
 - Console: automated tests for a mode change and for a physical display turning back on mid-session, for each policy.
 - Console: “If a game changes the resolution” setting (Picture and sound): let it be, or put the device's resolution back. The apps choose according to their profile: Game lets the game choose, Desktop puts the display back to the device's size.
 - Console: during a session, the virtual display's mode and the active displays are read every second. The apps receive the current mode with their heartbeat; a mode change (a game switching to 1080p) is noted in the event feed; a computer display that turns back on mid-session (cable plugged back in, Windows reapplying its old layout) is turned off again after 2 s.

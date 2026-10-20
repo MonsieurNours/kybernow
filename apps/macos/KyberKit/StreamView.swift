@@ -113,6 +113,16 @@ public final class StreamView: NSView {
         }
     }
 
+    /// L'écran de l'ordinateur a changé de taille en cours de session : les
+    /// positions envoyées suivent, sans refaire la chaîne d'entrées.
+    func setHostSize(_ size: CGSize) {
+        hostSize = size
+        guard let layout else { return }
+        var host = kynput_RectSize(width: size.width, height: size.height)
+        kynput_video_layout_set_host_size(layout, &host)
+        updatePointerLayer()
+    }
+
     public func detach() {
         endRelative(warp: false)
         remoteHidden = false

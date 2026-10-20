@@ -90,7 +90,10 @@ final class SessionController: NSObject, ObservableObject {
     private var lastRestore = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
-    enum Hint: Equatable { case commands, mouse, fallback(String) }
+    enum Hint: Equatable { case commands, mouse, fallback(String), notice(String) }
+    /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
+    /// 3840 × 2160 » dans la barre.
+    @Published private(set) var modeRestoreOffer: String?
     /// Rappel affiché quelques secondes en haut de l'écran.
     @Published private(set) var hint: Hint?
     private var mouseHintShown = false
@@ -280,6 +283,7 @@ final class SessionController: NSObject, ObservableObject {
         let before = streamOptions
         host.settings.apply(profile)
         store.update(host)
+        refreshModeOffer()
         // Profil choisi à la main : le repli de la session repart de zéro.
         fallback = 0
         let after = streamOptions
@@ -325,7 +329,7 @@ final class SessionController: NSObject, ObservableObject {
                 let channels = settings.audio.channels
                 requested = (mode.width, mode.height, mode.refresh, channels)
                 KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel, modePolicy: settings.modePolicy)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     modeLabel = "\(w) × \(h) · \(hz) Hz"
@@ -380,6 +384,7 @@ final class SessionController: NSObject, ObservableObject {
             self.restartStreaming()
         }
         kyber.onAudioStats = { [weak self] in self?.audioStats = $0 }
+        kyber.onHostSizeChanged = { [weak self] width, height in self?.hostSizeChanged(width: width, height: height) }
         self.kyber = kyber
         try kyber.connect()
     }
@@ -392,6 +397,14 @@ final class SessionController: NSObject, ObservableObject {
             chooseDisplay()
         case let .displaysChanged(list):
             displays = list
+            // Même écran, autre taille (un jeu a changé le mode) : l'image
+            // continue (txproto recrée l'encodeur), les entrées se recalent.
+            if let shown = display, shown.id == streaming,
+               let now = list.first(where: { $0.id == shown.id }), now.width > 0, now.height > 0,
+               now.width != shown.width || now.height != shown.height {
+                display = now
+                kyber?.displayResized(width: now.width, height: now.height)
+            }
             if case .reconnecting = phase {
                 // Kyber se reconnecte et relancera l'image lui-même (reconnected) :
                 // la relancer ici en ferait démarrer deux.
@@ -478,7 +491,7 @@ final class SessionController: NSObject, ObservableObject {
             if self.prepared?.virtualDisplay == true, let console = self.console, let r = self.requested {
                 KyberLog.app.notice("écran virtuel redemandé à la console")
                 do {
-                    _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel)
+                    _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
                 } catch {
                     KyberLog.app.error("écran virtuel pas rétabli : \(error.localizedDescription, privacy: .public)")
                 }
@@ -495,9 +508,59 @@ final class SessionController: NSObject, ObservableObject {
         }
     }
 
-    /// Kyber n'annonce plus que l'écran virtuel (les écrans physiques éteints).
+    /// Kyber n'annonce plus que l'écran virtuel (les écrans physiques éteints),
+    /// au mode obtenu de la console.
     private var virtualDisplayAnnounced: Bool {
-        displays.count == 1 && displays[0].width == streamMode.width && displays[0].height == streamMode.height
+        let size = preparedSize ?? (streamMode.width, streamMode.height)
+        return displays.count == 1 && displays[0].width == size.width && displays[0].height == size.height
+    }
+
+    /// Mode obtenu de la console au début de la session.
+    private var preparedSize: (width: Int, height: Int)? {
+        guard let w = prepared?.width, let h = prepared?.height else { return nil }
+        return (w, h)
+    }
+
+    // MARK: - Mode de l'écran de l'ordinateur
+
+    /// L'écran affiché a changé de taille (repère des entrées déjà recalé par
+    /// KyberClient) : la barre et le débit suivent, la capsule le dit.
+    private func hostSizeChanged(width: Int, height: Int) {
+        streamMode = (width, height, streamMode.refresh)
+        modeLabel = "\(width) × \(height) · \(streamMode.refresh) Hz"
+        if let shown = display, shown.width != width || shown.height != height {
+            display = shown.resized(width: width, height: height)
+        }
+        refreshModeOffer()
+        let back = preparedSize.map { $0 == (width, height) } ?? false
+        var text = back ? "L'ordinateur est revenu en \(width) × \(height)." : "L'ordinateur est passé en \(width) × \(height)."
+        if let offer = modeRestoreOffer { text += " « \(offer) » dans la barre." }
+        showHint(.notice(text), after: 0, for: 5)
+    }
+
+    /// Profil Bureau avec l'écran virtuel : remettre la taille de ce Mac.
+    private func refreshModeOffer() {
+        guard host.settings.profile == .bureau, prepared?.virtualDisplay == true, let size = preparedSize,
+              size != (streamMode.width, streamMode.height) else {
+            modeRestoreOffer = nil
+            return
+        }
+        modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
+    }
+
+    /// « Remettre » : la console remet le mode demandé au début de la session.
+    func restoreMode() {
+        guard let console, let r = requested else { return }
+        modeRestoreOffer = nil
+        KyberLog.app.notice("mode de l'ordinateur : retour à \(r.width)×\(r.height) demandé")
+        Task {
+            do {
+                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: host.settings.profileLabel, modePolicy: "restore")
+            } catch {
+                KyberLog.app.error("mode de l'ordinateur pas remis : \(error.localizedDescription, privacy: .public)")
+                refreshModeOffer()
+            }
+        }
     }
 
     /// Avec l'écran virtuel, Kyber doit finir par n'annoncer qu'un écran :

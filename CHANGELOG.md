@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Apps Mac et Apple TV : quand l'ordinateur change de définition en pleine session (un jeu qui passe en 1080p), la souris tombe de nouveau au bon endroit ; une capsule le signale, et en profil Bureau l'app propose de remettre la définition de l'appareil.
 - Console : tests automatiques du changement de mode et de l'écran physique rallumé en pleine session, pour chaque politique.
 - Console : réglage « Si un jeu change la définition » (Image et son) : laisser faire, ou remettre la définition de l'appareil. Les apps choisissent d'après leur profil : Jeu laisse le jeu choisir, Bureau remet l'écran à la taille de l'appareil.
 - Console : pendant une session, le mode de l'écran virtuel et les écrans allumés sont relus chaque seconde. Les apps reçoivent le mode courant avec leur signal de vie ; un changement de mode (un jeu qui passe en 1080p) est noté dans le fil d'événements ; un écran de l'ordinateur qui se rallume en pleine session (câble rebranché, Windows qui remet son ancienne disposition) est éteint de nouveau au bout de 2 s.

@@ -42,6 +42,11 @@ final class SessionController: ObservableObject {
     @Published private(set) var menuHint = false
     @Published private(set) var startedAt = Date()
     @Published private(set) var fallbackNote: String?
+    /// Capsule d'information en haut de l'écran (mode de l'ordinateur changé…).
+    @Published private(set) var notice: String?
+    /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
+    /// 3840 × 2160 » dans le menu.
+    @Published private(set) var modeRestoreOffer: String?
     /// Du démarrage du flux à la première image affichée, en secondes.
     @Published private(set) var firstImageDelay: Double?
     private var streamStartedAt: Date?
@@ -128,7 +133,7 @@ final class SessionController: ObservableObject {
                 // Son : celui de la sortie (ampli 5.1 ou 7.1, sinon stéréo), ou resté sur l'ordinateur.
                 let channels = settings.audio == .off ? 0 : settings.audio.channels
                 requested = (mode.width, mode.height, mode.refresh, channels)
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel, modePolicy: settings.modePolicy)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     streamMode = (w, h, hz)
@@ -194,6 +199,7 @@ final class SessionController: ObservableObject {
             self.restartStreaming()
         }
         kyber.onAudioStats = { [weak self] in self?.audioStats = $0 }
+        kyber.onHostSizeChanged = { [weak self] width, height in self?.hostSizeChanged(width: width, height: height) }
         self.kyber = kyber
         try kyber.connect()
     }
@@ -206,6 +212,14 @@ final class SessionController: ObservableObject {
             chooseDisplay()
         case let .displaysChanged(list):
             displays = list
+            // Même écran, autre taille (un jeu a changé le mode) : l'image
+            // continue (txproto recrée l'encodeur), les entrées se recalent.
+            if let shown = display, shown.id == streaming,
+               let now = list.first(where: { $0.id == shown.id }), now.width > 0, now.height > 0,
+               now.width != shown.width || now.height != shown.height {
+                display = now
+                kyber?.displayResized(width: now.width, height: now.height)
+            }
             if case .reconnecting = phase {
                 if let streaming, !list.contains(where: { $0.id == streaming }) { display = bestDisplay() }
             } else if let streaming, !list.contains(where: { $0.id == streaming }) {
@@ -275,7 +289,7 @@ final class SessionController: ObservableObject {
             guard let self else { return }
             defer { self.restoring = nil }
             if self.prepared?.virtualDisplay == true, let console = self.console, let r = self.requested {
-                _ = try? await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel)
+                _ = try? await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
                 for _ in 0..<30 where !self.virtualDisplayAnnounced {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
@@ -289,7 +303,65 @@ final class SessionController: ObservableObject {
     }
 
     private var virtualDisplayAnnounced: Bool {
-        displays.count == 1 && displays[0].width == streamMode.width && displays[0].height == streamMode.height
+        let size = preparedSize ?? (streamMode.width, streamMode.height)
+        return displays.count == 1 && displays[0].width == size.width && displays[0].height == size.height
+    }
+
+    /// Mode obtenu de la console au début de la session.
+    private var preparedSize: (width: Int, height: Int)? {
+        guard let w = prepared?.width, let h = prepared?.height else { return nil }
+        return (w, h)
+    }
+
+    // MARK: - Mode de l'écran de l'ordinateur
+
+    /// L'écran affiché a changé de taille (repère des entrées déjà recalé par
+    /// KyberClient) : l'étiquette et le débit suivent, la capsule le dit.
+    private func hostSizeChanged(width: Int, height: Int) {
+        streamMode = (width, height, streamMode.refresh)
+        modeLabel = "\(width) × \(height) à \(streamMode.refresh) Hz"
+        if let shown = display, shown.width != width || shown.height != height {
+            display = shown.resized(width: width, height: height)
+        }
+        refreshModeOffer()
+        let back = preparedSize.map { $0 == (width, height) } ?? false
+        var text = back ? "L'ordinateur est revenu en \(width) × \(height)" : "L'ordinateur est passé en \(width) × \(height)"
+        if let offer = modeRestoreOffer { text += " · « \(offer) » dans le menu" }
+        show(notice: text)
+    }
+
+    /// Capsule en haut de l'écran pendant quelques secondes.
+    private func show(notice text: String, for seconds: TimeInterval = 5) {
+        withAnimation(.easeOut(duration: 0.35)) { notice = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            guard self?.notice == text else { return }
+            withAnimation(.easeIn(duration: 0.35)) { self?.notice = nil }
+        }
+    }
+
+    /// Profil Bureau avec l'écran virtuel : remettre la taille du téléviseur.
+    private func refreshModeOffer() {
+        guard host.settings.profile == .bureau, prepared?.virtualDisplay == true, let size = preparedSize,
+              size != (streamMode.width, streamMode.height) else {
+            modeRestoreOffer = nil
+            return
+        }
+        modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
+    }
+
+    /// « Remettre » : la console remet le mode demandé au début de la session.
+    func restoreMode() {
+        guard let console, let r = requested else { return }
+        modeRestoreOffer = nil
+        KyberLog.app.notice("mode de l'ordinateur : retour à \(r.width)×\(r.height) demandé")
+        Task {
+            do {
+                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: host.settings.profileLabel, modePolicy: "restore")
+            } catch {
+                KyberLog.app.error("mode de l'ordinateur pas remis : \(error.localizedDescription, privacy: .public)")
+                refreshModeOffer()
+            }
+        }
     }
 
     private func chooseDisplay() {
@@ -467,6 +539,7 @@ final class SessionController: ObservableObject {
         let before = streamOptions
         host.settings.apply(profile)
         store.update(host)
+        refreshModeOffer()
         fallback = 0
         let after = streamOptions
         if before.yuv444 != after.yuv444 || before.codec != after.codec {

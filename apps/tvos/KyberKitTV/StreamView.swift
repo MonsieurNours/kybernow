@@ -135,6 +135,17 @@ public final class StreamView: UIView {
         updateRelative()
     }
 
+    /// L'écran de l'ordinateur a changé de taille en cours de session : le
+    /// pointeur tenu par l'app reste dans l'écran, les positions suivent.
+    func setHostSize(_ size: CGSize) {
+        hostSize = size
+        if let p = pointer {
+            pointer = CGPoint(x: min(p.x, size.width - 1), y: min(p.y, size.height - 1))
+        }
+        rebuildLayout()
+        updatePointerLayer()
+    }
+
     public func detach() {
         GamepadBridge.shared.pointerMove = nil
         GamepadBridge.shared.detach()

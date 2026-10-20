@@ -150,12 +150,15 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
     }
 
     /// Annonce l'écran de ce Mac et le son voulu, avant de se connecter à Kyber.
-    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int, virtualDisplay: Bool = true, profile: String? = nil) async throws -> PrepareResult {
+    /// `modePolicy` : si le mode de l'écran change en session, `follow` (le
+    /// laisser) ou `restore` (le remettre) ; nil, la console décide.
+    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int, virtualDisplay: Bool = true, profile: String? = nil, modePolicy: String? = nil) async throws -> PrepareResult {
         var body: [String: Any] = [
             "width": width, "height": height, "refresh": refresh, "audio_channels": audioChannels,
             "virtual_display": virtualDisplay, "device": Self.thisDevice,
         ]
         if let profile { body["profile"] = profile }
+        if let modePolicy { body["mode_policy"] = modePolicy }
         // La console peut d'abord attendre qu'un autre appareil rende la main
         // (7 s au plus), puis créer l'écran virtuel (jusqu'à 15 s).
         let json = try await call("POST", "api/stream/prepare", body: body, timeout: 40)
