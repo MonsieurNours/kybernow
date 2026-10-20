@@ -83,6 +83,13 @@ final class SessionController: NSObject, ObservableObject {
     /// Dernière reconnexion de Kyber, et nouvel essai déjà fait après elle.
     private var lastReconnect: Date?
     private var retriedAfterReconnect = false
+    /// Relances de l'image après une erreur de l'ordinateur (trois au plus,
+    /// le compte repart après 30 s sans relance), la relance prévue, et une
+    /// relance faite dont la capsule reste à montrer.
+    private var pipelineRetries = 0
+    private var lastPipelineRetry = Date.distantPast
+    private var pipelineRetry: Task<Void, Never>?
+    private var pipelineRelaunched = false
     /// Écran et son demandés à la console (redemandés si l'écran virtuel disparaît).
     private var requested: (width: Int, height: Int, refresh: Int, channels: Int)?
     /// Écran virtuel redemandé à la console, et dernière demande.
@@ -418,6 +425,10 @@ final class SessionController: NSObject, ObservableObject {
                 chooseDisplay()
             }
         case .streamingStarted:
+            if pipelineRelaunched {
+                pipelineRelaunched = false
+                showHint(.notice("L'image a été relancée."), after: 0, for: 4)
+            }
             guard revealedAt == nil else {
                 phase = .streaming
                 return
@@ -445,7 +456,7 @@ final class SessionController: NSObject, ObservableObject {
                 retriedAfterReconnect = true
                 KyberLog.app.notice("image refusée après la reconnexion : nouvel essai sur l'écran à jour")
                 restoreScreen()
-            } else {
+            } else if !retryPipeline(reason) {
                 fail(reason)
             }
         case let .connectFailed(reason):
@@ -476,6 +487,36 @@ final class SessionController: NSObject, ObservableObject {
         case .streamingStopped:
             break
         }
+    }
+
+    /// Erreur de la chaîne d'image sur l'ordinateur, ou image refusée : on
+    /// relance l'image (arrêt puis démarrage sur le meilleur écran de la
+    /// liste à jour) une seconde après, trois fois au plus, avant d'abandonner.
+    /// Faux s'il n'y a plus d'essai.
+    private func retryPipeline(_ reason: String) -> Bool {
+        if Date().timeIntervalSince(lastPipelineRetry) > 30 { pipelineRetries = 0 }
+        guard kyber != nil else { return false }
+        if pipelineRetry != nil { return true }
+        guard pipelineRetries < 3 else { return false }
+        pipelineRetries += 1
+        lastPipelineRetry = Date()
+        KyberLog.app.notice("\(reason, privacy: .public) : relance de l'image (\(self.pipelineRetries)/3)")
+        pipelineRetry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            self.pipelineRetry = nil
+            guard self.kyber != nil, self.phase != .ending, self.phase != .ended else { return }
+            if case .failed = self.phase { return }
+            // Pendant une reconnexion, c'est « reconnected » qui relancera l'image.
+            if case .reconnecting = self.phase { return }
+            guard self.bestDisplay() != nil else {
+                self.fail(reason)
+                return
+            }
+            self.pipelineRelaunched = true
+            self.restartStreaming()
+        }
+        return true
     }
 
     /// Redemande l'écran virtuel à la console (sans effet s'il est toujours là),
@@ -731,6 +772,7 @@ final class SessionController: NSObject, ObservableObject {
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
         heartbeat?.cancel()
         foregroundPoll?.cancel()
+        pipelineRetry?.cancel()
         streamView.detach()
         // Latence médiane de la session, montrée sur l'accueil.
         if let latency = kyber?.sessionLatencyMs {
@@ -843,6 +885,7 @@ final class SessionController: NSObject, ObservableObject {
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         heartbeat?.cancel()
+        pipelineRetry?.cancel()
         foregroundPoll?.cancel()
         kyber?.stop()
         kyber = nil

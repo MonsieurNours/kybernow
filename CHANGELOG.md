@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Apps Mac et Apple TV : une erreur de l'image sur l'ordinateur ne coupe plus la session d'emblée : l'image est relancée jusqu'à trois fois, et une capsule le dit.
 - Apps Mac et Apple TV : quand l'ordinateur change de définition en pleine session (un jeu qui passe en 1080p), la souris tombe de nouveau au bon endroit ; une capsule le signale, et en profil Bureau l'app propose de remettre la définition de l'appareil.
 - Console : tests automatiques du changement de mode et de l'écran physique rallumé en pleine session, pour chaque politique.
 - Console : réglage « Si un jeu change la définition » (Image et son) : laisser faire, ou remettre la définition de l'appareil. Les apps choisissent d'après leur profil : Jeu laisse le jeu choisir, Bureau remet l'écran à la taille de l'appareil.

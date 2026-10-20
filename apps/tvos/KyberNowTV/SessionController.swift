@@ -79,6 +79,13 @@ final class SessionController: ObservableObject {
     private var lastStallRestart = Date.distantPast
     private var lastReconnect: Date?
     private var retriedAfterReconnect = false
+    /// Relances de l'image après une erreur de l'ordinateur (trois au plus,
+    /// le compte repart après 30 s sans relance), la relance prévue, et une
+    /// relance faite dont la capsule reste à montrer.
+    private var pipelineRetries = 0
+    private var lastPipelineRetry = Date.distantPast
+    private var pipelineRetry: Task<Void, Never>?
+    private var pipelineRelaunched = false
     private var routeObserver: NSObjectProtocol?
     private static let revealDelay: TimeInterval = 0.9
 
@@ -230,6 +237,10 @@ final class SessionController: ObservableObject {
                 chooseDisplay()
             }
         case .streamingStarted:
+            if pipelineRelaunched {
+                pipelineRelaunched = false
+                show(notice: "L'image a été relancée", for: 4)
+            }
             guard revealedAt == nil else {
                 phase = .streaming
                 return
@@ -254,7 +265,7 @@ final class SessionController: ObservableObject {
             } else if let reconnect = lastReconnect, Date().timeIntervalSince(reconnect) < 15, !retriedAfterReconnect {
                 retriedAfterReconnect = true
                 restoreScreen()
-            } else {
+            } else if !retryPipeline(reason) {
                 fail(reason)
             }
         case let .connectFailed(reason):
@@ -279,6 +290,36 @@ final class SessionController: ObservableObject {
         case .streamingStopped:
             break
         }
+    }
+
+    /// Erreur de la chaîne d'image sur l'ordinateur, ou image refusée : on
+    /// relance l'image (arrêt puis démarrage sur le meilleur écran de la
+    /// liste à jour) une seconde après, trois fois au plus, avant d'abandonner.
+    /// Faux s'il n'y a plus d'essai.
+    private func retryPipeline(_ reason: String) -> Bool {
+        if Date().timeIntervalSince(lastPipelineRetry) > 30 { pipelineRetries = 0 }
+        guard kyber != nil else { return false }
+        if pipelineRetry != nil { return true }
+        guard pipelineRetries < 3 else { return false }
+        pipelineRetries += 1
+        lastPipelineRetry = Date()
+        KyberLog.app.notice("\(reason, privacy: .public) : relance de l'image (\(self.pipelineRetries)/3)")
+        pipelineRetry = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            self.pipelineRetry = nil
+            guard self.kyber != nil, self.phase != .ending, self.phase != .ended else { return }
+            if case .failed = self.phase { return }
+            // Pendant une reconnexion, c'est « reconnected » qui relancera l'image.
+            if case .reconnecting = self.phase { return }
+            guard self.bestDisplay() != nil else {
+                self.fail(reason)
+                return
+            }
+            self.pipelineRelaunched = true
+            self.restartStreaming()
+        }
+        return true
     }
 
     private func restoreScreen() {
@@ -601,6 +642,7 @@ final class SessionController: ObservableObject {
         heartbeat?.cancel()
         foregroundPoll?.cancel()
         imageWatch?.cancel()
+        pipelineRetry?.cancel()
         streamView.detach()
         kyber?.stop()
         kyber = nil
@@ -625,6 +667,7 @@ final class SessionController: ObservableObject {
         heartbeat?.cancel()
         foregroundPoll?.cancel()
         imageWatch?.cancel()
+        pipelineRetry?.cancel()
         streamView.detach()
         kyber?.stop()
         kyber = nil
