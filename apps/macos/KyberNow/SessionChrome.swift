@@ -210,6 +210,30 @@ private struct HoverBar: View {
                 .frame(height: 36)
                 .help("Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
                 .overlay(ring(1))
+                if session.canPickScreen {
+                    Menu {
+                        ForEach(Array(session.screens.enumerated()), id: \.element.id) { i, screen in
+                            Button {
+                                session.showScreen(screen.id)
+                            } label: {
+                                let title = "Écran \(i + 1) · \(screen.width) × \(screen.height)"
+                                if screen.id == session.shownDisplay {
+                                    Label(title, systemImage: "checkmark")
+                                } else {
+                                    Text(title)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)", systemImage: "display.2")
+                            .font(Theme.sans(13, .semibold))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .padding(.horizontal, 10)
+                    .frame(height: 36)
+                    .help("Écran de l'ordinateur à afficher")
+                }
                 BarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Plein écran (⌃⌥⌘F)") { session.toggleFullScreen() }
                     .overlay(ring(2))
                 Button {

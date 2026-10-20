@@ -10,6 +10,7 @@
 		035877273501931478CDD36E /* BricolageGrotesque-opsz-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2E52A2468E17E9C7D59192C6 /* BricolageGrotesque-opsz-wdth-wght.ttf */; };
 		0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = D171932E28609169E868FDC5 /* DecoderCapabilities.swift */; };
 		0B449D2989DD2AE43549432F /* Keymap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79554466D1E04F2A3C807DA1 /* Keymap.swift */; };
+		10B79E68B216819332FE0096 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB6F1E3DF88493B2CF6D20F /* AV1.swift */; };
 		148075D1CF746CDD7F6FE166 /* IBMPlexSans-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1689EF4F776E41A31B8D894A /* IBMPlexSans-wdth-wght.ttf */; };
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
 		21098C1E09537AEA98965E43 /* ConnectScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE88CA3F6B110EB52FD12E36 /* ConnectScene.swift */; };
@@ -81,6 +82,7 @@
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6AD1367F24F0927922BB40DD /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
+		6CB6F1E3DF88493B2CF6D20F /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
@@ -159,6 +161,7 @@
 			isa = PBXGroup;
 			children = (
 				2105139B92C07E1555E99C60 /* AudioPlayer.swift */,
+				6CB6F1E3DF88493B2CF6D20F /* AV1.swift */,
 				A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */,
 				08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
@@ -331,6 +334,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				10B79E68B216819332FE0096 /* AV1.swift in Sources */,
 				7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */,
 				D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */,
 				EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */,

@@ -14,7 +14,7 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
   - Auto (par défaut) passe en mode jeu quand un jeu est en plein écran sur l'ordinateur et cache son pointeur. La console le dit (`GET /api/stream/foreground`, interrogée chaque seconde) : fenêtre au premier plan qui couvre tout l'écran, ou plein écran exclusif DirectX. Les navigateurs, lecteurs vidéo, diaporamas et visioconférences en plein écran n'en font pas partie. Un pointeur remontré moins de 0,6 s (menus, clignotement de Windows) ne fait pas quitter le mode jeu.
   - Le seul masquage du pointeur ne suffit pas à déclencher le mode jeu : sur un ordinateur sans souris branchée, Windows le cache et le remontre toutes les demi-secondes, même sur le bureau.
 - **Presse-papiers partagé** : texte, dans les deux sens, jusqu'à 60 Ko (`ClipboardBridge`, protocole de kynput, fonctions C de `kyber-patches/0002`). Ce que l'ordinateur annonce est demandé tout de suite, pour que ⌘V marche aussitôt ; ce que le Mac copie est annoncé (vérifié deux fois par seconde) et envoyé à la demande. La console peut l'interdire dans un sens ou dans l'autre.
-- **Session** : scène de connexion animée (Core Animation), apparition de l'image ; barre au survol du haut de l'écran (profil, souris, plein écran, déconnexion, mesures) ; fin propre avec vérification que l'ordinateur a retrouvé ses écrans. La latence médiane de la session est gardée et affichée sur l'accueil.
+- **Session** : scène de connexion animée (Core Animation), apparition de l'image ; barre au survol du haut de l'écran (profil, souris, écran de l'ordinateur sans écran virtuel, plein écran, déconnexion, mesures) ; fin propre avec vérification que l'ordinateur a retrouvé ses écrans. La latence médiane de la session est gardée et affichée sur l'accueil.
 
 | Raccourci | Effet |
 |---|---|
@@ -28,7 +28,7 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
 
 ## Image et son
 
-Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode lui-même pour la latence et la synchro : `kyber-patches/0001` ajoute à libkyclient une sortie des paquets vers l'app (voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
+Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode lui-même (H.264, HEVC, AV1, Opus) pour la latence et la synchro : `kyber-patches/0001` ajoute à libkyclient une sortie des paquets vers l'app (voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
 
 **Latence de bout en bout** (`LatencyTracker`)
 - Mesures de Kyber actives : le serveur horodate la capture de chaque image (horloge QPC), et les pings de Kyber donnent le décalage d'horloge (médiane des 15 derniers).
@@ -40,7 +40,7 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode 
 - Sortie dans les formats compressés sans perte des puces Apple (`&8v0`, `&8v4`), lus sans copie par Metal (`CVMetalTextureCache`). Conversion YCbCr → RGB dans le shader, selon la matrice annoncée par le flux (709, 601, 2020) et sa plage.
 - Affichage : toujours l'image la plus récente, au plus une image en attente d'écran. Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale sur l'arrivée des images. Synchro verticale désactivable : latence la plus basse, déchirure possible.
 - Reprise après une perte : quand des paquets se perdent au-delà de la correction d'erreurs, VideoToolbox refuse les images qui s'appuient sur la référence perdue. Avec le rafraîchissement progressif de l'encodeur, aucune image clé n'arrive d'elle-même. L'app garde alors la dernière image et cesse d'envoyer au décodeur des images inutilisables. Elle demande une image clé à l'ordinateur (`kyclient_client_request_keyframe`, serveur avec le correctif 0005), relance la demande toutes les 300 ms et repart sur l'image clé. Sans réponse en 1,5 s (ordinateur pas à jour), elle relance le flux, qui commence toujours par une image clé.
-- AV1 : encore décodé par VLC (description `av1C` à écrire).
+- AV1 (puces M3 et suivantes) : l'en-tête de séquence est lu bit à bit pour construire la description `av1C` qu'attend VideoToolbox. Les échantillons sont débarrassés des délimiteurs temporels, et chaque OBU porte sa taille (`AV1.swift`). Mesuré sur M4 Max en 2560 × 1440 : 1 ms de décodage. VLC ne sert plus que de secours (AV1 sur un Mac sans décodeur AV1 matériel, que les réglages ne proposent pas).
 
 **Son** (`AudioPlayer`)
 - libopus (multistream : stéréo, 5.1, 7.1), masquage des pertes par Opus.
@@ -102,7 +102,7 @@ open build/Build/Products/Debug/KyberNow.app
 ## Tester sans ordinateur distant
 
 ```bash
-apps/macos/tests/video/run.sh   # flux HEVC/H.264 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
+apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
 apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
 apps/macos/tests/screen/run.sh  # fenêtre de 2 s : la surface de session montre vraiment les images (presentedTime)

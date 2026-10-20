@@ -169,7 +169,7 @@ public final class KyberClient {
         defer { kyclient_video_player_config_unref(player) }
         // La session vidéo recopie les réglages du lecteur à sa création : la
         // sortie vers l'app doit être posée avant (sinon l'image part à VLC).
-        if options.nativeVideo, options.codec != .av1, let pipeline = VideoPipeline() {
+        if options.nativeVideo, options.codec != .av1 || DecoderCapabilities.current.av1, let pipeline = VideoPipeline() {
             pipeline.renderer.vsync = options.vsync
             latency.reset()
             pipeline.renderer.latency = latency

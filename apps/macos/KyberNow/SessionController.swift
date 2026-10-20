@@ -76,7 +76,13 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private var display: KyberDisplay?
     /// Écrans annoncés par Kyber (la liste se met à jour quelques secondes
     /// après la création de l'écran virtuel : les écrans éteints en sortent).
-    private var displays: [KyberDisplay] = []
+    private var displays: [KyberDisplay] = [] { didSet { screens = displays } }
+    /// Écrans de l'ordinateur, pour le choix dans la barre (sans écran virtuel).
+    @Published private(set) var screens: [KyberDisplay] = []
+    /// Écran affiché en ce moment.
+    @Published private(set) var shownDisplay: UInt32?
+    /// Écran choisi dans la barre, tant qu'il existe.
+    private var pickedDisplay: UInt32?
     private var streaming: UInt32?
     private var settling: Task<Void, Never>?
 
@@ -389,6 +395,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     }
 
     private func bestDisplay() -> KyberDisplay? {
+        if let picked = pickedDisplay, let d = displays.first(where: { $0.id == picked }) { return d }
         if displays.count == 1 { return displays[0] }
         let sameMode = displays.filter { $0.width == prepared?.width && $0.height == prepared?.height }
         // L'écran virtuel est placé en haut à gauche du bureau.
@@ -412,9 +419,19 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             }
             try kyber.startStreaming(display: display, view: streamView, options: streamOptions)
             streaming = display.id
+            shownDisplay = display.id
         } catch {
             fail(error.localizedDescription)
         }
+    }
+
+    /// Sans écran virtuel : afficher un autre écran de l'ordinateur.
+    var canPickScreen: Bool { prepared?.virtualDisplay != true && screens.count > 1 }
+
+    func showScreen(_ id: UInt32) {
+        guard id != streaming else { return }
+        pickedDisplay = id
+        restartStreaming()
     }
 
     private func restartStreaming() {

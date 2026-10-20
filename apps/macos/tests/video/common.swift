@@ -51,3 +51,16 @@ func accessUnits(_ path: String, codec: UInt32) -> [[UInt8]] {
     }
     return aus
 }
+
+/// Unités temporelles d'un flux AV1 (OBU, délimiteur temporel en tête).
+func temporalUnits(_ path: String) -> [[UInt8]] {
+    let data = try! Data(contentsOf: URL(fileURLWithPath: path))
+    var units: [[UInt8]] = []
+    data.withUnsafeBytes { raw in
+        for obu in AV1.obus(raw.bindMemory(to: UInt8.self)) {
+            if obu.type == AV1.obuTemporalDelimiter || units.isEmpty { units.append([]) }
+            units[units.count - 1] += Array(obu.bytes)
+        }
+    }
+    return units.filter { !$0.isEmpty }
+}

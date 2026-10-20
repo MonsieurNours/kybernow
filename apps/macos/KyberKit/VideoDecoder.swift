@@ -37,6 +37,8 @@ final class VideoDecoder {
 
     private(set) var codec: Codec = .hevc
     private var parameterSets: [UInt8: Data] = [:]
+    /// AV1 : dernier en-tête de séquence reçu.
+    private var av1Sequence: AV1.OBU?
     private var format: CMVideoFormatDescription?
     private var session: VTDecompressionSession?
     /// Format de sortie imposé, si celui du décodeur ne convient pas au rendu.
@@ -58,6 +60,7 @@ final class VideoDecoder {
         guard let c = Codec(rawValue: fourcc), c != codec || session == nil else { return }
         codec = c
         parameterSets.removeAll()
+        av1Sequence = nil
         reset()
         KyberLog.video.notice("codec \(String(describing: c), privacy: .public)")
     }
@@ -66,25 +69,50 @@ final class VideoDecoder {
         let received = mach_absolute_time()
         lock.lock()
         defer { lock.unlock() }
-        guard codec != .av1 else { return }
-        var frame: [UnsafeBufferPointer<UInt8>] = []
         var changed = false
-        for nal in Self.nalUnits(data) {
-            guard let type = nalType(nal) else { continue }
-            if isParameterSet(type) {
-                let d = Data(nal)
-                if parameterSets[type] != d {
-                    parameterSets[type] = d
-                    changed = true
+        // L'échantillon à décoder, construit une fois la session prête.
+        let makeSample: (CMVideoFormatDescription) -> CMSampleBuffer?
+        if codec == .av1 {
+            // OBU : délimiteurs et bourrage retirés, en-tête de séquence gardé
+            // (permis dans un échantillon, utile aux images clés).
+            var frame = Data()
+            var hasPicture = false
+            for obu in AV1.obus(data) {
+                switch obu.type {
+                case AV1.obuTemporalDelimiter, AV1.obuPadding:
+                    continue
+                case AV1.obuSequenceHeader:
+                    if av1Sequence?.bytes != obu.bytes {
+                        av1Sequence = obu
+                        changed = true
+                    }
+                default:
+                    hasPicture = true
                 }
-            } else {
-                frame.append(nal)
+                frame.append(obu.bytes)
             }
+            if changed || (session == nil && isKey) { rebuild() }
+            guard hasPicture else { return }
+            makeSample = { Self.sample(raw: frame, format: $0) }
+        } else {
+            var frame: [UnsafeBufferPointer<UInt8>] = []
+            for nal in Self.nalUnits(data) {
+                guard let type = nalType(nal) else { continue }
+                if isParameterSet(type) {
+                    let d = Data(nal)
+                    if parameterSets[type] != d {
+                        parameterSets[type] = d
+                        changed = true
+                    }
+                } else {
+                    frame.append(nal)
+                }
+            }
+            if changed || (session == nil && isKey) { rebuild() }
+            guard !frame.isEmpty else { return }
+            makeSample = { Self.sample(frame, format: $0) }
         }
-        if changed || (session == nil && isKey) {
-            rebuild()
-        }
-        guard !frame.isEmpty, let session, let format else { return }
+        guard let session, let format else { return }
         if waitingKey {
             // Sans image clé, une image qui s'appuie sur une référence perdue
             // est refusée : inutile de la donner au décodeur.
@@ -96,7 +124,7 @@ final class VideoDecoder {
                 onRecovered?()
             }
         }
-        guard let sample = Self.sample(frame, format: format) else { return }
+        guard let sample = makeSample(format) else { return }
         let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
             guard let self else { return }
             guard status == noErr, let image else {
@@ -208,6 +236,10 @@ final class VideoDecoder {
     }
 
     private func makeFormat() -> CMVideoFormatDescription? {
+        if codec == .av1 {
+            guard let obu = av1Sequence, let header = AV1.parseSequenceHeader(obu.payload) else { return nil }
+            return AV1.format(header, sequenceHeaderOBU: obu.bytes)
+        }
         let order: [UInt8] = codec == .hevc ? [32, 33, 34] : [7, 8]
         let sets = order.compactMap { parameterSets[$0] }
         guard sets.count == order.count else { return nil }
@@ -249,6 +281,24 @@ final class VideoDecoder {
     }
 
     /// NAL en Annex B → un échantillon en longueurs sur 4 octets.
+    /// Échantillon tel quel (AV1 : OBU avec leur taille).
+    static func sample(raw: Data, format: CMVideoFormatDescription) -> CMSampleBuffer? {
+        var block: CMBlockBuffer?
+        guard CMBlockBufferCreateWithMemoryBlock(
+            allocator: kCFAllocatorDefault, memoryBlock: nil, blockLength: raw.count, blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil, offsetToData: 0, dataLength: raw.count, flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block
+        ) == noErr, let block else { return nil }
+        let copied = raw.withUnsafeBytes { CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: raw.count) }
+        guard copied == noErr else { return nil }
+        var sample: CMSampleBuffer?
+        var size = raw.count
+        guard CMSampleBufferCreateReady(
+            allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format, sampleCount: 1,
+            sampleTimingEntryCount: 0, sampleTimingArray: nil, sampleSizeEntryCount: 1, sampleSizeArray: &size, sampleBufferOut: &sample
+        ) == noErr else { return nil }
+        return sample
+    }
+
     static func sample(_ nals: [UnsafeBufferPointer<UInt8>], format: CMVideoFormatDescription) -> CMSampleBuffer? {
         let total = nals.reduce(0) { $0 + 4 + $1.count }
         var block: CMBlockBuffer?

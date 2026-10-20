@@ -37,11 +37,23 @@ ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=1280x720:rate=
     -c:v libx265 -preset ultrafast -x265-params "$IR" -f hevc ir-b.hevc
 cat ir-a.hevc ir-b.hevc > ir.hevc
 
-SOURCES=("$HERE/common.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyTracker.swift")
+# AV1 en faible délai (SVT-AV1), comme NVENC en temps réel.
+AV1P="pred-struct=1:lp=6"
+SVT_LOG=0 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=2560x1440:rate=60" -frames:v 120 -pix_fmt yuv420p \
+    -c:v libsvtav1 -preset 10 -g 60 -svtav1-params "$AV1P" -f obu av1.obu
+for c in 3366CC 202020; do
+    SVT_LOG=0 ffmpeg -hide_banner -loglevel error -y -f lavfi -i "color=c=0x${c}:size=256x256:rate=30" -frames:v 3 \
+        -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p" -colorspace bt709 -color_primaries bt709 -color_trc bt709 \
+        -c:v libsvtav1 -preset 10 -crf 1 -svtav1-params "$AV1P" -f obu "c_${c}.obu"
+done
+
+SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyTracker.swift")
 LINK=(-I "$KIT/../Vendor/include" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks")
 swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 swiftc -O -o recovery "$HERE/recovery/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
+swiftc -O -o av1 "$HERE/av1/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 ./decode
 ./color
 ./recovery ir.hevc
+./av1 av1.obu c_3366CC.obu c_202020.obu
