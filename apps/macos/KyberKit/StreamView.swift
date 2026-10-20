@@ -102,6 +102,9 @@ public final class StreamView: NSView {
         var host = kynput_RectSize(width: hostSize.width, height: hostSize.height)
         layout = kynput_video_layout_new(&window, &host)
         applyCursorShape()
+        // Image relancée en mode jeu : la chaîne neuve part en souris absolue,
+        // elle doit repasser en relatif tout de suite.
+        if relative.active { input.setRelative(true) }
         // AppKit ne transmet pas aux vues le relâchement d'une touche tapée
         // avec ⌘ : on le récupère avant qu'il ne se perde.
         relative.onMove = { [weak input] dx, dy in input?.mouseMove(dx: dx, dy: dy) }
@@ -111,6 +114,18 @@ public final class StreamView: NSView {
             self.keyUp(with: event)
             return nil
         }
+    }
+
+    /// Entrées reliées à l'ordinateur. Après une relance de l'image, le service
+    /// d'entrées de Kyber est neuf : il ne tient plus aucune touche. Le mode
+    /// de la souris est réaffirmé, et les modificateurs encore tenus sur le
+    /// Mac (⌘ ou ⇧ gardés pendant la relance) repartent ; les autres touches
+    /// et les boutons ne sont pas renvoyés (un jeu y verrait un nouvel appui).
+    func inputConnected() {
+        guard let input else { return }
+        input.setRelative(relative.active)
+        pressedModifiers.removeAll()
+        resyncModifiers()
     }
 
     /// L'écran de l'ordinateur a changé de taille en cours de session : les

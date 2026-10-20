@@ -135,6 +135,21 @@ public final class StreamView: UIView {
         updateRelative()
     }
 
+    /// Entrées reliées à l'ordinateur. Après une relance de l'image, le service
+    /// d'entrées de Kyber est neuf : la souris repart en brut ou en positions
+    /// selon le plein écran, les modificateurs tenus sur le clavier Bluetooth
+    /// repartent, et le pointeur tenu par l'app (télécommande, manette ou
+    /// souris) est renvoyé à sa place. La manette en souris, elle, continue
+    /// d'elle-même (GamepadBridge relance son minuteur à chaque chaîne neuve).
+    func inputConnected() {
+        guard let input else { return }
+        updateRelative()
+        keyboardMouse.resendHeldModifiers()
+        if remoteMouse || padMouse || mouseSeen, let p = pointer {
+            input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
+        }
+    }
+
     /// L'écran de l'ordinateur a changé de taille en cours de session : le
     /// pointeur tenu par l'app reste dans l'écran, les positions suivent.
     func setHostSize(_ size: CGSize) {

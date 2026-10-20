@@ -59,6 +59,20 @@ final class KeyboardMouse {
         input = nil
     }
 
+    /// Service d'entrées relancé sur l'ordinateur : les modificateurs encore
+    /// tenus sur le clavier y repartent (les autres touches non : un jeu y
+    /// verrait un nouvel appui).
+    func resendHeldModifiers() {
+        guard let input, let keys = GCKeyboard.coalesced?.keyboardInput else { return }
+        let modifiers: [GCKeyCode] = [.leftShift, .rightShift, .leftControl, .rightControl, .leftAlt, .rightAlt, .leftGUI, .rightGUI]
+        for code in modifiers where keys.button(forKeyCode: code)?.isPressed == true {
+            var scancode: UInt16 = 0
+            if Self.scancode(UInt16(truncatingIfNeeded: code.rawValue), &scancode) {
+                input.key(scancode: scancode, pressed: true)
+            }
+        }
+    }
+
     private func setUp(_ keyboard: GCKeyboard) {
         let apple = keyboard.vendorName.map { $0.localizedCaseInsensitiveContains("Apple") } ?? true
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in

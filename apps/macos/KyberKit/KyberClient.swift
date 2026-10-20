@@ -184,10 +184,16 @@ public final class KyberClient {
             on_event: { event, userdata in
                 guard let event, let userdata else { return }
                 let me = Unmanaged<KyberClient>.fromOpaque(userdata).takeUnretainedValue()
-                // Entrées reliées à l'ordinateur : ce qui a été envoyé avant
-                // (manettes branchées) s'est perdu, la chaîne le renvoie.
+                // Entrées reliées à l'ordinateur (début de session, ou relance :
+                // Kyber relance alors son service d'entrées, qui ne tient plus
+                // rien) : ce qui a été envoyé avant s'est perdu. La chaîne
+                // renvoie les manettes branchées, la vue l'état qu'elle tient
+                // (mode de la souris, modificateurs, pointeur).
                 if kyclient_event_get_type(event) == KYCLIENT_EVENT_TYPE_INPUT_SERVICE_CONNECTED {
-                    DispatchQueue.main.async { me.input?.networkConnected() }
+                    DispatchQueue.main.async {
+                        me.input?.networkConnected()
+                        me.view?.inputConnected()
+                    }
                 }
                 if let e = KyberClient.unpack(event) {
                     DispatchQueue.main.async { me.onEvent?(e) }
