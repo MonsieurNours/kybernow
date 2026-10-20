@@ -4,13 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.4
+
+- Steadier 4K picture: the computer no longer drops pieces of a large frame (8 MB QUIC send queues and UDP buffers instead of 1 MB), which made the picture stutter or freeze and then request keyframes one after another.
+- Mac app: if the computer announces only screens that are off (0 × 0), the session says so instead of staying on "First frames".
+
 ## 0.2.3
 
 - Apple TV app: the pointer no longer disappears when you move it with the remote or a gamepad. The Apple TV now sends its exact position, like the Mac app on the desktop (Windows did not show its pointer again on mere motion), and always draws it. The Bluetooth mouse stays in game mode in a full-screen game.
-
-## 0.2.3
-
-- Steadier 4K picture: the computer no longer drops pieces of a large frame (8 MB QUIC send queues and UDP buffers instead of 1 MB), which made the picture stutter or freeze and then request keyframes one after another.
 
 ## 0.2.2
 

@@ -5,13 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.4
+
+- Image plus stable en 4K : l'ordinateur ne jette plus de morceaux d'une grosse image (files d'envoi QUIC et mémoires UDP de 8 Mo au lieu de 1 Mo), ce qui faisait saccader ou figer l'image puis redemander des images clés en chaîne.
+- App Mac : si l'ordinateur n'annonce que des écrans éteints (0 × 0), la session le dit au lieu de rester sur « Premières images ».
+
 ## 0.2.3
 
 - App Apple TV : le pointeur ne disparaît plus quand on le déplace à la télécommande ou à la manette. L'Apple TV envoie maintenant sa position exacte, comme l'app Mac au bureau (Windows ne réaffichait pas son pointeur sur de simples déplacements), et le dessine toujours. La souris Bluetooth reste en mode jeu dans un jeu en plein écran.
-
-## 0.2.3
-
-- Image plus stable en 4K : l'ordinateur ne jette plus de morceaux d'une grosse image (files d'envoi QUIC et mémoires UDP de 8 Mo au lieu de 1 Mo), ce qui faisait saccader ou figer l'image puis redemander des images clés en chaîne.
 
 ## 0.2.2
 
