@@ -37,6 +37,13 @@
   ]
 
   const INPUTS = ['input.clipboard_allow_copy', 'input.clipboard_allow_paste', 'input.gamepad_force_xbox360', 'input.keyboard_key_repeat']
+  // Depuis KyberNow 0.2.6, les apps Mac et Apple TV choisissent par ordinateur
+  // la manette vue par l'ordinateur (Xbox 360 ou fidèle) et l'imposent à la
+  // session : l'option de la console n'est plus qu'un défaut pour les autres clients.
+  const INPUT_NOTES: Record<string, string> = {
+    'input.gamepad_force_xbox360':
+      'Les apps Mac et Apple TV choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur ») : ici, seulement le défaut pour les autres clients.',
+  }
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
@@ -259,7 +266,7 @@
         {@const f = field(id)}
         {#if f}
           <div class="set">
-            <div><h3>{f.label}</h3><p>{f.help}{f.caution ? ` ${f.caution}` : ''}</p></div>
+            <div><h3>{f.label}</h3><p>{f.help}{f.caution ? ` ${f.caution}` : ''}{INPUT_NOTES[id] ? ` ${INPUT_NOTES[id]}` : ''}</p></div>
             <Switch label={f.label} checked={!!value(id)} onchange={(v) => setValues({ [id]: v })} />
           </div>
         {/if}

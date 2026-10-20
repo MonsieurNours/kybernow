@@ -379,6 +379,23 @@ private struct SettingsContent: View {
                 )
                 Text(s.mouse.hint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Manette vue par l'ordinateur").font(Theme.sans(14)).foregroundStyle(Theme.text)
+                    InfoTip(label: "Manette vue par l'ordinateur") {
+                        Text("Xbox 360 ou fidèle").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                        Text("Xbox 360 : toutes les manettes, PlayStation comprises, passent pour des manettes Xbox 360, celles que tous les jeux reconnaissent. Fidèle : une manette Sony reste une DualShock 4, avec son pavé tactile et sa barre lumineuse pour les jeux qui s'en servent ; certains jeux anciens ne la voient pas.")
+                        Text("Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients.")
+                    }
+                }
+                Segmented(
+                    options: GamepadChoice.allCases.map { ($0, $0.label) },
+                    selection: Binding(get: { s.gamepad }, set: { g in if let g { update { $0.gamepad = g } } }),
+                    height: 30,
+                    fill: true
+                )
+                Text(s.gamepad.hint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 8) {
                 Text("Presse-papiers partagé").font(Theme.sans(14)).foregroundStyle(Theme.text)
                 InfoTip(label: "Presse-papiers partagé") {

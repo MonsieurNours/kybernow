@@ -6,7 +6,10 @@
 // session, son bouton Retour ouvre le menu, et son pavé peut servir de souris.
 //
 // L1 + R1 + Start + Select (comme sur Mac) ouvre aussi le menu : la manette
-// pilote alors KyberNow et le jeu ne reçoit plus rien.
+// pilote alors KyberNow et le jeu ne reçoit plus rien. Le pont ne décide pas :
+// il signale la combinaison, et c'est le contrôleur de session qui prend la
+// manette (`setCaptured`) quand le menu s'ouvre vraiment. Hors session
+// (connexion, reconnexion), rien n'est pris et la manette reste au jeu.
 
 import Combine
 import CoreHaptics
@@ -83,6 +86,10 @@ public final class GamepadBridge: ObservableObject {
         var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
+        /// Dernière valeur partie de chaque axe, et celles qui attendent la
+        /// prochaine tranche de 4 ms.
+        var lastAxis: [PadAxis: Int16] = [:]
+        var pendingAxes: [PadAxis: Int16] = [:]
         /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
         var comboSeen = false
         init(controller: GCController, id: UInt32, player: Int) {
@@ -111,6 +118,13 @@ public final class GamepadBridge: ObservableObject {
         }
         GCController.controllers().forEach(connected)
         GCController.startWirelessControllerDiscovery {}
+        // Arrière-plan (bouton TV, autre app, veille) : les relâchements qui
+        // suivent ne nous parviendront pas, rien ne doit rester enfoncé sur
+        // l'ordinateur. Au retour, l'état réel des manettes est renvoyé.
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.appLeft() }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.appBack() }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.publishPads() }
         liveTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             guard let self, self.monitoring, self.liveDirty else { return }
@@ -124,7 +138,8 @@ public final class GamepadBridge: ObservableObject {
     /// Branche les manettes sur la chaîne d'entrées de la session.
     func attach(_ input: InputPipeline) {
         self.input = input
-        captured = false
+        // `captured` reste au contrôleur de session : l'image redémarre
+        // (changement de profil) sans que le menu se ferme.
         input.onRumble = { [weak self] in self?.rumble($0) }
         // Les manettes s'annoncent une fois les entrées reliées à l'ordinateur :
         // avant, l'annonce se perd, et l'ordinateur rejette ensuite les boutons
@@ -159,16 +174,65 @@ public final class GamepadBridge: ObservableObject {
     }
 
     /// Le menu s'ouvre (true) ou se ferme : la manette quitte ou rejoint le jeu.
+    /// À l'ouverture, tout est remis à zéro sur l'ordinateur (touches tenues,
+    /// six axes, et les clics et touches de la manette en souris) ; à la
+    /// fermeture, un stick encore tenu est renvoyé tel quel.
     public func setCaptured(_ value: Bool) {
         guard value != captured else { return }
         captured = value
-        if value, let input {
+        guard let input else { return }
+        if value {
             for slot in slots.values { releaseAll(slot, input: input) }
             releaseMouse(input)
+        } else {
+            resync()
+        }
+    }
+
+    /// Renvoie l'état réel des sticks et gâchettes : après une remise à zéro,
+    /// GameController ne signale que les changements, et un stick tenu
+    /// resterait muet. Les touches ne sont pas renvoyées (celle qui vient de
+    /// fermer le menu ou de ramener l'app est encore enfoncée, le jeu ne doit
+    /// pas la recevoir) ; seul leur état chez nous est remis d'aplomb, pour la
+    /// combinaison et l'écran de test.
+    private func resync() {
+        guard input != nil, !captured, !padMouse else { return }
+        for slot in slots.values {
+            guard let pad = slot.controller.extendedGamepad else { continue }
+            let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
+            slot.pressed = pressed
+            slot.live.pressed = Set(pressed.map(\.name))
+            liveDirty = true
+            axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
+            axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
+            axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
+            axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
+            axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
+            axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
         }
     }
 
     public var inSession: Bool { input != nil }
+
+    // MARK: - Arrière-plan
+
+    private var inBackground = false
+
+    private func appLeft() {
+        guard !inBackground, let input else { return }
+        inBackground = true
+        KyberLog.app.notice("app en arrière-plan : tout relâché sur l'ordinateur")
+        for slot in slots.values { releaseAll(slot, input: input) }
+        releaseMouse(input)
+        // Clavier Bluetooth et tout le reste : l'ordinateur relâche de son côté.
+        input.flushKeys()
+    }
+
+    private func appBack() {
+        guard inBackground else { return }
+        inBackground = false
+        resync()
+    }
 
     // MARK: - Branchements
 
@@ -223,29 +287,29 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Manettes
 
-    private func setUpPad(_ slot: Slot) {
-        guard let pad = slot.controller.extendedGamepad else { return }
-        let buttons: [(GCControllerButtonInput?, PadButton)] = [
+    /// Touches d'une manette et leur nom chez kynput ; le pavé tactile des
+    /// manettes Sony compte comme Select.
+    private static func buttons(_ pad: GCExtendedGamepad) -> [(GCControllerButtonInput?, PadButton)] {
+        var buttons: [(GCControllerButtonInput?, PadButton)] = [
             (pad.buttonA, .a), (pad.buttonB, .b), (pad.buttonX, .x), (pad.buttonY, .y),
             (pad.leftShoulder, .leftShoulder), (pad.rightShoulder, .rightShoulder),
             (pad.buttonMenu, .start), (pad.buttonOptions, .back), (pad.buttonHome, .guide),
             (pad.leftThumbstickButton, .leftStick), (pad.rightThumbstickButton, .rightStick),
             (pad.dpad.up, .dpadUp), (pad.dpad.down, .dpadDown), (pad.dpad.left, .dpadLeft), (pad.dpad.right, .dpadRight),
         ]
-        for (element, button) in buttons {
+        if let ds = pad as? GCDualSenseGamepad { buttons.append((ds.touchpadButton, .back)) }
+        return buttons
+    }
+
+    private func setUpPad(_ slot: Slot) {
+        guard let pad = slot.controller.extendedGamepad else { return }
+        for (element, button) in Self.buttons(pad) {
             // Le bouton Home reste à tvOS ; les autres gestes du système aussi
             // (capture d'écran), sauf pour la manette du jeu.
             element?.preferredSystemGestureState = button == .guide ? .enabled : .disabled
             element?.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
                 guard let self, let slot else { return }
                 self.button(slot, button, pressed: pressed)
-            }
-        }
-        // Pavé tactile de la DualSense / DualShock : un bouton de plus (Select).
-        if let ds = pad as? GCDualSenseGamepad {
-            ds.touchpadButton.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
-                guard let self, let slot else { return }
-                self.button(slot, .back, pressed: pressed)
             }
         }
         pad.leftThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in
@@ -283,13 +347,9 @@ public final class GamepadBridge: ObservableObject {
         if menuFromCombo, pressed, Self.combo.contains(button), slot.pressed.isSuperset(of: Self.combo) {
             KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
             slot.comboSeen = true
-            if !captured {
-                // L'ordinateur a vu les premières touches : on les relâche pour lui.
-                if !padMouse {
-                    for b in slot.pressed where b != button { input.gamepadButton(id: slot.id, b, pressed: false) }
-                }
-                captured = true
-            }
+            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
+            // contrôleur de session : prendre la manette (il relâche alors
+            // pour l'ordinateur les touches qu'il a vues), ou la rendre.
             onMenuRequest?()
             return
         }
@@ -302,10 +362,45 @@ public final class GamepadBridge: ObservableObject {
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
 
+    /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
+    /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
+    /// d'un stick même si un seul a changé, et une DualSense en Bluetooth
+    /// produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
+    /// d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
+    /// relâchements. Les touches partent tout de suite, elles.
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         liveDirty = true
-        guard let input, !captured, !padMouse else { return }
-        input.gamepadAxis(id: slot.id, axis, value: value)
+        guard input != nil, !captured, !padMouse else { return }
+        guard GamepadGate.moved(from: slot.lastAxis[axis], to: value) else { return }
+        slot.lastAxis[axis] = value
+        slot.pendingAxes[axis] = value
+        scheduleAxisFlush()
+    }
+
+    private var axisFlushScheduled = false
+
+    private func scheduleAxisFlush() {
+        guard !axisFlushScheduled else { return }
+        axisFlushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.flushAxes() }
+    }
+
+    private func flushAxes() {
+        axisFlushScheduled = false
+        guard let input, !captured, !padMouse else {
+            for slot in slots.values { slot.pendingAxes.removeAll() }
+            return
+        }
+        var again = false
+        for slot in slots.values where !slot.pendingAxes.isEmpty {
+            for (axis, value) in slot.pendingAxes {
+                if input.gamepadAxis(id: slot.id, axis, value: value) { slot.pendingAxes[axis] = nil }
+            }
+            if !slot.pendingAxes.isEmpty { again = true }
+        }
+        // Refusé (file pleine, ou un retour au repos qui attend encore devant) :
+        // la valeur reste en attente de la tranche suivante.
+        if again { scheduleAxisFlush() }
     }
 
     // MARK: - Manette en souris
@@ -471,7 +566,9 @@ public final class GamepadBridge: ObservableObject {
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
+        slot.pendingAxes.removeAll()
         for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {
+            slot.lastAxis[a] = 0
             input.gamepadAxis(id: slot.id, a, value: 0)
         }
     }

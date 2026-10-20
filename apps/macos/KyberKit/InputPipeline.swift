@@ -249,10 +249,24 @@ final class InputPipeline {
             userdata: gate
         )
         kynput_pipeline_set_hook(pipeline, &hook)
-        gamepad.release = { [weak self] releases in
-            for (id, button) in releases {
-                var b = kynput_GamepadEventButton(id: id, type_: button, pressed: false)
-                self?.send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
+        gamepad.release = { [weak self] buttons, axes in
+            guard let self else { return }
+            let gate = self.gamepad
+            // Chaque essai réarme son autorisation : le hook la consomme avant
+            // que la file d'envoi se prononce.
+            for (id, button) in buttons {
+                self.sendReliably("manette") {
+                    gate.allow(id: id, button: button)
+                    var b = kynput_GamepadEventButton(id: id, type_: button, pressed: false)
+                    return kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b)
+                }
+            }
+            for (id, axis) in axes {
+                self.sendReliably("axe de manette") {
+                    gate.allow(id: id, axis: axis)
+                    var a = kynput_GamepadEventAxis(id: id, type_: axis, value: 0)
+                    return kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a)
+                }
             }
         }
         #endif
@@ -275,6 +289,14 @@ final class InputPipeline {
         #if os(macOS)
         clipboard?.stop()
         #endif
+        lock.lock()
+        stopped = true
+        backlog.removeAll()
+        let dropped = droppedPackets
+        lock.unlock()
+        if dropped > 0 {
+            KyberLog.app.notice("entrées : \(dropped) paquets perdus pendant la session (file d'envoi pleine ou réseau absent)")
+        }
         kynput_pipeline_flush_keys(pipeline)
     }
 
@@ -292,18 +314,123 @@ final class InputPipeline {
         #endif
     }
 
-    private var logged = Set<String>()
-    private let logLock = NSLock()
+    // MARK: - Envoi
 
-    /// Appelé du fil principal, et du fil de la souris relative.
-    private func send(_ packet: OpaquePointer?, _ kind: String) {
-        guard let packet else { return }
+    // La file d'envoi de kynput tient 64 paquets et jette sans retour (le
+    // protocole est en deltas : un relâchement jeté = touche collée jusqu'à
+    // la fin de la session). kynput_consumer_consume rend -1 quand elle est
+    // pleine, ou tant que le réseau n'est pas relié : on compte les refus, et
+    // les paquets qui ne se rattrapent pas sont réessayés depuis une petite
+    // file de secours. Les manettes lues par SDL (Mac) n'y passent pas :
+    // kynput les envoie lui-même, GamepadGate en réduit seulement le débit.
+
+    /// Paquets refusés par kynput, jamais arrivés (journal : premier refus,
+    /// puis tous les 100, puis le total à la fin de la session).
+    private(set) var droppedPackets = 0
+    private var logged = Set<String>()
+    private let lock = NSLock()
+    /// Paquet qui ne se rattrape pas, à réessayer : comment le refaire (kynput
+    /// garde le paquet même refusé), et jusqu'à quand.
+    private struct Pending {
+        let kind: String
+        let make: () -> OpaquePointer?
+        let deadline: TimeInterval
+    }
+    private var backlog: [Pending] = []
+    private var retryScheduled = false
+    private var stopped = false
+    private let retryQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.entrees")
+    private static let retryWindow: TimeInterval = 0.2
+    private static let retryStep: DispatchTimeInterval = .milliseconds(3)
+
+    /// Paquet qui se rattrape tout seul au suivant (position, déplacement,
+    /// molette, axe en mouvement) : envoyé une fois, perdu s'il est refusé.
+    /// Derrière une file de secours non vide, il n'est pas envoyé non plus :
+    /// il doublerait ce qui attend (le retour au repos d'un axe, puis sa
+    /// nouvelle valeur). `false` : perdu. Appelé du fil principal, et du fil
+    /// de la souris relative.
+    @discardableResult
+    private func send(_ packet: OpaquePointer?, _ kind: String) -> Bool {
+        guard let packet else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        if stopped || !backlog.isEmpty {
+            kynput_packet_unref(packet)
+            if !stopped { dropped(kind) }
+            return false
+        }
         let rc = kynput_consumer_consume(sink, packet)
-        logLock.lock()
-        let first = logged.insert(kind).inserted
-        logLock.unlock()
-        if first {
+        logFirst(kind, rc)
+        if rc != 0 { dropped(kind) }
+        return rc == 0
+    }
+
+    /// Paquet qui ne se rattrape pas (touche, clic, bouton, branchement, retour
+    /// au repos d'un axe, FlushKeys) : réessayé toutes les 3 ms, dans l'ordre,
+    /// jusqu'à succès ou 200 ms. Tant que la file de secours n'est pas vide,
+    /// tout y passe : un relâchement ne doit pas doubler son appui.
+    private func sendReliably(_ kind: String, _ make: @escaping () -> OpaquePointer?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped else { return }
+        if backlog.isEmpty {
+            guard let packet = make() else { return }
+            let rc = kynput_consumer_consume(sink, packet)
+            logFirst(kind, rc)
+            if rc == 0 { return }
+        }
+        backlog.append(Pending(kind: kind, make: make, deadline: ProcessInfo.processInfo.systemUptime + Self.retryWindow))
+        scheduleRetry()
+    }
+
+    // Sous le verrou.
+    private func scheduleRetry() {
+        guard !retryScheduled else { return }
+        retryScheduled = true
+        retryQueue.asyncAfter(deadline: .now() + Self.retryStep) { [weak self] in self?.retry() }
+    }
+
+    private func retry() {
+        lock.lock()
+        defer { lock.unlock() }
+        retryScheduled = false
+        guard !stopped else {
+            backlog.removeAll()
+            return
+        }
+        while let next = backlog.first {
+            guard let packet = next.make() else {
+                backlog.removeFirst()
+                continue
+            }
+            if kynput_consumer_consume(sink, packet) == 0 {
+                backlog.removeFirst()
+                continue
+            }
+            if ProcessInfo.processInfo.systemUptime > next.deadline {
+                backlog.removeFirst()
+                dropped(next.kind, final: true)
+                continue
+            }
+            scheduleRetry()
+            return
+        }
+    }
+
+    // Sous le verrou.
+    private func logFirst(_ kind: String, _ rc: Int32) {
+        if logged.insert(kind).inserted {
             KyberLog.app.notice("entrées : premier envoi \(kind, privacy: .public) (code \(rc))")
+        }
+    }
+
+    // Sous le verrou.
+    private func dropped(_ kind: String, final: Bool = false) {
+        droppedPackets += 1
+        if final {
+            KyberLog.app.error("entrées : \(kind, privacy: .public) perdu après 200 ms de réessais (\(self.droppedPackets) perdus)")
+        } else if droppedPackets == 1 || droppedPackets % 100 == 0 {
+            KyberLog.app.notice("entrées : \(kind, privacy: .public) refusé par la file d'envoi (\(self.droppedPackets) perdus)")
         }
     }
 
@@ -312,7 +439,7 @@ final class InputPipeline {
     }
 
     func key(scancode: UInt16, pressed: Bool) {
-        send(kynput_keyboard_key_to_packet(KYNPUT_INPUT_TARGET_HOST, scancode, pressed), "touche")
+        sendReliably("touche") { kynput_keyboard_key_to_packet(KYNPUT_INPUT_TARGET_HOST, scancode, pressed) }
     }
 
     func mouse(x: Int16, y: Int16) {
@@ -320,7 +447,7 @@ final class InputPipeline {
     }
 
     func mouseButton(_ button: MouseButton, pressed: Bool) {
-        send(kynput_mouse_button_to_packet(KYNPUT_INPUT_TARGET_HOST, button.sdk, pressed), "clic")
+        sendReliably("clic") { kynput_mouse_button_to_packet(KYNPUT_INPUT_TARGET_HOST, button.sdk, pressed) }
     }
 
     func wheel(dx: Float, dy: Float) {
@@ -336,39 +463,53 @@ final class InputPipeline {
         onConnected?()
     }
 
+    /// L'ordinateur relâche tout ce qu'il tient de nous : touches, boutons de
+    /// souris, boutons et axes des manettes. Même file que les autres paquets,
+    /// donc réessayé s'il est refusé.
     func flushKeys() {
-        kynput_pipeline_flush_keys(pipeline)
+        sendReliably("relâchement général") { kynput_control_event_to_packet(KYNPUT_INPUT_TARGET_HOST, KYNPUT_CONTROL_EVENT_FLUSH_KEYS) }
     }
 
     // MARK: Manettes produites par l'app (Apple TV)
 
     func gamepadPlug(id: UInt32, vendor: UInt16?, product: UInt16?) {
-        var v = vendor ?? 0
-        var p = product ?? 0
-        let packet = vendor != nil && product != nil
-            ? kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, &v, &p)
-            : kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, nil, nil)
-        send(packet, "manette branchée")
+        sendReliably("manette branchée") {
+            guard var v = vendor, var p = product else { return kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, nil, nil) }
+            return kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, &v, &p)
+        }
     }
 
     func gamepadUnplug(id: UInt32) {
-        send(kynput_gamepad_unplug_to_packet(KYNPUT_INPUT_TARGET_HOST, id), "manette débranchée")
+        sendReliably("manette débranchée") { kynput_gamepad_unplug_to_packet(KYNPUT_INPUT_TARGET_HOST, id) }
     }
 
     func gamepadButton(id: UInt32, _ button: PadButton, pressed: Bool) {
-        var b = kynput_GamepadEventButton(id: id, type_: button.sdk, pressed: pressed)
-        send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
+        sendReliably("manette") {
+            var b = kynput_GamepadEventButton(id: id, type_: button.sdk, pressed: pressed)
+            return kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b)
+        }
     }
 
-    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) {
+    /// Un axe en mouvement se rattrape au suivant ; son retour au repos, non.
+    /// `false` : la valeur n'est pas partie (file pleine, ou un retour au repos
+    /// qui attend encore devant elle), à représenter.
+    @discardableResult
+    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) -> Bool {
+        if value == 0 {
+            sendReliably("axe de manette") {
+                var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: 0)
+                return kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a)
+            }
+            return true
+        }
         var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: value)
-        send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
+        return send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
     }
 
     /// Texte tapé (clavier de l'écran, de l'iPhone) : un caractère à la fois.
     func type(_ text: String) {
         for scalar in text.unicodeScalars {
-            send(kynput_unicode_to_packet(KYNPUT_INPUT_TARGET_HOST, scalar.value), "texte")
+            sendReliably("texte") { kynput_unicode_to_packet(KYNPUT_INPUT_TARGET_HOST, scalar.value) }
         }
     }
 

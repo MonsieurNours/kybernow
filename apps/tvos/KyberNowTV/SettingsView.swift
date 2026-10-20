@@ -227,6 +227,9 @@ struct SettingsView: View {
         toggle("mouse", "Télécommande en souris", "Toujours active en profil Bureau", s.mouse == .desktop || s.profile == .bureau) {
             edit { st in st.mouse = st.mouse == .desktop ? .auto : .desktop }
         }
+        seg("gamepad", "Manette vue par l'ordinateur", s.gamepad.hint, GamepadChoice.allCases.map(\.label), s.gamepad.label) { v in
+            edit { st in st.gamepad = GamepadChoice.allCases.first { $0.label == v } ?? .xbox360 }
+        }
         toggle("rumble", "Vibrations", "Renvoyées par le jeu, sur chaque manette", prefs.rumble) {
             prefs.rumble.toggle()
         }
@@ -235,6 +238,9 @@ struct SettingsView: View {
         }
         seg("order", "Ordre des joueurs", "Fixe : chaque manette garde sa place", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
             prefs.padOrderFixed = v == "Fixe"
+        }
+        toggle("iso", "Clavier Apple ISO", "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur", prefs.appleISOKeyboard) {
+            prefs.appleISOKeyboard.toggle()
         }
         value("test", "Tester les manettes", padsSummary, GamepadBridge.shared.pads.map { "J\($0.player)" }.joined(separator: " · ")) {
             app.screen = .gamepads

@@ -5,6 +5,12 @@ import AppKit
 import Carbon.HIToolbox
 @_implementationOnly import CKyber
 
+/// Disposition physique (ANSI, JIS, ISO) d'un type de clavier. HIToolbox
+/// exporte toujours la fonction, mais ses en-têtes ne la déclarent plus ;
+/// SDL s'en sert de la même façon.
+@_silgen_name("KBGetLayoutType") private func KBGetLayoutType(_ keyboardType: Int16) -> UInt8
+private let kKeyboardISO: UInt8 = 2
+
 enum Keymap {
     /// Usage HID des touches de modification, pour le réglage « ⌘ envoyée comme Ctrl ».
     static let leftControl: UInt16 = 0xE0
@@ -44,13 +50,36 @@ enum Keymap {
         kVK_VolumeUp: 0x80, kVK_VolumeDown: 0x81, kVK_Mute: 0x7F,
     ]
 
-    /// Usage HID d'une touche du Mac, en appliquant « ⌘ envoyée comme Ctrl ».
-    static func usage(keyCode: UInt16, commandAsControl: Bool) -> UInt16? {
+    /// Usage HID d'une touche du Mac, en appliquant « ⌘ envoyée comme Ctrl »
+    /// et l'échange des claviers Apple ISO. `keyboardType` : celui de
+    /// l'événement (`kCGKeyboardEventKeyboardType`) ; nil : le dernier clavier
+    /// utilisé.
+    static func usage(keyCode: UInt16, commandAsControl: Bool, keyboardType: Int64? = nil) -> UInt16? {
         guard var usage = hid[Int(keyCode)] else { return nil }
         if commandAsControl {
             if usage == leftGUI { usage = leftControl } else if usage == rightGUI { usage = rightControl }
         }
+        if usage == 0x35 || usage == 0x64, isISO(keyboardType: keyboardType) {
+            usage = usage == 0x35 ? 0x64 : 0x35
+        }
         return usage
+    }
+
+    /// Clavier Apple ISO (européen, une touche de plus près de ⇧ gauche) : le
+    /// Mac rapporte la touche sous Échap (`@#` sur un AZERTY, `§±` ailleurs)
+    /// comme kVK_ISO_Section, usage HID 0x64, et celle près de ⇧ (`<>`) comme
+    /// kVK_ANSI_Grave, usage 0x35, à l'inverse de ce qu'attend l'ordinateur
+    /// (quirk hid-apple ; SDL fait le même échange). Confirmé le 2026-10-20 sur
+    /// un MacBook AZERTY : `@` donnait `<`. Fil principal seulement.
+    private static var layouts: [Int16: Bool] = [:]
+
+    static func isISO(keyboardType: Int64?) -> Bool {
+        let type = keyboardType.map { Int16(clamping: $0) } ?? Int16(LMGetKbdType())
+        if let known = layouts[type] { return known }
+        let iso = KBGetLayoutType(type) == kKeyboardISO
+        layouts[type] = iso
+        KyberLog.app.notice("clavier de type \(type) : \(iso ? "ISO (échange @# / <>)" : "ANSI ou JIS", privacy: .public)")
+        return iso
     }
 
     static func scancode(usage: UInt16) -> UInt16? {
@@ -66,4 +95,34 @@ enum Keymap {
         UInt16(kVK_Command): .command, UInt16(kVK_RightCommand): .command,
         UInt16(kVK_CapsLock): .capsLock,
     ]
+
+    /// Modificateurs tenus : drapeau, touche de chaque côté, et le bit propre
+    /// à chaque côté dans `modifierFlags.rawValue` (NX_DEVICE…KEYMASK d'IOKit),
+    /// seul moyen de savoir lequel des deux est enfoncé.
+    struct HeldModifier {
+        let flag: NSEvent.ModifierFlags
+        let left: UInt16, right: UInt16
+        let leftBit: UInt, rightBit: UInt
+    }
+
+    static let heldModifiers: [HeldModifier] = [
+        .init(flag: .shift, left: UInt16(kVK_Shift), right: UInt16(kVK_RightShift), leftBit: 0x02, rightBit: 0x04),
+        .init(flag: .control, left: UInt16(kVK_Control), right: UInt16(kVK_RightControl), leftBit: 0x01, rightBit: 0x2000),
+        .init(flag: .option, left: UInt16(kVK_Option), right: UInt16(kVK_RightOption), leftBit: 0x20, rightBit: 0x40),
+        .init(flag: .command, left: UInt16(kVK_Command), right: UInt16(kVK_RightCommand), leftBit: 0x08, rightBit: 0x10),
+    ]
+
+    /// Les deux bits de côté d'un drapeau (0 : Verr. maj.).
+    static func sideBits(of flag: NSEvent.ModifierFlags) -> UInt {
+        heldModifiers.first { $0.flag == flag }.map { $0.leftBit | $0.rightBit } ?? 0
+    }
+
+    /// Bit du côté que porte cette touche de modification (nil : Verr. maj.).
+    static func sideBit(_ code: UInt16) -> UInt? {
+        for m in heldModifiers {
+            if m.left == code { return m.leftBit }
+            if m.right == code { return m.rightBit }
+        }
+        return nil
+    }
 }

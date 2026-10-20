@@ -43,6 +43,9 @@ public struct StreamOptions: Sendable {
     public var nativeAudio = true
     /// Presse-papiers partagé (texte), dans les deux sens.
     public var clipboard = true
+    /// Toutes les manettes présentées en Xbox 360 à l'ordinateur ; sinon,
+    /// fidèles au modèle (DualShock 4 pour les manettes Sony).
+    public var gamepadAsXbox360 = true
 
     public init() {}
 }
@@ -269,9 +272,9 @@ public final class KyberClient {
         var inputConfig: OpaquePointer?
         try check(kyclient_input_session_config_default(kynput_pipeline_ref(input.pipeline), &inputConfig), "configuration des entrées")
         kyclient_input_session_config_clipboard(inputConfig, options.clipboard)
-        // Toutes les manettes deviennent des manettes Xbox 360 sur
-        // l'ordinateur, Sony comprises : c'est ce que les jeux gèrent tous.
-        kyclient_input_session_config_gamepad_force_xbox360(inputConfig, true)
+        // Manette vue par l'ordinateur (réglage par ordinateur) : Xbox 360
+        // pour toutes, Sony comprises, ou fidèle au modèle.
+        kyclient_input_session_config_gamepad_force_xbox360(inputConfig, options.gamepadAsXbox360)
         kyclient_streaming_session_config_set_input(session, inputConfig)
 
         try check(kyclient_client_start_streaming(client, session), "démarrage de l'image")

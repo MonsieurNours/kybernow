@@ -105,6 +105,8 @@ final class Preferences: ObservableObject {
     @Published var latencyAlert: Bool { didSet { d.set(latencyAlert, forKey: "latencyAlert") } }
     @Published var matchFrameRate: Bool { didSet { d.set(matchFrameRate, forKey: "matchFrameRate") } }
     @Published var icloudSync: Bool { didSet { d.set(icloudSync, forKey: "icloudSync") } }
+    /// Clavier Apple ISO (européen) branché à l'Apple TV : touches `@#` et `<>` échangées.
+    @Published var appleISOKeyboard: Bool { didSet { d.set(appleISOKeyboard, forKey: "appleISOKeyboard") } }
 
     /// Vitesse du pointeur quand la manette sert de souris.
     enum PadMouseSpeed: String, CaseIterable {
@@ -130,6 +132,7 @@ final class Preferences: ObservableObject {
         latencyAlert = flag("latencyAlert")
         matchFrameRate = flag("matchFrameRate")
         icloudSync = flag("icloudSync")
+        appleISOKeyboard = UserDefaults.standard.bool(forKey: "appleISOKeyboard")
         padMouseSpeed = PadMouseSpeed(rawValue: UserDefaults.standard.string(forKey: "padMouseSpeed") ?? "") ?? .normal
         GamepadBridge.shared.fixedOrder = padOrderFixed
     }
