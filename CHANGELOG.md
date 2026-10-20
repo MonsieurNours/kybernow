@@ -10,6 +10,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Mises à jour de l'ordinateur sans risque de tout laisser arrêté : la nouvelle version est préparée à côté de l'ancienne puis mise en place d'un coup ; si la console ne répond pas dans la minute, l'ancienne version revient seule et la page Mises à jour dit pourquoi. La mise à jour à la main vérifie aussi l'empreinte du paquet, et « Applications installées » affiche la bonne version.
 - Ordinateur partagé : le dossier des données de KyberNow (`C:\ProgramData\KyberNow`) n'est plus accessible qu'aux administrateurs. Un autre compte de l'ordinateur ne peut plus y lire l'empreinte du mot de passe ni glisser un fichier dans une mise à jour.
 - Installateur : sur un portable sans mode « Performances élevées », l'installation ne s'arrête plus à 96 % : le mode est recréé, ou laissé tel quel avec un avertissement. L'option est décochée si l'ordinateur y est déjà.
+- Installateur : Alt+F4 ne ferme plus la fenêtre en pleine installation, et KyberNow apparaît dans « Applications installées » dès les fichiers copiés : une installation interrompue se désinstalle normalement.
 
 ## 0.2.5
 

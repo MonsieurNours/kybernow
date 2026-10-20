@@ -19,7 +19,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 ## What the installation does
 
 1. Stops and removes a previous version or official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
-2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)).
+2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)). Right after: `kybernow.json`, `uninstall.exe` and the entry in “Installed apps”, so that an installation interrupted further on can be uninstalled normally.
 3. Generates Kyber's TLS certificate (`cert-gen.exe`).
 4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + console), random JWT secret instead of Kyber's development key.
 5. Creates the `kyber` service (quoted path, automatic restart on failure) and opens its start and stop to interactive users (`sc sdset`, see below).
@@ -27,8 +27,10 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 7. SudoVDA: certificate in Root + Trusted Publishers, device node and driver through `nefconc`.
 8. ViGEmBus, if it is not already present (`/quiet /norestart`).
 8. bis. Remote sound (option): Steam's virtual speakers (`SteamStreamingSpeakers.inf` through `pnputil /add-driver /install`) if Steam is installed. The console switches Windows output to them during sessions: the sound leaves the computer's speakers and goes out with the right number of channels.
-9. `kyber-admin` service (console, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), entry in “Installed apps”, shortcuts to the console and the icon in the Start menu.
+9. `kyber-admin` service (console, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), shortcuts to the console and the icon in the Start menu.
 10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with Windows” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
+
+During the installation, the window does not close: the button is greyed out and Alt+F4 is ignored.
 
 Log: `C:\Program Files\KyberNow\install.log` (and `%TEMP%\KyberNow-install.log`).
 

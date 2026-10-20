@@ -78,7 +78,9 @@ fn main() -> wry::Result<()> {
     }
 
     let (tx, rx) = mpsc::channel::<String>();
-    spawn_backend(rx, proxy.clone(), payload);
+    // Vrai pendant l'installation : la fenêtre refuse alors de se fermer.
+    let installing = Arc::new(Mutex::new(false));
+    spawn_backend(rx, proxy.clone(), payload, installing.clone());
 
     let mut context = WebContext::new(Some(webview_data));
     let url = if cfg!(windows) { "http://kn.localhost/" } else { "kn://localhost/" };
@@ -102,15 +104,21 @@ fn main() -> wry::Result<()> {
                 let _ = window.drag_window();
             }
             WinEvent::UserEvent(UserEvent::Minimize) => window.set_minimized(true),
-            WinEvent::UserEvent(UserEvent::Close)
-            | WinEvent::WindowEvent { event: WindowEvent::CloseRequested, .. } => *control_flow = ControlFlow::Exit,
+            WinEvent::UserEvent(UserEvent::Close) => *control_flow = ControlFlow::Exit,
+            // Alt+F4, barre des tâches : ignoré pendant l'installation, qui
+            // laisserait sinon l'ordinateur à moitié installé.
+            WinEvent::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
+                if !*installing.lock().unwrap() {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
             _ => {}
         }
     });
 }
 
 /// Fil de travail : reçoit les commandes de l'interface et exécute les tâches.
-fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, payload: Option<PathBuf>) {
+fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, payload: Option<PathBuf>, installing: Arc<Mutex<bool>>) {
     let emit: Emit = {
         let proxy = Mutex::new(proxy.clone());
         Arc::new(move |event: Event| {
@@ -120,7 +128,6 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
         })
     };
     let info: Arc<Mutex<SystemInfo>> = Arc::default();
-    let installing = Arc::new(Mutex::new(false));
 
     std::thread::spawn(move || {
         for message in rx {

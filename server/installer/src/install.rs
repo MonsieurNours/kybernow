@@ -112,6 +112,13 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         ctx.log(format!("Extraction vers {}", ctx.dir.display()));
         let count = crate::payload::extract(payload, &ctx.dir, |p, _| ctx.progress(4.0 + p * 36.0))?;
         ctx.log(format!("{count} fichiers installés"));
+        // Désinstallable dès maintenant : une installation interrompue plus
+        // loin se retire depuis « Applications installées ».
+        write_record(ctx, req, None)?;
+        let uninstaller = ctx.dir.join("uninstall.exe");
+        crate::payload::copy_stub(payload, &uninstaller)?;
+        register_uninstaller(ctx, &uninstaller)?;
+        ctx.log("Inscrit dans « Applications installées » (désinstallation possible)");
         Ok(())
     })?;
 
@@ -202,6 +209,8 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
             if out.status.code() == Some(3010) {
                 need_reboot = true;
             }
+            // Empreinte du certificat notée tout de suite : le désinstalleur le retire.
+            write_record(ctx, req, thumbprint.clone())?;
             ctx.log("Pilote d'écran virtuel SudoVDA installé");
             ctx.progress(70.0);
             Ok(())
@@ -278,19 +287,9 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     }
 
     step(ctx, "finish", || {
-        let record = InstallRecord {
-            version: crate::VERSION.into(),
-            kyber_version: crate::KYBER_VERSION.into(),
-            stream_port: req.stream_port,
-            console_port: req.console_port,
-            virtual_display: req.virtual_display,
-            gamepads: req.gamepads,
-            sudovda_thumbprint: thumbprint.clone(),
-        };
-        std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;
-        let uninstaller = ctx.dir.join("uninstall.exe");
-        crate::payload::copy_stub(payload, &uninstaller)?;
-        register_uninstaller(ctx, &uninstaller)?;
+        write_record(ctx, req, thumbprint.clone())?;
+        // Taille finale, pilotes compris.
+        let _ = run("reg", &["add", UNINSTALL_KEY, "/v", "EstimatedSize", "/t", "REG_DWORD", "/d", &(dir_size(&ctx.dir) / 1024).to_string(), "/f"]);
         write_shortcut(req.console_port);
         run_ok("sc", &["start", "kyber"], &[0, 1056])?; // 1056 : déjà démarré
         ctx.log("Serveur de streaming démarré");
@@ -413,6 +412,22 @@ fn cert_thumbprint(cer: &Path) -> Result<String> {
     use sha1::Digest;
     let der = std::fs::read(cer)?;
     Ok(hex::encode(sha1::Sha1::digest(&der)))
+}
+
+/// `kybernow.json` : ce qui est installé, relu par le désinstalleur, l'icône
+/// (port de la console) et une réinstallation.
+fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<String>) -> Result<()> {
+    let record = InstallRecord {
+        version: crate::VERSION.into(),
+        kyber_version: crate::KYBER_VERSION.into(),
+        stream_port: req.stream_port,
+        console_port: req.console_port,
+        virtual_display: req.virtual_display,
+        gamepads: req.gamepads,
+        sudovda_thumbprint,
+    };
+    std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;
+    Ok(())
 }
 
 fn register_uninstaller(ctx: &Ctx, uninstaller: &Path) -> Result<()> {
