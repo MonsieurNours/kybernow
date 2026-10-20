@@ -12,7 +12,8 @@
 #   0005  image clé à la demande : POST /force_idr sur kycontroller (le client
 #         la demande quand il a perdu une référence), une par session toutes
 #         les 150 ms au plus
-#   0006  pointeur : ses déplacements aussi (position seule, 60 par seconde au plus)
+#   0006  pointeur : ses déplacements aussi (position seule), au plus
+#         [kyavserver] cursor_move_rate par seconde (60 par défaut, 120 au plus)
 #   0007  envoi de l'image (kynet) : tailles des files de datagrammes QUIC et
 #         des mémoires UDP en options (quinn jetait les plus anciens morceaux
 #         d'une grosse image)
@@ -25,8 +26,13 @@
 #   0010  politique d'envoi (kycontroller) : [kycontroller] datagram_send_queue
 #         = "deep" (8 Mo, par défaut) ou "short" (3 Mo) ; file de réception et
 #         mémoires UDP à 8 Mo
+#   0011  pointeur (serveur d'entrées kynput) : les déplacements partent sans
+#         la forme (CursorData::None), la forme n'est remise qu'au besoin
+#   0012  kynputserver : compilable depuis macOS (build.rs testait la machine
+#         qui compile au lieu de la cible)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
+# Kyber 0.29 extrait dans third_party/payload/kyber-0.29.0 (sa SDL2.dll),
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans
 # third_party/kyber-desktop (avec Jinja dans
 # kysdk/kymedia/subprojects/libplacebo-*/3rdparty, voir docs/build-notes.md).
@@ -51,6 +57,12 @@ trap 'rm -f "$STARTED"' EXIT
 KYMEDIA="$THIRD_PARTY/kyber-desktop/kysdk/kymedia"
 KYCTL="$THIRD_PARTY/kyber-desktop/kysdk/kyctl"
 KYMUX="$THIRD_PARTY/kyber-desktop/kysdk/kymux"
+KYNPUT="$THIRD_PARTY/kyber-desktop/kysdk/kynput"
+# kynput.dll et son en-tête, installés à part du rootfs de kyavserver.
+KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
+# Kyber 0.29 d'origine : kynput.dll se lie à sa SDL2.dll (manettes du client
+# Kyber installé sur l'ordinateur), qu'on ne recompile pas.
+KYBER_PAYLOAD="$THIRD_PARTY/payload/kyber-0.29.0"
 ROOTFS="$THIRD_PARTY/rootfs-win64"
 OVERLAY="$THIRD_PARTY/payload/kyber-overlay"
 MINGW=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/x86_64-w64-mingw32
@@ -91,9 +103,16 @@ echo "==> Correctifs"
 # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
 # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
 # Ceux nommés *-kycontroller-* visent kysdk/kyctl, *-kynet-* kysdk/kymux,
-# les autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
+# *-kynput-* kysdk/kynput, les autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
 # l'origine : kyctl et kymux portent aussi les correctifs des apps.
-repo_of() { case "$(basename "$1")" in *-kycontroller-*) echo "$KYCTL" ;; *-kynet-*) echo "$KYMUX" ;; *) echo "$KYMEDIA" ;; esac; }
+repo_of() {
+    case "$(basename "$1")" in
+        *-kycontroller-*) echo "$KYCTL" ;;
+        *-kynet-*) echo "$KYMUX" ;;
+        *-kynput-*) echo "$KYNPUT" ;;
+        *) echo "$KYMEDIA" ;;
+    esac
+}
 for p in "$HERE"/*.patch; do
     repo=$(repo_of "$p")
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
@@ -125,14 +144,30 @@ echo "==> Contrôleur (kycontroller.exe, mêmes options que la version officiell
 (cd "$KYCTL" && cargo_quiet cargo build -p kycontroller --target x86_64-pc-windows-gnu --release \
     --features=auth-jwt,auth-oidc,cli,kyhub,win32-hide-console,win32-tray)
 
+echo "==> Serveur d'entrées (kynput.dll, kynputserver.exe)"
+[ -f "$KYBER_PAYLOAD/SDL2.dll" ] || { echo "$KYBER_PAYLOAD/SDL2.dll introuvable (Kyber 0.29 extrait, voir server/installer/build.sh)" >&2; exit 1; }
+# sdl2-sys trouve la SDL par pkg-config : un .pc qui pointe la DLL de Kyber
+# (l'éditeur de liens de MinGW lie une DLL sans bibliothèque d'import).
+SDL2_PC="$TOOLS/pkgconfig-sdl2"
+mkdir -p "$SDL2_PC"
+printf 'Name: sdl2\nDescription: SDL2.dll de Kyber 0.29\nVersion: 2.0.0\nLibs: -L%s -lSDL2\nCflags:\n' "$KYBER_PAYLOAD" > "$SDL2_PC/sdl2.pc"
+rm -f "$KYNPUT_ROOTFS/bin/kynput.dll"
+(cd "$KYNPUT" && PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_LIBDIR="$SDL2_PC" cargo_quiet cargo cinstall -p kynput \
+    --target x86_64-pc-windows-gnu --dlltool x86_64-w64-mingw32-dlltool --release \
+    --prefix="$KYNPUT_ROOTFS" --features sdl2)
+(cd "$KYNPUT" && PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_LIBDIR="$KYNPUT_ROOTFS/lib/pkgconfig" cargo_quiet cargo build \
+    -p kynputserver --target x86_64-pc-windows-gnu --release --features win32-hide-console)
+
 echo "==> Surcouche"
 KYCONTROLLER="$KYCTL/target/x86_64-pc-windows-gnu/release/kycontroller.exe"
-check_fresh "$ROOTFS/bin/kyavserver.exe" "$ROOTFS/bin/libtxproto-0.dll" "$KYCONTROLLER"
+KYNPUTSERVER="$KYNPUT/target/x86_64-pc-windows-gnu/release/kynputserver.exe"
+check_fresh "$ROOTFS/bin/kyavserver.exe" "$ROOTFS/bin/libtxproto-0.dll" "$KYCONTROLLER" \
+    "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER"
 rm -rf "$OVERLAY" && mkdir -p "$OVERLAY"
 for f in kyavserver.exe libtxproto-0.dll liblua.dll libspirv-cross-c-shared.dll; do
     cp "$ROOTFS/bin/$f" "$OVERLAY/"
 done
-cp "$KYCONTROLLER" "$OVERLAY/"
+cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # Runtime MinGW (UCRT) de la chaîne kyavserver : aucun autre binaire de Kyber
 # n'utilise ces DLL, on peut remplacer celles de la version officielle.
 cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$OVERLAY/"

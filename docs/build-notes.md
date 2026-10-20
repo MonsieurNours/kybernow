@@ -79,4 +79,12 @@ Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (We
 - **bison** : celui de macOS (2.3) est trop ancien pour VLC ; utiliser `/opt/homebrew/opt/bison/bin`.
 - **pkg-config** : meson attend `x86_64-w64-mingw32-pkg-config` ; un simple relais vers `pkg-config` suffit (le rootfs est imposé par le fichier croisé).
 - **bindgen** : `BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-pc-windows-gnu --sysroot=<mingw> -I<mingw>/include"`, sinon `errno.h` est introuvable.
-- **Runtime** : MinGW Homebrew produit des binaires UCRT, Kyber officiel est en msvcrt. On remplace donc toute la chaîne de kyavserver (voir la surcouche), jamais une DLL isolée.
+- **Runtime** : MinGW Homebrew produit des binaires UCRT, Kyber officiel est en msvcrt. On remplace donc toute la chaîne de kyavserver (voir la surcouche), jamais une DLL isolée. Exception sûre : `kynput.dll`, voir plus bas.
+
+## Serveur d'entrées de Kyber 0.29 pour Windows (kynput), depuis macOS
+
+`server/kyber-patches/build.sh` recompile aussi `kynput.dll` (`cargo cinstall`, fonctionnalité `sdl2` comme la version officielle, installée dans `third_party/rootfs-win64-kynput`) et `kynputserver.exe` (`win32-hide-console`), pour les correctifs `*-kynput-*`.
+
+- **SDL2** : `kynput.dll` se lie à la `SDL2.dll` de Kyber 0.29 (`third_party/payload/kyber-0.29.0`), qu'on ne recompile pas. `sdl2-sys` la cherche par pkg-config : le script écrit un `sdl2.pc` minimal (`third_party/toolchain-bin/pkgconfig-sdl2`) qui pointe ce dossier, et l'éditeur de liens de MinGW lie la DLL directement, sans bibliothèque d'import.
+- **build.rs de kynputserver** : il testait `cfg!(target_os = "macos")`, c'est-à-dire la machine qui compile ; depuis un Mac, il assemblait le code macOS avec MinGW et échouait. Corrigé par 0012 (test de `CARGO_CFG_TARGET_OS`).
+- **Runtime** : comme le reste de la surcouche, `kynput.dll` et `kynputserver.exe` sont en UCRT, à côté de `kyclient.dll` et `kyclient.exe` officiels (msvcrt) qui chargent la même `kynput.dll`. Sans risque ici : l'API C de kynput libère toujours elle-même ce qu'elle alloue (`kynput_*_unref`, `kynput_free_string`). Elle exporte les fonctions de la version officielle, plus celles du presse-papiers si le correctif client 0002 est appliqué dans `third_party` au moment du build.

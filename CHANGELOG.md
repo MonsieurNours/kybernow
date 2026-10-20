@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Serveur : le pointeur de l'ordinateur ne voyage plus avec sa forme à chaque déplacement, seulement sa position ; la forme ne part que quand elle change ou qu'il réapparaît. Jusqu'à 1 Mo/s de moins sur la connexion de chaque appareil quand la souris bouge, et la cadence devient réglable : `[kyavserver] cursor_move_rate`, 60 par seconde par défaut, jusqu'à 120. Le serveur d'entrées de Kyber (`kynput.dll`, `kynputserver.exe`) fait maintenant partie de la surcouche.
 - Serveur : la file d'envoi de l'image devient un réglage, `[kycontroller] datagram_send_queue` (console : Système › Avancé › File d'envoi de l'image). « Profonde » (8 Mo, par défaut) garde le comportement actuel ; « Courte » (3 Mo) jette les images en retard quand le réseau sature au lieu de les envoyer avec jusqu'à deux secondes de retard. À comparer sur un Wi-Fi chargé.
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.
 - Console : cinq mots de passe faux depuis une même adresse font attendre 30 s, puis le double à chaque essai ; les vérifications de mot de passe ne se font plus que deux à la fois.

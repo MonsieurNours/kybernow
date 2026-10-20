@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Server: the computer's pointer no longer travels with its shape at every move, only its position; the shape is only sent when it changes or the pointer shows again. Up to 1 MB/s less on each device's connection while the mouse moves, and the rate becomes configurable: `[kyavserver] cursor_move_rate`, 60 per second by default, up to 120. Kyber's input server (`kynput.dll`, `kynputserver.exe`) is now part of the overlay.
 - Server: the image send queue becomes a setting, `[kycontroller] datagram_send_queue` (console: System › Advanced › Image send queue). "Deep" (8 MB, the default) keeps the current behaviour; "Short" (3 MB) drops late frames when the network saturates instead of sending them up to two seconds late. To be compared on a busy Wi-Fi.
 - Console: a second device that connects takes over with notice. The first one is told at its next heartbeat and disconnects cleanly, then the virtual display is recreated at the second one's size; before, the two devices kept stealing the display from each other and the first one's disconnection cut the second one's display and sound. The session is now recognised by the device rather than by the account.
 - Console: five wrong passwords from the same address make it wait 30 s, then twice as long at each attempt; password checks now run at most two at a time.
