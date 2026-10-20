@@ -54,15 +54,20 @@ scripts/release.sh X.Y.Z
 
 Le script aligne les versions, construit l'installateur, le paquet de mise à jour et l'app (Release), signe le flux Sparkle et calcule `SHA256SUMS`. Il commite, étiquette `vX.Y.Z`, pousse, puis crée la version GitHub. Les fichiers restent dans `dist/vX.Y.Z/`.
 
-## Reste à faire : signature Developer ID
+## Signature et notarisation de l'app Mac
 
-L'app est signée avec le certificat de développement des Lignes Claires. Elle s'ouvre et se met à jour sur les Mac de l'équipe, mais macOS la refusera sur un autre Mac téléchargé depuis GitHub. Pour la diffuser :
+La version diffusée (configuration Release) est signée « Developer ID Application: Mathieu Requenna (P6DB682S4K) », avec le runtime renforcé et un horodatage sécurisé, sans autorisation de débogage. Seule autorisation demandée : la caméra (`KyberNow/KyberNow.entitlements`, pour le QR code). Les compilations de développement (Debug) gardent le certificat de développement, plus rapide.
 
-1. Créer le certificat : Xcode › Réglages › Comptes › (l'équipe P6DB682S4K) › Gérer les certificats › + › Developer ID Application.
-2. Créer un mot de passe pour app sur https://account.apple.com (Connexion et sécurité › Mots de passe pour app), puis l'enregistrer pour `notarytool` (à saisir vous-même) :
+- `scripts/embed-kyber.sh` signe les bibliothèques de Kyber et de VLC selon la configuration.
+- `scripts/sign-release.sh`, après `xcodebuild`, re-signe les outils de Sparkle, du plus profond au framework, puis l'app. Xcode copie Sparkle après les phases du projet, avec la signature de Sparkle, que la notarisation refuse.
+- `scripts/release.sh` envoie l'app à Apple (`notarytool`, profil `kybernow`), agrafe le ticket (`stapler`) et vérifie avec Gatekeeper avant de publier.
+
+Mise en place, une fois par Mac qui publie :
+1. Certificat : Xcode › Réglages › Comptes › équipe P6DB682S4K › Gérer les certificats › + › Developer ID Application.
+2. Mot de passe pour app sur https://account.apple.com (Connexion et sécurité › Mots de passe pour app), enregistré pour `notarytool` (à saisir vous-même) :
 
 ```bash
 xcrun notarytool store-credentials kybernow --apple-id <votre identifiant Apple> --team-id P6DB682S4K
 ```
 
-3. Ensuite, dans le projet : runtime renforcé avec l'autorisation caméra (QR code), signature Developer ID en Release, et notarisation dans `scripts/release.sh` (`notarytool submit --keychain-profile kybernow --wait` puis `stapler staple`).
+La première notarisation d'un compte peut prendre plusieurs heures (vérifications d'Apple) ; ensuite, quelques minutes. Pour retrouver un envoi : `xcrun notarytool history --keychain-profile kybernow`.
