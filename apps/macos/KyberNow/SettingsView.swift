@@ -300,7 +300,7 @@ private struct SettingsContent: View {
         switch s.codec {
         case .h264: base = "Le plus compatible. Demande plus de débit pour la même netteté."
         case .hevc: base = "Recommandé : plus net à débit égal, décodé par la puce de ce Mac."
-        case .av1: base = "Le plus efficace, décodé par les puces M3 et suivantes."
+        case .av1: base = "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net)."
         }
         if !DecoderCapabilities.current.av1 { return base + " Ce Mac ne décode pas l'AV1 en matériel." }
         return info?.av1 == true ? base : base + " AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur."

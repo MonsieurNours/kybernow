@@ -240,6 +240,7 @@ public final class KyberClient {
         // sortie vers l'app doit être posée avant (sinon l'image part à VLC).
         if options.nativeVideo, options.codec != .av1 || DecoderCapabilities.current.av1, let pipeline = VideoPipeline() {
             pipeline.renderer.vsync = options.vsync
+            pipeline.renderer.paused = occluded
             latency.reset()
             pipeline.renderer.latency = latency
             pipeline.renderer.onStats = { [weak self] stats in
@@ -350,6 +351,15 @@ public final class KyberClient {
     public func setVSync(_ on: Bool) {
         video?.renderer.vsync = on
     }
+
+    /// Fenêtre occultée ou réduite : plus de rendu (le décodeur continue, les
+    /// références restent bonnes) ; le débit est à baisser à côté (`setBitrate`).
+    public func setOccluded(_ occluded: Bool) {
+        self.occluded = occluded
+        video?.renderer.paused = occluded
+    }
+
+    private var occluded = false
 
     /// Kyber peut finir de livrer un paquet après l'arrêt : le pipeline vit
     /// encore un peu, et sa mémoire n'est rendue qu'au dernier appel de Kyber

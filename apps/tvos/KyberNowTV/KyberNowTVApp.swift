@@ -11,6 +11,8 @@ struct KyberNowTVApp: App {
     init() {
         Theme.registerFonts()
         _ = GamepadBridge.shared
+        // Décodeurs sondés et pipeline Metal compilé hors du fil principal, avant le premier flux.
+        DispatchQueue.global(qos: .userInitiated).async { DecoderCapabilities.prepare() }
     }
 
     var body: some Scene {

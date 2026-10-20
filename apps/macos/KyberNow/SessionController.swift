@@ -113,6 +113,10 @@ final class SessionController: NSObject, ObservableObject {
     private var compositing: AnyCancellable?
     /// Le passage (accueil ouvert en deux) sort de la composition une fois ouvert.
     private var sceneHide: Task<Void, Never>?
+    /// Fenêtre occultée (autre espace, réduite, recouverte) : rendu arrêté, débit baissé.
+    private var occlusionObserver: NSObjectProtocol?
+    private var occluded = false
+    private static let occludedBitrate: UInt32 = 20_000_000
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
     /// synchronisation du son se calent, les premières images irrégulières
     /// restent sous l'écran d'attente.
@@ -175,6 +179,9 @@ final class SessionController: NSObject, ObservableObject {
         window.contentView = container
         // Après chaque changement d'état : ce qui n'a rien à montrer sort de la composition.
         compositing = objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.updateCompositing() }
+        occlusionObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.occlusionChanged() }
+        }
         windowDelegate.original = window.delegate
         windowDelegate.onClose = { [weak self] in
             guard let self, self.phase != .ended else { return }
@@ -212,6 +219,20 @@ final class SessionController: NSObject, ObservableObject {
             sceneHide = nil
             if scene.isHidden { scene.isHidden = false }
         }
+    }
+
+    /// Fenêtre plus visible (autre espace, réduite dans le Dock, recouverte) :
+    /// plus de rendu (`nextDrawable` attendait jusqu'à 1 s) et débit ramené à
+    /// 20 Mb/s ; au retour, rendu et débit du profil reviennent.
+    private func occlusionChanged() {
+        guard let window else { return }
+        let hidden = !window.occlusionState.contains(.visible)
+        guard hidden != occluded else { return }
+        occluded = hidden
+        kyber?.setOccluded(hidden)
+        guard phase == .streaming || hidden == false else { return }
+        kyber?.setBitrate(hidden ? min(streamOptions.bitrate, Self.occludedBitrate) : streamOptions.bitrate)
+        KyberLog.app.notice("fenêtre \(hidden ? "occultée : rendu arrêté, débit réduit" : "visible : rendu et débit repris", privacy: .public)")
     }
 
     /// Photographie de l'accueil, pour les deux moitiés du passage.
@@ -805,6 +826,8 @@ final class SessionController: NSObject, ObservableObject {
         compositing = nil
         sceneHide?.cancel()
         chrome = nil
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = nil
         if let window {
             window.delegate = windowDelegate.original
             if let homeView { window.contentView = homeView }

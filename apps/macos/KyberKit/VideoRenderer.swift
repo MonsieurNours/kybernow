@@ -105,10 +105,17 @@ final class VideoRenderer {
     /// Mesures de présentation, une fois par seconde (tests).
     var onPresentStats: ((PresentStats) -> Void)?
 
+    /// Vue (fenêtre occultée ou réduite) : rien n'est rendu, les images sont
+    /// comptées comme remplacées ; le décodeur continue (références intactes).
+    var paused = false
+
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
     private var cache: CVMetalTextureCache?
+    /// Matrice de couleur du format en cours, relue au plus une fois par seconde
+    /// (fil de rendu) : `CVBufferCopyAttachment` à chaque image coûtait pour rien.
+    private var colorCache: (format: OSType, width: Int, height: Int, read: CFTimeInterval, value: ColorConversion)?
     private let renderQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.render", qos: .userInteractive)
 
     private let lock = NSLock()
@@ -126,21 +133,40 @@ final class VideoRenderer {
     /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées.
     private var present = (lags: [Double](), rendered: 0, discarded: 0)
 
-    init?() {
+    /// GPU, file de commandes et pipeline, compilés une fois par processus
+    /// (le shader était compilé depuis la source à chaque flux, 30 à 150 ms
+    /// sur le fil principal).
+    private struct Core {
+        let device: MTLDevice
+        let queue: MTLCommandQueue
+        let pipeline: MTLRenderPipelineState
+    }
+
+    private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
-        self.device = device
-        self.queue = queue
         do {
-            let library = try device.makeLibrary(source: Self.shader, options: nil)
+            let library = try device.makeLibrary(source: shader, options: nil)
             let desc = MTLRenderPipelineDescriptor()
             desc.vertexFunction = library.makeFunction(name: "kn_vertex")
             desc.fragmentFunction = library.makeFunction(name: "kn_fragment")
             desc.colorAttachments[0].pixelFormat = .bgra8Unorm
-            pipeline = try device.makeRenderPipelineState(descriptor: desc)
+            return Core(device: device, queue: queue, pipeline: try device.makeRenderPipelineState(descriptor: desc))
         } catch {
             KyberLog.video.error("rendu Metal : \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }()
+
+    /// Compile le pipeline (au lancement, hors du fil principal).
+    static func warmUp() {
+        _ = core
+    }
+
+    init?() {
+        guard let core = Self.core else { return nil }
+        device = core.device
+        queue = core.queue
+        pipeline = core.pipeline
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
         layer = CAMetalLayer()
         configure(layer)
@@ -177,6 +203,13 @@ final class VideoRenderer {
 
     /// Nouvelle image (fil du décodeur) : elle remplace celle qui attendait.
     func submit(_ frame: DecodedFrame) {
+        if paused {
+            lock.lock()
+            skipped += 1
+            lock.unlock()
+            latency?.skipped(pts: frame.pts)
+            return
+        }
         lock.lock()
         if let replaced = pending {
             skipped += 1
@@ -246,7 +279,7 @@ final class VideoRenderer {
             return
         }
         guard let drawable, let commands = queue.makeCommandBuffer(),
-              draw(buffer, layout: layout, into: drawable.texture, commands: commands)
+              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: conversion(buffer, layout: layout))
         else {
             latency?.skipped(pts: frame.pts)
             return
@@ -279,9 +312,21 @@ final class VideoRenderer {
         account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
     }
 
+    /// Matrice de couleur de l'image, lue à chaque changement de format ou de
+    /// taille et au plus une fois par seconde (fil de rendu).
+    private func conversion(_ buffer: CVPixelBuffer, layout: Layout) -> ColorConversion {
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let now = CACurrentMediaTime()
+        if let c = colorCache, c.format == format, c.width == width, c.height == height, now - c.read < 1 { return c.value }
+        let value = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        colorCache = (format, width, height, now, value)
+        return value
+    }
+
     /// Dessine l'image dans `target`, centrée et entière. Faux si les plans
-    /// ne se lisent pas en texture.
-    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer) -> Bool {
+    /// ne se lisent pas en texture. `color` : conversion déjà connue (sinon lue sur l'image).
+    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer, color known: ColorConversion? = nil) -> Bool {
         guard let cache,
               let luma = texture(buffer, plane: 0, format: layout.deep ? .r16Unorm : .r8Unorm, cache: cache),
               let chroma = texture(buffer, plane: 1, format: layout.deep ? .rg16Unorm : .rg8Unorm, cache: cache)
@@ -303,7 +348,7 @@ final class VideoRenderer {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
-        var color = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        var color = known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep)
         encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
@@ -366,6 +411,8 @@ final class VideoRenderer {
         let now = CACurrentMediaTime()
         let elapsed = now - window.start
         guard elapsed >= 1 else { return }
+        // Textures des images déjà rendues : le cache les garde sinon jusqu'à saturation.
+        if let cache { CVMetalTextureCacheFlush(cache, 0) }
         lock.lock()
         let skipped = self.skipped
         self.skipped = 0

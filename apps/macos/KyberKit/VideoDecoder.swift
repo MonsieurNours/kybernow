@@ -43,7 +43,9 @@ final class VideoDecoder {
     var onRecovered: (() -> Void)?
 
     private(set) var codec: Codec = .hevc
-    private var parameterSets: [UInt8: Data] = [:]
+    /// Jeux de paramètres par (type de NAL, identifiant) : deux PPS qui
+    /// alternent ne refont plus la session à chaque image.
+    private var parameterSets: [UInt16: Data] = [:]
     /// AV1 : dernier en-tête de séquence reçu.
     private var av1Sequence: AV1.OBU?
     private var format: CMVideoFormatDescription?
@@ -118,8 +120,9 @@ final class VideoDecoder {
                 guard let type = nalType(nal) else { continue }
                 if isParameterSet(type) {
                     let d = Data(nal)
-                    if parameterSets[type] != d {
-                        parameterSets[type] = d
+                    let key = UInt16(type) << 8 | UInt16(parameterSetId(nal, type: type) & 0xFF)
+                    if parameterSets[key] != d {
+                        parameterSets[key] = d
                         changed = true
                     }
                 } else {
@@ -324,10 +327,97 @@ final class VideoDecoder {
             guard let obu = av1Sequence, let header = AV1.parseSequenceHeader(obu.payload) else { return nil }
             return AV1.format(header, sequenceHeaderOBU: obu.bytes)
         }
+        // Tous les jeux connus, par type (VPS, SPS, PPS) puis par identifiant :
+        // VideoToolbox choisit celui que chaque image désigne.
         let order: [UInt8] = codec == .hevc ? [32, 33, 34] : [7, 8]
-        let sets = order.compactMap { parameterSets[$0] }
-        guard sets.count == order.count else { return nil }
+        var sets: [Data] = []
+        for type in order {
+            let ofType = parameterSets.filter { $0.key >> 8 == UInt16(type) }.sorted { $0.key < $1.key }.map(\.value)
+            guard !ofType.isEmpty else { return nil }
+            sets += ofType
+        }
         return Self.format(codec: codec, parameterSets: sets)
+    }
+
+    // MARK: - Identifiants des jeux de paramètres
+
+    /// Identifiant d'un VPS/SPS/PPS (H.264 : SPS et PPS ; HEVC : VPS, SPS, PPS),
+    /// 0 si l'en-tête ne se lit pas.
+    private func parameterSetId(_ nal: UnsafeBufferPointer<UInt8>, type: UInt8) -> Int {
+        var bits = BitReader(nal, skip: codec == .hevc ? 2 : 1)
+        if codec == .hevc {
+            switch type {
+            case 32: return Int(bits.read(4)) // vps_video_parameter_set_id
+            case 33:
+                bits.skip(4) // sps_video_parameter_set_id
+                let subLayers = Int(bits.read(3)) // sps_max_sub_layers_minus1
+                bits.skip(1) // temporal_id_nesting
+                bits.skipProfileTierLevel(subLayers: subLayers)
+                return bits.ue() // sps_seq_parameter_set_id
+            default: return bits.ue() // pps_pic_parameter_set_id
+            }
+        }
+        switch type {
+        case 7:
+            bits.skip(24) // profile_idc, constraint flags, level_idc
+            return bits.ue() // seq_parameter_set_id
+        default:
+            return bits.ue() // pic_parameter_set_id
+        }
+    }
+
+    /// Lecture bit à bit d'un en-tête (octets d'échappement 00 00 03 retirés).
+    private struct BitReader {
+        private let bytes: [UInt8]
+        private var pos = 0 // en bits
+
+        init(_ nal: UnsafeBufferPointer<UInt8>, skip header: Int) {
+            var out: [UInt8] = []
+            out.reserveCapacity(min(nal.count, 96))
+            var zeros = 0
+            for (i, b) in nal.enumerated() where i >= header {
+                if zeros >= 2, b == 3 { zeros = 0; continue }
+                out.append(b)
+                zeros = b == 0 ? zeros + 1 : 0
+                if out.count >= 96 { break } // les identifiants sont dans les premiers octets
+            }
+            bytes = out
+        }
+
+        mutating func read(_ n: Int) -> UInt32 {
+            var v: UInt32 = 0
+            for _ in 0..<n {
+                let byte = pos >> 3
+                let bit = byte < bytes.count ? (bytes[byte] >> (7 - UInt8(pos & 7))) & 1 : 0
+                v = v << 1 | UInt32(bit)
+                pos += 1
+            }
+            return v
+        }
+
+        mutating func skip(_ n: Int) { pos += n }
+
+        /// Exp-Golomb non signé.
+        mutating func ue() -> Int {
+            var zeros = 0
+            while read(1) == 0, zeros < 32 { zeros += 1 }
+            return zeros == 0 ? 0 : Int((1 << zeros) - 1 + read(zeros))
+        }
+
+        /// profile_tier_level(1, sps_max_sub_layers_minus1) du HEVC.
+        mutating func skipProfileTierLevel(subLayers: Int) {
+            skip(88 + 8) // profil général (2 + 1 + 5 + 32 + 48) et niveau général
+            var profilePresent: [Bool] = [], levelPresent: [Bool] = []
+            for _ in 0..<subLayers {
+                profilePresent.append(read(1) == 1)
+                levelPresent.append(read(1) == 1)
+            }
+            if subLayers > 0 { skip(2 * (8 - subLayers)) } // reserved_zero_2bits
+            for i in 0..<subLayers {
+                if profilePresent[i] { skip(88) }
+                if levelPresent[i] { skip(8) }
+            }
+        }
     }
 
     static func format(codec: Codec, parameterSets sets: [Data]) -> CMVideoFormatDescription? {

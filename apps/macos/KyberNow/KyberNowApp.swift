@@ -1,6 +1,7 @@
 // KyberNow pour macOS.
 
 import Sparkle
+import KyberKit
 import SwiftUI
 
 enum Route: Equatable {
@@ -97,6 +98,8 @@ struct KyberNowApp: App {
 
     init() {
         Theme.registerFonts()
+        // Décodeurs sondés et pipeline Metal compilé hors du fil principal, avant le premier flux.
+        DispatchQueue.global(qos: .userInitiated).async { DecoderCapabilities.prepare() }
     }
 
     var body: some Scene {
