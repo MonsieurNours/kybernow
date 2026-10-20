@@ -50,7 +50,8 @@ Get-ChildItem "$tmp\kyber" | ForEach-Object {
 Copy-Item "$tmp\kyber\*" "$dir\kyber\" -Force
 Copy-Item "$tmp\admin\kyber-admin.exe" "$dir\admin\" -Force
 New-Item -ItemType Directory -Force (Join-Path $dir 'tray') | Out-Null
-Copy-Item "$tmp\tray\kybernow-tray.exe" $tray -Force
+# L'icone et le chargeur WebView2 de son panneau.
+Copy-Item "$tmp\tray\*" (Join-Path $dir 'tray') -Force
 
 Write-Host '==> Droits des services (l''icone les pilote sans droits administrateur)'
 foreach ($s in 'kyber', 'kyber-admin') {

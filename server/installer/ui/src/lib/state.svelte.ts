@@ -2,15 +2,14 @@
 
 import { onEvent, send, type BackendEvent, type CheckStatus, type TaskStatus } from './backend'
 
-export type Screen = 'welcome' | 'checks' | 'account' | 'options' | 'install' | 'done' | 'about'
+export type Screen = 'welcome' | 'account' | 'options' | 'install' | 'done' | 'about'
 
-export const STEPS: { screen: Screen; label: string }[] = [
-  { screen: 'welcome', label: 'Bienvenue' },
-  { screen: 'checks', label: 'Vérification du PC' },
-  { screen: 'account', label: 'Votre compte' },
-  { screen: 'options', label: 'Options' },
-  { screen: 'install', label: 'Installation' },
-  { screen: 'done', label: "C'est prêt" },
+/** Quatre étapes : l'analyse de l'ordinateur tourne pendant la bienvenue, « Terminé » clôt l'installation. */
+export const STEPS: { screens: Screen[]; label: string }[] = [
+  { screens: ['welcome'], label: 'Bienvenue' },
+  { screens: ['account'], label: 'Votre compte' },
+  { screens: ['options'], label: 'Options' },
+  { screens: ['install', 'done'], label: 'Installation' },
 ]
 
 export const CHECK_ORDER = ['gpu', 'driver', 'network', 'ports', 'display', 'power', 'audio']
@@ -108,15 +107,16 @@ function handle(event: BackendEvent) {
 
 export function startBackend() {
   onEvent(handle)
+  // L'analyse ne modifie rien : elle commence dès l'ouverture, pendant la bienvenue.
+  if (!app.checksStarted) {
+    app.checksStarted = true
+    send({ cmd: 'runChecks' })
+  }
 }
 
 export function go(screen: Screen) {
   if (screen === 'about') app.previous = app.screen
   app.screen = screen
-  if (screen === 'checks' && !app.checksStarted) {
-    app.checksStarted = true
-    send({ cmd: 'runChecks' })
-  }
 }
 
 export function rerunChecks() {
@@ -156,7 +156,7 @@ export function startInstall() {
 /** Index de l'étape affichée dans la colonne (l'écran « À propos » garde l'étape précédente). */
 export function stepIndex(): number {
   const screen = app.screen === 'about' ? app.previous : app.screen
-  return Math.max(0, STEPS.findIndex((s) => s.screen === screen))
+  return Math.max(0, STEPS.findIndex((s) => s.screens.includes(screen)))
 }
 
 export const reducedMotion =

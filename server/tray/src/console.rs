@@ -36,12 +36,19 @@ pub fn url(port: u16) -> String {
 }
 
 /// Ce que la console dit de la session en cours.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalState {
     pub session: bool,
     pub user: Option<String>,
     /// Version plus récente publiée sur GitHub, si la console en a vu une.
     pub update: Option<String>,
+    pub version: Option<String>,
+    pub hostname: Option<String>,
+    pub address: Option<String>,
+    /// Session d'une app KyberNow en cours (nom de l'appareil, début, latence).
+    pub live: Option<Value>,
+    /// Dernière session terminée.
+    pub last: Option<Value>,
 }
 
 pub struct Client(ureq::Agent);
@@ -61,10 +68,33 @@ impl Client {
     pub fn local_state(&self, port: u16) -> Option<LocalState> {
         let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/local/state")).call().ok()?;
         let body: Value = response.body_mut().read_json().ok()?;
+        let text = |key: &str| body[key].as_str().map(str::to_owned);
+        let some = |v: &Value| (!v.is_null()).then(|| v.clone());
         Some(LocalState {
             session: body["session"].as_bool().unwrap_or(false),
-            user: body["user"].as_str().map(str::to_owned),
-            update: body["update_available"].as_str().map(str::to_owned),
+            user: text("user"),
+            update: text("update_available"),
+            version: text("version"),
+            hostname: text("hostname"),
+            address: text("address"),
+            live: some(&body["activity"]["live"]),
+            last: some(&body["activity"]["last"]),
         })
     }
+
+    /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).
+    pub fn end_session(&self, port: u16) -> anyhow::Result<()> {
+        self.0
+            .post(&format!("https://127.0.0.1:{port}/api/local/end"))
+            .header("x-kyber-admin", "1")
+            .send_empty()
+            .map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e})."))?;
+        Ok(())
+    }
+}
+
+/// Code d'initialisation de la console, quand son mot de passe a été effacé.
+pub fn setup_code() -> Option<String> {
+    let path = env_dir("ProgramData", r"C:\ProgramData").join(r"KyberNow\setup-code.txt");
+    std::fs::read_to_string(path).ok().map(|c| c.trim().to_string()).filter(|c| !c.is_empty())
 }

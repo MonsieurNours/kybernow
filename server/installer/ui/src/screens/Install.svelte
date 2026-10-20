@@ -1,3 +1,7 @@
+<!--
+  Étape 4 · Installation. Chaque tâche apparaît à son tour ; la couture du
+  symbole, dans la colonne, se remplit avec la progression.
+-->
 <script lang="ts">
   import StatusIcon from '../lib/StatusIcon.svelte'
   import { app, go, startInstall, TASK_ORDER } from '../lib/state.svelte'
@@ -7,302 +11,219 @@
 
   const s = $derived(app.ports.stream)
   const c = $derived(app.ports.console)
-  const rows = $derived<Record<string, { label: string; meta: string; title: string; text: string }>>({
-    files: { label: 'Fichiers du serveur de streaming', meta: 'Kyber 0.29', title: 'Copie des fichiers', text: 'Nous copions le moteur Kyber, ses bibliothèques vidéo (VLC, FFmpeg) et le client web dans C:\\Program Files\\KyberNow.' },
-    cert: { label: 'Certificat de sécurité du serveur', meta: '', title: 'Certificat de sécurité', text: 'Un certificat unique est créé pour cet ordinateur. Il chiffre tout ce qui circule entre vos appareils et lui.' },
-    service: { label: 'Service Windows « kyber »', meta: '', title: 'Service Windows', text: 'Le serveur est enregistré comme service : il démarre seul, même avant que vous ouvriez votre session Windows.' },
-    firewall: { label: `Pare-feu : ports ${s} et ${c}`, meta: '', title: 'Ouverture du pare-feu', text: `Windows bloque par défaut les connexions entrantes. Nous autorisons seulement le stream (port ${s}) et la console (port ${c}), sur votre réseau privé.` },
-    vdd: { label: "Pilote d'écran virtuel", meta: 'SudoVDA', title: 'Écran virtuel', text: "Le pilote SudoVDA est ajouté. Il reste invisible tant qu'aucun appareil n'est connecté." },
-    gamepad: { label: 'Pilote de manettes', meta: 'ViGEmBus', title: 'Manettes', text: "Le pilote ViGEmBus permet à l'ordinateur de voir votre manette comme si elle était branchée en USB." },
-    audio: { label: 'Haut-parleurs virtuels', meta: 'Steam', title: 'Son à distance', text: "Pendant le stream, le son de l'ordinateur part vers ces haut-parleurs invisibles : l'ordinateur se tait, et votre appareil reçoit le son en stéréo, 5.1 ou 7.1." },
-    admin: { label: "Console d'administration", meta: `port ${c}`, title: "Console d'administration", text: `La console démarre sur le port ${c}. Vous pourrez y régler la qualité d'image, les comptes et l'écran virtuel.` },
-    power: { label: "Réglages d'alimentation", meta: '', title: 'Alimentation', text: 'Le mode Performances élevées empêche le processeur et le GPU de ralentir pendant le stream.' },
+  const rows = $derived<Record<string, { title: string; text: string; fact?: string }>>({
+    files: { title: 'Moteur de streaming Kyber 0.29', text: 'Le moteur, ses bibliothèques vidéo et le client web se posent dans C:\\Program Files\\KyberNow.' },
+    cert: { title: 'Certificat de cet ordinateur', text: 'Il chiffre tout ce qui circule entre vos appareils et lui.' },
+    service: { title: 'Démarrage avec l’ordinateur', text: 'Le serveur devient un service : il démarre seul, avant même votre session Windows.' },
+    firewall: { title: 'Réseau', text: `Ouverture des ports ${s} (flux) et ${c} (console), sur votre réseau privé seulement.`, fact: `flux ${s} · console ${c}` },
+    vdd: { title: 'Écran virtuel', text: 'Il prendra la taille de chaque appareil qui se connecte.', fact: 'SudoVDA' },
+    gamepad: { title: 'Manettes', text: 'Pour jouer depuis n’importe quel appareil.', fact: 'ViGEmBus' },
+    audio: { title: 'Son à distance', text: 'Les haut-parleurs virtuels de Steam : l’ordinateur se tait, l’appareil reçoit le son.' },
+    admin: { title: 'Console d’administration', text: `Elle démarre sur le port ${c}.`, fact: `port ${c}` },
+    power: { title: 'Alimentation', text: 'Le mode Performances élevées évite les ralentissements pendant une session.' },
   })
 
   const finished = $derived(!!app.result)
-  const currentId = $derived(TASK_ORDER.find((id) => app.tasks[id] === 'running'))
-  const explain = $derived(
-    app.failure
-      ? { title: "L'installation s'est arrêtée", text: app.failure.message }
-      : finished
-        ? { title: 'Tout est en place', text: "Le serveur, la console et les pilotes sont installés. Il ne reste plus qu'à connecter un appareil." }
-        : currentId
-          ? rows[currentId]
-          : app.tasks.finish === 'running'
-            ? { title: 'Derniers réglages', text: 'Inscription dans les applications installées de Windows, raccourci vers la console et démarrage du serveur.' }
-            : { title: 'Préparation', text: 'Arrêt des éventuelles versions précédentes et préparation du dossier.' },
+  const visible = $derived(TASK_ORDER.filter((id) => app.tasks[id] !== 'skipped'))
+  const lastLine = $derived(app.log.at(-1)?.replace(/^\s*/, '› ') ?? '› préparation')
+  const remaining = $derived(
+    finished || app.failure ? '' : app.percent < 30 ? 'Encore moins d’une minute' : app.percent < 75 ? 'Encore une trentaine de secondes' : 'Encore quelques secondes',
   )
 
-  const done = (id: string) => app.tasks[id] === 'done' || app.tasks[id] === 'skipped'
-  const nodes = $derived([
-    { label: 'Cet ordinateur', on: done('service') },
-    { label: 'Votre réseau', on: done('firewall') },
-    { label: 'Vos appareils', on: done('admin') },
-  ])
-
   $effect(() => {
-    app.log.length
+    void app.log.length
     if (logBox) logBox.scrollTop = logBox.scrollHeight
   })
 </script>
 
-<span class="eyebrow kn-enter">Étape 5 sur 6</span>
-<div class="head kn-enter kn-d1">
-  <h1>{app.failure ? 'Installation interrompue' : finished ? 'Installation terminée.' : 'Installation en cours…'}</h1>
-  <span class="percent">{Math.round(app.percent)} %</span>
-</div>
-<div class="bar kn-enter kn-d1" role="progressbar" aria-valuenow={Math.round(app.percent)} aria-valuemin={0} aria-valuemax={100} aria-label="Progression de l'installation">
-  <div class="fill" class:failed={!!app.failure} style="width: {app.percent}%">
-    {#if !finished && !app.failure}<div class="sheen"></div>{/if}
+<div class="install">
+  <div class="head">
+    <span class="lbl signal">
+      {app.failure ? 'Installation interrompue' : finished ? 'Installation terminée' : `Installation · ${Math.round(app.percent)} %`}
+    </span>
+    <h1 class="title">{app.failure ? 'Quelque chose a bloqué.' : finished ? 'Tout est en place.' : 'Cet ordinateur, bientôt sur tous vos écrans.'}</h1>
+    <p class="lead">
+      {app.failure
+        ? app.failure.message
+        : finished
+          ? 'Le serveur, la console et les pilotes sont installés.'
+          : 'KyberNow Server se met en place. Rien à faire : on vous montre ce qui se passe, au fur et à mesure.'}
+    </p>
   </div>
+
+  {#if showLog || app.failure}
+    <pre bind:this={logBox} class="mono">{app.log.join('\n') || 'Préparation…'}</pre>
+  {:else}
+    <ol>
+      {#each visible as id (id)}
+        {@const status = app.tasks[id]}
+        <li class:current={status === 'running'} class:todo={status === 'pending'} class:failed={status === 'failed'}>
+          <StatusIcon {status} />
+          <div>
+            <span class="t">{rows[id].title}</span>
+            {#if status === 'running'}
+              <span class="d">{rows[id].text}</span>
+              <span class="bar" aria-hidden="true"><span></span></span>
+            {:else if (status === 'done' && rows[id].fact) || status === 'failed'}
+              <span class="mono f">{status === 'failed' ? 'échec' : rows[id].fact}</span>
+            {/if}
+          </div>
+        </li>
+      {/each}
+    </ol>
+  {/if}
 </div>
-
-<div class="nodes kn-enter kn-d2">
-  {#each nodes as node, i (node.label)}
-    <div class="node" class:on={node.on}><span></span>{node.label}</div>
-    {#if i < nodes.length - 1}
-      <div class="link" class:kn-flow={node.on} class:on={node.on}></div>
-    {/if}
-  {/each}
-</div>
-
-<div class="body kn-enter kn-d3">
-  <ol>
-    {#each TASK_ORDER as id (id)}
-      {@const status = app.tasks[id]}
-      <li class:current={status === 'running'} class:pending={status === 'pending'}>
-        <StatusIcon {status} size={22} />
-        <span class="label">{rows[id].label}</span>
-        <span class="meta">{status === 'skipped' ? 'non installé' : rows[id].meta}</span>
-      </li>
-    {/each}
-  </ol>
-
-  <aside class="aside" class:error={!!app.failure}>
-    <span class="label-mono">{app.failure ? 'Problème' : 'En ce moment'}</span>
-    {#key explain.title}
-      <div class="explain">
-        <strong>{explain.title}</strong>
-        <p>{explain.text}</p>
-      </div>
-    {/key}
-    <div class="spacer"></div>
-    <span class="label-mono">Le saviez-vous ?</span>
-    <p>L'image, le son et vos commandes voyagent ensemble dans une seule connexion chiffrée, sur le protocole QUIC.</p>
-  </aside>
-</div>
-
-{#if showLog || app.failure}
-  <pre bind:this={logBox}>{app.log.join('\n') || 'Préparation…'}</pre>
-{/if}
 
 <div class="footer">
-  <button class="btn" onclick={() => (showLog = !showLog)}>{showLog ? 'Masquer le détail' : 'Afficher le détail'}</button>
+  <span class="mono log">{lastLine}</span>
   <div class="spacer"></div>
+  {#if remaining}<span class="remaining">{remaining}</span>{/if}
   {#if app.failure}
-    <button class="btn" onclick={() => go('options')}>Modifier les options</button>
-    <button class="btn primary" onclick={startInstall}>Réessayer</button>
+    <button type="button" class="ghost" onclick={() => go('options')}>Modifier les options</button>
+    <button type="button" class="primary" onclick={startInstall}>Réessayer</button>
+  {:else if finished}
+    <button type="button" class="primary lit" onclick={() => go('done')}>Continuer</button>
   {:else}
-    <button class="btn primary" class:kn-pop={finished} disabled={!finished} onclick={() => go('done')}>
-      Continuer
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    </button>
+    <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? 'Masquer le détail' : 'Voir le détail'}</button>
   {/if}
 </div>
 
 <style>
-  .head {
-    margin-top: 8px;
+  .install {
+    flex: 1;
+    min-height: 0;
     display: flex;
-    align-items: flex-end;
-    gap: 16px;
+    flex-direction: column;
+    gap: 24px;
+    padding-top: 18px;
+    max-width: 680px;
+  }
+
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .head h1 {
-    flex: 1;
-    margin: 0;
-    font-size: 32px;
-  }
-
-  .percent {
-    font-family: var(--display);
-    font-weight: 700;
-    font-size: 32px;
-    font-variant-numeric: tabular-nums;
-    color: var(--accent);
-  }
-
-  .bar {
-    margin-top: 14px;
-    height: 8px;
-    border-radius: 4px;
-    background: #1e2733;
-    overflow: hidden;
-  }
-
-  .fill {
-    position: relative;
-    height: 8px;
-    border-radius: 4px;
-    background: var(--accent);
-    overflow: hidden;
-    transition: width 0.15s linear;
-  }
-
-  .fill.failed {
-    background: var(--danger);
-  }
-
-  .sheen {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: 40%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-    animation: kn-sheen 1.6s ease-in-out infinite;
-  }
-
-  .nodes {
-    margin-top: 16px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .node {
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 9px;
-    background: rgba(24, 32, 43, 0.95);
-    border: 1px solid var(--line-2);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--faint);
-    white-space: nowrap;
-    transition: border-color 0.4s, color 0.4s;
-  }
-
-  .node span {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #3c4a5e;
-    transition: background-color 0.4s;
-  }
-
-  .node.on {
-    border-color: var(--accent);
-    color: var(--text);
-  }
-
-  .node.on span {
-    background: var(--accent);
-  }
-
-  .link {
-    flex: 1;
-    height: 2px;
-    background-image: repeating-linear-gradient(90deg, var(--line-2) 0 10px, transparent 10px 16px);
-    background-size: 32px 2px;
-  }
-
-  .link.on {
-    background-image: repeating-linear-gradient(90deg, var(--accent) 0 10px, transparent 10px 16px);
-  }
-
-  .body {
-    margin-top: 16px;
-    display: flex;
-    gap: 20px;
-    flex: 1;
-    min-height: 0;
+    font-size: 36px;
   }
 
   ol {
-    flex: 1;
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 0 12px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 10px;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
 
   li {
-    display: flex;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 20px 1fr;
     gap: 12px;
-    padding: 7px 12px;
-    border-radius: 9px;
-    transition: background-color 0.3s;
+    align-items: start;
+  }
+
+  li > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .t {
+    font-size: 14.5px;
   }
 
   li.current {
-    background: rgba(24, 32, 43, 0.95);
+    margin: 2px -16px;
+    padding: 12px 16px 14px;
+    border-radius: 12px;
+    background: rgb(109 91 255 / 0.1);
+    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.45);
+    animation: kn-enter 0.45s var(--ease-out) both;
   }
 
-  .label {
-    flex: 1;
-    font-size: 14px;
-    color: var(--text);
-    transition: color 0.3s;
+  li.current .t {
+    font-weight: 600;
   }
 
-  li.pending .label {
+  li.todo {
+    opacity: 0.5;
+  }
+
+  li.failed .t,
+  li.failed .f {
+    color: var(--bad-text);
+  }
+
+  .d {
+    font-size: 13px;
+    color: var(--text-2);
+  }
+
+  .f {
+    font-size: 11px;
     color: var(--faint);
   }
 
-  .meta {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--faint);
+  .bar {
+    margin-top: 6px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgb(255 255 255 / 0.1);
+    overflow: hidden;
   }
 
-  aside {
-    width: 270px;
-    flex-shrink: 0;
+  .bar span {
+    display: block;
+    width: 35%;
+    height: 100%;
+    background: var(--signal);
+    box-shadow: 0 0 8px var(--signal);
+    animation: slide 1.4s var(--ease-out) infinite;
   }
 
-  aside.error {
-    border-color: #5a2420;
-    background: rgba(42, 20, 20, 0.94);
-  }
-
-  .explain {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    animation: kn-enter 0.45s ease-out both;
-  }
-
-  .explain strong {
-    font-size: 15px;
-  }
-
-  .explain p {
-    word-break: break-word;
+  @keyframes slide {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
   }
 
   pre {
-    margin: 12px 0 0;
-    height: 84px;
+    flex: 1;
+    min-height: 0;
+    margin: 0 0 16px;
+    padding: 14px 16px;
     overflow: auto;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--bar);
-    border: 1px solid var(--line);
-    font-family: var(--mono);
+    border-radius: 12px;
+    background: var(--ink-1);
+    box-shadow: inset 0 0 0 1px var(--line);
     font-size: 11px;
-    line-height: 1.6;
+    line-height: 1.7;
     color: var(--muted);
     white-space: pre-wrap;
     user-select: text;
-    -webkit-user-select: text;
   }
 
-  .footer {
-    margin-top: 14px;
-    padding-top: 16px;
+  .log {
+    font-size: 11px;
+    color: var(--faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .remaining {
+    font-size: 13px;
+    color: var(--muted);
+    white-space: nowrap;
   }
 </style>

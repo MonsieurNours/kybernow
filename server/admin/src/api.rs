@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -15,6 +16,7 @@ use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, Trigger, VdSettings};
+use crate::activity::{DeviceInfo, ModeInfo};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
 pub fn router(state: AppState) -> Router<AppState> {
@@ -26,6 +28,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/password", post(change_password))
         .route("/api/status", get(status))
         .route("/api/local/state", get(local_state))
+        .route("/api/local/end", post(local_end))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -43,6 +46,11 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/update", get(update_status))
         .route("/api/update/check", post(update_check))
         .route("/api/update/install", post(update_install))
+        .route("/api/devices", get(devices))
+        .route("/api/devices/{id}", axum::routing::delete(forget_device))
+        .route("/api/events", get(events))
+        .route("/api/session/end", post(end_session))
+        .route("/api/preview", get(admin_preview))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
         .route("/api/pairing", get(pairing))
         .route("/api/stream/info", get(stream_info))
@@ -78,6 +86,8 @@ async fn session(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
         "configured": s.auth.is_configured(),
         "authenticated": authenticated,
         "setup_code_file": s.data_dir.join(auth::SETUP_TOKEN_FILE),
+        // Déjà annoncé sur le réseau (Bonjour) : l'écran de connexion le nomme.
+        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
     }))
 }
 
@@ -171,6 +181,8 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "controller": { "port": port, "reachable": reachable },
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
         "gpu": gpu,
+        "activity": s.activity.summary(),
+        "update_available": s.updater.available(),
     })))
 }
 
@@ -188,10 +200,23 @@ async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<S
         "service": service_state,
         "session": !display.is_null() || !audio.is_null(),
         "user": user,
+        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "address": crate::tls::lan_ip(),
+        "console_port": s.listen_port,
+        "activity": s.activity.summary(),
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
         "update_available": s.updater.available(),
         "version": crate::update::current(),
     })))
+}
+
+/// Fin de la session en cours, depuis l'icône de la zone de notification
+/// (réservé à l'ordinateur lui-même : la personne devant l'écran).
+async fn local_end(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> ApiResult<Json<Value>> {
+    if !peer.ip().is_loopback() {
+        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
+    }
+    end_session(State(s)).await
 }
 
 async fn update_status(State(s): State<AppState>) -> Json<Value> {
@@ -209,6 +234,7 @@ async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let u = s.updater.clone();
     let version = blocking(move || u.install()).await?;
     tracing::info!("mise à jour {version} lancée");
+    s.activity.event("info", format!("Installation de KyberNow {version} lancée"));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
 
@@ -260,8 +286,10 @@ async fn upsert_user(
     Path(username): Path<String>,
     Json(body): Json<UserBody>,
 ) -> ApiResult<Json<Value>> {
+    let existed = s.kyber.users()?.iter().any(|u| u.username == username);
     s.kyber.upsert_user(&username, &body.password)?;
     s.restart_pending.store(true, Ordering::Relaxed);
+    s.activity.event("info", if existed { format!("Mot de passe du compte {username} changé") } else { format!("Compte {username} ajouté") });
     Ok(Json(json!({ "users": s.kyber.users()?, "restart_pending": true })))
 }
 
@@ -271,6 +299,7 @@ async fn delete_user(State(s): State<AppState>, Path(username): Path<String>) ->
     }
     s.kyber.delete_user(&username)?;
     s.restart_pending.store(true, Ordering::Relaxed);
+    s.activity.event("info", format!("Compte {username} supprimé"));
     Ok(Json(json!({ "users": s.kyber.users()?, "restart_pending": true })))
 }
 
@@ -285,6 +314,11 @@ async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -
         s.restart_pending.store(false, Ordering::Relaxed);
     }
     tracing::info!("service kyber : {action}");
+    s.activity.event("info", match action.as_str() {
+        "start" => "Serveur démarré depuis la console",
+        "stop" => "Serveur arrêté depuis la console",
+        _ => "Serveur redémarré depuis la console",
+    });
     Ok(Json(json!({ "state": s.service.state()? })))
 }
 
@@ -421,6 +455,12 @@ struct PrepareBody {
     /// `false` : l'appareil veut les écrans de l'ordinateur tels quels.
     #[serde(default)]
     virtual_display: Option<bool>,
+    /// Ce que l'app dit d'elle-même (appareils de la console).
+    #[serde(default)]
+    device: Option<DeviceInfo>,
+    /// Profil choisi dans l'app (« Jeu », « Bureau », « Max »).
+    #[serde(default)]
+    profile: Option<String>,
 }
 
 /// Lien d'appairage pour les apps (aussi affiché en QR code par la console) :
@@ -491,6 +531,8 @@ async fn stream_prepare(
     let audio = blocking(move || Ok(a.start(Origin::App, channels))).await?;
     // Veille du plein écran (mode jeu de la souris dans l'app).
     s.foreground.start(&s.data_dir);
+    let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
+    s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
     if trigger == Trigger::Off || body.virtual_display == Some(false) {
         return Ok(Json(json!({ "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })));
     }
@@ -500,11 +542,24 @@ async fn stream_prepare(
     Ok(Json(json!({ "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })))
 }
 
-async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    stream_user(&s, &headers)?;
+#[derive(Deserialize, Default)]
+struct HeartbeatBody {
+    /// Latence médiane des dernières secondes, en millisecondes.
+    #[serde(default)]
+    latency_ms: Option<f64>,
+    #[serde(default)]
+    profile: Option<String>,
+}
+
+/// Signal de vie d'une app, avec sa latence. `end` : la console demande la fin.
+async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
+    let user = stream_user(&s, &headers)?;
+    // Corps facultatif : les apps d'avant 0.2.1 n'en envoient pas.
+    let body: HeartbeatBody = serde_json::from_slice(&body).unwrap_or_default();
     s.audio.heartbeat();
     s.foreground.touch();
-    Ok(Json(json!({ "active": s.display.heartbeat() })))
+    let end = s.activity.heartbeat(&user, body.latency_ms, body.profile);
+    Ok(Json(json!({ "active": s.display.heartbeat(), "end": end })))
 }
 
 /// App au premier plan sur l'ordinateur : plein écran, jeu (l'app du Mac
@@ -552,8 +607,17 @@ async fn stream_preview(
         .into_response())
 }
 
-async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    stream_user(&s, &headers)?;
+#[derive(Deserialize, Default)]
+struct EndBody {
+    /// Latence médiane de toute la session, en millisecondes.
+    #[serde(default)]
+    latency_ms: Option<f64>,
+}
+
+async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
+    let user = stream_user(&s, &headers)?;
+    let body: EndBody = serde_json::from_slice(&body).unwrap_or_default();
+    s.activity.end(&user, body.latency_ms);
     s.foreground.stop();
     let (d, a) = (s.display.clone(), s.audio.clone());
     let report = blocking(move || {
@@ -572,4 +636,74 @@ async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<
     })
     .await?;
     Ok(Json(report))
+}
+
+async fn devices(State(s): State<AppState>) -> Json<Value> {
+    Json(json!({ "devices": s.activity.devices() }))
+}
+
+async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    if !s.activity.forget(&id) {
+        return Err(ApiError(StatusCode::NOT_FOUND, "appareil inconnu".into()));
+    }
+    Ok(Json(json!({ "devices": s.activity.devices() })))
+}
+
+#[derive(Deserialize)]
+struct EventsQuery {
+    limit: Option<usize>,
+}
+
+async fn events(State(s): State<AppState>, Query(q): Query<EventsQuery>) -> Json<Value> {
+    Json(json!({ "events": s.activity.events(q.limit.unwrap_or(50).min(300)) }))
+}
+
+/// Met fin à la session en cours. Une app KyberNow l'apprend à son signal de
+/// vie suivant et se déconnecte proprement ; un autre client (navigateur,
+/// ligne de commande) est coupé en redémarrant Kyber.
+async fn end_session(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    if s.activity.request_end() {
+        return Ok(Json(json!({ "ok": true, "method": "app" })));
+    }
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let active = blocking(move || Ok(!d.status()["session"].is_null() || !a.status()["session"].is_null())).await?;
+    if !active {
+        return Ok(Json(json!({ "ok": true, "method": "none" })));
+    }
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    blocking(move || {
+        d.stop("session terminée depuis la console");
+        a.stop("session terminée depuis la console");
+        Ok(())
+    })
+    .await?;
+    service::restart(s.service.as_ref()).await?;
+    s.activity.event("info", "Connexions coupées depuis la console (serveur redémarré)");
+    Ok(Json(json!({ "ok": true, "method": "restart" })))
+}
+
+/// Aperçu de l'écran pour la vue d'ensemble de la console.
+async fn admin_preview(State(s): State<AppState>, Query(q): Query<PreviewQuery>) -> ApiResult<Response> {
+    let width = q.width.unwrap_or(preview::DEFAULT_WIDTH).clamp(preview::MIN_WIDTH, preview::MAX_WIDTH);
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let streaming = s.foreground.active()
+        || blocking(move || {
+            Ok(gpu::encoder_sessions().unwrap_or(0) > 0
+                || !d.status()["session"].is_null()
+                || !a.status()["session"].is_null())
+        })
+        .await?;
+    let shot = s.preview.get(width, streaming).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let captured_at = time::OffsetDateTime::from(shot.captured_at)
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/jpeg".to_string()),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+            (header::HeaderName::from_static("x-captured-at"), captured_at),
+        ],
+        shot.jpeg,
+    )
+        .into_response())
 }

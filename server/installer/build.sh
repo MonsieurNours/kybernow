@@ -37,6 +37,8 @@ else
 fi
 cp "$ROOT/server/dist/kyber-admin.exe" "$STAGE/admin/"
 cp "$ROOT/server/tray/target/$TARGET/release/kybernow-tray.exe" "$STAGE/tray/"
+# Le panneau de l'icône est une vue WebView2 : son chargeur l'accompagne.
+cp "$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)" "$STAGE/tray/"
 for f in SudoVDA.dll SudoVDA.inf sudovda.cat sudovda.cer nefconc.exe; do
     cp "$PAYLOAD_SRC/apollo-0.4.6/drivers/sudovda/$f" "$STAGE/drivers/sudovda/"
 done

@@ -1,294 +1,129 @@
+<!-- Terminé : l'ordinateur est prêt ; la console sur le téléphone en un scan. -->
 <script lang="ts">
   import qrcode from 'qrcode-generator'
   import { send } from '../lib/backend'
   import { app } from '../lib/state.svelte'
 
-  let openConsole = $state(true)
-
   const ip = $derived(app.result?.lanIp ?? app.lanIp ?? 'adresse-du-pc')
-  const streamPort = $derived(app.result?.streamPort ?? app.ports.stream)
   const consolePort = $derived(app.result?.consolePort ?? app.ports.console)
   const consoleUrl = $derived(`https://${ip}:${consolePort}`)
   const needReboot = $derived(app.result?.needReboot ?? false)
 
-  // QR code généré localement (aucun service externe).
+  // QR code généré localement (aucun service externe), sur fond clair.
   const qr = $derived.by(() => {
     const code = qrcode(0, 'M')
     code.addData(consoleUrl)
     code.make()
-    return code.createSvgTag({ cellSize: 4, margin: 0, scalable: true })
+    const n = code.getModuleCount()
+    let path = ''
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (code.isDark(y, x)) path += `M${x} ${y}h1v1h-1z`
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n + 4} ${n + 4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n + 4}" height="${n + 4}" rx="2" fill="#F2F8FA"/><path d="${path}" fill="#05070A"/></svg>`
   })
 
-  function finish(reboot: boolean) {
+  function finish(openConsole: boolean, reboot = false) {
     if (openConsole) send({ cmd: 'openUrl', url: consoleUrl })
     send({ cmd: reboot ? 'reboot' : 'close' })
   }
 </script>
 
-<div class="top">
-  <div class="check">
-    <span class="ripple"></span>
-    <span class="ripple late"></span>
-    <span class="disc kn-pop">
-      <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path class="draw" pathLength="100" d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    </span>
-  </div>
-  <span class="eyebrow kn-enter" style="animation-delay: 0.5s">Installation terminée</span>
-</div>
-<h1 class="kn-enter" style="margin-top: 14px; font-size: 30px; animation-delay: 0.5s">
-  C'est prêt. Allumez votre Mac ou votre Apple TV.
-</h1>
-<p class="lead kn-enter" style="margin-top: 6px; animation-delay: 0.65s">
-  Le serveur tourne déjà. Vos appareils trouveront cet ordinateur tout seuls sur le réseau ; sinon, saisissez son adresse.
-</p>
-
-<div class="link card kn-enter" style="animation-delay: 0.8s">
-  <div class="node"><span></span>Cet ordinateur</div>
-  <div class="wire"><div class="wire-line"></div><span class="packet"></span></div>
-  <div class="node late"><span></span>Votre Apple TV</div>
-  <span class="mono">prêt à se connecter</span>
-</div>
-
-<div class="grid">
-  <div class="card panel kn-enter" style="animation-delay: 0.95s">
-    <span class="label-mono">Pour jouer ou travailler</span>
-    <strong>Ouvrez l'app sur votre Mac ou votre Apple TV</strong>
-    <div class="address">
-      <span>Adresse de cet ordinateur</span>
-      <span class="big">{ip}<span>:{streamPort}</span></span>
-    </div>
-    <span class="hint">
-      Sans app ? Ouvrez <button class="url" onclick={() => send({ cmd: 'openUrl', url: `https://${ip}:${streamPort}/webclient/` })}>https://{ip}:{streamPort}/webclient/</button> dans Chrome.
-    </span>
+<div class="done">
+  <div class="text">
+    <span class="lbl ok kn-enter"><span class="dot"></span>Installation terminée</span>
+    <h1 class="title kn-enter kn-d1">Cet ordinateur est prêt. Il est partout.</h1>
+    <p class="lead kn-enter kn-d2">
+      Ouvrez KyberNow sur n'importe lequel de vos appareils : cet ordinateur s'y trouve déjà. Sinon, son adresse :
+      <span class="mono addr">{ip}</span>
+    </p>
+    <p class="note kn-enter kn-d3">
+      Sans app ? Ouvrez
+      <button type="button" class="text-button mono small" onclick={() => send({ cmd: 'openUrl', url: `${consoleUrl}/ecran` })}>{consoleUrl}/ecran</button>
+      dans un navigateur.
+    </p>
+    {#if needReboot}
+      <div class="notice warn kn-enter kn-d3">
+        <span>Les manettes fonctionneront après le prochain redémarrage. Le reste est déjà actif.</span>
+        <button type="button" class="ghost small" onclick={() => finish(true, true)}>Redémarrer maintenant</button>
+      </div>
+    {/if}
   </div>
 
-  <div class="card panel row kn-enter" style="animation-delay: 1.1s">
-    <div class="col">
-      <span class="label-mono">Pour tout régler</span>
-      <strong>La console d'administration</strong>
-      <button class="url" onclick={() => send({ cmd: 'openUrl', url: consoleUrl })}>{consoleUrl}</button>
-      <span class="hint">
-        Scannez le code avec votre téléphone. Un avertissement de certificat s'affiche la première fois : c'est normal.
-      </span>
-    </div>
+  <div class="panel phone kn-enter kn-d2">
     <div class="qr" role="img" aria-label="QR code de la console : {consoleUrl}">{@html qr}</div>
+    <strong>La console sur votre téléphone</strong>
+    <span class="note">Un avertissement de certificat s'affiche la première fois : c'est normal.</span>
   </div>
 </div>
-
-{#if needReboot}
-  <div class="reboot kn-enter" style="animation-delay: 1.1s">
-    <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M14.5 9a5.5 5.5 0 11-1.6-3.9M14.5 3v3.2h-3.2" fill="none" stroke="#F5B65A" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
-    <span>Les manettes fonctionneront après un redémarrage de l'ordinateur. Le reste est déjà actif.</span>
-  </div>
-{/if}
 
 <div class="footer">
-  <label class="open">
-    <input type="checkbox" bind:checked={openConsole} />
-    Ouvrir la console maintenant
-  </label>
   <div class="spacer"></div>
-  {#if needReboot}
-    <button class="btn" onclick={() => finish(false)}>Redémarrer plus tard</button>
-    <button class="btn primary" onclick={() => finish(true)}>Redémarrer maintenant</button>
-  {:else}
-    <button class="btn primary" onclick={() => finish(false)}>Terminer</button>
-  {/if}
+  <button type="button" class="ghost" onclick={() => finish(false)}>Fermer</button>
+  <button type="button" class="primary lit" onclick={() => finish(true)}>Ouvrir la console</button>
 </div>
 
 <style>
-  .top {
+  .done {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 280px;
+    gap: 44px;
+    align-items: start;
+    padding-top: 44px;
+  }
+
+  .text {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: 16px;
   }
 
-  .check {
-    position: relative;
-    width: 52px;
-    height: 52px;
-    flex-shrink: 0;
+  .text h1 {
+    font-size: 42px;
   }
 
-  .ripple,
-  .disc {
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-  }
-
-  .ripple {
-    border: 2px solid var(--accent);
-    animation: kn-ripple 2.2s ease-out infinite;
-  }
-
-  .ripple.late {
-    animation-delay: 1.1s;
-  }
-
-  .disc {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--accent);
-    color: var(--accent-ink);
-  }
-
-  .draw {
-    stroke-dasharray: 100;
-    animation: kn-draw 0.7s cubic-bezier(0.6, 0.1, 0.2, 1) 0.15s both;
-  }
-
-  .link {
-    margin-top: 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 9px 14px;
-  }
-
-  .node {
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 9px;
-    background: var(--surface-2);
-    border: 1px solid var(--accent);
+  .lbl.ok {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
-    animation: kn-light 1.6s ease-in-out infinite;
+    color: var(--ok-text);
   }
 
-  .node.late {
-    animation-delay: 0.8s;
-  }
-
-  .node span {
+  .dot {
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: var(--accent);
+    background: var(--ok);
   }
 
-  .wire {
-    position: relative;
-    flex: 1;
-    height: 8px;
-  }
-
-  .wire-line {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 3px;
-    height: 2px;
-    background: #1f2d2a;
-  }
-
-  .packet {
-    position: absolute;
-    top: 0;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 10px var(--accent);
-    animation: kn-travel 1.6s ease-in-out infinite;
-  }
-
-  .mono {
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .grid {
-    margin-top: 12px;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-  }
-
-  .panel {
-    padding: 14px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .panel strong {
-    font-size: 16px;
-  }
-
-  .panel.row {
-    flex-direction: row;
-    gap: 16px;
-  }
-
-  .col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .address {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    background: var(--bg);
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .big {
-    font-family: var(--mono);
-    font-size: 20px;
-    letter-spacing: 0.02em;
+  .addr {
     color: var(--text);
     user-select: text;
-    -webkit-user-select: text;
   }
 
-  .big span {
-    color: var(--faint);
+  .small {
+    font-size: 12px;
   }
 
-  .hint {
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--muted);
+  .notice {
+    align-items: center;
+    flex-wrap: wrap;
   }
 
-  .url {
-    padding: 0;
-    border: none;
-    background: none;
-    font-family: var(--mono);
-    font-size: 13px;
-    color: var(--text-2);
-    text-align: left;
-    text-decoration: underline;
-    text-decoration-color: var(--line-2);
-    text-underline-offset: 3px;
-    word-break: break-all;
+  .notice span {
+    flex: 1 1 260px;
   }
 
-  .url:hover {
-    color: var(--accent);
+  .phone {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px;
   }
 
   .qr {
-    width: 104px;
-    height: 104px;
-    flex-shrink: 0;
-    padding: 10px;
-    border-radius: 12px;
-    background: #f4f7fa;
+    width: 140px;
+    height: 140px;
   }
 
   .qr :global(svg) {
@@ -297,30 +132,7 @@
     display: block;
   }
 
-  .reboot {
-    margin-top: 10px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    border-radius: 12px;
-    background: var(--warn-bg);
-    border: 1px solid var(--warn-line);
-    font-size: 13px;
-    color: var(--warn-text);
-  }
-
-  .open {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  .phone strong {
     font-size: 14px;
-    cursor: pointer;
-  }
-
-  .open input {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent);
   }
 </style>

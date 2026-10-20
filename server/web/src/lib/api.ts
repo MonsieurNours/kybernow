@@ -58,6 +58,51 @@ export interface GpuDevice {
   pstate?: number
 }
 
+export interface ModeInfo {
+  width: number
+  height: number
+  refresh: number
+}
+
+export interface Device {
+  id: string
+  name: string
+  kind: string
+  os: string | null
+  app: string | null
+  user: string
+  first_seen: number
+  last_seen: number
+  sessions: number
+  last_mode: ModeInfo | null
+  latency_ms: number | null
+}
+
+export interface LiveSession {
+  device_id: string
+  name: string
+  kind: string
+  user: string
+  started_at: number
+  mode: ModeInfo | null
+  profile: string | null
+  latency_ms: number | null
+  end_requested: boolean
+}
+
+export interface LastSession {
+  device_id: string
+  name: string
+  started_at: number
+  ended_at: number
+}
+
+export interface ActivityEvent {
+  at: number
+  kind: 'info' | 'warn'
+  text: string
+}
+
 export interface Status {
   hostname?: string
   os?: string | null
@@ -70,6 +115,8 @@ export interface Status {
   controller: { port: number; reachable: boolean }
   restart_pending: boolean
   gpu: { driver?: string; devices: GpuDevice[] } | null
+  activity: { live: LiveSession | null; last: LastSession | null }
+  update_available: string | null
 }
 
 export interface LogFile {
@@ -183,7 +230,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   session: () =>
-    request<{ configured: boolean; authenticated: boolean; setup_code_file: string }>('GET', '/api/session'),
+    request<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null }>('GET', '/api/session'),
   setup: (code: string, password: string) => request('POST', '/api/setup', { code, password }),
   login: (password: string) => request('POST', '/api/login', { password }),
   logout: () => request('POST', '/api/logout'),
@@ -217,6 +264,13 @@ export const api = {
   updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
   updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
+
+  devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),
+  forgetDevice: (id: string) => request<{ devices: Device[] }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
+  events: (limit = 50) => request<{ events: ActivityEvent[] }>('GET', `/api/events?limit=${limit}`),
+  endSession: () => request<{ ok: boolean; method: 'app' | 'restart' | 'none' }>('POST', '/api/session/end'),
+  /** Adresse de l'aperçu de l'écran (JPEG). */
+  previewUrl: (width: number, bust: number) => `/api/preview?width=${width}&t=${bust}`,
 
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),
   logTail: (name: string, lines: number) =>

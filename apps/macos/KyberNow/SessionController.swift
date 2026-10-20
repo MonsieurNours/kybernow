@@ -310,7 +310,7 @@ final class SessionController: NSObject, ObservableObject {
                 phase = .preparing
                 let channels = settings.audio.channels
                 KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     modeLabel = "\(w) × \(h) · \(hz) Hz"
@@ -548,7 +548,15 @@ final class SessionController: NSObject, ObservableObject {
         heartbeat = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(max(1, seconds)))
-                await self?.console?.heartbeat()
+                guard let self else { return }
+                let latency = self.stats?.latencyMs
+                let profile = self.host.settings.profileLabel
+                // La console a demandé la fin de la session.
+                if await self.console?.heartbeat(latencyMs: latency, profile: profile) == true {
+                    KyberLog.app.notice("fin de session demandée par la console")
+                    self.end()
+                    return
+                }
             }
         }
     }
@@ -558,6 +566,8 @@ final class SessionController: NSObject, ObservableObject {
     func end() {
         guard phase != .ending && phase != .ended else { return }
         setBar(false)
+        // Latence médiane de la session, donnée à la console (ses appareils).
+        let sessionLatency = kyber?.sessionLatencyMs
         // La dernière image : gardée pour l'accueil, et figée sous le passage qui se referme.
         let last = kyber?.snapshot(maxWidth: 1600)
         if let last { store.imagery.saveLast(last, for: host) }
@@ -587,7 +597,7 @@ final class SessionController: NSObject, ObservableObject {
             var report: EndReport?
             var problem: String?
             do {
-                report = try await console?.end()
+                report = try await console?.end(latencyMs: sessionLatency)
             } catch {
                 problem = error.localizedDescription
             }

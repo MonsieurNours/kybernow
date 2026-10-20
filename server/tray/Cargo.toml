@@ -13,10 +13,14 @@ serde_json = "1.0.154"
 
 [target."cfg(windows)".dependencies]
 png = "0.18"
+tao = "0.37.1"
 tray-icon = "0.21"
+wry = "0.57.0"
 ureq = { version = "3", default-features = false, features = ["rustls", "json"] }
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",

@@ -7,8 +7,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSMICON}
 
 const ICO: &[u8] = include_bytes!("../../installer/resources/kybernow.ico");
 
-/// Pastille « session en cours » (vert du signal de la marque).
-const SESSION: [u8; 3] = [0x3d, 0xdc, 0x97];
+/// Pastille « en marche » (vert des états).
+const RUNNING: [u8; 3] = [0x4c, 0xd6, 0x8a];
+/// Pastille « session en cours » (Spectre, le signal de la marque).
+const SESSION: [u8; 3] = [0x9a, 0x8c, 0xff];
 /// Pastille « démarrage ou arrêt en cours ».
 const BUSY: [u8; 3] = [0xf5, 0xb9, 0x42];
 
@@ -39,7 +41,7 @@ impl Icons {
     pub fn get(&self, look: Look) -> Result<Icon> {
         let mut px = self.base.clone();
         match look {
-            Look::Running => {}
+            Look::Running => badge(&mut px, self.size, RUNNING),
             Look::Session => badge(&mut px, self.size, SESSION),
             Look::Busy => badge(&mut px, self.size, BUSY),
             Look::Stopped => grey(&mut px),

@@ -1,5 +1,6 @@
 //! kyber-admin : interface web d'administration d'un serveur Kyber.
 
+mod activity;
 mod api;
 mod assets;
 mod audio;
@@ -212,8 +213,10 @@ pub struct Inner {
     pub audio: Arc<audio::Router>,
     /// App au premier plan pendant une session (plein écran, jeu).
     pub foreground: foreground::Watcher,
-    /// Aperçu de l'écran pour l'accueil des apps.
+    /// Aperçu de l'écran pour l'accueil des apps et la console.
     pub preview: preview::Preview,
+    /// Appareils connus, session en cours, fil des événements.
+    pub activity: Arc<activity::Activity>,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
@@ -391,6 +394,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         audio,
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
+        activity: Arc::new(activity::Activity::new(&data_dir)),
         updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),

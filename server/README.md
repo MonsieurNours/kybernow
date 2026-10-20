@@ -14,27 +14,29 @@ Tout ce qui tourne sur l'ordinateur partagé : le serveur Kyber 0.29 (corrigé, 
 
 Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au hasard à l'installation (affiché à la fin, et dans l'icône de la zone de notification). Le compte est celui choisi pendant l'installation.
 
-| Page | Rôle |
+Identité v2 (Archivo, Martian Mono, signal Spectre, symbole « console »), quatre espaces par intention, menu à gauche et onglets en bas sur téléphone. Les choix s'appliquent aussitôt ; ceux de Kyber demandent un redémarrage, proposé en haut de page. Les anciennes adresses (`#/dashboard`, `#/logs`…) mènent à l'espace qui les reprend.
+
+| Espace | Rôle |
 |---|---|
-| Tableau de bord | État du serveur et de la session, GPU NVIDIA (NVML), démarrer, arrêter, redémarrer |
-| Réglages, Avancé | `kyber_config.toml` (commentaires préservés, sauvegarde à chaque écriture), éditeur brut |
-| Utilisateurs | Comptes Kyber (Basic) |
-| Écran virtuel | SudoVDA : déclenchement, test, état ; disposition enregistrée par ensemble d'écrans |
-| Son | Sortie audio virtuelle (haut-parleurs de Steam), voies, qualité Opus |
-| Appareils | QR code et lien `kybernow://` pour ajouter l'ordinateur dans l'app, empreinte du certificat |
-| Mises à jour | Version installée, dernière version publiée sur GitHub et ses notes, installation en un clic |
-| Journaux | Kyber (`%ProgramData%\Kyber\logs`) et KyberNow |
+| Vue d'ensemble (`#/ensemble`) | L'aperçu de l'écran en grand ; en session, l'appareil connecté, depuis quand, son profil, sa latence et « Mettre fin à la session » ; l'état en quatre cartes (serveur, écran virtuel, son, mise à jour), les derniers appareils et le fil du jour |
+| Image et son (`#/image-son`) | Écran virtuel SudoVDA (déclenchement, mode par défaut, essai de 15 s, rallumer les écrans), son (déclenchement, voies, qualité Opus), clavier, souris et manettes (presse-papiers, Xbox 360, répétition) |
+| Accès (`#/acces`) | Ajouter un appareil (QR code et lien `kybernow://`, empreinte du certificat), appareils connus (oublier), plusieurs appareils en même temps, comptes Kyber (Basic) |
+| Système (`#/systeme`) | Mises à jour en un clic, serveur (démarrer, arrêter, redémarrer, carte graphique, ports), journaux par source (connexions, image et son, commandes, console ; filtre, suivi, téléchargement, niveau de détail), Avancé : réglages bruts de Kyber (encodeur, moteur, rafraîchissement progressif, débit minimum, port, adresses, méthodes de connexion), éditeur de `kyber_config.toml`, mot de passe de la console |
+
+**Appareils et fil d'événements** (`activity.rs`). Les apps KyberNow se présentent dans `POST /api/stream/prepare` (`device` : identifiant stable, nom, type, système, version de l'app ; `profile`), donnent leur latence médiane avec leur signal de vie (`latency_ms`) et celle de toute la session à la fin. La console garde les 50 derniers appareils (`devices.json`) et les 300 derniers événements, écrits en phrases (`events.json`) : connexions, déconnexions avec durée et latence, sessions interrompues (plus de signal de vie pendant 30 s), comptes, redémarrages, mises à jour. Une app d'avant 0.2.1 compte pour « un appareil » par compte. Routes de la console : `GET /api/devices`, `DELETE /api/devices/{id}`, `GET /api/events?limit=`, `POST /api/session/end`, `GET /api/preview?width=` (aperçu de l'écran, comme pour les apps). `GET /api/status` donne aussi la session en cours et la dernière (`activity`) et la mise à jour disponible.
+
+**Mettre fin à une session.** Une app KyberNow l'apprend à son signal de vie suivant (`"end": true`, au plus 5 s) et se déconnecte proprement ; un autre client (navigateur, ligne de commande) est coupé en redémarrant Kyber. `POST /api/local/end` fait de même depuis l'icône, réservé à l'ordinateur lui-même.
 
 **Pour les apps.** La console s'annonce en Bonjour (`_kybernow._tcp`, TXT `v`, `name`, `fp`), d'où la règle de pare-feu UDP 5353. Elle sert aussi l'API de session :
 - `GET /api/stream/info` : nom, système (`os`, par exemple « Windows 11 Pro 24H2 », absent si inconnu), GPU, AV1, écran virtuel, haut-parleurs. `GET /api/status` (console web) donne aussi `os`. Sous Windows, le nom vient du registre (ProductName et DisplayVersion, « Windows 11 » d'après le numéro de build, ProductName disant encore « Windows 10 ») ; sur le Mac de développement, de `sw_vers` ; sous Linux, de `PRETTY_NAME` dans `/etc/os-release` ;
 - `GET /api/stream/preview?width=960` : aperçu de l'écran principal tel qu'il est en ce moment, pour le fond de l'accueil des apps. JPEG (qualité 70), largeur bornée entre 320 et 1600 (960 par défaut), hauteur au ratio, en-tête `X-Captured-At` (RFC 3339). `503` et `{"error": "…"}` si l'écran ne peut pas être capturé : personne de connecté, écran verrouillé ou demande de sécurité affichée, agent indisponible. La dernière capture est resservie pendant 10 s (5 s pour un échec) ; pendant une session (app KyberNow ou autre client qui fait encoder le GPU), aucune capture n'est faite : la dernière est resservie, ou `503`. La capture est faite par un agent lancé dans la session Windows (`display-agent preview`, GDI, écran principal réduit à la largeur demandée), qui écrit le JPEG dans `preview\` ; sur le Mac de développement, par `screencapture` (il faut l'autorisation d'enregistrer l'écran) ;
-- `POST /api/stream/prepare` : écran virtuel à la taille du client, son au bon nombre de voies ;
-- `POST /api/stream/heartbeat` : signal de vie (sans lui, l'écran virtuel disparaît) ;
+- `POST /api/stream/prepare` : écran virtuel à la taille du client, son au bon nombre de voies ; l'app s'y présente (`device`, `profile`) ;
+- `POST /api/stream/heartbeat` : signal de vie (sans lui, l'écran virtuel disparaît), avec la latence du moment ; la réponse dit si la console demande la fin de la session (`end`) ;
 - `GET /api/stream/foreground` : app au premier plan sur l'ordinateur, en plein écran ou non, jeu ou non (mode Auto de la souris des apps). La console l'obtient d'un agent qui tourne dans la session Windows le temps d'une session (`display-agent foreground`, état écrit toutes les 400 ms). L'agent s'arrête seul sans signal de vie pendant 20 s ;
-- `POST /api/stream/end` : écrans et sortie audio d'origine rendus, avec un compte rendu ;
+- `POST /api/stream/end` : écrans et sortie audio d'origine rendus, avec un compte rendu ; l'app y donne la latence médiane de la session ;
 - `GET /api/pairing` : lien d'appairage.
 
-**Mises à jour** (compte de la console) : `GET /api/update` (version installée, dernière version publiée, notes), `POST /api/update/check`, `POST /api/update/install`. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available` et `version`.
+**Mises à jour** (compte de la console) : `GET /api/update` (version installée, dernière version publiée, notes), `POST /api/update/check`, `POST /api/update/install`. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available`, `version`, le nom de l'ordinateur, son adresse et la session en cours (`activity`).
 
 L'authentification est en Basic, avec le compte Kyber. Les apps épinglent le certificat de la console par son empreinte.
 
@@ -48,6 +50,7 @@ Les changements d'écran, de son et de pointeur sont faits dans la session de l'
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
 | `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` |
 | `C:\ProgramData\KyberNow\preview\` | capture en cours de l'aperçu de l'écran (effacée dès qu'elle est lue) |
+| `C:\ProgramData\KyberNow\devices.json`, `events.json` | appareils connus et dernière session, fil des événements de la vue d'ensemble |
 | `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | journal du service |
 

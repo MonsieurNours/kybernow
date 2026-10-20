@@ -75,8 +75,18 @@ fn set_run_entry(on: bool) -> Result<()> {
 
 /// Relance l'icône en administrateur pour changer le démarrage des services.
 fn run_elevated(on: bool) -> Result<bool> {
+    match elevate(&format!("{ELEVATED_ARG} {}", if on { "on" } else { "off" }))? {
+        None => Ok(false),
+        Some(0) => Ok(true),
+        Some(code) => bail!("Le démarrage des services n'a pas pu être changé ({}).", std::io::Error::from_raw_os_error(code as i32)),
+    }
+}
+
+/// Relance l'icône en administrateur avec `params` et attend sa fin : son code
+/// de sortie, ou `None` si l'utilisateur a refusé l'invite UAC.
+pub fn elevate(params: &str) -> Result<Option<u32>> {
     let exe = wide(&std::env::current_exe()?.display().to_string());
-    let params = wide(&format!("{ELEVATED_ARG} {}", if on { "on" } else { "off" }));
+    let params = wide(params);
     let verb = wide("runas");
     let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
     info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
@@ -87,7 +97,7 @@ fn run_elevated(on: bool) -> Result<bool> {
     info.nShow = SW_HIDE;
     if unsafe { ShellExecuteExW(&mut info) } == 0 {
         if unsafe { GetLastError() } == ERROR_CANCELLED {
-            return Ok(false);
+            return Ok(None);
         }
         bail!("Impossible d'obtenir les droits administrateur.");
     }
@@ -98,10 +108,7 @@ fn run_elevated(on: bool) -> Result<bool> {
         }
         CloseHandle(info.hProcess);
     }
-    if code != 0 {
-        bail!("Le démarrage des services n'a pas pu être changé ({}).", std::io::Error::from_raw_os_error(code as i32));
-    }
-    Ok(true)
+    Ok(Some(code))
 }
 
 /// Partie élevée : change le démarrage des services, renvoie le code de sortie.

@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>KyberNow</title>
+<style>
+@font-face { font-family: 'Archivo'; src: url('/fonts/archivo.woff2') format('woff2'); font-weight: 100 900; font-stretch: 62% 125%; }
+@font-face { font-family: 'Martian Mono'; src: url('/fonts/martian.woff2') format('woff2'); font-weight: 100 800; font-stretch: 75% 112.5%; }
+:root {
+  --text: #E3EDF0; --text-2: #C9D3DC; --muted: #B4C2C9; --faint: #8A99A3; --ghost: #65737E;
+  --signal: #9A8CFF; --signal-strong: #6D5BFF; --signal-light: #D4CEFF;
+  --ok: #4CD68A; --warn: #F5B841; --bad: #FF8A80;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #0C1016; color: var(--text); font: 13.5px/1.45 'Archivo', 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+.lbl { font-family: 'Martian Mono', Consolas, monospace; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.mono { font-family: 'Martian Mono', Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+.hero { position: relative; height: 150px; overflow: hidden; background: radial-gradient(80% 120% at 85% 0%, rgba(109,91,255,.35), rgba(109,91,255,0) 60%), #0A0F14; }
+.hero svg.mark { position: absolute; right: -26px; top: -20px; width: 190px; height: 190px; opacity: .9; }
+.hero .seam { filter: drop-shadow(0 0 1px #F4F1FF) drop-shadow(0 0 3px #9A8CFF); }
+.hero.live .seam { animation: respire 3.2s ease-in-out infinite; }
+.hero .shade { position: absolute; inset: 0; background: linear-gradient(0deg, #0C1016 0%, rgba(12,16,22,.4) 55%, rgba(12,16,22,0) 100%); }
+.hero .text { position: absolute; left: 16px; right: 16px; bottom: 12px; display: flex; flex-direction: column; gap: 5px; }
+.eyebrow { display: flex; align-items: center; gap: 8px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.title { font-stretch: 125%; font-size: 19px; font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.sub { font-size: 12.5px; color: var(--text-2); }
+
+.items { padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 8px; background: none; color: var(--text); text-align: left; }
+.item:hover:not(:disabled) { background: rgba(255,255,255,.06); }
+.item:disabled { opacity: .45; cursor: default; }
+.item svg { flex: none; }
+.item .two { display: flex; flex-direction: column; }
+.item .two small { font-size: 11.5px; color: var(--faint); }
+.item.danger { color: #FFC9C4; }
+.item.signal { background: rgba(109,91,255,.12); box-shadow: inset 0 0 0 1px rgba(154,140,255,.4); }
+.sep { height: 1px; margin: 6px 4px; background: rgba(255,255,255,.08); }
+.switch { margin-left: auto; width: 36px; height: 20px; border-radius: 999px; padding: 2px; display: inline-flex; align-items: center; background: #1E2832; transition: background-color .2s; }
+.switch i { width: 16px; height: 16px; border-radius: 50%; background: var(--faint); transition: transform .2s, background-color .2s; }
+.switch.on { background: var(--signal-strong); }
+.switch.on i { background: #fff; transform: translateX(16px); }
+
+.code { margin: 0 8px 4px; padding: 12px; border-radius: 10px; background: rgba(109,91,255,.1); box-shadow: inset 0 0 0 1px rgba(154,140,255,.4); display: flex; flex-direction: column; gap: 8px; }
+.code strong { font-family: 'Martian Mono', Consolas, monospace; font-size: 18px; letter-spacing: .14em; color: #fff; user-select: text; }
+.code span { font-size: 12px; color: var(--text-2); }
+.code button { align-self: flex-start; height: 28px; padding: 0 10px; border: 0; border-radius: 7px; background: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); font-size: 12px; }
+
+.foot { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 6px; font-size: 12px; color: var(--faint); }
+.foot .mono { font-size: 10.5px; }
+.foot button { border: 0; background: none; padding: 6px 0; color: var(--muted); font-size: 12px; }
+.foot button:hover { color: var(--text); }
+@keyframes respire { 0%, 100% { opacity: 1 } 50% { opacity: .6 } }
+@keyframes up { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+body.shown main { animation: up .28s cubic-bezier(.2,.9,.1,1) both; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<main id="root"></main>
+<script>
+// Panneau de l'icône KyberNow. L'icône pousse son état (window.__knState) et
+// reçoit les actions par window.ipc.postMessage({ cmd }).
+const SRC = 'M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z'
+const DST = 'M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z'
+const SEAM = 'M6.237 43.035 L43.035 6.237 A0.85 0.85 0 0 0 43.035 5.035 L42.965 4.965 A0.85 0.85 0 0 0 41.763 4.965 L4.965 41.763 A0.85 0.85 0 0 0 4.965 42.965 L5.035 43.035 A0.85 0.85 0 0 0 6.237 43.035 Z'
+const ICONS = {
+  end: 'M12 3v8M7 6.5a7 7 0 1 0 10 0',
+  console: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM3 9h18',
+  update: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  restart: 'M20 12a8 8 0 1 1-2.3-5.6M20 4v4h-4',
+  stop: 'M7.5 6h9A1.5 1.5 0 0 1 18 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 16.5v-9A1.5 1.5 0 0 1 7.5 6z',
+  play: 'M8 5l11 7-11 7z',
+  boot: 'M12 3v9M5.6 7.6a8 8 0 1 0 12.8 0',
+  key: 'M8 11a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM11 12l9-9M17 6l3 3M14.5 8.5l2 2',
+}
+const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+const icon = (name, color = '#C9D3DC') => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
+
+function ago(seconds) {
+  const d = Date.now() / 1000 - seconds
+  if (d < 3600) return `il y a ${Math.max(1, Math.round(d / 60))} min`
+  const then = new Date(seconds * 1000), today = new Date()
+  const days = Math.round((new Date(today.toDateString()) - new Date(then.toDateString())) / 86400000)
+  return days === 0 ? `aujourd'hui` : days === 1 ? 'hier' : days < 7 ? `il y a ${days} jours` : `le ${then.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+}
+function since(seconds) {
+  const m = Math.floor((Date.now() / 1000 - seconds) / 60)
+  return m < 1 ? 'Depuis moins d’une minute' : m < 60 ? `Depuis ${m} min` : `Depuis ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+}
+const ms = (v) => (v >= 100 ? `${Math.round(v)} ms` : `${v.toFixed(1).replace('.', ',')} ms`)
+
+let state = null
+
+function hero(s) {
+  const live = s.console && s.console.live
+  const session = s.console && s.console.session
+  const host = (s.console && s.console.hostname) || 'Cet ordinateur'
+  let tone = { color: '#C9F2DA', dot: '#4CD68A', eyebrow: 'En marche' }
+  let title = `${host} attend vos appareils`
+  let sub = s.console && s.console.last ? `Dernière session : ${s.console.last.name}, ${ago(s.console.last.ended_at)}` : 'Personne n’est connecté'
+  if (s.busy) {
+    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: 'Un instant' }
+    title = s.busy
+    sub = 'Quelques secondes'
+  } else if (s.service === 'starting' || s.service === 'stopping') {
+    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: s.service === 'starting' ? 'Démarrage' : 'Arrêt' }
+    title = s.service === 'starting' ? 'Le serveur démarre…' : 'Le serveur s’arrête…'
+    sub = 'Quelques secondes'
+  } else if (s.service !== 'running') {
+    tone = { color: '#FFC9C4', dot: '#FF8A80', eyebrow: s.service === 'missing' ? 'Introuvable' : 'Arrêté' }
+    title = s.service === 'missing' ? 'Le serveur n’est pas installé' : 'Le serveur est arrêté'
+    sub = s.service === 'missing' ? 'Réinstallez KyberNow' : 'Vos appareils ne peuvent pas se connecter'
+  } else if (live) {
+    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: 'En direct' }
+    title = live.name
+    sub = [since(live.started_at), live.latency_ms ? ms(live.latency_ms) : null, 'écrans éteints'].filter(Boolean).join(' · ')
+  } else if (session) {
+    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: 'En direct' }
+    title = 'Un appareil est connecté'
+    sub = s.console.user ? `Compte ${s.console.user}` : ''
+  } else if (!s.console) {
+    sub = 'La console ne répond pas'
+  }
+  const lit = tone.dot === '#9A8CFF' || tone.dot === '#4CD68A'
+  return `<section class="hero ${live || session ? 'live' : ''}">
+    <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><path fill="#141B23" d="${SRC}"/><path fill="#1A222C" d="${DST}"/><path class="seam" fill="${lit ? '#9A8CFF' : '#65737E'}" d="${SEAM}"/></svg>
+    <div class="shade"></div>
+    <div class="text">
+      <span class="lbl eyebrow" style="color:${tone.color}"><span class="dot" style="background:${tone.dot};box-shadow:0 0 6px ${tone.dot}"></span>${esc(tone.eyebrow)}</span>
+      <span class="title">${esc(title)}</span>
+      ${sub ? `<span class="sub">${esc(sub)}</span>` : ''}
+    </div>
+  </section>`
+}
+
+function render() {
+  const s = state
+  const root = document.getElementById('root')
+  if (!s) { root.innerHTML = ''; return }
+  const idle = !s.busy
+  const up = s.service === 'running'
+  const session = s.console && (s.console.session || s.console.live)
+  const update = s.console && s.console.update
+  const items = []
+  if (up && session) items.push(`<button class="item danger" data-cmd="endSession" ${idle ? '' : 'disabled'}>${icon('end', '#FF8A80')}Mettre fin à la session</button>`)
+  items.push(`<button class="item" data-cmd="openConsole" ${s.adminMissing ? 'disabled' : ''}>${icon('console')}Ouvrir la console</button>`)
+  if (update) items.push(`<button class="item signal" data-cmd="openUpdates">${icon('update', '#D4CEFF')}<span class="two"><span>Installer KyberNow ${esc(update)}</span><small>Environ une minute</small></span></button>`)
+  items.push('<div class="sep"></div>')
+  const canToggle = idle && (s.service === 'running' || s.service === 'stopped')
+  items.push(`<button class="item" data-cmd="restart" ${canToggle ? '' : 'disabled'}>${icon('restart')}Redémarrer le serveur</button>`)
+  items.push(`<button class="item" data-cmd="toggleServer" ${canToggle ? '' : 'disabled'}>${icon(up ? 'stop' : 'play')}${up ? 'Arrêter le serveur' : 'Démarrer le serveur'}</button>`)
+  if (s.startWithComputer !== null) items.push(`<button class="item" role="switch" aria-checked="${s.startWithComputer}" data-cmd="startWithComputer" ${idle ? '' : 'disabled'}>${icon('boot')}Démarrer avec l'ordinateur<span class="switch ${s.startWithComputer ? 'on' : ''}"><i></i></span></button>`)
+  items.push(`<button class="item" data-cmd="resetPassword" ${idle && !s.adminMissing ? '' : 'disabled'}>${icon('key')}Réinitialiser le mot de passe de la console…</button>`)
+  const code = s.setupCode
+    ? `<div class="code"><span>Code d'initialisation de la console : saisissez-le à l'ouverture de la console pour choisir un nouveau mot de passe.</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">Copier le code</button></div>`
+    : ''
+  const version = (s.console && s.console.version) || s.version || ''
+  const address = (s.console && s.console.address) || ''
+  root.innerHTML = `${hero(s)}${code}<div class="items">${items.join('')}<div class="sep"></div>
+    <div class="foot"><span class="mono">${esc([version, address].filter(Boolean).join(' · '))}</span><button data-cmd="quit">Fermer l'icône</button></div></div>`
+  requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-cmd]')
+  if (!b || b.disabled) return
+  const cmd = b.dataset.cmd
+  if (cmd === 'copyCode' && state && state.setupCode) {
+    navigator.clipboard && navigator.clipboard.writeText(state.setupCode)
+    b.textContent = 'Copié'
+    return
+  }
+  send(cmd)
+})
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') send('hide') })
+
+window.__knState = (s) => { state = s; render() }
+window.__knShown = () => { document.body.classList.remove('shown'); void document.body.offsetWidth; document.body.classList.add('shown') }
+// Les durées (« depuis 12 min ») avancent même sans nouvel état.
+setInterval(render, 30000)
+send('ready')
+</script>
+</body>
+</html>

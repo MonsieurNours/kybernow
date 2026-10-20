@@ -1,5 +1,7 @@
-//! Menu, état affiché et boucle de messages.
+//! Icône, panneau, menu et boucle d'événements.
 //!
+//! Clic gauche : le panneau (`panel.rs`), dessiné comme le reste de KyberNow.
+//! Clic droit : le menu de Windows, qui sert aussi de secours si WebView2 manque.
 //! Un fil surveille les services et la console toutes les deux secondes ; les
 //! actions longues (démarrage, arrêt, invite UAC) tournent dans leur propre fil.
 //! Le fil principal ne fait qu'afficher : il relit l'état deux fois par seconde.
@@ -7,11 +9,14 @@
 use std::ptr::{null, null_mut};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use serde_json::{Value, json};
+use tao::event::{Event, StartCause, WindowEvent};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tray_icon::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::CreateMutexW;
@@ -20,14 +25,14 @@ use windows_sys::Win32::UI::Controls::{
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, IDYES, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MSG,
-    MessageBoxW, SW_SHOWNORMAL, SetTimer, TranslateMessage, WM_TIMER,
+    IDYES, MB_ICONWARNING, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MessageBoxW, SW_SHOWNORMAL,
 };
 
 use crate::console::{self, Client, LocalState};
 use crate::icons::{Icons, Look};
+use crate::panel::Panel;
 use crate::services::{self, ADMIN, KYBER, State};
-use crate::startup;
+use crate::{password, startup};
 
 const TITLE: &str = "KyberNow";
 
@@ -64,7 +69,7 @@ fn open_console_at(page: &str) -> Result<()> {
 }
 
 /// Ce que l'icône sait de l'ordinateur.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct Snapshot {
     kyber: State,
     admin: State,
@@ -85,6 +90,8 @@ struct Shared {
     snapshot: Option<Snapshot>,
     /// Action en cours, affichée à la place de l'état du serveur.
     busy: Option<&'static str>,
+    /// Code d'initialisation après « Réinitialiser le mot de passe de la console ».
+    setup_code: Option<String>,
 }
 
 type SharedState = Arc<Mutex<Shared>>;
@@ -93,7 +100,14 @@ fn watch(shared: SharedState, wake: Receiver<()>) {
     let client = Client::new();
     loop {
         let snapshot = poll(&client);
-        shared.lock().unwrap().snapshot = Some(snapshot);
+        {
+            let mut s = shared.lock().unwrap();
+            // Le mot de passe a été choisi : le code ne sert plus.
+            if s.setup_code.is_some() && console::setup_code().is_none() {
+                s.setup_code = None;
+            }
+            s.snapshot = Some(snapshot);
+        }
         match wake.recv_timeout(Duration::from_secs(2)) {
             Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => return,
@@ -112,7 +126,9 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         (_, State::Missing) => "Serveur non installé",
         (_, State::Unknown) => "État du serveur inconnu",
     };
+    let live = s.console.as_ref().and_then(|c| c.live.as_ref()).and_then(|l| l["name"].as_str()).map(str::to_owned);
     let session = match (s.kyber, s.admin, &s.console) {
+        (State::Running, State::Running, Some(_)) if live.is_some() => format!("{} est connecté", live.unwrap_or_default()),
         (State::Running, State::Running, Some(LocalState { session: true, user: Some(user), .. })) => format!("Session en cours ({user})"),
         (State::Running, State::Running, Some(LocalState { session: true, user: None, .. })) => "Session en cours".into(),
         (State::Running, State::Running, Some(_)) => "Aucune session en cours".into(),
@@ -122,7 +138,7 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         (State::Missing, _, _) => "Réinstallez KyberNow".into(),
         _ => "Patientez…".into(),
     };
-    let in_session = s.console.as_ref().is_some_and(|c| c.session);
+    let in_session = s.console.as_ref().is_some_and(|c| c.session || c.live.is_some());
     let look = match s.kyber {
         _ if busy.is_some() => Look::Busy,
         State::Starting | State::Stopping => Look::Busy,
@@ -133,9 +149,50 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
     (status.to_string(), session, look)
 }
 
+fn state_name(s: State) -> &'static str {
+    match s {
+        State::Running => "running",
+        State::Starting => "starting",
+        State::Stopping => "stopping",
+        State::Stopped => "stopped",
+        State::Missing => "missing",
+        State::Unknown => "unknown",
+    }
+}
+
+/// L'état tel que le panneau l'affiche.
+fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Value {
+    json!({
+        "service": state_name(s.kyber),
+        "adminMissing": s.admin == State::Missing,
+        "busy": busy,
+        "startWithComputer": s.start_with_computer,
+        "setupCode": setup_code,
+        "version": env!("CARGO_PKG_VERSION"),
+        "console": s.console.as_ref().map(|c| json!({
+            "session": c.session,
+            "user": c.user,
+            "update": c.update,
+            "version": c.version,
+            "hostname": c.hostname,
+            "address": c.address,
+            "live": c.live,
+            "last": c.last,
+        })),
+    })
+}
+
+/// Événements de l'icône, du menu et du panneau, ramenés dans la boucle.
+pub enum UserEvent {
+    Tray(TrayIconEvent),
+    Menu(MenuEvent),
+    Panel(String),
+}
+
 struct App {
     tray: TrayIcon,
     icons: Icons,
+    panel: Option<Panel>,
     status: MenuItem,
     session: MenuItem,
     open: MenuItem,
@@ -143,10 +200,11 @@ struct App {
     toggle: MenuItem,
     restart: MenuItem,
     start_with_computer: CheckMenuItem,
+    reset: MenuItem,
     quit: MenuItem,
     shared: SharedState,
     wake: Sender<()>,
-    shown: Option<(Snapshot, Option<&'static str>)>,
+    shown: Option<(Snapshot, Option<&'static str>, Option<String>)>,
     look: Option<Look>,
     done: bool,
 }
@@ -166,6 +224,30 @@ pub fn run() -> Result<()> {
         std::thread::spawn(move || watch(shared, wake_rx));
     }
 
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+    {
+        let proxy = Mutex::new(proxy.clone());
+        TrayIconEvent::set_event_handler(Some(move |e| {
+            let _ = proxy.lock().unwrap().send_event(UserEvent::Tray(e));
+        }));
+    }
+    {
+        let proxy = Mutex::new(proxy.clone());
+        MenuEvent::set_event_handler(Some(move |e| {
+            let _ = proxy.lock().unwrap().send_event(UserEvent::Menu(e));
+        }));
+    }
+
+    // Sans WebView2, pas de panneau : le menu s'ouvre aussi au clic gauche.
+    let panel = match Panel::new(&event_loop, proxy.clone()) {
+        Ok(p) => Some(p),
+        Err(e) => {
+            eprintln!("panneau indisponible : {e:#}");
+            None
+        }
+    };
+
     let status = MenuItem::new("KyberNow", false, None);
     let session = MenuItem::new("Patientez…", false, None);
     let open = MenuItem::new("Ouvrir la console", true, None);
@@ -173,7 +255,8 @@ pub fn run() -> Result<()> {
     let toggle = MenuItem::new("Arrêter le serveur", false, None);
     let restart = MenuItem::new("Redémarrer le serveur", false, None);
     let start_with_computer = CheckMenuItem::new("Démarrer avec l'ordinateur", false, false, None);
-    let quit = MenuItem::new("Quitter", true, None);
+    let reset = MenuItem::new("Réinitialiser le mot de passe de la console…", true, None);
+    let quit = MenuItem::new("Fermer l'icône", true, None);
     let menu = Menu::new();
     menu.append_items(&[
         &status,
@@ -186,18 +269,15 @@ pub fn run() -> Result<()> {
         &restart,
         &PredefinedMenuItem::separator(),
         &start_with_computer,
+        &reset,
         &PredefinedMenuItem::separator(),
         &quit,
     ])?;
 
-    // Clics et survols : le menu s'ouvre de lui-même, le reste ne sert pas.
-    // Sans gestionnaire, ces événements s'accumuleraient dans une file jamais lue.
-    TrayIconEvent::set_event_handler(Some(|_| {}));
-
     let icons = Icons::load()?;
     let tray = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
-        .with_menu_on_left_click(true)
+        .with_menu_on_left_click(panel.is_none())
         .with_tooltip(TITLE)
         .with_icon(icons.get(Look::Stopped)?)
         .build()?;
@@ -205,6 +285,7 @@ pub fn run() -> Result<()> {
     let mut app = App {
         tray,
         icons,
+        panel,
         status,
         session,
         open,
@@ -212,6 +293,7 @@ pub fn run() -> Result<()> {
         toggle,
         restart,
         start_with_computer,
+        reset,
         quit,
         shared,
         wake,
@@ -220,36 +302,39 @@ pub fn run() -> Result<()> {
         done: false,
     };
 
-    unsafe { SetTimer(null_mut(), 0, 500, None) };
-    let mut msg: MSG = unsafe { std::mem::zeroed() };
-    while !app.done {
-        let r = unsafe { GetMessageW(&mut msg, null_mut(), 0, 0) };
-        if r == 0 || r == -1 {
-            break;
+    event_loop.run(move |event, _, control_flow| {
+        match event {
+            Event::NewEvents(StartCause::Init) | Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                app.refresh();
+                *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
+            }
+            Event::UserEvent(UserEvent::Tray(e)) => app.on_tray(e),
+            Event::UserEvent(UserEvent::Menu(e)) => app.on_menu(e),
+            Event::UserEvent(UserEvent::Panel(json)) => app.on_panel(&json),
+            Event::WindowEvent { window_id, event: WindowEvent::Focused(false), .. }
+                if app.panel.as_ref().is_some_and(|p| p.id() == window_id) =>
+            {
+                if let Some(p) = app.panel.as_mut() {
+                    p.hide();
+                }
+            }
+            _ => {}
         }
-        unsafe {
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+        if app.done {
+            *control_flow = ControlFlow::Exit;
         }
-        while let Ok(event) = MenuEvent::receiver().try_recv() {
-            app.on_menu(event);
-        }
-        if msg.message == WM_TIMER {
-            app.refresh();
-        }
-    }
-    Ok(())
+    });
 }
 
 impl App {
-    fn snapshot(&self) -> (Option<Snapshot>, Option<&'static str>) {
+    fn snapshot(&self) -> (Option<Snapshot>, Option<&'static str>, Option<String>) {
         let s = self.shared.lock().unwrap();
-        (s.snapshot.clone(), s.busy)
+        (s.snapshot.clone(), s.busy, s.setup_code.clone())
     }
 
     fn refresh(&mut self) {
-        let (Some(snap), busy) = self.snapshot() else { return };
-        if self.shown.as_ref().is_some_and(|(s, b)| *s == snap && *b == busy) {
+        let (Some(snap), busy, code) = self.snapshot() else { return };
+        if self.shown.as_ref().is_some_and(|(s, b, c)| *s == snap && *b == busy && *c == code) {
             return;
         }
         let (status, session, look) = describe(&snap, busy);
@@ -261,6 +346,7 @@ impl App {
         self.restart.set_enabled(idle && matches!(snap.kyber, State::Running | State::Stopped));
         self.start_with_computer.set_checked(snap.start_with_computer == Some(true));
         self.start_with_computer.set_enabled(idle && snap.start_with_computer.is_some());
+        self.reset.set_enabled(idle && snap.admin != State::Missing);
         self.open.set_enabled(snap.admin != State::Missing);
         let update = snap.console.as_ref().and_then(|c| c.update.clone());
         self.updates.set_text(match &update {
@@ -275,11 +361,14 @@ impl App {
                 self.look = Some(look);
             }
         }
-        self.shown = Some((snap, busy));
+        if let Some(panel) = &self.panel {
+            panel.push(&panel_state(&snap, busy, code.as_deref()).to_string());
+        }
+        self.shown = Some((snap, busy, code));
     }
 
     /// Lance une action longue dans son propre fil.
-    fn act(&mut self, label: &'static str, job: impl FnOnce() -> Result<()> + Send + 'static) {
+    fn act(&mut self, label: &'static str, job: impl FnOnce(&SharedState) -> Result<()> + Send + 'static) {
         {
             let mut s = self.shared.lock().unwrap();
             if s.busy.is_some() {
@@ -289,7 +378,7 @@ impl App {
         }
         let (shared, wake) = (self.shared.clone(), self.wake.clone());
         std::thread::spawn(move || {
-            let result = job();
+            let result = job(&shared);
             shared.lock().unwrap().busy = None;
             let _ = wake.send(());
             if let Err(e) = result {
@@ -300,56 +389,163 @@ impl App {
     }
 
     fn in_session(&self) -> bool {
-        let (snap, _) = self.snapshot();
-        snap.and_then(|s| s.console).is_some_and(|c| c.session)
+        let (snap, _, _) = self.snapshot();
+        snap.and_then(|s| s.console).is_some_and(|c| c.session || c.live.is_some())
     }
 
-    fn on_menu(&mut self, event: MenuEvent) {
-        let (snap, _) = self.snapshot();
-        let Some(snap) = snap else { return };
-        let id = event.id;
-        if id == *self.updates.id() {
-            if let Err(e) = open_console_at("updates") {
-                alert(&format!("{e:#}"));
-            }
-        } else if id == *self.open.id() {
-            if snap.admin == State::Running {
-                if let Err(e) = open_console() {
-                    alert(&format!("{e:#}"));
-                }
-            } else {
-                self.act("Démarrage de la console…", || {
-                    services::start(ADMIN)?;
-                    services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
-                    std::thread::sleep(Duration::from_secs(1));
-                    open_console()
-                });
-            }
-        } else if id == *self.toggle.id() {
-            if snap.kyber.is_up() {
-                if self.in_session() && !confirm("Un appareil est connecté. Arrêter le serveur coupera sa session.\n\nArrêter le serveur ?") {
-                    return;
-                }
-                self.act("Arrêt du serveur…", services::stop_server);
-            } else {
-                self.act("Démarrage du serveur…", services::start_server);
-            }
-        } else if id == *self.restart.id() {
-            if self.in_session() && !confirm("Un appareil est connecté. Redémarrer le serveur coupera sa session.\n\nRedémarrer le serveur ?") {
-                return;
-            }
-            self.act("Redémarrage du serveur…", services::restart_server);
-        } else if id == *self.start_with_computer.id() {
-            let on = snap.start_with_computer != Some(true);
-            // Le menu a déjà coché ou décoché la case : on la remet selon l'état réel.
-            self.shown = None;
-            self.act("Réglage du démarrage…", move || startup::set(on).map(|_| ()));
-        } else if id == *self.quit.id() {
-            self.on_quit(&snap);
+    fn hide_panel(&mut self) {
+        if let Some(p) = self.panel.as_mut() {
+            p.hide();
         }
     }
 
-    fn on_quit(&mut self, snap: &Snapshot) {
+    fn on_tray(&mut self, event: TrayIconEvent) {
+        if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, rect, .. } = event {
+            if let Some(p) = self.panel.as_mut() {
+                if p.toggle(rect.position, (rect.size.width, rect.size.height)) {
+                    // État à jour dès l'ouverture.
+                    self.shown = None;
+                    let _ = self.wake.send(());
+                    self.refresh();
+                }
+            }
+        }
+    }
+
+    fn on_menu(&mut self, event: MenuEvent) {
+        let id = event.id;
+        if id == *self.updates.id() {
+            self.open_updates();
+        } else if id == *self.open.id() {
+            self.open_console();
+        } else if id == *self.toggle.id() {
+            self.toggle_server();
+        } else if id == *self.restart.id() {
+            self.restart_server();
+        } else if id == *self.start_with_computer.id() {
+            // Le menu a déjà coché ou décoché la case : on la remet selon l'état réel.
+            self.shown = None;
+            self.switch_start_with_computer();
+        } else if id == *self.reset.id() {
+            self.reset_password();
+        } else if id == *self.quit.id() {
+            self.quit();
+        }
+    }
+
+    fn on_panel(&mut self, json: &str) {
+        let Ok(message) = serde_json::from_str::<Value>(json) else { return };
+        match message["cmd"].as_str().unwrap_or_default() {
+            "ready" => {
+                self.shown = None;
+                self.refresh();
+            }
+            "size" => {
+                if let (Some(p), Some(h)) = (self.panel.as_mut(), message["height"].as_f64()) {
+                    p.resize(h);
+                }
+            }
+            "hide" => self.hide_panel(),
+            "openConsole" => {
+                self.hide_panel();
+                self.open_console();
+            }
+            "openUpdates" => {
+                self.hide_panel();
+                self.open_updates();
+            }
+            "endSession" => self.end_session(),
+            "restart" => self.restart_server(),
+            "toggleServer" => self.toggle_server(),
+            "startWithComputer" => self.switch_start_with_computer(),
+            "resetPassword" => self.reset_password(),
+            "quit" => {
+                self.hide_panel();
+                self.quit();
+            }
+            _ => {}
+        }
+    }
+
+    fn open_console(&mut self) {
+        let (Some(snap), _, _) = self.snapshot() else { return };
+        if snap.admin == State::Running {
+            if let Err(e) = open_console() {
+                alert(&format!("{e:#}"));
+            }
+        } else {
+            self.act("Démarrage de la console…", |_| {
+                services::start(ADMIN)?;
+                services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
+                std::thread::sleep(Duration::from_secs(1));
+                open_console()
+            });
+        }
+    }
+
+    fn open_updates(&mut self) {
+        if let Err(e) = open_console_at("systeme") {
+            alert(&format!("{e:#}"));
+        }
+    }
+
+    fn end_session(&mut self) {
+        if !confirm("Mettre fin à la session en cours ? L'appareil connecté sera déconnecté.") {
+            return;
+        }
+        self.act("Fin de la session…", |_| {
+            let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable."))?;
+            Client::new().end_session(port)
+        });
+    }
+
+    fn toggle_server(&mut self) {
+        let (Some(snap), _, _) = self.snapshot() else { return };
+        if snap.kyber.is_up() {
+            if self.in_session() && !confirm("Un appareil est connecté. Arrêter le serveur coupera sa session.\n\nArrêter le serveur ?") {
+                return;
+            }
+            self.act("Arrêt du serveur…", |_| services::stop_server());
+        } else {
+            self.act("Démarrage du serveur…", |_| services::start_server());
+        }
+    }
+
+    fn restart_server(&mut self) {
+        if self.in_session() && !confirm("Un appareil est connecté. Redémarrer le serveur coupera sa session.\n\nRedémarrer le serveur ?") {
+            return;
+        }
+        self.act("Redémarrage du serveur…", |_| services::restart_server());
+    }
+
+    fn switch_start_with_computer(&mut self) {
+        let (Some(snap), _, _) = self.snapshot() else { return };
+        let on = snap.start_with_computer != Some(true);
+        self.act("Réglage du démarrage…", move |_| startup::set(on).map(|_| ()));
+    }
+
+    /// Efface le mot de passe de la console (invite UAC), montre le code et ouvre la console.
+    fn reset_password(&mut self) {
+        if !confirm(
+            "Réinitialiser le mot de passe de la console ?\n\nVous en choisirez un nouveau avec un code d'initialisation. \
+             Vos appareils et leurs comptes ne changent pas.",
+        ) {
+            return;
+        }
+        self.act("Réinitialisation du mot de passe…", |shared| {
+            if let Some(code) = password::reset()? {
+                shared.lock().unwrap().setup_code = Some(code);
+                open_console()?;
+            }
+            Ok(())
+        });
+    }
+
+    fn quit(&mut self) {
+        let (Some(snap), _, _) = self.snapshot() else {
+            self.done = true;
+            return;
+        };
         if !snap.kyber.is_up() {
             self.done = true;
             return;

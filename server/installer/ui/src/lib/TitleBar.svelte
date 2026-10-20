@@ -1,7 +1,7 @@
+<!-- Barre de la fenêtre sans bordure : on la glisse pour déplacer la fenêtre. -->
 <script lang="ts">
   import { send } from './backend'
   import { app } from './state.svelte'
-  import Mark from './Mark.svelte'
 
   // Glisser la barre déplace la fenêtre (sauf sur les boutons).
   function drag(event: MouseEvent) {
@@ -11,13 +11,11 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <header onmousedown={drag}>
-  <Mark size={18} id="kn-title" />
-  <span>Installation de KyberNow</span>
-  <div class="spacer"></div>
-  <button aria-label="Réduire" onclick={() => send({ cmd: 'minimize' })}>
+  <button type="button" aria-label="Réduire" onclick={() => send({ cmd: 'minimize' })}>
     <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6h8" stroke="currentColor" stroke-width="1.4" /></svg>
   </button>
   <button
+    type="button"
     aria-label="Fermer"
     class="close"
     disabled={app.installing}
@@ -31,40 +29,27 @@
 <style>
   header {
     height: 40px;
-    flex-shrink: 0;
+    flex: none;
     display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 0 0 14px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bar);
-    font-size: 13px;
-    color: var(--muted);
+    justify-content: flex-end;
   }
 
   button {
     width: 46px;
     height: 40px;
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border: 0;
+    background: none;
+    color: var(--text-2);
+    display: grid;
+    place-items: center;
   }
 
   button:hover:not(:disabled) {
-    background: #1a212b;
-    color: var(--text);
+    background: rgb(255 255 255 / 0.07);
   }
 
   .close:hover:not(:disabled) {
     background: #c42b1c;
     color: #fff;
-  }
-
-  button:disabled {
-    opacity: 0.35;
-    cursor: default;
   }
 </style>

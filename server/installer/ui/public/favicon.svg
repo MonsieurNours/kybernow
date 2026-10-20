@@ -1,23 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="KyberNow">
-  <title>KyberNow</title>
-  <g id="kn-mark">
-    <defs>
-      <linearGradient id="kn-arm-shade" gradientUnits="userSpaceOnUse" x1="236" y1="268" x2="300" y2="340">
-        <stop offset="0" stop-color="#9AA6B4"/>
-        <stop offset="1" stop-color="#DCE3EA"/>
-      </linearGradient>
-    </defs>
-    <g id="kn-signal" fill="none" stroke="#6FE3C1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-      <path id="kn-wave-1" class="kn-wave" pathLength="1000" opacity="0.5" d="M70 248 H252 C272 248 280 294.0 300 294.0 C322 294.0 326 150.48 346 150.48 C366 150.48 368 248 388 248 H470"/>
-      <path id="kn-wave-2" class="kn-wave" pathLength="1000" d="M70 262 H252 C272 262 280 312 300 312 C322 312 326 156 346 156 C366 156 368 262 388 262 H470"/>
-      <path id="kn-wave-3" class="kn-wave" pathLength="1000" opacity="0.5" d="M70 276 H252 C272 276 280 322.0 300 322.0 C322 322.0 326 178.48 346 178.48 C366 178.48 368 276 388 276 H470"/>
-    </g>
-    <g id="kn-k">
-      <path id="kn-arm-bottom" class="kn-piece" fill="url(#kn-arm-shade)" d="M238 264.5 L404 416 H330 L206 306 Z"/>
-      <path id="kn-arm-top" class="kn-piece" fill="#F4F7FA" d="M206 224 L321 96 H392 L206 302 Z"/>
-      <path id="kn-stem" class="kn-piece" fill="#F4F7FA" d="M206 96 V416 H188 C167 416 150 399 150 378 V134 C150 113 167 96 188 96 Z"/>
-      <path id="kn-fold-top" class="kn-piece" fill="#B6C1CD" d="M150 158 C150 121 172 96 206 96 V112 C178 114 158 130 150 158 Z"/>
-      <path id="kn-fold-bottom" class="kn-piece" fill="#B6C1CD" d="M150 354 C150 391 172 416 206 416 V400 C178 398 158 382 150 354 Z"/>
-    </g>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="KyberNow">
+<title>KyberNow</title>
+<g transform="translate(0 0) scale(1)"><path d="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" fill="#9A8CFF"/><path d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" fill="#E3EDF0"/></g>
 </svg>

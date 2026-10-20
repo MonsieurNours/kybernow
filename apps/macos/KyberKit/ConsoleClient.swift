@@ -128,12 +128,35 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         return ScreenPreview(jpeg: data, capturedAt: at)
     }
 
+    /// Ce que l'app dit d'elle-même à la console (ses appareils, son fil
+    /// d'événements) : un identifiant tiré à la première ouverture, le nom
+    /// de l'appareil, son système et la version de l'app.
+    public static var thisDevice: [String: Any] {
+        let key = "kybernow.deviceID"
+        let id = UserDefaults.standard.string(forKey: key) ?? {
+            let id = UUID().uuidString
+            UserDefaults.standard.set(id, forKey: key)
+            return id
+        }()
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let version = v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
+        let app = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "KyberNow \($0)" }
+        #if os(macOS)
+        let name = Host.current().localizedName ?? "Mac"
+        return ["id": id, "name": name, "kind": "mac", "os": "macOS \(version)", "app": app as Any]
+        #else
+        return ["id": id, "name": "Apple TV", "kind": "tv", "os": "tvOS \(version)", "app": app as Any]
+        #endif
+    }
+
     /// Annonce l'écran de ce Mac et le son voulu, avant de se connecter à Kyber.
-    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int, virtualDisplay: Bool = true) async throws -> PrepareResult {
-        let json = try await call("POST", "api/stream/prepare", body: [
+    public func prepare(width: Int, height: Int, refresh: Int, audioChannels: Int, virtualDisplay: Bool = true, profile: String? = nil) async throws -> PrepareResult {
+        var body: [String: Any] = [
             "width": width, "height": height, "refresh": refresh, "audio_channels": audioChannels,
-            "virtual_display": virtualDisplay,
-        ])
+            "virtual_display": virtualDisplay, "device": Self.thisDevice,
+        ]
+        if let profile { body["profile"] = profile }
+        let json = try await call("POST", "api/stream/prepare", body: body)
         let applied = json["applied"] as? [String: Any]
         let audio = json["audio"] as? [String: Any]
         return PrepareResult(
@@ -172,14 +195,22 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         )
     }
 
-    public func heartbeat() async {
-        _ = try? await call("POST", "api/stream/heartbeat")
+    /// Signal de vie, avec la latence du moment. Vrai si la console demande
+    /// la fin de la session (bouton « Mettre fin à la session »).
+    public func heartbeat(latencyMs: Double? = nil, profile: String? = nil) async -> Bool {
+        var body: [String: Any] = [:]
+        if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
+        if let profile { body["profile"] = profile }
+        let json = try? await call("POST", "api/stream/heartbeat", body: body)
+        return json?["end"] as? Bool ?? false
     }
 
     /// Fin de session : la console retire l'écran virtuel et rétablit le son.
     @discardableResult
-    public func end() async throws -> EndReport {
-        let json = try await call("POST", "api/stream/end")
+    public func end(latencyMs: Double? = nil) async throws -> EndReport {
+        var body: [String: Any] = [:]
+        if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
+        let json = try await call("POST", "api/stream/end", body: body)
         return EndReport(
             displayRestored: json["display_restored"] as? Bool ?? true,
             audioRestored: json["audio_restored"] as? Bool ?? true,

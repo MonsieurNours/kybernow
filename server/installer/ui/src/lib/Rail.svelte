@@ -1,171 +1,198 @@
+<!--
+  Colonne de gauche : le symbole server, et les quatre étapes. Le symbole
+  immense, en filigrane, se remplit de néon le long de la couture au fil
+  des étapes (et de la progression pendant l'installation).
+-->
 <script lang="ts">
-  import { app, go, STEPS, stepIndex } from './state.svelte'
+  import { send } from './backend'
+  import { app, go, stepIndex, STEPS } from './state.svelte'
+  import Mark from './Mark.svelte'
 
-  const current = $derived(app.screen === 'done' ? STEPS.length : stepIndex())
+  const index = $derived(stepIndex())
+  const finished = $derived(app.screen === 'done')
+  // Avancée de la couture : par étape, puis la progression réelle de l'installation.
+  const k = $derived(app.screen === 'install' || finished ? 0.66 + (0.34 * app.percent) / 100 : [0.18, 0.42, 0.66, 1][index])
+  const sx = $derived((44 + k * 292).toFixed(1))
+  const sy = $derived((336 - k * 292).toFixed(1))
+
+  function drag(event: MouseEvent) {
+    if (event.button === 0 && !(event.target as HTMLElement).closest('button')) send({ cmd: 'drag' })
+  }
 </script>
 
-<nav aria-label="Étapes de l'installation">
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<aside onmousedown={drag}>
+  <div class="ghost-mark" aria-hidden="true">
+    <svg viewBox="0 0 48 48" class="halves">
+      <path fill="#0E141A" d="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" />
+      <path fill="#121922" d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" />
+    </svg>
+    <svg viewBox="0 0 380 380" class="seam">
+      <defs><filter id="rail-g" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4" /></filter></defs>
+      <line x1="44" y1="336" x2="336" y2="44" stroke="rgba(227,237,240,.08)" stroke-width="3" stroke-linecap="round" />
+      <line x1="44" y1="336" x2={sx} y2={sy} stroke="#9A8CFF" stroke-width="8" stroke-linecap="round" filter="url(#rail-g)" />
+      <line x1="44" y1="336" x2={sx} y2={sy} stroke="#F4F1FF" stroke-width="2.5" stroke-linecap="round" />
+    </svg>
+  </div>
+
   <div class="brand">
-    <span class="name">Kyber<span>Now</span></span>
-    <span class="tag">Serveur de streaming pour Windows</span>
+    <Mark size={38} state="server" />
+    <div>
+      <span class="disp name"><span>Kyber</span><b>Now</b> <i>Server</i></span>
+      <span class="version">Version {__APP_VERSION__} · Kyber 0.29</span>
+    </div>
   </div>
 
   <ol>
-    {#each STEPS as step, i (step.screen)}
-      {@const done = i < current || (app.screen === 'done' && i === STEPS.length - 1)}
-      {@const isCurrent = i === current && app.screen !== 'done'}
-      <li class:current={isCurrent || (app.screen === 'done' && i === STEPS.length - 1)}>
-        {#if done}
-          {#key current}
-            <span class="dot done kn-pop" style="animation-delay: {app.screen === 'done' ? i * 0.08 : 0}s">
-              <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6.2l2.3 2.3 4.7-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-            </span>
-          {/key}
-        {:else if isCurrent}
-          <span class="dot now kn-ring">{i + 1}</span>
-        {:else}
-          <span class="dot todo">{i + 1}</span>
-        {/if}
-        <span class="label">{step.label}</span>
+    {#each STEPS as step, i (step.label)}
+      {@const done = i < index || (finished && i === index)}
+      {@const current = i === index && !finished}
+      <li class:done class:current aria-current={current ? 'step' : undefined}>
+        <span class="num">{done ? '✓' : i + 1}</span>
+        <span>{step.label}</span>
       </li>
     {/each}
   </ol>
 
-  <div class="spacer"></div>
-  <div class="about">
-    <p>Propulsé par Kyber 0.29<br />Logiciel libre (AGPL-3.0)</p>
-    {#if app.screen === 'about'}
-      <button onclick={() => go(app.previous)}>
-        <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
-        Retour
-      </button>
-    {:else}
-      <button onclick={() => go('about')}>
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.8" fill="none" stroke="currentColor" stroke-width="1.3" /><path d="M7 6.2v3.6M7 4.2v.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" /></svg>
-        À propos
-      </button>
-    {/if}
+  <div class="foot">
+    Logiciel libre (AGPL-3.0) ·
+    <button type="button" class="text-button" onclick={() => go(app.screen === 'about' ? app.previous : 'about')}>{app.screen === 'about' ? 'Retour' : 'À propos'}</button>
   </div>
-</nav>
+</aside>
 
 <style>
-  nav {
-    width: 264px;
-    flex-shrink: 0;
-    padding: 32px 24px 16px;
-    background: var(--rail);
+  aside {
+    position: relative;
+    overflow: hidden;
+    width: 320px;
+    flex: none;
+    background: var(--ink-1);
     border-right: 1px solid var(--line);
+    padding: 48px 32px 28px;
     display: flex;
     flex-direction: column;
-    gap: 28px;
+    gap: 36px;
+  }
+
+  .ghost-mark {
+    position: absolute;
+    right: -120px;
+    top: -60px;
+    width: 380px;
+    height: 380px;
+    pointer-events: none;
+  }
+
+  .ghost-mark svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .seam line {
+    transition: all 0.6s var(--ease-out);
   }
 
   .brand {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .brand > div {
     display: flex;
     flex-direction: column;
     gap: 4px;
   }
 
   .name {
-    font-family: var(--display);
-    font-weight: 700;
-    font-size: 24px;
-    letter-spacing: -0.02em;
+    font-size: 20px;
+    letter-spacing: -0.01em;
   }
 
   .name span {
-    color: var(--accent);
+    font-weight: 420;
   }
 
-  .tag {
-    font-size: 13px;
-    color: var(--muted);
+  .name b {
+    font-weight: 720;
   }
 
-  ol {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    transition: background-color 0.3s;
-  }
-
-  li.current {
-    background: var(--surface-2);
-  }
-
-  .dot {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: var(--mono);
-    font-size: 12px;
-    flex-shrink: 0;
-  }
-
-  .dot.done {
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  .dot.now {
-    background: var(--accent);
-    color: var(--accent-ink);
-    font-weight: 500;
-  }
-
-  .dot.todo {
-    border: 1px solid #344052;
-    color: var(--muted);
-  }
-
-  .label {
-    font-size: 14px;
-    color: var(--muted);
-  }
-
-  li.current .label {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  li:has(.done) .label {
-    color: #b4c0cf;
-  }
-
-  .about p {
-    margin: 0;
-    font-size: 12px;
-    line-height: 1.5;
+  .name i {
+    font-style: normal;
+    font-stretch: 100%;
+    font-weight: 400;
     color: var(--faint);
   }
 
-  .about button {
-    min-height: 44px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0;
-    border: none;
-    background: none;
-    font-size: 12px;
-    color: var(--muted);
+  .version {
+    font-size: 12.5px;
+    color: var(--faint);
   }
 
-  .about button:hover {
+  ol {
+    position: relative;
+    list-style: none;
+    margin: 200px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 26px 1fr;
+    gap: 12px;
+    align-items: center;
+    font-size: 14px;
+    color: var(--ghost);
+  }
+
+  .num {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px #33404b;
+  }
+
+  li.done {
     color: var(--text);
+  }
+
+  li.done .num {
+    background: rgb(76 214 138 / 0.16);
+    box-shadow: inset 0 0 0 1px rgb(76 214 138 / 0.5);
+    color: var(--ok-text);
+  }
+
+  li.current {
+    color: var(--text);
+    font-weight: 650;
+  }
+
+  li.current .num {
+    background: var(--signal-strong);
+    box-shadow: 0 0 0 1px var(--neon-core), 0 0 12px rgb(109 91 255 / 0.8);
+    color: #fff;
+  }
+
+  .foot {
+    position: relative;
+    margin-top: auto;
+    font-size: 12px;
+    color: var(--ghost);
+  }
+
+  .foot .text-button {
+    font-size: 12px;
+    color: var(--faint);
   }
 </style>

@@ -15,6 +15,7 @@ mkdir -p "$STAGE"/{kyber,admin,tray} "$DIST"
 cp "$ROOT/third_party/payload/kyber-overlay/"* "$STAGE/kyber/"
 cp "$ROOT/server/dist/kyber-admin.exe" "$STAGE/admin/"
 cp "$ROOT/server/tray/target/x86_64-pc-windows-gnu/release/kybernow-tray.exe" "$STAGE/tray/"
+cp "$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)" "$STAGE/tray/"
 cp "$HERE/update.ps1" "$STAGE/"
 # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII.
 if LC_ALL=C grep -q '[^ -~[:space:]]' "$HERE/update.ps1"; then echo "update.ps1 contient des caractères non ASCII" >&2; exit 1; fi

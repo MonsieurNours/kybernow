@@ -1,37 +1,61 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { api, setUnauthorizedHandler } from './lib/api'
   import { app, refreshStatus, notify, errorText } from './lib/store.svelte'
   import Login from './pages/Login.svelte'
-  import Dashboard from './pages/Dashboard.svelte'
-  import Settings from './pages/Settings.svelte'
-  import Users from './pages/Users.svelte'
-  import Logs from './pages/Logs.svelte'
-  import Advanced from './pages/Advanced.svelte'
-  import VirtualDisplay from './pages/VirtualDisplay.svelte'
-  import Audio from './pages/Audio.svelte'
-  import Devices from './pages/Devices.svelte'
-  import Updates from './pages/Updates.svelte'
+  import Overview from './pages/Overview.svelte'
+  import ImageSound from './pages/ImageSound.svelte'
+  import Access from './pages/Access.svelte'
+  import System from './pages/System.svelte'
   import Mark from './lib/Mark.svelte'
-  import SignalBackground from './lib/SignalBackground.svelte'
+  import Icon from './lib/Icon.svelte'
 
-  // Icônes : tracés 18 × 18, en trait.
-  const pages = [
-    { id: 'dashboard', label: 'Tableau de bord', component: Dashboard, icon: 'M2.5 9.5h3l2-5 3 9 2-4h3' },
-    { id: 'settings', label: 'Réglages', component: Settings, icon: 'M3 5h7M13 5h2M3 13h2M8 13h7M10 3v4M5 11v4' },
-    { id: 'display', label: 'Écran virtuel', component: VirtualDisplay, icon: 'M2.5 4h13v8.5h-13zM6.5 15.5h5M9 12.5v3M5.5 7.5l2 2 3-3.5' },
-    { id: 'audio', label: 'Son', component: Audio, icon: 'M3 7h2.5L9 4v10l-3.5-3H3zM12 6.5a3.5 3.5 0 010 5M14 4.5a6.5 6.5 0 010 9' },
-    { id: 'devices', label: 'Appareils', component: Devices, icon: 'M2.5 3.5h9v7h-9zM5 13h4M7 10.5V13M12.5 6.5h3v8h-3zM14 12.5h0' },
-    { id: 'users', label: 'Utilisateurs', component: Users, icon: 'M6.5 8.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2 15c.6-2.6 2.3-4 4.5-4s3.9 1.4 4.5 4M12 4.5a2.3 2.3 0 010 4.4M13.5 11c1.3.5 2.1 1.8 2.5 4' },
-    { id: 'updates', label: 'Mises à jour', component: Updates, icon: 'M9 2.5v8M5.5 7.5L9 11l3.5-3.5M3 13.5v2h12v-2' },
-    { id: 'logs', label: 'Journaux', component: Logs, icon: 'M4 2.5h7l3 3v10H4zM6.5 8h5M6.5 11h5M6.5 5h2.5' },
-    { id: 'advanced', label: 'Avancé', component: Advanced, icon: 'M6 5L2.5 9 6 13M12 5l3.5 4-3.5 4M10 3.5l-2 11' },
+  // Quatre espaces, par intention.
+  const spaces = [
+    { id: 'ensemble', label: "Vue d'ensemble", short: 'Ensemble', icon: 'overview', component: Overview },
+    { id: 'image-son', label: 'Image et son', short: 'Image et son', icon: 'image', component: ImageSound },
+    { id: 'acces', label: 'Accès', short: 'Accès', icon: 'key', component: Access },
+    { id: 'systeme', label: 'Système', short: 'Système', icon: 'gear', component: System },
   ]
+  // Anciennes adresses (console 0.2) : vers l'espace qui les reprend.
+  const legacy: Record<string, string> = {
+    dashboard: 'ensemble',
+    display: 'image-son',
+    audio: 'image-son',
+    settings: 'systeme/avance',
+    devices: 'acces',
+    users: 'acces/comptes',
+    updates: 'systeme',
+    logs: 'systeme/journaux',
+    advanced: 'systeme/avance',
+  }
 
-  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string } | null>(null)
-  let route = $state(location.hash.slice(2) || 'dashboard')
+  let session = $state<{ configured: boolean; authenticated: boolean; setup_code_file: string; hostname?: string | null } | null>(null)
+  let hash = $state(location.hash.slice(2))
   let restarting = $state(false)
-  const current = $derived(pages.find((p) => p.id === route) ?? pages[0])
+
+  const parts = $derived((legacy[hash] ?? hash).split('/'))
+  const current = $derived(spaces.find((s) => s.id === parts[0]) ?? spaces[0])
+  const section = $derived(parts[1] ?? '')
+
+  const status = $derived(app.status)
+  const live = $derived(status?.activity?.live ?? null)
+  const serviceState = $derived(status?.service.state)
+  const hostLine = $derived(
+    !status
+      ? ''
+      : serviceState === 'running'
+        ? live
+          ? `En session · ${live.name}`
+          : 'En marche · prêt à recevoir'
+        : serviceState === 'starting'
+          ? 'Démarrage…'
+          : serviceState === 'stopped'
+            ? 'Serveur arrêté'
+            : 'Serveur introuvable',
+  )
+  const hostDot = $derived(serviceState === 'running' ? (live ? 'live' : 'ok') : serviceState === 'starting' ? 'warn' : 'bad')
+  const updateBadge = $derived(status?.update_available?.split('.').slice(0, 2).join('.') ?? null)
 
   async function loadSession() {
     session = await api.session()
@@ -42,12 +66,24 @@
       if (session) session.authenticated = false
     })
     loadSession()
-    const onHash = () => (route = location.hash.slice(2) || 'dashboard')
+    const onHash = () => (hash = location.hash.slice(2))
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   })
 
-  // Rafraîchit l'état du serveur tant que l'on est connecté.
+  // Une section demandée (#/systeme/journaux) : on la montre.
+  $effect(() => {
+    const id = section
+    app.section = id
+    const space = current.id
+    tick().then(() => {
+      if (id) document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      else window.scrollTo({ top: 0 })
+    })
+    void space
+  })
+
+  // État du serveur tant que l'on est connecté.
   $effect(() => {
     if (!session?.authenticated) return
     refreshStatus()
@@ -59,7 +95,7 @@
     restarting = true
     try {
       await api.service('restart')
-      notify('ok', 'Kyber a redémarré avec la nouvelle configuration.')
+      notify('ok', 'Le serveur a redémarré avec les nouveaux réglages.')
       await refreshStatus()
     } catch (e) {
       notify('error', errorText(e))
@@ -75,52 +111,69 @@
 </script>
 
 {#if !session}
-  <div class="loading muted">Chargement…</div>
+  <div class="loading"><Mark size={34} lit breathe /></div>
 {:else if !session.authenticated}
-  <Login configured={session.configured} setupCodeFile={session.setup_code_file} onDone={loadSession} />
+  <Login configured={session.configured} setupCodeFile={session.setup_code_file} hostname={session.hostname ?? null} onDone={loadSession} />
 {:else}
   <div class="shell">
-    <nav>
+    <aside>
       <div class="brand">
-        <Mark size={34} id="kn-nav" />
-        <div class="brand-text">
-          <span class="name">Kyber<span>Now</span></span>
-          <span class="tag">Console</span>
-        </div>
+        <Mark size={26} lit={!!live} breathe={!!live} />
+        <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
       </div>
-      {#each pages as page (page.id)}
-        <a href="#/{page.id}" class:active={page.id === current.id}>
-          <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d={page.icon} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" /></svg>
-          {page.label}
-        </a>
-      {/each}
-      <div class="spacer"></div>
-      {#if app.status}
-        <div class="host muted">
-          {app.status.hostname ?? ''}<br />
-          <span>KyberNow {app.status.admin_version}</span>
-        </div>
-      {/if}
-      <button class="link" onclick={logout}>Se déconnecter</button>
-    </nav>
+
+      <div class="host">
+        <span class="name">{status?.hostname ?? 'Cet ordinateur'}</span>
+        <span class="state"><span class="dot {hostDot}"></span>{hostLine}</span>
+      </div>
+
+      <nav aria-label="Espaces">
+        {#each spaces as s (s.id)}
+          <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
+            <Icon name={s.icon} />
+            {s.label}
+            {#if s.id === 'systeme' && updateBadge}<span class="badge">{updateBadge}</span>{/if}
+          </a>
+        {/each}
+      </nav>
+
+      <div class="who">
+        <span class="avatar" aria-hidden="true">A</span>
+        Administrateur
+        <button type="button" class="link" onclick={logout}>Se déconnecter</button>
+      </div>
+    </aside>
+
+    <header class="mobile-top">
+      <Mark size={22} lit={!!live} />
+      <span class="name">{status?.hostname ?? ''}</span>
+      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (live ? 'En session' : 'En marche') : hostLine}</span>
+    </header>
 
     <main>
-      <div class="backdrop" aria-hidden="true"><SignalBackground /></div>
-      {#if app.status?.restart_pending}
-        <div class="notice warn row restart">
-          <span>Configuration modifiée : redémarrez Kyber pour l'appliquer. Les clients connectés seront déconnectés quelques secondes.</span>
-          <span class="spacer"></span>
-          <button class="primary" disabled={restarting} onclick={restartKyber}>
-            {restarting ? 'Redémarrage…' : 'Redémarrer Kyber'}
+      {#if status?.restart_pending}
+        <div class="restart notice warn" role="status">
+          <Icon name="restart" size={18} />
+          <span>Réglages modifiés : redémarrez le serveur pour les appliquer. Un appareil connecté sera déconnecté quelques secondes.</span>
+          <button type="button" class="ghost small" disabled={restarting} onclick={restartKyber}>
+            {restarting ? 'Redémarrage…' : 'Redémarrer le serveur'}
           </button>
         </div>
       {/if}
       {#key current.id}
-        <div class="page kn-enter">
-          <current.component />
-        </div>
+        <current.component />
       {/key}
     </main>
+
+    <nav class="tabbar" aria-label="Espaces">
+      {#each spaces as s (s.id)}
+        <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
+          <Icon name={s.icon} size={22} />
+          {s.short}
+          {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label="Mise à jour disponible"></span>{/if}
+        </a>
+      {/each}
+    </nav>
   </div>
 {/if}
 
@@ -130,147 +183,191 @@
 
 <style>
   .loading {
-    padding: 40px;
-    text-align: center;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
   }
 
   .shell {
     display: grid;
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 264px minmax(0, 1fr);
     min-height: 100vh;
   }
 
-  nav {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 24px 14px 18px;
-    border-right: 1px solid var(--border);
-    background: var(--rail);
+  aside {
     position: sticky;
     top: 0;
     height: 100vh;
-    z-index: 2;
+    padding: 22px 16px;
+    border-right: 1px solid var(--line);
+    background: var(--ink-1);
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
   }
 
   .brand {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 0 8px 22px;
+    gap: 11px;
+    padding: 0 8px;
   }
 
-  .brand-text {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.15;
+  .wordmark {
+    font-size: 16px;
+    letter-spacing: -0.01em;
   }
 
-  .name {
-    font-family: var(--display);
-    font-weight: 700;
-    font-size: 21px;
-    letter-spacing: -0.02em;
+  .wordmark span {
+    font-weight: 420;
   }
 
-  .name span {
-    color: var(--accent);
-  }
-
-  .tag {
-    font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-
-  nav a {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 12px;
-    border-radius: 10px;
-    color: var(--muted);
-    text-decoration: none;
-    font-size: 0.93rem;
-    transition: background-color 0.2s, color 0.2s;
-  }
-
-  nav a:hover {
-    background: var(--surface-2);
-    color: var(--text);
-  }
-
-  nav a.active {
-    background: var(--surface-2);
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  nav a.active svg {
-    color: var(--accent);
+  .wordmark b {
+    font-weight: 720;
   }
 
   .host {
-    font-size: 0.8rem;
-    padding: 0 10px 8px;
-    word-break: break-all;
+    padding: 14px;
+    border-radius: 12px;
+    background: var(--ink-2);
+    box-shadow: inset 0 0 0 1px var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
   }
 
-  nav .link {
-    align-self: flex-start;
-    padding: 0 10px;
+  .host .name {
+    font-size: 15px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
+  .state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    min-width: 0;
+  }
+
+  nav[aria-label='Espaces']:not(.tabbar) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  aside nav a {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    font-size: 14px;
+    color: var(--muted);
+    text-decoration: none;
+    transition: background-color 0.2s, color 0.2s;
+  }
+
+  aside nav a:hover {
+    background: rgb(255 255 255 / 0.04);
+    color: var(--text);
+  }
+
+  aside nav a.current {
+    background: var(--signal-soft);
+    box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.4);
+    color: #fff;
+  }
+
+  aside nav a.current :global(svg) {
+    color: var(--signal-light);
+  }
+
+  .badge {
+    margin-left: auto;
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgb(154 140 255 / 0.16);
+    color: var(--signal-light);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .who {
+    margin-top: auto;
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--ink-3);
+    box-shadow: inset 0 0 0 1px var(--line-2);
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .link {
+    margin-left: auto;
+    white-space: nowrap;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 12.5px;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .link:hover {
+    color: var(--text);
   }
 
   main {
+    min-width: 0;
     position: relative;
-    padding: 32px 36px 60px;
-    max-width: 1140px;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-  }
-
-  /* Fond « flux de signal », plus discret que dans l'installateur. */
-  .backdrop {
-    position: fixed;
-    inset: 0 0 0 220px;
-    opacity: 0.45;
-    pointer-events: none;
-  }
-
-  main > :global(*:not(.backdrop)) {
-    position: relative;
-  }
-
-  .page {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
   }
 
   .restart {
-    flex-wrap: nowrap;
+    margin: 16px 40px 0;
+    max-width: 1040px;
+  }
+
+  .mobile-top,
+  .tabbar {
+    display: none;
   }
 
   .toast {
     position: fixed;
-    bottom: 20px;
-    right: 20px;
+    bottom: 24px;
+    right: 24px;
     max-width: 420px;
     padding: 12px 16px;
-    border-radius: var(--radius);
-    background: var(--text);
-    color: var(--bg);
-    font-size: 0.92rem;
-    box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+    border-radius: 12px;
+    background: rgb(14 20 26 / 0.92);
+    backdrop-filter: blur(20px);
+    box-shadow: inset 0 0 0 1px var(--line-2), 0 18px 40px rgb(0 0 0 / 0.5);
+    font-size: 13.5px;
+    color: var(--text);
+    z-index: 20;
+    animation: rise 0.35s var(--ease-out) both;
   }
 
   .toast.error {
-    background: var(--danger);
-    color: #fff;
+    box-shadow: inset 0 0 0 1px var(--bad-line), 0 18px 40px rgb(0 0 0 / 0.5);
+    color: var(--bad-text);
   }
 
   @media (max-width: 760px) {
@@ -278,36 +375,82 @@
       grid-template-columns: 1fr;
     }
 
-    nav {
-      position: static;
-      height: auto;
-      flex-direction: row;
-      flex-wrap: wrap;
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-      padding: 12px 16px;
-    }
-
-    .brand {
-      width: 100%;
-      padding-bottom: 8px;
-    }
-
-    nav .spacer,
-    .host {
+    aside {
       display: none;
     }
 
-    main {
-      padding: 20px 16px 48px;
+    .mobile-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px 6px;
     }
 
-    .backdrop {
-      inset: 0;
+    .mobile-top .name {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .mobile-top .state {
+      margin-left: auto;
+      font-size: 12px;
     }
 
     .restart {
-      flex-wrap: wrap;
+      margin: 12px 16px 0;
+    }
+
+    .tabbar {
+      display: flex;
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 10;
+      padding: 6px 8px calc(10px + env(safe-area-inset-bottom));
+      border-top: 1px solid rgb(255 255 255 / 0.08);
+      background: rgb(9 13 18 / 0.92);
+      backdrop-filter: blur(20px);
+    }
+
+    .tabbar a {
+      position: relative;
+      flex: 1;
+      min-height: 56px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      font-size: 10.5px;
+      color: var(--faint);
+      text-decoration: none;
+    }
+
+    .tabbar a.current {
+      color: #fff;
+    }
+
+    .tabbar a.current :global(svg) {
+      color: var(--signal-light);
+      filter: drop-shadow(0 0 4px var(--signal));
+    }
+
+    .pip {
+      position: absolute;
+      top: 8px;
+      left: 56%;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--signal);
+      box-shadow: 0 0 6px var(--signal);
+    }
+
+    .toast {
+      left: 16px;
+      right: 16px;
+      bottom: 96px;
     }
   }
 </style>
