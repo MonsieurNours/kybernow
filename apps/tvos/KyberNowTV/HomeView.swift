@@ -79,18 +79,6 @@ struct HomeView: View {
             }
             .buttonStyle(GlassButton(radius: 30))
             .focused($focus, equals: .gamepads)
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(LinearGradient(colors: [Theme.accentFill, Theme.accent], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 44, height: 44)
-                    .overlay(Icon("user", size: 24, bold: true).foregroundStyle(.white))
-                Text("Profil").font(Theme.sans(22, .medium))
-            }
-            .padding(.leading, 8).padding(.trailing, 24)
-            .frame(height: 60)
-            .glass(30)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Profil tvOS en cours : ses ordinateurs et ses réglages")
             Button { if let host { app.screen = .settings(host.id) } } label: {
                 Icon("sliders-horizontal", size: 28).frame(width: 60, height: 60)
             }

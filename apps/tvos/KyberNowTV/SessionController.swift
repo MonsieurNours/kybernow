@@ -36,6 +36,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var route = AudioRoute.current
     @Published private(set) var modeLabel = ""
     @Published private(set) var remoteMouse = false
+    /// La manette sert de souris et de clavier (actif d'office en profil Bureau).
+    @Published private(set) var padMouse = false
     /// Rappel du menu, en haut de l'écran, à la fermeture du menu.
     @Published private(set) var menuHint = false
     @Published private(set) var startedAt = Date()
@@ -76,6 +78,7 @@ final class SessionController: ObservableObject {
         self.store = store
         self.onFinish = onFinish
         remoteMouse = host.settings.profile == .bureau || host.settings.mouse == .desktop
+        padMouse = host.settings.profile == .bureau
     }
 
     private var streamOptions: StreamOptions {
@@ -106,6 +109,8 @@ final class SessionController: ObservableObject {
         gamepads.menuFromRemote = prefs.menuBack
         gamepads.menuFromCombo = prefs.menuCombo
         gamepads.rumbleEnabled = prefs.rumble
+        gamepads.padMouseSpeed = prefs.padMouseSpeed.factor
+        streamView.padMouse = padMouse
         streamView.remoteMouse = remoteMouse
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.route = AudioRoute.current }
@@ -406,6 +411,11 @@ final class SessionController: ObservableObject {
         }
     }
 
+    func togglePadMouse() {
+        padMouse.toggle()
+        streamView.padMouse = padMouse
+    }
+
     func toggleRemoteMouse() {
         remoteMouse.toggle()
         streamView.remoteMouse = remoteMouse
@@ -466,6 +476,7 @@ final class SessionController: ObservableObject {
     func end() {
         guard phase != .ending && phase != .ended else { return }
         GamepadBridge.shared.onMenuRequest = nil
+        streamView.padMouse = false
         let sessionLatency = kyber?.sessionLatencyMs
         if let last = kyber?.snapshot(maxWidth: 1920) { store.imagery.saveLast(last, for: host) }
         if let revealedAt { host.lastDuration = Date().timeIntervalSince(revealedAt) }

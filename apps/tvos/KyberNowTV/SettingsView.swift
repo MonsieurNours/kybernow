@@ -230,6 +230,9 @@ struct SettingsView: View {
         toggle("rumble", "Vibrations", "Renvoyées par le jeu, sur chaque manette", prefs.rumble) {
             prefs.rumble.toggle()
         }
+        seg("padspeed", "Manette en souris : vitesse", "Stick gauche : pointeur, droit : molette · A clic, X clic droit, B milieu · L1 / R1 : Alt + Tab · LT précis, RT rapide", Preferences.PadMouseSpeed.allCases.map(\.rawValue), prefs.padMouseSpeed.rawValue) { v in
+            prefs.padMouseSpeed = Preferences.PadMouseSpeed(rawValue: v) ?? .normal
+        }
         seg("order", "Ordre des joueurs", "Fixe : chaque manette garde sa place", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
             prefs.padOrderFixed = v == "Fixe"
         }

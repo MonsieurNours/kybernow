@@ -17,7 +17,7 @@ struct SessionMenu: View {
     @State private var text = ""
     @FocusState private var focus: Item?
 
-    enum Item: Hashable { case resume, pads, sound, mouse, type, quit }
+    enum Item: Hashable { case resume, pads, sound, mouse, padMouse, type, quit }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -46,6 +46,7 @@ struct SessionMenu: View {
                     tile(.pads, icon: "game-controller", title: "Manettes", detail: padsDetail) { showPads = true }
                     soundTile
                     mouseTile
+                    padMouseTile
                     tile(.type, icon: "keyboard", title: "Taper du texte", detail: "Clavier tvOS ou iPhone") { typing = true }
                     tile(.quit, icon: "power", iconColor: Theme.danger, title: "Se déconnecter", detail: "L'ordinateur retrouve ses écrans") { session.end() }
                 }
@@ -139,7 +140,7 @@ struct SessionMenu: View {
 
     // MARK: Tuiles
 
-    private static let tileWidth: CGFloat = (1920 - 192 - 5 * 24) / 6.3
+    private static let tileWidth: CGFloat = (1920 - 192 - 6 * 24) / 7.3
 
     private var resumeTile: some View {
         Button { session.closeMenu() } label: {
@@ -229,13 +230,25 @@ struct SessionMenu: View {
 
     private var mouseTile: some View {
         Button { session.toggleRemoteMouse() } label: {
-            tileLabel(icon: "cursor", title: "Télécommande en souris",
-                      detail: session.remoteMouse ? "Pavé = pointeur, clic = clic gauche" : "Désactivée · le pavé navigue",
+            tileLabel(icon: "cursor", title: "Pavé en souris",
+                      detail: session.remoteMouse ? "Télécommande : pavé = pointeur, clic = clic gauche" : "Désactivée · le pavé navigue",
                       trailing: AnyView(Toggle2(on: session.remoteMouse)))
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .mouse)
         .accessibilityValue(session.remoteMouse ? "Activée" : "Désactivée")
+    }
+
+    /// La manette en souris : stick gauche, A / ✕, X / □…
+    private var padMouseTile: some View {
+        Button { session.togglePadMouse() } label: {
+            tileLabel(icon: "game-controller", title: "Manette en souris",
+                      detail: session.padMouse ? "Stick : pointeur · A clic · X clic droit" : "Désactivée · la manette joue",
+                      trailing: AnyView(Toggle2(on: session.padMouse)))
+        }
+        .buttonStyle(GlassButton(radius: 22, scale: 1.07))
+        .focused($focus, equals: .padMouse)
+        .accessibilityValue(session.padMouse ? "Activée" : "Désactivée")
     }
 
     // MARK: Texte

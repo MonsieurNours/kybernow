@@ -106,6 +106,18 @@ final class Preferences: ObservableObject {
     @Published var matchFrameRate: Bool { didSet { d.set(matchFrameRate, forKey: "matchFrameRate") } }
     @Published var icloudSync: Bool { didSet { d.set(icloudSync, forKey: "icloudSync") } }
 
+    /// Vitesse du pointeur quand la manette sert de souris.
+    enum PadMouseSpeed: String, CaseIterable {
+        case slow = "Lente", normal = "Normale", fast = "Rapide"
+        var factor: Double { self == .slow ? 0.6 : self == .fast ? 1.6 : 1 }
+    }
+    @Published var padMouseSpeed: PadMouseSpeed {
+        didSet {
+            d.set(padMouseSpeed.rawValue, forKey: "padMouseSpeed")
+            GamepadBridge.shared.padMouseSpeed = padMouseSpeed.factor
+        }
+    }
+
     private static func flag(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 
     private init() {
@@ -118,6 +130,7 @@ final class Preferences: ObservableObject {
         latencyAlert = flag("latencyAlert")
         matchFrameRate = flag("matchFrameRate")
         icloudSync = flag("icloudSync")
+        padMouseSpeed = PadMouseSpeed(rawValue: UserDefaults.standard.string(forKey: "padMouseSpeed") ?? "") ?? .normal
         GamepadBridge.shared.fixedOrder = padOrderFixed
     }
 }

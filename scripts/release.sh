@@ -2,9 +2,10 @@
 # Publie une version de KyberNow sur GitHub (github.com/MonsieurNours/kybernow) :
 #   scripts/release.sh 0.2.0
 #
-# 1. Aligne le numéro de version (console, icône, installateur, app Mac).
+# 1. Aligne le numéro de version (console, icône, installateur, app Mac, app Apple TV).
 # 2. Construit l'ordinateur (installateur, paquet de mise à jour) et l'app Mac,
-#    signée Developer ID, notarisée par Apple et agrafée.
+#    signée Developer ID, notarisée par Apple et agrafée ; compile l'app Apple TV
+#    et joint son SDK de Kyber (KyberSDK-tvOS.zip, pour apps/tvos/scripts/sideload.sh).
 # 3. Signe le flux de mises à jour de l'app (Sparkle, clé EdDSA du Trousseau).
 # 4. Calcule les empreintes (SHA256SUMS), commite, étiquette vX, pousse, et
 #    crée la version GitHub avec les notes de CHANGELOG.md.
@@ -36,7 +37,9 @@ for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.t
     sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
 done
 BUILD=$(date +%Y%m%d%H%M)
-sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" apps/macos/project.yml
+for f in apps/macos/project.yml apps/tvos/project.yml; do
+    sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$f"
+done
 
 echo "==> Ordinateur : installateur et paquet de mise à jour"
 server/installer/build.sh > /dev/null
@@ -49,6 +52,12 @@ APP="apps/macos/build/Build/Products/Release/KyberNow.app"
 apps/macos/scripts/sign-release.sh "$APP"
 
 rm -rf "$OUT" && mkdir -p "$OUT"
+
+echo "==> App Apple TV (SDK de Kyber pour tvOS, compilation de vérification)"
+apps/tvos/scripts/build-kyber-tvos.sh > /dev/null
+(cd apps/tvos && xcodegen generate > /dev/null && xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Release \
+    -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
+(cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")
 
 echo "==> Notarisation de l'app (Apple, quelques minutes)"
 # Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id P6DB682S4K
@@ -71,16 +80,17 @@ printf '%s\n' "$NOTES" > "$FEED/KyberNow-macOS.md"
     --embed-release-notes -o "$OUT/appcast.xml" "$FEED"
 rm -rf "$FEED"
 
-(cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml > SHA256SUMS)
+(cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 
 echo "==> Git et GitHub"
 git add server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock \
-    server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj CHANGELOG.md
+    server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj \
+    apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj CHANGELOG.md
 git commit -q -m "KyberNow $VERSION" || true
 git tag -a "$TAG" -m "KyberNow $VERSION"
 git push -q origin HEAD "$TAG"
 printf '%s\n' "$NOTES" | gh release create "$TAG" -R "$REPO" --title "KyberNow $VERSION" --notes-file - \
     "$OUT/KyberNow-Setup.exe" "$OUT/kybernow-update.zip" "$OUT/update.ps1" "$OUT/KyberNow-macOS.zip" \
-    "$OUT/appcast.xml" "$OUT/SHA256SUMS"
+    "$OUT/appcast.xml" "$OUT/KyberSDK-tvOS.zip" "$OUT/SHA256SUMS"
 echo "Publiée : https://github.com/$REPO/releases/tag/$TAG"

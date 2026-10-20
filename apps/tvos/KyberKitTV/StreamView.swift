@@ -27,6 +27,14 @@ public final class StreamView: UIView {
         }
     }
 
+    /// La manette sert de souris et de clavier (menu de session, profil Bureau).
+    public var padMouse = false {
+        didSet {
+            GamepadBridge.shared.padMouse = padMouse
+            updatePointerLayer()
+        }
+    }
+
     private let keyboardMouse = KeyboardMouse()
     /// Une souris Bluetooth a bougé pendant cette session.
     private var mouseSeen = false
@@ -166,7 +174,7 @@ public final class StreamView: UIView {
 
     /// Dessiné seulement quand une souris sert : à la manette, le jeu a son propre curseur.
     private func updatePointerLayer() {
-        guard remoteMouse || mouseSeen, !remoteHidden, let shape = remoteShape, let host = remotePosition, let layout else {
+        guard remoteMouse || padMouse || mouseSeen, !remoteHidden, let shape = remoteShape, let host = remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
         }

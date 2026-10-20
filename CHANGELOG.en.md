@@ -6,6 +6,11 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.2
 
+- New Apple TV app (until it reaches the App Store, install it yourself: see https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md): your computer on the TV, with the remote or a gamepad, at up to 4K 60 Hz. Up to four gamepads (Xbox, DualSense…) with rumble, Siri Remote as a mouse, Bluetooth keyboard and mouse, multichannel sound over HDMI, spatial audio in AirPods and a warning when the output adds delay, Top Shelf, per-user profiles on the Apple TV.
+- Apple TV app: the gamepad can act as a mouse (session menu, on by default with the Desktop profile): left stick for the pointer, A / ✕ click, X / □ right click, B / ○ middle click, right stick to scroll, d-pad for arrows, L1 / R1 to switch windows (Alt + Tab), Start for the Start menu, Select for Escape.
+- Console: code pairing. The Apple TV shows a 6-digit code, you accept it in Access › Devices, and it gets its access without typing anything on the remote.
+- Console: the network announcement says whether Kyber is really installed; the apps no longer offer a computer where it is not.
+- Mac app: your computers are published to iCloud with their credentials, so the Apple TV finds them on its own ("Synchroniser avec iCloud" setting, ⌘,).
 - Console: an update that stops partway no longer blocks the "Install" button ("an installation is already in progress"); the Updates page shows the end of the installation log. Faster unpacking and download of the update (PowerShell without a progress bar). Since 0.2.0, an update started from the console could never start: PowerShell is now launched with a hidden console, and its output is kept.
 
 ## 0.2.1

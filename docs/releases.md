@@ -4,7 +4,7 @@
 
 Les versions de KyberNow sont publiées sur GitHub : https://github.com/MonsieurNours/kybernow/releases. Le dépôt est public : les mises à jour se téléchargent sans jeton, et le code reste disponible comme l'exige l'AGPL (avec les correctifs de Kyber, voir [kyber-changes.md](kyber-changes.md)).
 
-Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installateur et l'app Mac changent ensemble.
+Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installateur, l'app Mac et l'app Apple TV changent ensemble.
 
 ## Ce que contient une version
 
@@ -15,6 +15,7 @@ Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installa
 | `update.ps1` | Mise à jour à la main, sans la console |
 | `KyberNow-macOS.zip` | L'app Mac (première installation : la glisser dans Applications) |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
+| `KyberSDK-tvOS.zip` | SDK de Kyber compilé pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
 | `SHA256SUMS` | Empreintes de tous les fichiers |
 
 ## Mettre à jour

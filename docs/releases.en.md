@@ -4,7 +4,7 @@ English · [Français](releases.md)
 
 KyberNow releases are published on GitHub: https://github.com/MonsieurNours/kybernow/releases. The repository is public: updates download without a token, and the code stays available as the AGPL requires (with the patches to Kyber, see [kyber-changes.en.md](kyber-changes.en.md)).
 
-One version number for all of KyberNow: the console, the icon, the installer and the Mac app change together.
+One version number for all of KyberNow: the console, the icon, the installer, the Mac app and the Apple TV app change together.
 
 ## What a release contains
 
@@ -15,6 +15,7 @@ One version number for all of KyberNow: the console, the icon, the installer and
 | `update.ps1` | Manual update, without the console |
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
+| `KyberSDK-tvOS.zip` | Kyber SDK built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
 | `SHA256SUMS` | Checksums of all the files |
 
 ## Updating

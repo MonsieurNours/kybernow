@@ -16,7 +16,14 @@ struct TopShelfEntry: Codable, Identifiable {
 }
 
 enum TopShelfStore {
-    static let group = "group.fr.leslignesclaires.kybernow"
+    /// `group.<identifiant de l'app>` : l'extension (`….topshelf`) et l'app
+    /// partagent le même groupe, y compris quand l'app est installée sous un
+    /// autre identifiant (scripts/sideload.sh).
+    static var group: String {
+        var id = Bundle.main.bundleIdentifier ?? "fr.leslignesclaires.kybernow"
+        if id.hasSuffix(".topshelf") { id.removeLast(".topshelf".count) }
+        return "group." + id
+    }
 
     static var folder: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)?

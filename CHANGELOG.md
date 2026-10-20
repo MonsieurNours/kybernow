@@ -7,6 +7,11 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.2
 
+- Nouvelle app Apple TV (en attendant l'App Store, à installer soi-même : voir https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.md) : votre ordinateur sur le téléviseur, à la télécommande ou à la manette, en 4K à 60 Hz au plus. Jusqu'à quatre manettes (Xbox, DualSense…) avec vibrations, Siri Remote en souris, clavier et souris Bluetooth, son multicanal par l'HDMI, audio spatial dans les AirPods et alerte quand la sortie ajoute du retard, Top Shelf, profils par utilisateur de l'Apple TV.
+- App Apple TV : la manette peut servir de souris (menu de session, d'office en profil Bureau) : stick gauche pour le pointeur, A / ✕ clic, X / □ clic droit, B / ○ clic du milieu, stick droit pour défiler, croix pour les flèches, L1 / R1 pour passer d'une fenêtre à l'autre (Alt + Tab), Start pour le menu Démarrer, Select pour Échap.
+- Console : appairage par code. L'Apple TV affiche un code à 6 chiffres, on l'accepte dans Accès › Appareils, et elle reçoit son accès sans rien taper à la télécommande.
+- Console : l'annonce sur le réseau dit si Kyber est vraiment installé ; les apps ne proposent plus un ordinateur où il ne l'est pas.
+- App Mac : vos ordinateurs sont publiés dans iCloud avec leurs accès, pour que l'Apple TV les retrouve toute seule (réglage « Synchroniser avec iCloud », ⌘,).
 - Console : une mise à jour qui s'arrête en route ne bloque plus le bouton « Installer » (« une installation est déjà en cours ») ; la page Mises à jour montre la fin du journal de l'installation. Décompression et téléchargement de la mise à jour plus rapides (PowerShell sans barre de progression). Depuis la 0.2.0, la mise à jour lancée par la console pouvait ne jamais démarrer : PowerShell est maintenant lancé avec une console cachée, et sa sortie est gardée.
 
 ## 0.2.1

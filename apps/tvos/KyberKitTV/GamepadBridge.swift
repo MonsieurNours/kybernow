@@ -62,6 +62,16 @@ public final class GamepadBridge: ObservableObject {
     public var rumbleEnabled = true
     /// Ordre fixe : chaque manette retrouve sa place (J1…J4) d'une session à l'autre.
     public var fixedOrder = false
+    /// La manette sert de souris et de clavier (menu de session, profil Bureau) :
+    /// stick gauche = pointeur, droit = molette, A / ✕ clic, X / □ clic droit,
+    /// B / ○ clic du milieu, croix = flèches, L1 / R1 = Alt + Tab, Start =
+    /// touche Windows, Select = Échap ; LT ralentit, RT accélère. Le jeu ne
+    /// reçoit plus la manette ; coupé, elle redevient une manette.
+    public var padMouse = false {
+        didSet { if padMouse != oldValue { padMouseChanged() } }
+    }
+    /// Vitesse du pointeur à la manette (1 : normale).
+    public var padMouseSpeed: Double = 1
 
     private final class Slot {
         let controller: GCController
@@ -70,6 +80,8 @@ public final class GamepadBridge: ObservableObject {
         var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
+        /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
+        var comboSeen = false
         init(controller: GCController, id: UInt32, player: Int) {
             self.controller = controller
             self.id = id
@@ -114,10 +126,13 @@ public final class GamepadBridge: ObservableObject {
         for slot in orderedSlots {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(slot.controller)?.vendor, product: Self.usbIDs(slot.controller)?.product)
         }
+        updateMouseTimer()
     }
 
     func detach() {
         for slot in slots.values { slot.motors?.stop() }
+        if let input { releaseMouse(input) }
+        stopMouseTimer()
         if let input {
             for slot in slots.values {
                 releaseAll(slot, input: input)
@@ -134,6 +149,7 @@ public final class GamepadBridge: ObservableObject {
         captured = value
         if value, let input {
             for slot in slots.values { releaseAll(slot, input: input) }
+            releaseMouse(input)
         }
     }
 
@@ -251,22 +267,181 @@ public final class GamepadBridge: ObservableObject {
         guard let input else { return }
         if menuFromCombo, pressed, Self.combo.contains(button), slot.pressed.isSuperset(of: Self.combo) {
             KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
+            slot.comboSeen = true
             if !captured {
                 // L'ordinateur a vu les premières touches : on les relâche pour lui.
-                for b in slot.pressed where b != button { input.gamepadButton(id: slot.id, b, pressed: false) }
+                if !padMouse {
+                    for b in slot.pressed where b != button { input.gamepadButton(id: slot.id, b, pressed: false) }
+                }
                 captured = true
             }
             onMenuRequest?()
             return
         }
+        defer { if slot.pressed.isDisjoint(with: Self.combo) { slot.comboSeen = false } }
         guard !captured else { return }
+        if padMouse {
+            mouseButton(slot, button, pressed: pressed, input: input)
+            return
+        }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
 
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         liveDirty = true
-        guard let input, !captured else { return }
+        guard let input, !captured, !padMouse else { return }
         input.gamepadAxis(id: slot.id, axis, value: value)
+    }
+
+    // MARK: - Manette en souris
+
+    private var heldMouse = Set<InputPipeline.MouseButton>()
+    private var heldKeys = Set<UInt16>()
+    private var altHeld = false
+    private var altRelease: DispatchWorkItem?
+    private var mouseTimer: DispatchSourceTimer?
+    private var moveRest = (x: 0.0, y: 0.0)
+    private var wheelRest = (x: 0.0, y: 0.0)
+
+    // Usages HID (page 7) des touches envoyées.
+    private static let keyUp: UInt16 = 0x52, keyDown: UInt16 = 0x51, keyLeft: UInt16 = 0x50, keyRight: UInt16 = 0x4F
+    private static let keyTab: UInt16 = 0x2B, keyEscape: UInt16 = 0x29
+    private static let keyLeftShift: UInt16 = 0xE1, keyLeftAlt: UInt16 = 0xE2, keyLeftGUI: UInt16 = 0xE3
+
+    private func padMouseChanged() {
+        if let input {
+            if padMouse {
+                // Le jeu lâche la manette : rien ne reste enfoncé chez lui.
+                for slot in slots.values { releaseAll(slot, input: input) }
+            } else {
+                releaseMouse(input)
+            }
+        }
+        updateMouseTimer()
+    }
+
+    private func key(_ usage: UInt16, _ pressed: Bool, input: InputPipeline) {
+        guard let scancode = Keymap.scancode(usage: usage) else { return }
+        if pressed { heldKeys.insert(usage) } else { heldKeys.remove(usage) }
+        input.key(scancode: scancode, pressed: pressed)
+    }
+
+    private func tap(_ usage: UInt16, input: InputPipeline) {
+        key(usage, true, input: input)
+        key(usage, false, input: input)
+    }
+
+    private func mouseButton(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
+        func click(_ b: InputPipeline.MouseButton) {
+            if pressed { heldMouse.insert(b) } else { heldMouse.remove(b) }
+            input.mouseButton(b, pressed: pressed)
+        }
+        // Touches de la combinaison du menu : elles agissent au relâchement,
+        // sauf si la combinaison a été formée entre-temps.
+        let released = !pressed && !slot.comboSeen
+        switch button {
+        case .a: click(.left)
+        case .x: click(.right)
+        case .b: click(.middle)
+        case .dpadUp: key(Self.keyUp, pressed, input: input)
+        case .dpadDown: key(Self.keyDown, pressed, input: input)
+        case .dpadLeft: key(Self.keyLeft, pressed, input: input)
+        case .dpadRight: key(Self.keyRight, pressed, input: input)
+        case .start: if released { tap(Self.keyLeftGUI, input: input) }
+        case .back: if released { tap(Self.keyEscape, input: input) }
+        case .rightShoulder: if released { altTab(forward: true, input: input) }
+        case .leftShoulder: if released { altTab(forward: false, input: input) }
+        default: break
+        }
+    }
+
+    /// Alt reste tenu tant qu'on enchaîne (sélecteur de fenêtres ouvert),
+    /// puis il est relâché : la fenêtre choisie passe devant.
+    private func altTab(forward: Bool, input: InputPipeline) {
+        if !altHeld {
+            key(Self.keyLeftAlt, true, input: input)
+            altHeld = true
+        }
+        if !forward { key(Self.keyLeftShift, true, input: input) }
+        tap(Self.keyTab, input: input)
+        if !forward { key(Self.keyLeftShift, false, input: input) }
+        altRelease?.cancel()
+        let release = DispatchWorkItem { [weak self] in
+            guard let self, self.altHeld, let input = self.input else { return }
+            self.key(Self.keyLeftAlt, false, input: input)
+            self.altHeld = false
+        }
+        altRelease = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: release)
+    }
+
+    private func releaseMouse(_ input: InputPipeline) {
+        for b in heldMouse { input.mouseButton(b, pressed: false) }
+        heldMouse.removeAll()
+        altRelease?.cancel()
+        altHeld = false
+        for usage in heldKeys {
+            if let scancode = Keymap.scancode(usage: usage) { input.key(scancode: scancode, pressed: false) }
+        }
+        heldKeys.removeAll()
+    }
+
+    private func updateMouseTimer() {
+        guard padMouse, input != nil else {
+            stopMouseTimer()
+            return
+        }
+        guard mouseTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: 1.0 / 120, leeway: .milliseconds(1))
+        timer.setEventHandler { [weak self] in self?.mouseTick() }
+        timer.resume()
+        mouseTimer = timer
+    }
+
+    private func stopMouseTimer() {
+        mouseTimer?.cancel()
+        mouseTimer = nil
+        moveRest = (0, 0)
+        wheelRest = (0, 0)
+    }
+
+    /// 120 fois par seconde : le stick gauche déplace le pointeur (lent près
+    /// du centre, rapide à fond), le droit fait tourner la molette.
+    private func mouseTick() {
+        guard padMouse, !captured, let input else { return }
+        let dt = 1.0 / 120
+        var dx = 0.0, dy = 0.0, wx = 0.0, wy = 0.0
+        for slot in slots.values {
+            let left = slot.live.leftStick
+            let m = Double(hypot(left.x, left.y))
+            if m > 0.12 {
+                let n = min(1, (m - 0.12) / 0.88)
+                // Jusqu'à ~2 600 px/s à fond : l'écran 4K traversé en 1,5 s.
+                let precision = 1 - 0.7 * Double(slot.live.leftTrigger)
+                let boost = 1 + 1.5 * Double(slot.live.rightTrigger)
+                let speed = 2600 * pow(n, 2.2) * padMouseSpeed * precision * boost
+                dx += Double(left.x) / m * speed * dt
+                dy -= Double(left.y) / m * speed * dt
+            }
+            let right = slot.live.rightStick
+            // Jusqu'à 14 crans de molette par seconde.
+            if abs(right.y) > 0.15 { wy += Double(right.y) * 14 * dt }
+            if abs(right.x) > 0.15 { wx += Double(right.x) * 14 * dt }
+        }
+        moveRest.x += dx
+        moveRest.y += dy
+        let ix = Int16(clamping: Int(moveRest.x.rounded(.towardZero)))
+        let iy = Int16(clamping: Int(moveRest.y.rounded(.towardZero)))
+        moveRest.x -= Double(ix)
+        moveRest.y -= Double(iy)
+        if ix != 0 || iy != 0 { input.mouseMove(dx: ix, dy: iy) }
+        wheelRest.x += wx
+        wheelRest.y += wy
+        if abs(wheelRest.y) >= 0.25 || abs(wheelRest.x) >= 0.25 {
+            input.wheel(dx: Float(wheelRest.x), dy: Float(wheelRest.y))
+            wheelRest = (0, 0)
+        }
     }
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
