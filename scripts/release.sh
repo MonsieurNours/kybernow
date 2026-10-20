@@ -30,7 +30,11 @@ cd "$ROOT"
 
 grep -q "^## $VERSION\$" CHANGELOG.md || { echo "Ajoutez une section « ## $VERSION » à CHANGELOG.md" >&2; exit 1; }
 if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then echo "$TAG est déjà publiée" >&2; exit 1; fi
-if pgrep -x KyberNow >/dev/null; then echo "Quittez KyberNow avant de construire l'app (⌘Q)" >&2; exit 1; fi
+# L'app compilée ici (Release) ne doit pas tourner : ses bibliothèques sont
+# réécrites. Une autre copie ouverte (Debug, Applications) ne gêne pas.
+if pgrep -f "apps/macos/build/Build/Products/Release/KyberNow.app/" >/dev/null; then
+    echo "Quittez la KyberNow compilée en Release avant de publier (⌘Q)" >&2; exit 1
+fi
 
 echo "==> Version $VERSION"
 for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml; do
