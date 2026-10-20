@@ -1,0 +1,460 @@
+--- a/kyavservice/src/avconv/cursor.rs
++++ b/kyavservice/src/avconv/cursor.rs
+@@ -24,7 +24,7 @@
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
+ use std::thread::{self, JoinHandle};
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ use log::{info, warn};
+ 
+@@ -36,8 +36,24 @@
+ 
+ const RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
+ 
++/// KyberNow: a hide is only announced once the pointer has stayed hidden this
++/// long. Windows hides and shows it in bursts (typing, no mouse plugged in),
++/// which made clients blink and switch mouse modes (same as txproto 0002).
++const HIDE_DELAY: Duration = Duration::from_millis(250);
++
++/// KyberNow: pointer moves with an unchanged shape are forwarded too
++/// (position only, empty bitmap), at most this often (same as txproto 0006).
++const MOVE_INTERVAL: Duration = Duration::from_micros(16_666);
++
++/// A packet for the input server, now or at a given time. A later packet
++/// replaces the one waiting; a packet sent now cancels it.
++enum Msg {
++    Now(Vec<u8>),
++    At(Vec<u8>, Instant),
++}
++
+ pub(crate) struct CursorSink {
+-    tx: SyncSender<Vec<u8>>,
++    tx: SyncSender<Msg>,
+     stop: Arc<AtomicBool>,
+     connected: Arc<AtomicBool>,
+     worker: Option<JoinHandle<()>>,
+@@ -45,7 +61,7 @@
+ 
+ impl CursorSink {
+     pub(crate) fn new(display_id: u32) -> Arc<Self> {
+-        let (tx, rx) = sync_channel::<Vec<u8>>(CHANNEL_CAP);
++        let (tx, rx) = sync_channel::<Msg>(CHANNEL_CAP);
+         let stop = Arc::new(AtomicBool::new(false));
+         let connected = Arc::new(AtomicBool::new(false));
+         let stop_thread = Arc::clone(&stop);
+@@ -62,8 +78,8 @@
+         })
+     }
+ 
+-    fn try_send(&self, bytes: Vec<u8>) -> bool {
+-        match self.tx.try_send(bytes) {
++    fn try_send(&self, msg: Msg) -> bool {
++        match self.tx.try_send(msg) {
+             Ok(()) => true,
+             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
+         }
+@@ -83,7 +99,7 @@
+         }
+         match packet {
+             None => self.clear_connected(),
+-            Some(p) if self.try_send(p.to_vec()) => self.clear_connected(),
++            Some(p) if self.try_send(Msg::Now(p.to_vec())) => self.clear_connected(),
+             Some(_) => {}
+         }
+     }
+@@ -92,7 +108,7 @@
+ impl Drop for CursorSink {
+     fn drop(&mut self) {
+         self.stop.store(true, Ordering::SeqCst);
+-        let (closed_tx, _) = sync_channel::<Vec<u8>>(1);
++        let (closed_tx, _) = sync_channel::<Msg>(1);
+         let _ = std::mem::replace(&mut self.tx, closed_tx);
+         if let Some(h) = self.worker.take() {
+             let _ = h.join();
+@@ -104,8 +120,9 @@
+     OpenOptions::new().write(true).open(PIPE_NAME).ok()
+ }
+ 
+-fn run_worker(rx: Receiver<Vec<u8>>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
++fn run_worker(rx: Receiver<Msg>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
+     let mut pipe: Option<File> = None;
++    let mut pending: Option<(Vec<u8>, Instant)> = None;
+ 
+     while !stop.load(Ordering::Relaxed) {
+         if pipe.is_none() {
+@@ -121,10 +138,25 @@
+             }
+         }
+ 
+-        let bytes = match rx.recv() {
+-            Ok(b) => b,
+-            Err(_) => return,
++        let received = match &pending {
++            Some((_, at)) => rx.recv_timeout(at.saturating_duration_since(Instant::now())),
++            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+         };
++        let bytes = match received {
++            Ok(Msg::Now(b)) => {
++                pending = None;
++                b
++            }
++            Ok(Msg::At(b, at)) => {
++                pending = Some((b, at));
++                continue;
++            }
++            Err(RecvTimeoutError::Timeout) => match pending.take() {
++                Some((b, _)) => b,
++                None => continue,
++            },
++            Err(RecvTimeoutError::Disconnected) => return,
++        };
+ 
+         let f = pipe.as_mut().unwrap();
+         if f.write_all(&bytes).is_err() {
+@@ -146,8 +178,8 @@
+         if *stream_idx == cursor_capture_idx {
+             sink.replay_on_connect(state.last_packet.as_deref());
+ 
+-            if let Some(bytes) = state.update(display_id, frame) {
+-                sink.try_send(bytes);
++            if let Some(msg) = state.update(display_id, frame) {
++                sink.try_send(msg);
+             }
+             -libc::EAGAIN
+         } else {
+@@ -160,6 +192,8 @@
+ struct CursorState {
+     started: bool,
+     visible: bool,
++    /// Time of the last packet sent or scheduled (moves are spaced from it).
++    last_sent: Option<Instant>,
+     last_pos: (i32, i32),
+     last_hotspot: (i32, i32),
+     last_dims: (u32, u32),
+@@ -167,23 +201,35 @@
+ }
+ 
+ impl CursorState {
+-    fn update(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Vec<u8>> {
+-        let packet = self.next_packet(display_id, frame)?;
++    fn update(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Msg> {
++        let now = Instant::now();
++        let msg = self.next_packet(display_id, frame, now)?;
++        let (packet, sent) = match &msg {
++            Msg::Now(p) => (p, now),
++            Msg::At(p, at) => (p, *at),
++        };
+         self.last_packet = Some(packet.clone());
+-        Some(packet)
++        self.last_sent = Some(sent);
++        Some(msg)
+     }
+ 
+-    fn next_packet(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Vec<u8>> {
++    fn next_packet(&mut self, display_id: u32, frame: &sys::AVFrame, now: Instant) -> Option<Msg> {
+         let coords = side_data::coords(frame);
+         let first = !std::mem::replace(&mut self.started, true);
+ 
+         if coords.map_or(first, |c| c.invisible != 0) {
+-            let announce = self.visible || first;
+-            self.visible = false;
+-            return announce.then(|| hide_packet(display_id));
++            let was_visible = std::mem::replace(&mut self.visible, false);
++            if first {
++                return Some(Msg::Now(hide_packet(display_id)));
++            }
++            // Announced only if it stays hidden: a show within HIDE_DELAY
++            // replaces it (a packet sent now cancels the one waiting).
++            return was_visible.then(|| Msg::At(hide_packet(display_id), now + HIDE_DELAY));
+         }
+ 
++        let mut moved = false;
+         if let Some(c) = coords {
++            moved = self.last_pos != (c.x, c.y);
+             self.last_pos = (c.x, c.y);
+         }
+ 
+@@ -191,14 +237,25 @@
+             self.visible = true;
+             self.last_dims = dims;
+             self.last_hotspot = hotspot;
+-            return Some(self.show_packet(display_id, Some(rows)));
++            return Some(Msg::Now(self.show_packet(display_id, Some(rows))));
+         }
+ 
+-        if self.visible || coords.is_none() {
++        if coords.is_none() {
+             return None;
+         }
+-        self.visible = true;
+-        Some(self.show_packet(display_id, None))
++        if !self.visible {
++            self.visible = true;
++            return Some(Msg::Now(self.show_packet(display_id, None)));
++        }
++        if !moved {
++            return None;
++        }
++        // Same shape, new position: position only, spaced by MOVE_INTERVAL.
++        let packet = self.show_packet(display_id, None);
++        match self.last_sent.map(|t| t + MOVE_INTERVAL) {
++            Some(due) if due > now => Some(Msg::At(packet, due)),
++            _ => Some(Msg::Now(packet)),
++        }
+     }
+ 
+     fn show_packet(&self, display_id: u32, pixels: Option<side_data::RgbaRows<'_>>) -> Vec<u8> {
+--- a/kyavservice/src/avconv/displays.rs
++++ b/kyavservice/src/avconv/displays.rs
+@@ -21,9 +21,6 @@
+ use kyavservice_types::Display;
+ use libavconv_rs::{GrabProviderCtx, GrabSourceSet, sys};
+ 
+-#[cfg(target_os = "windows")]
+-use libavconv_rs::HwDeviceRef;
+-
+ use super::Result;
+ #[cfg(target_os = "linux")]
+ use crate::config::GstreamerVideoSource;
+@@ -40,18 +37,43 @@
+             name: "grab provider",
+         })?;
+ 
++    // KyberNow: no fixed D3D11 device on Windows. With one, the provider
++    // only re-lists the outputs that adapter had when it was created: a
++    // display added later (the virtual display) never showed up, and the
++    // ones switched off stayed listed as 0 x 0. Without it, the provider
++    // scans every adapter and rebuilds its DXGI factory when the display
++    // topology changes.
+     let mut ctx = GrabProviderCtx::new(provider)?;
+-
+-    #[cfg(target_os = "windows")]
+-    {
+-        let hw_device = HwDeviceRef::new(sys::AVHWDeviceType_AV_HWDEVICE_TYPE_D3D11VA)?;
+-        ctx.set_hw_device(&hw_device);
+-    }
+-
+     ctx.init()?;
+     Ok(ctx)
+ }
+ 
++/// KyberNow: stable display ID, the same as the txproto backend gives: the
++/// CRC-32 (FFmpeg's AV_CRC_32_IEEE, initial value all ones) of the Windows
++/// device name (`\\.\DISPLAY2`). Clients keep the same IDs whatever the
++/// backend, and an ID no longer shifts when a display is added or removed.
++pub(crate) fn display_id(name: &str) -> u32 {
++    static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
++    let table = TABLE.get_or_init(|| {
++        let mut t = [0u32; 256];
++        for (i, entry) in t.iter_mut().enumerate() {
++            let mut c = (i as u32) << 24;
++            for _ in 0..8 {
++                c = if c & 0x8000_0000 != 0 { (c << 1) ^ 0x04C1_1DB7 } else { c << 1 };
++            }
++            *entry = c.swap_bytes();
++        }
++        t
++    });
++    name.bytes()
++        .fold(u32::MAX, |crc, b| table[((crc ^ b as u32) & 0xff) as usize] ^ (crc >> 8))
++}
++
++/// ID of a source: from its name, else its position (sources without a name).
++pub(crate) fn source_id(src: &libavconv_rs::GrabSource<'_>, idx: usize) -> u32 {
++    src.name().map(|n| display_id(&n)).unwrap_or(idx as u32)
++}
++
+ /// Query the screen-source set from `provider`.
+ pub(crate) fn fetch_screen_sources(provider: &GrabProviderCtx) -> Result<GrabSourceSet> {
+     let payloads: u32 = 1 << sys::AVConvHandlePayload_AVCONV_HANDLE_PAYLOAD_FRAME;
+@@ -59,15 +81,14 @@
+     Ok(provider.sources(payloads, src_types)?)
+ }
+ 
+-/// Convert a `GrabSourceSet` into the `Display` wire shape.  Display
+-/// IDs are assigned by iteration index matches the existing
+-/// behaviour at the cost of stability across hot-plugs (see todo.md).
++/// Convert a `GrabSourceSet` into the `Display` wire shape (IDs: see
++/// [`display_id`]).
+ pub(crate) fn collect_displays(sources: &GrabSourceSet) -> Vec<Display> {
+     sources
+         .iter()
+         .enumerate()
+         .map(|(idx, src)| Display {
+-            id: idx as u32,
++            id: source_id(&src, idx),
+             name: src.name().unwrap_or_else(|| format!("Display {idx}")),
+             width: src.width(),
+             height: src.height(),
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -213,10 +213,20 @@
+ 
+     let sources = grab_ctx.sources(payloads, src_types)?;
+ 
+-    // Select by display index, fall back to first available.
++    // KyberNow: select by display ID (see displays::display_id), then by
++    // index (IDs of sources without a name), then the first available.
+     let src = sources
+         .iter()
+-        .nth(video_config.display_id as usize)
++        .enumerate()
++        .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
++        .map(|(_, s)| s)
++        .or_else(|| {
++            warn!(
++                "Display {} not found on the capture adapter, using another one",
++                video_config.display_id
++            );
++            sources.iter().nth(video_config.display_id as usize)
++        })
+         .or_else(|| sources.iter().next())
+         .ok_or(libavconv_rs::Error::NoSource)?;
+ 
+--- a/kyavservice/src/avconv/audio.rs
++++ b/kyavservice/src/avconv/audio.rs
+@@ -74,11 +74,23 @@
+     first_loopback.or_else(|| sources.iter().next())
+ }
+ 
+-/// Set up the audio capture source.  Returns `(capture, output_handle)`.
++/// KyberNow: what the stream carries, from the capture's channel count:
++/// 5.1 and 7.1 stay as they are (Opus channel mapping family 1), anything
++/// else is mixed down to stereo. Returns (filter name, channels, mask).
++fn output_layout(captured: i32) -> (&'static str, i32, u64) {
++    match captured {
++        6 => ("5.1", 6, 0x3F),  // FL FR FC LFE BL BR
++        8 => ("7.1", 8, 0x63F), // FL FR FC LFE BL BR SL SR
++        _ => ("stereo", 2, 0x3),
++    }
++}
++
++/// Set up the audio capture source.  Returns `(capture, output_handle,
++/// captured channel count)`.
+ fn create_grab_source(
+     ctx: Arc<AvconvContext>,
+     clock_type: &ClockType,
+-) -> Result<(GrabCapture, Handle)> {
++) -> Result<(GrabCapture, Handle, i32)> {
+     let provider = libavconv_rs::provider_by_name(audio_provider_name()).ok_or(
+         libavconv_rs::Error::NotFound {
+             name: "audio grab provider",
+@@ -96,7 +108,8 @@
+     let src = pick_loopback_source(&sources).ok_or(libavconv_rs::Error::NoSource)?;
+ 
+     let name = src.name().unwrap_or_else(|| "<unnamed>".to_string());
+-    info!("Selected audio loopback: {name}");
++    let channels = src.nb_channels();
++    info!("Selected audio loopback: {name} ({channels} channels)");
+ 
+     let mut capture = GrabCaptureBuilder::new(src)?;
+     // Match the video epoch so audio and video PTS share a clock domain
+@@ -105,20 +118,26 @@
+     let capture = capture.build(ctx.clone())?;
+ 
+     let handle = capture.stream_handle(0);
+-    Ok((capture, handle))
++    Ok((capture, handle, channels))
+ }
+ 
+-/// Configure the Opus encoder for a stereo 48 kHz stream.
+-fn configure_opus_encoder(enc: &EncoderBuilder, bitrate: i64) -> Result<()> {
++/// Configure the Opus encoder for a 48 kHz stream with `layout`.
++fn configure_opus_encoder(
++    enc: &EncoderBuilder,
++    bitrate: i64,
++    layout: sys::AVChannelLayout,
++) -> Result<()> {
+     enc.set_bit_rate(bitrate);
+     enc.set_sample_rate(SAMPLE_RATE);
+     enc.set_sample_fmt(sys::AVSampleFormat_AV_SAMPLE_FMT_FLT);
+     enc.enable_global_header();
+ 
+-    enc.set_channel_layout(libavconv_rs::ChannelLayout::stereo());
++    enc.set_channel_layout(layout);
+ 
+-    enc.set_option("application", "audio")?;
+-    enc.set_option("frame_duration", "20")?;
++    // KyberNow: CELT only, without the SILK look-ahead, and 10 ms frames
++    // instead of 20: about 15 ms less latency (same as txproto 0004).
++    enc.set_option("application", "lowdelay")?;
++    enc.set_option("frame_duration", "10")?;
+     enc.set_option("vbr", "on")?;
+ 
+     Ok(())
+@@ -135,13 +154,11 @@
+ ) -> Result<AudioPipeline> {
+     info!("Start audio grab (loopback), encoder libopus");
+ 
+-    let (capture, capture_handle) = create_grab_source(Arc::clone(&ctx), clock_type)?;
++    let (capture, capture_handle, captured) = create_grab_source(Arc::clone(&ctx), clock_type)?;
++    let (layout_name, channels, mask) = output_layout(captured);
+ 
+-    let mut fg = FilterGraphBuilder::new(
+-        Arc::clone(&ctx),
+-        "aresample=osr=48000:ochl=stereo:osf=flt",
+-        None,
+-    )?;
++    let filter = format!("aresample=osr=48000:ochl={layout_name}:osf=flt");
++    let mut fg = FilterGraphBuilder::new(Arc::clone(&ctx), &filter, None)?;
+ 
+     let codec = libavconv_rs::Codec::find_encoder_by_name("libopus").ok_or(
+         libavconv_rs::Error::NotFound {
+@@ -150,12 +167,15 @@
+     )?;
+ 
+     let enc = EncoderBuilder::new(Arc::clone(&ctx), codec)?;
+-    // This backend always downmixes to stereo (see the filter graph above).
+-    let bitrate = opus_bitrate(2, audio_bitrate);
+-    info!("Audio: Opus, 2 channels, {} kbit/s", bitrate / 1000);
+-    configure_opus_encoder(&enc, bitrate)?;
++    let bitrate = opus_bitrate(channels, audio_bitrate);
++    info!("Audio: Opus, {channels} channels, {} kbit/s", bitrate / 1000);
++    configure_opus_encoder(
++        &enc,
++        bitrate,
++        libavconv_rs::ChannelLayout::native(channels, mask),
++    )?;
+ 
+-    // Opus has a fixed frame size (960 samples for 20 ms @ 48 kHz). libavconv
++    // Opus has a fixed frame size (480 samples for 10 ms @ 48 kHz). libavconv
+     // requires a pre-encoding sync queue for every encoder whose on_open hook
+     // reports a frame size without it the scheduler asserts on
+     // `enc->sq_idx[0] >= 0`.
+--- a/libavconv-rs/src/enc.rs
++++ b/libavconv-rs/src/enc.rs
+@@ -43,6 +43,17 @@
+         layout.u.mask = 0x3; // AV_CH_FRONT_LEFT | AV_CH_FRONT_RIGHT
+         layout
+     }
++
++    /// KyberNow: native-order layout of `nb_channels` channels with the
++    /// given `AV_CH_*` mask (e.g. 0x3F for 5.1, 0x63F for 7.1).
++    pub fn native(nb_channels: i32, mask: u64) -> sys::AVChannelLayout {
++        // SAFETY: as in `stereo`.
++        let mut layout = unsafe { std::mem::zeroed::<sys::AVChannelLayout>() };
++        layout.order = sys::AVChannelOrder_AV_CHANNEL_ORDER_NATIVE;
++        layout.nb_channels = nb_channels;
++        layout.u.mask = mask;
++        layout
++    }
+ }
+ 
+ /// Set a string option on an `AVCodecContext` from inside an encoder hook
+--- a/libavconv-rs/src/grab.rs
++++ b/libavconv-rs/src/grab.rs
+@@ -278,6 +278,12 @@
+     /// Object y position in pixels (video sources).
+     pub fn y(&self) -> i32 {
+         unsafe { (*self.ptr).y }
++    }
++
++    /// KyberNow: channel count of the native format (audio sources), 0 if
++    /// the provider does not know it.
++    pub fn nb_channels(&self) -> i32 {
++        unsafe { (*self.ptr).nb_channels }
+     }
+ 
+     /// Object width in pixels (video sources).

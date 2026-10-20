@@ -14,6 +14,11 @@
 #   0006  pointeur : ses déplacements aussi (position seule, 60 par seconde au plus)
 #   0007  envoi de l'image : files de datagrammes QUIC et mémoires UDP de 8 Mo
 #         (quinn jetait les plus anciens morceaux d'une grosse image)
+#   0008  moteur libavconv (kyavservice) : écrans relus sans carte imposée et
+#         identifiants stables comme txproto, déplacements et délai de masquage
+#         du pointeur, son 5.1/7.1 en paquets Opus de 10 ms « lowdelay »
+#   0009  moteur libavconv (libavgrab) : son horodaté au fil des échantillons,
+#         silences à zéro, nombre de voies des sorties audio
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans
@@ -55,6 +60,7 @@ for p in "$HERE"/*.patch; do
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
         case "$f" in
             subprojects/txproto/*) git -C "$repo/subprojects/txproto" checkout -q -- "${f#subprojects/txproto/}" ;;
+            subprojects/libavconv/*) git -C "$repo/subprojects/libavconv" checkout -q -- "${f#subprojects/libavconv/}" ;;
             *) git -C "$repo" checkout -q -- "$f" ;;
         esac
     done

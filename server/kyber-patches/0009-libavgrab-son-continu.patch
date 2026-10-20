@@ -1,0 +1,153 @@
+diff --git a/subprojects/libavconv/libavgrab/avgrab.c b/subprojects/libavconv/libavgrab/avgrab.c
+index 6b6538173b..546e1851f0 100644
+--- a/subprojects/libavconv/libavgrab/avgrab.c
++++ b/subprojects/libavconv/libavgrab/avgrab.c
+@@ -1195,8 +1195,8 @@ int avgrabi_capture_send_frame(GrabCapture *c, unsigned stream_idx,
+     int hook_repeating = 0;
+     int ret = 0;
+ 
+-    // TODO allow using provider timestamps
+-    frame->pts       = av_gettime_relative() - c->params.epoch;
++    if (!(flags & CAPTURE_SEND_PROVIDER_PTS))
++        frame->pts   = av_gettime_relative() - c->params.epoch;
+     frame->time_base = AV_TIME_BASE_Q;
+     if (frame->nb_samples && frame->sample_rate) {
+         frame->duration = av_rescale_q(frame->nb_samples,
+diff --git a/subprojects/libavconv/libavgrab/avgrab.h b/subprojects/libavconv/libavgrab/avgrab.h
+index 0c10320563..90545f1a5b 100644
+--- a/subprojects/libavconv/libavgrab/avgrab.h
++++ b/subprojects/libavconv/libavgrab/avgrab.h
+@@ -616,6 +616,12 @@ typedef struct AVGrabSource {
+      * Source's native frame rate (video).
+      */
+     AVRational                  framerate;
++
++    /**
++     * KyberNow: channel count of the source's native format (audio), 0 if
++     * unknown.
++     */
++    int                         nb_channels;
+ } AVGrabSource;
+ 
+ /**
+diff --git a/subprojects/libavconv/libavgrab/internal.h b/subprojects/libavconv/libavgrab/internal.h
+index 0bef4a80e7..cac6d591f7 100644
+--- a/subprojects/libavconv/libavgrab/internal.h
++++ b/subprojects/libavconv/libavgrab/internal.h
+@@ -189,6 +189,9 @@ int avgrabi_source_stream_add(GrabSource *src,
+ 
+ enum CaptureSendFlags {
+     CAPTURE_SEND_HEARTBEAT      = (1 << 0),
++    /* KyberNow: frame->pts is already set by the provider (AV_TIME_BASE_Q,
++     * relative to params.epoch), keep it. */
++    CAPTURE_SEND_PROVIDER_PTS   = (1 << 1),
+ };
+ 
+ int avgrabi_capture_send_frame(GrabCapture *c, unsigned stream_idx,
+diff --git a/subprojects/libavconv/libavgrab/wasapi.c b/subprojects/libavconv/libavgrab/wasapi.c
+index 0d16aa4c14..0cf015659b 100644
+--- a/subprojects/libavconv/libavgrab/wasapi.c
++++ b/subprojects/libavconv/libavgrab/wasapi.c
+@@ -9,6 +9,7 @@
+  */
+ 
+ #include <stdatomic.h>
++#include <stdlib.h>
+ 
+ #define COBJMACROS
+ #define CONST_VTABLE
+@@ -27,6 +28,7 @@
+ #include <libavutil/error.h>
+ #include <libavutil/frame.h>
+ #include <libavutil/log.h>
++#include <libavutil/mathematics.h>
+ #include <libavutil/mem.h>
+ #include <libavutil/samplefmt.h>
+ #include <libavutil/time.h>
+@@ -57,8 +59,18 @@ typedef struct WasapiCapture {
+     int                         sample_rate;
+     int                         block_align;
+     AVChannelLayout             ch_layout;
++
++    /* KyberNow: timestamps follow the sample count, resynchronised on the
++     * capture clock when they drift (same as txproto 0003). The arrival time
++     * made packets read in a burst share almost the same pts, so audio went
++     * "backward in time" for the encoder and the player. */
++    int64_t                     sync_pts;     /* us, first sample since the last sync */
++    int64_t                     sync_samples; /* samples captured since the last sync */
++    int                         synced;
+ } WasapiCapture;
+ 
++#define WASAPI_RESYNC_US 40000
++
+ static void wasapi_capture_uninit(GrabCapture *c)
+ {
+     WasapiCapture *priv = c->priv;
+@@ -251,8 +263,9 @@ static int wasapi_capture_thread(GrabCapture *c)
+         if (atomic_load(&c->quit))
+             break;
+ 
++        UINT64 qpc = 0;
+         hr = IAudioCaptureClient_GetBuffer(priv->capture, &buf, &nb_samples,
+-                                           &flags, NULL, NULL);
++                                           &flags, NULL, &qpc);
+         if (hr == AUDCLNT_S_BUFFER_EMPTY) {
+             // XXX make this interruptible
+             DWORD wait = WaitForSingleObject(priv->event, INFINITE);
+@@ -275,11 +288,33 @@ static int wasapi_capture_thread(GrabCapture *c)
+             goto finish;
+         }
+ 
+-        memcpy(frame->data[0], buf, nb_samples * priv->block_align);
++        /* A silent packet's buffer content is undefined: send zeros. */
++        if (flags & AUDCLNT_BUFFERFLAGS_SILENT)
++            memset(frame->data[0], 0, nb_samples * priv->block_align);
++        else
++            memcpy(frame->data[0], buf, nb_samples * priv->block_align);
+ 
+         IAudioCaptureClient_ReleaseBuffer(priv->capture, nb_samples);
+ 
+-        ret = avgrabi_capture_send_frame(c, 0, frame, 0);
++        {
++            /* u64QPCPosition is in 100 ns units, on the same clock as
++             * av_gettime_relative() (QueryPerformanceCounter). */
++            int64_t captured = qpc ? (int64_t)(qpc / 10) - c->params.epoch
++                                   : av_gettime_relative() - c->params.epoch;
++            int64_t expected = priv->sync_pts +
++                               av_rescale(priv->sync_samples, 1000000, priv->sample_rate);
++            if (!priv->synced || (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) ||
++                llabs(captured - expected) > WASAPI_RESYNC_US) {
++                priv->sync_pts     = captured;
++                priv->sync_samples = 0;
++                priv->synced       = 1;
++                expected           = captured;
++            }
++            frame->pts = expected;
++            priv->sync_samples += nb_samples;
++        }
++
++        ret = avgrabi_capture_send_frame(c, 0, frame, CAPTURE_SEND_PROVIDER_PTS);
+         if (ret < 0) {
+             if (ret != AVERROR_EOF && ret != AVERROR_EXIT)
+                 av_log(c, AV_LOG_ERROR, "Unable to send a frame downstream: %s\n",
+@@ -398,6 +433,20 @@ static int wasapi_source(GrabProviderContext *gp, GrabSourceSet *ss,
+     priv_src->dev = dev;
+     IMMDevice_AddRef(dev);
+ 
++    /* KyberNow: native channel count, so the encoder keeps 5.1 / 7.1. */
++    {
++        IAudioClient *client = NULL;
++        WAVEFORMATEX *mix = NULL;
++        if (IMMDevice_Activate(dev, &IID_IAudioClient, CLSCTX_ALL, NULL,
++                               (void **)&client) == S_OK) {
++            if (IAudioClient_GetMixFormat(client, &mix) == S_OK) {
++                src->p.nb_channels = mix->nChannels;
++                CoTaskMemFree(mix);
++            }
++            IAudioClient_Release(client);
++        }
++    }
++
+ finish:
+     if (props)
+         IPropertyStore_Release(props);
