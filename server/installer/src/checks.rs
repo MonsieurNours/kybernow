@@ -132,6 +132,7 @@ pub fn run(emit: &Emit) -> SystemInfo {
         busy,
         lan_ip: info.lan_ip.clone(),
         steam_speakers: info.steam_speakers_inf.is_some(),
+        power_needs_tuning: info.power_needs_tuning,
     });
     info
 }

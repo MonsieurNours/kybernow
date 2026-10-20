@@ -17,6 +17,8 @@ pub enum TaskStatus {
     Running,
     Done,
     Skipped,
+    /// Faite en partie ou pas faite, sans empêcher la suite (détail dans le journal).
+    Warn,
     Failed,
 }
 
@@ -32,7 +34,15 @@ pub struct BusyPort {
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Event {
     Check { id: String, status: CheckStatus, title: String, detail: String },
-    ChecksDone { stream_port: u16, console_port: u16, busy: Option<BusyPort>, lan_ip: Option<String>, steam_speakers: bool },
+    ChecksDone {
+        stream_port: u16,
+        console_port: u16,
+        busy: Option<BusyPort>,
+        lan_ip: Option<String>,
+        steam_speakers: bool,
+        /// `false` : déjà en Performances élevées (ou optimales), l'option est décochée.
+        power_needs_tuning: bool,
+    },
     PortsValidated { stream_error: Option<String>, console_error: Option<String> },
     Task { id: String, status: TaskStatus },
     Progress { percent: f32 },

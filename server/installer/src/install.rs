@@ -258,12 +258,21 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     })?;
 
     if req.max_performance {
-        step(ctx, "power", || {
-            run_ok("powercfg", &["/setactive", "SCHEME_MIN"], &[0])?;
-            ctx.log("Mode d'alimentation : Performances élevées");
-            ctx.progress(96.0);
-            Ok(())
-        })?;
+        // Jamais bloquant : beaucoup de portables n'ont pas ce mode, ou le refusent.
+        ctx.task("power", TaskStatus::Running);
+        match set_high_performance() {
+            Ok(how) => {
+                ctx.log(format!("Mode d'alimentation : Performances élevées{how}"));
+                ctx.task("power", TaskStatus::Done);
+            }
+            Err(e) => {
+                ctx.log(format!(
+                    "ATTENTION : mode d'alimentation inchangé ({e:#}). Choisissez « Performances élevées » dans les options d'alimentation de Windows si cet ordinateur le propose."
+                ));
+                ctx.task("power", TaskStatus::Warn);
+            }
+        }
+        ctx.progress(96.0);
     } else {
         ctx.task("power", TaskStatus::Skipped);
     }
@@ -291,6 +300,32 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     })?;
 
     Ok(need_reboot)
+}
+
+/// Mode « Performances élevées » de Windows.
+pub const HIGH_PERFORMANCE_SCHEME: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
+
+/// Active Performances élevées. Absent de la liste (portables, Windows
+/// récents), il est recréé à partir du modèle de Windows
+/// (`powercfg /duplicatescheme`), puis activé. Renvoie un complément pour le journal.
+fn set_high_performance() -> Result<&'static str> {
+    if run_ok("powercfg", &["/setactive", HIGH_PERFORMANCE_SCHEME], &[0]).is_ok() {
+        return Ok("");
+    }
+    let out = run_ok("powercfg", &["/duplicatescheme", HIGH_PERFORMANCE_SCHEME], &[0])?;
+    let guid = find_guid(&sys::text(&out), HIGH_PERFORMANCE_SCHEME).context("identifiant du mode recréé introuvable")?;
+    run_ok("powercfg", &["/setactive", &guid], &[0])?;
+    Ok(" (recréé à partir du modèle de Windows)")
+}
+
+/// Premier GUID du texte (8-4-4-4-12 chiffres hexadécimaux) autre que `except`.
+pub fn find_guid(text: &str, except: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    (0..bytes.len().saturating_sub(35)).find_map(|i| {
+        let candidate = text.get(i..i + 36)?;
+        let shape = candidate.char_indices().all(|(j, c)| if [8, 13, 18, 23].contains(&j) { c == '-' } else { c.is_ascii_hexdigit() });
+        (shape && !candidate.eq_ignore_ascii_case(except)).then(|| candidate.to_ascii_lowercase())
+    })
 }
 
 /// Arrête et retire ce qui occupe la place : ancienne version, Kyber officiel.
@@ -499,4 +534,18 @@ fn simulate(ctx: &Ctx, req: &InstallRequest) -> Result<bool> {
         ctx.task(id, TaskStatus::Done);
     }
     Ok(req.gamepads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guid_of_the_duplicated_power_scheme() {
+        let out = "GUID du mode de gestion de l'alimentation : 3F2A9C1E-7B4D-4E8A-9C6F-1D2E3F4A5B6C  (Performances élevées)";
+        assert_eq!(find_guid(out, HIGH_PERFORMANCE_SCHEME).as_deref(), Some("3f2a9c1e-7b4d-4e8a-9c6f-1d2e3f4a5b6c"));
+        let echo = format!("{HIGH_PERFORMANCE_SCHEME} -> 11111111-2222-3333-4444-555555555555");
+        assert_eq!(find_guid(&echo, HIGH_PERFORMANCE_SCHEME).as_deref(), Some("11111111-2222-3333-4444-555555555555"));
+        assert_eq!(find_guid("Paramètre non valide.", HIGH_PERFORMANCE_SCHEME), None);
+    }
 }

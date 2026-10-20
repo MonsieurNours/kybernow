@@ -25,7 +25,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 7. SudoVDA : certificat dans Racine + Éditeurs approuvés, nœud de périphérique et pilote via `nefconc`.
 8. ViGEmBus, s'il n'est pas déjà présent (`/quiet /norestart`).
 8. bis. Son à distance (option) : haut-parleurs virtuels de Steam (`SteamStreamingSpeakers.inf` via `pnputil /add-driver /install`) si Steam est installé. La console y bascule la sortie de Windows pendant les sessions : le son quitte les haut-parleurs du PC et part au bon nombre de voies.
-9. Service `kyber-admin` (console, mêmes droits que `kyber`), mode d'alimentation Performances élevées, inscription dans « Applications installées », raccourcis de la console et de l'icône dans le menu Démarrer.
+9. Service `kyber-admin` (console, mêmes droits que `kyber`), mode d'alimentation Performances élevées (option décochée d'office si l'ordinateur y est déjà ; recréé par `powercfg /duplicatescheme` s'il manque, comme sur beaucoup de portables ; si Windows le refuse, l'étape passe en avertissement et l'installation continue), inscription dans « Applications installées », raccourcis de la console et de l'icône dans le menu Démarrer.
 10. Icône de la zone de notification : lancée à la fin de l'installation, et à chaque ouverture de session si « Démarrer avec Windows » est coché (valeur `KyberNow` de `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Sans cette option, les deux services passent en démarrage manuel.
 
 Journal : `C:\Program Files\KyberNow\install.log` (et `%TEMP%\KyberNow-install.log`).

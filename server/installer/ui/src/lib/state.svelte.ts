@@ -41,6 +41,7 @@ export const app = $state({
   lanIp: null as string | null,
   busyPort: null as { port: number; process: string | null } | null,
   steamSpeakers: false,
+  powerNeedsTuning: true,
   ports: { stream: 0, console: 0 },
   portErrors: { stream: null as string | null, console: null as string | null },
   portsPending: false,
@@ -76,6 +77,9 @@ function handle(event: BackendEvent) {
       app.busyPort = event.busy
       app.steamSpeakers = event.steamSpeakers
       if (!event.steamSpeakers) app.options.virtualAudio = false
+      app.powerNeedsTuning = event.powerNeedsTuning
+      // Déjà en Performances élevées : rien à changer.
+      if (!event.powerNeedsTuning) app.options.maxPerformance = false
       app.ports = { stream: event.streamPort, console: event.consolePort }
       break
     case 'portsValidated':

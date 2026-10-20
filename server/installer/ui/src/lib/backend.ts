@@ -2,7 +2,7 @@
 // Dans un navigateur ordinaire, une simulation joue le même rôle.
 
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error'
-export type TaskStatus = 'running' | 'done' | 'skipped' | 'failed'
+export type TaskStatus = 'running' | 'done' | 'skipped' | 'warn' | 'failed'
 
 export type BackendEvent =
   | { type: 'check'; id: string; status: CheckStatus; title: string; detail: string }
@@ -13,6 +13,8 @@ export type BackendEvent =
       busy: { port: number; process: string | null } | null
       lanIp: string | null
       steamSpeakers: boolean
+      /** false : déjà en Performances élevées, l'option est décochée. */
+      powerNeedsTuning: boolean
     }
   | { type: 'portsValidated'; streamError: string | null; consoleError: string | null }
   | { type: 'task'; id: string; status: TaskStatus }
@@ -90,7 +92,7 @@ async function simulate(command: Command) {
         await wait(650)
         emit({ type: 'check', id, status, title, detail })
       }
-      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100', steamSpeakers: true })
+      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100', steamSpeakers: true, powerNeedsTuning: true })
       break
     }
     case 'validatePorts': {

@@ -47,7 +47,11 @@
     <div class="opt">
       <div>
         <h3>Performances maximales</h3>
-        <p>Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.</p>
+        <p>
+          {app.powerNeedsTuning
+            ? 'Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.'
+            : 'Déjà réglé : cet ordinateur est en mode Performances élevées.'}
+        </p>
       </div>
       <Toggle bind:checked={app.options.maxPerformance} label="Performances maximales" />
     </div>
