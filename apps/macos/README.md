@@ -92,7 +92,7 @@ xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Debug -de
 open build/Build/Products/Debug/KyberNow.app
 ```
 
-`build-kyclient.sh` est à relancer après chaque `vendor-kyber.sh` : sans lui, l'app reprend des bibliothèques sans les correctifs. Signature : certificat « Apple Development: info@leslignesclaires.fr », équipe P6DB682S4K (`project.yml`). Elle reste la même d'une compilation à l'autre, ce qui évite que le Trousseau redemande l'accès au mot de passe ; prévoir un Developer ID pour distribuer.
+`build-kyclient.sh` est à relancer après chaque `vendor-kyber.sh` : sans lui, l'app reprend des bibliothèques sans les correctifs. Quand `Vendor/` change, il faut quitter l'app avant de recompiler : VLC planterait en chargeant des modules réécrits sous ses pieds (voir [build-notes](../../docs/build-notes.md)). Une recompilation sans changement de `Vendor/` ne touche plus aux bibliothèques de l'app. Signature : certificat « Apple Development: info@leslignesclaires.fr », équipe P6DB682S4K (`project.yml`). Elle reste la même d'une compilation à l'autre, ce qui évite que le Trousseau redemande l'accès au mot de passe ; prévoir un Developer ID pour distribuer.
 
 ## Tester sans ordinateur distant
 
