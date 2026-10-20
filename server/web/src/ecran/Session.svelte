@@ -10,7 +10,7 @@
   import { choose, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
-  import { installPointerGate, releasePointer, removePointerGate } from './pointer'
+  import { installAbsoluteMouse, installPointerGate, releasePointer, removeAbsoluteMouse, removePointerGate } from './pointer'
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
@@ -372,6 +372,7 @@
 
   onMount(() => {
     installPointerGate(pointerAllowed)
+    installAbsoluteMouse()
     start()
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
@@ -433,6 +434,7 @@
       window.removeEventListener('keydown', shortcut, true)
       releasePointer()
       removePointerGate()
+      removeAbsoluteMouse()
       if (barTimer) clearTimeout(barTimer)
       touch?.destroy()
       window.removeEventListener('resize', resize)
