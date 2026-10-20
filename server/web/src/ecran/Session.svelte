@@ -94,6 +94,27 @@
     canvas.style.height = `${Math.floor(canvasSize.height * scale)}px`
   }
 
+  let cursorWatch: MutationObserver | null = null
+
+  /** Le moteur dessine le pointeur de l'ordinateur en curseur de la toile, et
+   * le masque (`cursor: none`) quand l'ordinateur le dit caché, ce que Windows
+   * fait sans cesse sans souris branchée. Hors capture, on garde une flèche. */
+  function keepPointerVisible(canvas: HTMLCanvasElement) {
+    cursorWatch?.disconnect()
+    const fix = () => {
+      if (canvas.style.cursor === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
+    }
+    cursorWatch = new MutationObserver(fix)
+    cursorWatch.observe(canvas, { attributes: true, attributeFilter: ['style'] })
+    // Souris rendue après une capture : la flèche revient aussi.
+    document.removeEventListener('pointerlockchange', cursorFix)
+    cursorFix = fix
+    document.addEventListener('pointerlockchange', cursorFix)
+    fix()
+  }
+
+  let cursorFix = () => {}
+
   function freshCanvas() {
     canvasBox.querySelector('canvas')?.remove()
     const canvas = document.createElement('canvas')
@@ -102,6 +123,7 @@
     canvas.height = 600
     canvas.tabIndex = 0
     canvasBox.appendChild(canvas)
+    keepPointerVisible(canvas)
     return canvas
   }
 
@@ -405,6 +427,8 @@
       clearInterval(metrics)
       clearInterval(heartbeat)
       clearInterval(foreground)
+      cursorWatch?.disconnect()
+      document.removeEventListener('pointerlockchange', cursorFix)
       if (imageWatch) clearTimeout(imageWatch)
       window.removeEventListener('keydown', shortcut, true)
       releasePointer()
