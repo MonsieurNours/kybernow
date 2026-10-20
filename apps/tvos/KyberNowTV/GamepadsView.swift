@@ -67,6 +67,36 @@ struct GamepadsView: View {
             ForEach(0..<4, id: \.self) { i in
                 slot(i)
             }
+            if let waiting = pads.pads.first(where: \.waiting) {
+                waitingRow(waiting)
+            } else {
+                remoteRow
+            }
+        }
+        .focusSection()
+    }
+
+    /// Cinquième manette : XInput n'en expose que quatre à l'ordinateur.
+    private func waitingRow(_ p: GamepadBridge.Pad) -> some View {
+        let on = p.id == pad?.id
+        let others = pads.pads.filter(\.waiting).count - 1
+        return Button { selected = p.id } label: {
+            HStack(spacing: 18) {
+                Icon("game-controller", size: 32).foregroundStyle(Theme.warn)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(p.name) en attente\(others > 0 ? " (+ \(others))" : "")").font(Theme.sans(22, .semibold))
+                    Text("L'ordinateur ne voit que quatre manettes : elle prendra la place de la première qui se débranche")
+                        .font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 26)
+            .frame(width: 620, height: 84, alignment: .leading)
+        }
+        .buttonStyle(GlassButton(radius: 20, selected: on, scale: 1.04, fill: on ? Color.white.opacity(0.1) : Color.white.opacity(0.03)))
+        .padding(.top, 6)
+    }
+
+    private var remoteRow: some View {
             HStack(spacing: 18) {
                 Icon("television-simple", size: 32).foregroundStyle(Theme.muted)
                 VStack(alignment: .leading, spacing: 4) {
@@ -79,8 +109,6 @@ struct GamepadsView: View {
             .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.03)))
             .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color.white.opacity(0.06)))
             .padding(.top, 6)
-        }
-        .focusSection()
     }
 
     private func slot(_ i: Int) -> some View {
@@ -133,7 +161,7 @@ struct GamepadsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 12) {
                         Circle().fill(Theme.accent).frame(width: 9, height: 9).shadow(color: Theme.accentFill, radius: 6)
-                        Theme.eyebrow("Test en direct · \(pad.map { "J\($0.player)" } ?? "—")")
+                        Theme.eyebrow("Test en direct · \(pad?.label ?? "—")")
                     }
                     Text(pad?.name ?? "Aucune manette").font(Theme.display(40, 640)).tracking(-1)
                 }

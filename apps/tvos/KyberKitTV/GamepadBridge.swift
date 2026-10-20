@@ -37,11 +37,16 @@ public final class GamepadBridge: ObservableObject {
         public let id: UInt32
         public let name: String
         public let kind: Kind
-        /// Joueur sur l'ordinateur, de 1 à 4.
+        /// Joueur sur l'ordinateur, de 1 à 4 ; 0 : en attente (cinquième
+        /// manette, pas branchée sur l'ordinateur).
         public let player: Int
         public var battery: Float?
         public var charging: Bool
         public var rumbles: Bool
+        /// Cinquième manette (ou plus) : l'ordinateur n'en voit que quatre.
+        public var waiting: Bool { player == 0 }
+        /// « J2 », ou « en attente ».
+        public var label: String { waiting ? "en attente" : "J\(player)" }
     }
 
     /// État en direct d'une manette (écran de test).
@@ -66,6 +71,10 @@ public final class GamepadBridge: ObservableObject {
     @Published public private(set) var lastKind: Kind?
     /// États en direct, publiés 30 fois par seconde tant que `monitoring`.
     @Published public private(set) var live: [UInt32: Live] = [:]
+    /// Message court pour la session (capsule) : manette en attente, ou qui
+    /// prend une place libérée. Effacé au bout de 6 s.
+    @Published public private(set) var notice: String?
+    private var noticeClear: DispatchWorkItem?
 
     // Réglés du fil principal, recopiés sur la file (`config`).
     public var monitoring = false {
@@ -140,7 +149,9 @@ public final class GamepadBridge: ObservableObject {
     private final class Slot {
         let controller: GCController
         let id: UInt32
+        /// 1 à 4 ; 0 : en attente, rien ne part vers l'ordinateur.
         var player: Int
+        var active: Bool { player > 0 }
         var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
@@ -267,7 +278,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func plugAll(_ input: InputPipeline) {
-        for slot in orderedSlots {
+        for slot in orderedSlots where slot.active {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(slot.controller)?.vendor, product: Self.usbIDs(slot.controller)?.product)
         }
     }
@@ -283,7 +294,7 @@ public final class GamepadBridge: ObservableObject {
             if let input { releaseMouse(input) }
             stopMouseTimer()
             if let input {
-                for slot in slots.values {
+                for slot in slots.values where slot.active {
                     releaseAll(slot, input: input)
                     input.gamepadUnplug(id: slot.id)
                 }
@@ -321,20 +332,22 @@ public final class GamepadBridge: ObservableObject {
     /// pas la recevoir) ; seul leur état chez nous est remis d'aplomb, pour la
     /// combinaison et l'écran de test.
     private func resync() {
-        guard input != nil, !captured, !config.padMouse else { return }
-        for slot in slots.values {
-            guard let pad = slot.controller.extendedGamepad else { continue }
-            let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
-            slot.pressed = pressed
-            slot.live.pressed = Set(pressed.map(\.name))
-            liveDirty = true
-            axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
-            axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
-            axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
-            axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
-            axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
-            axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
-        }
+        for slot in slots.values { resync(slot) }
+    }
+
+    private func resync(_ slot: Slot) {
+        guard input != nil, !captured, !config.padMouse, slot.active else { return }
+        guard let pad = slot.controller.extendedGamepad else { return }
+        let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
+        slot.pressed = pressed
+        slot.live.pressed = Set(pressed.map(\.name))
+        liveDirty = true
+        axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
+        axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
+        axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
+        axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
+        axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
+        axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
     }
 
     // MARK: - Arrière-plan
@@ -359,7 +372,14 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Branchements
 
-    private var orderedSlots: [Slot] { slots.values.sorted { $0.player < $1.player } }
+    /// Joueurs dans l'ordre, puis les manettes en attente dans leur ordre d'arrivée.
+    private var orderedSlots: [Slot] {
+        slots.values.sorted { ($0.active ? $0.player : 100, $0.id) < ($1.active ? $1.player : 100, $1.id) }
+    }
+
+    /// XInput n'expose que quatre manettes (ViGEm côté ordinateur) : une
+    /// cinquième n'y serait jamais vue et pourrait prendre la place d'une autre.
+    private static let maxPlayers = 4
 
     private func connected(_ c: GCController) {
         onQueue()
@@ -371,23 +391,48 @@ public final class GamepadBridge: ObservableObject {
         }
         let key = ObjectIdentifier(c)
         guard slots[key] == nil else { return }
-        let used = Set(slots.values.map(\.player))
+        let used = Set(slots.values.filter(\.active).map(\.player))
         let remembered = config.fixedOrder ? Self.rememberedPlayer(c) : nil
-        let player = remembered.flatMap { used.contains($0) ? nil : $0 } ?? (1...8).first { !used.contains($0) } ?? used.count + 1
-        Self.remember(c, player: player)
-        let slot = Slot(controller: c, id: nextID, player: player)
+        let player = remembered.flatMap { used.contains($0) || $0 > Self.maxPlayers ? nil : $0 }
+            ?? (1...Self.maxPlayers).first { !used.contains($0) } ?? 0
+        let slot = Slot(controller: c, id: nextID, player: 0)
         nextID += 1
         slots[key] = slot
-        if player <= 4 { c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset }
-        c.light?.color = Self.lightColor(player)
         slot.motors = Motors(controller: c, queue: queue)
         slot.motors?.session = input != nil
         setUpPad(slot)
+        if player > 0 {
+            seat(slot, player)
+        } else {
+            c.playerIndex = .indexUnset
+            KyberLog.app.notice("manette en attente : \(c.vendorName ?? "?", privacy: .public) (déjà quatre joueurs)")
+            post("\(Self.name(c)) en attente : l'ordinateur ne voit que quatre manettes")
+        }
+        publishPads()
+    }
+
+    /// Donne une place (J1…J4) à une manette et l'annonce à l'ordinateur.
+    private func seat(_ slot: Slot, _ player: Int) {
+        let c = slot.controller
+        slot.player = player
+        Self.remember(c, player: player)
+        c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
+        c.light?.color = Self.lightColor(player)
         if let input {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(c)?.vendor, product: Self.usbIDs(c)?.product)
         }
         KyberLog.app.notice("manette branchée : \(c.vendorName ?? "?", privacy: .public) (J\(player))")
-        publishPads()
+    }
+
+    /// Capsule de session (fil principal), effacée au bout de 6 s.
+    private func post(_ text: String) {
+        DispatchQueue.main.async {
+            self.notice = text
+            self.noticeClear?.cancel()
+            let clear = DispatchWorkItem { [weak self] in self?.notice = nil }
+            self.noticeClear = clear
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: clear)
+        }
     }
 
     private func disconnected(_ c: GCController) {
@@ -398,9 +443,15 @@ public final class GamepadBridge: ObservableObject {
         }
         guard let slot = slots.removeValue(forKey: ObjectIdentifier(c)) else { return }
         slot.motors?.stop()
-        if let input {
+        if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
+        }
+        // Une place se libère : la première manette en attente la prend.
+        if slot.active, let next = orderedSlots.first(where: { !$0.active }) {
+            seat(next, slot.player)
+            resync(next)
+            post("\(Self.name(next.controller)) rejoint l'ordinateur en J\(next.player)")
         }
         publishPads()
     }
@@ -496,6 +547,7 @@ public final class GamepadBridge: ObservableObject {
             mouseButton(slot, button, pressed: pressed, input: input)
             return
         }
+        guard slot.active else { return }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
 
@@ -515,7 +567,7 @@ public final class GamepadBridge: ObservableObject {
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         onQueue()
         liveDirty = true
-        guard input != nil, !captured, !config.padMouse else { return }
+        guard input != nil, !captured, !config.padMouse, slot.active else { return }
         guard GamepadGate.moved(from: slot.lastAxis[axis], to: value) else { return }
         slot.lastAxis[axis] = value
         slot.pendingAxes[axis] = value
@@ -714,6 +766,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
+        guard slot.active else { return }
         for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
         slot.pendingAxes.removeAll()
         for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {

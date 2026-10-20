@@ -40,6 +40,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web en tactile : clavier ouvert, l'image garde toute la hauteur au-dessus de la rangée de touches (elle tombait au quart de l'écran), et sur un iPad avec clavier les doigts marchent aussi. Fermer l'onglet en pleine session demande confirmation.
 - App Apple TV : manettes, télécommande, clavier et souris Bluetooth ne passent plus par le fil principal de l'app ; une animation de l'interface ne retarde plus une touche ou un stick de plusieurs millisecondes.
 - App Apple TV : les vibrations du jeu sont continues et suivent son intensité, au lieu de hacher (« mitraillette ») à chaque changement ; elles démarrent aussi plus vite.
+- App Apple TV : quatre manettes au plus sur l'ordinateur, comme XInput ; une cinquième attend (message dans l'écran Manettes et en session) et prend la place de la première qui se débranche, au lieu d'être annoncée à un ordinateur qui ne la voit pas.
 
 ## 0.2.5
 

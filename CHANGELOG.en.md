@@ -39,6 +39,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client on touch devices: with the keyboard open, the image keeps the whole height above the row of keys (it dropped to a quarter of the screen), and on an iPad with a keyboard fingers work too. Closing the tab in the middle of a session asks for confirmation.
 - Apple TV app: gamepads, remote, Bluetooth keyboard and mouse no longer go through the app's main thread; an interface animation no longer delays a button or a stick by several milliseconds.
 - Apple TV app: game rumble is continuous and follows the game's intensity, instead of stuttering at every change; it also starts faster.
+- Apple TV app: four gamepads at most on the computer, as with XInput; a fifth one waits (message in the Gamepads screen and during the session) and takes the slot of the first one that disconnects, instead of being announced to a computer that cannot see it.
 
 ## 0.2.5
 
