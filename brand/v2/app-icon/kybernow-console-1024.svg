@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="KyberNow Console">
+<title>KyberNow Console</title>
+<defs>
+  <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1016"/><stop offset="1" stop-color="#05070A"/></linearGradient>
+  <linearGradient id="ice" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F4FAFB"/><stop offset="1" stop-color="#B9CAD1"/></linearGradient>
+  <radialGradient id="halo" cx="0.62" cy="0.62" r="0.55"><stop offset="0" stop-color="#7E6CFF" stop-opacity="0.38"/><stop offset="1" stop-color="#7E6CFF" stop-opacity="0"/></radialGradient>
+  <filter id="bloom" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="22"/></filter>
+  <filter id="kn-nw" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="3.4"/></filter><filter id="kn-ns" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="0.8"/></filter>
+  <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+</defs>
+<g clip-path="url(#sq)">
+  <rect x="100" y="100" width="824" height="824" fill="url(#tile)"/>
+  <rect x="100" y="100" width="824" height="824" fill="url(#halo)"/>
+  <path d="M100 924 L924 100" stroke="#FFFFFF" stroke-opacity="0.04" stroke-width="2"/>
+  <g transform="translate(242 242) scale(11.25)">
+    <path d="M6.237 43.035 L43.035 6.237 A0.85 0.85 0 0 0 43.035 5.035 L42.965 4.965 A0.85 0.85 0 0 0 41.763 4.965 L4.965 41.763 A0.85 0.85 0 0 0 4.965 42.965 L5.035 43.035 A0.85 0.85 0 0 0 6.237 43.035 Z" fill="#9A8CFF" filter="url(#bloom)" opacity="0.6"/>
+    <path d="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" fill="#2A343E"/>
+    <path d="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" fill="#2A343E"/>
+    <path d="M5.6 42.4 L42.4 5.6" fill="none" stroke="#9A8CFF" stroke-width="9" stroke-linecap="round" opacity="0.9" filter="url(#kn-nw)"/><path d="M5.6 42.4 L42.4 5.6" fill="none" stroke="#9A8CFF" stroke-width="2.6" stroke-linecap="round" filter="url(#kn-ns)"/><path d="M6.237 43.035 L43.035 6.237 A0.85 0.85 0 0 0 43.035 5.035 L42.965 4.965 A0.85 0.85 0 0 0 41.763 4.965 L4.965 41.763 A0.85 0.85 0 0 0 4.965 42.965 L5.035 43.035 A0.85 0.85 0 0 0 6.237 43.035 Z" fill="#F4F1FF"/>
+  </g>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
+</g>
+</svg>

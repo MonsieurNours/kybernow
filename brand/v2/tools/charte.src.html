@@ -1,0 +1,1990 @@
+<title>KyberNow Identité</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=swap">
+<style>
+/* Mise en page « Régie » : une fiche technique de régie vidéo. Bandes d'encre pleine largeur,
+   index numéroté à gauche de chaque section, données en mono, une seule couleur de signal. */
+:root {
+  --font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-text: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Signal : Spectre (piste retenue le 20 octobre 2026) */
+  --sig-d: #9A8CFF; --sig-strong-d: #6D5BFF; --on-sig-d: #FFFFFF;
+  --sig-l: #5340E6; --sig-strong-l: #5340E6; --on-sig-l: #FFFFFF;
+
+  /* Neutres sombres (thème de référence) */
+  --bg: #05070A; --band: #090D12; --surf: #0E141A; --surf-2: #141B23;
+  --line: #1E2832; --line-2: #2B3742;
+  --fg: #E3EDF0; --fg-2: #B4C2C9; --muted: #8A99A3; --faint: #65737E;
+  --mk-ice: #E3EDF0; --mk-dim: #33404B;
+  --ok: #4CD68A; --warn: #F5B841; --bad: #FF6B6B;
+  --sig: var(--sig-d); --sig-strong: var(--sig-strong-d); --on-sig: var(--on-sig-d);
+  --sig-soft: color-mix(in oklab, var(--sig) 14%, transparent);
+  --sig-line: color-mix(in oklab, var(--sig) 45%, transparent);
+  --neon-core: #F4F1FF;
+  color-scheme: dark;
+}
+[data-piste="givre"]   { --sig-d: #5EEBC4; --sig-strong-d: #2BCF9F; --on-sig-d: #03231A; --sig-l: #0B7F60; --sig-strong-l: #0B7F60; --on-sig-l: #FFFFFF; }
+[data-piste="tally"]   { --sig-d: #FFA24A; --sig-strong-d: #FF8A1F; --on-sig-d: #231000; --sig-l: #B35A00; --sig-strong-l: #B35A00; --on-sig-l: #FFFFFF; }
+[data-piste="spectre"] { --sig-d: #9A8CFF; --sig-strong-d: #6D5BFF; --on-sig-d: #FFFFFF; --sig-l: #5340E6; --sig-strong-l: #5340E6; --on-sig-l: #FFFFFF; }
+[data-piste], .dark-island {
+  --sig: var(--sig-d); --sig-strong: var(--sig-strong-d); --on-sig: var(--on-sig-d);
+  --sig-soft: color-mix(in oklab, var(--sig) 14%, transparent);
+  --sig-line: color-mix(in oklab, var(--sig) 45%, transparent);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #F2F5F6; --band: #E8EDEF; --surf: #FFFFFF; --surf-2: #F6F8F9;
+    --line: #D8E0E4; --line-2: #C3CED4;
+    --fg: #0B1117; --fg-2: #2F3B45; --muted: #55636E; --faint: #74828D;
+    --mk-ice: #0B1117; --mk-dim: #C3CED4;
+    --ok: #138A4E; --warn: #A86A00; --bad: #C93A3A;
+    color-scheme: light;
+  }
+  :root:not([data-theme="dark"]), :root:not([data-theme="dark"]) [data-piste] {
+    --sig: var(--sig-l); --sig-strong: var(--sig-strong-l); --on-sig: var(--on-sig-l);
+    --sig-soft: color-mix(in oklab, var(--sig) 10%, transparent);
+    --sig-line: color-mix(in oklab, var(--sig) 40%, transparent);
+  }
+}
+:root[data-theme="light"] {
+  --bg: #F2F5F6; --band: #E8EDEF; --surf: #FFFFFF; --surf-2: #F6F8F9;
+  --line: #D8E0E4; --line-2: #C3CED4;
+  --fg: #0B1117; --fg-2: #2F3B45; --muted: #55636E; --faint: #74828D;
+  --mk-ice: #0B1117; --mk-dim: #C3CED4;
+  --ok: #138A4E; --warn: #A86A00; --bad: #C93A3A;
+  color-scheme: light;
+}
+:root[data-theme="light"], :root[data-theme="light"] [data-piste] {
+  --sig: var(--sig-l); --sig-strong: var(--sig-strong-l); --on-sig: var(--on-sig-l);
+  --sig-soft: color-mix(in oklab, var(--sig) 10%, transparent);
+  --sig-line: color-mix(in oklab, var(--sig) 40%, transparent);
+}
+:root[data-theme="dark"] {
+  --bg: #05070A; --band: #090D12; --surf: #0E141A; --surf-2: #141B23;
+  --line: #1E2832; --line-2: #2B3742;
+  --fg: #E3EDF0; --fg-2: #B4C2C9; --muted: #8A99A3; --faint: #65737E;
+  --mk-ice: #E3EDF0; --mk-dim: #33404B;
+  --ok: #4CD68A; --warn: #F5B841; --bad: #FF6B6B;
+  color-scheme: dark;
+}
+/* Îlots toujours sombres : l'ouverture et la maquette de l'app (l'app est sombre). */
+.dark-island {
+  --bg: #05070A; --band: #090D12; --surf: #0E141A; --surf-2: #141B23;
+  --line: #1E2832; --line-2: #2B3742;
+  --fg: #E3EDF0; --fg-2: #B4C2C9; --muted: #8A99A3; --faint: #65737E;
+  --mk-ice: #E3EDF0; --mk-dim: #33404B;
+  --ok: #4CD68A; --warn: #F5B841; --bad: #FF6B6B;
+  color-scheme: dark;
+  background: var(--bg); color: var(--fg);
+}
+
+/* ── Base ───────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-text); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+h1, h2, h3, h4 { margin: 0; font-family: var(--font-display); font-stretch: 125%; text-wrap: balance; }
+p { margin: 0; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--sig); outline-offset: 3px; border-radius: 4px; }
+.ic { width: 1em; height: 1em; flex: none; display: inline-block; vertical-align: -0.125em; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); font-size: 0.82em; letter-spacing: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (min-width: 720px) { .wrap { padding-left: max(32px, env(safe-area-inset-left, 0px)); padding-right: max(32px, env(safe-area-inset-right, 0px)); } }
+
+/* ── Symbole ────────────────────────────────────────────────────────── */
+.mark { display: block; overflow: visible; }
+.mark .m-src { fill: var(--mk-ice); }
+.mark .m-dst { fill: var(--sig); }
+.mark[data-state="server"] .m-src { fill: var(--sig); }
+.mark[data-state="server"] .m-dst { fill: var(--mk-ice); }
+.mark[data-state="console"] .m-src, .mark[data-state="console"] .m-dst { fill: var(--mk-dim); }
+
+/* ── Lumière : le néon ──────────────────────────────────────────────
+   Niveaux : 0 éteint (repos) · 1 veille (survol, focus) · 2 allumé (actif) · 3 éclair (clic).
+   L'allumage (.ignite) grésille une seconde à l'apparition, puis revient au niveau courant. */
+.mark, .btn-primary, .segmented button, .lum-el {
+  --g1: drop-shadow(0 0 2px color-mix(in oklab, var(--sig) 80%, transparent)) drop-shadow(0 0 8px color-mix(in oklab, var(--sig-strong) 45%, transparent));
+  --g2: drop-shadow(0 0 1px var(--neon-core)) drop-shadow(0 0 5px var(--sig)) drop-shadow(0 0 16px color-mix(in oklab, var(--sig-strong) 80%, transparent));
+  --g3: drop-shadow(0 0 2px #FFFFFF) drop-shadow(0 0 9px var(--sig)) drop-shadow(0 0 28px var(--sig-strong));
+}
+.mark { --nh: 0; --ns: 0; --nc: 0; --nt: 0.2s; }
+.mark .m-halo, .mark .m-sheath { fill: none; stroke-linecap: round; transition: opacity var(--nt) ease-out; }
+.mark .m-halo { stroke: var(--sig); stroke-width: 9; opacity: var(--nh); }
+.mark .m-sheath { stroke: var(--sig); stroke-width: 2.4; opacity: var(--ns); }
+.mark .m-beam { fill: var(--neon-core); opacity: var(--nc); transition: opacity var(--nt) ease-out; }
+.mark[data-state="console"] .m-beam { fill: var(--sig); opacity: 1; }
+.mark[data-state="console"]:is(.g1, .lit, .g3, .ignite) .m-beam { fill: var(--neon-core); }
+.mark.g1 { --nh: 0.5; --ns: 0.7; --nc: 0.85; }
+.mark.lit { --nh: 1; --ns: 1; --nc: 1; }
+.mark.lit .m-halo { animation: respire 3.2s ease-in-out infinite; }
+.mark.lit[data-state="now"] .m-dst, .mark.lit[data-state="server"] .m-src { fill: color-mix(in oklab, var(--sig) 88%, white); }
+.mark.g3 { --nh: 1; --ns: 1; --nc: 1; }
+.mark.g3 .m-halo { stroke-width: 13; }
+.mark.ignite :is(.m-halo, .m-sheath, .m-beam) { animation: allumage 1s linear both; }
+.mark.settle { --nt: 0.9s; }
+.brandlink:hover .mark, .brandlink:focus-visible .mark { --nh: 0.35; --ns: 0.6; --nc: 0.8; }
+@keyframes allumage { 0% { opacity: 0; } 6% { opacity: 1; } 10% { opacity: 0.1; } 16% { opacity: 0.9; } 22% { opacity: 0.05; } 30% { opacity: 1; } 34% { opacity: 0.3; } 44%, 100% { opacity: 1; } }
+@keyframes respire { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+@keyframes allumage-f { 0% { filter: none; } 6% { filter: var(--g3); } 10% { filter: none; } 16% { filter: var(--g2); } 22% { filter: none; } 30% { filter: var(--g3); } 34% { filter: var(--g1); } 44%, 100% { filter: var(--g2); } }
+@keyframes respire-f { 0%, 100% { filter: var(--g2); } 50% { filter: var(--g1); } }
+@keyframes eclair-f { 0% { filter: var(--g3); } 100% { filter: none; } }
+.word { display: block; overflow: visible; fill: currentColor; height: 1em; width: auto; }
+
+/* ── Barre du haut ──────────────────────────────────────────────────── */
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: color-mix(in oklab, var(--bg) 82%, transparent); backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2); border-bottom: 1px solid var(--line); }
+.topbar .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+.brandlink { display: flex; align-items: center; gap: 10px; text-decoration: none; flex: none; }
+.brandlink .mark { width: 22px; height: 22px; }
+.brandlink .word { height: 15px; }
+.nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.nav a { font-size: 13px; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 6px; white-space: nowrap; }
+.nav a:hover { color: var(--fg); background: var(--surf-2); }
+@media (max-width: 860px) { .nav { display: none; } }
+
+/* ── Ouverture ──────────────────────────────────────────────────────── */
+.hero { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); isolation: isolate; }
+.hero::before { content: ""; position: absolute; z-index: -1; width: 60vmax; height: 220vmax; left: 58%; top: 50%; transform: translate(-50%, -50%) rotate(45deg); background: radial-gradient(closest-side, color-mix(in oklab, var(--sig) 22%, transparent), transparent 70%); filter: blur(30px); opacity: 0.9; }
+.hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: repeating-linear-gradient(0deg, transparent 0 3px, rgb(255 255 255 / 0.018) 3px 4px); pointer-events: none; }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 24px; padding-block: 72px 56px; }
+.hero-copy { display: grid; gap: 22px; align-content: center; }
+.hero h1 { font-size: clamp(46px, 5.6vw, 88px); font-weight: 680; letter-spacing: -0.035em; line-height: 0.9; }
+.hero h1 em { font-style: normal; color: var(--sig); }
+.hero .lede { font-size: clamp(17px, 1.6vw, 20px); color: var(--fg-2); max-width: 32ch; line-height: 1.45; }
+.hero-stage { position: relative; aspect-ratio: 1 / 1; max-height: 560px; width: 100%; }
+.hero-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+.hero-fallback { position: absolute; inset: 16%; }
+.hero-fallback .mark { width: 100%; height: 100%; }
+.has-3d .hero-fallback { display: none; }
+.readout { display: grid; grid-template-columns: repeat(3, auto); gap: 0; justify-content: start; border: 1px solid var(--line-2); border-radius: 10px; overflow: hidden; width: max-content; max-width: 100%; }
+.readout div { padding: 10px 16px; display: grid; gap: 2px; border-left: 1px solid var(--line-2); }
+.readout div:first-child { border-left: 0; }
+.readout b { font-family: var(--font-mono); font-weight: 500; font-size: 15px; font-variant-numeric: tabular-nums; color: var(--fg); white-space: nowrap; }
+.readout b.live { color: var(--sig); min-width: 7.5ch; transition: text-shadow 0.3s, color 0.3s; }
+.lit-text { color: color-mix(in oklab, var(--sig) 65%, white) !important; text-shadow: 0 0 1px var(--neon-core), 0 0 6px var(--sig), 0 0 18px var(--sig-strong); }
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.hint { font-size: 12.5px; color: var(--faint); }
+@media (max-width: 860px) {
+  .hero .wrap { grid-template-columns: 1fr; padding-block: 32px 40px; }
+  .hero-stage { order: -1; max-width: 420px; justify-self: center; }
+  .readout { grid-template-columns: 1fr 1fr 1fr; width: 100%; }
+  .readout div { padding: 8px 10px; }
+  .readout b { font-size: 12.5px; }
+}
+
+/* ── Sections ───────────────────────────────────────────────────────── */
+.sec { border-bottom: 1px solid var(--line); padding-block: 88px; }
+.sec.alt { background: var(--band); }
+.sec-h { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 0 24px; margin-bottom: 48px; }
+.sec-n { font-family: var(--font-mono); font-size: 13px; color: var(--sig); padding-top: 10px; border-top: 2px solid var(--sig); align-self: start; }
+.sec-h h2 { font-size: clamp(32px, 4.6vw, 58px); font-weight: 620; letter-spacing: -0.03em; line-height: 0.98; margin-top: 8px; }
+.sec-h .lede { margin-top: 18px; max-width: 64ch; color: var(--fg-2); font-size: 17px; }
+@media (max-width: 720px) { .sec { padding-block: 56px; } .sec-h { grid-template-columns: 1fr; gap: 12px; } .sec-n { width: 48px; } }
+.body-grid { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 24px; }
+.body-grid > * { grid-column: 2; min-width: 0; }
+@media (max-width: 720px) { .body-grid { grid-template-columns: 1fr; } .body-grid > * { grid-column: 1; } }
+.sub { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 14px; }
+.prose { display: grid; gap: 14px; max-width: 66ch; color: var(--fg-2); }
+.prose strong { color: var(--fg); font-weight: 600; }
+.stack-xl { display: grid; gap: 72px; grid-template-columns: minmax(0, 1fr); }
+.stack-l { display: grid; gap: 36px; grid-template-columns: minmax(0, 1fr); }
+.note { font-size: 13.5px; color: var(--muted); }
+.panel { background: var(--surf); border: 1px solid var(--line); border-radius: 16px; }
+
+/* Concept : les trois pièces */
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.trio > div { padding: 28px; display: grid; gap: 14px; align-content: start; border-left: 1px solid var(--line); background: var(--surf); }
+.trio > div:first-child { border-left: 0; }
+.trio .mark { width: 72px; height: 72px; }
+.trio h3 { font-size: 20px; font-weight: 600; }
+.trio p { color: var(--fg-2); font-size: 15px; }
+.trio .mark.focus-src .m-dst, .trio .mark.focus-dst .m-src { fill: var(--mk-dim); }
+.trio .mark.focus-src .m-src { fill: var(--sig); }
+@media (max-width: 860px) { .trio { grid-template-columns: 1fr; } .trio > div { border-left: 0; border-top: 1px solid var(--line); } .trio > div:first-child { border-top: 0; } }
+.manifest { font-family: var(--font-display); font-stretch: 112%; font-size: clamp(22px, 2.6vw, 32px); line-height: 1.22; font-weight: 420; letter-spacing: -0.015em; max-width: 30ch; text-wrap: pretty; }
+.manifest em { font-style: normal; color: var(--sig); }
+
+/* Construction */
+.construct { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 900px) { .construct { grid-template-columns: 1fr; } }
+.blueprint { position: relative; aspect-ratio: 1; max-width: 100%; background: var(--surf); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+.blueprint .mark { position: absolute; inset: 18.75%; width: 62.5%; height: 62.5%; }
+.blueprint svg.over { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.over .grid { stroke: var(--line-2); stroke-width: 0.08; }
+.over .grid.major { stroke: var(--faint); stroke-width: 0.1; opacity: 0.6; }
+.over .clear { fill: none; stroke: var(--sig); stroke-width: 0.12; stroke-dasharray: 0.6 0.6; }
+.over .dim { stroke: var(--fg-2); stroke-width: 0.1; fill: none; }
+.over text { font-family: var(--font-mono); font-size: 1.35px; fill: var(--fg-2); letter-spacing: 0; }
+.over text.sig { fill: var(--sig); }
+.specs { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.specs div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.specs dt, .specs .k { color: var(--muted); font-size: 13px; padding-top: 2px; }
+.specs .v { color: var(--fg); }
+@media (max-width: 520px) { .specs div { grid-template-columns: 1fr; gap: 4px; } }
+.sizes { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-end; padding: 28px; }
+.sizes figure { margin: 0; display: grid; gap: 10px; justify-items: center; }
+.sizes figcaption { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+/* Déclinaisons */
+.apps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) { .apps { grid-template-columns: 1fr; } }
+.app { background: var(--surf); border: 1px solid var(--line); border-radius: 16px; padding: 24px; display: grid; gap: 20px; align-content: start; }
+.app-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.app-name { display: grid; gap: 4px; }
+.app-name b { font-family: var(--font-display); font-stretch: 125%; font-size: 22px; font-weight: 620; letter-spacing: -0.02em; }
+.app-name span { font-size: 13px; color: var(--muted); }
+.tile { --size: 92px; width: var(--size); height: var(--size); border-radius: 22.5%; flex: none; position: relative; display: grid; place-items: center; background: radial-gradient(70% 70% at 64% 64%, color-mix(in oklab, var(--sig) 30%, transparent), transparent 70%), linear-gradient(135deg, #0F151C, #05070A); box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08), 0 12px 30px -12px rgb(0 0 0 / 0.6); }
+.tile .mark { width: 54%; height: 54%; --mk-ice: #E8F1F3; --mk-dim: #2A343E; filter: drop-shadow(0 0 calc(var(--size) * 0.06) color-mix(in oklab, var(--sig-d) 55%, transparent)); }
+.tile { --sig: var(--sig-d); --sig-strong: var(--sig-strong-d); }
+.tile .mark.lit .m-halo { animation: none; }
+.tile .mark[data-state="now"] .m-dst, .tile .mark[data-state="server"] .m-src, .tile .mark .m-beam { fill: var(--sig-d); }
+.lockup { display: flex; align-items: center; gap: 12px; color: var(--fg); }
+.lockup .mark { width: 30px; height: 30px; }
+.lockup .word { height: 19px; }
+.lockup .prod { font-size: 19px; font-weight: 400; color: var(--muted); letter-spacing: -0.01em; padding-left: 12px; border-left: 1px solid var(--line-2); line-height: 1.1; }
+.app ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; color: var(--fg-2); }
+.app li { display: flex; gap: 10px; }
+.app li .ic { color: var(--muted); font-size: 17px; margin-top: 2px; }
+.tv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: center; }
+@media (max-width: 860px) { .tv { grid-template-columns: 1fr; } }
+.tv-tile { perspective: 900px; }
+.tv-card { aspect-ratio: 400 / 240; border-radius: 18px; position: relative; overflow: hidden; transform-style: preserve-3d; transition: transform 0.25s cubic-bezier(.2,.9,.1,1), box-shadow 0.25s; background: linear-gradient(135deg, #10161D, #04060A); box-shadow: 0 20px 50px -20px rgb(0 0 0 / 0.7), inset 0 0 0 1px rgb(255 255 255 / 0.06); }
+.tv-card .layer { position: absolute; inset: 0; display: grid; place-items: center; transition: transform 0.25s cubic-bezier(.2,.9,.1,1); }
+.tv-card .l-bg { background: radial-gradient(60% 90% at 62% 70%, color-mix(in oklab, var(--sig-d) 35%, transparent), transparent 70%); }
+.tv-card .mark { width: 34%; height: auto; aspect-ratio: 1; }
+.tv-card .l-src .mark .m-dst { fill: transparent; }
+.tv-card .l-src .mark .m-src { fill: #E8F1F3; }
+.tv-card .l-dst .mark .m-src { fill: transparent; }
+.tv-card .l-dst .mark .m-dst { fill: var(--sig-d); filter: drop-shadow(0 0 18px color-mix(in oklab, var(--sig-d) 70%, transparent)); }
+.tv-card .shine { position: absolute; inset: -50%; background: radial-gradient(circle at var(--gx, 50%) var(--gy, 0%), rgb(255 255 255 / 0.16), transparent 40%); pointer-events: none; }
+
+/* Nom */
+.wm-hero { padding: clamp(28px, 6vw, 72px) clamp(20px, 5vw, 56px); display: grid; gap: 28px; }
+.wm-hero .word { height: clamp(44px, 9vw, 120px); color: var(--fg); }
+.wm-hero .word .w-now { fill: currentColor; }
+.wm-anat { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; }
+.wm-anat div { display: grid; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line-2); }
+.wm-anat b { font-size: 15px; font-weight: 600; }
+.wm-anat span { font-size: 14px; color: var(--fg-2); }
+.lockups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.lk { border-radius: 16px; padding: 32px 28px; display: grid; gap: 18px; min-height: 200px; align-content: space-between; border: 1px solid var(--line); }
+.lk.ink { background: #05070A; color: #E3EDF0; --mk-ice: #E3EDF0; --sig: var(--sig-d); }
+.lk.paper { background: #F2F5F6; color: #0B1117; --mk-ice: #0B1117; --sig: var(--sig-l); border-color: #D8E0E4; }
+.lk.signal { background: var(--sig-strong-d); color: var(--on-sig-d); --mk-ice: currentColor; }
+.lk.signal .mark .m-dst { fill: currentColor; opacity: 0.55; }
+.lk .cap { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.65; }
+.lk-h { display: flex; align-items: center; gap: 14px; }
+.lk-h .mark { width: 40px; height: 40px; }
+.lk-h .word { height: 26px; }
+.lk-v { display: grid; justify-items: start; gap: 12px; }
+.lk-v .mark { width: 56px; height: 56px; }
+.lk-v .word { height: 20px; }
+.names { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.names div { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.names b { font-weight: 600; }
+.names span { font-size: 13.5px; color: var(--muted); }
+
+/* À éviter */
+.donts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.dont { border: 1px solid var(--line); border-radius: 14px; background: var(--surf); overflow: hidden; }
+.dont .stage { aspect-ratio: 4 / 3; display: grid; place-items: center; position: relative; border-bottom: 1px solid var(--line); }
+.dont .stage .mark { width: 38%; height: auto; aspect-ratio: 1; }
+.dont p { padding: 12px 14px; font-size: 13px; color: var(--fg-2); display: flex; gap: 8px; align-items: flex-start; }
+.dont p .ic { color: var(--bad); font-size: 16px; margin-top: 1px; }
+.dont .stage::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top right, transparent calc(50% - 0.5px), color-mix(in oklab, var(--bad) 60%, transparent) 50%, transparent calc(50% + 0.5px)); opacity: 0.5; pointer-events: none; }
+.d-rot .mark { transform: rotate(90deg); }
+.d-both .mark .m-src { fill: var(--sig); }
+.d-outline .mark .m-src, .d-outline .mark .m-dst { fill: none; stroke: var(--fg); stroke-width: 1.2; }
+.d-stretch .mark { transform: scale(1.7, 0.75); }
+.d-fx .mark { filter: drop-shadow(4px 6px 0 #FF3D9A) drop-shadow(-3px -2px 0 #F3C144); }
+.d-photo .stage { background: linear-gradient(160deg, #9DB4C9, #C9A27A 55%, #E7DDCB); }
+.d-photo .mark { --mk-ice: #EAF2F4; }
+
+/* Couleurs */
+.pistes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) { .pistes { grid-template-columns: 1fr; } }
+.piste { text-align: left; border: 1px solid var(--line); border-radius: 18px; background: var(--surf); padding: 0; overflow: hidden; display: grid; }
+.piste.kept { border-color: var(--sig); box-shadow: 0 0 0 1px var(--sig); }
+.piste.dropped .piste-vis, .piste.dropped .piste-body > :not(h3) { opacity: 0.55; }
+.badge.off { color: var(--muted); background: var(--surf-2); border-color: var(--line-2); }
+.piste-vis { height: 190px; position: relative; display: grid; place-items: center; background: #05070A; overflow: hidden; }
+.piste-vis::before { content: ""; position: absolute; width: 140%; height: 50%; transform: rotate(-45deg); background: radial-gradient(closest-side, color-mix(in oklab, var(--sig-d) 30%, transparent), transparent); }
+.piste-vis .mark { width: 84px; height: 84px; position: relative; --mk-ice: #E3EDF0; }
+.piste-vis .mark .m-dst { fill: var(--sig-d); }
+.piste-vis .chip { position: absolute; left: 16px; bottom: 14px; font-family: var(--font-mono); font-size: 10.5px; color: #B4C2C9; display: flex; align-items: center; gap: 6px; }
+.piste-vis .chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--sig-d); box-shadow: 0 0 10px var(--sig-d); }
+.piste-vis .pbtn { position: absolute; right: 16px; bottom: 12px; font-size: 12px; font-weight: 600; padding: 7px 12px; background: var(--sig-strong-d); color: var(--on-sig-d); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%); border-radius: 5px 5px 0 5px; }
+.piste-body { padding: 22px; display: grid; gap: 14px; }
+.piste-body h3 { font-size: 24px; font-weight: 620; letter-spacing: -0.02em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.badge { font-family: var(--font-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 8px; border-radius: 4px; color: var(--sig); background: var(--sig-soft); border: 1px solid var(--sig-line); }
+.piste-body p { font-size: 14.5px; color: var(--fg-2); }
+.hexes { display: flex; gap: 6px; flex-wrap: wrap; }
+.hexes span { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); padding: 4px 8px 4px 5px; border: 1px solid var(--line); border-radius: 6px; }
+.hexes span i { width: 12px; height: 12px; border-radius: 3px; }
+.pc { display: grid; gap: 6px; font-size: 13.5px; }
+.pc div { display: flex; gap: 8px; color: var(--fg-2); }
+.pc .ic { font-size: 15px; margin-top: 3px; }
+.pc .plus .ic { color: var(--ok); }
+.pc .moins .ic { color: var(--warn); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.sw { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--surf); }
+.sw .chip { height: 72px; border-bottom: 1px solid var(--line); }
+.sw .meta { padding: 10px 12px; display: grid; gap: 2px; }
+.sw b { font-size: 13.5px; font-weight: 600; }
+.sw code { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.ratio { display: flex; height: 56px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); }
+.ratio div { display: flex; align-items: flex-end; padding: 8px 10px; font-family: var(--font-mono); font-size: 11px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--font-mono); font-weight: 500; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--surf); }
+tr:last-child td { border-bottom: 0; }
+td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
+.pass { color: var(--ok); }
+.lim { color: var(--warn); }
+
+/* Typographie */
+.specimens { display: grid; gap: 16px; }
+.spec { border: 1px solid var(--line); border-radius: 16px; background: var(--surf); padding: clamp(20px, 3vw, 36px); display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; }
+@media (max-width: 860px) { .spec { grid-template-columns: 1fr; } }
+.spec .big { font-family: var(--font-display); font-stretch: 125%; font-weight: 650; font-size: clamp(44px, 7vw, 92px); letter-spacing: -0.035em; line-height: 0.92; }
+.spec .txt { font-size: 19px; line-height: 1.5; color: var(--fg-2); max-width: 46ch; }
+.spec .dat { font-family: var(--font-mono); font-size: clamp(15px, 1.8vw, 20px); line-height: 1.7; font-variant-numeric: tabular-nums; }
+.spec .dat span { color: var(--sig); }
+.spec aside { display: grid; gap: 10px; align-content: start; font-size: 13.5px; color: var(--fg-2); }
+.spec aside b { font-size: 16px; color: var(--fg); font-weight: 600; }
+.axes { display: flex; gap: 10px; flex-wrap: wrap; }
+.axes span { font-family: var(--font-mono); font-size: 10.5px; padding: 3px 7px; border-radius: 4px; background: var(--surf-2); color: var(--muted); }
+.scale-row td:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.rule { padding: 18px; border-radius: 14px; border: 1px solid var(--line); background: var(--surf); display: grid; gap: 8px; align-content: start; }
+.rule b { font-size: 15px; font-weight: 600; }
+.rule p { font-size: 14px; color: var(--fg-2); }
+.rule code { font-family: var(--font-mono); font-size: 12px; color: var(--fg); background: var(--surf-2); padding: 1px 5px; border-radius: 4px; }
+
+/* Formes */
+.shapes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 860px) { .shapes { grid-template-columns: 1fr; } }
+.shape { border: 1px solid var(--line); border-radius: 16px; background: var(--surf); padding: 24px; display: grid; gap: 18px; align-content: start; }
+.shape h3 { font-size: 19px; font-weight: 600; font-stretch: 112%; }
+.shape p { font-size: 14px; color: var(--fg-2); }
+.spacing { display: grid; gap: 6px; }
+.spacing div { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.spacing i { height: 10px; background: var(--sig-soft); border-left: 2px solid var(--sig); display: block; }
+.radii { display: flex; gap: 14px; flex-wrap: wrap; }
+.radii div { width: 76px; height: 76px; border: 1.5px solid var(--fg-2); border-right: 0; border-bottom: 0; display: flex; align-items: flex-end; justify-content: flex-end; padding: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+.chamfer-demo { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.seam-demo { height: 150px; border-radius: 12px; position: relative; overflow: hidden; background: var(--surf-2); }
+.seam-demo svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.seam-demo .a { position: absolute; inset: 0; background: linear-gradient(135deg, #1D2A38, #0B1117); clip-path: polygon(0 0, 62% 0, 38% 100%, 0 100%); }
+.seam-demo .b { position: absolute; inset: 0; background: var(--surf); clip-path: polygon(calc(62% + 6px) 0, 100% 0, 100% 100%, calc(38% + 6px) 100%); }
+.seam-demo .beam { position: absolute; left: calc(50% + 3px); top: -10%; width: 1.5px; height: 120%; background: var(--sig); transform: rotate(13.4deg); box-shadow: 0 0 12px var(--sig); }
+.seam-demo .lbl { position: absolute; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.elev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.elev div { height: 84px; border-radius: 12px; padding: 10px; font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); display: flex; align-items: flex-end; }
+.elev .e0 { background: var(--bg); border: 1px solid var(--line); }
+.elev .e1 { background: var(--surf); border: 1px solid var(--line); }
+.elev .e2 { background: var(--surf-2); border: 1px solid var(--line-2); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05); }
+
+/* Règle de trame */
+.ruler { display: grid; gap: 8px; padding-top: 16px; }
+.ruler-track { position: relative; height: 34px; }
+.ruler-track .base { position: absolute; left: 0; right: 0; top: 16px; height: 2px; background: var(--line-2); border-radius: 1px; }
+.ruler-track .band { position: absolute; top: 12px; height: 10px; background: var(--sig-soft); border: 1px solid var(--sig-line); border-radius: 3px; }
+.ruler-track .tick { position: absolute; top: 8px; width: 1px; height: 18px; background: var(--faint); }
+.ruler-track .tick.up span { top: -15px; }
+.ruler-track .tick span { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); font-family: var(--font-mono); font-size: 9.5px; color: var(--faint); white-space: nowrap; }
+.ruler-track .med { position: absolute; top: 4px; width: 3px; height: 26px; margin-left: -1.5px; background: var(--sig); border-radius: 2px; transition: box-shadow 0.3s, background 0.3s; }
+.ruler-track.lit .med { background: var(--neon-core); box-shadow: 0 0 0 1px var(--sig), 0 0 8px var(--sig), 0 0 20px var(--sig-strong); animation: respire 3.2s ease-in-out infinite; }
+.ruler-track.lit .band { background: color-mix(in oklab, var(--sig) 24%, transparent); }
+.ruler-legend { display: flex; justify-content: space-between; gap: 12px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 12px; flex-wrap: wrap; }
+.ruler-legend b { color: var(--fg); font-weight: 500; }
+
+/* Icônes */
+.icon-tools { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--surf-2); border: 1px solid var(--line); gap: 2px; }
+.seg button { border: 0; background: none; padding: 6px 12px; border-radius: 6px; font-size: 13px; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.seg button[aria-pressed="true"], .seg button[aria-checked="true"] { background: var(--surf); color: var(--fg); box-shadow: 0 0 0 1px var(--line-2); }
+.icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.icons figure { margin: 0; background: var(--surf); padding: 18px 10px 14px; display: grid; justify-items: center; gap: 10px; }
+.icons .ic { font-size: 26px; color: var(--fg-2); }
+.icons figcaption { font-size: 11.5px; color: var(--muted); text-align: center; line-height: 1.3; }
+.icons .w { display: none; }
+.icons[data-w="regular"] .w-regular, .icons[data-w="bold"] .w-bold, .icons[data-w="fill"] .w-fill { display: inline-block; }
+.icons[data-w="fill"] .ic { color: var(--sig); filter: drop-shadow(0 0 2px color-mix(in oklab, var(--sig) 80%, transparent)) drop-shadow(0 0 8px color-mix(in oklab, var(--sig-strong) 45%, transparent)); }
+
+/* Mouvement */
+.motions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) { .motions { grid-template-columns: 1fr; } }
+.motion { border: 1px solid var(--line); border-radius: 16px; background: var(--surf); overflow: hidden; display: grid; }
+.motion .stage { height: 200px; display: grid; place-items: center; background: var(--bg); border-bottom: 1px solid var(--line); position: relative; }
+.motion .stage .mark { width: 96px; height: 96px; overflow: visible; }
+.motion .info { padding: 20px; display: grid; gap: 10px; }
+.motion h3 { font-size: 19px; font-weight: 600; font-stretch: 112%; }
+.motion p { font-size: 14px; color: var(--fg-2); }
+.motion code { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.replay { position: absolute; top: 12px; right: 12px; border: 1px solid var(--line-2); background: var(--surf); border-radius: 7px; padding: 5px 9px; font-size: 12px; color: var(--fg-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.replay:hover { color: var(--fg); }
+.m-join .m-src, .m-join .m-dst { transition: transform 0.42s cubic-bezier(.2,.9,.1,1); }
+.m-join.apart .m-src { transform: translate(-7px, -7px); transition: none; }
+.m-join.apart .m-dst { transform: translate(7px, 7px); transition: none; }
+.m-pass .pulse { fill: none; stroke: var(--sig); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: 12 100; stroke-dashoffset: 112; animation: pass 1.4s linear infinite; filter: drop-shadow(0 0 2px var(--sig)); }
+.m-pass .m-dst { fill: var(--mk-ice); }
+@keyframes pass { to { stroke-dashoffset: 0; } }
+.m-idle .m-dst { animation: veille 2.4s ease-in-out infinite; }
+@keyframes veille { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.timing { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.timing div { border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: grid; gap: 6px; background: var(--surf); }
+.timing b { font-family: var(--font-mono); font-size: 18px; font-weight: 500; }
+.timing span { font-size: 13px; color: var(--muted); }
+.curve { height: 46px; }
+.curve path { fill: none; stroke: var(--sig); stroke-width: 2; }
+.curve line { stroke: var(--line-2); stroke-width: 1; }
+
+/* Lumière */
+.lum-anat { border-radius: 18px; border: 1px solid var(--line); overflow: hidden; display: grid; }
+.lum-tube { width: 100%; height: auto; display: block; background: radial-gradient(60% 120% at 50% 50%, #0C0B1A, #05070A); }
+.lum-tube line { stroke-linecap: round; transition: opacity 0.3s; }
+.lum-tube .t-halo { stroke: var(--sig-strong); stroke-width: 34; opacity: 0.75; }
+.lum-tube .t-sheath { stroke: var(--sig); stroke-width: 12; opacity: 0.9; }
+.lum-tube .t-sheath2 { stroke: var(--sig); stroke-width: 5; }
+.lum-tube .t-core { stroke: var(--neon-core); stroke-width: 2; }
+.lum-anat.ignite line { animation: allumage 1s linear both; }
+.lum-anat .t-halo { animation: respire 3.2s ease-in-out infinite; }
+.lum-legend { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.lum-legend div { padding: 18px 20px; display: grid; gap: 4px; align-content: start; border-left: 1px solid var(--line); }
+.lum-legend div:first-child { border-left: 0; }
+.lum-legend b { font-weight: 600; }
+.lum-legend span { font-size: 13.5px; color: var(--fg-2); }
+.lum-legend .mono { color: var(--muted); font-size: 11px; }
+@media (max-width: 720px) { .lum-legend { grid-template-columns: 1fr; } .lum-legend div { border-left: 0; border-top: 1px solid var(--line); } .lum-legend div:first-child { border-top: 0; } }
+.lum-levels { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-radius: 18px; border: 1px solid var(--line); overflow: hidden; }
+.lum-levels > div { position: relative; padding: 28px 18px 20px; display: grid; gap: 8px; align-content: start; justify-items: start; border-left: 1px solid var(--line); }
+.lum-levels > div:first-child { border-left: 0; }
+.lum-levels .mark { width: 64px; height: 64px; margin: 6px 0 14px 6px; }
+.lum-levels b { font-size: 15px; font-weight: 600; }
+.lum-levels span { font-size: 13px; color: var(--fg-2); }
+.lum-levels .replay { top: 10px; right: 10px; }
+@media (max-width: 960px) { .lum-levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lum-levels > div { border-top: 1px solid var(--line); } }
+.lum-bench { border-radius: 18px; border: 1px solid var(--line); display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 0; overflow: hidden; }
+.bench-mark { display: grid; place-items: center; padding: 40px; border-right: 1px solid var(--line); background: radial-gradient(70% 70% at 60% 60%, color-mix(in oklab, var(--sig) 10%, transparent), transparent); }
+.bench-mark .mark { width: 140px; height: 140px; }
+.bench-ui { padding: 28px; display: grid; gap: 26px; align-content: start; }
+.bench-ui .row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.bench-data { display: grid; gap: 22px; max-width: 520px; }
+.bench-data .top { display: flex; align-items: baseline; justify-content: space-between; }
+.bench-data .top b { font-family: var(--font-mono); font-weight: 500; font-size: 22px; color: var(--sig); }
+.bench-ctl { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding-top: 18px; border-top: 1px solid var(--line); }
+.switch { display: inline-flex; align-items: center; gap: 10px; font-size: 14px; color: var(--fg-2); cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track { width: 38px; height: 22px; border-radius: 11px; background: var(--surf-2); box-shadow: inset 0 0 0 1px var(--line-2); position: relative; transition: background 0.2s; }
+.switch .thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg-2); transition: transform 0.2s cubic-bezier(.2,.9,.1,1), background 0.2s; }
+.switch input:checked + .track { background: var(--sig-strong); }
+.switch input:checked + .track .thumb { transform: translateX(16px); background: #FFFFFF; }
+.switch input:focus-visible + .track { outline: 2px solid var(--sig); outline-offset: 3px; }
+@media (max-width: 860px) { .lum-bench { grid-template-columns: 1fr; } .bench-mark { border-right: 0; border-bottom: 1px solid var(--line); padding: 28px; } .bench-mark .mark { width: 96px; height: 96px; } }
+
+/* Composants */
+.btn { --h: 40px; height: var(--h); display: inline-flex; align-items: center; gap: 9px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surf-2); color: var(--fg); font-size: 14px; font-weight: 550; cursor: pointer; text-decoration: none; white-space: nowrap; transition: background 0.2s, border-color 0.2s, transform 0.12s; }
+.btn:hover { border-color: var(--faint); }
+.btn:active { transform: translateY(1px); }
+.btn .ic { font-size: 17px; }
+.btn-primary { --edge: var(--sig-strong); background: linear-gradient(315deg, transparent 7px, var(--edge) 7px, var(--edge) 8.6px, var(--sig-strong) 8.6px); color: var(--on-sig); border: 0; font-weight: 650; padding: 0 20px; border-radius: 8px 8px 0 8px; transition: filter 0.2s ease-out, transform 0.12s; }
+.btn-primary:hover, .btn-primary:focus-visible { --edge: var(--neon-core); filter: var(--g1); border-color: transparent; }
+.btn-primary:active { filter: var(--g3); transition-duration: 0.04s; }
+.btn-primary.is-lit { --edge: var(--neon-core); filter: var(--g2); animation: respire-f 3.2s ease-in-out infinite; }
+.btn-primary.ignite { --edge: var(--neon-core); animation: allumage-f 1s linear both; }
+.btn-primary.settle { transition-duration: 0.9s; }
+.btn-primary .kbd { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgb(0 0 0 / 0.16); display: inline-flex; align-items: center; gap: 2px; margin-right: 4px; }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--fg-2); }
+.btn-ghost:hover { background: var(--surf-2); border-color: var(--line); }
+.btn-sig { background: var(--sig-soft); border-color: var(--sig-line); color: var(--sig); }
+.btn-lg { --h: 52px; font-size: 16px; padding: 0 24px; }
+.pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 5px 10px 5px 9px; border-radius: 999px; border: 1px solid var(--line-2); color: var(--fg-2); background: var(--surf); white-space: nowrap; }
+.pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.pill.on i { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ok) 22%, transparent); }
+.pill.vpn i { background: var(--ok); }
+.pill.vpn { border-style: solid; }
+.pill.search i { background: var(--fg-2); animation: veille 1.2s ease-in-out infinite; }
+.pill.off { color: var(--muted); }
+.field { display: grid; gap: 6px; max-width: 360px; }
+.field label { font-size: 13px; font-weight: 550; color: var(--fg-2); }
+.field .in { display: flex; align-items: center; height: 40px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); overflow: hidden; }
+.field .in:focus-within { border-color: var(--sig); box-shadow: 0 0 0 3px var(--sig-soft); }
+.field input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: var(--fg); padding: 0 12px; font-family: var(--font-mono); font-size: 13px; outline: none; }
+.field .suffix { font-family: var(--font-mono); font-size: 12px; color: var(--muted); padding: 0 12px; border-left: 1px solid var(--line); height: 100%; display: flex; align-items: center; background: var(--surf); }
+.field small { font-size: 12.5px; color: var(--muted); }
+.comp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 860px) { .comp-grid { grid-template-columns: 1fr; } }
+.comp { border: 1px solid var(--line); border-radius: 16px; background: var(--surf); padding: 24px; display: grid; gap: 18px; align-content: start; }
+.comp .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.comp h3 { font-size: 13px; font-family: var(--font-mono); font-stretch: 100%; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.segmented { display: inline-flex; padding: 3px; gap: 2px; background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; }
+.segmented button { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 14px; border: 0; border-radius: 7px; background: none; color: var(--muted); font-size: 13.5px; font-weight: 550; cursor: pointer; }
+.segmented button .ic { font-size: 16px; }
+.segmented button[aria-checked="true"] { background: var(--surf-2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-2), inset 0 -2px 0 var(--sig); }
+.segmented button[aria-checked="true"] .ic { color: var(--sig); transition: filter 0.2s; }
+.segmented button[aria-checked="true"]:hover .ic { filter: var(--g1); }
+.segmented button.flash { animation: eclair-f 0.6s ease-out; }
+
+/* Voix */
+.voice { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.say td:first-child { color: var(--fg); }
+.say td:nth-child(2) { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in oklab, var(--bad) 60%, transparent); }
+
+/* ── Maquette macOS ─────────────────────────────────────────────────── */
+.mac-sec { padding-block: 88px 96px; border-bottom: 1px solid var(--line); background: radial-gradient(80% 60% at 50% 0%, color-mix(in oklab, var(--sig) 10%, transparent), transparent 70%), var(--bg); }
+.mac-stage { --s: 0.8; position: relative; width: 100%; height: calc(800px * var(--s) + 2px); margin-top: 8px; }
+.mac-scale { position: absolute; left: 50%; top: 0; width: 1280px; height: 800px; transform-origin: top center; transform: translateX(-50%) scale(var(--s)); }
+.mac { width: 1280px; height: 800px; border-radius: 12px; overflow: hidden; position: relative; display: grid; grid-template-rows: 52px 1fr; font-size: 13px; background: #06090D; color: var(--fg); box-shadow: 0 0 0 1px rgb(255 255 255 / 0.1), 0 0 0 0.5px #000, 0 40px 120px -30px rgb(0 0 0 / 0.85), 0 30px 60px -40px color-mix(in oklab, var(--sig-d) 40%, transparent); }
+.mac::before { content: ""; position: absolute; width: 700px; height: 2200px; right: -120px; top: -760px; transform: rotate(45deg); background: radial-gradient(closest-side, color-mix(in oklab, var(--sig-d) 16%, transparent), transparent); pointer-events: none; }
+.mac::after { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, transparent 0 3px, rgb(255 255 255 / 0.012) 3px 4px); pointer-events: none; }
+.mac-bar { display: flex; align-items: center; gap: 18px; padding: 0 16px 0 20px; position: relative; z-index: 2; border-bottom: 1px solid rgb(255 255 255 / 0.06); background: rgb(6 9 13 / 0.6); }
+.lights { display: flex; gap: 8px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; display: block; box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.25); }
+.lights i:nth-child(1) { background: #FF5F57; } .lights i:nth-child(2) { background: #FEBC2E; } .lights i:nth-child(3) { background: #28C840; }
+.mac-bar .lockup { gap: 9px; margin-left: 12px; }
+.mac-bar .lockup .mark { width: 18px; height: 18px; }
+.mac-bar .lockup .word { height: 12.5px; }
+.mac-bar .sp { flex: 1; }
+.tb { width: 32px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--fg-2); font-size: 17px; }
+.tb:hover { background: rgb(255 255 255 / 0.06); }
+.tb-text { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 6px; color: var(--fg-2); font-size: 12.5px; }
+.tb-text:hover { background: rgb(255 255 255 / 0.06); }
+.tb-text .ic { font-size: 15px; }
+.mac-body { position: relative; z-index: 1; padding: 34px 44px 18px; display: grid; grid-template-rows: auto 1fr auto; gap: 26px; min-height: 0; }
+.mac-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.mac-head h1 { font-size: 40px; font-weight: 640; letter-spacing: -0.03em; line-height: 1; margin-top: 10px; }
+.mac-head .eyebrow { font-size: 10.5px; }
+.found { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 10px; border: 1px solid var(--sig-line); background: var(--sig-soft); font-size: 12.5px; color: var(--fg-2); }
+.found .ic { color: var(--sig); font-size: 17px; }
+.found b { color: var(--fg); font-weight: 600; }
+.found .mono { color: var(--muted); }
+.found .btn { --h: 28px; font-size: 12px; padding: 0 10px; border-radius: 6px; }
+.mac-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; min-height: 0; }
+.feat { position: relative; border-radius: 16px; background: linear-gradient(180deg, #0F161D, #0B1016); box-shadow: inset 0 0 0 1px var(--line-2), inset 0 1px 0 rgb(255 255 255 / 0.04); padding: 22px 24px 22px; display: grid; grid-template-rows: auto 1fr auto; gap: 18px; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 22px), calc(100% - 22px) 100%, 0 100%); }
+.feat-top { display: flex; align-items: center; gap: 10px; }
+.feat-top .sp { flex: 1; }
+.feat-top .btn { --h: 30px; font-size: 12.5px; padding: 0 10px; }
+.feat-main { display: grid; grid-template-columns: 400px minmax(0, 1fr); gap: 28px; align-items: start; }
+.preview { position: relative; aspect-ratio: 16 / 10; border-radius: 10px; overflow: hidden; background: #0A0F14; box-shadow: 0 0 0 1px var(--line-2), 0 18px 40px -18px rgb(0 0 0 / 0.8); }
+.preview .sky { position: absolute; inset: 0; background: linear-gradient(180deg, #1B2246 0%, #3B3770 38%, #C77C6C 66%, #F0B07A 74%, #2A2340 74.5%, #120F1E 100%); }
+.preview .sun { position: absolute; width: 54px; height: 54px; border-radius: 50%; left: 58%; top: 50%; background: radial-gradient(circle, #FFE3B0, #FFB37A 60%, transparent 62%); filter: blur(0.3px); }
+.preview .m1 { position: absolute; inset: 0; background: #2B2550; clip-path: polygon(0 74%, 12% 52%, 22% 62%, 36% 40%, 50% 60%, 62% 48%, 78% 66%, 90% 50%, 100% 60%, 100% 75%, 0 75%); opacity: 0.9; }
+.preview .m2 { position: absolute; inset: 0; background: #17132B; clip-path: polygon(0 80%, 18% 64%, 34% 74%, 52% 58%, 70% 76%, 86% 62%, 100% 72%, 100% 100%, 0 100%); }
+.preview .task { position: absolute; left: 0; right: 0; bottom: 0; height: 15px; background: rgb(18 20 30 / 0.85); backdrop-filter: blur(6px); display: flex; justify-content: center; align-items: center; gap: 5px; }
+.preview .task i { width: 8px; height: 8px; border-radius: 2px; background: rgb(255 255 255 / 0.55); display: block; }
+.preview .task i:first-child { background: #4CC2FF; }
+.preview .task i:nth-child(3) { background: #76B900; }
+.preview .tag { position: absolute; left: 10px; top: 10px; font-family: var(--font-mono); font-size: 9.5px; color: #E3EDF0; background: rgb(5 7 10 / 0.6); backdrop-filter: blur(8px); padding: 4px 7px; border-radius: 5px; display: flex; gap: 6px; align-items: center; }
+.preview .tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--sig); }
+.preview .corner { position: absolute; right: 0; bottom: 0; width: 44px; height: 44px; background: linear-gradient(135deg, transparent calc(50% - 1px), var(--sig) calc(50% - 1px), var(--sig) calc(50% + 0.5px), #0B1016 calc(50% + 0.5px)); }
+.host h2 { font-size: 30px; font-weight: 640; letter-spacing: -0.025em; line-height: 1.05; }
+.host .gpu { font-size: 14px; color: var(--fg-2); margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+.host .gpu .ic { color: var(--muted); }
+.host .addr { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.host .screen { margin-top: 16px; display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--fg-2); line-height: 1.45; }
+.host .screen .ic { color: var(--sig); font-size: 16px; margin-top: 1px; }
+.prof { margin-top: 18px; display: grid; gap: 10px; }
+.prof p { font-size: 12.5px; color: var(--muted); max-width: 44ch; }
+.feat-foot { display: flex; align-items: flex-end; gap: 28px; }
+.feat-foot .btn-primary { --h: 50px; font-size: 15.5px; padding: 0 22px 0 18px; }
+.lastses { flex: 1; min-width: 0; display: grid; gap: 16px; padding-right: 16px; }
+.lastses .ruler-track { height: 30px; }
+.lastses .top { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); }
+.lastses .top b { font-family: var(--font-mono); font-weight: 500; color: var(--fg); font-size: 12px; }
+.lastses .top b em { font-style: normal; color: var(--sig); }
+.side { display: grid; grid-template-rows: auto auto 1fr; gap: 12px; min-height: 0; }
+.htile { border-radius: 14px; background: #0C1218; box-shadow: inset 0 0 0 1px var(--line); padding: 16px 16px 14px; display: grid; gap: 10px; }
+.htile .t { display: flex; align-items: center; gap: 12px; }
+.htile .t .glyph { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center; background: var(--surf-2); box-shadow: inset 0 0 0 1px var(--line-2); font-size: 19px; color: var(--fg-2); flex: none; }
+.htile .t b { font-size: 15px; font-weight: 600; display: block; }
+.htile .t span { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); }
+.htile .t .sp { flex: 1; }
+.htile .b { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.htile .b .btn { --h: 28px; font-size: 12px; padding: 0 10px; border-radius: 6px; }
+.htile.off { opacity: 0.72; }
+.htile .lat { font-family: var(--font-mono); font-size: 11px; color: var(--fg-2); }
+.addt { border-radius: 14px; padding: 18px 16px; display: grid; gap: 14px; align-content: start; background: repeating-linear-gradient(135deg, transparent 0 9px, rgb(255 255 255 / 0.018) 9px 10px), #080C11; box-shadow: inset 0 0 0 1px var(--line); }
+.addt h3 { font-size: 15px; font-weight: 620; font-stretch: 112%; display: flex; align-items: center; gap: 8px; }
+.addt h3 .ic { color: var(--sig); }
+.addt .ways { display: grid; gap: 6px; }
+.addt .ways div { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--fg-2); padding: 9px 10px; border-radius: 8px; background: rgb(255 255 255 / 0.025); box-shadow: inset 0 0 0 1px var(--line); }
+.addt .ways .ic { font-size: 17px; color: var(--muted); }
+.addt .ways span { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--faint); }
+.mac-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--faint); }
+.mac-foot .mono { font-size: 10.5px; }
+.callouts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 40px; }
+.callouts div { display: grid; grid-template-columns: 26px 1fr; gap: 10px; font-size: 14px; color: var(--fg-2); }
+.callouts b { font-family: var(--font-mono); font-size: 11px; font-weight: 500; width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: var(--sig-soft); color: var(--sig); border: 1px solid var(--sig-line); }
+.callouts strong { color: var(--fg); font-weight: 600; display: block; margin-bottom: 2px; }
+
+/* Juridique */
+.legal { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 900px) { .legal { grid-template-columns: 1fr; } }
+.risk { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.risk div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.risk .lvl { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; padding-top: 3px; }
+.risk .lvl.h { color: var(--bad); } .risk .lvl.m { color: var(--warn); } .risk .lvl.l { color: var(--ok); }
+.risk b { display: block; font-weight: 600; margin-bottom: 4px; }
+.risk p { font-size: 14px; color: var(--fg-2); }
+.mention { padding: 22px; display: grid; gap: 12px; }
+.mention blockquote { margin: 0; padding: 14px 16px; border-left: 2px solid var(--sig); background: var(--surf-2); border-radius: 0 8px 8px 0; font-size: 14px; color: var(--fg); }
+
+/* Fichiers et jetons */
+.files { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+.files div { padding: 12px 16px 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 2px; }
+.files code { font-family: var(--font-mono); font-size: 11.5px; color: var(--fg); overflow-wrap: anywhere; }
+.files span { font-size: 13px; color: var(--muted); }
+.code { position: relative; border: 1px solid var(--line); border-radius: 14px; background: var(--surf); overflow: hidden; }
+.code header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+.code pre { margin: 0; padding: 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.7; color: var(--fg-2); max-height: 420px; }
+.code pre .c { color: var(--faint); }
+.code pre .v { color: var(--sig); }
+.copy { border: 1px solid var(--line-2); background: var(--surf-2); border-radius: 6px; padding: 4px 9px; font-size: 11.5px; color: var(--fg-2); cursor: pointer; font-family: var(--font-text); display: inline-flex; gap: 6px; align-items: center; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) { .two { grid-template-columns: 1fr; } }
+.foot { padding-block: 40px 56px; }
+.foot .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); align-items: center; }
+.foot .lockup .mark { width: 22px; height: 22px; }
+.foot .lockup .word { height: 14px; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .mark .m-halo, .mark .m-sheath { display: none; }
+  .btn-primary, .segmented button, .lum-el, .icons .ic { filter: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <filter id="kn-glow-wide" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="3.2"/></filter>
+    <filter id="kn-glow-soft" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="0.7"/></filter>
+    <filter id="kn-tube-wide" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1000" height="360"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="kn-tube-mid" filterUnits="userSpaceOnUse" x="-100" y="-100" width="1000" height="360"><feGaussianBlur stdDeviation="4"/></filter>
+  </defs>
+</svg>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brandlink" href="#top" aria-label="KyberNow, haut de page"><x-mark state="now"></x-mark><x-word></x-word></a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#concept">Concept</a><a href="#symbole">Symbole</a><a href="#apps">Déclinaisons</a><a href="#nom">Nom</a><a href="#couleurs">Couleurs</a><a href="#typo">Typographie</a><a href="#formes">Formes</a><a href="#icones">Icônes</a><a href="#mouvement">Mouvement</a><a href="#lumiere">Lumière</a><a href="#composants">Composants</a><a href="#voix">Écriture</a><a href="#macos">App macOS</a><a href="#kyber">Kyber</a><a href="#fichiers">Fichiers</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<!-- ── Ouverture ───────────────────────────────────────────────── -->
+<section class="hero dark-island" aria-label="Ouverture">
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="eyebrow">Identité KyberNow · v2 · 20 octobre 2026</p>
+      <h1>Ici,<br><em>maintenant.</em></h1>
+      <p class="lede">Votre ordinateur Windows sur votre Mac et votre Apple&nbsp;TV, dans le temps d'une image.</p>
+      <div class="readout" aria-live="off">
+        <div><span class="eyebrow">Écart</span><b class="live num lit-text" id="lat">8,3 ms</b></div>
+        <div><span class="eyebrow">Définition</span><b class="num">3840 × 2160</b></div>
+        <div><span class="eyebrow">Fréquence</span><b class="num">160 Hz</b></div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn" type="button" id="replay3d"><x-i n="arrow-counter-clockwise" w="bold"></x-i>Rejouer la jonction</button>
+        <span class="hint">Mesures réelles : RTX 3080 Ti vers Mac, réseau local, 19 octobre 2026.</span>
+      </div>
+    </div>
+    <div class="hero-stage">
+      <div class="hero-fallback"><x-mark state="now" label="Symbole KyberNow"></x-mark></div>
+      <canvas id="relais3d" aria-label="Le symbole KyberNow en relief : ses deux moitiés se rejoignent" role="img"></canvas>
+    </div>
+  </div>
+</section>
+
+<!-- ── 01 Concept ──────────────────────────────────────────────── -->
+<section class="sec" id="concept">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">01</span>
+      <div>
+        <p class="eyebrow">Concept</p>
+        <h2>Deux moitiés, une couture</h2>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-l">
+        <p class="manifest">KyberNow met l'image d'un ordinateur sous vos yeux et vos mains sur ses commandes, <em>sans que la distance se voie.</em> L'identité raconte ce moment&#8239;: un carré coupé en deux, l'ordinateur d'un côté, vous de l'autre, et entre les deux une couture si fine qu'on l'oublie.</p>
+        <div class="trio">
+          <div>
+            <x-mark state="now" class="focus-src"></x-mark>
+            <h3>L'ordinateur</h3>
+            <p>En haut à gauche, là où l'image naît. Une carte graphique, un écran virtuel à la taille du vôtre. C'est la partie qu'allume KyberNow Server.</p>
+          </div>
+          <div>
+            <x-mark state="console"></x-mark>
+            <h3>Le lien</h3>
+            <p>La couture à 45°. Quatre unités de vide sur quarante-huit&#8239;: la latence, présente mais à peine visible. C'est ce que surveille la Console.</p>
+          </div>
+          <div>
+            <x-mark state="now" class="focus-dst"></x-mark>
+            <h3>Vous</h3>
+            <p>En bas à droite, là où l'image arrive, dans la couleur du signal. C'est l'instant «&#8239;Now&#8239;», et c'est la partie qu'allume l'app.</p>
+          </div>
+        </div>
+        <div class="prose">
+          <p><strong>Pourquoi pas une lettre&#8239;?</strong> Le symbole ne dessine ni K ni N. Il tient donc si le nom change (voir <a href="#kyber">§&nbsp;14</a>), il ne se confond ni avec le K en blocs de Kyber ni avec le N rouge d'une plateforme de vidéo, et il se lit à 16&nbsp;px dans une barre de menus.</p>
+          <p><strong>Ce qu'il partage avec Kyber.</strong> Une méthode plutôt qu'une forme&#8239;: géométrie à 45°, aplats sans dégradé, fond d'encre presque noir, texte couleur givre. On reconnaît la famille sans pouvoir confondre les deux marques.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 02 Symbole ──────────────────────────────────────────────── -->
+<section class="sec alt" id="symbole">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">02</span>
+      <div>
+        <p class="eyebrow">Le symbole</p>
+        <h2>Relais</h2>
+        <p class="lede">Dessiné sur une grille de 48 unités. Deux triangles rectangles, une couture de 4 unités, deux rayons. Rien d'autre.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="construct">
+          <div class="blueprint">
+            <svg class="over" viewBox="-12 -12 72 72" aria-hidden="true">
+              <g id="gridlines"></g>
+              <rect class="clear" x="-8" y="-8" width="64" height="64"/>
+              <text class="sig" x="-7.4" y="-9.4">zone de protection : 8 u</text>
+            </svg>
+            <x-mark state="now"></x-mark>
+            <svg class="over" viewBox="-12 -12 72 72" aria-hidden="true">
+              <line class="dim" x1="0" y1="52" x2="48" y2="52"/><line class="dim" x1="0" y1="50.8" x2="0" y2="53.2"/><line class="dim" x1="48" y1="50.8" x2="48" y2="53.2"/>
+              <text x="24" y="55.4" text-anchor="middle">48 u</text>
+              <text x="0" y="-2">r 7 u</text>
+              <text x="49.6" y="45.4">r 7 u</text>
+              <text x="-1.4" y="47.4" text-anchor="end">r 1,2 u</text>
+              
+              <text class="sig" x="48" y="-2" text-anchor="end">couture 4 u · 45° ↘</text>
+            </svg>
+          </div>
+          <div class="stack-l">
+            <dl class="specs" style="margin:0">
+              <div><dt class="k">Grille</dt><dd class="v" style="margin:0">48 × 48 unités. Tout point du symbole tombe sur un multiple de 0,2 u.</dd></div>
+              <div><dt class="k">Couture</dt><dd class="v" style="margin:0">4 u mesurées perpendiculairement, à 45° exacts, du coin bas-gauche au coin haut-droit.</dd></div>
+              <div><dt class="k">Rayons</dt><dd class="v" style="margin:0">7 u aux deux angles droits (les coins d'un écran), 1,2 u aux pointes.</dd></div>
+              <div><dt class="k">Protection</dt><dd class="v" style="margin:0">8 u tout autour (un sixième du symbole). Aucun texte ni bord dans cette zone.</dd></div>
+              <div><dt class="k">Taille mini</dt><dd class="v" style="margin:0">16 px à l'écran, 6 mm imprimé. En dessous de 24 px, pas de version Console (le trait du lien disparaît).</dd></div>
+              <div><dt class="k">Couleurs</dt><dd class="v" style="margin:0">Givre pour l'ordinateur, signal pour vous. Sur fond clair, encre et signal foncé.</dd></div>
+            </dl>
+            <p class="note">Les coordonnées exactes sont dans <code class="mono">brand/v2/tools/geometry.json</code>. Le symbole se régénère avec <code class="mono">generate.mjs</code>.</p>
+          </div>
+        </div>
+        <div>
+          <h3 class="sub">Aux petites tailles</h3>
+          <div class="panel sizes">
+            <figure><x-mark state="now" class="s16"></x-mark><figcaption>16 px</figcaption></figure>
+            <figure><x-mark state="now" class="s24"></x-mark><figcaption>24 px</figcaption></figure>
+            <figure><x-mark state="now" class="s32"></x-mark><figcaption>32 px</figcaption></figure>
+            <figure><x-mark state="now" class="s48"></x-mark><figcaption>48 px</figcaption></figure>
+            <figure><x-mark state="now" class="s96"></x-mark><figcaption>96 px</figcaption></figure>
+            <figure><x-mark state="now" class="s160"></x-mark><figcaption>160 px</figcaption></figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<style>.s16{width:16px;height:16px}.s24{width:24px;height:24px}.s32{width:32px;height:32px}.s48{width:48px;height:48px}.s96{width:96px;height:96px}.s160{width:160px;height:160px}</style>
+
+<!-- ── 03 Déclinaisons ─────────────────────────────────────────── -->
+<section class="sec" id="apps">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">03</span>
+      <div>
+        <p class="eyebrow">Déclinaisons</p>
+        <h2>Un symbole, trois états</h2>
+        <p class="lede">Chaque app allume la partie du symbole qui correspond à son rôle. On reconnaît la famille dans le Dock, et chaque icône dit ce que fait son app.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="apps">
+          <article class="app">
+            <div class="app-top">
+              <div class="app-name"><b>KyberNow</b><span>Client · macOS, tvOS, iPadOS</span></div>
+              <div class="tile"><x-mark state="now" class="lit"></x-mark></div>
+            </div>
+            <div class="lockup"><x-mark state="now"></x-mark><x-word></x-word></div>
+            <ul>
+              <li><x-i n="arrow-right" w="bold"></x-i>Le signal arrive chez vous&#8239;: la moitié basse est allumée.</li>
+              <li><x-i n="apple-logo"></x-i>Dock, App Store, écran d'accueil de l'Apple&nbsp;TV.</li>
+              <li><x-i n="info"></x-i>C'est aussi le symbole de l'écosystème.</li>
+            </ul>
+          </article>
+          <article class="app">
+            <div class="app-top">
+              <div class="app-name"><b>KyberNow Server</b><span>Windows · installateur, zone de notification</span></div>
+              <div class="tile"><x-mark state="server" class="lit"></x-mark></div>
+            </div>
+            <div class="lockup"><x-mark state="server"></x-mark><x-word></x-word><span class="prod">Server</span></div>
+            <ul>
+              <li><x-i n="broadcast"></x-i>Le signal part de l'ordinateur&#8239;: la moitié haute est allumée.</li>
+              <li><x-i n="windows-logo"></x-i>Installateur, menu Démarrer, icône de la zone de notification.</li>
+              <li><x-i n="info"></x-i>Dans la zone de notification, le symbole seul en 16 px, monochrome blanc, signal quand un flux est actif.</li>
+            </ul>
+          </article>
+          <article class="app">
+            <div class="app-top">
+              <div class="app-name"><b>KyberNow Console</b><span>Web · administration de l'ordinateur</span></div>
+              <div class="tile"><x-mark state="console" class="lit"></x-mark></div>
+            </div>
+            <div class="lockup"><x-mark state="console"></x-mark><x-word></x-word><span class="prod">Console</span></div>
+            <ul>
+              <li><x-i n="graph"></x-i>Le lien lui-même&#8239;: les moitiés s'effacent, la couture s'allume.</li>
+              <li><x-i n="browser"></x-i>Favicon, en-tête de la console, page d'appairage.</li>
+              <li><x-i n="info"></x-i>À 16 px (favicon), utiliser l'état «&#8239;Now&#8239;» : le trait du lien n'y tient pas.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="tv">
+          <div class="tv-tile" id="tvtile">
+            <div class="tv-card" id="tvcard">
+              <div class="layer l-bg"></div>
+              <div class="layer l-src"><x-mark state="now"></x-mark></div>
+              <div class="layer l-dst"><x-mark state="now"></x-mark></div>
+              <div class="shine"></div>
+            </div>
+          </div>
+          <div class="prose">
+            <h3 class="sub">Apple&nbsp;TV&#8239;: l'icône en couches</h3>
+            <p>tvOS compose les icônes en couches qui bougent sous le doigt. Le symbole s'y prête naturellement&#8239;: le fond, puis l'ordinateur, puis vous au premier plan. Survolez la vignette.</p>
+            <p class="note">Gabarit tvOS&#8239;: 1280 × 768 px (App Store) et 400 × 240 pt (écran d'accueil), trois couches PNG, symbole à 34&nbsp;% de la largeur.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 04 Nom ──────────────────────────────────────────────────── -->
+<section class="sec alt" id="nom">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">04</span>
+      <div>
+        <p class="eyebrow">Le nom</p>
+        <h2>Kyber, puis Now</h2>
+        <p class="lede">Le nom est composé en Archivo élargie (largeur 125) et vectorisé. Deux graisses disent la hiérarchie&#8239;: la technologie dont on part, en léger, et ce que KyberNow apporte, en gras.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="panel wm-hero">
+          <x-word></x-word>
+          <div class="wm-anat">
+            <div><b>Kyber · graisse 420</b><span>La fondation. Écrit léger, jamais dans la couleur du signal, pour ne pas s'approprier la marque d'un autre.</span></div>
+            <div><b>Now · graisse 720</b><span>Ce que vous vivez&#8239;: votre ordinateur, ici, tout de suite. Même couleur que «&#8239;Kyber&#8239;» ; le contraste vient de la graisse.</span></div>
+            <div><b>Approche −1,2 u</b><span>Lettres resserrées d'un cheveu, les deux mots soudés. «&#8239;KyberNow&#8239;» s'écrit toujours en un mot, K et N capitales.</span></div>
+          </div>
+        </div>
+        <div>
+          <h3 class="sub">Assemblages</h3>
+          <div class="lockups">
+            <div class="lk ink"><span class="cap">Horizontal · fond encre</span><div class="lk-h"><x-mark state="now"></x-mark><x-word></x-word></div></div>
+            <div class="lk paper"><span class="cap">Horizontal · fond clair</span><div class="lk-h"><x-mark state="now"></x-mark><x-word></x-word></div></div>
+            <div class="lk signal"><span class="cap">Sur aplat de signal (rare)</span><div class="lk-h"><x-mark state="now"></x-mark><x-word></x-word></div></div>
+            <div class="lk ink"><span class="cap">Vertical · écrans d'accueil, splash</span><div class="lk-v"><x-mark state="now"></x-mark><x-word></x-word></div></div>
+          </div>
+        </div>
+        <div>
+          <h3 class="sub">Nommer les apps</h3>
+          <div class="names">
+            <div><b>KyberNow</b><span>L'app Mac et Apple&nbsp;TV, telle qu'elle apparaît dans le Dock et l'App Store. «&#8239;Client&#8239;» reste un mot interne.</span></div>
+            <div><b>KyberNow Server</b><span>Ce qu'on installe sur l'ordinateur Windows. L'installateur&#8239;: KyberNow-Setup.exe.</span></div>
+            <div><b>KyberNow Console</b><span>L'administration dans le navigateur. Dans une phrase&#8239;: «&#8239;la console de l'ordinateur&#8239;».</span></div>
+          </div>
+        </div>
+        <div>
+          <h3 class="sub">À éviter</h3>
+          <div class="donts">
+            <div class="dont d-rot"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Tourner le symbole. La couture monte toujours de bas-gauche vers haut-droite.</p></div>
+            <div class="dont d-both"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Allumer les deux moitiés. Une seule partie porte le signal.</p></div>
+            <div class="dont d-outline"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Le dessiner au trait. Le symbole est toujours en aplats.</p></div>
+            <div class="dont d-stretch"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Le déformer. La couture doit rester à 45°.</p></div>
+            <div class="dont d-fx"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Ajouter ombres, contours ou couleurs étrangères.</p></div>
+            <div class="dont d-photo"><div class="stage"><x-mark state="now"></x-mark></div><p><x-i n="x-circle" w="fill"></x-i>Le poser sur une photo sans tuile d'encre.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 05 Couleurs ─────────────────────────────────────────────── -->
+<section class="sec" id="couleurs">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">05</span>
+      <div>
+        <p class="eyebrow">Couleurs</p>
+        <h2>Encre, givre et un seul signal</h2>
+        <p class="lede">Les neutres sont fixés&#8239;: une encre presque noire légèrement bleutée et un givre pour le texte, cousins de ceux de Kyber. Pour le signal, trois pistes ont été étudiées&#8239;; Spectre a été retenue le 20 octobre 2026. Les deux autres restent ici pour mémoire.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="pistes">
+          <div class="piste dropped" data-piste="givre">
+            <div class="piste-vis"><x-mark state="now"></x-mark><span class="chip"><i></i>En ligne</span><span class="pbtn">Se connecter</span></div>
+            <div class="piste-body">
+              <h3>Givre <span class="badge off">Écartée</span></h3>
+              <p>La menthe actuelle, refroidie vers le cyan. La continuité&#8239;: l'installateur et l'app gardent leur air de famille.</p>
+              <div class="hexes"><span><i style="background:#5EEBC4"></i>#5EEBC4</span><span><i style="background:#2BCF9F"></i>#2BCF9F</span><span><i style="background:#0B7F60"></i>#0B7F60 clair</span></div>
+              <div class="pc"><div class="plus"><x-i n="check" w="bold"></x-i>Aucune migration, très lumineux sur l'encre.</div><div class="moins"><x-i n="warning" w="bold"></x-i>Se confond avec le vert «&#8239;en ligne&#8239;» ; teinte très répandue dans les outils.</div></div>
+            </div>
+          </div>
+          <div class="piste dropped" data-piste="tally">
+            <div class="piste-vis"><x-mark state="now"></x-mark><span class="chip"><i></i>En ligne</span><span class="pbtn">Se connecter</span></div>
+            <div class="piste-body">
+              <h3>Tally <span class="badge off">Écartée</span></h3>
+              <p>L'ambre du voyant de régie qui s'allume quand une caméra passe à l'antenne. Complémentaire du bleu de Kyber&#8239;: cousin par contraste.</p>
+              <div class="hexes"><span><i style="background:#FFA24A"></i>#FFA24A</span><span><i style="background:#FF8A1F"></i>#FF8A1F</span><span><i style="background:#B35A00"></i>#B35A00 clair</span></div>
+              <div class="pc"><div class="plus"><x-i n="check" w="bold"></x-i>Unique dans le Dock et parmi les outils de jeu à distance.</div><div class="moins"><x-i n="warning" w="bold"></x-i>Se confond avec l'orange des alertes&#8239;: il faudrait déplacer «&#8239;attention&#8239;» vers le jaune.</div></div>
+            </div>
+          </div>
+          <div class="piste kept" data-piste="spectre">
+            <div class="piste-vis"><x-mark state="now"></x-mark><span class="chip"><i></i>En ligne</span><span class="pbtn">Se connecter</span></div>
+            <div class="piste-body">
+              <h3>Spectre <span class="badge">Retenue</span></h3>
+              <p>Un indigo électrique, à mi-chemin entre le bleu de Kyber et le violet de Playruo. KyberNow fait du bureau à distance et du jeu&#8239;: sa couleur se place entre les deux.</p>
+              <div class="hexes"><span><i style="background:#9A8CFF"></i>#9A8CFF</span><span><i style="background:#6D5BFF"></i>#6D5BFF</span><span><i style="background:#5340E6"></i>#5340E6 clair</span></div>
+              <div class="pc"><div class="plus"><x-i n="check" w="bold"></x-i>Libre de tout sens d'état (ni succès, ni alerte, ni erreur).</div><div class="moins"><x-i n="warning" w="bold"></x-i>Moins lumineux que les deux autres&#8239;: la couture s'éclaire d'un halo pour compenser.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Neutres</h3>
+          <div class="swatches">
+            <div class="sw"><div class="chip" style="background:var(--bg)"></div><div class="meta"><b>Encre 0 · fond</b><code>#05070A · #F2F5F6</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--band)"></div><div class="meta"><b>Encre 1 · bande</b><code>#090D12 · #E8EDEF</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--surf)"></div><div class="meta"><b>Encre 2 · surface</b><code>#0E141A · #FFFFFF</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--surf-2)"></div><div class="meta"><b>Encre 3 · relief</b><code>#141B23 · #F6F8F9</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--line-2)"></div><div class="meta"><b>Filet</b><code>#1E2832 / #2B3742</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--fg)"></div><div class="meta"><b>Givre · texte</b><code>#E3EDF0 · #0B1117</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--fg-2)"></div><div class="meta"><b>Givre 2 · secondaire</b><code>#B4C2C9 · #2F3B45</code></div></div>
+            <div class="sw"><div class="chip" style="background:var(--muted)"></div><div class="meta"><b>Brume · discret</b><code>#8A99A3 · #55636E</code></div></div>
+          </div>
+          <p class="note" style="margin-top:12px">Valeur sombre · valeur claire. Les gris tirent vers le bleu-vert de l'encre, jamais vers un gris neutre.</p>
+        </div>
+
+        <div class="two">
+          <div class="stack-l" style="gap:16px">
+            <h3 class="sub" style="margin:0">États</h3>
+            <div class="swatches" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+              <div class="sw"><div class="chip" style="background:var(--ok)"></div><div class="meta"><b>En ligne</b><code>#4CD68A</code></div></div>
+              <div class="sw"><div class="chip" style="background:var(--warn)"></div><div class="meta"><b>Attention</b><code>#F5B841</code></div></div>
+              <div class="sw"><div class="chip" style="background:var(--bad)"></div><div class="meta"><b>Erreur</b><code>#FF6B6B</code></div></div>
+            </div>
+            <p class="note">Le signal n'est jamais une couleur d'état. Il marque ce qui est actif, sélectionné ou principal. Un état se lit aussi par sa forme (point, icône, texte), jamais par la seule couleur.</p>
+          </div>
+          <div class="stack-l" style="gap:16px">
+            <h3 class="sub" style="margin:0">Proportions</h3>
+            <div class="ratio">
+              <div style="flex:70;background:#05070A;color:#8A99A3">Encre 70&nbsp;%</div>
+              <div style="flex:24;background:#E3EDF0;color:#0B1117">Givre 24&nbsp;%</div>
+              <div style="flex:6;background:var(--sig-d);color:var(--on-sig-d)">6</div>
+            </div>
+            <p class="note">Sur un écran, le signal ne couvre jamais plus d'un vingtième de la surface. Une action principale par vue, un état actif par groupe.</p>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Contrastes vérifiés</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Paire</th><th>Givre</th><th>Tally</th><th>Spectre</th><th>Usage autorisé</th></tr></thead>
+              <tbody>
+                <tr><td>Signal sur encre 0</td><td class="num pass">13,4</td><td class="num pass">9,9</td><td class="num pass">7,2</td><td>Texte, icônes, traits</td></tr>
+                <tr><td>Texte sur bouton principal</td><td class="num pass">8,4</td><td class="num pass">7,8</td><td class="num pass">4,6</td><td>Libellé de 14 px et plus</td></tr>
+                <tr><td>Signal foncé sur fond clair</td><td class="num pass">4,9</td><td class="num pass">4,8</td><td class="num pass">6,4</td><td>Texte, icônes</td></tr>
+                <tr><td>Givre sur encre 2</td><td class="num pass" colspan="3">15,6</td><td>Tout texte</td></tr>
+                <tr><td>Brume sur encre 2</td><td class="num pass" colspan="3">6,3</td><td>Texte secondaire</td></tr>
+                <tr><td>Filigrane #65737E sur encre 2</td><td class="num lim" colspan="3">3,8</td><td>Pied de page, 12 px et plus uniquement</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 06 Typographie ─────────────────────────────────────────── -->
+<section class="sec alt" id="typo">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">06</span>
+      <div>
+        <p class="eyebrow">Typographie</p>
+        <h2>Une grotesque élargie, une mono d'instrument</h2>
+        <p class="lede">Deux familles libres (licence OFL), variables, livrées dans les apps comme sur le web. Kyber compose en Everett et Aeonik, sous licence commerciale&#8239;: on ne les reprend pas.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="specimens">
+          <div class="spec">
+            <div class="big">Sur quel ordinateur allez-vous&#8239;?</div>
+            <aside><b>Archivo · largeur 125</b><span>Titres, nom, gros chiffres. Une grotesque élargie, posée comme la sérigraphie d'un appareil de mesure. Graisses 560 à 700, approche serrée (−2 à −3,5&nbsp;%).</span><div class="axes"><span>wght 100–900</span><span>wdth 62–125</span></div></aside>
+          </div>
+          <div class="spec">
+            <p class="txt">Ajoutez un ordinateur équipé de KyberNow Server avec le QR code de sa console, un lien <span class="mono">kybernow://</span> ou son adresse. Par VPN, utilisez son adresse dans le VPN.</p>
+            <aside><b>Archivo · largeur 100</b><span>Texte courant, interface, boutons. La même famille à largeur normale&#8239;: un seul fichier de police pour les titres et le texte.</span><div class="axes"><span>16 px web</span><span>13 pt macOS</span></div></aside>
+          </div>
+          <div class="spec">
+            <p class="dat">192.168.1.42:31847<br>8,3 ms <span>▸</span> p95 11,2 ms<br>3840 × 2160 à 160 Hz · HEVC 4:4:4</p>
+            <aside><b>Martian Mono</b><span>Adresses, ports, empreintes, mesures, étiquettes en capitales. Chiffres à chasse fixe&#8239;: les mesures ne sautent pas quand elles changent.</span><div class="axes"><span>wght 100–800</span><span>wdth 75–112,5</span></div></aside>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Échelle</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Rôle</th><th>Web</th><th>macOS</th><th>Réglage</th><th>Exemple</th></tr></thead>
+              <tbody>
+                <tr class="scale-row"><td>Affiche</td><td class="num">72 / 0,92</td><td class="num">56 pt</td><td>Archivo 125, 680, −3,5&nbsp;%</td><td style="font-family:var(--font-display);font-stretch:125%;font-weight:680;font-size:28px;letter-spacing:-0.035em">Ici, maintenant.</td></tr>
+                <tr class="scale-row"><td>Titre 1</td><td class="num">44 / 1</td><td class="num">40 pt</td><td>Archivo 125, 640, −3&nbsp;%</td><td style="font-family:var(--font-display);font-stretch:125%;font-weight:640;font-size:22px;letter-spacing:-0.03em">Sur quel ordinateur</td></tr>
+                <tr class="scale-row"><td>Titre 2</td><td class="num">30 / 1,05</td><td class="num">28 pt</td><td>Archivo 125, 640, −2,5&nbsp;%</td><td style="font-family:var(--font-display);font-stretch:125%;font-weight:640;font-size:19px">Tour du bureau</td></tr>
+                <tr class="scale-row"><td>Titre 3</td><td class="num">20 / 1,2</td><td class="num">17 pt</td><td>Archivo 112, 600</td><td style="font-family:var(--font-display);font-stretch:112%;font-weight:600;font-size:17px">Ajouter un ordinateur</td></tr>
+                <tr class="scale-row"><td>Texte</td><td class="num">16 / 1,55</td><td class="num">13 pt</td><td>Archivo 100, 400</td><td>Latence minimale, image fluide.</td></tr>
+                <tr class="scale-row"><td>Petit</td><td class="num">13 / 1,45</td><td class="num">11 pt</td><td>Archivo 100, 400</td><td style="font-size:13px;color:var(--muted)">Dernière session&#8239;: hier</td></tr>
+                <tr class="scale-row"><td>Étiquette</td><td class="num">11, +8&nbsp;%</td><td class="num">10 pt</td><td>Martian Mono 500, capitales</td><td><span class="eyebrow">Profil</span></td></tr>
+                <tr class="scale-row"><td>Donnée</td><td class="num">13</td><td class="num">11 pt</td><td>Martian Mono 400, chiffres fixes</td><td class="num">8,3 ms</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Règles d'écriture typographique</h3>
+          <div class="rules">
+            <div class="rule"><b>Unités et nombres</b><p>Virgule décimale, espace insécable avant l'unité&#8239;: <code>8,3 ms</code>, <code>160 Hz</code>, <code>256 kbit/s</code>. Le signe de multiplication, pas un x&#8239;: <code>3840 × 2160</code>.</p></div>
+            <div class="rule"><b>Ponctuation française</b><p>Espace fine insécable avant <code>: ; ? !</code> et dans les guillemets <code>«&#8239;…&#8239;»</code>. Apostrophe typographique <code>’</code> dans les textes longs.</p></div>
+            <div class="rule"><b>Capitales</b><p>Seulement en Martian Mono, en étiquette de 10 à 11 px, approche +6 à +8&nbsp;%. Jamais de titre en capitales.</p></div>
+            <div class="rule"><b>Chiffres</b><p>Toute valeur qui change (latence, débit, images par seconde) en Martian Mono ou en Archivo avec <code>tabular-nums</code>.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 07 Formes ──────────────────────────────────────────────── -->
+<section class="sec" id="formes">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">07</span>
+      <div>
+        <p class="eyebrow">Formes et espace</p>
+        <h2>Le coin coupé, la couture, la trame</h2>
+        <p class="lede">Trois motifs tirés du symbole, à doser avec parcimonie. Le reste de l'interface est sobre&#8239;: grille de 4, rayons modestes, pas d'ombre portée.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="shapes">
+        <div class="shape">
+          <h3>Le coin de signal</h3>
+          <p>Un pan coupé à 45° en bas à droite, là où le signal arrive dans le symbole. Réservé à l'action principale et à l'élément vedette&#8239;: un seul par écran.</p>
+          <div class="chamfer-demo">
+            <button class="btn btn-primary btn-lg" type="button"><span>Se connecter</span><x-i n="arrow-right" w="bold"></x-i></button>
+            <span class="note">Pan de 10 px (bouton), 22 px (carte)</span>
+          </div>
+        </div>
+        <div class="shape">
+          <h3>La couture</h3>
+          <p>Une coupe oblique de 6 px, éclairée d'un filet de signal, qui sépare deux natures de contenu&#8239;: l'image de l'ordinateur et ce qu'on en sait. Aussi utilisée pendant la connexion.</p>
+          <div class="seam-demo"><svg viewBox="0 0 600 150" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="seamA" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2A2F5E"/><stop offset="1" stop-color="#0B1117"/></linearGradient></defs><polygon points="0,0 372,0 222,150 0,150" fill="url(#seamA)"/><polygon points="380.5,0 600,0 600,150 230.5,150" fill="var(--surf)"/><line x1="376.2" y1="0" x2="226.2" y2="150" stroke="var(--sig)" stroke-width="1.6"/></svg><span class="lbl" style="left:14px;bottom:12px;color:#B4C2C9">Image de l'ordinateur</span><span class="lbl" style="right:14px;top:12px">Informations</span></div>
+        </div>
+        <div class="shape">
+          <h3>La règle de trame</h3>
+          <p>La latence se lit contre la durée d'une image. Repères à 160, 120 et 60&nbsp;Hz&#8239;; la médiane en signal, la zone p5–p95 en voile. Composant propre à KyberNow.</p>
+          <div class="ruler" id="ruler-demo">
+            <div class="ruler-track">
+              <div class="base"></div>
+              <div class="band" style="left:calc(6.4/20*100%);width:calc((11.2 - 6.4)/20*100%)"></div>
+              <div class="tick up" style="left:calc(6.25/20*100%)"><span>160 Hz</span></div>
+              <div class="tick" style="left:calc(8.33/20*100%)"><span>120 Hz</span></div>
+              <div class="tick" style="left:calc(16.67/20*100%)"><span>60 Hz</span></div>
+              <div class="med" style="left:calc(8.3/20*100%)"></div>
+            </div>
+            <div class="ruler-legend"><span>0 ms</span><span>médiane <b>8,3 ms</b> · p95 <b>11,2 ms</b></span><span>20 ms</span></div>
+          </div>
+        </div>
+        <div class="shape">
+          <h3>Espace, rayons, profondeur</h3>
+          <div class="spacing">
+            <div>4<i style="width:4px"></i></div><div>8<i style="width:8px"></i></div><div>12<i style="width:12px"></i></div><div>16<i style="width:16px"></i></div><div>24<i style="width:24px"></i></div><div>32<i style="width:32px"></i></div><div>48<i style="width:48px"></i></div><div>64<i style="width:64px"></i></div>
+          </div>
+          <div class="radii">
+            <div style="border-top-left-radius:6px">6</div><div style="border-top-left-radius:10px">10</div><div style="border-top-left-radius:16px">16</div><div style="border-top-left-radius:22px">22</div>
+          </div>
+          <p>6&nbsp;: contrôles · 10&nbsp;: champs, vignettes · 16&nbsp;: cartes · 22&nbsp;: feuilles et fenêtres. La profondeur se fait par la surface et le filet, jamais par une ombre portée&#8239;:</p>
+          <div class="elev"><div class="e0">fond</div><div class="e1">surface</div><div class="e2">relief</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 08 Icônes ──────────────────────────────────────────────── -->
+<section class="sec alt" id="icones">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">08</span>
+      <div>
+        <p class="eyebrow">Iconographie</p>
+        <h2>Phosphor, réglé fin</h2>
+        <p class="lede">Une seule bibliothèque pour les trois apps, Windows, Mac et web&#8239;: Phosphor (licence MIT). Trait fin par défaut, gras aux petites tailles, plein pour ce qui est actif.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-l">
+        <div class="icon-tools">
+          <div class="seg" role="group" aria-label="Graisse des icônes">
+            <button type="button" data-w="regular" aria-pressed="true">Regular · 20 px</button>
+            <button type="button" data-w="bold" aria-pressed="false">Bold · ≤ 16 px</button>
+            <button type="button" data-w="fill" aria-pressed="false">Fill · actif</button>
+          </div>
+          <span class="note">Libellés&#8239;: ce que l'icône signifie dans KyberNow.</span>
+        </div>
+        <div class="icons" id="icons" data-w="regular">
+          ICONS_GRID
+        </div>
+        <div class="rules">
+          <div class="rule"><b>Tailles</b><p>Regular à 20 px et plus (barres d'outils, listes). Bold à 16 px et moins (zone de notification, puces). Toujours sur la grille de 4.</p></div>
+          <div class="rule"><b>Couleur</b><p>Givre 2 au repos, givre au survol, signal seulement pour l'état actif (Fill). Jamais d'icône multicolore.</p></div>
+          <div class="rule"><b>Sur Mac</b><p>Les menus et la barre d'outils système gardent les SF Symbols, pour rester natifs. Phosphor dans le contenu de l'app.</p></div>
+          <div class="rule"><b>Icônes maison</b><p>Grille de 256, trait de 16, bouts arrondis, coins de 8&#8239;: les mêmes règles que Phosphor Regular.</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 09 Mouvement ───────────────────────────────────────────── -->
+<section class="sec" id="mouvement">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">09</span>
+      <div>
+        <p class="eyebrow">Mouvement</p>
+        <h2>Rapide, et dans le sens du signal</h2>
+        <p class="lede">Une app de latence ne traîne pas. Les animations durent moins d'un demi-temps de réaction, et vont de l'ordinateur vers vous&#8239;: du haut-gauche vers le bas-droite.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="motions">
+          <div class="motion">
+            <div class="stage"><x-mark state="now" class="m-join" id="mjoin"></x-mark><button class="replay" type="button" data-replay="mjoin"><x-i n="arrow-counter-clockwise" w="bold"></x-i>Rejouer</button></div>
+            <div class="info"><h3>Jonction</h3><p>Les moitiés se rejoignent. Lancement de l'app, connexion réussie, fin d'appairage.</p><code>420 ms · sortie (.2, .9, .1, 1)</code></div>
+          </div>
+          <div class="motion">
+            <div class="stage"><svg class="mark m-pass" data-state="now" viewBox="0 0 48 48" aria-hidden="true"><path class="m-src" d="GEO_SRC"/><path class="m-dst" d="GEO_DST"/><path class="pulse" pathLength="100" d="M5 43 L43 5"/></svg></div>
+            <div class="info"><h3>Passage</h3><p>Une impulsion parcourt la couture. Connexion en cours, flux qui démarre.</p><code>1,4 s · linéaire · en boucle</code></div>
+          </div>
+          <div class="motion">
+            <div class="stage"><x-mark state="now" class="m-idle"></x-mark></div>
+            <div class="info"><h3>Veille</h3><p>La moitié «&#8239;vous&#8239;» respire. Recherche d'un ordinateur, attente d'une réponse.</p><code>2,4 s · symétrique · en boucle</code></div>
+          </div>
+        </div>
+        <div class="timing">
+          <div><b>120 ms</b><span>Changement d'état (case, bascule)</span></div>
+          <div><b>200 ms</b><span>Survol, sélection</span></div>
+          <div><b>320 ms</b><span>Apparition d'une feuille, d'un panneau</span></div>
+          <div><b>420 ms</b><span>Jonction (moment de marque)</span></div>
+          <div><svg class="curve" viewBox="0 0 100 46" aria-hidden="true"><line x1="0" y1="44" x2="100" y2="44"/><path d="M0 44 C20 4.4 10 2 100 2"/></svg><span>Sortie&#8239;: cubic-bezier(.2, .9, .1, 1)</span></div>
+        </div>
+        <p class="note">Avec «&#8239;Réduire les animations&#8239;» : pas de déplacement, fondus de 120 ms, la veille devient un point fixe.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 10 Lumière ─────────────────────────────────────────────── -->
+<section class="sec alt" id="lumiere">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">10</span>
+      <div>
+        <p class="eyebrow">Lumière</p>
+        <h2>Le signal s'allume</h2>
+        <p class="lede">Spectre est une couleur et une lumière&#8239;: un tube néon logé dans la couture. Il reste éteint au repos et ne s'allume que dans les moments qui comptent&#8239;: on vise, on clique, une connexion s'établit, un écran apparaît.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="lum-anat dark-island" id="lum-anat">
+          <svg class="lum-tube" viewBox="0 0 800 160" aria-label="Anatomie du néon : cœur, gaine, halo" role="img">
+            <line x1="90" y1="80" x2="710" y2="80" class="t-halo" filter="url(#kn-tube-wide)"/>
+            <line x1="90" y1="80" x2="710" y2="80" class="t-sheath" filter="url(#kn-tube-mid)"/>
+            <line x1="90" y1="80" x2="710" y2="80" class="t-sheath2"/>
+            <line x1="90" y1="80" x2="710" y2="80" class="t-core"/>
+          </svg>
+          <div class="lum-legend">
+            <div><b>Cœur</b><span class="mono">#F4F1FF · 1 à 2 px</span><span>Presque blanc : c'est lui qui fait «&#8239;néon&#8239;» plutôt que «&#8239;violet&#8239;».</span></div>
+            <div><b>Gaine</b><span class="mono">#9A8CFF · 3 à 5 px</span><span>Le signal, net, autour du cœur.</span></div>
+            <div><b>Halo</b><span class="mono">#6D5BFF · 16 à 28 px</span><span>Large et doux, il déborde sur les surfaces voisines et les teinte.</span></div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Quatre niveaux, plus l'allumage</h3>
+          <div class="lum-levels dark-island">
+            <div><x-mark state="now"></x-mark><b>0 · Éteint</b><span>Repos. Le cas de presque tout, presque tout le temps.</span></div>
+            <div><x-mark state="now" class="g1"></x-mark><b>1 · Veille</b><span>Survol, focus clavier. 200 ms.</span></div>
+            <div><x-mark state="now" class="lit"></x-mark><b>2 · Allumé</b><span>Actif&#8239;: connexion en cours, flux, mesure en direct. Respire sur 3,2 s.</span></div>
+            <div><x-mark state="now" class="g3"></x-mark><b>3 · Éclair</b><span>Clic. Retombe en 400 ms.</span></div>
+            <div><x-mark state="now" class="lit" id="lvl-ignite"></x-mark><b>Allumage</b><span>Apparition d'un écran, lancement. Grésille 1 s, une seule fois.</span><button class="replay" type="button" id="replay-ignite"><x-i n="arrow-counter-clockwise" w="bold"></x-i>Rejouer</button></div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="sub">Banc d'essai</h3>
+          <div class="lum-bench dark-island" id="bench">
+            <div class="bench-mark"><x-mark state="now" id="bench-mark"></x-mark></div>
+            <div class="bench-ui">
+              <div class="row">
+                <button class="btn btn-primary btn-lg" type="button" id="bench-btn"><span class="kbd"><x-i n="arrow-elbow-down-left" w="bold"></x-i></span><span class="lbl">Se connecter</span></button>
+                <div class="segmented" role="radiogroup" aria-label="Profil" id="bench-seg">
+                  <button type="button" role="radio" aria-checked="true"><x-i n="game-controller"></x-i>Jeu</button>
+                  <button type="button" role="radio" aria-checked="false"><x-i n="text-aa"></x-i>Bureau</button>
+                  <button type="button" role="radio" aria-checked="false"><x-i n="lightning"></x-i>Max</button>
+                </div>
+              </div>
+              <div class="bench-data">
+                <div class="top"><span class="eyebrow">Latence</span><b class="num" id="bench-lat">8,3 ms</b></div>
+                <div class="ruler-track" id="bench-ruler">
+                  <div class="base"></div>
+                  <div class="band" style="left:calc(6.4/20*100%);width:calc((11.2 - 6.4)/20*100%)"></div>
+                  <div class="tick up" style="left:calc(6.25/20*100%)"><span>160 Hz</span></div>
+                  <div class="tick" style="left:calc(8.33/20*100%)"><span>120 Hz</span></div>
+                  <div class="tick" style="left:calc(16.67/20*100%)"><span>60 Hz</span></div>
+                  <div class="med" id="bench-med" style="left:calc(8.3/20*100%)"></div>
+                </div>
+              </div>
+              <div class="bench-ctl">
+                <button class="btn" type="button" id="bench-ignite"><x-i n="lightning" w="bold"></x-i>Allumer l'écran</button>
+                <label class="switch"><input type="checkbox" id="bench-live"><span class="track"><span class="thumb"></span></span>Session en cours</label>
+                <span class="note">Survolez et cliquez les éléments.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rules">
+          <div class="rule"><b>Quand</b><p>Survol et clic, état actif (connexion, flux, mesure en direct), apparition d'un écran. Jamais d'allumage en boucle, jamais de néon au repos.</p></div>
+          <div class="rule"><b>Quoi</b><p>Le symbole (la couture et la moitié signal), le bouton principal (son pan coupé devient un liseré de cœur), la sélection active, les mesures en direct. Rien d'autre.</p></div>
+          <div class="rule"><b>En session</b><p>Rien ne brille devant l'image de l'ordinateur. Seul le symbole de la barre de session reste allumé, au niveau 2, tant que le flux passe.</p></div>
+          <div class="rule"><b>Accessibilité</b><p>«&#8239;Réduire les animations&#8239;» : pas de grésillement ni de respiration, la lumière s'allume d'un coup. «&#8239;Réduire la transparence&#8239;» : pas de halo, la couleur seule. Le néon ne porte jamais d'information à lui seul.</p></div>
+        </div>
+
+        <div class="two">
+          <div class="code">
+            <header><span>CSS · niveaux de lumière</span><button class="copy" type="button" data-copy="css-neon"><x-i n="copy"></x-i>Copier</button></header>
+<pre id="css-neon"><span class="c">/* 1 · veille : survol, focus */</span>
+--kn-glow-1: drop-shadow(0 0 2px rgb(154 140 255 / .8))
+             drop-shadow(0 0 8px rgb(109 91 255 / .45));
+<span class="c">/* 2 · allumé : actif, respire sur 3,2 s */</span>
+--kn-glow-2: drop-shadow(0 0 1px <span class="v">#F4F1FF</span>)
+             drop-shadow(0 0 5px #9A8CFF)
+             drop-shadow(0 0 16px rgb(109 91 255 / .8));
+<span class="c">/* 3 · éclair : clic, retombe en 400 ms */</span>
+--kn-glow-3: drop-shadow(0 0 2px #FFFFFF)
+             drop-shadow(0 0 9px #9A8CFF)
+             drop-shadow(0 0 28px #6D5BFF);</pre>
+          </div>
+          <div class="code">
+            <header><span>SwiftUI · Theme+Brand.swift</span><button class="copy" type="button" data-copy="swift-neon"><x-i n="copy"></x-i>Copier</button></header>
+<pre id="swift-neon"><span class="c">// Niveau courant, et allumage une fois à l'apparition</span>
+Mark()
+    .neon(isConnecting ? .lit : .off)
+    .neonIgnition(trigger: appeared)
+
+Button("Se connecter") { connect() }
+    .buttonStyle(.knPrimary)   <span class="c">// veille au survol, éclair au clic</span>
+
+<span class="c">// Respecte Réduire les animations / la transparence</span>
+<span class="c">// (accessibilityReduceMotion, accessibilityReduceTransparency)</span></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 11 Composants ──────────────────────────────────────────── -->
+<section class="sec" id="composants">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">11</span>
+      <div>
+        <p class="eyebrow">Composants</p>
+        <h2>Les pièces de base</h2>
+        <p class="lede">Ce qui revient dans les trois apps.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="comp-grid">
+        <div class="comp">
+          <h3>Boutons</h3>
+          <div class="row">
+            <button class="btn btn-primary" type="button"><span class="kbd"><x-i n="arrow-elbow-down-left" w="bold"></x-i></span>Se connecter</button>
+            <button class="btn" type="button"><x-i n="sliders-horizontal"></x-i>Réglages</button>
+            <button class="btn btn-sig" type="button"><x-i n="plus" w="bold"></x-i>Ajouter</button>
+            <button class="btn btn-ghost" type="button">Annuler</button>
+          </div>
+          <p class="note">Principal&#8239;: aplat de signal, coin coupé, raccourci affiché. Secondaire&#8239;: relief. Signal léger&#8239;: action positive mais pas principale. Fantôme&#8239;: annuler, fermer.</p>
+        </div>
+        <div class="comp">
+          <h3>Profil</h3>
+          <div class="segmented" role="radiogroup" aria-label="Profil" id="profile-demo">
+            <button type="button" role="radio" aria-checked="true"><x-i n="game-controller"></x-i>Jeu</button>
+            <button type="button" role="radio" aria-checked="false"><x-i n="text-aa"></x-i>Bureau</button>
+            <button type="button" role="radio" aria-checked="false"><x-i n="lightning"></x-i>Max</button>
+          </div>
+          <p class="note" id="profile-hint">Latence minimale, image à la fréquence de cet écran, manette prête.</p>
+        </div>
+        <div class="comp">
+          <h3>États d'un ordinateur</h3>
+          <div class="row">
+            <span class="pill on"><i></i>En ligne · réseau local</span>
+            <span class="pill vpn"><i></i>En ligne · VPN</span>
+            <span class="pill search"><i></i>Recherche…</span>
+            <span class="pill off"><i></i>Hors ligne · vu il y a 3 jours</span>
+          </div>
+          <p class="note">Le point porte l'état, le texte le précise. Le signal n'y apparaît pas.</p>
+        </div>
+        <div class="comp">
+          <h3>Champ</h3>
+          <div class="field">
+            <label for="addr-demo">Adresse de l'ordinateur</label>
+            <div class="in"><input id="addr-demo" value="192.168.1.42" spellcheck="false" autocomplete="off"><span class="suffix">: 31847</span></div>
+            <small>Le port de la console est affiché sur l'ordinateur, page Appareils.</small>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 12 Écriture ────────────────────────────────────────────── -->
+<section class="sec alt" id="voix">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">12</span>
+      <div>
+        <p class="eyebrow">Écriture</p>
+        <h2>On parle comme un technicien aimable</h2>
+        <p class="lede">Précis sur les chiffres, simple sur les mots. On vouvoie, on écrit ce qui va se passer, et une erreur dit toujours quoi faire.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-l">
+        <div class="table-wrap">
+          <table class="say">
+            <thead><tr><th>On écrit</th><th>On n'écrit pas</th><th>Pourquoi</th></tr></thead>
+            <tbody>
+              <tr><td>ordinateur</td><td>PC, serveur, hôte</td><td>C'est le mot de l'utilisateur, quel que soit l'appareil.</td></tr>
+              <tr><td>Se connecter</td><td>Lancer la session de streaming</td><td>Le bouton dit l'action, en deux mots.</td></tr>
+              <tr><td>Hors ligne · vu il y a 3 jours</td><td>Erreur&#8239;: hôte injoignable (ETIMEDOUT)</td><td>L'état, puis le contexte utile.</td></tr>
+              <tr><td>L'ordinateur ne répond pas. Vérifiez qu'il est allumé et sur le même réseau, ou passez par le VPN.</td><td>Oups&#8239;! Une erreur est survenue.</td><td>Ce qui se passe, puis quoi faire.</td></tr>
+              <tr><td>8,3 ms · 3840 × 2160 à 160 Hz</td><td>8.3ms · 3840x2160@160</td><td>Typographie française, valeurs réelles.</td></tr>
+              <tr><td>Texte net (4:4:4), aucune image perdue</td><td>Qualité optimale&#8239;!</td><td>Le bénéfice concret, pas un superlatif.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 13 App macOS ───────────────────────────────────────────── -->
+<section class="mac-sec" id="macos">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">13</span>
+      <div>
+        <p class="eyebrow">Application · macOS</p>
+        <h2>L'accueil</h2>
+        <p class="lede">Premier écran de l'app&#8239;: l'ordinateur principal en grand, prêt à se connecter, les autres à côté. Les données sont celles du prototype validé le 19 octobre.</p>
+      </div>
+    </header>
+  </div>
+  <div class="wrap">
+    <div class="mac-stage" id="macstage">
+      <div class="mac-scale">
+        <div class="mac dark-island" role="group" aria-label="Maquette de l'écran d'accueil de KyberNow sur macOS">
+          <div class="mac-bar">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <div class="lockup"><x-mark state="now" id="mac-mark"></x-mark><x-word></x-word></div>
+            <div class="sp"></div>
+            <span class="tb-text"><x-i n="qr-code"></x-i>Scanner</span>
+            <span class="tb"><x-i n="plus"></x-i></span>
+            <span class="tb"><x-i n="gear-six"></x-i></span>
+          </div>
+          <div class="mac-body">
+            <div class="mac-head">
+              <div>
+                <p class="eyebrow">3 ordinateurs · ce Mac&#8239;: MacBook Pro 16 pouces, 120 Hz</p>
+                <h1>Sur quel ordinateur allez-vous&#8239;?</h1>
+              </div>
+              <div class="found"><x-i n="wifi-high"></x-i><span>Trouvé sur le réseau&#8239;: <b>Monstre</b> <span class="mono">192.168.1.57</span></span><button class="btn btn-sig" type="button">Ajouter</button></div>
+            </div>
+            <div class="mac-grid">
+              <div class="feat">
+                <div class="feat-top">
+                  <span class="pill on"><i></i>En ligne · réseau local</span>
+                  <span class="sp"></span>
+                  <span class="btn btn-ghost"><x-i n="sliders-horizontal"></x-i>Réglages</span>
+                  <span class="tb"><x-i n="dots-three" w="bold"></x-i></span>
+                </div>
+                <div class="feat-main">
+                  <div class="preview">
+                    <div class="sky"></div><div class="sun"></div><div class="m1"></div><div class="m2"></div>
+                    <div class="task"><i></i><i></i><i></i><i></i><i></i></div>
+                    <span class="tag"><i></i>Dernière image · hier 21 h 40</span>
+                    <div class="corner"></div>
+                  </div>
+                  <div class="host">
+                    <h2>Tour du bureau</h2>
+                    <p class="gpu"><x-i n="cpu"></x-i>GeForce RTX 3080 Ti · Windows 11</p>
+                    <p class="addr">192.168.1.42 · console 31847 · flux 27519</p>
+                    <p class="screen"><x-i n="monitor"></x-i>Écran virtuel 3456 × 2234 à 120 Hz, comme cet écran</p>
+                    <div class="prof">
+                      <span class="eyebrow">Profil</span>
+                      <div class="segmented" role="radiogroup" aria-label="Profil">
+                        <button type="button" role="radio" aria-checked="true" tabindex="-1"><x-i n="game-controller"></x-i>Jeu</button>
+                        <button type="button" role="radio" aria-checked="false" tabindex="-1"><x-i n="text-aa"></x-i>Bureau</button>
+                        <button type="button" role="radio" aria-checked="false" tabindex="-1"><x-i n="lightning"></x-i>Max</button>
+                      </div>
+                      <p>Latence minimale, image à la fréquence de cet écran, manette prête.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="feat-foot">
+                  <button class="btn btn-primary" type="button" id="mac-connect"><span class="kbd"><x-i n="arrow-elbow-down-left" w="bold"></x-i></span><span class="lbl">Se connecter</span><x-i n="arrow-right" w="bold"></x-i></button>
+                  <div class="lastses">
+                    <div class="top"><span>Dernière session · hier soir, 2 h 14 de jeu</span><b><em>8,3 ms</em> médiane · p95 11,2 ms</b></div>
+                    <div class="ruler-track">
+                      <div class="base"></div>
+                      <div class="band" style="left:calc(6.4/20*100%);width:calc((11.2 - 6.4)/20*100%)"></div>
+                      <div class="tick up" style="left:calc(6.25/20*100%)"><span>160 Hz</span></div>
+                      <div class="tick" style="left:calc(8.33/20*100%)"><span>120 Hz</span></div>
+                      <div class="tick" style="left:calc(16.67/20*100%)"><span>60 Hz</span></div>
+                      <div class="med" style="left:calc(8.3/20*100%)"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="side">
+                <div class="htile">
+                  <div class="t"><span class="glyph"><x-i n="desktop-tower"></x-i></span><div><b>Atelier</b><span>RTX 4070 · 100.84.12.7</span></div><span class="sp"></span></div>
+                  <div class="b"><span class="pill vpn"><i></i>En ligne · VPN</span><span class="lat">~21 ms</span><span class="btn">Se connecter</span></div>
+                </div>
+                <div class="htile off">
+                  <div class="t"><span class="glyph"><x-i n="television-simple"></x-i></span><div><b>PC du salon</b><span>RTX 3060 · 192.168.1.30</span></div><span class="sp"></span></div>
+                  <div class="b"><span class="pill off"><i></i>Hors ligne · vu il y a 3 jours</span></div>
+                </div>
+                <div class="addt">
+                  <h3><x-i n="plus" w="bold"></x-i>Ajouter un ordinateur</h3>
+                  <div class="ways">
+                    <div><x-i n="qr-code"></x-i>QR code de la console<span>caméra</span></div>
+                    <div><x-i n="link-simple"></x-i>Lien kybernow://<span>⌘V</span></div>
+                    <div><x-i n="keyboard"></x-i>Adresse et port<span>manuel</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mac-foot"><span class="mono">KyberNow 0.4 · technologie Kyber 0.29 (AGPL-3.0)</span><span>Les Lignes Claires</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="callouts">
+      <div><b>1</b><p><strong>Un seul coin coupé</strong>La carte vedette porte le pan à 45°, le bouton principal aussi&#8239;: c'est la même action. Cliquez «&#8239;Se connecter&#8239;» pour voir le néon pendant la connexion.</p></div>
+      <div><b>2</b><p><strong>La dernière image</strong>La vignette garde la dernière image reçue, avec la couture de signal dans son coin.</p></div>
+      <div><b>3</b><p><strong>La règle de trame</strong>La latence de la dernière session lue contre la durée d'une image à 160, 120 et 60&nbsp;Hz.</p></div>
+      <div><b>4</b><p><strong>Découverte Bonjour</strong>Un ordinateur annoncé sur le réseau s'ajoute d'un clic, sans quitter l'accueil.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 14 Kyber ───────────────────────────────────────────────── -->
+<section class="sec alt" id="kyber">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">14</span>
+      <div>
+        <p class="eyebrow">Rapport à Kyber</p>
+        <h2>Cousin, pas jumeau</h2>
+        <p class="lede">Repères pour diffuser sans être lié à Kyber. Ce n'est pas un avis juridique&#8239;: avant une diffusion publique, faites relire le nom par un conseil en propriété industrielle.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="legal">
+        <div class="risk">
+          <div><span class="lvl h">Élevé</span><div><b>Le nom «&#8239;KyberNow&#8239;» contient «&#8239;Kyber&#8239;»</b><p>La licence AGPL donne le droit d'utiliser, modifier et redistribuer le code, pas le nom&#8239;: l'AGPL laisse expressément les marques hors de la licence (article 7 e). Si «&#8239;Kyber&#8239;» est déposé, ou simplement exploité comme nom commercial, un nom qui l'intègre peut être vu comme une contrefaçon ou un parasitisme. Deux sorties&#8239;: une autorisation écrite de Kyber, ou un autre nom.</p></div></div>
+          <div><span class="lvl m">Moyen</span><div><b>Une ressemblance d'ensemble</b><p>En droit français, reprendre l'ensemble des codes d'un concurrent (couleurs, typos, mise en page, ton) pour profiter de sa notoriété relève du parasitisme. D'où les choix de cette charte&#8239;: symbole sans lettre et sans blocs à la Kyber, polices différentes et libres, couleur de signal qui n'est pas celle de Kyber.</p></div></div>
+          <div><span class="lvl l">Faible</span><div><b>Dire que KyberNow utilise Kyber</b><p>Mentionner la technologie qu'on utilise est un usage descriptif, admis s'il reste factuel&#8239;: en texte courant, sans le logo de Kyber, sans laisser croire à un partenariat.</p></div></div>
+          <div><span class="lvl l">Faible</span><div><b>Neutres sombres, géométrie à 45°</b><p>Un fond noir, un texte clair ou un angle à 45° ne sont protégeables par personne. C'est là que se loge la parenté.</p></div></div>
+        </div>
+        <div class="stack-l" style="gap:16px">
+          <div class="panel mention">
+            <span class="eyebrow">Mention à reprendre (pied de page, «&#8239;À propos&#8239;», App Store)</span>
+            <blockquote>KyberNow utilise Kyber, logiciel libre publié sous licence AGPL-3.0. KyberNow est développé par Les Lignes Claires et n'est ni édité, ni approuvé par l'équipe de Kyber.</blockquote>
+          </div>
+          <div class="panel mention">
+            <span class="eyebrow">Avant la diffusion</span>
+            <div class="prose" style="font-size:14.5px">
+              <p>1. Chercher «&#8239;Kyber&#8239;» et «&#8239;KyberNow&#8239;» dans les bases INPI, EUIPO (TMview) et OMPI, classes 9 et 42.</p>
+              <p>2. Écrire à Kyber pour présenter le projet et demander l'accord sur le nom. PROJECT.md le prévoit déjà.</p>
+              <p>3. Sans accord écrit, renommer. L'identité est faite pour&#8239;: seul le nom vectorisé change, le symbole, les couleurs et les apps restent.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── 15 Fichiers ────────────────────────────────────────────── -->
+<section class="sec" id="fichiers">
+  <div class="wrap">
+    <header class="sec-h">
+      <span class="sec-n">15</span>
+      <div>
+        <p class="eyebrow">Fichiers et jetons</p>
+        <h2>Tout est dans brand/v2</h2>
+        <p class="lede">Les fichiers sont générés par script depuis la géométrie du symbole&#8239;: <code class="mono">node brand/v2/tools/generate.mjs</code>.</p>
+      </div>
+    </header>
+    <div class="body-grid">
+      <div class="stack-xl">
+        <div class="files">
+          <div><code>mark/kybernow-mark-{now,server,console}-{dark,light}.svg</code><span>Symbole, trois états, deux fonds</span></div>
+          <div><code>logo/kybernow-logo-{dark,light}.svg</code><span>Horizontal</span></div>
+          <div><code>logo/kybernow-logo-stacked-{dark,light}.svg</code><span>Vertical</span></div>
+          <div><code>logo/kybernow-wordmark-{dark,light}.svg</code><span>Nom seul, vectorisé</span></div>
+          <div><code>app-icon/kybernow-{client,server,console}-1024.svg</code><span>Icônes d'app, gabarit macOS</span></div>
+          <div><code>favicon/kybernow-favicon.svg</code><span>S'adapte au thème du navigateur</span></div>
+          <div><code>fonts/</code><span>Archivo et Martian Mono variables, licences OFL</span></div>
+          <div><code>tokens/kybernow.css · tokens/Theme+Brand.swift</code><span>Jetons pour le web et SwiftUI</span></div>
+        </div>
+        <div class="two">
+          <div class="code">
+            <header><span>tokens/kybernow.css (extrait)</span><button class="copy" type="button" data-copy="css-tokens"><x-i n="copy"></x-i>Copier</button></header>
+<pre id="css-tokens"><span class="c">/* Neutres (sombre) */</span>
+--kn-ink-0: #05070A;  --kn-ink-1: #090D12;
+--kn-ink-2: #0E141A;  --kn-ink-3: #141B23;
+--kn-line:  #1E2832;  --kn-line-2: #2B3742;
+--kn-frost: #E3EDF0;  --kn-frost-2: #B4C2C9;
+--kn-mist:  #8A99A3;  --kn-faint: #65737E;
+<span class="c">/* Signal : Spectre */</span>
+--kn-signal: <span class="v" data-tok="sig-d">#9A8CFF</span>;
+--kn-signal-strong: <span class="v" data-tok="sig-strong-d">#6D5BFF</span>;
+--kn-on-signal: <span class="v" data-tok="on-sig-d">#FFFFFF</span>;
+--kn-signal-light: <span class="v" data-tok="sig-l">#5340E6</span>;
+<span class="c">/* États */</span>
+--kn-ok: #4CD68A; --kn-warn: #F5B841; --kn-bad: #FF6B6B;
+<span class="c">/* Formes, mouvement */</span>
+--kn-r-control: 6px; --kn-r-field: 10px;
+--kn-r-card: 16px;   --kn-r-sheet: 22px;
+--kn-chamfer: 10px;  --kn-seam: 6px;
+--kn-ease-out: cubic-bezier(.2, .9, .1, 1);
+--kn-t-state: 120ms; --kn-t-hover: 200ms;
+--kn-t-enter: 320ms; --kn-t-join: 420ms;</pre>
+          </div>
+          <div class="code">
+            <header><span>tokens/Theme+Brand.swift (extrait)</span><button class="copy" type="button" data-copy="swift-tokens"><x-i n="copy"></x-i>Copier</button></header>
+<pre id="swift-tokens"><span class="c">// Remplace les couleurs de Theme.swift</span>
+static let background = rgb(0x05070A)
+static let surface    = rgb(0x0E141A)
+static let surface2   = rgb(0x141B23)
+static let line       = rgb(0x1E2832)
+static let line2      = rgb(0x2B3742)
+static let text       = rgb(0xE3EDF0)
+static let text2      = rgb(0xB4C2C9)
+static let muted      = rgb(0x8A99A3)
+static let accent     = rgb(<span class="v" data-tok="sig-d" data-swift>0x9A8CFF</span>)
+static let accentFill = rgb(<span class="v" data-tok="sig-strong-d" data-swift>0x6D5BFF</span>)
+static let accentInk  = rgb(<span class="v" data-tok="on-sig-d" data-swift>0xFFFFFF</span>)
+
+static func display(_ size: CGFloat, _ w: Font.Weight = .semibold) -&gt; Font {
+    .custom("Archivo", size: size).weight(w).width(.expanded)
+}
+static func sans(_ size: CGFloat, _ w: Font.Weight = .regular) -&gt; Font {
+    .custom("Archivo", size: size).weight(w)
+}
+static func mono(_ size: CGFloat, _ w: Font.Weight = .regular) -&gt; Font {
+    .custom("Martian Mono", size: size).weight(w).monospacedDigit()
+}</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="lockup"><x-mark state="now"></x-mark><x-word></x-word></div>
+    <span>Identité v2 · Les Lignes Claires · 20 octobre 2026</span>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/*GEOMETRY*/
+(function () {
+  const root = document.documentElement;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ── Jetons affichés dans les extraits de code ─────────────────────
+  const cs = getComputedStyle(root);
+  document.querySelectorAll("[data-tok]").forEach((el) => {
+    const v = cs.getPropertyValue("--" + el.dataset.tok).trim().toUpperCase();
+    el.textContent = el.hasAttribute("data-swift") ? v.replace("#", "0x") : v;
+  });
+
+  // ── Lumière ──────────────────────────────────────────────────────
+  // Allumage : grésillement d'une seconde, puis retour lent au niveau courant.
+  function ignite(el) {
+    if (!el || reduce) return;
+    el.classList.remove("ignite", "settle"); void el.getBoundingClientRect();
+    el.classList.add("ignite");
+    setTimeout(() => { el.classList.remove("ignite"); el.classList.add("settle"); setTimeout(() => el.classList.remove("settle"), 950); }, 1000);
+  }
+  // Une seule fois, à la première apparition à l'écran.
+  const onView = new IntersectionObserver((entries) => entries.forEach((e) => {
+    if (!e.isIntersecting) return;
+    onView.unobserve(e.target);
+    setTimeout(() => ignite(e.target), Number(e.target.dataset.delay || 0));
+  }), { threshold: 0.5 });
+  [["lum-anat", 0], ["lvl-ignite", 200], ["mac-mark", 250], ["mac-connect", 450]].forEach(([id, d]) => {
+    const el = document.getElementById(id); if (el) { el.dataset.delay = d; onView.observe(el); }
+  });
+  ignite(document.querySelector(".brandlink .mark"));
+  document.getElementById("replay-ignite")?.addEventListener("click", () => ignite(document.getElementById("lvl-ignite")));
+
+  // Sélection : éclair au changement.
+  document.querySelectorAll(".segmented").forEach((seg) => seg.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    seg.querySelectorAll("button").forEach((x) => { x.setAttribute("aria-checked", String(x === b)); x.classList.remove("flash"); });
+    if (!reduce) { void b.offsetWidth; b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 650); }
+  })));
+
+  // Banc d'essai
+  const bMark = document.getElementById("bench-mark"), bBtn = document.getElementById("bench-btn");
+  const bLat = document.getElementById("bench-lat"), bRuler = document.getElementById("bench-ruler"), bMed = document.getElementById("bench-med");
+  let liveTimer = null;
+  function setLive(on) {
+    bMark?.classList.toggle("lit", on);
+    bBtn?.classList.toggle("is-lit", on);
+    if (bBtn) bBtn.querySelector(".lbl").textContent = on ? "Session en cours" : "Se connecter";
+    bLat?.classList.toggle("lit-text", on);
+    bRuler?.classList.toggle("lit", on);
+    clearInterval(liveTimer);
+    if (on && !reduce) liveTimer = setInterval(() => {
+      const v = 7.6 + Math.random() * 1.6;
+      bLat.textContent = v.toFixed(1).replace(".", ",") + " ms";
+      bMed.style.left = `calc(${v.toFixed(2)}/20*100%)`;
+    }, 260);
+    else { if (bLat) bLat.textContent = "8,3 ms"; if (bMed) bMed.style.left = "calc(8.3/20*100%)"; }
+  }
+  document.getElementById("bench-live")?.addEventListener("change", (e) => setLive(e.target.checked));
+  bBtn?.addEventListener("click", () => { const sw = document.getElementById("bench-live"); sw.checked = !sw.checked; setLive(sw.checked); });
+  document.getElementById("bench-ignite")?.addEventListener("click", () => {
+    ignite(bMark); setTimeout(() => ignite(bBtn), 180);
+  });
+
+  // Maquette : la connexion allume le symbole de la barre et le bouton.
+  const macBtn = document.getElementById("mac-connect"), macMark = document.getElementById("mac-mark");
+  macBtn?.addEventListener("click", () => {
+    if (macBtn.classList.contains("is-lit")) return;
+    const lbl = macBtn.querySelector(".lbl");
+    macBtn.classList.add("is-lit"); macMark.classList.add("lit"); lbl.textContent = "Connexion…";
+    setTimeout(() => { lbl.textContent = "Connecté"; }, 2200);
+    setTimeout(() => { macBtn.classList.remove("is-lit"); macMark.classList.remove("lit"); lbl.textContent = "Se connecter"; }, 3600);
+  });
+
+  // ── Grille du plan de construction ───────────────────────────────
+  const gl = document.getElementById("gridlines");
+  if (gl) {
+    let s = "";
+    for (let i = 0; i <= 48; i += 4) {
+      const cls = i % 12 === 0 ? "grid major" : "grid";
+      s += `<line class="${cls}" x1="${i}" y1="-4" x2="${i}" y2="52"/><line class="${cls}" x1="-4" y1="${i}" x2="52" y2="${i}"/>`;
+    }
+    s += `<line class="grid major" x1="-4" y1="52" x2="52" y2="-4" stroke-dasharray="0.8 0.8"/>`;
+    gl.innerHTML = s;
+  }
+
+  // ── Icônes : graisse ─────────────────────────────────────────────
+  const icons = document.getElementById("icons");
+  document.querySelectorAll(".seg [data-w]").forEach((b) => b.addEventListener("click", () => {
+    icons.dataset.w = b.dataset.w;
+    document.querySelectorAll(".seg [data-w]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+
+  // ── Profil (démo) ────────────────────────────────────────────────
+  const hints = ["Latence minimale, image à la fréquence de cet écran, manette prête.", "Texte net (4:4:4), aucune image perdue, débit plus élevé.", "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local."];
+  const prof = document.getElementById("profile-demo");
+  if (prof) prof.querySelectorAll("button").forEach((b, i) => b.addEventListener("click", () => {
+    document.getElementById("profile-hint").textContent = hints[i];
+  }));
+
+  // ── Rejouer la jonction (2D) ─────────────────────────────────────
+  document.querySelectorAll("[data-replay]").forEach((b) => b.addEventListener("click", () => {
+    const m = document.getElementById(b.dataset.replay);
+    m.classList.add("apart");
+    requestAnimationFrame(() => requestAnimationFrame(() => m.classList.remove("apart")));
+  }));
+
+  // ── Copier ───────────────────────────────────────────────────────
+  document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => {
+    const el = document.getElementById(b.dataset.copy);
+    const done = () => { const t = b.lastChild.textContent; b.lastChild.textContent = "Copié"; setTimeout(() => (b.lastChild.textContent = t), 1400); };
+    navigator.clipboard?.writeText(el.innerText).then(done, () => {
+      const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    });
+  }));
+
+  // ── Vignette Apple TV en couches ─────────────────────────────────
+  const card = document.getElementById("tvcard");
+  if (card && !reduce) {
+    const layers = card.querySelectorAll(".layer");
+    const depth = [4, 12, 24];
+    card.addEventListener("pointermove", (e) => {
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5;
+      card.style.transform = `rotateY(${x * 10}deg) rotateX(${-y * 10}deg) scale(1.04)`;
+      layers.forEach((l, i) => (l.style.transform = `translate(${x * depth[i]}px, ${y * depth[i]}px)`));
+      card.style.setProperty("--gx", `${(x + 0.5) * 100}%`); card.style.setProperty("--gy", `${(y + 0.5) * 100}%`);
+    });
+    card.addEventListener("pointerleave", () => { card.style.transform = ""; layers.forEach((l) => (l.style.transform = "")); });
+  }
+
+  // ── Maquette : mise à l'échelle ──────────────────────────────────
+  const stage = document.getElementById("macstage");
+  if (stage) {
+    const fit = () => stage.style.setProperty("--s", Math.min(1, stage.clientWidth / 1280).toFixed(4));
+    new ResizeObserver(fit).observe(stage); fit();
+  }
+
+  // ── Ouverture en 3D ──────────────────────────────────────────────
+  const canvas = document.getElementById("relais3d");
+  const lat = document.getElementById("lat");
+  if (!window.THREE || !canvas) return;
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch (e) { return; }
+  if (!renderer.getContext()) return;
+  root.classList.add("has-3d");
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.LinearToneMapping;
+  renderer.toneMappingExposure = 0.85;
+
+  const scene = new THREE.Scene();
+  const cam = new THREE.PerspectiveCamera(26, 1, 0.1, 100);
+  cam.position.set(0, 0, 15.5);
+
+  // Formes du symbole, depuis la même géométrie que les SVG (grille de 48, y vers le haut).
+  const c = 2 * Math.SQRT2;
+  function shape(pts, radii) {
+    const P = pts.map(([x, y]) => new THREE.Vector2((x - 24) / 12, (24 - y) / 12));
+    const n = P.length, a = [], b = [];
+    for (let i = 0; i < n; i++) {
+      const p = P[i], u = P[(i - 1 + n) % n].clone().sub(p).normalize(), v = P[(i + 1) % n].clone().sub(p).normalize();
+      const th = Math.acos(u.dot(v)), t = radii[i] / 12 / Math.tan(th / 2);
+      a.push(p.clone().add(u.clone().multiplyScalar(t))); b.push(p.clone().add(v.clone().multiplyScalar(t)));
+    }
+    const s = new THREE.Shape();
+    s.moveTo(b[0].x, b[0].y);
+    for (let i = 1; i <= n; i++) { const k = i % n; s.lineTo(a[k].x, a[k].y); s.quadraticCurveTo(P[k].x, P[k].y, b[k].x, b[k].y); }
+    return s;
+  }
+  const ext = { depth: 0.5, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.05, bevelSegments: 5, curveSegments: 28 };
+  const gSrc = new THREE.ExtrudeGeometry(shape([[0, 0], [48 - c, 0], [0, 48 - c]], [7, 1.2, 1.2]), ext); gSrc.translate(0, 0, -0.25);
+  const gDst = new THREE.ExtrudeGeometry(shape([[48, c], [48, 48], [c, 48]], [1.2, 7, 1.2]), ext); gDst.translate(0, 0, -0.25);
+
+  const sigColor = () => new THREE.Color(getComputedStyle(root).getPropertyValue("--sig-d").trim() || "#9A8CFF").convertSRGBToLinear();
+  const sigDeep = () => new THREE.Color(getComputedStyle(root).getPropertyValue("--sig-strong-d").trim() || "#6D5BFF").convertSRGBToLinear();
+  const mSrc = new THREE.MeshPhysicalMaterial({ color: new THREE.Color(0xd2dde2).convertSRGBToLinear(), roughness: 0.38, metalness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.3 });
+  const mDst = new THREE.MeshPhysicalMaterial({ color: sigDeep(), emissive: sigDeep(), emissiveIntensity: 0.5, roughness: 0.45, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.4 });
+  const src = new THREE.Mesh(gSrc, mSrc), dst = new THREE.Mesh(gDst, mDst);
+  const group = new THREE.Group(); group.add(src, dst); scene.add(group);
+
+  scene.add(new THREE.HemisphereLight(0xcfe2ff, 0x05070a, 0.4));
+  const key = new THREE.DirectionalLight(0xffffff, 0.95); key.position.set(-6, 7, 6); scene.add(key);
+  const rim = new THREE.DirectionalLight(sigColor(), 2.4); rim.position.set(5, -4, -5); scene.add(rim);
+
+  // Lumière dans la couture et impulsion qui la parcourt.
+  function glowTex() {
+    const cv = document.createElement("canvas"); cv.width = cv.height = 128;
+    const g = cv.getContext("2d"), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, "rgba(255,255,255,1)"); gr.addColorStop(0.25, "rgba(255,255,255,.45)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(cv);
+  }
+  const tex = glowTex();
+
+  // Néon de la couture : un tube logé au milieu de l'épaisseur, au fond de la fente (cœur
+  // presque blanc, gaine Spectre, lueur qui remplit la fente). Les moitiés le masquent comme
+  // un vrai objet ; seule la lueur large passe par-dessus, comme l'éblouissement d'une lumière.
+  function lineTex(sigma, fade) {
+    const W = 256, H = 64, cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+    const g = cv.getContext("2d"), img = g.createImageData(W, H);
+    for (let y = 0; y < H; y++) {
+      const d = (y - (H - 1) / 2) / (H / 2), a = Math.exp(-(d * d) / (2 * sigma * sigma));
+      for (let x = 0; x < W; x++) {
+        const u = x / (W - 1), e = Math.min(1, u / fade, (1 - u) / fade), i = (y * W + x) * 4;
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+        img.data[i + 3] = Math.round(255 * a * e * e * (3 - 2 * e));
+      }
+    }
+    g.putImageData(img, 0, 0);
+    return new THREE.CanvasTexture(cv);
+  }
+  const SEAM_LEN = 4.9;
+  const glowMat = (color, map, onTop) => new THREE.MeshBasicMaterial({ map, color, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: !onTop, toneMapped: false });
+  // Plan de lueur dans l'axe de la couture.
+  function glowPlane(width, color, opacity, sigma, z, fade, onTop) {
+    const m = glowMat(color, lineTex(sigma, fade), onTop);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(SEAM_LEN, width), m);
+    mesh.rotation.z = Math.PI / 4; mesh.position.z = z; mesh.renderOrder = onTop ? 6 : 5; group.add(mesh);
+    return { m, base: opacity };
+  }
+  // Fondu le long du tube : les bouts s'éteignent doucement au lieu de s'arrêter net.
+  function endFade() {
+    const H = 128, cv = document.createElement("canvas"); cv.width = 1; cv.height = H;
+    const g = cv.getContext("2d"), img = g.createImageData(1, H);
+    for (let y = 0; y < H; y++) {
+      const v = y / (H - 1), e = Math.min(1, v / 0.22, (1 - v) / 0.22), a = e * e * (3 - 2 * e);
+      img.data.set([255, 255, 255, Math.round(255 * a)], y * 4);
+    }
+    g.putImageData(img, 0, 0);
+    return new THREE.CanvasTexture(cv);
+  }
+  const fade = endFade();
+  // Tube : un cylindre ouvert couché dans la couture, au milieu de l'épaisseur (z = 0).
+  function tube(radius, color, opacity) {
+    const m = glowMat(color, fade, false);
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, SEAM_LEN - 0.15, 20, 1, true), m);
+    mesh.rotation.z = -Math.PI / 4; mesh.renderOrder = 5; group.add(mesh);
+    return { m, base: opacity };
+  }
+  const neon = [
+    glowPlane(3.2, sigDeep(), 0.2, 0.3, 0.3, 0.4, true),                // éblouissement, par-dessus les faces
+    glowPlane(0.7, sigColor(), 0.9, 0.32, 0, 0.2, false),                // lueur qui remplit la fente
+    tube(0.065, sigColor(), 0.8),                                         // gaine
+    tube(0.028, new THREE.Color(0xf4f1ff).convertSRGBToLinear(), 1),      // cœur
+  ];
+  // Reflet du tube sur les faces, par des lumières placées devant. Aucune dans la fente :
+  // trop proches des parois, elles y laissaient des taches.
+  const spill = [-1.4, 0, 1.4].map((t) => {
+    const l = new THREE.PointLight(sigColor(), 0, 3, 2);
+    l.position.set(t / Math.SQRT2, t / Math.SQRT2, 0.6); l.userData.gain = 0.6; group.add(l); return l;
+  });
+  // Allumage du tube : grésillement, puis lumière stable qui respire à peine (3,2 s).
+  const IGNITION = [[0, 0.85], [60, 0.05], [140, 1], [190, 0.1], [320, 0.75], [370, 0.15], [430, 1]];
+  function neonLevel(since) {
+    if (since < 0) return 0;
+    if (reduce) return 1;
+    const ms = since * 1000;
+    let v = 0;
+    for (const [t, a] of IGNITION) if (ms >= t) v = a;
+    return ms < 430 ? v : 1 - 0.07 * (0.5 + 0.5 * Math.sin((since - 0.43) * 1.96));
+  }
+  // Impulsion qui parcourt le tube, au fond de la fente.
+  const pulseMat = new THREE.SpriteMaterial({ map: tex, color: sigColor(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 });
+  const pulse = new THREE.Sprite(pulseMat); pulse.renderOrder = 7; pulse.scale.set(0.7, 0.7, 1); group.add(pulse);
+  const haloMat = new THREE.SpriteMaterial({ map: tex, color: sigColor(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.09 });
+  const halo = new THREE.Sprite(haloMat); halo.scale.set(12, 12, 1); halo.position.set(0.6, -0.6, -1.5); scene.add(halo);
+
+  // Taille
+  const box = canvas.parentElement;
+  function resize() {
+    const w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+    if (reduce || !running) render(performance.now());
+  }
+  new ResizeObserver(resize).observe(box);
+
+  // Animation
+  const ease = (t) => 1 - Math.pow(1 - Math.min(Math.max(t, 0), 1), 4);
+  const n = new THREE.Vector3(-1, 1, 0).normalize();
+  let t0 = performance.now(), joinedAt = 0, running = false, visible = true;
+  const pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+  box.addEventListener("pointermove", (e) => { const r = box.getBoundingClientRect(); pointer.tx = (e.clientX - r.left) / r.width - 0.5; pointer.ty = (e.clientY - r.top) / r.height - 0.5; });
+  box.addEventListener("pointerleave", () => { pointer.tx = 0; pointer.ty = 0; });
+  const replay = () => { t0 = performance.now(); joinedAt = 0; if (reduce) render(t0 + 99999); };
+  canvas.addEventListener("click", replay);
+  document.getElementById("replay3d")?.addEventListener("click", replay);
+  const fmt = (v) => (v >= 100 ? Math.round(v).toString() : v.toFixed(1).replace(".", ",")) + " ms";
+
+  function render(now) {
+    const DUR = 2000;
+    const k = reduce ? 1 : ease((now - t0 - 350) / DUR);
+    const sep = (1 - k) * 2.4;
+    src.position.copy(n).multiplyScalar(sep); src.position.z = sep * 0.5;
+    dst.position.copy(n).multiplyScalar(-sep); dst.position.z = -sep * 0.3;
+    src.rotation.set(sep * 0.12, -sep * 0.18, sep * 0.08);
+    dst.rotation.set(-sep * 0.1, sep * 0.2, -sep * 0.06);
+    if (k >= 0.999 && !joinedAt) joinedAt = now;
+    const since = joinedAt ? (now - joinedAt) / 1000 : -1;
+    const flash = since >= 0 ? Math.exp(-since * 3.2) : 0;
+    const lv = neonLevel(since);
+    neon.forEach((l) => (l.m.opacity = l.base * lv));
+    spill.forEach((l) => (l.intensity = l.userData.gain * (lv + flash * 1.5)));
+    mDst.emissiveIntensity = 0.42 + lv * 0.16 + flash * 0.3;
+    // impulsion le long de la couture (de bas-gauche vers haut-droite)
+    if (since >= 0 && !reduce) {
+      const ph = ((now - joinedAt) / 2600) % 1;
+      const p = -2.6 + ph * 5.2;
+      pulse.position.set(p / Math.SQRT2, p / Math.SQRT2, 0);
+      pulseMat.opacity = Math.sin(ph * Math.PI) * 0.7 * lv;
+    } else pulseMat.opacity = 0;
+    // inclinaison vers le pointeur, flottement
+    pointer.x += (pointer.tx - pointer.x) * 0.06; pointer.y += (pointer.ty - pointer.y) * 0.06;
+    const fl = reduce ? 0 : Math.sin(now / 1600) * 0.04;
+    group.rotation.set(-0.18 + pointer.y * 0.5 + fl, 0.32 + pointer.x * 0.7, 0);
+    if (lat) lat.textContent = fmt(212 - (212 - 8.3) * k);
+    renderer.render(scene, cam);
+  }
+  function loop(now) { if (!visible) { running = false; return; } running = true; render(now); requestAnimationFrame(loop); }
+  resize();
+  if (reduce) render(performance.now());
+  else {
+    new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !running) requestAnimationFrame(loop); }).observe(box);
+    requestAnimationFrame(loop);
+  }
+})();
+</script>

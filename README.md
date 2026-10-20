@@ -11,7 +11,7 @@ Serveur de streaming Windows clé en main et clients macOS / tvOS, construits su
 | `server/tray/` | Icône de la zone de notification |
 | `server/installer/` | Installateur `KyberNow-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
-| `brand/` | Logo et déclinaisons |
+| `brand/` | Logo et déclinaisons ; identité v2 dans `brand/v2/` (charte, symbole, jetons) |
 | `docs/` | Changements de Kyber, notes de compilation, prototype de référence |
 | `tools/latency/` | Mesure de latence |
 

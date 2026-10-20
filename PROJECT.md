@@ -20,6 +20,7 @@ Serveur Windows (NVIDIA) clé en main + GUI web d'administration, et clients nat
 | Ports | Tirés au hasard à l'installation (stream et console séparés), dans 20000–44999, hors plages réservées par Windows (Hyper-V/WSL) et ports Sunshine/Moonlight ; libres en TCP **et** UDP ; affichés et modifiables à l'écran de vérification ; annoncés en Bonjour |
 | Installateur (UX) | Immersif, animé (fond « flux de signal », transitions, diagnostic pas à pas, installation vivante, célébration), didactique ; maquette : https://claude.ai/artifact/3BnFPgxYmz2etqHXM1cd8S ; respecte « réduire les animations » ; écran « À propos » (licences, site du développeur) |
 | Admin web | Service Rust + SPA Svelte embarquée |
+| Identité (v2, 20/10/2026) | Symbole « Relais » (carré coupé à 45° : l'ordinateur, le lien, vous ; sans lettre, il survit à un changement de nom), signal Spectre `#9A8CFF` en néon allumé seulement dans les moments actifs, Archivo + Martian Mono ; « ordinateur » pour la machine partagée, « appareil » pour ce qui s'y connecte, aucun système nommé hors des informations techniques ; tout dans `brand/v2/` ; charte : https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt ; maquettes : https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
 | Apple | SwiftUI, macOS puis tvOS ; compte Apple Developer payant dispo |
 | Environnement | Dev sur Mac, PC Windows NVIDIA accessible sur le LAN |
 
