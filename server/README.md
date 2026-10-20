@@ -28,6 +28,7 @@ Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au ha
 - `GET /api/stream/info` : nom, GPU, AV1, écran virtuel, haut-parleurs ;
 - `POST /api/stream/prepare` : écran virtuel à la taille du client, son au bon nombre de voies ;
 - `POST /api/stream/heartbeat` : signal de vie (sans lui, l'écran virtuel disparaît) ;
+- `GET /api/stream/foreground` : app au premier plan sur l'ordinateur, en plein écran ou non, jeu ou non (mode Auto de la souris des apps). La console l'obtient d'un agent qui tourne dans la session Windows le temps d'une session (`display-agent foreground`, état écrit toutes les 400 ms). L'agent s'arrête seul sans signal de vie pendant 20 s ;
 - `POST /api/stream/end` : écrans et sortie audio d'origine rendus, avec un compte rendu ;
 - `GET /api/pairing` : lien d'appairage.
 
@@ -41,6 +42,7 @@ Les changements d'écran, de son et de pointeur sont faits dans la session de l'
 | `C:\ProgramData\KyberNow\tls\` | certificat de la console |
 | `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
+| `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | journal du service |
 
 Commandes : `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (puis redémarrer le service), `kyber-admin.exe init …` (utilisée par l'installateur), `kyber-admin.exe` seul pour lancer en console (diagnostic).

@@ -340,15 +340,22 @@ private struct SettingsContent: View {
                 Spacer()
                 Switch(isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }), label: "Touche ⌘ envoyée comme Ctrl")
             }
-            HStack(spacing: 8) {
-                Text("Souris capturée par les jeux").font(Theme.sans(14)).foregroundStyle(Theme.text)
-                InfoTip(label: "Souris capturée par les jeux") {
-                    Text("Viser comme sur l'ordinateur").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
-                    Text("⌃⌥⌘M confie la souris au jeu : le pointeur du Mac se fige et seuls les déplacements bruts partent, sans l'accélération de macOS. ⌃⌥⌘M la rend au Mac, au même endroit.")
-                    Text("Activé, le jeu la prend de lui-même quand il cache son pointeur. À éviter si l'ordinateur n'a pas de souris branchée : Windows cache alors son pointeur sans cesse, même sur le bureau.").foregroundStyle(Theme.warn)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Souris").font(Theme.sans(14)).foregroundStyle(Theme.text)
+                    InfoTip(label: "Souris") {
+                        Text("Bureau ou jeu").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                        Text("En mode bureau, le pointeur du Mac se pose où vous le placez sur l'ordinateur. En mode jeu, seuls les déplacements bruts partent, sans l'accélération de macOS, et le pointeur du Mac se cache : c'est ce qu'attend un jeu pour viser.")
+                        Text("Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur. Pendant la session, la barre en haut de l'écran change de mode, et ⌃⌥⌘M bascule.")
+                    }
                 }
-                Spacer()
-                Switch(isOn: Binding(get: { s.autoMouseCapture }, set: { v in update { $0.autoMouseCapture = v } }), label: "Souris capturée par les jeux")
+                Segmented(
+                    options: MouseChoice.allCases.map { ($0, $0.label) },
+                    selection: Binding(get: { s.mouse }, set: { m in if let m { update { $0.mouse = m } } }),
+                    height: 30,
+                    fill: true
+                )
+                Text(s.mouse.hint).font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
                 Text("Presse-papiers partagé").font(Theme.sans(14)).foregroundStyle(Theme.text)

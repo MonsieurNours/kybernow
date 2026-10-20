@@ -32,7 +32,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     @Published private(set) var padMode = false
     /// Élément de la barre qui a le focus en mode manette.
     @Published private(set) var padFocus = 0
-    static let padItems = 3 // profil, plein écran, déconnexion
+    static let padItems = 4 // profil, souris, plein écran, déconnexion
     @Published private(set) var closing = Closing()
     @Published private(set) var host: Host
     @Published private(set) var modeLabel = ""
@@ -44,6 +44,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     }
     /// Mesures de l'image (décodage par l'app), une fois par seconde.
     @Published private(set) var stats: VideoStats?
+    /// Souris en mode jeu en ce moment.
+    @Published private(set) var mouseCaptured = false
+    /// Jeu en plein écran sur l'ordinateur (nom de l'exécutable), d'après la console.
+    @Published private(set) var pcGame: String?
+    private var foregroundPoll: Task<Void, Never>?
     private var lastStallRestart = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
@@ -207,6 +212,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             let next = host.settings.profile.flatMap { all.firstIndex(of: $0) }.map { all[($0 + 1) % all.count] } ?? .jeu
             select(next)
         case 1:
+            // Souris suivante (Auto → Bureau → Jeu).
+            let all = MouseChoice.allCases
+            let i = all.firstIndex(of: host.settings.mouse) ?? 0
+            setMouse(all[(i + 1) % all.count])
+        case 2:
             toggleFullScreen()
         default:
             end()
@@ -274,6 +284,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                     store.update(host)
                 }
                 startHeartbeat(every: result.heartbeatSeconds)
+                startForegroundPoll()
                 try connect(password: password)
             } catch {
                 fail(error.localizedDescription)
@@ -389,10 +400,12 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         do {
             KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")
             streamView.commandAsControl = host.settings.commandAsControl
-            streamView.mouseMode = host.settings.autoMouseCapture ? .auto : .absolute
+            streamView.mouseMode = host.settings.mouse.streamMode
             streamView.onRelativeChanged = { [weak self] on in
-                // Première capture par un jeu : on dit comment reprendre la souris.
-                guard let self, on, !self.mouseHintShown else { return }
+                guard let self else { return }
+                self.mouseCaptured = on
+                // Premier passage en mode jeu : on dit comment reprendre la souris.
+                guard on, !self.mouseHintShown else { return }
                 self.mouseHintShown = true
                 self.showHint(.mouse, after: 0)
             }
@@ -429,6 +442,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         if revealedAt != nil { scene.close(streamView) }
         withAnimation(.easeInOut(duration: 0.7)) { phase = .ending }
         heartbeat?.cancel()
+        foregroundPoll?.cancel()
         streamView.detach()
         // Latence médiane de la session, montrée sur l'accueil.
         if let latency = kyber?.sessionLatencyMs {
@@ -475,9 +489,34 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         }
     }
 
-    /// ⌃⌥⌘M : la souris revient au Mac, ou retourne au jeu.
+    /// ⌃⌥⌘M : mode jeu si la souris est en mode bureau, et inversement.
     func toggleMouseCapture() {
-        streamView.toggleMouseCapture()
+        setMouse(streamView.isRelative ? .desktop : .game)
+    }
+
+    /// Choix de la barre ou de ⌃⌥⌘M, gardé pour cet ordinateur.
+    func setMouse(_ choice: MouseChoice) {
+        host.settings.mouse = choice
+        store.update(host)
+        streamView.mouseMode = choice.streamMode
+    }
+
+    /// Mode Auto : la console dit chaque seconde si un jeu est en plein écran.
+    private func startForegroundPoll() {
+        foregroundPoll?.cancel()
+        foregroundPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let console = self.console else { return }
+                let state = await console.foreground()
+                let game = state?.game == true ? (state?.exe ?? "jeu") : nil
+                if game != self.pcGame {
+                    KyberLog.app.notice("ordinateur : \(game.map { "jeu en plein écran (\($0))" } ?? "pas de jeu en plein écran", privacy: .public)")
+                    self.pcGame = game
+                    self.streamView.pcGameFullscreen = game != nil
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
     }
 
     func finish() {
@@ -491,6 +530,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         heartbeat?.cancel()
+        foregroundPoll?.cancel()
         kyber?.stop()
         kyber = nil
         stats = nil

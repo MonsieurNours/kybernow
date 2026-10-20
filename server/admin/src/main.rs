@@ -6,6 +6,7 @@ mod audio;
 mod auth;
 mod discovery;
 mod display;
+mod foreground;
 mod gpu;
 mod kyber_config;
 mod logs;
@@ -120,6 +121,11 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Veille de l'app au premier plan (plein écran, jeu) pendant une session.
+    Foreground {
+        #[arg(long)]
+        dir: PathBuf,
+    },
     /// Rétablit la sortie audio d'avant la session.
     AudioRestore {
         #[arg(long, allow_hyphen_values = true)]
@@ -141,6 +147,10 @@ fn agent_dir(out: &std::path::Path) -> &std::path::Path {
 
 /// Exécute une opération d'affichage et écrit son résultat (JSON) dans `out`.
 fn display_agent(action: AgentAction) -> Result<()> {
+    // Boucle de veille : pas de résultat unique à écrire.
+    if let AgentAction::Foreground { dir } = &action {
+        return foreground::run_agent(dir);
+    }
     #[cfg(windows)]
     let (out, result) = match action {
         AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => {
@@ -163,6 +173,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
                 .map(|_| serde_json::json!({ "ok": true }));
             (out, r)
         }
+        AgentAction::Foreground { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
@@ -170,6 +181,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        AgentAction::Foreground { .. } => unreachable!(),
     };
     let value = match result {
         Ok(v) => v,
@@ -184,6 +196,8 @@ pub struct Inner {
     pub kyber: KyberConfig,
     pub display: Arc<display::Manager>,
     pub audio: Arc<audio::Router>,
+    /// App au premier plan pendant une session (plein écran, jeu).
+    pub foreground: foreground::Watcher,
     pub service: Box<dyn service::ServiceControl>,
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
@@ -352,6 +366,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
         display,
         audio,
+        foreground: foreground::Watcher::new(&data_dir),
         service,
         data_dir: data_dir.clone(),
         kyber_dir,

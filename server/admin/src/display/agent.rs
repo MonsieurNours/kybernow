@@ -61,7 +61,25 @@ fn quote(arg: &str) -> String {
     }
 }
 
+/// Lance l'agent avec `args` sans l'attendre (veille de longue durée).
+pub fn launch(data_dir: &Path, args: &[String]) -> Result<()> {
+    let _ = data_dir;
+    let exe = std::env::current_exe()?;
+    let mut full: Vec<String> = vec!["display-agent".into()];
+    full.extend(args.iter().cloned());
+    if in_session_zero() {
+        start_in_console_session(&exe, &full, false)?;
+    } else {
+        std::process::Command::new(&exe).args(&full).spawn()?;
+    }
+    Ok(())
+}
+
 fn spawn_in_console_session(exe: &Path, args: &[String]) -> Result<u32> {
+    start_in_console_session(exe, args, true)
+}
+
+fn start_in_console_session(exe: &Path, args: &[String], wait: bool) -> Result<u32> {
     let session = unsafe { WTSGetActiveConsoleSessionId() };
     if session == 0xFFFF_FFFF {
         bail!("aucune session console active");
@@ -110,6 +128,11 @@ fn spawn_in_console_session(exe: &Path, args: &[String]) -> Result<u32> {
         CloseHandle(token);
         if ok == 0 {
             bail!("lancement de l'agent d'affichage : {}", std::io::Error::last_os_error());
+        }
+        if !wait {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return Ok(0);
         }
         WaitForSingleObject(pi.hProcess, TIMEOUT_MS);
         let mut code = 0u32;

@@ -125,7 +125,7 @@ private struct HintToast: View {
             Image(systemName: hint == .commands ? "arrow.up" : "computermouse").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.accent)
             Text(hint == .commands
                  ? "Les commandes sont en haut de l'écran, au survol"
-                 : "Souris confiée au jeu · ⌃⌥⌘M pour la reprendre")
+                 : "Souris en mode jeu · ⌃⌥⌘M ou la barre en haut pour la reprendre")
                 .font(Theme.sans(13)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 18)
@@ -147,6 +147,13 @@ private struct HoverBar: View {
             .shadow(color: Theme.accent.opacity(0.45), radius: 9)
             .opacity(session.padMode && session.padFocus == index ? 1 : 0)
             .animation(.easeOut(duration: 0.15), value: session.padFocus)
+    }
+
+    /// « Souris : Auto · jeu », « Souris : Bureau »…
+    private var mouseLabel: String {
+        let choice = session.host.settings.mouse
+        guard choice == .auto else { return "Souris : \(choice.label)" }
+        return "Souris : Auto · \(session.mouseCaptured ? "jeu" : "bureau")"
     }
 
     var body: some View {
@@ -181,8 +188,30 @@ private struct HoverBar: View {
                 .padding(.horizontal, 10)
                 .frame(height: 36)
                 .overlay(ring(0))
+                Menu {
+                    ForEach(MouseChoice.allCases, id: \.self) { choice in
+                        Button {
+                            session.setMouse(choice)
+                        } label: {
+                            if choice == session.host.settings.mouse {
+                                Label(choice.label, systemImage: "checkmark")
+                            } else {
+                                Text(choice.label)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(mouseLabel, systemImage: session.mouseCaptured ? "scope" : "cursorarrow")
+                        .font(Theme.sans(13, .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(height: 36)
+                .help("Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+                .overlay(ring(1))
                 BarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Plein écran (⌃⌥⌘F)") { session.toggleFullScreen() }
-                    .overlay(ring(1))
+                    .overlay(ring(2))
                 Button {
                     session.end()
                 } label: {
@@ -195,7 +224,7 @@ private struct HoverBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Se déconnecter (⌃⌥⌘D)")
-                .overlay(ring(2))
+                .overlay(ring(3))
             }
             .padding(.leading, 16)
             .padding(.trailing, 8)

@@ -127,6 +127,24 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         return fingerprint
     }
 
+    /// Ce qui occupe l'écran de l'ordinateur (veille de la console).
+    public struct Foreground: Sendable {
+        public let fullscreen: Bool
+        public let game: Bool
+        public let exe: String?
+    }
+
+    /// nil : console d'une version précédente, ou veille pas encore prête.
+    public func foreground() async -> Foreground? {
+        guard let json = try? await call("GET", "api/stream/foreground", timeout: 2),
+              json["known"] as? Bool == true else { return nil }
+        return Foreground(
+            fullscreen: json["fullscreen"] as? Bool ?? false,
+            game: json["game"] as? Bool ?? false,
+            exe: json["exe"] as? String
+        )
+    }
+
     public func heartbeat() async {
         _ = try? await call("POST", "api/stream/heartbeat")
     }

@@ -59,6 +59,40 @@ enum Transport: String, Codable, CaseIterable {
     }
 }
 
+/// Souris pendant la session.
+enum MouseChoice: String, Codable, CaseIterable {
+    /// Mode jeu quand un jeu est en plein écran sur l'ordinateur.
+    case auto
+    /// Pointeur du Mac, positions absolues : le bureau, les vidéos.
+    case desktop
+    /// Déplacements bruts, pointeur du Mac caché : viser dans un jeu.
+    case game
+
+    var label: String {
+        switch self {
+        case .auto: return "Auto"
+        case .desktop: return "Bureau"
+        case .game: return "Jeu"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .auto: return "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau."
+        case .desktop: return "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)."
+        case .game: return "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser."
+        }
+    }
+
+    var streamMode: StreamView.MouseMode {
+        switch self {
+        case .auto: return .auto
+        case .desktop: return .desktop
+        case .game: return .game
+        }
+    }
+}
+
 enum AudioChoice: String, Codable, CaseIterable {
     case auto, stereo, surround51, surround71, off
 
@@ -114,10 +148,8 @@ struct ConnectionSettings: Codable, Hashable {
     var vsync = true
     /// « Comme cet écran » ramené à la 4K au plus (écrans 5K, 6K).
     var limit4K = false
-    /// Souris capturée d'elle-même quand un jeu cache le pointeur. Désactivé
-    /// par défaut : sur un ordinateur sans souris branchée, Windows cache et
-    /// remontre son pointeur sans cesse, même sur le bureau. ⌃⌥⌘M capture à la main.
-    var autoMouseCapture = false
+    /// Souris : Auto (jeu en plein écran), Bureau ou Jeu.
+    var mouse: MouseChoice = .auto
     /// Presse-papiers partagé avec l'ordinateur (texte).
     var clipboard = true
 
@@ -188,7 +220,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, autoMouseCapture, clipboard
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard
     }
 
     init(from decoder: Decoder) throws {
@@ -208,7 +240,7 @@ extension ConnectionSettings {
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
-        autoMouseCapture = (try? c.decodeIfPresent(Bool.self, forKey: .autoMouseCapture)) ?? autoMouseCapture
+        mouse = (try? c.decodeIfPresent(MouseChoice.self, forKey: .mouse)) ?? mouse
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
     }
 }

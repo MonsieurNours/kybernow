@@ -26,26 +26,28 @@ public final class StreamView: NSView {
     /// Bande du haut réservée à l'app (barre ouverte) : rien n'y part vers l'ordinateur.
     public var reservedTopBand: CGFloat = 0
 
-    public enum MouseMode { case auto, absolute }
-    /// Auto : souris relative quand l'ordinateur masque son pointeur (jeux).
+    /// Bureau : souris absolue, pointeur du Mac toujours là. Jeu : souris
+    /// relative (déplacements bruts). Auto : jeu quand un jeu est en plein
+    /// écran sur l'ordinateur et cache son pointeur.
+    public enum MouseMode { case auto, desktop, game }
     public var mouseMode: MouseMode = .auto { didSet { evaluateRelative() } }
+    /// Un jeu est en plein écran sur l'ordinateur (veille de la console).
+    public var pcGameFullscreen = false {
+        didSet { if pcGameFullscreen != oldValue { evaluateRelative() } }
+    }
+    /// La souris est-elle en mode jeu en ce moment.
+    public var isRelative: Bool { relative.active }
     /// Barre de l'app ouverte : la souris redevient absolue pour s'en servir.
     public var relativeSuspended = false { didSet { evaluateRelative() } }
     /// La souris est-elle relative en ce moment (pour la barre et les menus).
     public var onRelativeChanged: ((Bool) -> Void)?
     private let relative = RelativeMouse()
     private var remoteHidden = false
-    /// Pointeur caché par l'ordinateur pendant que la souris bouge : c'est un
-    /// jeu qui l'a capturé (une vidéo, elle, le réaffiche au premier mouvement).
-    private var hiddenWhileMoving: (since: TimeInterval, last: TimeInterval)?
-    private var hostCapturedPointer = false
+    /// Depuis quand l'ordinateur montre son pointeur (nil : caché).
+    private var remoteVisibleSince: TimeInterval? = 0
     /// Forme du pointeur de l'ordinateur, en pixels de l'ordinateur.
     private var remoteShape: (image: NSImage, hotSpot: CGPoint)?
     private var remotePosition: CGPoint?
-    /// Libérée par l'utilisateur (⌃⌥⌘M) en mode auto : reprise au prochain clic dans l'image.
-    private var releasedByUser = false
-    /// Capturée à la main (⌃⌥⌘M), jusqu'au prochain ⌃⌥⌘M.
-    private var capturedByUser = false
     private var windowObservers: [NSObjectProtocol] = []
 
     private var input: InputPipeline?
@@ -99,8 +101,7 @@ public final class StreamView: NSView {
     public func detach() {
         endRelative(warp: false)
         remoteHidden = false
-        hiddenWhileMoving = nil
-        hostCapturedPointer = false
+        remoteVisibleSince = 0
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
         input?.flushKeys()
@@ -142,11 +143,13 @@ public final class StreamView: NSView {
         if remote.visible == remoteHidden {
             remoteHidden = !remote.visible
             KyberLog.app.notice("pointeur de l'ordinateur \(remote.visible ? "visible" : "caché", privacy: .public)")
-            if !remoteHidden {
-                hiddenWhileMoving = nil
-                hostCapturedPointer = false
-            }
+            remoteVisibleSince = remoteHidden ? nil : ProcessInfo.processInfo.systemUptime
             evaluateRelative()
+            if !remoteHidden {
+                // Un pointeur remontré un instant (menus, clignotement de
+                // Windows) ne fait pas quitter le mode jeu : on revérifie après.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in self?.evaluateRelative() }
+            }
         }
         // Forme nouvelle : on l'adopte. Masquage ou forme vide : on garde la dernière.
         guard let image = remote.image else { return }
@@ -182,18 +185,6 @@ public final class StreamView: NSView {
 
     // MARK: - Souris relative
 
-    /// ⌃⌥⌘M : confie la souris au jeu, ou la rend au Mac.
-    public func toggleMouseCapture() {
-        if relative.active {
-            capturedByUser = false
-            releasedByUser = true
-        } else {
-            releasedByUser = false
-            capturedByUser = true
-        }
-        evaluateRelative()
-    }
-
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowObservers.forEach(NotificationCenter.default.removeObserver)
@@ -207,18 +198,24 @@ public final class StreamView: NSView {
     }
 
     private func evaluateRelative() {
-        let automatic = mouseMode == .auto && remoteHidden && hostCapturedPointer && !releasedByUser
-        let want = (capturedByUser || automatic) && !relativeSuspended && input != nil && window?.isKeyWindow == true
+        let visibleFor = remoteVisibleSince.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
+        let wanted: Bool
+        switch mouseMode {
+        case .desktop: wanted = false
+        case .game: wanted = true
+        case .auto: wanted = pcGameFullscreen && (relative.active ? visibleFor < 0.6 : remoteHidden)
+        }
+        let want = wanted && !relativeSuspended && input != nil && window?.isKeyWindow == true
         if want, !relative.active {
             // On n'entre qu'avec le pointeur sur l'image (pas pendant un tour dans les menus).
             guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
             input?.setRelative(true)
             relative.start()
-            KyberLog.app.notice("souris relative (\(self.capturedByUser ? "⌃⌥⌘M" : "pointeur capturé par l'ordinateur", privacy: .public))")
+            KyberLog.app.notice("souris en mode jeu (\(self.mouseMode == .game ? "choisi" : "jeu en plein écran", privacy: .public))")
             onRelativeChanged?(true)
         } else if !want, relative.active {
             endRelative(warp: true)
-            KyberLog.app.notice("souris absolue")
+            KyberLog.app.notice("souris en mode bureau")
         }
     }
 
@@ -240,26 +237,6 @@ public final class StreamView: NSView {
         CGAssociateMouseAndMouseCursorPosition(1)
     }
 
-    /// La souris bouge alors que l'ordinateur cache son pointeur depuis plus
-    /// de 0,35 s de mouvement continu : un jeu l'a capturé.
-    private func noteMovementWhileHidden() {
-        guard mouseMode == .auto, remoteHidden, !hostCapturedPointer else {
-            hiddenWhileMoving = nil
-            return
-        }
-        let now = ProcessInfo.processInfo.systemUptime
-        // Une pause de plus de 0,3 s remet le compte à zéro.
-        guard let motion = hiddenWhileMoving, now - motion.last < 0.3 else {
-            hiddenWhileMoving = (now, now)
-            return
-        }
-        hiddenWhileMoving = (motion.since, now)
-        if now - motion.since >= 0.35 {
-            hostCapturedPointer = true
-            evaluateRelative()
-        }
-    }
-
     // MARK: - Souris
 
     private func inReservedBand(_ event: NSEvent) -> Bool {
@@ -274,7 +251,6 @@ public final class StreamView: NSView {
         }
         let p = convert(event.locationInWindow, from: nil)
         onPointerMoved?(bounds.height - p.y)
-        noteMovementWhileHidden()
         guard let input, let layout, !inReservedBand(event) else { return }
         var local = kynput_Position(x: p.x, y: bounds.height - p.y)
         var host = kynput_Position(x: 0, y: 0)
@@ -289,11 +265,6 @@ public final class StreamView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        if releasedByUser, mouseMode == .auto {
-            // Clic dans l'image après ⌃⌥⌘M : le jeu reprend la souris.
-            releasedByUser = false
-            evaluateRelative()
-        }
         if !relative.active, inReservedBand(event) { return }
         sendPosition(event)
         input?.mouseButton(.left, pressed: true)

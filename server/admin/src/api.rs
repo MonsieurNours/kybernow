@@ -45,6 +45,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
+        .route("/api/stream/foreground", get(stream_foreground))
         .route("/api/stream/end", post(stream_end))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
 }
@@ -462,6 +463,8 @@ async fn stream_prepare(
     let a = s.audio.clone();
     let channels = body.audio_channels;
     let audio = blocking(move || Ok(a.start(Origin::App, channels))).await?;
+    // Veille du plein écran (mode jeu de la souris dans l'app).
+    s.foreground.start(&s.data_dir);
     if trigger == Trigger::Off || body.virtual_display == Some(false) {
         return Ok(Json(json!({ "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })));
     }
@@ -474,11 +477,20 @@ async fn stream_prepare(
 async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     stream_user(&s, &headers)?;
     s.audio.heartbeat();
+    s.foreground.touch();
     Ok(Json(json!({ "active": s.display.heartbeat() })))
+}
+
+/// App au premier plan sur l'ordinateur : plein écran, jeu (l'app du Mac
+/// l'interroge chaque seconde pour le mode de la souris).
+async fn stream_foreground(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    stream_user(&s, &headers)?;
+    Ok(Json(s.foreground.state()))
 }
 
 async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     stream_user(&s, &headers)?;
+    s.foreground.stop();
     let (d, a) = (s.display.clone(), s.audio.clone());
     let report = blocking(move || {
         // Les écrans d'abord : la sortie audio d'origine revient avec eux.
