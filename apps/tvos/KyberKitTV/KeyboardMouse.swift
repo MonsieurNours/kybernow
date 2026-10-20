@@ -68,6 +68,7 @@ final class KeyboardMouse {
             mouse.mouseInput?.rightButton?.pressedChangedHandler = nil
             mouse.mouseInput?.middleButton?.pressedChangedHandler = nil
             mouse.mouseInput?.scroll.valueChangedHandler = nil
+            mouse.mouseInput?.auxiliaryButtons?.forEach { $0.pressedChangedHandler = nil }
         }
         queue.sync {
             input?.flushKeys()
@@ -113,8 +114,44 @@ final class KeyboardMouse {
         m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
         m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }
         m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.middle, pressed: pressed) }
-        m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.input?.wheel(dx: x, dy: y) }
+        // Boutons 4 et 5 (côté du pouce) : précédent et suivant, X1 et X2 sous Windows.
+        for (button, kind) in zip(m.auxiliaryButtons ?? [], [InputPipeline.MouseButton.side, .extra]) {
+            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(kind, pressed: pressed) }
+        }
+        m.scroll.valueChangedHandler = { [weak self] _, x, y in
+            guard let self, let input = self.input else { return }
+            self.scrolled(first: x, second: y, input: input)
+        }
     }
+
+    /// Molette de GameController : premier axe vertical (positif = vers le
+    /// bas), second axe horizontal (positif = vers la droite), en crans (1,0 =
+    /// un cran de molette, fractions pour un pavé ou une Magic Mouse), comme
+    /// le lit SDL sur iOS et tvOS (`SDL_uikitevents.m`). kynput attend la même
+    /// unité et les mêmes signes (`MouseWheel` : dx positif = droite, dy
+    /// positif = bas), mais au plus un cran par paquet : un grand coup de
+    /// molette part en plusieurs paquets. Avant, x et y partaient tels quels,
+    /// donc échangés : la molette défilait de côté.
+    private func scrolled(first: Float, second: Float, input: InputPipeline) {
+        if scrollLogged < 8, first != 0 || second != 0 {
+            // Unités à confirmer sur une vraie souris : les premières valeurs au journal.
+            scrollLogged += 1
+            KyberLog.app.notice("molette Bluetooth : \(first) (vertical), \(second) (horizontal)")
+        }
+        var dy = first, dx = second
+        guard dx.isFinite, dy.isFinite, dx != 0 || dy != 0 else { return }
+        // Pas plus de 20 crans d'un coup (valeur aberrante).
+        dx = max(-20, min(20, dx))
+        dy = max(-20, min(20, dy))
+        while dx != 0 || dy != 0 {
+            let sx = max(-1, min(1, dx)), sy = max(-1, min(1, dy))
+            input.wheel(dx: sx, dy: sy)
+            dx -= sx
+            dy -= sy
+        }
+    }
+
+    private var scrollLogged = 0
 
     private static func scancode(_ usage: UInt16, _ out: inout UInt16) -> Bool {
         Keymap.scancode(usage: usage).map { out = $0; return true } ?? false

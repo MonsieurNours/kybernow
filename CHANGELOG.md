@@ -44,6 +44,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - App Apple TV : la Siri Remote en souris accélère avec la vitesse du doigt (lente pour viser, rapide pour traverser) et se règle sur la définition de l'écran de l'ordinateur, au lieu d'une vitesse fixe trop lente en 4K ; poser le doigt au centre du pavé ne le fait plus prendre pour levé. La manette en souris traverse aussi l'écran en 1,5 s quelle que soit sa définition.
 - App Apple TV : la combinaison L1 + R1 + Start + Select n'ouvre le menu que tenue 250 ms ; un appui bref des quatre touches reste au jeu, sans rien relâcher derrière lui.
 - App Apple TV : le bouton Home de la manette peut aller au jeu comme Guide (Steam Big Picture, Game Bar), si tvOS le laisse ; sinon, réglage « Bouton Guide » sur Appui long : Menu ou Options tenus 0,6 s envoient Guide. L'écran de test montre si Home arrive à l'app.
+- App Apple TV : la molette d'une souris Bluetooth défile enfin dans le bon sens (elle défilait de côté), un cran pour un cran ; les boutons 4 et 5 (précédent, suivant) marchent.
 
 ## 0.2.5
 
