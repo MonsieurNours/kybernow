@@ -236,6 +236,9 @@ struct SettingsView: View {
         seg("padspeed", "Manette en souris : vitesse", "Stick gauche : pointeur, droit : molette · A clic, X clic droit, B milieu · L1 / R1 : Alt + Tab · LT précis, RT rapide", Preferences.PadMouseSpeed.allCases.map(\.rawValue), prefs.padMouseSpeed.rawValue) { v in
             prefs.padMouseSpeed = Preferences.PadMouseSpeed(rawValue: v) ?? .normal
         }
+        seg("guide", "Bouton Guide", "Jeu : le bouton Home de la manette va au jeu (Steam, Game Bar) si tvOS le laisse, à vérifier dans Tester les manettes · Appui long : Menu ou Options tenus 0,6 s", Preferences.GuideChoice.allCases.map(\.rawValue), prefs.guideButton.rawValue) { v in
+            prefs.guideButton = Preferences.GuideChoice(rawValue: v) ?? .game
+        }
         seg("order", "Ordre des joueurs", "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
             prefs.padOrderFixed = v == "Fixe"
         }

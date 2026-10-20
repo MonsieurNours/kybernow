@@ -294,7 +294,8 @@ struct PadDrawing: View {
             // Select, Start, Home.
             key(on("back"), Capsule(), x: 292, y: 150, w: 34, h: 18)
             key(on("start"), Capsule(), x: 374, y: 150, w: 34, h: 18)
-            Circle().fill(Theme.rgb(0x0A0F14)).overlay(Circle().stroke(Theme.ghost, lineWidth: 2)).frame(width: 40, height: 40).offset(x: 330, y: 202)
+            // Home : allumé s'il arrive à l'app (réglage « Bouton Guide » sur Jeu).
+            key(on("guide"), Circle(), x: 330, y: 202, w: 40, h: 40)
             // Touches A B X Y (ou ✕ ○ □ △).
             face("y", x: 520, y: 128)
             face("x", x: 474, y: 174)

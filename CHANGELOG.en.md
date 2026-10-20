@@ -42,6 +42,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Apple TV app: four gamepads at most on the computer, as with XInput; a fifth one waits (message in the Gamepads screen and during the session) and takes the slot of the first one that disconnects, instead of being announced to a computer that cannot see it.
 - Apple TV app: the Siri Remote as mouse accelerates with the finger's speed (slow for aiming, fast to cross) and adapts to the resolution of the computer's screen, instead of a fixed speed that was too slow in 4K; a finger at the centre of the pad is no longer taken for lifted. The gamepad as mouse also crosses the screen in 1.5 s whatever its resolution.
 - Apple TV app: the L1 + R1 + Start + Select combo only opens the menu when held for 250 ms; a brief press of the four buttons stays with the game, without releasing anything behind its back.
+- Apple TV app: the gamepad's Home button can go to the game as Guide (Steam Big Picture, Game Bar), if tvOS allows it; otherwise, set “Bouton Guide” to long press: Menu or Options held for 0.6 s send Guide. The test screen shows whether Home reaches the app.
 
 ## 0.2.5
 

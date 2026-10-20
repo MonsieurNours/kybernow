@@ -111,6 +111,21 @@ public final class GamepadBridge: ObservableObject {
     public var padMouse = false {
         didSet { let v = padMouse; queue.async { self.setPadMouse(v) } }
     }
+    /// Bouton Guide de la manette (Xbox, PS) : qui le reçoit.
+    public enum GuideMode: String, CaseIterable, Sendable {
+        /// Le bouton Home reste à tvOS (accueil, Centre de contrôle).
+        case system
+        /// Le bouton Home va au jeu (Steam Big Picture, Game Bar), si tvOS le
+        /// laisse : demandé par `preferredSystemGestureState = .disabled`
+        /// pendant la session (et l'écran de test), jamais garanti.
+        case game
+        /// Le bouton Home reste à tvOS ; Menu ou Options tenus 600 ms
+        /// envoient Guide au jeu.
+        case longPress
+    }
+    public var guideMode: GuideMode = .game {
+        didSet { let v = guideMode; queue.async { self.setGuideMode(v) } }
+    }
     /// Vitesse du pointeur à la manette (1 : normale).
     public var padMouseSpeed: Double = 1 {
         didSet { let v = padMouseSpeed; configure { $0.padMouseSpeed = v } }
@@ -132,6 +147,7 @@ public final class GamepadBridge: ObservableObject {
         var padMouse = false
         var padMouseSpeed = 1.0
         var pointer = false
+        var guideMode = GuideMode.game
     }
     private var config = Config()
 
@@ -164,6 +180,10 @@ public final class GamepadBridge: ObservableObject {
         /// Les quatre touches de la combinaison sont tenues : elle se forme au
         /// bout de 250 ms si aucune n'a été lâchée entre-temps.
         var comboTimer: DispatchWorkItem?
+        /// Bouton Guide par appui long : Menu ou Options tenus, pas encore
+        /// envoyés (minuterie de 600 ms), et ceux qui tiennent le Guide.
+        var deferred: [PadButton: DispatchWorkItem] = [:]
+        var guideHeld = Set<PadButton>()
         init(controller: GCController, id: UInt32, player: Int) {
             self.controller = controller
             self.id = id
@@ -238,6 +258,7 @@ public final class GamepadBridge: ObservableObject {
             liveTimer?.cancel()
             liveTimer = nil
         }
+        applyHomeGesture()
     }
 
     private func publishLive() {
@@ -281,6 +302,7 @@ public final class GamepadBridge: ObservableObject {
             for slot in slots.values { slot.motors?.session = true }
             plugAll(input)
             updateMouseTimer()
+            applyHomeGesture()
         }
     }
 
@@ -308,6 +330,7 @@ public final class GamepadBridge: ObservableObject {
             }
             input = nil
             captured = false
+            applyHomeGesture()
         }
     }
 
@@ -323,6 +346,8 @@ public final class GamepadBridge: ObservableObject {
         onQueue()
         guard value != captured else { return }
         captured = value
+        // Menu ouvert : le bouton Home revient à tvOS.
+        applyHomeGesture()
         guard let input else { return }
         if value {
             for slot in slots.values { releaseAll(slot, input: input) }
@@ -408,6 +433,7 @@ public final class GamepadBridge: ObservableObject {
         slot.motors = Motors(controller: c, queue: queue)
         slot.motors?.session = input != nil
         setUpPad(slot)
+        applyHomeGesture()
         if player > 0 {
             seat(slot, player)
         } else {
@@ -499,9 +525,10 @@ public final class GamepadBridge: ObservableObject {
     private func setUpPad(_ slot: Slot) {
         guard let pad = slot.controller.extendedGamepad else { return }
         for (element, button) in Self.buttons(pad) {
-            // Le bouton Home reste à tvOS ; les autres gestes du système aussi
-            // (capture d'écran), sauf pour la manette du jeu.
-            element?.preferredSystemGestureState = button == .guide ? .enabled : .disabled
+            // Gestes du système (capture d'écran sur Options ou Partager) :
+            // coupés, la touche part au jeu sans délai. Le bouton Home suit
+            // le réglage « Bouton Guide » (`applyHomeGesture`).
+            if button != .guide { element?.preferredSystemGestureState = .disabled }
             element?.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
                 guard let self, let slot else { return }
                 self.button(slot, button, pressed: pressed)
@@ -555,7 +582,77 @@ public final class GamepadBridge: ObservableObject {
             return
         }
         guard slot.active else { return }
+        if button == .guide {
+            // Système, ou appui long : le Guide ne vient pas du bouton Home.
+            guard config.guideMode == .game else { return }
+            if pressed, !guideLogged {
+                guideLogged = true
+                KyberLog.app.notice("bouton Home reçu par l'app : envoyé au jeu comme Guide")
+            }
+        }
+        if config.guideMode == .longPress, button == .start || button == .back {
+            longPress(slot, button, pressed: pressed, input: input)
+            return
+        }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
+    }
+
+    private var guideLogged = false
+    private static let guideHold: DispatchTimeInterval = .milliseconds(600)
+
+    /// Réglage « Bouton Guide » sur Appui long : Menu (Start) ou Options
+    /// (Select) tenus 600 ms partent au jeu comme Guide, tant qu'on les
+    /// tient ; un appui plus court part au relâchement, appui et relâchement
+    /// ensemble. Le prix : Start et Select arrivent au jeu au relâchement.
+    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
+        if pressed {
+            slot.deferred[button]?.cancel()
+            let item = DispatchWorkItem { [weak self, weak slot] in
+                guard let self, let slot, slot.deferred.removeValue(forKey: button) != nil,
+                      let input = self.input, !self.captured else { return }
+                if slot.guideHeld.isEmpty { input.gamepadButton(id: slot.id, .guide, pressed: true) }
+                slot.guideHeld.insert(button)
+            }
+            slot.deferred[button] = item
+            queue.asyncAfter(deadline: .now() + Self.guideHold, execute: item)
+        } else if let item = slot.deferred.removeValue(forKey: button) {
+            item.cancel()
+            input.gamepadButton(id: slot.id, button, pressed: true)
+            input.gamepadButton(id: slot.id, button, pressed: false)
+        } else if slot.guideHeld.remove(button) != nil, slot.guideHeld.isEmpty {
+            input.gamepadButton(id: slot.id, .guide, pressed: false)
+        }
+    }
+
+    /// Oublie les appuis longs en cours (combinaison formée, menu, réglage
+    /// changé) et relâche le Guide qu'ils tenaient.
+    private func dropLongPress(_ slot: Slot, input: InputPipeline?) {
+        slot.deferred.values.forEach { $0.cancel() }
+        slot.deferred.removeAll()
+        if !slot.guideHeld.isEmpty, slot.active { input?.gamepadButton(id: slot.id, .guide, pressed: false) }
+        slot.guideHeld.removeAll()
+    }
+
+    private func setGuideMode(_ mode: GuideMode) {
+        onQueue()
+        guard mode != config.guideMode else { return }
+        config.guideMode = mode
+        for slot in slots.values { dropLongPress(slot, input: input) }
+        applyHomeGesture()
+    }
+
+    /// Bouton Home au jeu : demandé à tvOS pendant la session (menu fermé) et
+    /// sur l'écran de test, avec le réglage Jeu. `.disabled` et non
+    /// `.alwaysReceive` : ce dernier (déprécié avec tvOS 27) laisse aussi
+    /// tvOS agir, qui renverrait à l'accueil. tvOS peut refuser : l'écran de
+    /// test le montre (Home allumé, ou retour à l'accueil).
+    private func applyHomeGesture() {
+        let toGame = config.guideMode == .game && ((input != nil && !captured) || config.monitoring)
+        let state: GCControllerElement.SystemGestureState = toGame ? .disabled : .enabled
+        for slot in slots.values {
+            guard let home = slot.controller.extendedGamepad?.buttonHome, home.preferredSystemGestureState != state else { continue }
+            home.preferredSystemGestureState = state
+        }
     }
 
     /// Quatre touches tenues : la combinaison ne se forme qu'au bout de
@@ -572,6 +669,8 @@ public final class GamepadBridge: ObservableObject {
             guard self.config.menuFromCombo, self.input != nil, slot.pressed.isSuperset(of: Self.combo) else { return }
             KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
             slot.comboSeen = true
+            // Appui long sur Start ou Select en cours : il n'aboutit pas.
+            self.dropLongPress(slot, input: self.input)
             self.requestMenu()
         }
         slot.comboTimer = item
@@ -803,6 +902,7 @@ public final class GamepadBridge: ObservableObject {
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         guard slot.active else { return }
+        dropLongPress(slot, input: input)
         for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
         slot.pendingAxes.removeAll()
         for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {
