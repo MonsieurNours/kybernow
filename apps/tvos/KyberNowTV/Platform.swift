@@ -120,6 +120,19 @@ final class Preferences: ObservableObject {
         }
     }
 
+    /// Bouton Guide de la manette : tvOS, le jeu (si tvOS le laisse), ou
+    /// appui long sur Menu ou Options.
+    enum GuideChoice: String, CaseIterable {
+        case system = "Système", game = "Jeu", longPress = "Appui long"
+        var mode: GamepadBridge.GuideMode { self == .system ? .system : self == .longPress ? .longPress : .game }
+    }
+    @Published var guideButton: GuideChoice {
+        didSet {
+            d.set(guideButton.rawValue, forKey: "guideButton")
+            GamepadBridge.shared.guideMode = guideButton.mode
+        }
+    }
+
     private static func flag(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 
     private init() {
@@ -134,7 +147,9 @@ final class Preferences: ObservableObject {
         icloudSync = flag("icloudSync")
         appleISOKeyboard = UserDefaults.standard.bool(forKey: "appleISOKeyboard")
         padMouseSpeed = PadMouseSpeed(rawValue: UserDefaults.standard.string(forKey: "padMouseSpeed") ?? "") ?? .normal
+        guideButton = GuideChoice(rawValue: UserDefaults.standard.string(forKey: "guideButton") ?? "") ?? .game
         GamepadBridge.shared.fixedOrder = padOrderFixed
+        GamepadBridge.shared.guideMode = guideButton.mode
     }
 }
 

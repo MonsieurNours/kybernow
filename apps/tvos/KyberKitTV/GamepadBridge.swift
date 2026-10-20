@@ -10,6 +10,15 @@
 // il signale la combinaison, et c'est le contrôleur de session qui prend la
 // manette (`setCaptured`) quand le menu s'ouvre vraiment. Hors session
 // (connexion, reconnexion), rien n'est pris et la manette reste au jeu.
+//
+// Fils : tout GameController (manettes, télécommande, clavier et souris
+// Bluetooth) arrive sur une seule file série `userInteractive` (`queue`),
+// jamais sur le fil principal, où une animation SwiftUI retardait une touche
+// de plusieurs millisecondes (pics au-delà de 16 ms). L'état interne (places,
+// menu pris, manette en souris, axes en attente, moteurs) n'est touché que sur
+// cette file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, et les
+// rappels vers l'interface (`onMenuRequest`, `pointerMove`) remontent sur le
+// fil principal. Les réglages venus de l'interface sont recopiés sur la file.
 
 import Combine
 import CoreHaptics
@@ -28,11 +37,16 @@ public final class GamepadBridge: ObservableObject {
         public let id: UInt32
         public let name: String
         public let kind: Kind
-        /// Joueur sur l'ordinateur, de 1 à 4.
+        /// Joueur sur l'ordinateur, de 1 à 4 ; 0 : en attente (cinquième
+        /// manette, pas branchée sur l'ordinateur).
         public let player: Int
         public var battery: Float?
         public var charging: Bool
         public var rumbles: Bool
+        /// Cinquième manette (ou plus) : l'ordinateur n'en voit que quatre.
+        public var waiting: Bool { player == 0 }
+        /// « J2 », ou « en attente ».
+        public var label: String { waiting ? "en attente" : "J\(player)" }
     }
 
     /// État en direct d'une manette (écran de test).
@@ -45,44 +59,115 @@ public final class GamepadBridge: ObservableObject {
         public init() {}
     }
 
+    /// File unique des entrées de GameController (manettes, télécommande,
+    /// clavier et souris Bluetooth) : série, `userInteractive`.
+    static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.manettes", qos: .userInteractive)
+    private var queue: DispatchQueue { Self.queue }
+
+    // Publié sur le fil principal.
     @Published public private(set) var pads: [Pad] = []
     @Published public private(set) var remoteConnected = false
     /// Dernière manette utilisée : les glyphes de l'interface la suivent.
     @Published public private(set) var lastKind: Kind?
     /// États en direct, publiés 30 fois par seconde tant que `monitoring`.
     @Published public private(set) var live: [UInt32: Live] = [:]
-    public var monitoring = false
+    /// Message court pour la session (capsule) : manette en attente, ou qui
+    /// prend une place libérée. Effacé au bout de 6 s.
+    @Published public private(set) var notice: String?
+    private var noticeClear: DispatchWorkItem?
 
-    /// L1 + R1 + Start + Select, ou bouton Retour de la télécommande, en session.
+    // Réglés du fil principal, recopiés sur la file (`config`).
+    public var monitoring = false {
+        didSet { let v = monitoring; queue.async { self.setMonitoring(v) } }
+    }
+    /// L1 + R1 + Start + Select, ou bouton Retour de la télécommande, en
+    /// session. Appelé sur le fil principal.
     public var onMenuRequest: (() -> Void)?
     /// La télécommande sert de souris (pavé = déplacement, clic = clic gauche).
-    public var remoteMouse = false
+    public var remoteMouse = false {
+        didSet { let v = remoteMouse; configure { $0.remoteMouse = v } }
+    }
     /// Le bouton Retour de la télécommande ouvre le menu de session.
-    public var menuFromRemote = true
+    public var menuFromRemote = true {
+        didSet { let v = menuFromRemote; configure { $0.menuFromRemote = v } }
+    }
     /// L1 + R1 + Start + Select ouvre le menu de session.
-    public var menuFromCombo = true
+    public var menuFromCombo = true {
+        didSet { let v = menuFromCombo; configure { $0.menuFromCombo = v } }
+    }
     /// Vibrations renvoyées par le jeu.
-    public var rumbleEnabled = true
+    public var rumbleEnabled = true {
+        didSet { let v = rumbleEnabled; configure { $0.rumbleEnabled = v } }
+    }
     /// Ordre fixe : chaque manette retrouve sa place (J1…J4) d'une session à l'autre.
-    public var fixedOrder = false
+    public var fixedOrder = false {
+        didSet { let v = fixedOrder; configure { $0.fixedOrder = v } }
+    }
     /// La manette sert de souris et de clavier (menu de session, profil Bureau) :
     /// stick gauche = pointeur, droit = molette, A / ✕ clic, X / □ clic droit,
     /// B / ○ clic du milieu, croix = flèches, L1 / R1 = Alt + Tab, Start =
     /// touche Windows, Select = Échap ; LT ralentit, RT accélère. Le jeu ne
     /// reçoit plus la manette ; coupé, elle redevient une manette.
     public var padMouse = false {
-        didSet { if padMouse != oldValue { padMouseChanged() } }
+        didSet { let v = padMouse; queue.async { self.setPadMouse(v) } }
+    }
+    /// Bouton Guide de la manette (Xbox, PS) : qui le reçoit.
+    public enum GuideMode: String, CaseIterable, Sendable {
+        /// Le bouton Home reste à tvOS (accueil, Centre de contrôle).
+        case system
+        /// Le bouton Home va au jeu (Steam Big Picture, Game Bar), si tvOS le
+        /// laisse : demandé par `preferredSystemGestureState = .disabled`
+        /// pendant la session (et l'écran de test), jamais garanti.
+        case game
+        /// Le bouton Home reste à tvOS ; Menu ou Options tenus 600 ms
+        /// envoient Guide au jeu.
+        case longPress
+    }
+    public var guideMode: GuideMode = .game {
+        didSet { let v = guideMode; queue.async { self.setGuideMode(v) } }
     }
     /// Vitesse du pointeur à la manette (1 : normale).
-    public var padMouseSpeed: Double = 1
+    public var padMouseSpeed: Double = 1 {
+        didSet { let v = padMouseSpeed; configure { $0.padMouseSpeed = v } }
+    }
     /// Le pointeur se déplace (pixels de l'écran de l'ordinateur) : la vue de
-    /// session tient sa position et l'envoie en absolu.
-    var pointerMove: ((Double, Double) -> Void)?
+    /// session tient sa position et l'envoie en absolu. Appelé sur le fil principal.
+    var pointerMove: ((Double, Double) -> Void)? {
+        didSet { let on = pointerMove != nil; configure { $0.pointer = on } }
+    }
+
+    /// Copie des réglages, lue sur la file seulement.
+    private struct Config {
+        var monitoring = false
+        var remoteMouse = false
+        var menuFromRemote = true
+        var menuFromCombo = true
+        var rumbleEnabled = true
+        var fixedOrder = false
+        var padMouse = false
+        var padMouseSpeed = 1.0
+        var pointer = false
+        var guideMode = GuideMode.game
+    }
+    private var config = Config()
+
+    private func configure(_ change: @escaping (inout Config) -> Void) {
+        queue.async { change(&self.config) }
+    }
+
+    /// Vérifie (Debug) qu'on est bien sur la file des entrées.
+    @inline(__always) private func onQueue() {
+        #if DEBUG
+        dispatchPrecondition(condition: .onQueue(Self.queue))
+        #endif
+    }
 
     private final class Slot {
         let controller: GCController
         let id: UInt32
+        /// 1 à 4 ; 0 : en attente, rien ne part vers l'ordinateur.
         var player: Int
+        var active: Bool { player > 0 }
         var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
@@ -92,6 +177,15 @@ public final class GamepadBridge: ObservableObject {
         var pendingAxes: [PadAxis: Int16] = [:]
         /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
         var comboSeen = false
+        /// Les quatre touches de la combinaison sont tenues : elle se forme au
+        /// bout de 250 ms si aucune n'a été lâchée entre-temps.
+        var comboTimer: DispatchWorkItem?
+        /// Bouton Guide par appui long : Menu ou Options tenus, pas encore
+        /// envoyés (minuterie de 600 ms), et ceux qui tiennent le Guide.
+        var deferred: [PadButton: DispatchWorkItem] = [:]
+        var guideHeld = Set<PadButton>()
+        /// Appui court rendu au relâchement : le relâchement suit 50 ms après.
+        var tapRelease: [PadButton: DispatchWorkItem] = [:]
         init(controller: GCController, id: UInt32, player: Int) {
             self.controller = controller
             self.id = id
@@ -99,78 +193,147 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
+    // Sur la file seulement.
     private var slots: [ObjectIdentifier: Slot] = [:]
     private var nextID: UInt32 = 1
     private weak var input: InputPipeline?
     /// La manette pilote l'app (menu ouvert) : rien ne part vers l'ordinateur.
-    public private(set) var captured = false
-    private var liveTimer: Timer?
+    private var captured = false
+    private var liveTimer: DispatchSourceTimer?
     private var liveDirty = false
     private var lastTouch: CGPoint?
-    private var batteryTimer: Timer?
+    private var lastTouchTime: TimeInterval = 0
+    /// Écran de l'ordinateur (pixels) : la vitesse du pointeur s'y rapporte.
+    private var hostSize = CGSize(width: 1920, height: 1080)
+    private var batteryTimer: DispatchSourceTimer?
+    private var publishedKind: Kind?
+    private var remotePresent = false
 
     private init() {
+        // Les notifications arrivent sur le fil principal ; tout le reste se
+        // passe sur la file.
         NotificationCenter.default.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
-            if let c = note.object as? GCController { self?.connected(c) }
+            guard let self, let c = note.object as? GCController else { return }
+            self.queue.async { self.connected(c) }
         }
         NotificationCenter.default.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] note in
-            if let c = note.object as? GCController { self?.disconnected(c) }
+            guard let self, let c = note.object as? GCController else { return }
+            self.queue.async { self.disconnected(c) }
         }
-        GCController.controllers().forEach(connected)
+        let present = GCController.controllers()
+        queue.async { present.forEach(self.connected) }
         GCController.startWirelessControllerDiscovery {}
         // Arrière-plan (bouton TV, autre app, veille) : les relâchements qui
         // suivent ne nous parviendront pas, rien ne doit rester enfoncé sur
         // l'ordinateur. Au retour, l'état réel des manettes est renvoyé.
+        // Synchrone : tout est parti avant que l'app soit suspendue.
         for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.appLeft() }
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.queue.sync { self.appLeft() }
+            }
         }
-        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.appBack() }
-        batteryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.publishPads() }
-        liveTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-            guard let self, self.monitoring, self.liveDirty else { return }
-            self.liveDirty = false
-            self.live = Dictionary(uniqueKeysWithValues: self.slots.values.map { ($0.id, $0.live) })
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.queue.async { self.appBack() }
         }
+        let battery = DispatchSource.makeTimerSource(queue: queue)
+        battery.schedule(deadline: .now() + 30, repeating: 30, leeway: .seconds(1))
+        battery.setEventHandler { [weak self] in self?.publishPads() }
+        battery.resume()
+        batteryTimer = battery
+    }
+
+    /// Écran de test : l'état en direct est publié 30 fois par seconde tant
+    /// qu'il est à l'écran, et seulement alors.
+    private func setMonitoring(_ on: Bool) {
+        onQueue()
+        config.monitoring = on
+        if on, liveTimer == nil {
+            let timer = DispatchSource.makeTimerSource(queue: queue)
+            timer.schedule(deadline: .now(), repeating: 1.0 / 30, leeway: .milliseconds(5))
+            timer.setEventHandler { [weak self] in self?.publishLive() }
+            timer.resume()
+            liveTimer = timer
+            liveDirty = true
+        } else if !on {
+            liveTimer?.cancel()
+            liveTimer = nil
+        }
+        applyHomeGesture()
+    }
+
+    private func publishLive() {
+        guard config.monitoring, liveDirty else { return }
+        liveDirty = false
+        let snapshot = Dictionary(uniqueKeysWithValues: slots.values.map { ($0.id, $0.live) })
+        DispatchQueue.main.async { self.live = snapshot }
+    }
+
+    /// Fil principal : rappel du contrôleur de session.
+    private func requestMenu() {
+        DispatchQueue.main.async { self.onMenuRequest?() }
     }
 
     // MARK: - Session
 
-    /// Branche les manettes sur la chaîne d'entrées de la session.
+    /// Branche les manettes sur la chaîne d'entrées de la session (fil
+    /// principal ; synchrone : la file est prête au retour).
     func attach(_ input: InputPipeline) {
-        self.input = input
-        // `captured` reste au contrôleur de session : l'image redémarre
-        // (changement de profil) sans que le menu se ferme.
-        input.onRumble = { [weak self] in self?.rumble($0) }
+        // Vibrations : reçues sur le fil de kynput, jouées depuis la file.
+        input.onRumble = { [weak self] r in
+            guard let self else { return }
+            self.queue.async { self.rumble(r) }
+        }
         // Les manettes s'annoncent une fois les entrées reliées à l'ordinateur :
         // avant, l'annonce se perd, et l'ordinateur rejette ensuite les boutons
         // d'une manette qu'il ne connaît pas. (Une annonce en double est refusée
         // sans dommage ; après une reconnexion, elle est nécessaire.)
         input.onConnected = { [weak self, weak input] in
-            guard let self, let input, self.input === input else { return }
-            self.plugAll(input)
+            guard let self else { return }
+            self.queue.async {
+                guard let input, self.input === input else { return }
+                self.plugAll(input)
+            }
         }
-        plugAll(input)
-        updateMouseTimer()
+        queue.sync {
+            self.input = input
+            if input.hostSize.width > 0, input.hostSize.height > 0 { hostSize = input.hostSize }
+            // `captured` reste au contrôleur de session : l'image redémarre
+            // (changement de profil) sans que le menu se ferme.
+            for slot in slots.values { slot.motors?.setSession(true) }
+            plugAll(input)
+            updateMouseTimer()
+            applyHomeGesture()
+        }
     }
 
     private func plugAll(_ input: InputPipeline) {
-        for slot in orderedSlots {
+        for slot in orderedSlots where slot.active {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(slot.controller)?.vendor, product: Self.usbIDs(slot.controller)?.product)
         }
     }
 
+    /// Fin de session (fil principal ; synchrone : tout est relâché et
+    /// débranché avant que la chaîne d'entrées s'arrête).
     func detach() {
-        for slot in slots.values { slot.motors?.stop() }
-        if let input { releaseMouse(input) }
-        stopMouseTimer()
-        if let input {
+        queue.sync {
             for slot in slots.values {
-                releaseAll(slot, input: input)
-                input.gamepadUnplug(id: slot.id)
+                slot.motors?.stop()
+                slot.motors?.setSession(false)
             }
+            if let input { releaseMouse(input) }
+            stopMouseTimer()
+            if let input {
+                for slot in slots.values where slot.active {
+                    releaseAll(slot, input: input)
+                    input.gamepadUnplug(id: slot.id)
+                }
+            }
+            input = nil
+            captured = false
+            applyHomeGesture()
         }
-        input = nil
-        captured = false
     }
 
     /// Le menu s'ouvre (true) ou se ferme : la manette quitte ou rejoint le jeu.
@@ -178,8 +341,15 @@ public final class GamepadBridge: ObservableObject {
     /// six axes, et les clics et touches de la manette en souris) ; à la
     /// fermeture, un stick encore tenu est renvoyé tel quel.
     public func setCaptured(_ value: Bool) {
+        queue.sync { capture(value) }
+    }
+
+    private func capture(_ value: Bool) {
+        onQueue()
         guard value != captured else { return }
         captured = value
+        // Menu ouvert : le bouton Home revient à tvOS.
+        applyHomeGesture()
         guard let input else { return }
         if value {
             for slot in slots.values { releaseAll(slot, input: input) }
@@ -196,23 +366,23 @@ public final class GamepadBridge: ObservableObject {
     /// pas la recevoir) ; seul leur état chez nous est remis d'aplomb, pour la
     /// combinaison et l'écran de test.
     private func resync() {
-        guard input != nil, !captured, !padMouse else { return }
-        for slot in slots.values {
-            guard let pad = slot.controller.extendedGamepad else { continue }
-            let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
-            slot.pressed = pressed
-            slot.live.pressed = Set(pressed.map(\.name))
-            liveDirty = true
-            axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
-            axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
-            axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
-            axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
-            axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
-            axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
-        }
+        for slot in slots.values { resync(slot) }
     }
 
-    public var inSession: Bool { input != nil }
+    private func resync(_ slot: Slot) {
+        guard input != nil, !captured, !config.padMouse, slot.active else { return }
+        guard let pad = slot.controller.extendedGamepad else { return }
+        let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
+        slot.pressed = pressed
+        slot.live.pressed = Set(pressed.map(\.name))
+        liveDirty = true
+        axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
+        axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
+        axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
+        axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
+        axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
+        axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
+    }
 
     // MARK: - Arrière-plan
 
@@ -236,53 +406,109 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Branchements
 
-    private var orderedSlots: [Slot] { slots.values.sorted { $0.player < $1.player } }
+    /// Joueurs dans l'ordre, puis les manettes en attente dans leur ordre d'arrivée.
+    private var orderedSlots: [Slot] {
+        slots.values.sorted { ($0.active ? $0.player : 100, $0.id) < ($1.active ? $1.player : 100, $1.id) }
+    }
+
+    /// XInput n'expose que quatre manettes (ViGEm côté ordinateur) : une
+    /// cinquième n'y serait jamais vue et pourrait prendre la place d'une autre.
+    private static let maxPlayers = 4
 
     private func connected(_ c: GCController) {
+        onQueue()
+        // Ses gestionnaires seront appelés sur la file, plus sur le fil principal.
+        c.handlerQueue = queue
         if c.extendedGamepad == nil {
             if c.microGamepad != nil { setUpRemote(c) }
             return
         }
         let key = ObjectIdentifier(c)
         guard slots[key] == nil else { return }
-        let used = Set(slots.values.map(\.player))
-        let remembered = fixedOrder ? Self.rememberedPlayer(c) : nil
-        let player = remembered.flatMap { used.contains($0) ? nil : $0 } ?? (1...8).first { !used.contains($0) } ?? used.count + 1
-        Self.remember(c, player: player)
-        let slot = Slot(controller: c, id: nextID, player: player)
+        let used = Set(slots.values.filter(\.active).map(\.player))
+        let remembered = config.fixedOrder ? Self.rememberedPlayer(c) : nil
+        let player = remembered.flatMap { used.contains($0) || $0 > Self.maxPlayers ? nil : $0 }
+            ?? (1...Self.maxPlayers).first { !used.contains($0) } ?? 0
+        let slot = Slot(controller: c, id: nextID, player: 0)
         nextID += 1
         slots[key] = slot
-        if player <= 4 { c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset }
-        c.light?.color = Self.lightColor(player)
         slot.motors = Motors(controller: c)
+        slot.motors?.setSession(input != nil)
         setUpPad(slot)
+        applyHomeGesture()
+        if player > 0 {
+            seat(slot, player)
+        } else {
+            c.playerIndex = .indexUnset
+            KyberLog.app.notice("manette en attente : \(c.vendorName ?? "?", privacy: .public) (déjà quatre joueurs)")
+            post("\(Self.name(c)) en attente : l'ordinateur ne voit que quatre manettes")
+        }
+        publishPads()
+    }
+
+    /// Donne une place (J1…J4) à une manette et l'annonce à l'ordinateur.
+    private func seat(_ slot: Slot, _ player: Int) {
+        let c = slot.controller
+        slot.player = player
+        Self.remember(c, player: player)
+        c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
+        c.light?.color = Self.lightColor(player)
         if let input {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(c)?.vendor, product: Self.usbIDs(c)?.product)
         }
         KyberLog.app.notice("manette branchée : \(c.vendorName ?? "?", privacy: .public) (J\(player))")
-        publishPads()
+    }
+
+    /// Capsule de session (fil principal), effacée au bout de 6 s.
+    private func post(_ text: String) {
+        DispatchQueue.main.async {
+            self.notice = text
+            self.noticeClear?.cancel()
+            let clear = DispatchWorkItem { [weak self] in self?.notice = nil }
+            self.noticeClear = clear
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6, execute: clear)
+        }
     }
 
     private func disconnected(_ c: GCController) {
+        onQueue()
         if c.extendedGamepad == nil {
-            remoteConnected = GCController.controllers().contains { $0.extendedGamepad == nil && $0.microGamepad != nil && $0 !== c }
+            setRemotePresent(GCController.controllers().contains { $0.extendedGamepad == nil && $0.microGamepad != nil && $0 !== c })
             return
         }
         guard let slot = slots.removeValue(forKey: ObjectIdentifier(c)) else { return }
+        slot.comboTimer?.cancel()
         slot.motors?.stop()
-        if let input {
+        if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
+        }
+        // Manette en souris coupée en plein glisser : le clic ne reste pas enfoncé.
+        if config.padMouse, !slot.pressed.isEmpty, let input { releaseMouse(input) }
+        // Une place se libère : la première manette en attente la prend.
+        if slot.active, let next = orderedSlots.first(where: { !$0.active }) {
+            seat(next, slot.player)
+            resync(next)
+            applyHomeGesture()
+            post("\(Self.name(next.controller)) rejoint l'ordinateur en J\(next.player)")
         }
         publishPads()
     }
 
     private func publishPads() {
-        pads = orderedSlots.map { s in
+        onQueue()
+        let list = orderedSlots.map { s in
             Pad(id: s.id, name: Self.name(s.controller), kind: Self.kind(s.controller), player: s.player,
                 battery: s.controller.battery.map { $0.batteryLevel }, charging: s.controller.battery?.batteryState == .charging,
                 rumbles: s.motors != nil)
         }
+        DispatchQueue.main.async { if self.pads != list { self.pads = list } }
+    }
+
+    private func setRemotePresent(_ on: Bool) {
+        guard on != remotePresent else { return }
+        remotePresent = on
+        DispatchQueue.main.async { self.remoteConnected = on }
     }
 
     // MARK: - Manettes
@@ -304,9 +530,10 @@ public final class GamepadBridge: ObservableObject {
     private func setUpPad(_ slot: Slot) {
         guard let pad = slot.controller.extendedGamepad else { return }
         for (element, button) in Self.buttons(pad) {
-            // Le bouton Home reste à tvOS ; les autres gestes du système aussi
-            // (capture d'écran), sauf pour la manette du jeu.
-            element?.preferredSystemGestureState = button == .guide ? .enabled : .disabled
+            // Gestes du système (capture d'écran sur Options ou Partager) :
+            // coupés, la touche part au jeu sans délai. Le bouton Home suit
+            // le réglage « Bouton Guide » (`applyHomeGesture`).
+            if button != .guide { element?.preferredSystemGestureState = .disabled }
             element?.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
                 guard let self, let slot else { return }
                 self.button(slot, button, pressed: pressed)
@@ -339,28 +566,151 @@ public final class GamepadBridge: ObservableObject {
     private static let combo: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
 
     private func button(_ slot: Slot, _ button: PadButton, pressed: Bool) {
+        onQueue()
         if pressed { slot.pressed.insert(button) } else { slot.pressed.remove(button) }
         if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
         liveDirty = true
-        if lastKind != Self.kind(slot.controller) { lastKind = Self.kind(slot.controller) }
+        noteKind(Self.kind(slot.controller))
         guard let input else { return }
-        if menuFromCombo, pressed, Self.combo.contains(button), slot.pressed.isSuperset(of: Self.combo) {
-            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
-            slot.comboSeen = true
-            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
-            // contrôleur de session : prendre la manette (il relâche alors
-            // pour l'ordinateur les touches qu'il a vues), ou la rendre.
-            onMenuRequest?()
-            return
+        if Self.combo.contains(button) {
+            if pressed, config.menuFromCombo, slot.pressed.isSuperset(of: Self.combo) {
+                armCombo(slot)
+            } else if !pressed {
+                slot.comboTimer?.cancel()
+                slot.comboTimer = nil
+            }
         }
         defer { if slot.pressed.isDisjoint(with: Self.combo) { slot.comboSeen = false } }
         guard !captured else { return }
-        if padMouse {
+        if config.padMouse {
             mouseButton(slot, button, pressed: pressed, input: input)
+            return
+        }
+        guard slot.active else { return }
+        if button == .guide {
+            // Système, ou appui long : le Guide ne vient pas du bouton Home.
+            guard config.guideMode == .game else { return }
+            if pressed, !guideLogged {
+                guideLogged = true
+                KyberLog.app.notice("bouton Home reçu par l'app : envoyé au jeu comme Guide")
+            }
+        }
+        if config.guideMode == .longPress, button == .start || button == .back {
+            longPress(slot, button, pressed: pressed, input: input)
             return
         }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
+
+    private var guideLogged = false
+    private static let guideHold: DispatchTimeInterval = .milliseconds(600)
+
+    /// Réglage « Bouton Guide » sur Appui long : Menu (Start) ou Options
+    /// (Select) tenus 600 ms partent au jeu comme Guide, tant qu'on les
+    /// tient ; un appui plus court part au relâchement, et son relâchement
+    /// 50 ms plus tard (un jeu XInput lit l'état une fois par image : un appui
+    /// et un relâchement collés passeraient inaperçus). Le prix : Start et
+    /// Select arrivent au jeu au relâchement.
+    private func longPress(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
+        if pressed {
+            if let pending = slot.tapRelease.removeValue(forKey: button) {
+                pending.cancel()
+                input.gamepadButton(id: slot.id, button, pressed: false)
+            }
+            slot.deferred[button]?.cancel()
+            armGuide(slot, button, after: Self.guideHold)
+        } else if let item = slot.deferred.removeValue(forKey: button) {
+            item.cancel()
+            input.gamepadButton(id: slot.id, button, pressed: true)
+            let release = DispatchWorkItem { [weak self, weak slot] in
+                guard let self, let slot, slot.tapRelease.removeValue(forKey: button) != nil, let input = self.input else { return }
+                input.gamepadButton(id: slot.id, button, pressed: false)
+            }
+            slot.tapRelease[button] = release
+            queue.asyncAfter(deadline: .now() + .milliseconds(50), execute: release)
+        } else if slot.guideHeld.remove(button) != nil, slot.guideHeld.isEmpty {
+            input.gamepadButton(id: slot.id, .guide, pressed: false)
+        }
+    }
+
+    private func armGuide(_ slot: Slot, _ button: PadButton, after delay: DispatchTimeInterval) {
+        let item = DispatchWorkItem { [weak self, weak slot] in
+            guard let self, let slot, slot.deferred[button] != nil, let input = self.input, !self.captured else { return }
+            // L1 ou R1 tenus : la combinaison du menu est peut-être en train
+            // de se former ; pas de Guide au jeu juste avant le menu.
+            if !slot.pressed.isDisjoint(with: [.leftShoulder, .rightShoulder]) {
+                self.armGuide(slot, button, after: .milliseconds(100))
+                return
+            }
+            slot.deferred[button] = nil
+            if slot.guideHeld.isEmpty { input.gamepadButton(id: slot.id, .guide, pressed: true) }
+            slot.guideHeld.insert(button)
+        }
+        slot.deferred[button] = item
+        queue.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    /// Oublie les appuis longs en cours (combinaison formée, menu, réglage
+    /// changé) et relâche le Guide qu'ils tenaient.
+    private func dropLongPress(_ slot: Slot, input: InputPipeline?) {
+        slot.deferred.values.forEach { $0.cancel() }
+        slot.deferred.removeAll()
+        for (button, release) in slot.tapRelease {
+            release.cancel()
+            if slot.active { input?.gamepadButton(id: slot.id, button, pressed: false) }
+        }
+        slot.tapRelease.removeAll()
+        if !slot.guideHeld.isEmpty, slot.active { input?.gamepadButton(id: slot.id, .guide, pressed: false) }
+        slot.guideHeld.removeAll()
+    }
+
+    private func setGuideMode(_ mode: GuideMode) {
+        onQueue()
+        guard mode != config.guideMode else { return }
+        config.guideMode = mode
+        for slot in slots.values { dropLongPress(slot, input: input) }
+        applyHomeGesture()
+    }
+
+    /// Bouton Home au jeu : demandé à tvOS pendant la session (menu fermé) et
+    /// sur l'écran de test, avec le réglage Jeu. `.disabled` et non
+    /// `.alwaysReceive` : ce dernier (déprécié avec tvOS 27) laisse aussi
+    /// tvOS agir, qui renverrait à l'accueil. tvOS peut refuser : l'écran de
+    /// test le montre (Home allumé, ou retour à l'accueil).
+    private func applyHomeGesture() {
+        let toGame = config.guideMode == .game && ((input != nil && !captured) || config.monitoring)
+        let state: GCControllerElement.SystemGestureState = toGame ? .disabled : .enabled
+        for slot in slots.values {
+            // Manette en attente : rien ne part au jeu, Home reste à tvOS.
+            let wanted = slot.active ? state : .enabled
+            guard let home = slot.controller.extendedGamepad?.buttonHome, home.preferredSystemGestureState != wanted else { continue }
+            home.preferredSystemGestureState = wanted
+        }
+    }
+
+    /// Quatre touches tenues : la combinaison ne se forme qu'au bout de
+    /// 250 ms. En dessous (un jeu qui les presse ensemble, un appui
+    /// maladroit), rien ne change pour le jeu, qui a reçu les quatre touches
+    /// comme les autres, et rien n'est relâché pour lui. Formée, la suite est
+    /// au contrôleur de session : prendre la manette (les touches tenues sont
+    /// alors relâchées pour l'ordinateur), ou la rendre.
+    private func armCombo(_ slot: Slot) {
+        slot.comboTimer?.cancel()
+        let item = DispatchWorkItem { [weak self, weak slot] in
+            guard let self, let slot else { return }
+            slot.comboTimer = nil
+            guard self.config.menuFromCombo, self.input != nil, slot.pressed.isSuperset(of: Self.combo) else { return }
+            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
+            slot.comboSeen = true
+            // Appui long sur Start ou Select en cours : il n'aboutit pas.
+            self.dropLongPress(slot, input: self.input)
+            self.requestMenu()
+        }
+        slot.comboTimer = item
+        queue.asyncAfter(deadline: .now() + Self.comboHold, execute: item)
+    }
+
+    private static let comboHold: DispatchTimeInterval = .milliseconds(250)
 
     /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
     /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
@@ -368,9 +718,17 @@ public final class GamepadBridge: ObservableObject {
     /// produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
     /// d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
     /// relâchements. Les touches partent tout de suite, elles.
+    /// Les glyphes de l'interface suivent la dernière manette utilisée.
+    private func noteKind(_ kind: Kind) {
+        guard kind != publishedKind else { return }
+        publishedKind = kind
+        DispatchQueue.main.async { self.lastKind = kind }
+    }
+
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
+        onQueue()
         liveDirty = true
-        guard input != nil, !captured, !padMouse else { return }
+        guard input != nil, !captured, !config.padMouse, slot.active else { return }
         guard GamepadGate.moved(from: slot.lastAxis[axis], to: value) else { return }
         slot.lastAxis[axis] = value
         slot.pendingAxes[axis] = value
@@ -382,12 +740,12 @@ public final class GamepadBridge: ObservableObject {
     private func scheduleAxisFlush() {
         guard !axisFlushScheduled else { return }
         axisFlushScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.flushAxes() }
+        queue.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.flushAxes() }
     }
 
     private func flushAxes() {
         axisFlushScheduled = false
-        guard let input, !captured, !padMouse else {
+        guard let input, !captured, !config.padMouse else {
             for slot in slots.values { slot.pendingAxes.removeAll() }
             return
         }
@@ -418,9 +776,12 @@ public final class GamepadBridge: ObservableObject {
     private static let keyTab: UInt16 = 0x2B, keyEscape: UInt16 = 0x29
     private static let keyLeftShift: UInt16 = 0xE1, keyLeftAlt: UInt16 = 0xE2, keyLeftGUI: UInt16 = 0xE3
 
-    private func padMouseChanged() {
+    private func setPadMouse(_ on: Bool) {
+        onQueue()
+        guard on != config.padMouse else { return }
+        config.padMouse = on
         if let input {
-            if padMouse {
+            if on {
                 // Le jeu lâche la manette : rien ne reste enfoncé chez lui.
                 for slot in slots.values { releaseAll(slot, input: input) }
             } else {
@@ -441,11 +802,29 @@ public final class GamepadBridge: ObservableObject {
         key(usage, false, input: input)
     }
 
-    private func mouseButton(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
-        func click(_ b: InputPipeline.MouseButton) {
-            if pressed { heldMouse.insert(b) } else { heldMouse.remove(b) }
-            input.mouseButton(b, pressed: pressed)
+    /// Clic de la manette en souris ou de la télécommande (suivi, pour être
+    /// relâché au menu, en arrière-plan ou en fin de session).
+    private func click(_ b: InputPipeline.MouseButton, _ pressed: Bool, input: InputPipeline) {
+        if pressed { heldMouse.insert(b) } else { heldMouse.remove(b) }
+        afterMoves(input) { $0.mouseButton(b, pressed: pressed) }
+    }
+
+    /// Quand la vue de session tient le pointeur, ses déplacements passent
+    /// par le fil principal ; clics et molette les suivent par le même
+    /// chemin, sinon un clic pourrait doubler le déplacement qui le précède
+    /// et tomber à côté.
+    private func afterMoves(_ input: InputPipeline, _ send: @escaping (InputPipeline) -> Void) {
+        guard config.pointer else {
+            send(input)
+            return
         }
+        DispatchQueue.main.async { [weak input] in
+            if let input { send(input) }
+        }
+    }
+
+    private func mouseButton(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
+        func click(_ b: InputPipeline.MouseButton) { self.click(b, pressed, input: input) }
         // Touches de la combinaison du menu : elles agissent au relâchement,
         // sauf si la combinaison a été formée entre-temps.
         let released = !pressed && !slot.comboSeen
@@ -482,14 +861,15 @@ public final class GamepadBridge: ObservableObject {
             self.altHeld = false
         }
         altRelease = release
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: release)
+        queue.asyncAfter(deadline: .now() + 0.9, execute: release)
     }
 
     /// Position absolue par la vue de session ; à défaut, déplacement relatif
     /// (sous-pixels gardés d'un appel à l'autre).
     private func move(dx: Double, dy: Double, input: InputPipeline) {
-        if let pointerMove {
-            pointerMove(dx, dy)
+        if config.pointer {
+            // La vue de session tient le pointeur et le dessine : fil principal.
+            DispatchQueue.main.async { self.pointerMove?(dx, dy) }
             return
         }
         moveRest.x += dx
@@ -502,7 +882,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func releaseMouse(_ input: InputPipeline) {
-        for b in heldMouse { input.mouseButton(b, pressed: false) }
+        for b in heldMouse { afterMoves(input) { $0.mouseButton(b, pressed: false) } }
         heldMouse.removeAll()
         altRelease?.cancel()
         altHeld = false
@@ -513,12 +893,12 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func updateMouseTimer() {
-        guard padMouse, input != nil else {
+        guard config.padMouse, input != nil else {
             stopMouseTimer()
             return
         }
         guard mouseTimer == nil else { return }
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: 1.0 / 120, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in self?.mouseTick() }
         timer.resume()
@@ -535,7 +915,7 @@ public final class GamepadBridge: ObservableObject {
     /// 120 fois par seconde : le stick gauche déplace le pointeur (lent près
     /// du centre, rapide à fond), le droit fait tourner la molette.
     private func mouseTick() {
-        guard padMouse, !captured, let input else { return }
+        guard config.padMouse, !captured, let input else { return }
         let dt = 1.0 / 120
         var dx = 0.0, dy = 0.0, wx = 0.0, wy = 0.0
         for slot in slots.values {
@@ -543,28 +923,39 @@ public final class GamepadBridge: ObservableObject {
             let m = Double(hypot(left.x, left.y))
             if m > 0.12 {
                 let n = min(1, (m - 0.12) / 0.88)
-                // Jusqu'à ~2 600 px/s à fond : l'écran 4K traversé en 1,5 s.
                 let precision = 1 - 0.7 * Double(slot.live.leftTrigger)
                 let boost = 1 + 1.5 * Double(slot.live.rightTrigger)
-                let speed = 2600 * pow(n, 2.2) * padMouseSpeed * precision * boost
+                let speed = Self.fullSpeed(hostSize) * Self.curve(n) * config.padMouseSpeed * precision * boost
                 dx += Double(left.x) / m * speed * dt
                 dy -= Double(left.y) / m * speed * dt
             }
             let right = slot.live.rightStick
-            // Jusqu'à 14 crans de molette par seconde.
-            if abs(right.y) > 0.15 { wy += Double(right.y) * 14 * dt }
+            // Jusqu'à 14 crans de molette par seconde ; stick vers le haut =
+            // défilement vers le haut (kynput : dy positif = vers le bas).
+            if abs(right.y) > 0.15 { wy -= Double(right.y) * 14 * dt }
             if abs(right.x) > 0.15 { wx += Double(right.x) * 14 * dt }
         }
         if dx != 0 || dy != 0 { move(dx: dx, dy: dy, input: input) }
         wheelRest.x += wx
         wheelRest.y += wy
         if abs(wheelRest.y) >= 0.25 || abs(wheelRest.x) >= 0.25 {
-            input.wheel(dx: Float(wheelRest.x), dy: Float(wheelRest.y))
+            let (wx, wy) = (Float(wheelRest.x), Float(wheelRest.y))
+            afterMoves(input) { $0.wheel(dx: wx, dy: wy) }
             wheelRest = (0, 0)
         }
     }
 
+    /// Courbe d'accélération du pointeur (manette et Siri Remote) : lent près
+    /// de zéro, pour viser, rapide à fond.
+    private static func curve(_ n: Double) -> Double { pow(min(1, max(0, n)), 2.2) }
+
+    /// Pointeur à fond (pixels par seconde) : l'écran de l'ordinateur traversé
+    /// en 1,5 s, quelle que soit sa définition (2 560 px/s en 4K).
+    private static func fullSpeed(_ host: CGSize) -> Double { Double(host.width) / 1.5 }
+
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
+        guard slot.active else { return }
+        dropLongPress(slot, input: input)
         for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
         slot.pendingAxes.removeAll()
         for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {
@@ -585,48 +976,84 @@ public final class GamepadBridge: ObservableObject {
     // MARK: - Siri Remote
 
     private func setUpRemote(_ c: GCController) {
-        remoteConnected = true
+        setRemotePresent(true)
         guard let micro = c.microGamepad else { return }
         micro.reportsAbsoluteDpadValues = true
         micro.allowsRotation = false
         micro.buttonMenu.pressedChangedHandler = { [weak self] _, _, pressed in
-            guard let self, pressed, self.menuFromRemote, self.input != nil, !self.captured else { return }
-            self.onMenuRequest?()
+            guard let self, pressed, self.config.menuFromRemote, self.input != nil, !self.captured else { return }
+            self.requestMenu()
         }
-        micro.dpad.valueChangedHandler = { [weak self] _, x, y in
-            guard let self, self.remoteMouse, !self.captured, let input = self.input else { return }
-            let point = CGPoint(x: CGFloat(x), y: CGFloat(y))
-            // Doigt posé (0, 0 : levé) : déplacement depuis la dernière position.
-            if x == 0, y == 0 {
-                self.lastTouch = nil
-                return
-            }
-            if let last = self.lastTouch {
-                self.move(dx: Double(point.x - last.x) * 900, dy: Double(last.y - point.y) * 900, input: input)
-            }
-            self.lastTouch = point
+        // Doigt sur le pavé : bouton « surface tactile » de la Siri Remote
+        // (2ᵉ génération et suivantes), dont l'état `touched` dit si le doigt
+        // est posé, centre du pavé compris. Sans lui (1ʳᵉ génération), (0, 0)
+        // reste le seul signe d'un doigt levé.
+        let surface = c.physicalInputProfile.buttons[GCInputDirectionalTouchSurfaceButton]
+        surface?.touchedChangedHandler = { [weak self] _, _, _, touched in
+            if !touched { self?.lastTouch = nil }
+        }
+        micro.dpad.valueChangedHandler = { [weak self, weak surface] _, x, y in
+            guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
+            self.remoteMoved(x: x, y: y, touched: surface?.isTouched, input: input)
         }
         micro.buttonA.pressedChangedHandler = { [weak self] _, _, pressed in
-            guard let self, self.remoteMouse, !self.captured, let input = self.input else { return }
-            input.mouseButton(.left, pressed: pressed)
+            guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
+            self.click(.left, pressed, input: input)
         }
         micro.buttonX.pressedChangedHandler = { [weak self] _, _, pressed in
-            guard let self, self.remoteMouse, !self.captured, let input = self.input else { return }
-            input.mouseButton(.right, pressed: pressed)
+            guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
+            self.click(.right, pressed, input: input)
         }
+    }
+
+    /// Pavé de la Siri Remote en souris (positions absolues de -1 à 1) : le
+    /// déplacement du doigt devient un déplacement du pointeur, avec la courbe
+    /// de la manette en souris appliquée à la vitesse du doigt, et rapporté à
+    /// l'écran de l'ordinateur (avant : 900 px par demi-pavé quelle que soit
+    /// la définition, lent en 4K).
+    private func remoteMoved(x: Float, y: Float, touched: Bool?, input: InputPipeline) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let lifted = touched.map { !$0 } ?? (x == 0 && y == 0)
+        guard !lifted else {
+            lastTouch = nil
+            return
+        }
+        let point = CGPoint(x: CGFloat(x), y: CGFloat(y))
+        defer {
+            lastTouch = point
+            lastTouchTime = now
+        }
+        guard let last = lastTouch else { return }
+        let dx = Double(point.x - last.x), dy = Double(last.y - point.y)
+        let distance = hypot(dx, dy)
+        // Saut (doigt reposé ailleurs, échantillon parasite au lever) : on
+        // repart de là sans bouger.
+        guard distance > 0, distance < 0.6 else { return }
+        let dt = min(0.05, max(0.004, now - lastTouchTime))
+        // Vitesse du doigt en pavés (2 unités) par seconde ; pleine vitesse
+        // vers 2,5 pavés par seconde (balayage rapide).
+        let n = distance / 2 / dt / 2.5
+        // Pixels par unité de pavé : doigt lent, un pavé = 40 % de l'écran
+        // (pour viser) ; vite, la courbe en ajoute jusqu'à 2,4 écrans de plus.
+        let gain = Double(hostSize.width) * (0.2 + 1.2 * Self.curve(n))
+        move(dx: dx * gain, dy: dy * gain, input: input)
     }
 
     // MARK: - Vibrations
 
     private func rumble(_ r: GamepadRumble) {
-        guard rumbleEnabled, let slot = slots.values.first(where: { $0.id == r.id }) else { return }
+        onQueue()
+        // Fin de session : un paquet en retard ne relance pas le moteur.
+        guard input != nil, config.rumbleEnabled, let slot = slots.values.first(where: { $0.id == r.id }) else { return }
         slot.motors?.play(large: r.largeMotor, small: r.smallMotor, durationMs: r.durationMs)
     }
 
     /// Vibration d'essai (écran des manettes).
     public func testRumble(_ id: UInt32) {
-        guard let slot = slots.values.first(where: { $0.id == id }) else { return }
-        slot.motors?.play(large: 52000, small: 30000, durationMs: 450)
+        queue.async {
+            guard let slot = self.slots.values.first(where: { $0.id == id }) else { return }
+            slot.motors?.play(large: 52000, small: 30000, durationMs: 450)
+        }
     }
 
     // MARK: - Identité
@@ -692,70 +1119,191 @@ extension PadButton {
 // MARK: - Moteurs de vibration (Core Haptics)
 
 /// Deux moteurs quand la manette les expose (poignées gauche et droite),
-/// sinon un seul ; une vibration dure ce que le jeu demande, ou jusqu'à son arrêt.
+/// sinon un seul. Chaque moteur joue en boucle un motif continu dont
+/// l'intensité suit chaque paquet `Rumble` (`hapticIntensityControl`) : plus
+/// de lecteur recréé à chaque paquet, qui hachait la vibration (effet
+/// « mitraillette ») et coûtait plusieurs millisecondes. Le moteur Core
+/// Haptics reste démarré pendant la session ; la vibration ne s'arrête vraiment
+/// que sur (0, 0), au bout de la durée demandée, ou en fin de session.
+///
+/// Les appels à Core Haptics sont synchrones vers le service haptique (le
+/// premier démarrage du moteur peut prendre des dizaines de millisecondes) :
+/// ils ont leur propre file, pour ne jamais retarder une touche sur la file
+/// des entrées. Les méthodes publiques y passent elles-mêmes.
 private final class Motors {
+    static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.vibrations", qos: .userInitiated)
     private var large: Motor?
     private var small: Motor?
+    private let queue: DispatchQueue
+    private var expiry: DispatchWorkItem?
+    /// En session, le moteur Core Haptics reste démarré entre deux vibrations ;
+    /// hors session (vibration d'essai), il s'arrête après.
+    private var session = false
+
+    func setSession(_ on: Bool) {
+        queue.async {
+            self.session = on
+            if !on { self.shutdown() }
+        }
+    }
 
     init?(controller: GCController) {
         guard let haptics = controller.haptics else { return nil }
+        let queue = Self.queue
+        self.queue = queue
         let localities = haptics.supportedLocalities
         if localities.contains(.leftHandle), localities.contains(.rightHandle) {
-            large = Motor(haptics.createEngine(withLocality: .leftHandle))
-            small = Motor(haptics.createEngine(withLocality: .rightHandle))
+            // Gros moteur à gauche (grave), petit à droite (aigu), comme XInput.
+            large = Motor(haptics.createEngine(withLocality: .leftHandle), sharpness: 0.2, queue: queue)
+            small = Motor(haptics.createEngine(withLocality: .rightHandle), sharpness: 0.8, queue: queue)
         } else {
-            large = Motor(haptics.createEngine(withLocality: .default))
+            large = Motor(haptics.createEngine(withLocality: .default), sharpness: 0.4, queue: queue)
         }
         if large == nil { return nil }
     }
 
+    /// Paquet `Rumble` : intensités de 0 à 65535 ; durée en millisecondes,
+    /// -1 (ou 0) : jusqu'à nouvel ordre, 5 s au plus faute de (0, 0), comme
+    /// kynput avec SDL sur Mac.
     func play(large l: UInt16, small s: UInt16, durationMs: Int) {
-        let duration = durationMs < 0 ? 5.0 : Double(durationMs) / 1000
+        queue.async { self.apply(large: l, small: s, durationMs: durationMs) }
+    }
+
+    private func apply(large l: UInt16, small s: UInt16, durationMs: Int) {
+        expiry?.cancel()
+        expiry = nil
+        let li = Float(l) / 65535, si = Float(s) / 65535
         if let small {
-            large?.play(intensity: Float(l) / 65535, sharpness: 0.2, duration: duration)
-            small.play(intensity: Float(s) / 65535, sharpness: 0.8, duration: duration)
+            large?.set(li)
+            small.set(si)
         } else {
-            large?.play(intensity: Float(max(l, s)) / 65535, sharpness: 0.4, duration: duration)
+            large?.set(max(li, si))
+        }
+        guard l > 0 || s > 0 else {
+            if !session { shutdown() }
+            return
+        }
+        let seconds = durationMs > 0 ? Double(durationMs) / 1000 : 5
+        let item = DispatchWorkItem { [weak self] in self?.apply(large: 0, small: 0, durationMs: 0) }
+        expiry = item
+        queue.asyncAfter(deadline: .now() + seconds, execute: item)
+    }
+
+    /// Fin de session ou manette débranchée : vibration et moteur arrêtés.
+    func stop() {
+        queue.async {
+            self.expiry?.cancel()
+            self.expiry = nil
+            self.shutdown()
         }
     }
 
-    func stop() {
-        large?.stop()
-        small?.stop()
+    private func shutdown() {
+        large?.shutdown()
+        small?.shutdown()
     }
 
     private final class Motor {
-        let engine: CHHapticEngine
-        private var player: CHHapticPatternPlayer?
+        private let engine: CHHapticEngine
+        private let sharpness: Float
+        private let queue: DispatchQueue
+        private var player: CHHapticAdvancedPatternPlayer?
+        private var running = false
+        private var playing = false
+        private var level: Float = 0
+        /// Durée du motif joué en boucle (le maximum d'un événement continu).
+        private static let span: TimeInterval = 30
 
-        init?(_ engine: CHHapticEngine?) {
+        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue) {
             guard let engine else { return nil }
             self.engine = engine
-            engine.isAutoShutdownEnabled = true
-            engine.resetHandler = { [weak engine] in try? engine?.start() }
-        }
-
-        func play(intensity: Float, sharpness: Float, duration: Double) {
-            try? player?.stop(atTime: CHHapticTimeImmediate)
-            player = nil
-            guard intensity > 0.01 else { return }
-            let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(1, intensity)),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-            ], relativeTime: 0, duration: duration)
-            do {
-                try engine.start()
-                let p = try engine.makePlayer(with: CHHapticPattern(events: [event], parameters: []))
-                try p.start(atTime: CHHapticTimeImmediate)
-                player = p
-            } catch {
-                KyberLog.app.error("vibration : \(error.localizedDescription, privacy: .public)")
+            self.sharpness = sharpness
+            self.queue = queue
+            engine.isAutoShutdownEnabled = false
+            engine.playsHapticsOnly = true
+            // Rappels de Core Haptics sur un fil à lui : on repasse sur la file.
+            engine.stoppedHandler = { [weak self] reason in
+                guard let self else { return }
+                queue.async {
+                    self.running = false
+                    self.player = nil
+                    self.playing = false
+                    KyberLog.app.notice("vibration : moteur arrêté par le système (\(reason.rawValue))")
+                }
+            }
+            // Serveur haptique relancé : les lecteurs ne valent plus rien ; la
+            // vibration en cours reprend.
+            engine.resetHandler = { [weak self] in
+                guard let self else { return }
+                queue.async {
+                    self.running = false
+                    self.player = nil
+                    self.playing = false
+                    if self.level > 0 { self.set(self.level) }
+                }
             }
         }
 
-        func stop() {
-            try? player?.stop(atTime: CHHapticTimeImmediate)
+        /// Règle l'intensité (0…1) : 0 arrête le lecteur, le moteur reste démarré.
+        func set(_ value: Float) {
+            let v = min(1, max(0, value))
+            level = v
+            guard v > 0.01 else {
+                if playing {
+                    try? player?.stop(atTime: CHHapticTimeImmediate)
+                    playing = false
+                }
+                return
+            }
+            do {
+                if !running {
+                    try engine.start()
+                    running = true
+                }
+                let p = try player ?? makePlayer()
+                player = p
+                let intensity = [CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: v, relativeTime: 0)]
+                if !playing {
+                    // Intensité donnée avant le départ si Core Haptics la
+                    // garde : pas d'à-coup à pleine intensité.
+                    try? p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
+                    try p.start(atTime: CHHapticTimeImmediate)
+                    playing = true
+                }
+                try p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
+            } catch {
+                KyberLog.app.error("vibration : \(error.localizedDescription, privacy: .public)")
+                // Un lecteur qui tourne encore ne doit pas rester à pleine
+                // intensité sans personne pour l'arrêter.
+                try? player?.stop(atTime: CHHapticTimeImmediate)
+                player = nil
+                playing = false
+                running = false
+            }
+        }
+
+        /// Motif continu d'intensité 1, en boucle ; l'intensité réelle vient
+        /// du paramètre dynamique.
+        private func makePlayer() throws -> CHHapticAdvancedPatternPlayer {
+            let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+            ], relativeTime: 0, duration: Self.span)
+            let p = try engine.makeAdvancedPlayer(with: CHHapticPattern(events: [event], parameters: []))
+            p.loopEnabled = true
+            p.loopEnd = Self.span
+            return p
+        }
+
+        func shutdown() {
+            if playing { try? player?.stop(atTime: CHHapticTimeImmediate) }
             player = nil
+            playing = false
+            level = 0
+            if running {
+                engine.stop(completionHandler: nil)
+                running = false
+            }
         }
     }
 }

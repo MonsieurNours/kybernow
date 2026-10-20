@@ -236,21 +236,26 @@ struct SettingsView: View {
         seg("padspeed", "Manette en souris : vitesse", "Stick gauche : pointeur, droit : molette · A clic, X clic droit, B milieu · L1 / R1 : Alt + Tab · LT précis, RT rapide", Preferences.PadMouseSpeed.allCases.map(\.rawValue), prefs.padMouseSpeed.rawValue) { v in
             prefs.padMouseSpeed = Preferences.PadMouseSpeed(rawValue: v) ?? .normal
         }
-        seg("order", "Ordre des joueurs", "Fixe : chaque manette garde sa place", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
+        seg("guide", "Bouton Guide", "Jeu : le bouton Home de la manette va au jeu (Steam, Game Bar) si tvOS le laisse, à vérifier dans Tester les manettes · Appui long : Menu ou Options tenus 0,6 s", Preferences.GuideChoice.allCases.map(\.rawValue), prefs.guideButton.rawValue) { v in
+            prefs.guideButton = Preferences.GuideChoice(rawValue: v) ?? .game
+        }
+        seg("order", "Ordre des joueurs", "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
             prefs.padOrderFixed = v == "Fixe"
         }
         toggle("iso", "Clavier Apple ISO", "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur", prefs.appleISOKeyboard) {
             prefs.appleISOKeyboard.toggle()
         }
-        value("test", "Tester les manettes", padsSummary, GamepadBridge.shared.pads.map { "J\($0.player)" }.joined(separator: " · ")) {
+        value("test", "Tester les manettes", padsSummary, GamepadBridge.shared.pads.map(\.label).joined(separator: " · ")) {
             app.screen = .gamepads
         }
     }
 
     private var padsSummary: String {
         let n = GamepadBridge.shared.pads.count
+        let waiting = GamepadBridge.shared.pads.filter(\.waiting).count
         let remote = GamepadBridge.shared.remoteConnected ? ", 1 télécommande" : ""
-        return n == 0 ? "Aucune manette\(remote)" : "\(n) manette\(n > 1 ? "s" : "")\(remote)"
+        let wait = waiting > 0 ? " (\(waiting) en attente : quatre au plus sur l'ordinateur)" : ""
+        return n == 0 ? "Aucune manette\(remote)" : "\(n) manette\(n > 1 ? "s" : "")\(wait)\(remote)"
     }
 
     @ViewBuilder private func networkRows(_ s: ConnectionSettings, host: Host) -> some View {

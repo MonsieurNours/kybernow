@@ -95,9 +95,16 @@ public enum PadAxis: Sendable {
     }
 }
 
-/// Reçoit les vibrations envoyées par l'ordinateur.
+/// Reçoit les vibrations envoyées par l'ordinateur. Appelé sur le fil de
+/// kynput (Apple TV : le pont des manettes repasse sur sa propre file, sans
+/// détour par le fil principal) ; le rappel est réglé du fil principal.
 private final class RumbleSink {
-    var onRumble: ((GamepadRumble) -> Void)?
+    private let lock = NSLock()
+    private var handler: ((GamepadRumble) -> Void)?
+    var onRumble: ((GamepadRumble) -> Void)? {
+        get { lock.lock(); defer { lock.unlock() }; return handler }
+        set { lock.lock(); handler = newValue; lock.unlock() }
+    }
 }
 
 private final class CursorSink {
@@ -112,6 +119,9 @@ final class InputPipeline {
     let pipeline: OpaquePointer
     private let sink: OpaquePointer
     let displayID: UInt32
+    /// Taille de l'écran de l'ordinateur au départ de l'image, en pixels
+    /// (Apple TV : vitesse du pointeur rapportée à l'écran).
+    let hostSize: CGSize
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
     #if os(macOS)
@@ -127,6 +137,7 @@ final class InputPipeline {
 
     init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
         displayID = display.id
+        hostSize = CGSize(width: display.width, height: display.height)
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
 
@@ -196,7 +207,7 @@ final class InputPipeline {
                 guard kynput_gamepad_rumble_from_packet(packet, &r) else { return }
                 let sink = Unmanaged<RumbleSink>.fromOpaque(userdata).takeUnretainedValue()
                 let rumble = GamepadRumble(id: r.id, largeMotor: r.large_motor, smallMotor: r.small_motor, durationMs: Int(r.duration))
-                DispatchQueue.main.async { sink.onRumble?(rumble) }
+                sink.onRumble?(rumble)
             },
             produced_types: nil,
             produced_types_count: 0,
@@ -277,8 +288,21 @@ final class InputPipeline {
 
     /// Souris relative (jeux) : seuls les déplacements partent.
     func setRelative(_ on: Bool) {
+        lock.lock()
+        relativeOn = on
+        lock.unlock()
         kynput_pipeline_set_type_processing_state(pipeline, KYNPUT_INPUT_TYPE_MOUSE_MOVE, kynput_router_processing_state_bool(on))
     }
+
+    /// Souris relative active : lisible de n'importe quel fil (Apple TV : la
+    /// souris Bluetooth envoie ses déplacements bruts depuis la file des
+    /// entrées, sans passer par le fil principal).
+    var isRelative: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return relativeOn
+    }
+    private var relativeOn = false
 
     deinit {
         kynput_consumer_unref(sink)

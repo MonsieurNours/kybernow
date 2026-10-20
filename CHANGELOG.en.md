@@ -44,6 +44,14 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client: when the browser blocks the sound (Safari, iPhone), a “Tap for sound” chip brings it back, instead of a silent session.
 - Web client: when the computer's display changes (size, display removed) or its capture fails, the image comes back by itself, without reloading the page (three attempts for an error). The bar shows connected gamepads, and end messages say what actually happened.
 - Web client on touch devices: with the keyboard open, the image keeps the whole height above the row of keys (it dropped to a quarter of the screen), and on an iPad with a keyboard fingers work too. Closing the tab in the middle of a session asks for confirmation.
+- Apple TV app: gamepads, remote, Bluetooth keyboard and mouse no longer go through the app's main thread; an interface animation no longer delays a button or a stick by several milliseconds.
+- Apple TV app: game rumble is continuous and follows the game's intensity, instead of stuttering at every change; it also starts faster.
+- Apple TV app: four gamepads at most on the computer, as with XInput; a fifth one waits (message in the Gamepads screen and during the session) and takes the slot of the first one that disconnects, instead of being announced to a computer that cannot see it.
+- Apple TV app: the Siri Remote as mouse accelerates with the finger's speed (slow for aiming, fast to cross) and adapts to the resolution of the computer's screen, instead of a fixed speed that was too slow in 4K; a finger at the centre of the pad is no longer taken for lifted. The gamepad as mouse also crosses the screen in 1.5 s whatever its resolution.
+- Apple TV app: the L1 + R1 + Start + Select combo only opens the menu when held for 250 ms; a brief press of the four buttons stays with the game, without releasing anything behind its back.
+- Apple TV app: the gamepad's Home button can go to the game as Guide (Steam Big Picture, Game Bar), if tvOS allows it; otherwise, set “Bouton Guide” to long press: Menu or Options held for 0.6 s send Guide. The test screen shows whether Home reaches the app.
+- Apple TV app: a Bluetooth mouse's wheel finally scrolls the right way (it scrolled sideways), one notch per notch; buttons 4 and 5 (back, forward) work.
+- Apple TV app: gamepad as mouse, pushing the right stick up scrolls up (it was the other way round); a click from the mouse, the remote or the gamepad as mouse no longer lands beside the pointer when the interface is busy, and a held click is no longer forgotten when the menu opens or the gamepad turns off.
 
 ## 0.2.5
 

@@ -65,6 +65,14 @@ struct SessionView: View {
                     .transition(.opacity)
             }
 
+            // Manette en attente (déjà quatre joueurs), ou qui prend une place libérée.
+            if let note = pads.notice, revealed, !session.menuOpen {
+                MenuHint(text: note, glyph: false)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .padding(.top, 124)
+                    .transition(.opacity)
+            }
+
             if isReconnecting, !session.menuOpen {
                 MenuHint(text: "Reconnexion à \(session.host.name)…")
                     .frame(maxHeight: .infinity, alignment: .top)
@@ -307,7 +315,7 @@ struct EnteringCapsule: View {
 
     private var soundLine: String {
         let audio = session.host.settings.audio == .off ? "Son sur l'ordinateur" : "Son \(session.route.channelsLabel)"
-        let players = pads.pads.prefix(4).map { "J\($0.player)" }
+        let players = pads.pads.filter { !$0.waiting }.map { "J\($0.player)" }
         switch players.count {
         case 0: return audio
         case 1: return "\(audio) · \(players[0]) branché"
@@ -329,10 +337,11 @@ struct EnteringCapsule: View {
 
 struct MenuHint: View {
     let text: String
+    var glyph = true
 
     var body: some View {
         HStack(spacing: 12) {
-            Glyph(kind: .remote, role: .back, size: 24)
+            if glyph { Glyph(kind: .remote, role: .back, size: 24) }
             Text(text).font(Theme.sans(20)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 28)

@@ -45,6 +45,14 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web : quand le navigateur bloque le son (Safari, iPhone), une puce « Toucher pour le son » le rétablit, au lieu d'une session muette.
 - Client web : quand l'écran de l'ordinateur change (taille, écran retiré) ou que sa capture tombe en erreur, l'image reprend toute seule, sans recharger la page (trois essais pour une erreur). La barre montre les manettes branchées, et les messages de fin disent ce qui s'est vraiment passé.
 - Client web en tactile : clavier ouvert, l'image garde toute la hauteur au-dessus de la rangée de touches (elle tombait au quart de l'écran), et sur un iPad avec clavier les doigts marchent aussi. Fermer l'onglet en pleine session demande confirmation.
+- App Apple TV : manettes, télécommande, clavier et souris Bluetooth ne passent plus par le fil principal de l'app ; une animation de l'interface ne retarde plus une touche ou un stick de plusieurs millisecondes.
+- App Apple TV : les vibrations du jeu sont continues et suivent son intensité, au lieu de hacher (« mitraillette ») à chaque changement ; elles démarrent aussi plus vite.
+- App Apple TV : quatre manettes au plus sur l'ordinateur, comme XInput ; une cinquième attend (message dans l'écran Manettes et en session) et prend la place de la première qui se débranche, au lieu d'être annoncée à un ordinateur qui ne la voit pas.
+- App Apple TV : la Siri Remote en souris accélère avec la vitesse du doigt (lente pour viser, rapide pour traverser) et se règle sur la définition de l'écran de l'ordinateur, au lieu d'une vitesse fixe trop lente en 4K ; poser le doigt au centre du pavé ne le fait plus prendre pour levé. La manette en souris traverse aussi l'écran en 1,5 s quelle que soit sa définition.
+- App Apple TV : la combinaison L1 + R1 + Start + Select n'ouvre le menu que tenue 250 ms ; un appui bref des quatre touches reste au jeu, sans rien relâcher derrière lui.
+- App Apple TV : le bouton Home de la manette peut aller au jeu comme Guide (Steam Big Picture, Game Bar), si tvOS le laisse ; sinon, réglage « Bouton Guide » sur Appui long : Menu ou Options tenus 0,6 s envoient Guide. L'écran de test montre si Home arrive à l'app.
+- App Apple TV : la molette d'une souris Bluetooth défile enfin dans le bon sens (elle défilait de côté), un cran pour un cran ; les boutons 4 et 5 (précédent, suivant) marchent.
+- App Apple TV : manette en souris, le stick droit vers le haut fait défiler vers le haut (c'était l'inverse) ; un clic de la souris, de la télécommande ou de la manette en souris ne tombe plus à côté du pointeur quand l'interface est occupée, et un clic tenu n'est plus oublié à l'ouverture du menu ou quand la manette se coupe.
 
 ## 0.2.5
 
