@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.3
+
+- App Apple TV : le pointeur ne disparaît plus quand on le déplace à la télécommande ou à la manette. L'Apple TV envoie maintenant sa position exacte, comme l'app Mac au bureau (Windows ne réaffichait pas son pointeur sur de simples déplacements), et le dessine toujours. La souris Bluetooth reste en mode jeu dans un jeu en plein écran.
+
 ## 0.2.2
 
 - Nouvelle app Apple TV (en attendant l'App Store, à installer soi-même : voir https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.md) : votre ordinateur sur le téléviseur, à la télécommande ou à la manette, en 4K à 60 Hz au plus. Jusqu'à quatre manettes (Xbox, DualSense…) avec vibrations, Siri Remote en souris, clavier et souris Bluetooth, son multicanal par l'HDMI, audio spatial dans les AirPods et alerte quand la sortie ajoute du retard, Top Shelf, profils par utilisateur de l'Apple TV.

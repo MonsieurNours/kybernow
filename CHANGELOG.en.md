@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.3
+
+- Apple TV app: the pointer no longer disappears when you move it with the remote or a gamepad. The Apple TV now sends its exact position, like the Mac app on the desktop (Windows did not show its pointer again on mere motion), and always draws it. The Bluetooth mouse stays in game mode in a full-screen game.
+
 ## 0.2.2
 
 - New Apple TV app (until it reaches the App Store, install it yourself: see https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md): your computer on the TV, with the remote or a gamepad, at up to 4K 60 Hz. Up to four gamepads (Xbox, DualSense…) with rumble, Siri Remote as a mouse, Bluetooth keyboard and mouse, multichannel sound over HDMI, spatial audio in AirPods and a warning when the output adds delay, Top Shelf, per-user profiles on the Apple TV.
