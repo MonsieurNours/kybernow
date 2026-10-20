@@ -31,6 +31,7 @@ Ajouter un correctif : modifier les sources dans `third_party/kyber-desktop`, pu
 - **Écran virtuel** : SudoVDA (pilote d'Apollo 0.4.6), créé par la console à chaque session à la taille de l'écran du client. La disposition est enregistrée par Windows (`SDC_SAVE_TO_DATABASE`, `CDS_UPDATEREGISTRY`) pour qu'il ne la réapplique pas en boucle. Retiré en fin de session, écrans d'origine restaurés.
 - **Son** : sortie par défaut basculée sur les haut-parleurs virtuels de Steam (Steam Streaming Speakers) au bon nombre de voies pendant la session, puis remise comme avant. Le son ne sort ainsi plus sur les haut-parleurs du PC.
 - **Pointeur** : « Masquer le pointeur pendant la frappe » coupé le temps de la session, puis remis.
+- **Moteur de capture** : KyberNow suppose le moteur historique de Kyber (`[kyavserver] backend = "txproto"`, la valeur par défaut). Le nouveau moteur (`libavconv`) ne voit pas l'écran virtuel SudoVDA, numérote les écrans 0, 1… et n'a pas les correctifs 0002, 0003, 0004 et 0006 : la console le signale à côté du réglage.
 
 ## Pour remonter à l'équipe Kyber
 

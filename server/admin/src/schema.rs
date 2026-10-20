@@ -124,14 +124,14 @@ pub fn fields() -> Vec<Field> {
             table: &["kyavserver"], key: "backend",
             kind: Kind::Enum { options: &[
                 Choice { value: "txproto", label: "Historique (txproto)", hint: "Le moteur utilisé par défaut, éprouvé." },
-                Choice { value: "libavconv", label: "Nouveau (libavconv)", hint: "Le nouveau moteur de Kyber, en cours de déploiement. Peut améliorer la latence, peut aussi être moins stable." },
+                Choice { value: "libavconv", label: "Nouveau (libavconv)", hint: "Le nouveau moteur de Kyber, en cours de déploiement. Il ne voit pas l'écran virtuel de KyberNow et n'a pas ses correctifs (pointeur, son) : à réserver aux essais sans écran virtuel." },
             ]},
             default: json!("txproto"),
             label: "Moteur de capture",
             help: "Le module de Kyber qui capture l'écran et le son puis pilote l'encodeur.",
             details: "Kyber est en train de remplacer son moteur de capture. Les deux coexistent dans la version 0.29 : l'historique est le plus sûr, le nouveau reçoit les dernières optimisations.",
             advice: "Gardez le moteur historique, sauf pour tester le nouveau si vous rencontrez un problème de capture.",
-            caution: None,
+            caution: Some("Avec le nouveau moteur, l'écran virtuel n'est pas capturé (les apps restent sur « Premières images ») et le pointeur n'est plus suivi : KyberNow ne fonctionne qu'avec le moteur historique."),
             unit: None,
         },
         Field {

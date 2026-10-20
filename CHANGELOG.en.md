@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.2.4
 
 - Steadier 4K picture: the computer no longer drops pieces of a large frame (8 MB QUIC send queues and UDP buffers instead of 1 MB), which made the picture stutter or freeze and then request keyframes one after another.
+- Console: the "Capture engine" setting warns that Kyber's new engine (libavconv) does not capture the virtual display and no longer follows the pointer.
 - Mac app: if the computer announces only screens that are off (0 × 0), the session says so instead of staying on "First frames".
 
 ## 0.2.3

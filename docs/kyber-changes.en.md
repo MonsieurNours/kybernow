@@ -31,6 +31,7 @@ Adding a patch: change the sources in `third_party/kyber-desktop`, then save the
 - **Virtual display**: SudoVDA (Apollo 0.4.6's driver), created by the console for each session at the size of the client's display. The layout is saved by Windows (`SDC_SAVE_TO_DATABASE`, `CDS_UPDATEREGISTRY`) so that it does not reapply it in a loop. Removed at the end of the session, original displays restored.
 - **Sound**: default output switched to Steam's virtual speakers (Steam Streaming Speakers) with the right number of channels during the session, then put back as before. Sound therefore no longer comes out of the computer's speakers.
 - **Pointer**: “Hide pointer while typing” turned off for the duration of the session, then turned back on.
+- **Capture engine**: KyberNow assumes Kyber's historical engine (`[kyavserver] backend = "txproto"`, the default). The new engine (`libavconv`) does not see the SudoVDA virtual display, numbers the displays 0, 1… and does not have patches 0002, 0003, 0004 and 0006: the console says so next to the setting.
 
 ## To report to the Kyber team
 
