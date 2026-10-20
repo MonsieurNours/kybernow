@@ -5,7 +5,7 @@
 # et les contenus extraits dans third_party/payload/ :
 #   kyber-0.29.0/   (installeur officiel Kyber 0.29.0, extrait avec 7-Zip)
 #   apollo-0.4.6/   (Apollo 0.4.6, pour le pilote SudoVDA et ViGEmBus)
-#   kyber-overlay/  (facultatif : kyavserver corrigé, voir server/kyber-patches)
+#   kyber-overlay/  (facultatif : binaires corrigés et moteur web, voir server/kyber-patches)
 #
 # Sortie : server/installer/dist/KyberNow-Setup.exe
 set -euo pipefail
@@ -31,7 +31,8 @@ rsync -a --exclude '$PLUGINSDIR' --exclude '*.bat' --exclude 'INSTALL.md' \
     "$PAYLOAD_SRC/kyber-0.29.0/" "$STAGE/kyber/"
 # Correctifs KyberNow (son HD, curseur stable) : server/kyber-patches/build.sh
 if [ -d "$PAYLOAD_SRC/kyber-overlay" ]; then
-    cp "$PAYLOAD_SRC/kyber-overlay/"* "$STAGE/kyber/"
+    # -R : la surcouche a des sous-dossiers (webclient/, moteur du client web).
+    cp -R "$PAYLOAD_SRC/kyber-overlay/." "$STAGE/kyber/"
 else
     echo "    (pas de surcouche : Kyber 0.29 d'origine, lancez server/kyber-patches/build.sh)"
 fi

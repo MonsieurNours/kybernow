@@ -30,8 +30,18 @@
 #         la forme (CursorData::None), la forme n'est remise qu'au besoin
 #   0012  kynputserver : compilable depuis macOS (build.rs testait la machine
 #         qui compile au lieu de la cible)
+#   0013  moteur web (kynput wasm) : texte des champs data-kynput-text en
+#         paquets Unicode, tout relâcher (blur, onglet masqué, capture
+#         perdue), manettes « standard » seulement, boucle rAF arrêtée
+#   0014  moteur web (kywebplayer) : flush() avant configure(), images
+#         intermédiaires écartées jusqu'à l'image clé, décodeur recréé après
+#         une erreur
+#   0015  moteur web (kyber-web) : position absolue tant que le pointeur n'est
+#         pas capturé
 #
-# Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
+# Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
+# binaryen, wasm-bindgen-cli (cargo install), rustup target
+# wasm32-unknown-unknown, le client web de Kyber 0.29 dans third_party/kyber-web,
 # Kyber 0.29 extrait dans third_party/payload/kyber-0.29.0 (sa SDL2.dll),
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans
 # third_party/kyber-desktop (avec Jinja dans
@@ -58,6 +68,9 @@ KYMEDIA="$THIRD_PARTY/kyber-desktop/kysdk/kymedia"
 KYCTL="$THIRD_PARTY/kyber-desktop/kysdk/kyctl"
 KYMUX="$THIRD_PARTY/kyber-desktop/kysdk/kymux"
 KYNPUT="$THIRD_PARTY/kyber-desktop/kysdk/kynput"
+# Client web de Kyber 0.29 (crate kyclient-wasm, l'API JS du moteur), même
+# kysdk que kyber-desktop.
+KYWEB="$THIRD_PARTY/kyber-web"
 # kynput.dll et son en-tête, installés à part du rootfs de kyavserver.
 KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
 # Kyber 0.29 d'origine : kynput.dll se lie à sa SDL2.dll (manettes du client
@@ -79,7 +92,11 @@ export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 export CARGO_PROFILE_RELEASE_STRIP=false
 export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-pc-windows-gnu --sysroot=$MINGW -I$MINGW/include"
 
-kyber_toolchain_check rustc mingw meson
+kyber_toolchain_check rustc mingw meson wasm-bindgen binaryen
+for tool in wasm-bindgen wasm-opt; do
+    command -v $tool >/dev/null || { echo "$tool introuvable (docs/build-notes.md, moteur web)" >&2; exit 1; }
+done
+[ -f "$KYWEB/Cargo.toml" ] || { echo "$KYWEB introuvable : client web de Kyber 0.29 (docs/build-notes.md, moteur web)" >&2; exit 1; }
 
 # Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
 # retour reste celui de cargo.
@@ -102,12 +119,14 @@ check_fresh() {
 echo "==> Correctifs"
 # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
 # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
-# Ceux nommés *-kycontroller-* visent kysdk/kyctl, *-kynet-* kysdk/kymux,
-# *-kynput-* kysdk/kynput, les autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
+# Ceux nommés *-kycontroller-* et *-kywebplayer-* visent kysdk/kyctl,
+# *-kynet-* kysdk/kymux, *-kynput-* kysdk/kynput, *-kyberweb-* kyber-web, les
+# autres kysdk/kymedia. Seuls les fichiers des correctifs sont remis à
 # l'origine : kyctl et kymux portent aussi les correctifs des apps.
 repo_of() {
     case "$(basename "$1")" in
-        *-kycontroller-*) echo "$KYCTL" ;;
+        *-kycontroller-* | *-kywebplayer-*) echo "$KYCTL" ;;
+        *-kyberweb-*) echo "$KYWEB" ;;
         *-kynet-*) echo "$KYMUX" ;;
         *-kynput-*) echo "$KYNPUT" ;;
         *) echo "$KYMEDIA" ;;
@@ -158,6 +177,39 @@ rm -f "$KYNPUT_ROOTFS/bin/kynput.dll"
 (cd "$KYNPUT" && PKG_CONFIG_ALLOW_CROSS=1 PKG_CONFIG_LIBDIR="$KYNPUT_ROOTFS/lib/pkgconfig" cargo_quiet cargo build \
     -p kynputserver --target x86_64-pc-windows-gnu --release --features win32-hide-console)
 
+echo "==> Moteur web (kyclient_wasm)"
+# kyber-web compile kyclient et kywebplayer depuis son dossier kysdk. Le
+# kysdk/kyctl de third_party porte aussi les correctifs des apps, qui changent
+# l'API de kyclient : le moteur web part d'un kyctl d'origine (git archive),
+# plus les correctifs *-kywebplayer-*. Les autres dépôts sont ceux de
+# third_party, correctifs serveur appliqués (kynput, kymux…).
+WEB_KYSDK="$THIRD_PARTY/kyber-web-kysdk"
+rm -rf "$WEB_KYSDK/kyctl" && mkdir -p "$WEB_KYSDK/kyctl"
+git -C "$KYCTL" archive HEAD | tar -x -C "$WEB_KYSDK/kyctl"
+for p in "$HERE"/*-kywebplayer-*.patch; do
+    [ -e "$p" ] || continue
+    (cd "$WEB_KYSDK/kyctl" && patch -p1 --forward --no-backup-if-mismatch -r - < "$p" | sed 's/^/        /') || {
+        echo "Correctif $(basename "$p") inapplicable au kyctl d'origine" >&2
+        exit 1
+    }
+done
+for r in kymedia kymux kynput kyutil; do
+    ln -sfn "$THIRD_PARTY/kyber-desktop/kysdk/$r" "$WEB_KYSDK/$r"
+done
+# kysdk : sous-module vide dans un clone de kyber-web, remplacé par ce lien.
+[ -L "$KYWEB/kysdk" ] || rmdir "$KYWEB/kysdk"
+ln -sfn "$WEB_KYSDK" "$KYWEB/kysdk"
+(cd "$KYWEB" && RUSTFLAGS=--cfg=web_sys_unstable_apis cargo_quiet cargo build \
+    --target wasm32-unknown-unknown -p kyclient-wasm --release)
+WEB_OUT="$THIRD_PARTY/kyber-web-out"
+rm -rf "$WEB_OUT" && mkdir -p "$WEB_OUT"
+check_fresh "$KYWEB/target/wasm32-unknown-unknown/release/kyclient_wasm.wasm"
+# Mêmes étapes que le build-wasm.sh de kyber-web (sans l'interface de Kyber,
+# inchangée) : liaison JS, puis optimisation en gardant les noms.
+wasm-bindgen --target web --no-typescript --out-dir "$WEB_OUT" \
+    "$KYWEB/target/wasm32-unknown-unknown/release/kyclient_wasm.wasm"
+wasm-opt "$WEB_OUT/kyclient_wasm_bg.wasm" -o "$WEB_OUT/kyclient_wasm_bg.wasm" -Os -g
+
 echo "==> Surcouche"
 KYCONTROLLER="$KYCTL/target/x86_64-pc-windows-gnu/release/kycontroller.exe"
 KYNPUTSERVER="$KYNPUT/target/x86_64-pc-windows-gnu/release/kynputserver.exe"
@@ -172,4 +224,8 @@ cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 # n'utilise ces DLL, on peut remplacer celles de la version officielle.
 cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$OVERLAY/"
 x86_64-w64-mingw32-strip --strip-debug "$OVERLAY"/*.exe "$OVERLAY"/*.dll
-ls -lh "$OVERLAY"
+# Moteur du client web (servi par kycontroller depuis kyber\webclient, relayé
+# par la console sur /ecran).
+mkdir -p "$OVERLAY/webclient"
+cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
+ls -lhR "$OVERLAY"

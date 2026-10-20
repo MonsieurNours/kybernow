@@ -1,0 +1,123 @@
+diff --git a/src/pointer_lock.rs b/src/pointer_lock.rs
+index b0fab3c..dfd64d9 100644
+--- a/src/pointer_lock.rs
++++ b/src/pointer_lock.rs
+@@ -131,13 +131,24 @@ impl PointerLocker {
+         Ok(())
+     }
+ 
+-    pub(crate) fn register_locked_cb(&self) -> Result<()> {
++    pub(crate) fn register_locked_cb(self: &Arc<Self>) -> Result<()> {
+         let lock_state = self.lock_state.clone();
++        let this = Arc::downgrade(self);
+         let pointerlockchange_cb = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::Event| {
+             let ret = Self::on_pointer_locked(&lock_state);
+             if let Err(err) = ret {
+                 warn!("on_pointer_locked() failed: {err:?}");
+             }
++
++            // Relative moves only while the pointer is locked: when the lock
++            // is taken, switch to them; when it is lost (Escape, another
++            // window), go back to absolute positions.
++            if let Some(this) = this.upgrade() {
++                let ret = this.apply_mouse_mode();
++                if let Err(err) = ret {
++                    warn!("apply_mouse_mode() failed: {err:?}");
++                }
++            }
+         });
+ 
+         let document = dom::document()?;
+@@ -213,29 +224,57 @@ impl PointerLocker {
+         self.update_mouse_mode()
+     }
+ 
+-    pub(crate) fn update_mouse_mode(&self) -> Result<()> {
+-        let (pipeline, left_mouse_btn_pressed, cursor_visible) = {
+-            let inner = self.inner.lock()?;
++    fn pointer_locked(&self) -> Result<bool> {
++        Ok(matches!(*self.lock_state.lock()?, PointerLockState::Locked))
++    }
+ 
+-            let pipeline = inner
+-                .pipeline
+-                .as_ref()
+-                .ok_or(Error::NoInputPipeline)?
+-                .clone();
++    /// Absolute positions, or relative moves once the pointer is locked.
++    ///
++    /// The host hides its cursor in games, but also when it has no mouse or
++    /// while typing. Until the pointer is actually locked (lock pending,
++    /// refused by the page, or impossible as on touch screens), positions
++    /// keep going: a tap or a click lands where it is aimed, and Windows
++    /// shows its cursor again.
++    fn set_relative(pipeline: Weak<InputPipeline>, relative: bool) {
++        debug!("Enable {}", if relative { "MouseMove" } else { "MousePosition" });
++
++        Self::update_pipeline(
++            pipeline,
++            &[
++                (InputType::MousePosition, !relative),
++                (InputType::MouseMove, relative),
++            ],
++        );
++    }
++
++    fn pipeline(&self) -> Result<Weak<InputPipeline>> {
++        let inner = self.inner.lock()?;
++        Ok(inner
++            .pipeline
++            .as_ref()
++            .ok_or(Error::NoInputPipeline)?
++            .clone())
++    }
+ 
+-            (pipeline, inner.left_mouse_btn_pressed, inner.cursor_visible)
++    /// Pointer lock taken or lost: relative moves only while it is locked
++    /// and the host cursor is hidden.
++    fn apply_mouse_mode(&self) -> Result<()> {
++        let cursor_visible = self.inner.lock()?.cursor_visible;
++        let relative = !cursor_visible && self.pointer_locked()?;
++        Self::set_relative(self.pipeline()?, relative);
++
++        Ok(())
++    }
++
++    pub(crate) fn update_mouse_mode(&self) -> Result<()> {
++        let pipeline = self.pipeline()?;
++        let (left_mouse_btn_pressed, cursor_visible) = {
++            let inner = self.inner.lock()?;
++            (inner.left_mouse_btn_pressed, inner.cursor_visible)
+         };
+ 
+         if cursor_visible {
+-            debug!("Enable MousePosition");
+-
+-            Self::update_pipeline(
+-                pipeline,
+-                &[
+-                    (InputType::MousePosition, true),
+-                    (InputType::MouseMove, false),
+-                ],
+-            );
++            Self::set_relative(pipeline, false);
+ 
+             canvas_unlock_pointer()
+         } else {
+@@ -244,15 +283,7 @@ impl PointerLocker {
+                 return Ok(());
+             }
+ 
+-            debug!("Enable MouseMove");
+-
+-            Self::update_pipeline(
+-                pipeline,
+-                &[
+-                    (InputType::MousePosition, false),
+-                    (InputType::MouseMove, true),
+-                ],
+-            );
++            Self::set_relative(pipeline, self.pointer_locked()?);
+ 
+             self.try_lock_pointer()
+         }

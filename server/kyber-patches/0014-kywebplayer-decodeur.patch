@@ -1,0 +1,289 @@
+diff --git a/kywebplayer/src/video/decoder.rs b/kywebplayer/src/video/decoder.rs
+index b2bd0e1..94e1884 100644
+--- a/kywebplayer/src/video/decoder.rs
++++ b/kywebplayer/src/video/decoder.rs
+@@ -18,7 +18,9 @@
+ // You should have received a copy of the GNU Affero General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+-use log::{error, info, warn};
++use log::{debug, error, info, warn};
++use std::cell::{Cell, RefCell};
++use std::collections::VecDeque;
+ use std::rc::Rc;
+ use wasm_bindgen::prelude::*;
+ use wasm_bindgen_futures::JsFuture;
+@@ -28,12 +30,31 @@ use super::{VideoCodec, VideoDecoderConfig};
+ use crate::packet::{self, MediaPacket};
+ use kywasmtime::Instant;
+ 
++/// After a decoding error, how long to wait for a keyframe to start again
++/// before reporting the error. With intra refresh, the encoder may never send
++/// one by itself.
++const RECOVERY_TIMEOUT_US: u64 = 1_000_000;
++
+ pub struct VideoDecoder {
+     listener: Rc<dyn VideoPlayerListener>,
+-    _output_closure: Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
+-    _error_closure: Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
++    output_closure: Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
++    error_closure: Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
+     video_decoder: web_sys::VideoDecoder,
++    configured: bool,
++    /// Last configuration and its parameter sets (AnnexB): after a reset, the
++    /// new decoder gets them again, in front of the next keyframe.
++    config: Option<(web_sys::VideoDecoderConfig, Vec<u8>)>,
+     pending_config: Option<Vec<u8>>,
++    /// Delta frames are dropped until the next keyframe (after a
++    /// configuration or a reset): the decoder would refuse them.
++    waiting_keyframe: bool,
++    /// Set by the error callback: the browser has closed the decoder.
++    failed: Rc<Cell<bool>>,
++    /// When the decoder was reset after an error, until the next keyframe.
++    recovering_since: Option<u64>,
++    /// Reception dates of the frames handed to the decoder, read back by the
++    /// output callback in the same order.
++    recv_dates: Rc<RefCell<VecDeque<i64>>>,
+     kymux_codec: u32,
+     force_software_decoding: bool,
+     yuv444: bool,
+@@ -43,7 +64,10 @@ pub struct VideoDecoder {
+ 
+ pub struct VideoDecoderCallbacks {
+     pub output: Box<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
++    /// Must set `failed`: a decoding error closes the decoder.
+     pub error: Box<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
++    pub failed: Rc<Cell<bool>>,
++    pub recv_dates: Rc<RefCell<VecDeque<i64>>>,
+ }
+ 
+ impl VideoDecoder {
+@@ -58,17 +82,20 @@ impl VideoDecoder {
+     ) -> Result<Self, JsValue> {
+         let output_closure = Closure::wrap(cbs.output);
+         let error_closure = Closure::wrap(cbs.error);
+-        let output_fn = output_closure.as_ref().unchecked_ref();
+-        let error_fn = error_closure.as_ref().unchecked_ref();
+-        let video_decoder =
+-            web_sys::VideoDecoder::new(&web_sys::VideoDecoderInit::new(error_fn, output_fn))?;
++        let video_decoder = Self::create_web_decoder(&output_closure, &error_closure)?;
+ 
+         Ok(Self {
+             listener,
+-            _output_closure: output_closure,
+-            _error_closure: error_closure,
++            output_closure,
++            error_closure,
+             video_decoder,
++            configured: false,
++            config: None,
+             pending_config: None,
++            waiting_keyframe: true,
++            failed: cbs.failed,
++            recovering_since: None,
++            recv_dates: cbs.recv_dates,
+             kymux_codec,
+             force_software_decoding,
+             yuv444,
+@@ -77,6 +104,38 @@ impl VideoDecoder {
+         })
+     }
+ 
++    fn create_web_decoder(
++        output_closure: &Closure<dyn FnMut(web_sys::VideoFrame) -> Result<(), JsValue>>,
++        error_closure: &Closure<dyn FnMut(js_sys::Error) -> Result<(), JsValue>>,
++    ) -> Result<web_sys::VideoDecoder, JsValue> {
++        let output_fn = output_closure.as_ref().unchecked_ref();
++        let error_fn = error_closure.as_ref().unchecked_ref();
++        web_sys::VideoDecoder::new(&web_sys::VideoDecoderInit::new(error_fn, output_fn))
++    }
++
++    /// The browser closed the decoder after an error: start a new one with
++    /// the last configuration, from the next keyframe.
++    fn reset(&mut self) -> Result<(), JsValue> {
++        warn!("Video decoder closed by an error, restarting at the next keyframe");
++
++        // Already closed: only make sure.
++        let _ = self.video_decoder.close();
++        self.video_decoder = Self::create_web_decoder(&self.output_closure, &self.error_closure)?;
++        self.configured = false;
++        // Frames that were in the closed decoder will never come out.
++        self.recv_dates.borrow_mut().clear();
++
++        if let Some((config, data)) = &self.config {
++            self.video_decoder.configure(config)?;
++            self.configured = true;
++            self.pending_config = Some(data.clone());
++        }
++        self.waiting_keyframe = true;
++        self.recovering_since = Some(Instant::now().raw_us());
++
++        Ok(())
++    }
++
+     fn get_video_codec(kymux_codec: u32) -> Option<VideoCodec> {
+         match kymux_codec {
+             packet::CODEC_H264 => Some(VideoCodec::H264),
+@@ -112,16 +171,54 @@ impl VideoDecoder {
+         Some(decoder_config)
+     }
+ 
+-    pub fn send_packet(&mut self, packet: MediaPacket) -> Result<(), JsValue> {
++    /// Hands a packet to the decoder. Returns whether a frame was submitted
++    /// for decoding (it will come out of the output callback).
++    pub fn send_packet(&mut self, packet: MediaPacket) -> Result<bool, JsValue> {
++        if self.failed.replace(false) {
++            self.reset()?;
++        }
++
+         if packet.header.is_config {
+             let Some(decoder_config) = self.create_video_decoder_config() else {
+                 return Err(JsError::new("No decoder found").into());
+             };
+ 
++            if self.configured {
++                // Frames still in the decoder come out before the new
++                // configuration applies.
++                let flush = self.video_decoder.flush();
++                wasm_bindgen_futures::spawn_local(async move {
++                    if let Err(err) = JsFuture::from(flush).await {
++                        debug!("Video decoder flush before configure: {err:?}");
++                    }
++                });
++            }
++
+             self.video_decoder.configure(&decoder_config)?;
+-            self.pending_config = Some(packet.data.to_vec());
++            self.configured = true;
++            let data = packet.data.to_vec();
++            self.pending_config = Some(data.clone());
++            self.config = Some((decoder_config, data));
++            self.waiting_keyframe = true;
++            Ok(false)
+         } else {
+             let header = &packet.header;
++            if self.waiting_keyframe {
++                if !header.is_key {
++                    if let Some(since) = self.recovering_since {
++                        if Instant::now().raw_us().saturating_sub(since) > RECOVERY_TIMEOUT_US {
++                            return Err(JsError::new("No keyframe to restart the video decoder").into());
++                        }
++                    }
++                    debug!("Video frame dropped: waiting for a keyframe");
++                    return Ok(false);
++                }
++                self.waiting_keyframe = false;
++                if self.recovering_since.take().is_some() {
++                    info!("Video decoder restarted");
++                }
++            }
++
+             let type_ = if header.is_key {
+                 web_sys::EncodedVideoChunkType::Key
+             } else {
+@@ -130,7 +227,6 @@ impl VideoDecoder {
+             let timestamp = header.pts as f64;
+             let data = if let Some(mut data) = self.pending_config.take() {
+                 info!("Video keyframe received");
+-                assert!(packet.header.is_key);
+                 // Concat the first keyframe with the config packet
+                 data.extend(packet.data.to_vec());
+                 js_sys::Uint8Array::from(&data[..])
+@@ -152,10 +248,11 @@ impl VideoDecoder {
+ 
+             let ret = self.video_decoder.decode(&chunk);
+             if let Err(err) = &ret {
+-                error!("decode() error: {err:?}")
++                error!("decode() error: {err:?}");
++                return Ok(false);
+             }
++            Ok(true)
+         }
+-        Ok(())
+     }
+ 
+     #[allow(dead_code)]
+diff --git a/kywebplayer/src/video/player.rs b/kywebplayer/src/video/player.rs
+index c61c51b..3e29dd7 100644
+--- a/kywebplayer/src/video/player.rs
++++ b/kywebplayer/src/video/player.rs
+@@ -25,7 +25,7 @@ use crate::{PacketSink, VideoPlayerConfig};
+ 
+ use super::VideoDecoderConfig;
+ 
+-use std::cell::RefCell;
++use std::cell::{Cell, RefCell};
+ use std::collections::VecDeque;
+ use std::rc::Rc;
+ use std::sync::atomic::{AtomicU8, Ordering};
+@@ -122,13 +122,14 @@ impl VideoPlayer {
+ 
+         let notify_decoded = player_config.notify_decoded;
+         let listener2 = listener.clone();
+-        let listener3 = listener.clone();
++        let decoder_failed = Rc::new(Cell::new(false));
++        let decoder_failed2 = decoder_failed.clone();
+         let cbs = VideoDecoderCallbacks {
+             output: Box::new(move |frame| {
+                 let now = Instant::now().raw_us() as i64;
+                 let rotation = video_rotation_ref.load(Ordering::Relaxed);
+                 let pts = frame.timestamp().unwrap_or(-1.);
+-                let recv_date = recv_dates2.borrow_mut().pop_front().unwrap();
++                let recv_date = recv_dates2.borrow_mut().pop_front().unwrap_or(now);
+ 
+                 if metrics {
+                     if let Some(pts) = frame.timestamp() {
+@@ -149,13 +150,17 @@ impl VideoPlayer {
+ 
+                 Ok(())
+             }),
++            // The decoder restarts at the next keyframe (VideoDecoder::reset);
++            // DecoderError is only reported if none comes.
+             error: Box::new(move |error| {
+-                info!("video decoding error: {error:?}");
++                warn!("video decoding error: {error:?}");
+ 
+-                listener3.on_event(VideoPlayerEvent::DecoderError);
++                decoder_failed2.set(true);
+ 
+                 Ok(())
+             }),
++            failed: decoder_failed,
++            recv_dates: recv_dates.clone(),
+         };
+ 
+         let player = Self {
+@@ -179,22 +184,20 @@ impl VideoPlayer {
+     fn process_packet(&mut self, packet: Packet) -> Result<(), JsValue> {
+         match packet {
+             Packet::Media(packet) => {
+-                assert!(self.video_decoder.is_some());
+                 if let Some(video_decoder) = &mut self.video_decoder {
+-                    if !packet.header.is_config {
+-                        let recv_date = Instant::now().raw_us() as i64;
++                    let recv_date = Instant::now().raw_us() as i64;
++                    if !packet.header.is_config && self.metrics {
++                        let metric = VideoPlayerEvent::Metric {
++                            pts: packet.header.pts,
++                            ts: recv_date,
++                            data: VideoPlayerMetric::FrameReceived,
++                        };
++                        self.listener.on_event(metric);
++                    }
++                    // Only frames actually submitted come out of the decoder.
++                    if video_decoder.send_packet(packet)? {
+                         self.recv_dates.borrow_mut().push_back(recv_date);
+-
+-                        if self.metrics {
+-                            let metric = VideoPlayerEvent::Metric {
+-                                pts: packet.header.pts,
+-                                ts: recv_date,
+-                                data: VideoPlayerMetric::FrameReceived,
+-                            };
+-                            self.listener.on_event(metric);
+-                        }
+                     }
+-                    video_decoder.send_packet(packet)?;
+                 } else {
+                     error!("Video decoder not set");
+                     return Err(JsValue::from("Video decoder not set").into());
