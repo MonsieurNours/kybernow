@@ -2,7 +2,7 @@
 
 English · [Français](README.md)
 
-KyberNow's streaming client: you get your computer (Kyber 0.29 server + KyberNow console) in full screen on the Mac, with image, sound, keyboard, mouse and gamepads. v2 identity ([guidelines](../../brand/v2/README.en.md)); mock-ups: [Claude Design](https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8) (home, first contact, transition, session). The video and audio code and the capability detection do not use AppKit: they will be reused as they are by the iOS and Apple TV apps.
+KyberNow's streaming client: you get your computer (Kyber 0.29 server + KyberNow console) in full screen on the Mac, with image, sound, keyboard, mouse and gamepads. v2 identity ([guidelines](../../brand/v2/README.en.md)); mock-ups: [Claude Design](https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8) (home, first contact, transition, session). The video and audio code and the capability detection do not use AppKit: the Apple TV app ([apps/tvos](../tvos/README.en.md)) reuses them as they are, along with the model (`Model.swift`) and Bonjour discovery (`Discovery.swift`). The few differences are behind `#if os(...)`; after a change to KyberKit, build the Apple TV app too.
 
 ## What the app does
 

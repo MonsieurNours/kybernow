@@ -4,8 +4,12 @@
 // arrivent sur des fils quelconques ; ils sont dépaquetés tout de suite
 // (le pointeur d'événement ne vit que le temps du rappel) puis livrés sur le
 // fil principal.
+//
+// Commun au Mac et à l'Apple TV (apps/tvos) : la vue de session (StreamView)
+// est propre à chaque plateforme.
 
-import AppKit
+import CoreGraphics
+import Foundation
 @_implementationOnly import CKyber
 
 public struct KyberDisplay: Sendable, Hashable {
@@ -177,7 +181,12 @@ public final class KyberClient {
         defer { kyclient_streaming_session_config_unref(session) }
         kyclient_streaming_session_config_set_bitrate(session, options.bitrate)
 
-        let handle = kyclient_windowshandle_from_ns_view(UInt64(UInt(bitPattern: Unmanaged.passUnretained(view.videoView).toOpaque())))
+        let viewPointer = UInt64(UInt(bitPattern: Unmanaged.passUnretained(view.videoView).toOpaque()))
+        #if os(macOS)
+        let handle = kyclient_windowshandle_from_ns_view(viewPointer)
+        #else
+        let handle = kyclient_windowshandle_from_ui_view(viewPointer)
+        #endif
         var player: OpaquePointer?
         try check(kyclient_video_player_config_default(handle, &player), "lecteur vidéo")
         defer { kyclient_video_player_config_unref(player) }

@@ -225,6 +225,37 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         )
     }
 
+    // MARK: - Appairage par code (Apple TV)
+
+    /// Réponse à une demande d'appairage par code.
+    public enum PairState: Sendable, Equatable {
+        case pending
+        case accepted(username: String, password: String)
+        case refused
+        case expired
+    }
+
+    /// Demande d'accès sans compte : la console affiche l'appareil et son code
+    /// (Appareils), à accepter ou refuser. Rend l'identifiant de la demande.
+    /// `ConsoleError.http(404, _)` : console d'une version qui ne le connaît pas.
+    public func pairRequest(code: String) async throws -> String {
+        let json = try await call("POST", "api/pair/request", body: ["code": code, "device": Self.thisDevice], timeout: 6)
+        guard let id = json["id"] as? String else { throw ConsoleError.http(0, "réponse inattendue de la console") }
+        return id
+    }
+
+    public func pairStatus(_ id: String) async throws -> PairState {
+        let json = try await call("GET", "api/pair/request/\(id)", timeout: 6)
+        switch json["status"] as? String {
+        case "accepted":
+            guard let user = json["username"] as? String, let password = json["password"] as? String else { return .refused }
+            return .accepted(username: user, password: password)
+        case "refused": return .refused
+        case "expired": return .expired
+        default: return .pending
+        }
+    }
+
     // MARK: - Certificat
 
     public func urlSession(

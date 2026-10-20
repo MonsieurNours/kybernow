@@ -1,0 +1,78 @@
+// Clavier et souris Bluetooth branchés à l'Apple TV (GCKeyboard, GCMouse).
+//
+// GameController donne les touches en usages HID (page 7), que kynput
+// convertit en scancodes ; la souris donne des déplacements bruts, envoyés
+// en relatif (le pointeur de l'ordinateur est dessiné par l'app).
+
+@_implementationOnly import CKyber
+import GameController
+
+final class KeyboardMouse {
+    private weak var input: InputPipeline?
+    private var observers: [NSObjectProtocol] = []
+    /// Une souris bouge : le pointeur doit s'afficher.
+    var onMouseActivity: (() -> Void)?
+
+    func attach(_ input: InputPipeline) {
+        self.input = input
+        if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
+        GCMouse.mice().forEach(setUp)
+        observers = [
+            NotificationCenter.default.addObserver(forName: .GCKeyboardDidConnect, object: nil, queue: .main) { [weak self] note in
+                if let k = note.object as? GCKeyboard { self?.setUp(k) }
+            },
+            NotificationCenter.default.addObserver(forName: .GCMouseDidConnect, object: nil, queue: .main) { [weak self] note in
+                if let m = note.object as? GCMouse { self?.setUp(m) }
+            },
+        ]
+    }
+
+    func detach() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        GCKeyboard.coalesced?.keyboardInput?.keyChangedHandler = nil
+        for mouse in GCMouse.mice() {
+            mouse.mouseInput?.mouseMovedHandler = nil
+            mouse.mouseInput?.leftButton.pressedChangedHandler = nil
+            mouse.mouseInput?.rightButton?.pressedChangedHandler = nil
+            mouse.mouseInput?.middleButton?.pressedChangedHandler = nil
+            mouse.mouseInput?.scroll.valueChangedHandler = nil
+        }
+        input?.flushKeys()
+        input = nil
+    }
+
+    private func setUp(_ keyboard: GCKeyboard) {
+        keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
+            guard let input = self?.input else { return }
+            var scancode: UInt16 = 0
+            guard Self.scancode(UInt16(truncatingIfNeeded: keyCode.rawValue), &scancode) else { return }
+            input.key(scancode: scancode, pressed: pressed)
+        }
+    }
+
+    private func setUp(_ mouse: GCMouse) {
+        guard let m = mouse.mouseInput else { return }
+        m.mouseMovedHandler = { [weak self] _, dx, dy in
+            guard let self, let input = self.input else { return }
+            input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
+            DispatchQueue.main.async { self.onMouseActivity?() }
+        }
+        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
+        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }
+        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.middle, pressed: pressed) }
+        m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.input?.wheel(dx: x, dy: y) }
+    }
+
+    private static func scancode(_ usage: UInt16, _ out: inout UInt16) -> Bool {
+        Keymap.scancode(usage: usage).map { out = $0; return true } ?? false
+    }
+}
+
+/// Usages HID → scancodes (le reste de Keymap est propre au Mac).
+enum Keymap {
+    static func scancode(usage: UInt16) -> UInt16? {
+        var scancode: UInt16 = 0
+        return kynput_keycode_usb_to_kyber(usage, &scancode) ? scancode : nil
+    }
+}

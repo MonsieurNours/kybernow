@@ -140,17 +140,18 @@ final class VideoRenderer {
     }
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
-    private func presented(_ drawable: MTLDrawable, received: UInt64, decoded: UInt64, pts: UInt64) {
-        if drawable.presentedTime > 0, let latency {
+    /// `presentedTime` à 0 : écartée par l'écran.
+    private func presented(at presentedTime: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
+        if presentedTime > 0, let latency {
             // presentedTime et les instants mach sont sur l'horloge de
             // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
             let now = CACurrentMediaTime(), micros = LatencyTracker.nowMicros()
             func monotonic(_ t: Double) -> Int64 { micros - Int64((now - t) * 1_000_000) }
             latency.displayed(pts: pts, received: monotonic(Self.seconds(received)), decoded: monotonic(Self.seconds(decoded)),
-                              at: monotonic(drawable.presentedTime))
+                              at: monotonic(presentedTime))
         }
         lock.lock()
-        if drawable.presentedTime == 0 {
+        if presentedTime == 0 {
             // Écartée par l'écran (une plus récente l'a devancée) : remplacée, pas perdue.
             skipped += 1
             latency?.skipped(pts: pts)
@@ -159,10 +160,10 @@ final class VideoRenderer {
         let go = pending != nil && !scheduled
         if go { scheduled = true }
         lock.unlock()
-        if drawable.presentedTime > 0 {
+        if presentedTime > 0 {
             renderQueue.async { [weak self] in
                 guard let self else { return }
-                self.window.display += (drawable.presentedTime - Self.seconds(received)) * 1000
+                self.window.display += (presentedTime - Self.seconds(received)) * 1000
                 self.window.displayed += 1
             }
         }
@@ -194,7 +195,15 @@ final class VideoRenderer {
         }
 
         let received = frame.received, decoded = frame.decoded, pts = frame.pts
-        drawable.addPresentedHandler { [weak self] d in self?.presented(d, received: received, decoded: decoded, pts: pts) }
+        #if os(tvOS)
+        // tvOS ne dit pas quand l'image est montrée : elle l'est au
+        // rafraîchissement qui suit la fin du rendu (60 Hz au plus).
+        commands.addCompletedHandler { [weak self] _ in
+            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, received: received, decoded: decoded, pts: pts)
+        }
+        #else
+        drawable.addPresentedHandler { [weak self] d in self?.presented(at: d.presentedTime, received: received, decoded: decoded, pts: pts) }
+        #endif
         lock.lock()
         inFlight = vsync
         inFlightSince = CACurrentMediaTime()
@@ -253,13 +262,19 @@ final class VideoRenderer {
         let tw = max(2, Int(Double(w) * scale)), th = max(2, Int(Double(h) * scale))
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: tw, height: th, mipmapped: false)
         desc.usage = [.renderTarget, .shaderRead]
+        #if os(macOS)
         desc.storageMode = .managed
+        #else
+        desc.storageMode = .shared
+        #endif
         guard let target = device.makeTexture(descriptor: desc), let commands = queue.makeCommandBuffer(),
-              draw(last.buffer, layout: last.layout, into: target, commands: commands),
-              let blit = commands.makeBlitCommandEncoder()
+              draw(last.buffer, layout: last.layout, into: target, commands: commands)
         else { return nil }
+        #if os(macOS)
+        guard let blit = commands.makeBlitCommandEncoder() else { return nil }
         blit.synchronize(resource: target)
         blit.endEncoding()
+        #endif
         commands.commit()
         commands.waitUntilCompleted()
         let rowBytes = tw * 4

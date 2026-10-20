@@ -204,7 +204,13 @@ final class AudioPlayer {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default)
         try? session.setPreferredIOBufferDuration(0.005)
+        // Son multicanal : spatialisé dans les AirPods, envoyé tel quel à un
+        // ampli HDMI (LPCM) qui accepte ce nombre de voies.
+        try? session.setSupportsMultichannelContent(channels > 2)
         try? session.setActive(true)
+        if channels > 2 {
+            try? session.setPreferredOutputNumberOfChannels(min(channels, session.maximumOutputNumberOfChannels))
+        }
         #endif
 
         var format = AudioStreamBasicDescription(

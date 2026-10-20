@@ -4,14 +4,24 @@
 // (manettes via SDL) ; on produit les autres depuis les événements AppKit,
 // comme le client Kyber. Les annonces de curseur du PC (forme, position,
 // visibilité) arrivent par un gestionnaire dédié.
+//
+// Sur l'Apple TV, kynput ne produit rien lui-même : manettes, clavier et
+// souris viennent de GameController (apps/tvos/KyberKitTV), sans presse-papiers
+// (tvOS n'en a pas).
 
+#if os(macOS)
 import AppKit
+public typealias PlatformImage = NSImage
+#else
+import UIKit
+public typealias PlatformImage = UIImage
+#endif
 @_implementationOnly import CKyber
 
 /// Curseur du PC, prêt à être affiché sur le Mac.
 public struct RemoteCursor {
     public let visible: Bool
-    public let image: NSImage?
+    public let image: PlatformImage?
     public let hotSpot: CGPoint
     /// Position sur l'écran de l'ordinateur, en pixels.
     public let position: CGPoint
@@ -29,6 +39,67 @@ private let clipboardTypes: UnsafeMutablePointer<kynput_InputType> = {
     return p
 }()
 
+private let gamepadEventTypes: UnsafeMutablePointer<kynput_InputType> = {
+    let p = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: 1)
+    p.initialize(to: KYNPUT_INPUT_TYPE_GAMEPAD_EVENT)
+    return p
+}()
+
+/// Vibration demandée par le jeu pour une manette (moteurs de 0 à 65535,
+/// durée en millisecondes, -1 : jusqu'à nouvel ordre).
+public struct GamepadRumble: Sendable {
+    public let id: UInt32
+    public let largeMotor: UInt16
+    public let smallMotor: UInt16
+    public let durationMs: Int
+}
+
+/// Touches et axes de manette, dans le vocabulaire de kynput (celui de SDL).
+public enum PadButton: Sendable, CaseIterable {
+    case a, b, x, y, back, guide, start, leftStick, rightStick, leftShoulder, rightShoulder
+    case dpadUp, dpadDown, dpadLeft, dpadRight
+
+    var sdk: kynput_GamepadButton {
+        switch self {
+        case .a: return KYNPUT_GAMEPAD_BUTTON_A
+        case .b: return KYNPUT_GAMEPAD_BUTTON_B
+        case .x: return KYNPUT_GAMEPAD_BUTTON_X
+        case .y: return KYNPUT_GAMEPAD_BUTTON_Y
+        case .back: return KYNPUT_GAMEPAD_BUTTON_BACK
+        case .guide: return KYNPUT_GAMEPAD_BUTTON_GUIDE
+        case .start: return KYNPUT_GAMEPAD_BUTTON_START
+        case .leftStick: return KYNPUT_GAMEPAD_BUTTON_LEFT_STICK
+        case .rightStick: return KYNPUT_GAMEPAD_BUTTON_RIGHT_STICK
+        case .leftShoulder: return KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER
+        case .rightShoulder: return KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER
+        case .dpadUp: return KYNPUT_GAMEPAD_BUTTON_D_PAD_UP
+        case .dpadDown: return KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN
+        case .dpadLeft: return KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT
+        case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT
+        }
+    }
+}
+
+public enum PadAxis: Sendable {
+    case leftX, leftY, rightX, rightY, leftTrigger, rightTrigger
+
+    var sdk: kynput_GamepadAxis {
+        switch self {
+        case .leftX: return KYNPUT_GAMEPAD_AXIS_LEFT_X
+        case .leftY: return KYNPUT_GAMEPAD_AXIS_LEFT_Y
+        case .rightX: return KYNPUT_GAMEPAD_AXIS_RIGHT_X
+        case .rightY: return KYNPUT_GAMEPAD_AXIS_RIGHT_Y
+        case .leftTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT
+        case .rightTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT
+        }
+    }
+}
+
+/// Reçoit les vibrations envoyées par l'ordinateur.
+private final class RumbleSink {
+    var onRumble: ((GamepadRumble) -> Void)?
+}
+
 private final class CursorSink {
     weak var view: StreamView?
     /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
@@ -43,8 +114,16 @@ final class InputPipeline {
     let displayID: UInt32
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
+    #if os(macOS)
     /// Presse-papiers partagé (nil : désactivé dans les réglages).
     private(set) var clipboard: ClipboardBridge?
+    #endif
+    /// Vibrations des manettes (Apple TV : kynput ne les gère pas lui-même).
+    var onRumble: ((GamepadRumble) -> Void)? {
+        get { rumble.onRumble }
+        set { rumble.onRumble = newValue }
+    }
+    private let rumble = RumbleSink()
 
     init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
         displayID = display.id
@@ -79,6 +158,7 @@ final class InputPipeline {
         kynput_pipeline_plug_handler(pipeline, cursor)
         kynput_handler_unref(cursor)
 
+        #if os(macOS)
         // Presse-papiers : reçoit les paquets de l'ordinateur, produit les nôtres.
         if shareClipboard {
             let bridge = ClipboardBridge()
@@ -103,10 +183,39 @@ final class InputPipeline {
             kynput_handler_unref(handler)
             clipboard = bridge
         }
+        #else
+        // Vibrations : l'ordinateur les envoie, GameController les joue.
+        let rumbleHandler = kynput_handler_new(kynput_HandlerInterface(
+            start: nil,
+            stop: nil,
+            handled_types: gamepadEventTypes,
+            handled_types_count: 1,
+            consume: { packet, userdata in
+                guard let packet, let userdata else { return }
+                var r = kynput_GamepadEventRumble()
+                guard kynput_gamepad_rumble_from_packet(packet, &r) else { return }
+                let sink = Unmanaged<RumbleSink>.fromOpaque(userdata).takeUnretainedValue()
+                let rumble = GamepadRumble(id: r.id, largeMotor: r.large_motor, smallMotor: r.small_motor, durationMs: Int(r.duration))
+                DispatchQueue.main.async { sink.onRumble?(rumble) }
+            },
+            produced_types: nil,
+            produced_types_count: 0,
+            query_type_metadata: nil,
+            destroy: { userdata in
+                if let userdata { Unmanaged<RumbleSink>.fromOpaque(userdata).release() }
+            },
+            userdata: Unmanaged.passRetained(rumble).toOpaque()
+        ))
+        kynput_pipeline_plug_handler(pipeline, rumbleHandler)
+        kynput_handler_unref(rumbleHandler)
+        #endif
 
         // Entrées que le pipeline ne produit pas lui-même : déclarées ici,
         // envoyées par StreamView.
-        let wanted = [KYNPUT_INPUT_TYPE_KEYBOARD, KYNPUT_INPUT_TYPE_MOUSE_POSITION, KYNPUT_INPUT_TYPE_MOUSE_MOVE, KYNPUT_INPUT_TYPE_MOUSE_BUTTON, KYNPUT_INPUT_TYPE_MOUSE_WHEEL]
+        var wanted = [KYNPUT_INPUT_TYPE_KEYBOARD, KYNPUT_INPUT_TYPE_MOUSE_POSITION, KYNPUT_INPUT_TYPE_MOUSE_MOVE, KYNPUT_INPUT_TYPE_MOUSE_BUTTON, KYNPUT_INPUT_TYPE_MOUSE_WHEEL]
+        #if !os(macOS)
+        wanted += [KYNPUT_INPUT_TYPE_GAMEPAD_CONTROL, KYNPUT_INPUT_TYPE_GAMEPAD_EVENT, KYNPUT_INPUT_TYPE_UNICODE]
+        #endif
         let missing = wanted.filter { !kynput_pipeline_produces_type(pipeline, $0) }
         KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(display.id))")
         if !missing.isEmpty {
@@ -123,7 +232,9 @@ final class InputPipeline {
             kynput_handler_unref(producer)
         }
 
+        #if os(macOS)
         // Manettes : chaque paquet passe par la combinaison avant de partir.
+        // (Apple TV : la combinaison est vue par GameController, avant l'envoi.)
         let gate = Unmanaged.passRetained(gamepad).toOpaque()
         var hook = kynput_RouterHook(
             on_packet: { packet, userdata in
@@ -144,6 +255,7 @@ final class InputPipeline {
                 self?.send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
             }
         }
+        #endif
 
         // Souris absolue au départ : le curseur du PC suit celui du Mac.
         setRelative(false)
@@ -160,7 +272,9 @@ final class InputPipeline {
     }
 
     func stop() {
+        #if os(macOS)
         clipboard?.stop()
+        #endif
         kynput_pipeline_flush_keys(pipeline)
     }
 
@@ -171,9 +285,11 @@ final class InputPipeline {
 
     /// À appeler une fois le pipeline branché au réseau.
     func startClipboard() {
+        #if os(macOS)
         guard let clipboard else { return }
         clipboard.send = { [weak self] packet in self?.send(packet, "presse-papiers") }
         clipboard.start()
+        #endif
     }
 
     private var logged = Set<String>()
@@ -213,6 +329,38 @@ final class InputPipeline {
 
     func flushKeys() {
         kynput_pipeline_flush_keys(pipeline)
+    }
+
+    // MARK: Manettes produites par l'app (Apple TV)
+
+    func gamepadPlug(id: UInt32, vendor: UInt16?, product: UInt16?) {
+        var v = vendor ?? 0
+        var p = product ?? 0
+        let packet = vendor != nil && product != nil
+            ? kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, &v, &p)
+            : kynput_gamepad_plug_to_packet(KYNPUT_INPUT_TARGET_HOST, id, nil, nil)
+        send(packet, "manette branchée")
+    }
+
+    func gamepadUnplug(id: UInt32) {
+        send(kynput_gamepad_unplug_to_packet(KYNPUT_INPUT_TARGET_HOST, id), "manette débranchée")
+    }
+
+    func gamepadButton(id: UInt32, _ button: PadButton, pressed: Bool) {
+        var b = kynput_GamepadEventButton(id: id, type_: button.sdk, pressed: pressed)
+        send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
+    }
+
+    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) {
+        var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: value)
+        send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
+    }
+
+    /// Texte tapé (clavier de l'écran, de l'iPhone) : un caractère à la fois.
+    func type(_ text: String) {
+        for scalar in text.unicodeScalars {
+            send(kynput_unicode_to_packet(KYNPUT_INPUT_TARGET_HOST, scalar.value), "texte")
+        }
     }
 
     enum MouseButton {
@@ -264,13 +412,17 @@ final class InputPipeline {
         // Forme entièrement transparente (lecteurs vidéo, certains jeux) :
         // le Mac garderait un pointeur invisible ; on garde la forme précédente.
         guard opaque else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
-        let image: NSImage? = pixels.withUnsafeMutableBytes { buffer in
+        let image: PlatformImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let ctx = CGContext(
                 data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
             ), let cg = ctx.makeImage() else { return nil }
+            #if os(macOS)
             return NSImage(cgImage: cg, size: NSSize(width: width, height: height))
+            #else
+            return UIImage(cgImage: cg)
+            #endif
         }
         return RemoteCursor(visible: visible, image: image, hotSpot: hot, position: position)
     }

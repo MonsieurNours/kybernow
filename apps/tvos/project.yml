@@ -1,0 +1,141 @@
+# Projet Xcode de l'app KyberNow pour l'Apple TV (généré par XcodeGen :
+# `xcodegen generate`). Avant le premier build : scripts/build-kyber-tvos.sh
+# (SDK client de Kyber compilé pour tvOS, dans Vendor/).
+#
+# KyberKit est le même module que sur Mac : ses fichiers communs viennent
+# d'apps/macos/KyberKit, la vue de session et les entrées propres à tvOS de
+# KyberKitTV. Le modèle (ordinateurs, réglages) et la découverte Bonjour
+# viennent aussi de l'app Mac.
+name: KyberNowTV
+options:
+  bundleIdPrefix: fr.leslignesclaires
+  deploymentTarget:
+    tvOS: "18.0"
+  developmentLanguage: fr
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2.1"
+    CURRENT_PROJECT_VERSION: "202610201702"
+    TARGETED_DEVICE_FAMILY: "3"
+    DEVELOPMENT_TEAM: P6DB682S4K
+    CODE_SIGN_STYLE: Automatic
+    DEAD_CODE_STRIPPING: YES
+    # Le SDK de Kyber n'est compilé que pour arm64 (Apple TV et simulateur sur Mac Apple).
+    ARCHS: arm64
+    EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+targets:
+  KyberKit:
+    type: framework
+    platform: tvOS
+    sources:
+      - path: ../macos/KyberKit
+        excludes:
+          - ClipboardBridge.swift
+          - Keymap.swift
+          - MetalSurface.swift
+          - RelativeMouse.swift
+          - StreamView.swift
+      - path: KyberKitTV
+    dependencies:
+      - framework: Vendor/KyberSDK.xcframework
+        embed: false
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: libiconv.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include
+        SKIP_INSTALL: YES
+        # Les deux bibliothèques Rust embarquent chacune leur bibliothèque standard.
+        OTHER_LDFLAGS: -Wl,-dead_strip
+  KyberNowTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: KyberNowTV
+      - path: ../macos/KyberNow/Model.swift
+      - path: ../macos/KyberNow/Discovery.swift
+      - path: ../macos/KyberNow/Fonts
+        buildPhase: resources
+    dependencies:
+      - target: KyberKit
+        embed: true
+      - target: KyberNowTopShelf
+        embed: true
+    info:
+      path: KyberNowTV/Info.plist
+      properties:
+        CFBundleDisplayName: KyberNow
+        CFBundleURLTypes:
+          - CFBundleURLName: fr.leslignesclaires.kybernow.tv
+            CFBundleURLSchemes: [kybernow-tv]
+        NSBonjourServices: [_kybernow._tcp]
+        NSLocalNetworkUsageDescription: KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.
+        UIUserInterfaceStyle: Dark
+        UIRequiredDeviceCapabilities: [arm64]
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+          - ProfileName: MicroGamepad
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    entitlements:
+      path: KyberNowTV/KyberNowTV.entitlements
+      properties:
+        com.apple.security.application-groups: [group.fr.leslignesclaires.kybernow]
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)fr.leslignesclaires.kybernow
+        keychain-access-groups: [$(AppIdentifierPrefix)fr.leslignesclaires.kybernow]
+        com.apple.developer.user-management: [runs-as-current-user]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow
+        PRODUCT_NAME: KyberNow
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
+  KyberNowTopShelf:
+    type: tv-app-extension
+    platform: tvOS
+    sources:
+      - path: TopShelf
+      - path: KyberNowTV/Shared/TopShelfStore.swift
+    dependencies:
+      - sdk: TVServices.framework
+    info:
+      path: TopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: KyberNow
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ContentProvider
+    entitlements:
+      path: TopShelf/TopShelf.entitlements
+      properties:
+        com.apple.security.application-groups: [group.fr.leslignesclaires.kybernow]
+        com.apple.developer.user-management: [runs-as-current-user]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow.topshelf
+        PRODUCT_NAME: KyberNowTopShelf
+  # Parcours à la télécommande (XCUIRemote) : focus et formulaires.
+  KyberNowTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources: [UITests]
+    dependencies:
+      - target: KyberNowTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow.uitests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  KyberNowTV:
+    build:
+      targets:
+        KyberNowTV: all
+    run:
+      config: Debug
+    test:
+      targets: [KyberNowTVUITests]

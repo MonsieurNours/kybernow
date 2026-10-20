@@ -50,7 +50,7 @@ kyber-apps/
 └── apple/
     ├── KyberKit/       # Swift package : xcframework du SDK C Kyber + API Swift
     ├── KyberMac/       # app macOS (SwiftUI)
-    └── KyberTV/        # app tvOS (SwiftUI)
+    └── KyberTV/        # app tvOS (SwiftUI) — réalisé dans apps/tvos
 ```
 
 ### kyber-admin (Windows)
@@ -109,13 +109,14 @@ kyber-apps/
 ### Clients Apple
 - **État (2026-10-20)** : voir [apps/macos/README.md](apps/macos/README.md). `apps/macos` (XcodeGen, `project.yml`). KyberKit = façade Swift de libkyclient/libkynput (module C `CKyber`), vue de session (image décodée par l'app et dessinée avec Metal ; VLC pour l'AV1), clavier (kVK → HID → scancode), souris absolue, curseur du PC affiché en `NSCursor` et jamais masqué en usage bureau. App : ajout par Bonjour, adresse, QR code ou lien (empreinte vérifiée), mot de passe dans le Trousseau, profils Jeu/Bureau/Max, `prepare` (définition et fréquence de l'écran de ce Mac, voies du son), signal de vie, fin propre (⌃⌥⌘D), plein écran (⌃⌥⌘F). Avant le premier build : `scripts/vendor-kyber.sh`, puis `scripts/build-kyclient.sh` (libkyclient avec les correctifs KyberNow), puis `xcodegen generate`.
 - **KyberKit** : `libclient` + `libkynput` + VLC compilés en xcframework (macOS arm64/x86_64, tvOS arm64 + simulateur), façade Swift (connexion, surface vidéo, entrées, métriques).
+- **App Apple TV (2026-10-20)** : `apps/tvos` (XcodeGen), voir [apps/tvos/README.md](apps/tvos/README.md) ; maquette : https://claude.ai/artifact/RfGbfguTyAP1jjwFASVRyK. KyberKit partagé avec le Mac (fichiers sans AppKit d'`apps/macos/KyberKit`, plus `apps/tvos/KyberKitTV` : vue UIKit, manettes par GameController, clavier et souris), modèle et découverte Bonjour de l'app Mac. Décisions : 4K à 60 Hz au plus, Apple TV 4K A12 et suivantes (tvOS 18), HEVC ; accueil en scène plein écran ; ajout par iCloud depuis le Mac, Bonjour (clavier de l'iPhone), code à accepter dans la console, ou adresse ; jusqu'à 4 manettes (Xbox, DualSense…), vibrations, Siri Remote en souris, clavier et souris Bluetooth ; menu par le bouton Retour ou L1 + R1 + Start + Select ; son multicanal HDMI, audio spatial des AirPods, alerte de latence (AirPods, HomePod), son laissé sur l'ordinateur ; Top Shelf, écran de test des manettes, profils par utilisateur tvOS. **Reste** : session validée sur une Apple TV.
 - **Publication iCloud par l'app Mac (2026-10-20)** : `CloudPublisher` écrit les ordinateurs dans le magasin clé-valeur d'iCloud (clé `hosts`) et leurs mots de passe dans le Trousseau iCloud (service `fr.leslignesclaires.kybernow.cloud`) à chaque changement ; réglage « Synchroniser avec iCloud » (⌘,), actif par défaut. Droits iCloud dans `KyberNow.entitlements`, avec un profil « macOS App Development » (Debug) et un profil « Developer ID » (Release), voir [apps/macos/README.md](apps/macos/README.md#signature-et-icloud). Vérifié sur ce Mac : les deux versions se lancent et publient.
 - **App** : liste des hôtes (Bonjour + ajout manuel), appairage, plein écran, réglages (résolution, fps, codec, débit, profil), manettes (framework GameController), clavier, souris et presse-papiers sur macOS, overlay de métriques.
 
 ## Risques à lever d'abord (prototypes rapides)
 
 - ✅ **A. Référence de bout en bout** (validé : 9,4 ms médian, voir docs/prototype-A-results.md) : Kyber 0.29 sur le PC Windows ↔ client macOS en ligne de commande ; mesure de la latence et de la stabilité.
-- **B. tvOS** : compiler le SDK client Rust (cible tvOS, moins bien supportée par Rust que macOS) et la couche VLC du fork Kyber pour tvOS. Solution de repli : demander l'accès à `kyber-ios` ou à leur couche Swift.
+- ✅ **B. tvOS** (2026-10-20) : libkynput et libkyclient de Kyber 0.29 se compilent pour l'Apple TV et son simulateur avec Rust nightly (`-Zbuild-std`, comme le `build-ios.sh` de Kyber), correctifs KyberNow compris ; VLC n'est pas nécessaire (l'app décode l'image et le son : des fonctions vides satisfont l'éditeur de liens). Script : `apps/tvos/scripts/build-kyber-tvos.sh`.
 - **C. API du contrôleur** : inventorier ce que `kycontroller` expose en HTTP (état de session, métriques) et le format exact des JWT attendus (`docs/Architecture/Authentication.md`).
 
 ## Phases

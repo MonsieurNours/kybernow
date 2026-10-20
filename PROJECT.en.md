@@ -50,7 +50,7 @@ kyber-apps/
 └── apple/
     ├── KyberKit/       # Swift package : xcframework du SDK C Kyber + API Swift
     ├── KyberMac/       # app macOS (SwiftUI)
-    └── KyberTV/        # app tvOS (SwiftUI)
+    └── KyberTV/        # app tvOS (SwiftUI) — done in apps/tvos
 ```
 
 (`admin/`: kyber-admin, Windows service in Rust (axum); `web/`: Svelte SPA, built and embedded in admin; `installer/`: NSIS: Kyber + SudoVDA + ViGEmBus + kyber-admin + firewall + power; `KyberKit/`: Swift package: xcframework of Kyber's C SDK + Swift API; `KyberMac/`, `KyberTV/`: macOS and tvOS apps in SwiftUI.)
@@ -111,13 +111,14 @@ kyber-apps/
 ### Apple clients
 - **State (2026-10-20)**: see [apps/macos/README.en.md](apps/macos/README.en.md). `apps/macos` (XcodeGen, `project.yml`). KyberKit = Swift facade over libkyclient/libkynput (C module `CKyber`), session view (image decoded by the app and drawn with Metal; VLC for AV1), keyboard (kVK → HID → scancode), absolute mouse, the computer's cursor shown as an `NSCursor` and never hidden in desktop use. App: add by Bonjour, address, QR code or link (fingerprint verified), password in the Keychain, Game/Desktop/Max profiles, `prepare` (resolution and refresh rate of this Mac's display, sound channels), heartbeat, clean end (⌃⌥⌘D), full screen (⌃⌥⌘F). Before the first build: `scripts/vendor-kyber.sh`, then `scripts/build-kyclient.sh` (libkyclient with the KyberNow patches), then `xcodegen generate`.
 - **KyberKit**: `libclient` + `libkynput` + VLC built into an xcframework (macOS arm64/x86_64, tvOS arm64 + simulator), Swift facade (connection, video surface, inputs, metrics).
+- **Apple TV app (2026-10-20)**: `apps/tvos` (XcodeGen), see [apps/tvos/README.en.md](apps/tvos/README.en.md); mockup: https://claude.ai/artifact/RfGbfguTyAP1jjwFASVRyK. KyberKit shared with the Mac (AppKit-free files of `apps/macos/KyberKit`, plus `apps/tvos/KyberKitTV`: UIKit view, gamepads through GameController, keyboard and mouse), model and Bonjour discovery from the Mac app. Decisions: 4K 60 Hz at most, Apple TV 4K A12 and later (tvOS 18), HEVC; full-screen scene home; adding through iCloud from the Mac, Bonjour (iPhone keyboard), a code accepted in the console, or an address; up to 4 gamepads (Xbox, DualSense…), rumble, Siri Remote as mouse, Bluetooth keyboard and mouse; menu with the Back button or L1 + R1 + Start + Select; HDMI multichannel sound, AirPods spatial audio, latency warning (AirPods, HomePod), sound left on the computer; Top Shelf, gamepad test screen, per-tvOS-user profiles. **Remaining**: a session validated on an Apple TV.
 - **iCloud publishing by the Mac app (2026-10-20)**: `CloudPublisher` writes the computers to the iCloud key-value store (key `hosts`) and their passwords to the iCloud Keychain (service `fr.leslignesclaires.kybernow.cloud`) on every change; “Synchroniser avec iCloud” setting (⌘,), on by default. iCloud entitlements in `KyberNow.entitlements`, with a “macOS App Development” profile (Debug) and a “Developer ID” profile (Release), see [apps/macos/README.en.md](apps/macos/README.en.md#signing-and-icloud). Checked on this Mac: both builds launch and publish.
 - **App**: list of computers (Bonjour + manual add), pairing, full screen, settings (resolution, fps, codec, bitrate, profile), gamepads (GameController framework), keyboard, mouse and clipboard on macOS, metrics overlay.
 
 ## Risks to clear first (quick prototypes)
 
 - ✅ **A. End-to-end reference** (validated: 9.4 ms median, see docs/prototype-A-results.en.md): Kyber 0.29 on the Windows computer ↔ command-line macOS client; measurement of latency and stability.
-- **B. tvOS**: build the Rust client SDK (tvOS target, less well supported by Rust than macOS) and the VLC layer of Kyber's fork for tvOS. Fallback: ask for access to `kyber-ios` or to their Swift layer.
+- ✅ **B. tvOS** (2026-10-20): Kyber 0.29's libkynput and libkyclient build for Apple TV and its simulator with Rust nightly (`-Zbuild-std`, like Kyber's `build-ios.sh`), KyberNow patches included; VLC is not needed (the app decodes image and sound: empty functions satisfy the linker). Script: `apps/tvos/scripts/build-kyber-tvos.sh`.
 - **C. Controller API**: list what `kycontroller` exposes over HTTP (session state, metrics) and the exact format of the expected JWTs (`docs/Architecture/Authentication.md`).
 
 ## Phases
