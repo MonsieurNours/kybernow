@@ -101,6 +101,8 @@ cd ../admin && cargo run -- --http --listen 127.0.0.1:9443 \
 
 Outside Windows, the Kyber service, the virtual display, the sound and the GPU are simulated or absent. The console then announces itself over Bonjour with `kyber=0` (the apps don't show it); `--announce-kyber` announces it with `kyber=1` to test adding and pairing from the apps (over HTTPS, without `--http`, and on `0.0.0.0` so that the Apple TV reaches it).
 
+`cargo test` (in `server/admin`) also runs the virtual display state machine on the simulated driver (`display/mod.rs`, end of the file): display kept by the app against the automatic trigger, heartbeat from the owner, mode changed during the session with each policy (`follow`: announced once and kept; `restore`: put back, at most every 5 s, and right away by a `prepare` at the same mode; default policy from the setting), physical display turned back on (turned off after 2 s of stability, at most every 10 s, at the mode that fits the policy). The watch moves one round per call to `watch_tick`, at the instant given by the test.
+
 Web client against the Kyber on the test computer: run the console over HTTPS (the engine always calls `https://`) with `KYBERNOW_KYBER_ADDR=192.168.1.100:30241` (Kyber's address and port on the test computer), then `npm run dev` in `server/web` (relay to `https://127.0.0.1:9448`) or open `https://localhost:<port>/ecran/`. The image can only arrive if the browser reaches Kyber at the page's address: on the Mac, the home screen and the settings can be checked; the session is tested on the computer itself.
 
 ## Building for Windows (from the Mac)

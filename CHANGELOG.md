@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console : tests automatiques du changement de mode et de l'écran physique rallumé en pleine session, pour chaque politique.
 - Console : réglage « Si un jeu change la définition » (Image et son) : laisser faire, ou remettre la définition de l'appareil. Les apps choisissent d'après leur profil : Jeu laisse le jeu choisir, Bureau remet l'écran à la taille de l'appareil.
 - Console : pendant une session, le mode de l'écran virtuel et les écrans allumés sont relus chaque seconde. Les apps reçoivent le mode courant avec leur signal de vie ; un changement de mode (un jeu qui passe en 1080p) est noté dans le fil d'événements ; un écran de l'ordinateur qui se rallume en pleine session (câble rebranché, Windows qui remet son ancienne disposition) est éteint de nouveau au bout de 2 s.
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.

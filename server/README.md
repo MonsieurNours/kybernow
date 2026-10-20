@@ -101,6 +101,8 @@ cd ../admin && cargo run -- --http --listen 127.0.0.1:9443 \
 
 Hors Windows, le service Kyber, l'écran virtuel et le son sont simulés, et la console s'annonce en Bonjour avec `kyber=0` (les apps ne la montrent pas) ; `--announce-kyber` l'annonce avec `kyber=1` pour tester l'ajout et l'appairage depuis les apps (en HTTPS, sans `--http`, et sur `0.0.0.0` pour que l'Apple TV la joigne) ; pour les cartes graphiques, seul NVML est essayé (absent sur le Mac).
 
+`cargo test` (dans `server/admin`) déroule aussi la machine à états de l'écran virtuel sur le pilote simulé (`display/mod.rs`, fin du fichier) : écran gardé par l'app face au déclenchement automatique, signal de vie du propriétaire, mode changé en session avec chaque politique (`follow` : annoncé une fois et gardé ; `restore` : remis, au plus toutes les 5 s, et tout de suite par un `prepare` au même mode ; politique par défaut du réglage), écran physique rallumé (éteint après 2 s de stabilité, au plus toutes les 10 s, au mode qui convient à la politique). La veille y avance d'un tour par appel à `watch_tick`, à l'instant donné par le test.
+
 Client web contre le Kyber du PC : lancer la console en HTTPS (le moteur appelle toujours `https://`) avec `KYBERNOW_KYBER_ADDR=192.168.1.100:30241` (adresse et port de Kyber sur le PC), puis `npm run dev` dans `server/web` (relais vers `https://127.0.0.1:9448`) ou ouvrir `https://localhost:<port>/ecran/`. L'image ne peut arriver que si le navigateur joint Kyber sur l'adresse de la page : sur le Mac, l'écran d'accueil et les réglages se vérifient, la session se teste sur le PC.
 
 ## Compiler pour Windows (depuis le Mac)

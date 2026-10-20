@@ -866,6 +866,183 @@ mod tests {
 
     const MAC: Mode = Mode { width: 3456, height: 2234, refresh: 120 };
     const TV: Mode = Mode { width: 3840, height: 2160, refresh: 60 };
+    const GAME: Mode = Mode { width: 1920, height: 1080, refresh: 60 };
+
+    /// Gestionnaire sur un écran simulé que le test peut changer, et le fil
+    /// des événements qu'il écrit.
+    fn simulated(settings: VdSettings) -> (Arc<Manager>, Simulated, Arc<Mutex<Vec<String>>>) {
+        let dir = std::env::temp_dir().join(format!("kn-display-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sim = Simulated::default();
+        let m = Manager::with_backend(dir, settings, Box::new(sim.clone()));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let feed = events.clone();
+        m.on_event(Arc::new(move |_: &str, text: &str| feed.lock().unwrap().push(text.to_string())));
+        (m, sim, events)
+    }
+
+    fn screen_mode(sim: &Simulated) -> Mode {
+        sim.screen.lock().unwrap().mode.unwrap()
+    }
+
+    #[test]
+    fn mode_change_en_session_politique_follow() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Follow)).unwrap();
+        let t0 = Instant::now();
+        m.watch_tick(t0);
+        assert_eq!(m.observed().unwrap().mode, TV);
+        assert_eq!(m.status()["mode"]["width"], 3840);
+        assert_eq!(m.status()["displays"], 1);
+
+        // Un jeu passe l'écran virtuel en 1080p : la console laisse faire et l'annonce une fois.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        for i in 0..8 {
+            m.watch_tick(t0 + Duration::from_secs(1 + i));
+        }
+        assert_eq!(screen_mode(&sim), GAME);
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 0);
+        assert_eq!(m.observed().unwrap().mode, GAME);
+        assert_eq!(m.policy(), Some(ModePolicy::Follow));
+        let feed = events.lock().unwrap().clone();
+        assert_eq!(feed.len(), 1, "{feed:?}");
+        assert!(feed[0].contains("1920 × 1080") && feed[0].contains("laissé tel quel"), "{feed:?}");
+
+        // Un prepare au même mode (Kyber redémarré) ne touche pas au mode en follow.
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, None).unwrap();
+        assert_eq!(screen_mode(&sim), GAME);
+
+        // Le jeu rend la main : retour au mode demandé, plus rien à annoncer ;
+        // un nouveau changement est annoncé de nouveau.
+        sim.screen.lock().unwrap().mode = Some(TV);
+        m.watch_tick(t0 + Duration::from_secs(10));
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(11));
+        assert_eq!(events.lock().unwrap().len(), 2);
+        // 59 Hz pour 60 : le même mode.
+        sim.screen.lock().unwrap().mode = Some(Mode { refresh: 59, ..TV });
+        m.watch_tick(t0 + Duration::from_secs(12));
+        assert_eq!(events.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn mode_change_en_session_politique_restore() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        let t0 = Instant::now();
+        m.watch_tick(t0);
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 0);
+
+        // Le mode change : remis aussitôt.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(1));
+        assert_eq!(screen_mode(&sim), TV);
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 1);
+        assert!(events.lock().unwrap()[0].contains("remis en 3840 × 2160"));
+
+        // Le jeu insiste : au plus une remise toutes les 5 s.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(2));
+        m.watch_tick(t0 + Duration::from_secs(5));
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 1);
+        assert_eq!(screen_mode(&sim), GAME);
+        m.watch_tick(t0 + Duration::from_secs(6));
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 2);
+        assert_eq!(screen_mode(&sim), TV);
+        // Annoncé une seule fois tant que le mode inattendu est le même.
+        assert_eq!(events.lock().unwrap().len(), 1);
+
+        // « Remettre » dans l'app : un prepare au même mode remet tout de suite.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(7));
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 2);
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
+        assert_eq!(screen_mode(&sim), TV);
+
+        // Profil Jeu choisi en session (signal de vie) : la console laisse faire.
+        assert!(m.heartbeat(Some("tv"), Some(ModePolicy::Follow)));
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(20));
+        assert_eq!(screen_mode(&sim), GAME);
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
+    }
+
+    #[test]
+    fn politique_par_defaut_du_reglage() {
+        let settings = VdSettings { on_mode_change: ModePolicy::Restore, ..VdSettings::default() };
+        let (m, sim, _) = simulated(settings);
+        // Client sans politique (navigateur, app ancienne) : celle du réglage.
+        m.start(Origin::App, TV, None, Some("web".into()), None, None).unwrap();
+        assert_eq!(m.policy(), Some(ModePolicy::Restore));
+        assert_eq!(m.status()["session"]["mode_policy"], "restore");
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(Instant::now());
+        assert_eq!(screen_mode(&sim), TV);
+        // Un signal de vie sans politique ne la change pas.
+        assert!(m.heartbeat(Some("web"), None));
+        assert_eq!(m.policy(), Some(ModePolicy::Restore));
+    }
+
+    #[test]
+    fn ecran_physique_revenu_en_session() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().isolations, 1);
+        let t0 = Instant::now();
+
+        // Un jeu a choisi 1080p, puis Windows rallume l'écran physique.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        sim.screen.lock().unwrap().others = 1;
+        m.watch_tick(t0);
+        assert_eq!(m.observed().unwrap().displays, 2);
+        assert_eq!(m.status()["displays"], 2);
+        // Pas avant 2 s de stabilité.
+        m.watch_tick(t0 + Duration::from_millis(1500));
+        assert_eq!(sim.screen.lock().unwrap().isolations, 1);
+        m.watch_tick(t0 + Duration::from_secs(2));
+        {
+            let screen = sim.screen.lock().unwrap();
+            assert_eq!(screen.isolations, 2);
+            assert_eq!(screen.others, 0);
+            // Politique follow : le mode choisi par le jeu est gardé.
+            assert_eq!(screen.mode, Some(GAME));
+        }
+        assert!(events.lock().unwrap().iter().any(|e| e.contains("rallumé")), "{:?}", events.lock().unwrap());
+
+        // Un écran qui clignote (rallumé moins de 2 s) est laissé tranquille.
+        sim.screen.lock().unwrap().others = 1;
+        m.watch_tick(t0 + Duration::from_secs(3));
+        sim.screen.lock().unwrap().others = 0;
+        m.watch_tick(t0 + Duration::from_secs(4));
+        sim.screen.lock().unwrap().others = 1;
+        m.watch_tick(t0 + Duration::from_secs(5));
+        // Stable depuis 2 s, mais au plus un isolement toutes les 10 s.
+        m.watch_tick(t0 + Duration::from_secs(7));
+        assert_eq!(sim.screen.lock().unwrap().isolations, 2);
+        m.watch_tick(t0 + Duration::from_secs(12));
+        assert_eq!(sim.screen.lock().unwrap().isolations, 3);
+
+        // Fin de session : plus de veille.
+        m.stop("fin du test");
+        assert!(m.observed().is_none());
+        assert!(!sim.screen.lock().unwrap().watching);
+        assert!(m.status()["mode"].is_null());
+    }
+
+    #[test]
+    fn ecran_physique_revenu_politique_restore() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        let t0 = Instant::now();
+        sim.screen.lock().unwrap().others = 2;
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        m.watch_tick(t0);
+        m.watch_tick(t0 + Duration::from_secs(2));
+        // L'isolement remet aussi le mode de la session.
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!((screen.isolations, screen.others, screen.mode), (2, 0, Some(TV)));
+    }
 
     #[test]
     fn une_app_garde_son_ecran_face_au_declenchement_automatique() {
