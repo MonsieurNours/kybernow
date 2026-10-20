@@ -101,6 +101,8 @@ final class SessionController: NSObject, ObservableObject {
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre.
     @Published private(set) var modeRestoreOffer: String?
+    /// Dernière demande de remise du mode faite d'après le signal de vie.
+    private var lastModeRestore = Date.distantPast
     /// Rappel affiché quelques secondes en haut de l'écran.
     @Published private(set) var hint: Hint?
     private var mouseHintShown = false
@@ -589,6 +591,20 @@ final class SessionController: NSObject, ObservableObject {
         modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
     }
 
+    /// Politique « remettre » (profil Bureau, ou réglage de la console) : la
+    /// console remet elle-même le mode. Si le signal de vie dit encore un
+    /// autre mode (console d'avant cette politique, remise refusée), l'app le
+    /// redemande, au plus une fois toutes les 30 s. En « suivre », rien.
+    private func checkHostMode(_ beat: ConsoleClient.Beat) {
+        guard (beat.modePolicy ?? host.settings.modePolicy) == "restore", prepared?.virtualDisplay == true,
+              phase == .streaming, restoring == nil, beat.displayActive == true,
+              let mode = beat.mode, let size = preparedSize, (mode.width, mode.height) != size,
+              Date().timeIntervalSince(lastModeRestore) > 30 else { return }
+        lastModeRestore = Date()
+        KyberLog.app.notice("signal de vie : écran de l'ordinateur en \(mode.width)×\(mode.height), \(size.width)×\(size.height) redemandé")
+        restoreMode()
+    }
+
     /// « Remettre » : la console remet le mode demandé au début de la session.
     func restoreMode() {
         guard let console, let r = requested else { return }
@@ -756,7 +772,7 @@ final class SessionController: NSObject, ObservableObject {
                 guard let self else { return }
                 let latency = self.stats?.latencyMs
                 let profile = self.host.settings.profileLabel
-                guard let beat = await self.console?.heartbeat(latencyMs: latency, profile: profile) else { continue }
+                guard let beat = await self.console?.heartbeat(latencyMs: latency, profile: profile, modePolicy: self.host.settings.modePolicy) else { continue }
                 // La console a demandé la fin de la session.
                 if beat.end {
                     KyberLog.app.notice("fin de session demandée par la console")
@@ -769,6 +785,7 @@ final class SessionController: NSObject, ObservableObject {
                     KyberLog.app.notice("la console n'a plus d'écran virtuel")
                     self.restoreScreen()
                 }
+                self.checkHostMode(beat)
             }
         }
     }

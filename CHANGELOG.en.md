@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: in the Desktop profile, if the computer stays at another resolution despite the console, the app asks for it again by itself (at most every 30 s). Changing profile during the session also changes what the console does.
 - Mac and Apple TV apps: after an image restart, the mouse stays in game mode if it was (on the Mac, it stopped responding) and modifier keys still held are sent to the computer again; on the Apple TV, the pointer comes back to its place.
 - Mac and Apple TV apps: when the shown display disappears then comes back (cable plugged back in), the image finds it again instead of switching to the first display around, and never asks for a display that no longer exists.
 - Mac and Apple TV apps: an image error on the computer no longer ends the session right away: the image is restarted up to three times, and a capsule says so.

@@ -200,6 +200,13 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         )
     }
 
+    /// Mode d'un écran de l'ordinateur.
+    public struct ScreenMode: Sendable, Equatable {
+        public let width: Int
+        public let height: Int
+        public let refresh: Int
+    }
+
     /// Réponse au signal de vie.
     public struct Beat: Sendable {
         /// La console demande la fin de la session : bouton « Mettre fin à la
@@ -207,19 +214,38 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         public let end: Bool
         /// L'écran virtuel en place est celui de cet appareil (nil : console injoignable).
         public let displayActive: Bool?
+        /// Mode courant de l'écran virtuel, relu chaque seconde par la console
+        /// (nil : console d'avant 0.2.6, pas d'écran virtuel, pas encore relu).
+        public let mode: ScreenMode?
+        /// Écrans allumés sur l'ordinateur, écran virtuel compris.
+        public let displays: Int?
+        /// Politique appliquée par la console si le mode change (`follow`, `restore`).
+        public let modePolicy: String?
     }
 
     /// Identifiant stable de cet appareil, le même que dans `prepare` : la
     /// console distingue ainsi deux appareils sur le même compte.
     private static var deviceID: String { thisDevice["id"] as? String ?? "" }
 
-    /// Signal de vie, avec la latence du moment.
-    public func heartbeat(latencyMs: Double? = nil, profile: String? = nil) async -> Beat {
+    /// Signal de vie, avec la latence du moment, le profil et sa politique
+    /// de mode (le profil a pu changer en session).
+    public func heartbeat(latencyMs: Double? = nil, profile: String? = nil, modePolicy: String? = nil) async -> Beat {
         var body: [String: Any] = ["device_id": Self.deviceID]
         if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
         if let profile { body["profile"] = profile }
+        if let modePolicy { body["mode_policy"] = modePolicy }
         let json = try? await call("POST", "api/stream/heartbeat", body: body)
-        return Beat(end: json?["end"] as? Bool ?? false, displayActive: json?["active"] as? Bool)
+        let mode = (json?["mode"] as? [String: Any]).flatMap { m -> ScreenMode? in
+            guard let w = m["width"] as? Int, let h = m["height"] as? Int, w > 0, h > 0 else { return nil }
+            return ScreenMode(width: w, height: h, refresh: m["refresh"] as? Int ?? 0)
+        }
+        return Beat(
+            end: json?["end"] as? Bool ?? false,
+            displayActive: json?["active"] as? Bool,
+            mode: mode,
+            displays: json?["displays"] as? Int,
+            modePolicy: json?["mode_policy"] as? String
+        )
     }
 
     /// Fin de session : la console retire l'écran virtuel et rétablit le son.

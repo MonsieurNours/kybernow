@@ -47,6 +47,8 @@ final class SessionController: ObservableObject {
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans le menu.
     @Published private(set) var modeRestoreOffer: String?
+    /// Dernière demande de remise du mode faite d'après le signal de vie.
+    private var lastModeRestore = Date.distantPast
     /// Du démarrage du flux à la première image affichée, en secondes.
     @Published private(set) var firstImageDelay: Double?
     private var streamStartedAt: Date?
@@ -390,6 +392,20 @@ final class SessionController: ObservableObject {
         modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
     }
 
+    /// Politique « remettre » (profil Bureau, ou réglage de la console) : la
+    /// console remet elle-même le mode. Si le signal de vie dit encore un
+    /// autre mode (console d'avant cette politique, remise refusée), l'app le
+    /// redemande, au plus une fois toutes les 30 s. En « suivre », rien.
+    private func checkHostMode(_ beat: ConsoleClient.Beat) {
+        guard (beat.modePolicy ?? host.settings.modePolicy) == "restore", prepared?.virtualDisplay == true,
+              phase == .streaming, restoring == nil, beat.displayActive == true,
+              let mode = beat.mode, let size = preparedSize, (mode.width, mode.height) != size,
+              Date().timeIntervalSince(lastModeRestore) > 30 else { return }
+        lastModeRestore = Date()
+        KyberLog.app.notice("signal de vie : écran de l'ordinateur en \(mode.width)×\(mode.height), \(size.width)×\(size.height) redemandé")
+        restoreMode()
+    }
+
     /// « Remettre » : la console remet le mode demandé au début de la session.
     func restoreMode() {
         guard let console, let r = requested else { return }
@@ -519,7 +535,7 @@ final class SessionController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(max(1, seconds)))
                 guard let self else { return }
-                guard let beat = await self.console?.heartbeat(latencyMs: self.stats?.latencyMs, profile: self.host.settings.profileLabel) else { continue }
+                guard let beat = await self.console?.heartbeat(latencyMs: self.stats?.latencyMs, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy) else { continue }
                 if beat.end {
                     self.end()
                     return
@@ -528,6 +544,7 @@ final class SessionController: ObservableObject {
                    self.restoring == nil, Date().timeIntervalSince(self.lastRestore) > 30 {
                     self.restoreScreen()
                 }
+                self.checkHostMode(beat)
             }
         }
     }
