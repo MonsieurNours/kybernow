@@ -1,10 +1,11 @@
 <!--
-  Accès : ajouter un appareil (QR code, lien), les appareils qui se sont
-  connectés, et les comptes qui permettent de se connecter.
+  Accès : ajouter un appareil (QR code, lien), les demandes d'accès par code
+  (Apple TV), les appareils qui se sont connectés, et les comptes qui
+  permettent de se connecter.
 -->
 <script lang="ts">
-  import { api, type Device, type Pairing, type User } from '../lib/api'
-  import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, setValues, value } from '../lib/store.svelte'
+  import { api, type Device, type PairRequest, type Pairing, type User } from '../lib/api'
+  import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import { ago, capital, deviceIcon, mode, ms } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import Qr from '../lib/Qr.svelte'
@@ -21,6 +22,58 @@
   let busy = $state(false)
 
   const live = $derived(app.status?.activity?.live ?? null)
+  // Demandes d'accès par code, relues avec l'état du serveur (toutes les 3 s).
+  const requests = $derived(app.status?.pair_requests ?? [])
+  let answering = $state<string | null>(null)
+  let now = $state(Date.now() / 1000)
+
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now() / 1000), 1000)
+    return () => clearInterval(timer)
+  })
+
+  function left(r: PairRequest) {
+    const s = Math.max(0, Math.round(r.expires_at - now))
+    return `${Math.floor(s / 60)}\u00a0min\u00a0${String(s % 60).padStart(2, '0')}`
+  }
+
+  async function accept(r: PairRequest) {
+    answering = r.id
+    try {
+      const res = await api.pairAccept(r.id)
+      devices = res.devices
+      if (app.status) app.status.pair_requests = res.pair_requests
+      if (res.restart_pending) markRestartPending()
+      notify(
+        'ok',
+        res.restarted
+          ? `${r.name} a reçu son accès. Le serveur redémarre quelques secondes pour en tenir compte.`
+          : res.restart_pending
+            ? `${r.name} a reçu son accès : il servira pour l'image après le redémarrage du serveur.`
+            : `${r.name} a reçu son accès.`,
+      )
+      api.users().then((u) => (users = u.users)).catch(() => {})
+    } catch (e) {
+      notify('error', errorText(e))
+      refreshStatus()
+    } finally {
+      answering = null
+    }
+  }
+
+  async function refuse(r: PairRequest) {
+    answering = r.id
+    try {
+      const res = await api.pairRefuse(r.id)
+      if (app.status) app.status.pair_requests = res.pair_requests
+      notify('ok', `Accès refusé à ${r.name}.`)
+    } catch (e) {
+      notify('error', errorText(e))
+      refreshStatus()
+    } finally {
+      answering = null
+    }
+  }
 
   async function loadDevices() {
     try {
@@ -56,10 +109,20 @@
 
   async function forget(d: Device) {
     menu = null
-    if (!confirm(`Oublier ${d.name} ? Il reste capable de se connecter avec son compte ; il disparaît seulement de cette liste.`)) return
+    const question = d.own_account
+      ? `Retirer l'accès de ${d.name} ? Son compte propre (${d.user}) est supprimé : pour revenir, il devra être appairé de nouveau.`
+      : `Oublier ${d.name} ? Il reste capable de se connecter avec son compte ; il disparaît seulement de cette liste.`
+    if (!confirm(question)) return
     try {
-      devices = (await api.forgetDevice(d.id)).devices
-      notify('ok', `${d.name} oublié.`)
+      const res = await api.forgetDevice(d.id)
+      devices = res.devices
+      if (res.revoked) {
+        if (res.restart_pending) markRestartPending()
+        api.users().then((u) => (users = u.users)).catch(() => {})
+        notify('ok', `Accès de ${d.name} retiré.`)
+      } else {
+        notify('ok', `${d.name} oublié.`)
+      }
     } catch (e) {
       notify('error', errorText(e))
     }
@@ -101,7 +164,9 @@
   }
 
   async function remove(user: string) {
-    if (!confirm(`Supprimer le compte « ${user} » ? Les appareils qui l'utilisent ne pourront plus se connecter.`)) return
+    const device = users.find((u) => u.username === user)?.device
+    const consequence = device ? `${device} ne pourra plus se connecter.` : "Les appareils qui l'utilisent ne pourront plus se connecter."
+    if (!confirm(`Supprimer le compte « ${user} » ? ${consequence}`)) return
     await runUsers(() => api.deleteUser(user), `Compte « ${user} » supprimé.`)
   }
 
@@ -143,15 +208,35 @@
       <h2 id="t-dev">Appareils</h2>
       <span class="sub">Ceux qui se sont déjà connectés</span>
     </div>
+    {#each requests as r (r.id)}
+      <div class="request" role="group" aria-labelledby="req-{r.id}">
+        <span class="device-icon live"><Icon name={deviceIcon(r.kind)} size={20} stroke={1.6} /></span>
+        <div class="who">
+          <span class="name" id="req-{r.id}">{r.name} demande l'accès</span>
+          <span class="mono meta">{[r.os, r.address, `encore\u00a0${left(r)}`].filter(Boolean).join(' · ')}</span>
+        </div>
+        <div class="code">
+          <span class="lbl">Code sur l'écran de l'appareil</span>
+          <strong class="mono" aria-label="Code {r.code.split('').join(' ')}">{r.code.slice(0, 3)} {r.code.slice(3)}</strong>
+        </div>
+        <div class="answer">
+          <button type="button" class="primary" disabled={answering !== null} onclick={() => accept(r)}><Icon name="check" size={15} stroke={2} />Accepter</button>
+          <button type="button" class="ghost" disabled={answering !== null} onclick={() => refuse(r)}>Refuser</button>
+        </div>
+      </div>
+    {/each}
+    {#if requests.length}
+      <p class="request-help">Acceptez seulement si ce code est celui affiché sur votre appareil. Il reçoit son propre accès, que vous pourrez lui retirer ici.</p>
+    {/if}
     {#each devices as d (d.id)}
       {@const isLive = live?.device_id === d.id}
       <div class="row">
         <span class="device-icon" class:live={isLive}><Icon name={deviceIcon(d.kind)} size={20} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{d.name}</span>
-          <span class="mono meta">{[d.os, `compte ${d.user}`, d.last_mode ? mode(d.last_mode) : null].filter(Boolean).join(' · ')}</span>
+          <span class="mono meta">{[d.os, d.own_account ? 'accès propre' : `compte ${d.user}`, d.last_mode ? mode(d.last_mode) : null].filter(Boolean).join(' · ')}</span>
         </div>
-        <span class="when" class:live={isLive}>{isLive ? 'En session' : capital(ago(d.last_seen))}{d.latency_ms && !isLive ? ` · ${ms(d.latency_ms)}` : ''}</span>
+        <span class="when" class:live={isLive}>{isLive ? 'En session' : d.sessions === 0 ? `Appairé ${ago(d.last_seen)}` : capital(ago(d.last_seen))}{d.latency_ms && !isLive ? ` · ${ms(d.latency_ms)}` : ''}</span>
         <div class="menu-wrap">
           <button type="button" class="icon-button" aria-label="Options de {d.name}" aria-expanded={menu === d.id} onclick={(e) => (e.stopPropagation(), (menu = menu === d.id ? null : d.id))}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
@@ -159,7 +244,7 @@
           {#if menu === d.id}
             <div class="menu" role="menu">
               <span class="menu-info">{d.sessions} session{d.sessions > 1 ? 's' : ''}{d.app ? ` · ${d.app}` : ''}</span>
-              <button type="button" role="menuitem" onclick={() => forget(d)}><Icon name="trash" size={15} />Oublier cet appareil</button>
+              <button type="button" role="menuitem" onclick={() => forget(d)}><Icon name="trash" size={15} />{d.own_account ? "Retirer l'accès" : 'Oublier cet appareil'}</button>
             </div>
           {/if}
         </div>
@@ -196,9 +281,13 @@
         <span class="avatar" class:warn={u.insecure_default}>{u.username.charAt(0).toUpperCase()}</span>
         <div class="who">
           <span class="name">{u.username}</span>
-          <span class="sub" class:warn={u.insecure_default}>{u.insecure_default ? "Mot de passe d'origine" : 'Se connecter depuis un appareil'}</span>
+          <span class="sub" class:warn={u.insecure_default}>{u.insecure_default ? "Mot de passe d'origine" : u.device ? `Accès propre à ${u.device}` : 'Se connecter depuis un appareil'}</span>
         </div>
-        <button type="button" class="ghost small" onclick={() => ((editing = editing === u.username ? null : u.username), (newPassword = ''))}>Changer le mot de passe</button>
+        {#if u.device}
+          <span></span>
+        {:else}
+          <button type="button" class="ghost small" onclick={() => ((editing = editing === u.username ? null : u.username), (newPassword = ''))}>Changer le mot de passe</button>
+        {/if}
         {#if users.length > 1}
           <button type="button" class="icon-button" aria-label="Supprimer le compte {u.username}" disabled={busy} onclick={() => remove(u.username)}><Icon name="trash" size={16} /></button>
         {:else}
@@ -303,6 +392,55 @@
     align-items: center;
     padding: 14px 0;
     border-top: 1px solid var(--line);
+  }
+
+  .request {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 14px 20px;
+    align-items: center;
+    margin: 4px 0 0;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--signal-soft);
+    box-shadow: inset 0 0 0 1px var(--signal-line);
+  }
+
+  .request + .request {
+    margin-top: 10px;
+  }
+
+  .code {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+  }
+
+  .code .lbl {
+    color: var(--signal-light);
+    font-size: 9.5px;
+  }
+
+  .code strong {
+    font-size: 34px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    color: var(--neon-core);
+    text-shadow: var(--text-glow);
+    white-space: nowrap;
+  }
+
+  .answer {
+    grid-column: 2 / -1;
+    display: flex;
+    gap: 10px;
+  }
+
+  .request-help {
+    margin: 10px 0 14px;
+    font-size: 12.5px;
+    color: var(--faint);
   }
 
   .device-icon {
@@ -468,6 +606,16 @@
   }
 
   @media (max-width: 760px) {
+    .request {
+      grid-template-columns: 40px minmax(0, 1fr);
+    }
+
+    .code {
+      grid-column: 1 / -1;
+      align-items: flex-start;
+    }
+
+
     .row {
       grid-template-columns: 40px minmax(0, 1fr) auto;
     }

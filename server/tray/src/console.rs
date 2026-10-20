@@ -1,5 +1,5 @@
 //! Console d'administration : son adresse, et l'état qu'elle donne à l'ordinateur
-//! local (`GET /api/local/state` : serveur, session en cours).
+//! local (`GET /api/local/state` : serveur, session en cours, demandes d'accès).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -49,6 +49,8 @@ pub struct LocalState {
     pub live: Option<Value>,
     /// Dernière session terminée.
     pub last: Option<Value>,
+    /// Appareils qui demandent l'accès par code (id, code, nom, type…).
+    pub pair_requests: Vec<Value>,
 }
 
 pub struct Client(ureq::Agent);
@@ -79,6 +81,7 @@ impl Client {
             address: text("address"),
             live: some(&body["activity"]["live"]),
             last: some(&body["activity"]["last"]),
+            pair_requests: body["pair_requests"].as_array().cloned().unwrap_or_default(),
         })
     }
 
@@ -89,6 +92,25 @@ impl Client {
             .header("x-kyber-admin", "1")
             .send_empty()
             .map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e})."))?;
+        Ok(())
+    }
+}
+
+impl Client {
+    /// Accepte ou refuse une demande d'accès par code (route réservée à l'ordinateur lui-même).
+    pub fn pair_answer(&self, port: u16, id: &str, accept: bool) -> anyhow::Result<()> {
+        let action = if accept { "accept" } else { "refuse" };
+        self.0
+            .post(&format!("https://127.0.0.1:{port}/api/local/pair/{id}/{action}"))
+            .header("x-kyber-admin", "1")
+            .config()
+            .timeout_global(Some(Duration::from_secs(15)))
+            .build()
+            .send_empty()
+            .map_err(|e| match e {
+                ureq::Error::StatusCode(410) => anyhow::anyhow!("Cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code."),
+                e => anyhow::anyhow!("La console n'a pas pu répondre à la demande ({e})."),
+            })?;
         Ok(())
     }
 }

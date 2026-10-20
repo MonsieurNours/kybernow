@@ -167,7 +167,11 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
     let path = req.uri().path();
     // Les appels des appareils s'authentifient eux-mêmes (compte Kyber).
     // Les routes /api/local/* vérifient elles-mêmes qu'on les appelle depuis l'ordinateur.
-    let public = matches!(path, "/api/session" | "/api/login" | "/api/setup") || path.starts_with("/api/local/") || path.starts_with("/api/stream/");
+    // L'appairage par code se fait sans compte : la demande, puis son état.
+    let public = matches!(path, "/api/session" | "/api/login" | "/api/setup")
+        || path.starts_with("/api/local/")
+        || path.starts_with("/api/stream/")
+        || is_pair_request(path);
     if req.method() != Method::GET && req.headers().get(CSRF_HEADER).is_none() {
         return (StatusCode::FORBIDDEN, "en-tête x-kyber-admin manquant").into_response();
     }
@@ -180,9 +184,25 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
     next.run(req).await
 }
 
+/// `/api/pair/request` et `/api/pair/request/{id}`, seulement.
+fn is_pair_request(path: &str) -> bool {
+    path == "/api/pair/request"
+        || path.strip_prefix("/api/pair/request/").is_some_and(|id| !id.is_empty() && !id.contains('/'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn appairage_sans_compte() {
+        assert!(is_pair_request("/api/pair/request"));
+        assert!(is_pair_request("/api/pair/request/0a1b2c"));
+        assert!(!is_pair_request("/api/pair/request/"));
+        assert!(!is_pair_request("/api/pair/request/0a1b2c/accept"));
+        assert!(!is_pair_request("/api/pair/accept/0a1b2c"));
+        assert!(!is_pair_request("/api/pair/requests"));
+    }
 
     #[test]
     fn hash_and_verify() {

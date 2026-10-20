@@ -1,8 +1,8 @@
 //! Routes JSON de l'interface (`/api/*`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use axum::body::Bytes;
@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, Trigger, VdSettings};
 use crate::activity::{DeviceInfo, ModeInfo};
+use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
 pub fn router(state: AppState) -> Router<AppState> {
@@ -29,6 +30,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/status", get(status))
         .route("/api/local/state", get(local_state))
         .route("/api/local/end", post(local_end))
+        .route("/api/local/pair/{id}/{action}", post(local_pair_answer))
         .route("/api/schema", get(schema_route))
         .route("/api/config", get(config).put(update_config))
         .route("/api/config/raw", get(raw_config).put(update_raw_config))
@@ -48,6 +50,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/update/install", post(update_install))
         .route("/api/devices", get(devices))
         .route("/api/devices/{id}", axum::routing::delete(forget_device))
+        // Appairage par code (app Apple TV) : la demande et son état sans compte,
+        // la réponse depuis la console.
+        .route("/api/pair/request", post(pair_request))
+        .route("/api/pair/request/{id}", get(pair_status))
+        .route("/api/pair/accept/{id}", post(pair_accept))
+        .route("/api/pair/refuse/{id}", post(pair_refuse))
         .route("/api/events", get(events))
         .route("/api/session/end", post(end_session))
         .route("/api/preview", get(admin_preview))
@@ -185,6 +193,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "gpu": gpu,
         "activity": s.activity.summary(),
         "update_available": s.updater.available(),
+        "pair_requests": s.pairing.pending(),
     })))
 }
 
@@ -209,6 +218,7 @@ async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<S
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
         "update_available": s.updater.available(),
         "version": crate::update::current(),
+        "pair_requests": s.pairing.pending(),
     })))
 }
 
@@ -219,6 +229,23 @@ async fn local_end(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
         return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
     }
     end_session(State(s)).await
+}
+
+/// Réponse à une demande d'appairage depuis le panneau de l'icône (réservé à
+/// l'ordinateur lui-même : la personne devant l'écran).
+async fn local_pair_answer(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path((id, action)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    if !peer.ip().is_loopback() {
+        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
+    }
+    match action.as_str() {
+        "accept" => pair_accept(State(s), Path(id)).await,
+        "refuse" => pair_refuse(State(s), Path(id)).await,
+        _ => Err(ApiError(StatusCode::NOT_FOUND, format!("action inconnue : {action}"))),
+    }
 }
 
 async fn update_status(State(s): State<AppState>) -> Json<Value> {
@@ -274,8 +301,18 @@ async fn update_raw_config(State(s): State<AppState>, Json(body): Json<RawBody>)
     Ok(Json(json!({ "ok": true, "restart_pending": true })))
 }
 
+/// Les comptes Kyber, avec pour chacun l'appareil appairé dont c'est l'accès propre.
+fn users_json(s: &AppState) -> ApiResult<Value> {
+    let own: HashMap<String, String> = s.activity.own_accounts().into_iter().collect();
+    Ok(s.kyber
+        .users()?
+        .into_iter()
+        .map(|u| json!({ "device": own.get(&u.username), "username": u.username, "insecure_default": u.insecure_default }))
+        .collect())
+}
+
 async fn users(State(s): State<AppState>) -> ApiResult<Json<Value>> {
-    Ok(Json(json!({ "users": s.kyber.users()? })))
+    Ok(Json(json!({ "users": users_json(&s)? })))
 }
 
 #[derive(Deserialize)]
@@ -292,7 +329,7 @@ async fn upsert_user(
     s.kyber.upsert_user(&username, &body.password)?;
     s.restart_pending.store(true, Ordering::Relaxed);
     s.activity.event("info", if existed { format!("Mot de passe du compte {username} changé") } else { format!("Compte {username} ajouté") });
-    Ok(Json(json!({ "users": s.kyber.users()?, "restart_pending": true })))
+    Ok(Json(json!({ "users": users_json(&s)?, "restart_pending": true })))
 }
 
 async fn delete_user(State(s): State<AppState>, Path(username): Path<String>) -> ApiResult<Json<Value>> {
@@ -302,7 +339,7 @@ async fn delete_user(State(s): State<AppState>, Path(username): Path<String>) ->
     s.kyber.delete_user(&username)?;
     s.restart_pending.store(true, Ordering::Relaxed);
     s.activity.event("info", format!("Compte {username} supprimé"));
-    Ok(Json(json!({ "users": s.kyber.users()?, "restart_pending": true })))
+    Ok(Json(json!({ "users": users_json(&s)?, "restart_pending": true })))
 }
 
 async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -> ApiResult<Json<Value>> {
@@ -680,11 +717,158 @@ async fn devices(State(s): State<AppState>) -> Json<Value> {
     Json(json!({ "devices": s.activity.devices() }))
 }
 
+/// Oublie un appareil. Appairé par code, il perd aussi son accès : son compte
+/// propre est supprimé (et sa session, s'il en a une, prend fin).
 async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
-    if !s.activity.forget(&id) {
-        return Err(ApiError(StatusCode::NOT_FOUND, "appareil inconnu".into()));
+    let live = s.activity.live().is_some_and(|l| l.device_id == id);
+    let device = s.activity.forget(&id).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appareil inconnu".into()))?;
+    let mut revoked = false;
+    if device.own_account && s.kyber.users()?.iter().any(|u| u.username == device.user) {
+        s.kyber.delete_user(&device.user)?;
+        if live {
+            s.activity.request_end();
+        }
+        s.activity.event("info", format!("Accès de {} retiré (compte {} supprimé)", device.name, device.user));
+        apply_accounts(&s, &format!("retirer l'accès de {}", device.name)).await;
+        revoked = true;
     }
-    Ok(Json(json!({ "devices": s.activity.devices() })))
+    Ok(Json(json!({
+        "devices": s.activity.devices(),
+        "revoked": revoked,
+        "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+    })))
+}
+
+/// Un compte ajouté ou retiré ne compte pour Kyber qu'à son redémarrage :
+/// tout de suite (en arrière-plan) si personne n'est connecté, sinon plus tard
+/// (bandeau de la console). Vrai si Kyber redémarre.
+async fn apply_accounts(s: &AppState, why: &str) -> bool {
+    static RESTARTING: AtomicBool = AtomicBool::new(false);
+    if s.service.state().ok() != Some(service::ServiceState::Running) {
+        // Arrêté (ou déjà en train de redémarrer) : il lira les comptes à son démarrage.
+        return RESTARTING.load(Ordering::Relaxed);
+    }
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let busy = s.activity.live().is_some()
+        || blocking(move || Ok(gpu::encoding() || !d.status()["session"].is_null() || !a.status()["session"].is_null()))
+            .await
+            .unwrap_or(true);
+    if busy {
+        s.restart_pending.store(true, Ordering::Relaxed);
+        return false;
+    }
+    if RESTARTING.swap(true, Ordering::SeqCst) {
+        return true;
+    }
+    let (s, why) = (s.clone(), why.to_string());
+    tokio::spawn(async move {
+        match service::restart(s.service.as_ref()).await {
+            Ok(()) => {
+                s.restart_pending.store(false, Ordering::Relaxed);
+                s.activity.event("info", format!("Serveur redémarré pour {why}"));
+            }
+            Err(e) => {
+                tracing::warn!("redémarrage de Kyber pour {why} : {e:#}");
+                s.restart_pending.store(true, Ordering::Relaxed);
+            }
+        }
+        RESTARTING.store(false, Ordering::SeqCst);
+    });
+    true
+}
+
+/// Supprime les comptes créés pour des demandes acceptées dont l'appareil
+/// n'est jamais venu chercher l'accès.
+fn delete_orphans(s: &AppState) {
+    for user in s.pairing.take_orphans() {
+        match s.kyber.delete_user(&user) {
+            Ok(()) => tracing::info!("accès jamais livré, compte {user} supprimé"),
+            Err(e) => tracing::warn!("suppression du compte {user} : {e:#}"),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct PairBody {
+    code: String,
+    device: DeviceInfo,
+}
+
+/// Un appareil sans compte demande l'accès avec le code qu'il affiche.
+async fn pair_request(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(body): Json<PairBody>,
+) -> ApiResult<Json<Value>> {
+    delete_orphans(&s);
+    let name = body.device.name.clone();
+    match s.pairing.request(body.code.trim(), body.device, peer.ip().to_canonical()) {
+        Ok(id) => {
+            tracing::info!("demande d'appairage de « {} » depuis {}", name.trim(), peer.ip());
+            Ok(Json(json!({ "id": id, "expires_in": pairing::REQUEST_TTL.as_secs() })))
+        }
+        Err(RequestError::Invalid(message)) => Err(ApiError(StatusCode::BAD_REQUEST, message.into())),
+        Err(RequestError::TooMany) => {
+            tracing::warn!("demandes d'appairage refusées depuis {} : trop de demandes", peer.ip());
+            Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "trop de demandes d'appairage : réessayez dans une minute".into()))
+        }
+    }
+}
+
+/// État d'une demande, interrogé par l'appareil. Une demande inconnue (ou dont
+/// l'accès a déjà été livré) est « expirée ».
+async fn pair_status(State(s): State<AppState>, Path(id): Path<String>) -> Response {
+    delete_orphans(&s);
+    let body = match s.pairing.status(&id) {
+        pairing::Status::Pending => json!({ "status": "pending" }),
+        pairing::Status::Refused => json!({ "status": "refused" }),
+        pairing::Status::Expired => json!({ "status": "expired" }),
+        pairing::Status::Accepted { username, password } => {
+            tracing::info!("accès du compte {username} livré à l'appareil");
+            json!({ "status": "accepted", "username": username, "password": password })
+        }
+    };
+    ([(header::CACHE_CONTROL, "no-store")], Json(body)).into_response()
+}
+
+fn request_gone() -> ApiError {
+    ApiError(StatusCode::GONE, "cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code".into())
+}
+
+/// La console accepte : l'appareil reçoit un compte Kyber propre à lui, que
+/// la console et Kyber acceptent tous les deux, révocable dans Appareils.
+async fn pair_accept(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let device = s.pairing.device(&id).ok_or_else(request_gone)?;
+    let taken: Vec<String> = s.kyber.users()?.into_iter().map(|u| u.username).collect();
+    let username = pairing::account_name(&device.name, &taken);
+    let password = pairing::secret();
+    s.kyber.upsert_user(&username, &password)?;
+    if !s.pairing.accept(&id, username.clone(), password) {
+        let _ = s.kyber.delete_user(&username);
+        return Err(request_gone());
+    }
+    if let Some(old) = s.activity.paired(&device, &username) {
+        // Appairé de nouveau : l'accès précédent ne sert plus.
+        if let Err(e) = s.kyber.delete_user(&old) {
+            tracing::warn!("suppression de l'ancien compte {old} : {e:#}");
+        }
+    }
+    tracing::info!("appairage de « {} » accepté : compte {username}", device.name);
+    let restarted = apply_accounts(&s, &format!("donner l'accès à {}", device.name)).await;
+    Ok(Json(json!({
+        "ok": true,
+        "username": username,
+        "restarted": restarted,
+        "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pair_requests": s.pairing.pending(),
+        "devices": s.activity.devices(),
+    })))
+}
+
+async fn pair_refuse(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+    let name = s.pairing.refuse(&id).ok_or_else(request_gone)?;
+    s.activity.event("info", format!("Accès refusé à {name} (appairage par code)"));
+    Ok(Json(json!({ "ok": true, "pair_requests": s.pairing.pending() })))
 }
 
 #[derive(Deserialize)]

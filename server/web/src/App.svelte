@@ -56,6 +56,8 @@
   )
   const hostDot = $derived(serviceState === 'running' ? (live ? 'live' : 'ok') : serviceState === 'starting' ? 'warn' : 'bad')
   const updateBadge = $derived(status?.update_available?.split('.').slice(0, 2).join('.') ?? null)
+  // Un appareil demande l'accès par code (Apple TV) : signalé partout.
+  const pairRequests = $derived(status?.pair_requests ?? [])
 
   async function loadSession() {
     session = await api.session()
@@ -133,6 +135,7 @@
             <Icon name={s.icon} />
             {s.label}
             {#if s.id === 'systeme' && updateBadge}<span class="badge">{updateBadge}</span>{/if}
+            {#if s.id === 'acces' && pairRequests.length}<span class="badge" aria-label="{pairRequests.length} demande{pairRequests.length > 1 ? 's' : ''} d'accès">{pairRequests.length}</span>{/if}
           </a>
         {/each}
       </nav>
@@ -160,6 +163,16 @@
           </button>
         </div>
       {/if}
+      {#if pairRequests.length && current.id !== 'acces'}
+        <div class="restart notice pair" role="status">
+          <Icon name={pairRequests[0].kind === 'tv' ? 'tv' : 'key'} size={18} />
+          <span>
+            {pairRequests[0].name} demande l'accès à cet ordinateur, avec le code
+            <b class="mono">{pairRequests[0].code.slice(0, 3)} {pairRequests[0].code.slice(3)}</b>.{pairRequests.length > 1 ? ` Et ${pairRequests.length - 1} autre${pairRequests.length > 2 ? 's' : ''}.` : ''}
+          </span>
+          <a class="ghost small" href="#/acces/appareils">Voir la demande</a>
+        </div>
+      {/if}
       {#key current.id}
         <current.component />
       {/key}
@@ -171,6 +184,7 @@
           <Icon name={s.icon} size={22} />
           {s.short}
           {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label="Mise à jour disponible"></span>{/if}
+          {#if s.id === 'acces' && pairRequests.length}<span class="pip" aria-label="Demande d'accès"></span>{/if}
         </a>
       {/each}
     </nav>
@@ -342,6 +356,23 @@
   .restart {
     margin: 16px 40px 0;
     max-width: 1040px;
+  }
+
+  .notice.pair {
+    background: var(--signal-soft);
+    box-shadow: inset 0 0 0 1px var(--signal-line);
+    color: var(--signal-light);
+  }
+
+  .notice.pair b {
+    color: var(--neon-core);
+    letter-spacing: 0.06em;
+  }
+
+  .notice.pair a {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
   }
 
   .mobile-top,

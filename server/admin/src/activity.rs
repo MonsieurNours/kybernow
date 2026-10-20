@@ -63,6 +63,10 @@ pub struct Device {
     pub last_mode: Option<ModeInfo>,
     /// Latence médiane de la dernière session, en millisecondes.
     pub latency_ms: Option<f64>,
+    /// `user` est le compte propre à l'appareil, créé à son appairage par code :
+    /// le retirer supprime ce compte.
+    #[serde(default)]
+    pub own_account: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -182,6 +186,10 @@ impl Activity {
                 d.kind = kind.clone();
                 d.os = info.os.clone().or(d.os.take());
                 d.app = info.app.clone().or(d.app.take());
+                // Connecté avec un autre compte que le sien : ce n'est plus son accès.
+                if d.user != user {
+                    d.own_account = false;
+                }
                 d.user = user.to_string();
                 d.last_seen = now;
                 d.sessions += 1;
@@ -201,6 +209,7 @@ impl Activity {
                 sessions: 1,
                 last_mode: mode,
                 latency_ms: None,
+                own_account: false,
             }),
         }
         // Les plus anciens partent au-delà de 50 appareils.
@@ -319,15 +328,63 @@ impl Activity {
         self.state.lock().unwrap().stored.devices.clone()
     }
 
-    pub fn forget(&self, id: &str) -> bool {
+    /// Un appareil appairé par code reçoit son compte propre ; il apparaît
+    /// dans la liste avant sa première session. Rend son ancien compte propre,
+    /// à supprimer, s'il en avait un autre.
+    pub fn paired(&self, info: &DeviceInfo, user: &str) -> Option<String> {
         let mut s = self.state.lock().unwrap();
-        let before = s.stored.devices.len();
-        s.stored.devices.retain(|d| d.id != id);
-        let removed = s.stored.devices.len() != before;
-        if removed {
-            self.save_devices(&s);
-        }
-        removed
+        let now = now_secs();
+        let kind = info.kind.clone().unwrap_or_else(|| "other".into());
+        let previous = match s.stored.devices.iter_mut().find(|d| d.id == info.id) {
+            Some(d) => {
+                let previous = (d.own_account && d.user != user).then(|| d.user.clone());
+                d.name = info.name.clone();
+                d.kind = kind;
+                d.os = info.os.clone().or(d.os.take());
+                d.app = info.app.clone().or(d.app.take());
+                d.user = user.to_string();
+                d.own_account = true;
+                d.last_seen = now;
+                previous
+            }
+            None => {
+                s.stored.devices.push(Device {
+                    id: info.id.clone(),
+                    name: info.name.clone(),
+                    kind,
+                    os: info.os.clone(),
+                    app: info.app.clone(),
+                    user: user.to_string(),
+                    first_seen: now,
+                    last_seen: now,
+                    sessions: 0,
+                    last_mode: None,
+                    latency_ms: None,
+                    own_account: true,
+                });
+                None
+            }
+        };
+        s.stored.devices.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        s.stored.devices.truncate(MAX_DEVICES);
+        self.save_devices(&s);
+        self.push(&mut s, "info", format!("{} a reçu son accès (appairage par code)", info.name));
+        previous
+    }
+
+    /// Retire un appareil de la liste ; rend ce qu'on en savait.
+    pub fn forget(&self, id: &str) -> Option<Device> {
+        let mut s = self.state.lock().unwrap();
+        let index = s.stored.devices.iter().position(|d| d.id == id)?;
+        let device = s.stored.devices.remove(index);
+        self.save_devices(&s);
+        Some(device)
+    }
+
+    /// Compte propre à un appareil appairé → nom de l'appareil.
+    pub fn own_accounts(&self) -> Vec<(String, String)> {
+        let s = self.state.lock().unwrap();
+        s.stored.devices.iter().filter(|d| d.own_account).map(|d| (d.user.clone(), d.name.clone())).collect()
     }
 
     /// Les `limit` derniers événements, du plus récent au plus ancien.
@@ -380,8 +437,28 @@ mod tests {
         assert!(again.events(10)[0].text.contains("déconnecté"));
         a.begin(Some(mac), "matthieu", None, None);
         assert_eq!(a.devices()[0].sessions, 2);
-        assert!(a.forget("abc"));
+        assert!(a.forget("abc").is_some());
         assert!(a.devices().is_empty());
+        assert!(a.forget("abc").is_none());
+    }
+
+    #[test]
+    fn appairage_par_code() {
+        let a = Activity::new(&temp());
+        let tv = DeviceInfo { id: "tv1".into(), name: "Apple TV".into(), kind: Some("tv".into()), os: None, app: None };
+        assert_eq!(a.paired(&tv, "Apple-TV-0001"), None);
+        let d = &a.devices()[0];
+        assert_eq!((d.sessions, d.own_account, d.user.as_str()), (0, true, "Apple-TV-0001"));
+        assert_eq!(a.own_accounts(), vec![("Apple-TV-0001".to_string(), "Apple TV".to_string())]);
+        // Appairé de nouveau : l'ancien compte est à supprimer.
+        assert_eq!(a.paired(&tv, "Apple-TV-0002").as_deref(), Some("Apple-TV-0001"));
+        a.begin(Some(tv.clone()), "Apple-TV-0002", None, None);
+        assert!(a.devices()[0].own_account);
+        a.end("Apple-TV-0002", None);
+        // Connecté avec le compte de la console : ce n'est plus son accès.
+        a.begin(Some(tv), "matthieu", None, None);
+        assert!(!a.devices()[0].own_account);
+        assert!(a.own_accounts().is_empty());
     }
 
     #[test]

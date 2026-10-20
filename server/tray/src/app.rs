@@ -170,6 +170,7 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Va
         "setupCode": setup_code,
         "version": env!("CARGO_PKG_VERSION"),
         "console": s.console.as_ref().map(|c| json!({
+            "pairRequests": c.pair_requests,
             "session": c.session,
             "user": c.user,
             "update": c.update,
@@ -206,6 +207,8 @@ struct App {
     wake: Sender<()>,
     shown: Option<(Snapshot, Option<&'static str>, Option<String>)>,
     look: Option<Look>,
+    /// Demandes d'accès déjà signalées (le panneau s'ouvre pour les nouvelles).
+    seen_requests: std::collections::HashSet<String>,
     done: bool,
 }
 
@@ -299,6 +302,7 @@ pub fn run() -> Result<()> {
         wake,
         shown: None,
         look: None,
+        seen_requests: Default::default(),
         done: false,
     };
 
@@ -364,7 +368,23 @@ impl App {
         if let Some(panel) = &self.panel {
             panel.push(&panel_state(&snap, busy, code.as_deref()).to_string());
         }
+        // Un appareil demande l'accès : le panneau s'ouvre de lui-même pour
+        // que la personne devant l'ordinateur le voie.
+        let requests: std::collections::HashSet<String> = snap
+            .console
+            .as_ref()
+            .map(|c| c.pair_requests.iter().filter_map(|r| r["id"].as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        let fresh = requests.iter().any(|id| !self.seen_requests.contains(id));
+        self.seen_requests = requests;
         self.shown = Some((snap, busy, code));
+        if fresh {
+            if let (Some(panel), Some(rect)) = (self.panel.as_mut(), self.tray.rect()) {
+                if !panel.is_visible() {
+                    panel.toggle(rect.position, (rect.size.width, rect.size.height));
+                }
+            }
+        }
     }
 
     /// Lance une action longue dans son propre fil.
@@ -455,6 +475,11 @@ impl App {
                 self.open_updates();
             }
             "endSession" => self.end_session(),
+            "pairAnswer" => {
+                if let Some(id) = message["id"].as_str() {
+                    self.pair_answer(id.to_string(), message["accept"].as_bool().unwrap_or(false));
+                }
+            }
             "restart" => self.restart_server(),
             "toggleServer" => self.toggle_server(),
             "startWithComputer" => self.switch_start_with_computer(),
@@ -487,6 +512,13 @@ impl App {
         if let Err(e) = open_console_at("systeme") {
             alert(&format!("{e:#}"));
         }
+    }
+
+    fn pair_answer(&mut self, id: String, accept: bool) {
+        self.act(if accept { "Accès donné à l'appareil…" } else { "Accès refusé…" }, move |_| {
+            let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable."))?;
+            Client::new().pair_answer(port, &id, accept)
+        });
     }
 
     fn end_session(&mut self) {

@@ -12,6 +12,7 @@ mod gpu;
 mod kyber_config;
 mod kyber_proxy;
 mod logs;
+mod pairing;
 mod preview;
 mod schema;
 mod service;
@@ -218,6 +219,8 @@ pub struct Inner {
     pub preview: preview::Preview,
     /// Appareils connus, session en cours, fil des événements.
     pub activity: Arc<activity::Activity>,
+    /// Demandes d'appairage par code (app Apple TV), en mémoire.
+    pub pairing: pairing::Pairing,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
@@ -409,6 +412,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
         activity: Arc::new(activity::Activity::new(&data_dir)),
+        pairing: pairing::Pairing::new(),
         updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),

@@ -39,6 +39,8 @@ export interface FieldValue {
 export interface User {
   username: string
   insecure_default: boolean
+  /** Appareil appairé par code dont c'est l'accès propre. */
+  device: string | null
 }
 
 export type ServiceState = 'running' | 'stopped' | 'starting' | 'stopping' | 'not_installed' | 'unknown'
@@ -83,6 +85,20 @@ export interface Device {
   sessions: number
   last_mode: ModeInfo | null
   latency_ms: number | null
+  /** `user` est le compte propre de l'appareil (appairage par code). */
+  own_account: boolean
+}
+
+/** Un appareil sans compte demande l'accès avec le code qu'il affiche. */
+export interface PairRequest {
+  id: string
+  code: string
+  name: string
+  kind: string
+  os: string | null
+  app: string | null
+  address: string
+  expires_at: number
 }
 
 export interface LiveSession {
@@ -124,6 +140,7 @@ export interface Status {
   gpu: { driver?: string; devices: GpuDevice[] } | null
   activity: { live: LiveSession | null; last: LastSession | null }
   update_available: string | null
+  pair_requests: PairRequest[]
 }
 
 export interface LogFile {
@@ -275,7 +292,14 @@ export const api = {
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),
-  forgetDevice: (id: string) => request<{ devices: Device[] }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
+  forgetDevice: (id: string) =>
+    request<{ devices: Device[]; revoked: boolean; restart_pending: boolean }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
+  pairAccept: (id: string) =>
+    request<{ username: string; restarted: boolean; restart_pending: boolean; pair_requests: PairRequest[]; devices: Device[] }>(
+      'POST',
+      `/api/pair/accept/${encodeURIComponent(id)}`,
+    ),
+  pairRefuse: (id: string) => request<{ pair_requests: PairRequest[] }>('POST', `/api/pair/refuse/${encodeURIComponent(id)}`),
   events: (limit = 50) => request<{ events: ActivityEvent[] }>('GET', `/api/events?limit=${limit}`),
   endSession: () => request<{ ok: boolean; method: 'app' | 'restart' | 'none' }>('POST', '/api/session/end'),
   /** Adresse de l'aperçu de l'écran (JPEG). */
