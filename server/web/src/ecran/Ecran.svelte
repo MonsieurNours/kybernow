@@ -42,7 +42,21 @@
 {:else if !session.authenticated}
   <Gate hostname={session.hostname ?? null} onDone={load} />
 {:else if inSession}
-  <Session hostname={session.hostname ?? 'Cet ordinateur'} bind:prefs onEnd={() => (inSession = false)} />
+  <Session
+    hostname={session.hostname ?? 'Cet ordinateur'}
+    bind:prefs
+    onEnd={() => {
+      inSession = false
+      // La connexion à la console a pu expirer pendant la session : on
+      // redemande alors le mot de passe (une console injoignable n'y change rien).
+      backend
+        .session()
+        .then((s) => {
+          if (!s.authenticated) session = s
+        })
+        .catch(() => {})
+    }}
+  />
 {:else}
   <Home hostname={session.hostname ?? 'Cet ordinateur'} bind:prefs onConnect={() => (inSession = true)} onSignedOut={load} />
 {/if}

@@ -29,6 +29,15 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Apps Mac et Apple TV : à l'ouverture de la barre ou du menu, la manette est remise à zéro sur l'ordinateur (touches relâchées, sticks et gâchettes au repos). Une gâchette tenue ne reste plus enfoncée dans le jeu pendant le menu ; sur l'Apple TV, la manette en souris relâche aussi ses clics et ses touches, et un stick encore tenu à la fermeture du menu reprend aussitôt.
 - Apps Mac et Apple TV : la combinaison L1 + R1 + Start + Select pressée pendant une reconnexion ou avant la première image ne rend plus la manette muette jusqu'à la combinaison suivante. La manette n'est prise que quand la barre (Mac) ou le menu (Apple TV) s'ouvre vraiment, et un redémarrage de l'image ne la rend plus au jeu pendant que le menu est ouvert.
 - App Mac : après ⌘Tab, ⌘Espace ou un passage dans une autre app, la touche ⌘ (envoyée comme Ctrl) ne reste plus enfoncée sur l'ordinateur. Tout est relâché quand la fenêtre perd le clavier, et les modificateurs vraiment tenus sont renvoyés quand elle le retrouve.
+- Client web : un clic dans la barre de session (Quitter, Son, Touches…) ou sur un bouton tactile ne clique plus aussi sur l'ordinateur, sous la barre.
+- Client web sur téléphone et tablette : le texte tapé au clavier de l'appareil arrive juste sur un ordinateur en AZERTY, avec majuscules, accents et emoji, et un clavier branché à l'iPad ne double plus les lettres. Sur un appareil tactile, l'image passe donc par WebSocket, comme sur iPhone et iPad.
+- Client web : quitter la fenêtre (Alt+Tab, ⌘Tab, autre onglet) ou rendre la souris relâche sur l'ordinateur les touches et les boutons tenus : plus de Maj, d'Alt ou de clic collés.
+- Client web : la session tient dans un onglet masqué (la console ne la croit plus terminée au bout de 30 s), et une connexion à la console expirée est annoncée clairement au lieu d'une reconnexion qui échoue.
+- Client web : la page ne bascule plus à tort de WebTransport vers WebSocket pendant la préparation de l'écran, et ferme l'ancienne connexion avant d'ouvrir la nouvelle (plus d'entrées en double). « Kyber ne répond pas » et « l'image n'arrive pas » ne sont plus confondus.
+- Client web : la molette marche sous Firefox, et le défilement à deux doigts en tactile avance par crans entiers. Sous Firefox, l'image passe par WebSocket, en H.264 par défaut.
+- Client web : quand le navigateur bloque le son (Safari, iPhone), une puce « Toucher pour le son » le rétablit, au lieu d'une session muette.
+- Client web : quand l'écran de l'ordinateur change (taille, écran retiré) ou que sa capture tombe en erreur, l'image reprend toute seule, sans recharger la page (trois essais pour une erreur). La barre montre les manettes branchées, et les messages de fin disent ce qui s'est vraiment passé.
+- Client web en tactile : clavier ouvert, l'image garde toute la hauteur au-dessus de la rangée de touches (elle tombait au quart de l'écran), et sur un iPad avec clavier les doigts marchent aussi. Fermer l'onglet en pleine session demande confirmation.
 
 ## 0.2.5
 

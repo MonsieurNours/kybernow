@@ -12,6 +12,10 @@ export const diag = {
   lastX: 0,
   lastY: 0,
   outside: 0,
+  /** Dernière frappe dans le champ du clavier tactile : `key/code`, et le
+   * dernier `inputType` (vérifier qu'un clavier logiciel n'a pas de `code`). */
+  lastKey: '—',
+  lastInput: '—',
   /** Tailles des messages d'entrées envoyés depuis le dernier relevé. */
   sizes: new Set<number>(),
 }

@@ -5,14 +5,17 @@
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend } from './backend'
-  import { Engine, supportedCodecs, type Latency } from './engine'
-  import { choose, type Plan } from './plan'
+  import { backend, endBody, heartbeatBody } from './backend'
+  import { Heartbeat } from './heartbeat'
+  import { ApiError } from '../lib/api'
+  import { Engine, allStopped, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
+  import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
+  import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
-  import { forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
-  import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
+  import { currentDisplayId, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
+  import { installInputGuard, removeInputGuard } from './guard'
+  import { SPECIAL_KEYS, TouchInput, TypedText, sendKey } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import { diag, diagEnabled, installDiag } from './diag'
@@ -42,6 +45,14 @@
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
   let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
+  /** Le navigateur attend un geste pour jouer le son. */
+  let soundBlocked = $state(false)
+  /** Information passagère (écran changé, image relancée). */
+  let notice = $state('')
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /** Manettes vues par le moteur (et transmises à l'ordinateur). */
+  let gamepads = $state<{ index: number; name: string }[]>([])
+  const gamepadText = $derived(gamepads.length === 1 ? '1 manette' : `${gamepads.length} manettes`)
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -55,11 +66,55 @@
   let ended = false
   let ticketToken = ''
   let codecList: import('./engine').CodecSupport[] = []
-  /** Sans première image à temps, on essaie l'autre transport. */
+  /** Kyber a démarré l'image, mais elle n'arrive pas : on essaie l'autre transport. */
   let imageWatch: ReturnType<typeof setTimeout> | null = null
+  /** Le plan de contrôle ne se connecte pas : Kyber ne répond pas. */
+  let connectWatch: ReturnType<typeof setTimeout> | null = null
+  let connectStep = $state<'kyber' | 'image'>('kyber')
+  /** D'où part le délai de l'image : la connexion (le démarrage de l'image
+   * peut ne jamais venir) ou le démarrage lui-même. */
+  let imageWatchFrom: 'connected' | 'streaming' | null = null
+  /** Numéro de la tentative en cours. `start`, `fail` et `quit` le changent :
+   * une tentative dépassée (fin, nouvelle tentative) s'arrête à son prochain
+   * `await` au lieu de créer un moteur ou de préparer un écran pour rien. */
+  let generation = 0
+  const stale = (gen: number) => gen !== generation || ended
+  /** Dernière liste des écrans de l'ordinateur. */
+  let displays: DisplayInfo[] | null = null
+  /** Relances de l'image après une erreur de capture ou d'encodage. */
+  let pipelineRestarts = 0
+  let stableTimer: ReturnType<typeof setTimeout> | null = null
+  const MAX_PIPELINE_RESTARTS = 3
   let gameInForeground = false
   /** La console a préparé l'écran : il faudra le lui rendre. */
   let prepared = false
+  /** Champs ajoutés aux corps du signal de vie et de la fin : cet appareil. */
+  const extra = () => ({ device_id: deviceId() })
+  /** La session de la console (le cookie et le jeton durent 12 h) a expiré. */
+  const EXPIRED = 'Votre connexion à la console a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.'
+
+  // Signal de vie depuis un Worker : il continue dans un onglet masqué.
+  const heartbeat = new Heartbeat((r) => {
+    if (ended || phase === 'ended') return
+    if (r.status === 401) fail(EXPIRED)
+    // Fin demandée depuis la console, ou un autre appareil prend la main.
+    else if (r.end) fail('La session a été reprise par un autre appareil, ou arrêtée depuis la console de l’ordinateur.')
+  })
+
+  /** Jeton Kyber relu sur la console (reconnexion, puis toutes les heures),
+   * pour que le moteur ne se reconnecte pas avec un jeton périmé. */
+  let ticketAt = 0
+  async function refreshTicket(resume = false) {
+    if (!resume && Date.now() - ticketAt < 30_000) return
+    ticketAt = Date.now()
+    try {
+      const t = await backend.ticket()
+      ticketToken = t.token
+      engine?.updateCredentials(t.token, resume)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) fail(EXPIRED)
+    }
+  }
 
   const profileLabel = $derived(prefs.profile === 'jeu' ? 'Jeu' : 'Bureau')
   const latencyText = $derived(latency ? `${latency.total.toFixed(latency.total < 10 ? 1 : 0).replace('.', ',')} ms` : '— ms')
@@ -88,6 +143,23 @@
     return `${v.toFixed(1).replace('.', ',')} ms`
   }
 
+  /** Clavier de l'appareil ouvert : la zone visible (`visualViewport`, que le
+   * clavier réduit sur iPhone et iPad sans toucher à la page) donne la place
+   * de l'image et celle de la rangée de touches, juste au-dessus du clavier. */
+  function trackViewport() {
+    const vv = window.visualViewport
+    const el = stage?.parentElement
+    if (!el) return
+    if (vv && keyboardOpen) {
+      el.style.setProperty('--vv-top', `${vv.offsetTop}px`)
+      el.style.setProperty('--vv-h', `${vv.height}px`)
+    } else {
+      el.style.removeProperty('--vv-top')
+      el.style.removeProperty('--vv-h')
+    }
+    fit()
+  }
+
   function fit() {
     const canvas = document.getElementById('kn-canvas') as HTMLCanvasElement | null
     if (!canvas || !canvasSize.width || !stage) return
@@ -111,6 +183,9 @@
       if (c === 'none') setRemoteCursorHidden(true)
       else if (c && c !== 'default') setRemoteCursorHidden(false)
       if (c === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
+      // La couche tactile recouvre la toile : le pointeur d'une souris ou d'un
+      // pavé (iPad avec clavier) y prend celui de l'ordinateur.
+      if (touchLayer) touchLayer.style.cursor = canvas.style.cursor
     }
     cursorWatch = new MutationObserver(fix)
     cursorWatch.observe(canvas, { attributes: true, attributeFilter: ['style'] })
@@ -140,10 +215,15 @@
   }
 
   async function start() {
+    const gen = ++generation
     error = ''
     phase = 'preparing'
     try {
+      // La session d'avant doit avoir rendu son écran et arrêté son moteur.
+      await allStopped()
+      if (stale(gen)) return
       const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
+      if (stale(gen)) return
       mode = screenMode(refresh)
       codecList = codecs
       ticketToken = ticket.token
@@ -155,65 +235,209 @@
         profile: profileLabel,
         device: { id: deviceId(), name: device.name, kind: deviceKind(), os: device.os, app: device.app },
       })
+      if (stale(gen)) {
+        // Finie pendant la préparation (Annuler, fin demandée) : l'écran est rendu.
+        retire(null, () => backend.end(null, extra()))
+        return
+      }
       prepared = true
-      await connect(preferredProtocol)
+      await connect(preferredProtocol, gen)
     } catch (e) {
-      fail(errorText(e))
+      if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
     }
   }
 
-  async function connect(protocol: 'kymux' | 'websocket') {
-    if (!mode) return
-    phase = 'connecting'
-    plan = choose(prefs, mode, codecList, protocol)
-    await tick()
-    freshCanvas()
-    const e = new Engine('kn-canvas', onEngine)
-    engine = e
+  function clearWatches() {
     if (imageWatch) clearTimeout(imageWatch)
-    imageWatch = setTimeout(() => noImage(e, protocol), protocol === 'kymux' ? 12000 : 20000)
+    if (connectWatch) clearTimeout(connectWatch)
+    imageWatch = null
+    connectWatch = null
+    imageWatchFrom = null
+  }
+
+  async function connect(protocol: 'kymux' | 'websocket', gen = generation) {
+    if (!mode || stale(gen)) return
+    phase = 'connecting'
+    connectStep = 'kyber'
+    clearWatches()
+    plan = choose(prefs, mode, codecList, protocol)
+    // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
+    await allStopped()
+    if (stale(gen)) return
+    await tick()
+    if (stale(gen)) return
+    freshCanvas()
+    const e: Engine = new Engine('kn-canvas', (ev) => onEngine(ev, e, protocol))
+    engine = e
+    connectWatch = setTimeout(() => noControlPlane(e), 25000)
     await e.connect(streamHost(), location.port || '443', ticketToken, plan)
   }
 
-  /** L'image n'est pas venue : WebTransport bloqué (réseau, navigateur), on passe par WebSocket. */
-  async function noImage(e: Engine, protocol: 'kymux' | 'websocket') {
-    if (engine !== e || phase === 'live' || ended) return
+  /** Pas de plan de contrôle : Kyber ne répond pas (ce n'est pas une affaire de transport). */
+  function noControlPlane(e: Engine) {
+    connectWatch = null
+    if (engine !== e || ended || phase !== 'connecting') return
+    fail(`Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`)
+  }
+
+  /** Kyber a démarré l'image (`streaming`) : elle doit arriver dans les 12 s
+   * (20 s en WebSocket). Le délai part d'ici, pas de la connexion : préparer
+   * l'écran virtuel prend à lui seul jusqu'à 8 s. Dès la connexion
+   * (`connected`), un délai plus long couvre un démarrage qui ne vient pas. */
+  function watchImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
+    if (engine !== e || phase !== 'connecting' || imageWatchFrom === 'streaming' || imageWatchFrom === from) return
+    if (imageWatch) clearTimeout(imageWatch)
+    imageWatchFrom = from
+    const delay = from === 'connected' ? 25000 : protocol === 'kymux' ? 12000 : 20000
+    imageWatch = setTimeout(() => noImage(e, protocol, from), delay)
+  }
+
+  /** Connecté, mais rien n'arrive : WebTransport bloqué (réseau, navigateur),
+   * on passe par WebSocket ; en WebSocket, on le dit. */
+  async function noImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
+    imageWatch = null
+    imageWatchFrom = null
+    const gen = generation
+    if (engine !== e || phase !== 'connecting' || stale(gen)) return
     if (protocol === 'kymux') {
-      console.warn('KyberNow : pas d’image en WebTransport, essai par WebSocket')
+      console.warn('KyberNow : connecté, mais pas d’image en WebTransport ; essai par WebSocket')
       reconnecting = 'Autre chemin pour l’image (WebSocket)…'
       engine = null
-      await e.stop()
-      if (!ended) connect('websocket')
+      await retire(e)
+      if (!stale(gen) && phase === 'connecting') {
+        connect('websocket', gen).catch((err) => {
+          if (!stale(gen)) fail(errorText(err))
+        })
+      }
+    } else if (from === 'connected') {
+      fail(`Kyber sur ${hostname} n'a pas démarré l'image. Réessayez dans un instant.`)
     } else {
-      fail(`L'image de ${hostname} n'arrive pas dans ce navigateur. Essayez Chrome ou Edge, ou le format H.264 dans Réglages › Avancé.`)
+      fail(`${hostname} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Avancé, ou Chrome ou Edge.`)
     }
   }
 
-  function onEngine(e: import('./engine').EngineEvent) {
+  function showNotice(text: string) {
+    notice = text
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => (notice = ''), 5000)
+  }
+
+  /** Relance de l'image sans recharger la page ni se déconnecter. */
+  function restartVideo(text: string) {
+    if (!engine || phase !== 'live') return
+    showNotice(text)
+    engine.restartVideo()
+  }
+
+  /** Écran suivi disparu ou à une autre taille : on relance l'image (Kyber
+   * reprend alors l'écran à jour, ou le premier de la liste). */
+  function onDisplays(list: DisplayInfo[]) {
+    const before = displays
+    displays = list
+    const id = currentDisplayId()
+    if (phase !== 'live' || id === null) return
+    const now = list.find((d) => d.id === id)
+    const was = before?.find((d) => d.id === id)
+    if (!now || (was && (was.width !== now.width || was.height !== now.height))) {
+      console.warn('KyberNow : écran suivi', id, now ? `passé en ${now.width} × ${now.height}` : 'disparu')
+      restartVideo('L’écran de l’ordinateur a changé : l’image reprend…')
+    }
+  }
+
+  /** Erreur de la chaîne d'image de l'ordinateur : relance bornée. */
+  function onPipeline(kind: string, stage: string, event: string) {
+    console.warn('KyberNow : chaîne de l’ordinateur', kind, stage, event)
+    if (event !== 'error' || phase !== 'live') return
+    if (kind === 'audio') {
+      showNotice('Le son de l’ordinateur s’est interrompu.')
+      return
+    }
+    if (kind !== 'video') return
+    if (stableTimer) clearTimeout(stableTimer)
+    stableTimer = null
+    if (pipelineRestarts >= MAX_PIPELINE_RESTARTS) {
+      fail(`L'image de ${hostname} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré ${MAX_PIPELINE_RESTARTS} relances. Se reconnecter la redémarre.`)
+      return
+    }
+    pipelineRestarts++
+    const n = pipelineRestarts
+    setTimeout(() => restartVideo(`L’image s’est interrompue sur l’ordinateur : relance (${n} sur ${MAX_PIPELINE_RESTARTS})…`), 1000)
+  }
+
+  function connectError(message: string): string {
+    if (message === 'unauthorized') return `Kyber sur ${hostname} refuse le jeton de la console. Rechargez la page ; si cela continue, vérifiez Kyber dans la console.`
+    if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return `Kyber sur ${hostname} n'a pas pu démarrer l'image. Réessayez dans un instant.`
+    return `Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`
+  }
+
+  function onEngine(e: import('./engine').EngineEvent, src: Engine, protocol: 'kymux' | 'websocket') {
+    // Un moteur remplacé ne décide plus de rien.
+    if (src !== engine) return
     switch (e.type) {
+      case 'connected':
+        if (connectWatch) clearTimeout(connectWatch)
+        connectWatch = null
+        connectStep = 'image'
+        watchImage(src, protocol, 'connected')
+        break
       case 'reconnecting':
         reconnecting = `Connexion perdue, nouvelle tentative (${e.attempt} sur ${e.max})…`
+        refreshTicket()
+        break
+      case 'auth-required':
+        refreshTicket(true)
+        break
+      case 'reconnected':
+        reconnecting = ''
         break
       case 'streaming':
         reconnecting = ''
+        watchImage(src, protocol, 'streaming')
         break
       case 'resized':
         canvasSize = { width: e.width, height: e.height }
         fit()
         break
-      case 'first-image':
-        if (imageWatch) clearTimeout(imageWatch)
-        imageWatch = null
+      case 'video-stopped':
+        // Relance de l'image : l'ancienne toile appartient au moteur, il en
+        // faut une neuve ; l'écran visé et la connexion des entrées changent.
+        forgetInputSocket()
+        freshCanvas()
+        break
+      case 'displays':
+        onDisplays(e.displays)
+        break
+      case 'pipeline':
+        onPipeline(e.kind, e.stage, e.event)
+        break
+      case 'gamepad':
+        gamepads = e.plugged ? [...gamepads.filter((g) => g.index !== e.index), { index: e.index, name: e.name }] : gamepads.filter((g) => g.index !== e.index)
+        break
+      case 'first-image': {
+        // Aussi après une relance de l'image : la session est déjà en cours.
+        const first = phase !== 'live'
+        clearWatches()
         phase = 'live'
         reconnecting = ''
-        learnDisplayId()
-        document.getElementById('kn-canvas')?.focus()
-        scheduleBarHide()
-        setTimeout(() => (hintOn = false), 7000)
+        if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
+        learnDisplayId().then((list) => {
+          if (list && !displays) displays = list.map((d) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
+        })
+        probeAudio(src)
+        // Une image tenue 30 s remet le compte des relances à zéro.
+        if (stableTimer) clearTimeout(stableTimer)
+        stableTimer = setTimeout(() => (pipelineRestarts = 0), 30_000)
+        if (first) {
+          // Pas après une relance : le clavier de l'appareil se fermerait.
+          document.getElementById('kn-canvas')?.focus()
+          scheduleBarHide()
+          setTimeout(() => (hintOn = false), 7000)
+        }
         break
+      }
       case 'error':
         console.warn('KyberNow : connexion impossible', e.message)
-        fail(`Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`)
+        fail(connectError(e.message))
         break
       case 'stopped':
         if (ended) return
@@ -222,8 +446,11 @@
           restart()
         } else if (e.reason === 'decode_error') {
           fail("Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Avancé.")
-        } else if (e.reason === 'requested' || e.reason === 'streaming_stopped') {
-          fail(`${hostname} a mis fin à la session.`)
+        } else if (e.reason === 'controlplane_closed') {
+          fail(`Kyber sur ${hostname} a fermé la connexion.`)
+        } else if (e.reason === 'requested') {
+          // Arrêt demandé par ce client, sans que la page l'ait voulu.
+          fail('La session s’est arrêtée.')
         } else {
           fail(`La connexion à ${hostname} s'est interrompue.`)
         }
@@ -232,42 +459,46 @@
   }
 
   async function restart() {
-    await engine?.stop()
+    const e = engine
     engine = null
-    start()
+    const gen = generation
+    await retire(e)
+    if (!stale(gen)) start()
   }
 
   function fail(message: string) {
-    if (imageWatch) clearTimeout(imageWatch)
-    imageWatch = null
+    generation++
+    clearWatches()
+    gamepads = []
+    soundBlocked = false
     error = message
     phase = 'ended'
     barVisible = true
-    // L'écran préparé pour cette session est rendu à l'ordinateur.
+    heartbeat.stop()
+    // Le moteur s'arrête, puis l'écran préparé pour cette session est rendu.
     const e = engine
     engine = null
-    e?.stop()
-    if (prepared) {
-      prepared = false
-      backend.end(null).catch(() => {})
-    }
+    const wasPrepared = prepared
+    prepared = false
+    retire(e, wasPrepared ? () => backend.end(null, extra()) : undefined)
   }
 
   async function quit() {
     if (ended) return
     ended = true
-    if (imageWatch) clearTimeout(imageWatch)
+    generation++
+    clearWatches()
     const median = engine?.sessionMedian() ?? null
     const e = engine
     engine = null
     // On rend la main tout de suite ; le moteur et la console finissent derrière.
     const wasPrepared = prepared
     prepared = false
+    heartbeat.stop()
     releasePointer()
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     onEnd()
-    await e?.stop()
-    if (wasPrepared) backend.end(median).catch(() => {})
+    await retire(e, wasPrepared ? () => backend.end(median, extra()) : undefined)
   }
 
   function setMouseMode(m: MouseMode) {
@@ -321,6 +552,36 @@
     setTimeout(fit, 50)
   }
 
+  /** Sonde du son en cours (une seule à la fois). */
+  let audioProbe = 0
+
+  /** Après la première image : le son a-t-il démarré, ou le navigateur
+   * attend-il un geste ? Le moteur crée son lecteur au premier paquet de son,
+   * parfois quelques secondes après l'image : on sonde toutes les 200 ms
+   * jusqu'à le savoir, 30 s au plus (un ordinateur sans son n'en envoie pas). */
+  async function probeAudio(e: Engine) {
+    if (!prefs.audio) return
+    const id = ++audioProbe
+    const t0 = performance.now()
+    while (id === audioProbe && engine === e && phase === 'live' && performance.now() - t0 < 30_000) {
+      const state = await e.audioState()
+      if (id !== audioProbe || engine !== e) return
+      if (state !== 'absent') {
+        soundBlocked = state === 'suspended'
+        return
+      }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+  }
+
+  /** Puce « Toucher pour le son » : la reprise se demande dans le geste. */
+  async function unlockSound() {
+    const e = engine
+    if (!e) return
+    await e.audioResume()
+    soundBlocked = (await e.audioState()) === 'suspended'
+  }
+
   function toggleMute() {
     muted = !muted
     engine?.setMute(muted)
@@ -346,25 +607,32 @@
     sendKey(canvas(), last.key, last.code, new Set(keys.map((k) => k.key)))
   }
 
-  function onTextInput(e: Event) {
-    const ev = e as InputEvent
-    if (ev.inputType === 'deleteContentBackward') sendKey(canvas(), 'Backspace', 'Backspace', mods)
-    else if (ev.inputType === 'insertLineBreak') sendKey(canvas(), 'Enter', 'Enter', mods)
-    else if (ev.data) sendText(canvas(), ev.data, mods)
-    textInput.value = ''
-    if (mods.size) mods = new Set()
-  }
+  // Clavier de l'appareil : texte en Unicode, touches par leur code.
+  const typed = new TypedText(
+    () => textInput ?? null,
+    canvas,
+    () => mods,
+    () => (mods = new Set()),
+  )
 
   async function openKeyboard() {
     keyboardOpen = true
     touchBar = false
     await tick()
     textInput.focus()
+    trackViewport()
   }
 
   function closeKeyboard() {
     keyboardOpen = false
     textInput?.blur()
+    tick().then(trackViewport)
+  }
+
+  /** Clavier fermé par l'appareil (bouton du clavier, autre app) : la rangée
+   * de touches part avec lui. Les touches de la rangée gardent le focus. */
+  function onTextBlur() {
+    if (keyboardOpen) closeKeyboard()
   }
 
   function setTouchMode(m: TouchMode) {
@@ -381,6 +649,15 @@
 
   onMount(() => {
     installDiag()
+    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur, et
+    // tout ce qui y est tenu enfoncé est relâché quand la page perd la main.
+    installInputGuard({
+      isVideo: (t) => t === canvas() || (!!touchLayer && t === touchLayer),
+      canvas,
+      onRelease: () => {
+        if (mods.size) mods = new Set()
+      },
+    })
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
     watchInputSocket()
@@ -431,6 +708,7 @@
             `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
             `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
             `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'}`,
+            `clavier tactile : frappe ${diag.lastKey} · saisie ${diag.lastInput}`,
           ].join('\n')
           prev = { ...diag }
         }, 1000)
@@ -445,16 +723,34 @@
       }
     }, 1000)
     const resize = () => fit()
-    const unlockAudio = () => engine?.resumeAudio()
+    const viewport = () => keyboardOpen && trackViewport()
+    window.visualViewport?.addEventListener('resize', viewport)
+    window.visualViewport?.addEventListener('scroll', viewport)
+    // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation.
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      if (phase !== 'live' || ended) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    // Tout clic ou toute touche est un geste : le son peut y reprendre.
+    const unlockAudio = async () => {
+      if (engine && (await engine.audioState()) === 'running') soundBlocked = false
+    }
     const leave = () => {
       if (ended || !prepared) return
-      fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: '{}' })
+      fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
+    }
+    // Onglet qui passe en arrière-plan : un signal tout de suite.
+    const hidden = () => {
+      if (document.visibilityState === 'hidden' && heartbeat.running) heartbeat.now()
     }
     window.addEventListener('resize', resize)
     document.addEventListener('fullscreenchange', onFullscreenChange)
     window.addEventListener('pointerdown', unlockAudio)
     window.addEventListener('keydown', unlockAudio)
     window.addEventListener('pagehide', leave)
+    document.addEventListener('visibilitychange', hidden)
     if (document.fullscreenElement) onFullscreenChange()
 
     // Mesures et signal de vie.
@@ -464,43 +760,57 @@
       fps = engine.latency.fps()
       if (latency) spark = [...spark.slice(-31), latency.total]
     }, 500)
-    const heartbeat = setInterval(async () => {
+    // La latence du signal de vie (le Worker envoie la dernière connue).
+    const sampler = setInterval(() => {
       if (!engine || phase !== 'live') return
       const l = engine.sample()
-      const r = await backend.heartbeat(l?.total ?? null, profileLabel).catch(() => null)
-      if (r?.end) fail('La console de l’ordinateur a mis fin à la session.')
+      heartbeat.update(heartbeatBody(l?.total ?? null, profileLabel, extra()))
     }, 5000)
+    const ticketTimer = setInterval(() => phase === 'live' && refreshTicket(), 3_600_000)
 
-    if (isTouch) {
-      touch = new TouchInput(touchLayer, canvas, touchMode, (p) => (cursor = touchMode === 'trackpad' ? p : null))
-      if (touchMode === 'trackpad') cursor = touch.cursor
+    // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
+    textInput.setAttribute('autocorrect', 'off')
+    // Écran tactile, même avec une souris ou un pavé à côté (iPad avec
+    // clavier) : les doigts passent par la couche tactile. Avec un pointeur
+    // précis à côté, le doigt touche directement (le pointeur reste la souris).
+    if (hasTouchScreen) {
+      touch = new TouchInput(touchLayer, canvas, isTouch ? touchMode : 'direct', (p) => (cursor = isTouch && touchMode === 'trackpad' ? p : null))
+      if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
     }
 
     return () => {
       clearInterval(metrics)
-      clearInterval(heartbeat)
+      clearInterval(sampler)
+      clearInterval(ticketTimer)
+      heartbeat.stop()
       clearInterval(foreground)
       if (diagTimer) clearInterval(diagTimer)
       cursorWatch?.disconnect()
       document.removeEventListener('pointerlockchange', cursorFix)
-      if (imageWatch) clearTimeout(imageWatch)
+      clearWatches()
+      if (noticeTimer) clearTimeout(noticeTimer)
+      if (stableTimer) clearTimeout(stableTimer)
       window.removeEventListener('keydown', shortcut, true)
       releasePointer()
       removePointerGate()
       removeAbsoluteMouse()
+      removeInputGuard()
       setPositionMapper(() => null)
       forgetInputSocket()
       if (barTimer) clearTimeout(barTimer)
       touch?.destroy()
       window.removeEventListener('resize', resize)
+      window.visualViewport?.removeEventListener('resize', viewport)
+      window.visualViewport?.removeEventListener('scroll', viewport)
+      window.removeEventListener('beforeunload', beforeUnload)
       document.removeEventListener('fullscreenchange', onFullscreenChange)
       window.removeEventListener('pointerdown', unlockAudio)
       window.removeEventListener('keydown', unlockAudio)
       window.removeEventListener('pagehide', leave)
+      document.removeEventListener('visibilitychange', hidden)
       if (!ended) {
         ended = true
-        engine?.stop()
-        if (prepared) backend.end(null).catch(() => {})
+        retire(engine, prepared ? () => backend.end(null, extra()) : undefined)
       }
     }
   })
@@ -509,7 +819,7 @@
 <div class="session" class:touch={isTouch} onpointermove={onPointerMove} role="application" aria-label="Session sur {hostname}">
   <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
     <div class="canvas-box" bind:this={canvasBox}></div>
-    <div class="touch-layer" class:active={isTouch && phase === 'live'} bind:this={touchLayer}></div>
+    <div class="touch-layer" class:active={hasTouchScreen && phase === 'live'} bind:this={touchLayer}></div>
     {#if cursor && phase === 'live'}
       <div class="tcursor" style="left: {cursor.x}px; top: {cursor.y}px" aria-hidden="true"></div>
     {/if}
@@ -533,7 +843,10 @@
           <h2 class="disp">Vous entrez dans {hostname}</h2>
           <ul class="steps mono">
             <li class:done={phase === 'connecting'}>{phase === 'preparing' ? 'Préparation de l’écran…' : `Écran ${mode?.width ?? ''} × ${mode?.height ?? ''} à ${mode?.refresh ?? ''} Hz`}</li>
-            {#if phase === 'connecting'}<li>{reconnecting || 'Connexion et premières images…'}</li>{/if}
+            {#if phase === 'connecting'}
+              <li class:done={connectStep === 'image'}>{connectStep === 'image' ? 'Connecté à Kyber' : reconnecting || 'Connexion à Kyber…'}</li>
+              {#if connectStep === 'image'}<li>{reconnecting || 'Premières images…'}</li>{/if}
+            {/if}
           </ul>
           <button type="button" class="ghost" onclick={quit}>Annuler</button>
         </div>
@@ -541,8 +854,15 @@
     </div>
   {/if}
 
-  {#if phase === 'live' && reconnecting}
-    <div class="toast glass" role="status">{reconnecting}</div>
+  {#if phase === 'live' && (reconnecting || notice)}
+    <div class="toast glass" role="status">{reconnecting || notice}</div>
+  {/if}
+
+  {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
+    <button type="button" class="sound glass" onpointerdown={(e) => e.preventDefault()} onclick={unlockSound}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M19.5 6.5a8 8 0 0 1 0 11" /></svg>
+      {isTouch ? 'Toucher pour le son' : 'Cliquer pour le son'}
+    </button>
   {/if}
 
   <!-- Barre de session (souris et clavier) -->
@@ -568,6 +888,12 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
         <span class="label">{mouseLabel}</span>
       </button>
+      {#if gamepads.length}
+        <span class="chip static" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
+          <span class="label">{gamepadText}</span>
+        </span>
+      {/if}
       {#if prefs.audio}
         <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? 'Remettre le son' : 'Couper le son'} onclick={toggleMute}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
@@ -638,14 +964,20 @@
   <!-- Tactile : languette, barre compacte, clavier -->
   {#if isTouch && phase === 'live'}
     {#if !touchBar}
-      <button type="button" class="tab glass" aria-label="Afficher la barre de session" onclick={() => { touchBar = true; guide = false }}>
+      <button type="button" class="tab glass" aria-label="Afficher la barre de session" onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = false }}>
         <span class="mono">{latencyText}</span>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
     {:else}
-      <div class="tbar glass" role="toolbar" aria-label="Session">
+      <div class="tbar glass" role="toolbar" tabindex="-1" aria-label="Session" onpointerdown={(e) => e.preventDefault()}>
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
+        {#if gamepads.length}
+          <span class="tpad" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
+            {#if gamepads.length > 1}<span class="mono">{gamepads.length}</span>{/if}
+          </span>
+        {/if}
         <span class="sep" aria-hidden="true"></span>
         <div class="tmodes" role="radiogroup" aria-label="Toucher">
           <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>Pavé tactile</button>
@@ -670,7 +1002,7 @@
     {/if}
 
     {#if !keyboardOpen}
-      <button type="button" class="fab glass" onclick={openKeyboard} aria-label="Ouvrir le clavier">
+      <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label="Ouvrir le clavier">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
       </button>
     {:else}
@@ -705,7 +1037,12 @@
   <textarea
     class="ime"
     bind:this={textInput}
-    oninput={onTextInput}
+    onkeydown={typed.keydown}
+    onbeforeinput={typed.beforeinput}
+    oncompositionstart={typed.compositionstart}
+    oncompositionend={typed.compositionend}
+    oninput={typed.input}
+    onblur={onTextBlur}
     autocapitalize="off"
     autocomplete="off"
     spellcheck="false"
@@ -715,6 +1052,8 @@
 
 <style>
   .session {
+    /* Hauteur de la rangée de touches au-dessus du clavier de l'appareil. */
+    --keys-h: 52px;
     position: fixed;
     inset: 0;
     background: #000;
@@ -731,8 +1070,12 @@
     place-items: center;
   }
 
+  /* Clavier ouvert : l'image au-dessus de la rangée de touches, elle-même
+     juste au-dessus du clavier (variables posées par trackViewport). */
   .stage.kb {
-    bottom: 50%;
+    top: var(--vv-top, 0px);
+    bottom: auto;
+    height: calc(var(--vv-h, 100%) - var(--keys-h));
   }
 
   .canvas-box {
@@ -1124,6 +1467,25 @@
     bottom: auto;
   }
 
+  /* Son en attente d'un geste : au-dessus de tout, en bas au centre. */
+  .sound {
+    position: absolute;
+    left: 50%;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    translate: -50% 0;
+    height: 46px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 23px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 7;
+  }
+
   kbd {
     font-size: 11px;
     padding: 2px 8px;
@@ -1200,6 +1562,15 @@
     min-width: 46px;
   }
 
+  .tpad {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 6px;
+    font-size: 11px;
+    color: var(--signal-light);
+  }
+
   .tmodes {
     display: flex;
     padding: 2px;
@@ -1263,8 +1634,9 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 50%;
-    min-height: 50px;
+    top: calc(var(--vv-top, 0px) + var(--vv-h, 100%) - var(--keys-h));
+    height: var(--keys-h);
+    box-sizing: border-box;
     padding: 6px max(12px, env(safe-area-inset-left));
     background: var(--ink-2);
     border-top: 1px solid #1e2832;

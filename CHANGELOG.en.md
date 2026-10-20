@@ -28,6 +28,15 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Mac and Apple TV apps: when the bar or the menu opens, the gamepad is reset on the computer (buttons released, sticks and triggers at rest). A held trigger no longer stays pressed in the game while the menu is open; on the Apple TV, the gamepad as mouse also releases its clicks and keys, and a stick still held when the menu closes picks up right away.
 - Mac and Apple TV apps: pressing L1 + R1 + Start + Select during a reconnection or before the first frame no longer leaves the gamepad silent until the next combination. The gamepad is only taken when the bar (Mac) or the menu (Apple TV) really opens, and a picture restart no longer hands it back to the game while the menu is open.
 - Mac app: after ⌘Tab, ⌘Space or a trip to another app, the ⌘ key (sent as Ctrl) no longer stays pressed on the computer. Everything is released when the window loses the keyboard, and the modifiers really held are sent again when it gets it back.
+- Web client: a click in the session bar (Quit, Sound, Keys…) or on a touch button no longer also clicks on the computer, under the bar.
+- Web client on phones and tablets: text typed on the device's keyboard arrives correctly on a computer with an AZERTY layout, with capitals, accents and emoji, and a keyboard attached to the iPad no longer doubles letters. On touch devices the image therefore goes through WebSocket, as on iPhone and iPad.
+- Web client: leaving the window (Alt+Tab, ⌘Tab, another tab) or giving the mouse back releases held keys and buttons on the computer: no more stuck Shift, Alt or click.
+- Web client: the session holds in a hidden tab (the console no longer thinks it ended after 30 s), and an expired console sign-in is announced clearly instead of a reconnection that fails.
+- Web client: the page no longer wrongly switches from WebTransport to WebSocket while the display is being prepared, and closes the old connection before opening the new one (no more doubled inputs). “Kyber is not responding” and “the image does not arrive” are no longer confused.
+- Web client: the mouse wheel works in Firefox, and two-finger scrolling on touch devices moves in whole notches. In Firefox the image goes through WebSocket, in H.264 by default.
+- Web client: when the browser blocks the sound (Safari, iPhone), a “Tap for sound” chip brings it back, instead of a silent session.
+- Web client: when the computer's display changes (size, display removed) or its capture fails, the image comes back by itself, without reloading the page (three attempts for an error). The bar shows connected gamepads, and end messages say what actually happened.
+- Web client on touch devices: with the keyboard open, the image keeps the whole height above the row of keys (it dropped to a quarter of the screen), and on an iPad with a keyboard fingers work too. Closing the tab in the middle of a session asks for confirmation.
 
 ## 0.2.5
 

@@ -26,6 +26,8 @@ export default defineConfig({
     proxy: {
       '/api': backend,
       '/ws': { ...backend, ws: true },
+      // Image et entrées en WebSocket (Safari, Firefox, tactile).
+      '/websocket': { ...backend, ws: true },
       '^/ecran/(kyclient_wasm.*|audio_worklet|spinlock)\\.(js|wasm)$': backend,
       ...Object.fromEntries(kyber.map((p) => [p, backend])),
     },

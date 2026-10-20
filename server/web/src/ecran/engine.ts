@@ -28,12 +28,41 @@ export interface Latency {
   client: number
 }
 
+/** Un écran de l'ordinateur, tel que Kyber le décrit. */
+export interface DisplayInfo {
+  id: number
+  name: string
+  width: number
+  height: number
+}
+
+function displayList(raw: any): DisplayInfo[] | null {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.displays) ? raw.displays : null
+  if (!list) return null
+  return list
+    .filter((d: any) => d && typeof d.id === 'number')
+    .map((d: any) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
+}
+
 export type EngineEvent =
   | { type: 'connecting' }
+  /** Plan de contrôle connecté : Kyber a accepté la session, l'image n'a pas encore commencé. */
+  | { type: 'connected' }
   | { type: 'reconnecting'; attempt: number; max: number }
+  | { type: 'auth-required' }
+  /** Reconnecté sans avoir à relancer l'image. */
+  | { type: 'reconnected' }
+  /** Kyber a démarré l'image (`streaming_started`) : les données doivent arriver. */
   | { type: 'streaming' }
   | { type: 'first-image' }
   | { type: 'resized'; width: number; height: number }
+  /** L'image s'est arrêtée pour une relance : la page pose une toile neuve. */
+  | { type: 'video-stopped' }
+  /** Liste des écrans de l'ordinateur (au départ, puis à chaque changement). */
+  | { type: 'displays'; displays: DisplayInfo[] }
+  /** Étape de la chaîne de l'ordinateur (capture, encodage) arrêtée ou en erreur. */
+  | { type: 'pipeline'; kind: string; stage: string; event: string }
+  | { type: 'gamepad'; plugged: boolean; index: number; name: string }
   | { type: 'stopped'; reason: string }
   | { type: 'error'; message: string }
 
@@ -102,11 +131,37 @@ class LatencyWindow {
   }
 }
 
+/** Moteurs en cours d'arrêt, toutes sessions confondues, et ce qui doit
+ * suivre leur arrêt (rendre l'écran à la console). */
+let retiring: Promise<unknown> = Promise.resolve()
+
+/** Arrête un moteur, puis lance `after`. Le prochain moteur, ou la prochaine
+ * préparation d'écran, attend `allStopped()` : jamais deux moteurs à la fois
+ * (chacun écoute souris et clavier sur la page), jamais une fin de session
+ * qui arrive après la préparation de la suivante. */
+export function retire(e: Engine | null, after?: () => Promise<unknown>): Promise<unknown> {
+  const stop = e ? e.stop() : Promise.resolve()
+  retiring = Promise.all([retiring, stop])
+    .then(() => after?.())
+    .catch(() => {})
+  return retiring
+}
+
+export function allStopped(): Promise<unknown> {
+  return retiring
+}
+
 export class Engine {
+  private m: Wasm = null
   private client: any = null
   private config: any = null
   private stopping = false
+  /** Fin de l'arrêt : l'événement `stopped` du moteur. */
+  private stoppedNow: (() => void) | null = null
+  private stopped = new Promise<void>((r) => (this.stoppedNow = r))
   private gotImage = false
+  /** Relance de l'image demandée (`stop_streaming`), en attente de `streaming_stopped`. */
+  private restartWatch: ReturnType<typeof setTimeout> | null = null
   readonly latency = new LatencyWindow()
   /** Médianes de toute la session (pour la console, à la fin). */
   private sessionTotals: number[] = []
@@ -118,6 +173,7 @@ export class Engine {
 
   async connect(host: string, port: string, token: string, s: StreamSettings) {
     const m = await loadEngine()
+    this.m = m
     const b = new m.StreamingConfigBuilder()
     b.protocol = s.protocol
     if (s.protocol === 'kymux') {
@@ -137,32 +193,57 @@ export class Engine {
 
     const credentials = m.AuthCredentials.jwt(token)
     this.onEvent({ type: 'connecting' })
-    this.client = await m.Client.new(
-      host,
-      port,
-      credentials,
-      (name: string, event: any) => this.handle(name, event),
-      true,
-      'live',
-      (frame: any) => {
-        this.latency.push(frame)
-      },
-      true,
-    )
-    this.client.connect()
+    let client: any
+    try {
+      client = await m.Client.new(
+        host,
+        port,
+        credentials,
+        (name: string, event: any) => this.handle(name, event),
+        true,
+        'live',
+        (frame: any) => {
+          this.latency.push(frame)
+        },
+        true,
+      )
+    } catch (e) {
+      this.stoppedNow?.()
+      throw e
+    }
+    // Arrêté pendant sa création : il ne doit pas démarrer.
+    if (this.stopping) {
+      client.stop().catch(() => {})
+      this.stoppedNow?.()
+      return
+    }
+    this.client = client
+    client.connect()
   }
 
   private async handle(name: string, event: any) {
+    if (name === 'stopped') this.stoppedNow?.()
     // Un moteur qu'on arrête ne parle plus (bascule de transport, fin).
     if (this.stopping) return
     switch (name) {
-      case 'controlplane_connected':
+      case 'controlplane_connected': {
+        this.onEvent({ type: 'connected' })
+        const displays = displayList(event?.displays)
+        if (displays) this.onEvent({ type: 'displays', displays })
         try {
           await this.client.start_streaming(this.canvasId, this.config.clone())
-          this.onEvent({ type: 'streaming' })
+          // `streaming_started` le dit aussi ; la page n'en tient compte qu'une fois.
+          if (!this.stopping) this.onEvent({ type: 'streaming' })
         } catch (e) {
-          this.onEvent({ type: 'error', message: String(e) })
+          if (!this.stopping) this.onEvent({ type: 'error', message: `start_streaming: ${e}` })
         }
+        break
+      }
+      case 'streaming_started':
+        this.onEvent({ type: 'streaming' })
+        break
+      case 'streaming_start_failed':
+        this.onEvent({ type: 'error', message: 'streaming_start_failed' })
         break
       case 'controlplane_connect_failed':
         this.onEvent({ type: 'error', message: String(event) })
@@ -170,8 +251,13 @@ export class Engine {
       case 'reconnecting':
         this.onEvent({ type: 'reconnecting', attempt: event.attempt, max: event.maxAttempts })
         break
+      case 'authentication_required':
+        // Jeton refusé : le moteur attend un nouveau jeton puis `connect()`.
+        this.onEvent({ type: 'auth-required' })
+        break
       case 'reconnected':
-        if (event.shouldRestartStreaming) this.onEvent({ type: 'stopped', reason: 'restart' })
+        if (event?.shouldRestartStreaming) this.onEvent({ type: 'stopped', reason: 'restart' })
+        else this.onEvent({ type: 'reconnected' })
         break
       case 'canvas_resized':
         this.onEvent({ type: 'resized', width: event.width, height: event.height })
@@ -187,7 +273,34 @@ export class Engine {
         }
         break
       case 'streaming_stopped':
-        if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'streaming_stopped' })
+        // Kyber ne l'émet qu'à la demande du client (`stop_streaming`) : c'est
+        // une relance de l'image, jamais une fin décidée par l'ordinateur.
+        if (this.restartWatch) clearTimeout(this.restartWatch)
+        this.restartWatch = null
+        this.gotImage = false
+        this.onEvent({ type: 'video-stopped' })
+        try {
+          await this.client.start_streaming(this.canvasId, this.config.clone())
+        } catch (e) {
+          if (!this.stopping) this.onEvent({ type: 'error', message: `start_streaming: ${e}` })
+        }
+        break
+      case 'display_list_updated': {
+        const displays = displayList(event?.displays)
+        if (displays) this.onEvent({ type: 'displays', displays })
+        break
+      }
+      case 'streamer_pipeline_event':
+        this.onEvent({
+          type: 'pipeline',
+          kind: String(event?.type ?? event?.type_ ?? '').toLowerCase(),
+          stage: String(event?.stage ?? '').toLowerCase(),
+          event: String(event?.event ?? '').toLowerCase(),
+        })
+        break
+      case 'gamepad_plugged':
+      case 'gamepad_unplugged':
+        this.onEvent({ type: 'gamepad', plugged: name === 'gamepad_plugged', index: Number(event?.index ?? 0), name: String(event?.name ?? '') })
         break
       case 'stopped': {
         const reason = typeof event?.reason === 'function' ? event.reason() : String(event ?? '')
@@ -211,6 +324,36 @@ export class Engine {
     return v[Math.floor(v.length / 2)]
   }
 
+  /** Relance l'image sans se déconnecter (écran changé, erreur de capture) :
+   * `stop_streaming`, puis à `streaming_stopped` une toile neuve et
+   * `start_streaming`. Kyber relance aussi les entrées (1 à 2 s). Sans
+   * réponse en 5 s, la page recommence la session entière. */
+  restartVideo() {
+    const c = this.client
+    if (!c || this.restartWatch) return
+    this.restartWatch = setTimeout(() => {
+      this.restartWatch = null
+      if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'restart' })
+    }, 5000)
+    c.stop_streaming().catch(() => {
+      if (this.restartWatch) clearTimeout(this.restartWatch)
+      this.restartWatch = null
+      if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'restart' })
+    })
+  }
+
+  /** Nouveau jeton (la console en signe pour 12 h) : servira aux reconnexions.
+   * `resume` : le moteur attendait ce jeton pour retenter la connexion. */
+  updateCredentials(token: string, resume = false) {
+    if (!this.client || !this.m) return
+    try {
+      this.client.update_credentials(this.m.AuthCredentials.jwt(token))
+      if (resume) this.client.connect()
+    } catch (e) {
+      console.warn('KyberNow : jeton non transmis au moteur', e)
+    }
+  }
+
   ctrlAltDel() {
     this.client?.send_ctrl_alt_del()
   }
@@ -219,28 +362,54 @@ export class Engine {
     this.client?.audio_set_mute(mute)
   }
 
-  resumeAudio() {
-    this.client?.audio_try_resume?.()
+  /** Remet le son en marche si le navigateur le permet (appelé dans un geste,
+   * il y parvient), et dit où il en est : `absent` tant que le moteur n'a pas
+   * reçu de son (il crée son lecteur au premier paquet), `suspended` si le
+   * navigateur attend un geste (Safari, iPhone, page ouverte sans clic). */
+  async audioState(): Promise<'absent' | 'running' | 'suspended'> {
+    const c = this.client
+    if (!c) return 'absent'
+    try {
+      const state = await c.audio_try_resume()
+      return state === 1 ? 'running' : state === 2 ? 'suspended' : 'absent'
+    } catch {
+      return 'absent'
+    }
   }
 
-  async stop() {
-    this.stopping = true
-    const c = this.client
-    this.client = null
-    if (!c) return
-    // Un moteur bloqué (connexion qui n'aboutit pas) ne répond plus : on
-    // n'attend pas plus d'une seconde et demie.
-    const done = (async () => {
-      try {
-        await c.disconnect_and_stop(true)
-      } catch {
+  /** Reprend le son : à appeler dans le geste même (clic, toucher). */
+  async audioResume() {
+    try {
+      await this.client?.audio_resume()
+    } catch (e) {
+      console.warn('KyberNow : son non repris', e)
+    }
+  }
+
+  /** Arrête le moteur et attend son événement `stopped` (ses écouteurs de
+   * souris et de clavier sont alors retirés) : un nouveau moteur créé avant
+   * doublerait les entrées. Un moteur bloqué (connexion qui n'aboutit pas)
+   * peut ne jamais répondre : `timeout` borne l'attente. */
+  stop(timeout = 3000): Promise<void> {
+    if (!this.stopping) {
+      this.stopping = true
+      if (this.restartWatch) clearTimeout(this.restartWatch)
+      this.restartWatch = null
+      const c = this.client
+      this.client = null
+      if (c) {
+        // `disconnect_and_stop` consomme le client : en cas d'échec, il n'y a
+        // plus rien à arrêter.
         try {
-          await c.stop()
+          c.disconnect_and_stop(true).catch(() => this.stoppedNow?.())
         } catch {
-          // Déjà arrêté.
+          this.stoppedNow?.()
         }
+      } else if (!this.m) {
+        // Jamais créé : rien à attendre.
+        this.stoppedNow?.()
       }
-    })()
-    await Promise.race([done, new Promise((r) => setTimeout(r, 1500))])
+    }
+    return Promise.race([this.stopped, new Promise<void>((r) => setTimeout(r, timeout))])
   }
 }
