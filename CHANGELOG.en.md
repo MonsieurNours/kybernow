@@ -38,6 +38,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client: when the computer's display changes (size, display removed) or its capture fails, the image comes back by itself, without reloading the page (three attempts for an error). The bar shows connected gamepads, and end messages say what actually happened.
 - Web client on touch devices: with the keyboard open, the image keeps the whole height above the row of keys (it dropped to a quarter of the screen), and on an iPad with a keyboard fingers work too. Closing the tab in the middle of a session asks for confirmation.
 - Apple TV app: gamepads, remote, Bluetooth keyboard and mouse no longer go through the app's main thread; an interface animation no longer delays a button or a stick by several milliseconds.
+- Apple TV app: game rumble is continuous and follows the game's intensity, instead of stuttering at every change; it also starts faster.
 
 ## 0.2.5
 

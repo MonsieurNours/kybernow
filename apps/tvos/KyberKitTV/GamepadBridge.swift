@@ -260,6 +260,7 @@ public final class GamepadBridge: ObservableObject {
             self.input = input
             // `captured` reste au contrôleur de session : l'image redémarre
             // (changement de profil) sans que le menu se ferme.
+            for slot in slots.values { slot.motors?.session = true }
             plugAll(input)
             updateMouseTimer()
         }
@@ -275,7 +276,10 @@ public final class GamepadBridge: ObservableObject {
     /// débranché avant que la chaîne d'entrées s'arrête).
     func detach() {
         queue.sync {
-            for slot in slots.values { slot.motors?.stop() }
+            for slot in slots.values {
+                slot.motors?.stop()
+                slot.motors?.session = false
+            }
             if let input { releaseMouse(input) }
             stopMouseTimer()
             if let input {
@@ -376,7 +380,8 @@ public final class GamepadBridge: ObservableObject {
         slots[key] = slot
         if player <= 4 { c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset }
         c.light?.color = Self.lightColor(player)
-        slot.motors = Motors(controller: c)
+        slot.motors = Motors(controller: c, queue: queue)
+        slot.motors?.session = input != nil
         setUpPad(slot)
         if let input {
             input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(c)?.vendor, product: Self.usbIDs(c)?.product)
@@ -839,70 +844,167 @@ extension PadButton {
 // MARK: - Moteurs de vibration (Core Haptics)
 
 /// Deux moteurs quand la manette les expose (poignées gauche et droite),
-/// sinon un seul ; une vibration dure ce que le jeu demande, ou jusqu'à son arrêt.
+/// sinon un seul. Chaque moteur joue en boucle un motif continu dont
+/// l'intensité suit chaque paquet `Rumble` (`hapticIntensityControl`) : plus
+/// de lecteur recréé à chaque paquet, qui hachait la vibration (effet
+/// « mitraillette ») et coûtait plusieurs millisecondes. Le moteur Core
+/// Haptics reste démarré pendant la session ; la vibration ne s'arrête vraiment
+/// que sur (0, 0), au bout de la durée demandée, ou en fin de session. Tout
+/// se passe sur la file des entrées.
 private final class Motors {
     private var large: Motor?
     private var small: Motor?
+    private let queue: DispatchQueue
+    private var expiry: DispatchWorkItem?
+    /// En session, le moteur Core Haptics reste démarré entre deux vibrations ;
+    /// hors session (vibration d'essai), il s'arrête après.
+    var session = false {
+        didSet { if !session { shutdown() } }
+    }
 
-    init?(controller: GCController) {
+    init?(controller: GCController, queue: DispatchQueue) {
         guard let haptics = controller.haptics else { return nil }
+        self.queue = queue
         let localities = haptics.supportedLocalities
         if localities.contains(.leftHandle), localities.contains(.rightHandle) {
-            large = Motor(haptics.createEngine(withLocality: .leftHandle))
-            small = Motor(haptics.createEngine(withLocality: .rightHandle))
+            // Gros moteur à gauche (grave), petit à droite (aigu), comme XInput.
+            large = Motor(haptics.createEngine(withLocality: .leftHandle), sharpness: 0.2, queue: queue)
+            small = Motor(haptics.createEngine(withLocality: .rightHandle), sharpness: 0.8, queue: queue)
         } else {
-            large = Motor(haptics.createEngine(withLocality: .default))
+            large = Motor(haptics.createEngine(withLocality: .default), sharpness: 0.4, queue: queue)
         }
         if large == nil { return nil }
     }
 
+    /// Paquet `Rumble` : intensités de 0 à 65535 ; durée en millisecondes,
+    /// -1 (ou 0) : jusqu'à nouvel ordre, 5 s au plus faute de (0, 0), comme
+    /// kynput avec SDL sur Mac.
     func play(large l: UInt16, small s: UInt16, durationMs: Int) {
-        let duration = durationMs < 0 ? 5.0 : Double(durationMs) / 1000
+        expiry?.cancel()
+        expiry = nil
+        let li = Float(l) / 65535, si = Float(s) / 65535
         if let small {
-            large?.play(intensity: Float(l) / 65535, sharpness: 0.2, duration: duration)
-            small.play(intensity: Float(s) / 65535, sharpness: 0.8, duration: duration)
+            large?.set(li)
+            small.set(si)
         } else {
-            large?.play(intensity: Float(max(l, s)) / 65535, sharpness: 0.4, duration: duration)
+            large?.set(max(li, si))
         }
+        guard l > 0 || s > 0 else {
+            if !session { shutdown() }
+            return
+        }
+        let seconds = durationMs > 0 ? Double(durationMs) / 1000 : 5
+        let item = DispatchWorkItem { [weak self] in self?.play(large: 0, small: 0, durationMs: 0) }
+        expiry = item
+        queue.asyncAfter(deadline: .now() + seconds, execute: item)
     }
 
+    /// Fin de session ou manette débranchée : vibration et moteur arrêtés.
     func stop() {
-        large?.stop()
-        small?.stop()
+        expiry?.cancel()
+        expiry = nil
+        shutdown()
+    }
+
+    private func shutdown() {
+        large?.shutdown()
+        small?.shutdown()
     }
 
     private final class Motor {
-        let engine: CHHapticEngine
-        private var player: CHHapticPatternPlayer?
+        private let engine: CHHapticEngine
+        private let sharpness: Float
+        private let queue: DispatchQueue
+        private var player: CHHapticAdvancedPatternPlayer?
+        private var running = false
+        private var playing = false
+        private var level: Float = 0
+        /// Durée du motif joué en boucle (le maximum d'un événement continu).
+        private static let span: TimeInterval = 30
 
-        init?(_ engine: CHHapticEngine?) {
+        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue) {
             guard let engine else { return nil }
             self.engine = engine
-            engine.isAutoShutdownEnabled = true
-            engine.resetHandler = { [weak engine] in try? engine?.start() }
-        }
-
-        func play(intensity: Float, sharpness: Float, duration: Double) {
-            try? player?.stop(atTime: CHHapticTimeImmediate)
-            player = nil
-            guard intensity > 0.01 else { return }
-            let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: min(1, intensity)),
-                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-            ], relativeTime: 0, duration: duration)
-            do {
-                try engine.start()
-                let p = try engine.makePlayer(with: CHHapticPattern(events: [event], parameters: []))
-                try p.start(atTime: CHHapticTimeImmediate)
-                player = p
-            } catch {
-                KyberLog.app.error("vibration : \(error.localizedDescription, privacy: .public)")
+            self.sharpness = sharpness
+            self.queue = queue
+            engine.isAutoShutdownEnabled = false
+            engine.playsHapticsOnly = true
+            // Rappels de Core Haptics sur un fil à lui : on repasse sur la file.
+            engine.stoppedHandler = { [weak self] reason in
+                guard let self else { return }
+                queue.async {
+                    self.running = false
+                    self.player = nil
+                    self.playing = false
+                    KyberLog.app.notice("vibration : moteur arrêté par le système (\(reason.rawValue))")
+                }
+            }
+            // Serveur haptique relancé : les lecteurs ne valent plus rien ; la
+            // vibration en cours reprend.
+            engine.resetHandler = { [weak self] in
+                guard let self else { return }
+                queue.async {
+                    self.running = false
+                    self.player = nil
+                    self.playing = false
+                    if self.level > 0 { self.set(self.level) }
+                }
             }
         }
 
-        func stop() {
-            try? player?.stop(atTime: CHHapticTimeImmediate)
+        /// Règle l'intensité (0…1) : 0 arrête le lecteur, le moteur reste démarré.
+        func set(_ value: Float) {
+            let v = min(1, max(0, value))
+            level = v
+            guard v > 0.01 else {
+                if playing {
+                    try? player?.stop(atTime: CHHapticTimeImmediate)
+                    playing = false
+                }
+                return
+            }
+            do {
+                if !running {
+                    try engine.start()
+                    running = true
+                }
+                let p = try player ?? makePlayer()
+                player = p
+                if !playing {
+                    try p.start(atTime: CHHapticTimeImmediate)
+                    playing = true
+                }
+                try p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: v, relativeTime: 0)],
+                                     atTime: CHHapticTimeImmediate)
+            } catch {
+                KyberLog.app.error("vibration : \(error.localizedDescription, privacy: .public)")
+                player = nil
+                playing = false
+            }
+        }
+
+        /// Motif continu d'intensité 1, en boucle ; l'intensité réelle vient
+        /// du paramètre dynamique.
+        private func makePlayer() throws -> CHHapticAdvancedPatternPlayer {
+            let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
+            ], relativeTime: 0, duration: Self.span)
+            let p = try engine.makeAdvancedPlayer(with: CHHapticPattern(events: [event], parameters: []))
+            p.loopEnabled = true
+            p.loopEnd = Self.span
+            return p
+        }
+
+        func shutdown() {
+            if playing { try? player?.stop(atTime: CHHapticTimeImmediate) }
             player = nil
+            playing = false
+            level = 0
+            if running {
+                engine.stop(completionHandler: nil)
+                running = false
+            }
         }
     }
 }
