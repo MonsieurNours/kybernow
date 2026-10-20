@@ -22,6 +22,15 @@ settings:
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: NO
     DEAD_CODE_STRIPPING: YES
+  configs:
+    # Version diffusée : Developer ID, runtime renforcé, horodatage sécurisé
+    # (exigés par la notarisation d'Apple, voir scripts/release.sh).
+    Release:
+      CODE_SIGN_IDENTITY: "Developer ID Application: Mathieu Requenna (P6DB682S4K)"
+      ENABLE_HARDENED_RUNTIME: YES
+      OTHER_CODE_SIGN_FLAGS: "--timestamp"
+      # Pas d'autorisation de débogage (get-task-allow) : refusée par la notarisation.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 packages:
   # Mises à jour de l'app : flux appcast.xml publié avec chaque version sur GitHub.
   Sparkle:
@@ -72,6 +81,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Les Lignes Claires · AGPL-3.0"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "KyberNow se connecte à vos ordinateurs sur le réseau local."
+        CODE_SIGN_ENTITLEMENTS: KyberNow/KyberNow.entitlements
         INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow lit le QR code affiché par la console de votre ordinateur."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include

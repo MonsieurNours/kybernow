@@ -3,7 +3,8 @@
 #   scripts/release.sh 0.2.0
 #
 # 1. Aligne le numéro de version (console, icône, installateur, app Mac).
-# 2. Construit l'ordinateur (installateur, paquet de mise à jour) et l'app Mac.
+# 2. Construit l'ordinateur (installateur, paquet de mise à jour) et l'app Mac,
+#    signée Developer ID, notarisée par Apple et agrafée.
 # 3. Signe le flux de mises à jour de l'app (Sparkle, clé EdDSA du Trousseau).
 # 4. Calcule les empreintes (SHA256SUMS), commite, étiquette vX, pousse, et
 #    crée la version GitHub avec les notes de CHANGELOG.md.
@@ -14,7 +15,8 @@
 #   - à la main : update.ps1 (irm …/releases/latest/download/update.ps1 | iex).
 #
 # Prérequis : third_party/ prêt (voir docs/build-notes.md), gh connecté,
-# clé Sparkle dans le Trousseau (generate_keys), Kyber corrigé déjà compilé
+# clé Sparkle dans le Trousseau (generate_keys), certificat Developer ID et
+# profil de notarisation « kybernow » (docs/releases.md), Kyber corrigé déjà compilé
 # (server/kyber-patches/build.sh si les correctifs ont changé).
 set -euo pipefail
 VERSION="${1:?usage : scripts/release.sh X.Y.Z}"
@@ -44,9 +46,18 @@ echo "==> App Mac"
 (cd apps/macos && xcodegen generate > /dev/null && xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Release \
     -derivedDataPath build build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 APP="apps/macos/build/Build/Products/Release/KyberNow.app"
-codesign -v --deep --strict "$APP"
+apps/macos/scripts/sign-release.sh "$APP"
 
 rm -rf "$OUT" && mkdir -p "$OUT"
+
+echo "==> Notarisation de l'app (Apple, quelques minutes)"
+# Profil enregistré une fois : xcrun notarytool store-credentials kybernow --apple-id … --team-id P6DB682S4K
+ditto -c -k --keepParent "$APP" "$OUT/notarisation.zip"
+xcrun notarytool submit "$OUT/notarisation.zip" --keychain-profile kybernow --wait --timeout 30m
+rm "$OUT/notarisation.zip"
+xcrun stapler staple "$APP"
+spctl --assess --type execute -vv "$APP"
+
 ditto -c -k --keepParent "$APP" "$OUT/KyberNow-macOS.zip"
 cp server/installer/dist/KyberNow-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
 

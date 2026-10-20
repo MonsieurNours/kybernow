@@ -84,6 +84,7 @@
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		6AD1367F24F0927922BB40DD /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
 		6CB6F1E3DF88493B2CF6D20F /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
+		7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNow.entitlements; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
@@ -148,6 +149,7 @@
 				B5B2EC8B704608F092769F7C /* DisplayInfo.swift */,
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				80362106CECC77FF3DAFF939 /* Info.plist */,
+				7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */,
 				2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */,
 				8C0DDB25384557B8B551045E /* Model.swift */,
 				5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */,
@@ -449,14 +451,15 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				CODE_SIGN_IDENTITY = "Apple Development: info@leslignesclaires.fr (FSBFCDSH25)";
+				CODE_SIGN_IDENTITY = "Developer ID Application: Mathieu Requenna (P6DB682S4K)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Manual;
 				COPY_PHASE_STRIP = NO;
 				CURRENT_PROJECT_VERSION = 202610201136;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = P6DB682S4K;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -472,6 +475,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -484,6 +488,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KyberNow/KyberNow.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KyberNow/Info.plist;
@@ -576,6 +581,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KyberNow/KyberNow.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = KyberNow/Info.plist;
