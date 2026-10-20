@@ -33,6 +33,7 @@ func run(_ path: String, codec: UInt32) {
         for (i, au) in aus.enumerated() {
             au.withUnsafeBufferPointer { dec.decode($0, isConfig: false, isKey: i % 60 == 0, pts: UInt64(i)) }
         }
+        dec.flush()
         print("\(path): \(aus.count) unités, \(frames) images, décodage moyen \(String(format: "%.2f", total/Double(max(frames,1)))) ms, max \(String(format: "%.2f", maxMs)) ms, \(fmt)")
     }
 }

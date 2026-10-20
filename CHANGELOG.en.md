@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: image decoding is asynchronous. Kyber's network thread no longer waits for the decoder (1 to 3 ms per frame, 20 to 60 ms at peaks, during which neither packets nor sound were read). A decoding session lost after sleep or a GPU change is recreated right away, without waiting for the stream restart (2 to 3 s).
 - Mac app: in full screen, the image can go directly to the display without macOS's compositor (one refresh less): the Metal layer is the session surface's layer, and the bar, hints, measurements panel and passage leave compositing when they have nothing to show. To check with `MTL_HUD_ENABLED=1`.
 - Mac app: the image leaves for the display as soon as it is decoded. The next frame no longer waits until the display has shown the previous one (a whole refresh of latency, 8 ms at 120 Hz, 17 ms at 60 Hz); Core Animation shows the most recent one at the refresh. The old behaviour remains available with `KN_INFLIGHT_GUARD=1`.
 - Mac app: image presentation measurements. Launched with `KN_PRESENT_STATS=1`, the app logs every second the frames rendered, shown and discarded by the display, and the commit → screen delay (median, 95th percentile); `KN_INFLIGHT_GUARD=1` puts back the “one frame in flight” guard for comparison. The offline display test compares both.

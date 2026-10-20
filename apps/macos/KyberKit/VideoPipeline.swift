@@ -2,8 +2,9 @@
 // (Le son suit le même principe : AudioPlayer.)
 //
 // Kyber appelle `handle` depuis son fil réseau, un paquet à la fois ; on
-// décode dans la foulée (quelques millisecondes en matériel) et l'image
-// part au rendu sans attendre.
+// remet l'image à VideoToolbox et on rend la main tout de suite (décodage
+// asynchrone, quelques millisecondes en matériel) ; l'image décodée part
+// au rendu depuis le fil de VideoToolbox, sans attendre.
 
 import CoreVideo
 import Foundation
