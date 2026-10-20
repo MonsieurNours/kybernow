@@ -12,6 +12,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Installateur : sur un portable sans mode « Performances élevées », l'installation ne s'arrête plus à 96 % : le mode est recréé, ou laissé tel quel avec un avertissement. L'option est décochée si l'ordinateur y est déjà.
 - Installateur : Alt+F4 ne ferme plus la fenêtre en pleine installation, et KyberNow apparaît dans « Applications installées » dès les fichiers copiés : une installation interrompue se désinstalle normalement.
 - Installateur : relancé sur un ordinateur où KyberNow est déjà installé, il propose de conserver les réglages (comptes, appareils appairés, ports, certificat, réglages de la console) et ne remplace que les programmes et les pilotes. « Repartir de zéro » reste possible, avec un avertissement : les appareils seront à appairer de nouveau.
+- Désinstallation plus complète : le pilote d'écran virtuel quitte aussi le magasin de pilotes de Windows, le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis, et les réglages peuvent être gardés pour plus tard.
 
 ## 0.2.5
 

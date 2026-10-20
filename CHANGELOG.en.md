@@ -11,6 +11,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Installer: on a laptop without a “High performance” power mode, the installation no longer stops at 96%: the mode is recreated, or left as it is with a warning. The option is unticked if the computer already uses it.
 - Installer: Alt+F4 no longer closes the window in the middle of an installation, and KyberNow appears in “Installed apps” as soon as the files are copied: an interrupted installation can be uninstalled normally.
 - Installer: run again on a computer where KyberNow is already installed, it offers to keep the settings (accounts, paired devices, ports, certificate, console settings) and replaces only the programs and drivers. “Start from scratch” is still possible, with a warning: devices will have to be paired again.
+- More complete uninstall: the virtual display driver also leaves Windows' driver store, the power mode and network category used before KyberNow are put back, and the settings can be kept for later.
 
 ## 0.2.5
 

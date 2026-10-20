@@ -50,12 +50,36 @@ pub struct InstallRecord {
     pub virtual_display: bool,
     pub gamepads: bool,
     pub sudovda_thumbprint: Option<String>,
+    /// Ce que la désinstallation remet comme avant KyberNow.
+    #[serde(default)]
+    pub restore: Restore,
+}
+
+/// Réglages de Windows changés par l'installation, notés à la première
+/// installation et gardés par les suivantes (et par `update.ps1`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Restore {
+    /// Mode d'alimentation actif avant KyberNow (GUID).
+    pub power_scheme: Option<String>,
+    /// Mode Performances élevées recréé par KyberNow, à supprimer.
+    pub created_power_scheme: Option<String>,
+    /// Réseau passé de « Public » à « Privé ».
+    pub public_network: Option<PublicNetwork>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicNetwork {
+    pub interface_index: u32,
+    /// Nom du réseau (profil Windows) : remis en « Public » seulement s'il n'a pas changé.
+    pub name: String,
 }
 
 struct Ctx<'a> {
     emit: &'a Emit,
     dir: PathBuf,
     log: std::sync::Mutex<Vec<String>>,
+    /// Repris de l'installation précédente, complété au fil des étapes.
+    restore: std::sync::Mutex<Restore>,
 }
 
 impl Ctx<'_> {
@@ -80,7 +104,9 @@ impl Ctx<'_> {
 
 /// Lance l'installation complète. Renvoie `true` si un redémarrage est nécessaire.
 pub fn run_install(req: &InstallRequest, info: &SystemInfo, payload: &Path, emit: &Emit) -> Result<bool> {
-    let ctx = Ctx { emit, dir: sys::install_dir(), log: Default::default() };
+    let dir = sys::install_dir();
+    let restore = read_record(&dir).map(|r| r.restore).unwrap_or_default();
+    let ctx = Ctx { emit, dir, log: Default::default(), restore: std::sync::Mutex::new(restore) };
     let result = if cfg!(windows) { install(&ctx, req, info, payload) } else { simulate(&ctx, req) };
     let log = ctx.log.lock().unwrap().join("\n");
     let _ = std::fs::write(std::env::temp_dir().join("KyberNow-install.log"), &log);
@@ -164,10 +190,17 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
 
     step(ctx, "firewall", || {
         if let Some(index) = info.public_interface {
+            let name = sys::powershell(&format!("(Get-NetConnectionProfile -InterfaceIndex {index}).Name")).unwrap_or_default();
             let r = sys::powershell(&format!(
                 "Set-NetConnectionProfile -InterfaceIndex {index} -NetworkCategory Private"
             ));
             ctx.log(format!("Réseau passé en « Privé » : {}", if r.is_ok() { "réussi" } else { "échec" }));
+            let mut restore = ctx.restore.lock().unwrap();
+            if r.is_ok() && !name.is_empty() && restore.public_network.is_none() {
+                restore.public_network = Some(PublicNetwork { interface_index: index, name });
+            }
+            drop(restore);
+            write_record(ctx, req, None)?;
         }
         remove_firewall_rules();
         let profile = "profile=private,domain";
@@ -270,8 +303,18 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     if req.max_performance {
         // Jamais bloquant : beaucoup de portables n'ont pas ce mode, ou le refusent.
         ctx.task("power", TaskStatus::Running);
+        let before = run("powercfg", &["/getactivescheme"]).ok().and_then(|o| find_guid(&sys::text(&o), ""));
         match set_high_performance() {
-            Ok(how) => {
+            Ok((how, created)) => {
+                let mut restore = ctx.restore.lock().unwrap();
+                if restore.power_scheme.is_none() {
+                    restore.power_scheme = before.filter(|g| Some(g) != created.as_ref() && g != HIGH_PERFORMANCE_SCHEME);
+                }
+                if created.is_some() {
+                    restore.created_power_scheme = created;
+                }
+                drop(restore);
+                let _ = write_record(ctx, req, None);
                 ctx.log(format!("Mode d'alimentation : Performances élevées{how}"));
                 ctx.task("power", TaskStatus::Done);
             }
@@ -307,15 +350,19 @@ pub const HIGH_PERFORMANCE_SCHEME: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
 
 /// Active Performances élevées. Absent de la liste (portables, Windows
 /// récents), il est recréé à partir du modèle de Windows
-/// (`powercfg /duplicatescheme`), puis activé. Renvoie un complément pour le journal.
-fn set_high_performance() -> Result<&'static str> {
+/// (`powercfg /duplicatescheme`), puis activé. Renvoie un complément pour le
+/// journal et le GUID du mode recréé.
+fn set_high_performance() -> Result<(&'static str, Option<String>)> {
     if run_ok("powercfg", &["/setactive", HIGH_PERFORMANCE_SCHEME], &[0]).is_ok() {
-        return Ok("");
+        return Ok(("", None));
     }
     let out = run_ok("powercfg", &["/duplicatescheme", HIGH_PERFORMANCE_SCHEME], &[0])?;
     let guid = find_guid(&sys::text(&out), HIGH_PERFORMANCE_SCHEME).context("identifiant du mode recréé introuvable")?;
-    run_ok("powercfg", &["/setactive", &guid], &[0])?;
-    Ok(" (recréé à partir du modèle de Windows)")
+    if let Err(e) = run_ok("powercfg", &["/setactive", &guid], &[0]) {
+        let _ = run("powercfg", &["/delete", &guid]);
+        return Err(e);
+    }
+    Ok((" (recréé à partir du modèle de Windows)", Some(guid)))
 }
 
 /// Premier GUID du texte (8-4-4-4-12 chiffres hexadécimaux) autre que `except`.
@@ -480,6 +527,8 @@ fn cert_thumbprint(cer: &Path) -> Result<String> {
 /// `kybernow.json` : ce qui est installé, relu par le désinstalleur, l'icône
 /// (port de la console) et une réinstallation.
 fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<String>) -> Result<()> {
+    // Empreinte déjà notée (étape vdd) : gardée quand on réécrit sans elle.
+    let sudovda_thumbprint = sudovda_thumbprint.or_else(|| read_record(&ctx.dir).and_then(|r| r.sudovda_thumbprint).filter(|_| req.virtual_display));
     let record = InstallRecord {
         version: crate::VERSION.into(),
         kyber_version: crate::KYBER_VERSION.into(),
@@ -488,9 +537,15 @@ fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<Stri
         virtual_display: req.virtual_display,
         gamepads: req.gamepads,
         sudovda_thumbprint,
+        restore: ctx.restore.lock().unwrap().clone(),
     };
     std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;
     Ok(())
+}
+
+/// `kybernow.json` d'une installation, s'il est lisible.
+pub fn read_record(dir: &Path) -> Option<InstallRecord> {
+    serde_json::from_slice(&std::fs::read(dir.join("kybernow.json")).ok()?).ok()
 }
 
 fn register_uninstaller(ctx: &Ctx, uninstaller: &Path) -> Result<()> {

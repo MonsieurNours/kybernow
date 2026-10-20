@@ -52,6 +52,18 @@ Par défaut, ProgramData laisse tout compte y créer des dossiers et en devenir 
 
 Vérifier sur l'ordinateur : `icacls C:\ProgramData\KyberNow` doit lister `NT AUTHORITY\SYSTEM:(OI)(CI)(F)` et `BUILTIN\Administrateurs:(OI)(CI)(F)`, rien d'autre.
 
+## Désinstaller
+
+« Applications installées » › KyberNow › Désinstaller lance `uninstall.exe --uninstall` (le lanceur seul, sans le contenu). Après confirmation, il demande s'il faut garder les réglages, puis :
+
+- arrête et supprime les services `kyber` et `kyber-admin`, arrête l'icône et retire sa valeur Run (compte qui désinstalle), retire les règles de pare-feu ;
+- SudoVDA : nœud de périphérique, paquet du magasin de pilotes (`pnputil /delete-driver oemNN.inf /uninstall /force`, `oemNN.inf` trouvé par son nom d'origine `sudovda.inf` dans `pnputil /enum-drivers`), certificat des magasins Racine et Éditeurs approuvés ;
+- remet le mode d'alimentation d'avant KyberNow (et supprime le mode Performances élevées s'il l'avait recréé), et repasse en « Public » le réseau qu'il avait passé en « Privé », s'il porte toujours le même nom. Ces réglages d'avant sont notés dans `kybernow.json` (`restore`) à la première installation, et gardés par les suivantes et par les mises à jour ;
+- garde `C:\ProgramData\KyberNow` si on l'a demandé (avec une copie de `kyber_config.toml` dans `backups\kyber_config.toml.desinstallation`, car les comptes des appareils y sont), sinon l'efface ;
+- affiche la boîte de fin, puis, une fois fermée, efface `C:\Program Files\KyberNow` par une commande différée (le désinstalleur tourne depuis ce dossier).
+
+ViGEmBus reste installé : d'autres logiciels peuvent s'en servir.
+
 ## Choix de l'encodeur
 
 L'analyse liste les cartes graphiques de Windows (`Win32_VideoController`, eGPU branchés compris) et ne garde que les cartes PCI NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) et Intel (`VEN_8086`) en état de marche, avec le pilote du fabricant : l'adaptateur de base de Microsoft (`display.inf`, carte sans pilote), les cartes désactivées, les écrans virtuels (SudoVDA) et le bureau à distance sont écartés. Elle prend ensuite la plus performante : NVIDIA → `nvenc`, sinon AMD → `amf`, sinon Intel → `qsv`, sinon le processeur → `x264` (avertissement « Aucune carte graphique compatible »). Sur un portable hybride (Intel intégré + NVIDIA), c'est donc NVENC. Si Windows ne répond pas, NVML sert de repli pour les cartes NVIDIA. Le choix est écrit dans `[kyavserver] encoder` par `kyber-admin init` et se change ensuite dans la console (Système › Avancé). La mise à jour (`update.ps1`) ne remplace que les programmes, jamais `kyber_config.toml` : l'encodeur choisi est conservé. L'installateur aussi quand on réinstalle en choisissant « Conserver mes réglages » ; « Repartir de zéro » refait le choix.

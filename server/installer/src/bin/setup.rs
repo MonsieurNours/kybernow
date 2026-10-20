@@ -65,15 +65,29 @@ fn launch() -> anyhow::Result<()> {
 fn uninstall() {
     if !message(
         "Désinstaller KyberNow",
-        "KyberNow va être retiré de ce PC : serveur de streaming, console d'administration, écran virtuel et réglages.\n\nLe pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
+        "KyberNow va être retiré de cet ordinateur : serveur de streaming, console d'administration, icône, écran virtuel. \
+         Le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis.\n\n\
+         Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
         true,
     ) {
         return;
     }
-    match kybernow::uninstall::run_uninstall() {
-        Ok(()) => message("KyberNow", "KyberNow a été désinstallé.", false),
-        Err(e) => message("KyberNow", &format!("La désinstallation a rencontré un problème :\n\n{e:#}"), false),
+    let keep_data = message(
+        "Désinstaller KyberNow",
+        "Garder les réglages de KyberNow sur cet ordinateur ?\n\n\
+         Oui : C:\\ProgramData\\KyberNow reste (réglages et certificat de la console, appareils connus, journaux, \
+         copie des réglages de Kyber), lisible par les administrateurs seulement.\n\
+         Non : tout est effacé.",
+        true,
+    );
+    let done = match kybernow::uninstall::run_uninstall(keep_data) {
+        Ok(()) if keep_data => "KyberNow a été désinstallé. Ses réglages restent dans C:\\ProgramData\\KyberNow.".to_string(),
+        Ok(()) => "KyberNow a été désinstallé.".to_string(),
+        Err(e) => format!("La désinstallation a rencontré un problème :\n\n{e:#}"),
     };
+    message("KyberNow", &done, false);
+    // Après la boîte : le dossier est effacé une fois ce programme fermé.
+    kybernow::uninstall::schedule_removal();
 }
 
 fn webview2_installed() -> bool {
