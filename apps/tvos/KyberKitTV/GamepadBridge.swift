@@ -163,12 +163,41 @@ public final class GamepadBridge: ObservableObject {
     }
 
     /// Le menu s'ouvre (true) ou se ferme : la manette quitte ou rejoint le jeu.
+    /// À l'ouverture, tout est remis à zéro sur l'ordinateur (touches tenues,
+    /// six axes, et les clics et touches de la manette en souris) ; à la
+    /// fermeture, un stick encore tenu est renvoyé tel quel.
     public func setCaptured(_ value: Bool) {
         guard value != captured else { return }
         captured = value
-        if value, let input {
+        guard let input else { return }
+        if value {
             for slot in slots.values { releaseAll(slot, input: input) }
             releaseMouse(input)
+        } else {
+            resync(buttons: false)
+        }
+    }
+
+    /// Renvoie l'état réel des manettes : après une remise à zéro, GameController
+    /// ne signale que les changements, et un stick tenu resterait muet. Les
+    /// touches ne sont renvoyées que sur demande : celle qui vient de fermer le
+    /// menu est encore enfoncée, le jeu ne doit pas la recevoir.
+    private func resync(buttons: Bool) {
+        guard let input, !captured, !padMouse else { return }
+        for slot in slots.values {
+            guard let pad = slot.controller.extendedGamepad else { continue }
+            if buttons {
+                for (element, button) in Self.buttons(pad) where element?.isPressed == true {
+                    slot.pressed.insert(button)
+                    input.gamepadButton(id: slot.id, button, pressed: true)
+                }
+            }
+            axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
+            axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
+            axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
+            axis(slot, .rightY, Self.stick(-pad.rightThumbstick.yAxis.value))
+            axis(slot, .leftTrigger, Self.trigger(pad.leftTrigger.value))
+            axis(slot, .rightTrigger, Self.trigger(pad.rightTrigger.value))
         }
     }
 
@@ -227,29 +256,29 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Manettes
 
-    private func setUpPad(_ slot: Slot) {
-        guard let pad = slot.controller.extendedGamepad else { return }
-        let buttons: [(GCControllerButtonInput?, PadButton)] = [
+    /// Touches d'une manette et leur nom chez kynput ; le pavé tactile des
+    /// manettes Sony compte comme Select.
+    private static func buttons(_ pad: GCExtendedGamepad) -> [(GCControllerButtonInput?, PadButton)] {
+        var buttons: [(GCControllerButtonInput?, PadButton)] = [
             (pad.buttonA, .a), (pad.buttonB, .b), (pad.buttonX, .x), (pad.buttonY, .y),
             (pad.leftShoulder, .leftShoulder), (pad.rightShoulder, .rightShoulder),
             (pad.buttonMenu, .start), (pad.buttonOptions, .back), (pad.buttonHome, .guide),
             (pad.leftThumbstickButton, .leftStick), (pad.rightThumbstickButton, .rightStick),
             (pad.dpad.up, .dpadUp), (pad.dpad.down, .dpadDown), (pad.dpad.left, .dpadLeft), (pad.dpad.right, .dpadRight),
         ]
-        for (element, button) in buttons {
+        if let ds = pad as? GCDualSenseGamepad { buttons.append((ds.touchpadButton, .back)) }
+        return buttons
+    }
+
+    private func setUpPad(_ slot: Slot) {
+        guard let pad = slot.controller.extendedGamepad else { return }
+        for (element, button) in Self.buttons(pad) {
             // Le bouton Home reste à tvOS ; les autres gestes du système aussi
             // (capture d'écran), sauf pour la manette du jeu.
             element?.preferredSystemGestureState = button == .guide ? .enabled : .disabled
             element?.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
                 guard let self, let slot else { return }
                 self.button(slot, button, pressed: pressed)
-            }
-        }
-        // Pavé tactile de la DualSense / DualShock : un bouton de plus (Select).
-        if let ds = pad as? GCDualSenseGamepad {
-            ds.touchpadButton.pressedChangedHandler = { [weak self, weak slot] _, _, pressed in
-                guard let self, let slot else { return }
-                self.button(slot, .back, pressed: pressed)
             }
         }
         pad.leftThumbstick.valueChangedHandler = { [weak self, weak slot] _, x, y in

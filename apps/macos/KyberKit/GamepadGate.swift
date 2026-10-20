@@ -23,14 +23,24 @@ final class GamepadGate: @unchecked Sendable {
     var onCombo: (() -> Void)?
     /// Touche de navigation pendant que la manette pilote l'app (fil principal).
     var onNavigate: ((PadKey) -> Void)?
-    /// Relâchements à envoyer à l'ordinateur (hors du verrou du routeur).
-    var release: (([(UInt32, kynput_GamepadButton)]) -> Void)?
+    /// Relâchements et axes au repos à envoyer à l'ordinateur (hors du verrou du routeur).
+    var release: ((_ buttons: [(UInt32, kynput_GamepadButton)], _ axes: [(UInt32, kynput_GamepadAxis)]) -> Void)?
 
     private let lock = NSLock()
+    /// Manettes vues passer (branchées, ou dont un paquet est passé) : à
+    /// remettre à zéro quand l'app prend la manette.
+    private var known = Set<UInt32>()
     private var pressed: [UInt32: Set<UInt32>] = [:]
     private var captured = false
-    /// Relâchements que nous injectons nous-mêmes : à laisser passer.
+    /// Relâchements et axes au repos que nous injectons nous-mêmes : à
+    /// laisser passer, une fois chacun, pendant que l'app a la manette.
     private var allowed: [UInt32: Set<UInt32>] = [:]
+    private var allowedAxes: [UInt32: Set<UInt32>] = [:]
+
+    private static let axes: [kynput_GamepadAxis] = [
+        KYNPUT_GAMEPAD_AXIS_LEFT_X, KYNPUT_GAMEPAD_AXIS_LEFT_Y, KYNPUT_GAMEPAD_AXIS_RIGHT_X,
+        KYNPUT_GAMEPAD_AXIS_RIGHT_Y, KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT, KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT,
+    ]
 
     private static let combo: Set<UInt32> = [
         KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER.rawValue, KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER.rawValue,
@@ -43,34 +53,71 @@ final class GamepadGate: @unchecked Sendable {
         let was = captured
         captured = value
         guard value, !was else {
-            if !value { allowed = [:] }
+            if !value {
+                allowed = [:]
+                allowedAxes = [:]
+            }
             lock.unlock()
             return
         }
-        // L'ordinateur a vu les touches tenues (les trois premières de la
-        // combinaison) : on les relâche pour lui.
-        var releases: [(UInt32, kynput_GamepadButton)] = []
-        for (id, buttons) in pressed {
-            for b in buttons {
-                releases.append((id, kynput_GamepadButton(rawValue: b)))
+        // Tout à zéro sur l'ordinateur : les touches tenues (les trois premières
+        // de la combinaison, ou une gâchette) relâchées, les six axes au repos,
+        // pour chaque manette connue. kynput ne dit pas l'état des axes : on
+        // les remet tous à zéro.
+        var buttons: [(UInt32, kynput_GamepadButton)] = []
+        var axes: [(UInt32, kynput_GamepadAxis)] = []
+        for id in known {
+            for b in pressed[id] ?? [] {
+                buttons.append((id, kynput_GamepadButton(rawValue: b)))
                 allowed[id, default: []].insert(b)
+            }
+            for a in Self.axes {
+                axes.append((id, a))
+                allowedAxes[id, default: []].insert(a.rawValue)
             }
         }
         lock.unlock()
-        if !releases.isEmpty {
-            DispatchQueue.global().async { [weak self] in self?.release?(releases) }
+        if !buttons.isEmpty || !axes.isEmpty {
+            DispatchQueue.global().async { [weak self] in self?.release?(buttons, axes) }
         }
     }
 
     /// `true` : le paquet part vers l'ordinateur.
     func filter(_ packet: OpaquePointer) -> Bool {
+        var control = kynput_GamepadControlId(rawValue: 0)
+        if kynput_gamepad_control_id_from_packet(packet, &control) {
+            // Branchements : toujours transmis, et notés pour la remise à zéro.
+            lock.lock()
+            defer { lock.unlock() }
+            var plug = kynput_GamepadControlIdPlug()
+            var unplug = kynput_GamepadControlIdUnplug()
+            if control == KYNPUT_GAMEPAD_CONTROL_ID_PLUG, kynput_gamepad_plug_from_packet(packet, &plug) {
+                known.insert(plug.id)
+            } else if control == KYNPUT_GAMEPAD_CONTROL_ID_UNPLUG, kynput_gamepad_unplug_from_packet(packet, &unplug) {
+                known.remove(unplug.id)
+                pressed[unplug.id] = nil
+                allowed[unplug.id] = nil
+                allowedAxes[unplug.id] = nil
+            }
+            return true
+        }
         var event = kynput_GamepadEventId(rawValue: 0)
         guard kynput_gamepad_event_id_from_packet(packet, &event) else { return true }
         lock.lock()
         defer { lock.unlock() }
+        if event == KYNPUT_GAMEPAD_EVENT_ID_AXIS {
+            var a = kynput_GamepadEventAxis()
+            guard kynput_gamepad_axis_from_packet(packet, &a) else { return !captured }
+            known.insert(a.id)
+            // Manette prise : seuls nos axes au repos passent, une fois chacun
+            // (un vrai retour au repos arrivé avant le nôtre fait aussi bien).
+            if captured { return a.value == 0 && allowedAxes[a.id]?.remove(a.type_.rawValue) != nil }
+            return true
+        }
         guard event == KYNPUT_GAMEPAD_EVENT_ID_BUTTON else { return !captured }
         var b = kynput_GamepadEventButton()
         guard kynput_gamepad_button_from_packet(packet, &b) else { return !captured }
+        known.insert(b.id)
         let button = b.type_.rawValue
         if !b.pressed, allowed[b.id]?.remove(button) != nil {
             return true

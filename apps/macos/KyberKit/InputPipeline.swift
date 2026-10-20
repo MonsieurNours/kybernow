@@ -249,10 +249,14 @@ final class InputPipeline {
             userdata: gate
         )
         kynput_pipeline_set_hook(pipeline, &hook)
-        gamepad.release = { [weak self] releases in
-            for (id, button) in releases {
+        gamepad.release = { [weak self] buttons, axes in
+            for (id, button) in buttons {
                 var b = kynput_GamepadEventButton(id: id, type_: button, pressed: false)
                 self?.send(kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b), "manette")
+            }
+            for (id, axis) in axes {
+                var a = kynput_GamepadEventAxis(id: id, type_: axis, value: 0)
+                self?.send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
             }
         }
         #endif
