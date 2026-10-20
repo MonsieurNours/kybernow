@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KyberNow</title>
+<meta name="description" content="The desktop, the games and the power of your computer on all your devices, in 9.4 ms: in the app or in the browser. Free, open-source computer streaming, built on Kyber and QUIC.">
+<meta name="theme-color" content="#05070A">
+<meta property="og:title" content="KyberNow">
+<meta property="og:description" content="Your computer, within reach anywhere, anytime. Open-source computer streaming, built on Kyber and QUIC.">
+<meta property="og:url" content="https://kybernow.app/en/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="fr" href="https://kybernow.app/">
+<link rel="alternate" hreflang="en" href="https://kybernow.app/en/">
+<link rel="alternate" hreflang="x-default" href="https://kybernow.app/en/">
+<script src="/assets/lang.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kybernow.css">
+<link rel="stylesheet" href="/assets/site.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/three.module.min.js",
+  "three/addons/": "/vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+
+<header class="nav" id="nav">
+  <a class="nav-logo" href="/en/" aria-label="KyberNow, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"></a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="/en/#pourquoi">Why</a>
+    <a href="/en/#trajet">The path</a>
+    <a href="/en/#quic">QUIC</a>
+    <a href="/en/#kyber">Kyber</a>
+    <a href="/en/#comparer">Compare</a>
+    <a href="/en/guide/">Guide</a>
+  </nav>
+  <div class="nav-actions">
+    <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
+    <a class="nav-lang" href="/" hreflang="fr" lang="fr" data-set-lang="fr">FR</a>
+    <a class="btn btn-ghost btn-sm nav-dl" href="/en/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Download</a>
+    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu"><span></span><span></span></button>
+  </div>
+</header>
+<div class="menu" id="menu" hidden>
+  <nav aria-label="Menu">
+    <a href="/en/#pourquoi">Why</a>
+    <a href="/en/#trajet">The path of an image</a>
+    <a href="/en/#quic">QUIC</a>
+    <a href="/en/#kyber">Kyber</a>
+    <a href="/en/#comparer">Compare</a>
+    <a href="/en/guide/">Guide and FAQ</a>
+    <a href="/en/#telecharger">Download</a>
+  </nav>
+  <div class="menu-foot">
+    <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    <a class="btn btn-ghost" href="/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a>
+  </div>
+</div>
+
+<main>
+
+<!-- 1 · Home -->
+<section class="hero" id="top" data-scene="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="label" data-reveal>Computer streaming · next generation</p>
+      <h1 class="display" data-split>Your computer,<br><strong>within reach anywhere,<br>anytime.</strong></h1>
+      <p class="lede" data-reveal style="--d:.35s">The desktop, the games and the full power of your computer, on all your devices, in 9.4&nbsp;ms. In the app, or simply in the browser. Your own cloud: no subscription, no rented machine, just the one you already have.</p>
+      <div class="hero-cta" data-reveal style="--d:.5s">
+        <a class="btn kn-primary" href="#telecharger" id="hero-cta">Download</a>
+        <a class="btn btn-ghost" href="#trajet">How it works<svg class="ic"><use href="/assets/icons.svg#arrow-down"/></svg></a>
+      </div>
+      <dl class="hero-facts" data-reveal style="--d:.65s">
+        <div><dt>Median latency</dt><dd>9.4&nbsp;ms</dd></div>
+        <div><dt>Resolution</dt><dd>Your screen's</dd></div>
+        <div><dt>Transport</dt><dd>QUIC, encrypted</dd></div>
+      </dl>
+    </div>
+    <img class="hero-fallback" src="/assets/img/kybernow-mark-now-lit-dark.svg" alt="" width="360" height="360">
+  </div>
+  <a class="scroll-hint" href="#pourquoi" aria-label="Scroll down"><span></span></a>
+</section>
+
+<!-- 2 · Positioning -->
+<section class="section" id="pourquoi" data-scene="split">
+  <div class="wrap">
+    <p class="label" data-reveal>Your own cloud, at home</p>
+    <h2 class="title" data-split><strong>All the power</strong> of your computer, on <strong>each of your devices.</strong></h2>
+    <p class="body-lg" data-reveal>Cloud gaming rents you a computer hundreds of kilometres away. KyberNow does the opposite: it makes <em>your</em> computer reachable from your other devices, on your network or through your VPN. Your graphics card, your software, your files, your games. No third-party server between you and it.</p>
+
+    <div class="pillars">
+      <article class="pillar" data-reveal style="--d:.05s">
+        <svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg>
+        <h3>Play</h3>
+        <p>Gamepad, relative mouse, your screen's refresh rate: 120, 144&nbsp;Hz or more. Game mode turns on by itself when a game goes full screen.</p>
+      </article>
+      <article class="pillar" data-reveal style="--d:.15s">
+        <svg class="ic-lg"><use href="/assets/icons.svg#monitor"/></svg>
+        <h3>Work</h3>
+        <p>Sharp text in 4:4:4, shared clipboard, the exact resolution of your screen: 4K, 5K, 6K.</p>
+      </article>
+      <article class="pillar" data-reveal style="--d:.25s">
+        <svg class="ic-lg"><use href="/assets/icons.svg#broadcast"/></svg>
+        <h3>Everywhere</h3>
+        <p>An app for Mac, and any browser: computer, tablet, phone. Apple TV and iPhone next. At home, or from afar through your VPN.</p>
+      </article>
+    </div>
+
+    <div class="duo" data-reveal>
+      <div class="duo-part">
+        <img src="/assets/img/kybernow-mark-server-dark.svg" alt="" width="40" height="40">
+        <div><span class="role">Server</span><h3>KyberNow Server</h3><p>On the computer that shares its power. It captures the display and the sound, and receives your input. Windows today.</p></div>
+      </div>
+      <div class="duo-link" aria-hidden="true"><span class="duo-line"><i></i></span><span class="mono-label">QUIC, encrypted</span></div>
+      <div class="duo-part">
+        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="40" height="40">
+        <div><span class="role">Client</span><h3>KyberNow clients</h3><p>On each of your devices: the Mac app or the browser, then Apple TV, Android, Linux and more.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · The path of an image (pinned) -->
+<section class="trajet" id="trajet" data-scene="flow">
+  <div class="trajet-sticky">
+    <div class="wrap">
+      <div class="trajet-head">
+        <p class="label">The path of an image</p>
+        <h2 class="title">From the graphics card <strong>to your screen.</strong></h2>
+      </div>
+
+      <div class="counter" aria-live="off">
+        <span class="counter-value" id="counter">0.00</span><span class="counter-unit">ms</span>
+        <p class="counter-caption" id="counter-caption">Scroll: from capture to display.</p>
+      </div>
+
+      <ol class="stages" id="stages">
+        <li data-ms="0"><span class="stage-n">01</span><b>Capture</b><span>The virtual display, at your device's resolution</span><em>t&nbsp;=&nbsp;0</em></li>
+        <li data-ms="5.19"><span class="stage-n">02</span><b>Encoding</b><span>On the graphics card or the processor</span><em>5.19&nbsp;ms</em></li>
+        <li data-ms="0.12"><span class="stage-n">03</span><b>Sending</b><span>Kyber, over QUIC</span><em>0.12&nbsp;ms</em></li>
+        <li data-ms="0.66"><span class="stage-n">04</span><b>Network</b><span>Wired or Wi-Fi, encrypted</span><em>0.66&nbsp;ms</em></li>
+        <li data-ms="2.50"><span class="stage-n">05</span><b>Decoding</b><span>In hardware, on your device</span><em>2.50&nbsp;ms</em></li>
+        <li data-ms="0.62"><span class="stage-n">06</span><b>Display</b><span>As soon as the image is ready</span><em>0.62&nbsp;ms</em></li>
+      </ol>
+      <div class="track" aria-hidden="true"><div class="track-fill" id="track-fill"></div><div class="track-pulse" id="track-pulse"></div></div>
+
+      <p class="footnote">Measured on 19&nbsp;October 2026: RTX&nbsp;3080&nbsp;Ti computer at 3840&nbsp;×&nbsp;2160 and 160&nbsp;Hz, to a MacBook Pro M4&nbsp;Max, local network, H.264, 3,263 images. Medians per stage; the total is the median of the full path. At 160&nbsp;Hz, one image lasts 6.25&nbsp;ms.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 4 · QUIC -->
+<section class="section" id="quic" data-scene="side">
+  <div class="wrap">
+    <p class="label" data-reveal>The transport</p>
+    <h2 class="title" data-split><strong>QUIC:</strong> four lanes, <strong>none waits for the others.</strong></h2>
+    <p class="body-lg" data-reveal>Kyber carries the image, the sound and your input over QUIC, the HTTP/3 protocol standardised by the IETF (RFC&nbsp;9000). Where a single stream stops at the first lost packet, QUIC keeps each lane independent and repairs losses on arrival.</p>
+
+    <div class="sim" data-reveal>
+      <div class="sim-bar">
+        <div class="segmented" role="radiogroup" aria-label="Simulated transport">
+          <button role="radio" aria-checked="true" data-mode="quic"><svg class="ic"><use href="/assets/icons.svg#stack"/></svg>QUIC</button>
+          <button role="radio" aria-checked="false" data-mode="single"><svg class="ic"><use href="/assets/icons.svg#minus"/></svg>Single stream</button>
+        </div>
+        <div class="sim-stats"><p class="sim-stat"><span class="mono-label">Blocked lanes</span> <b id="sim-blocked">0 of 4</b></p><p class="sim-stat"><span class="mono-label">Losses repaired</span> <b id="sim-fixed">0</b></p></div>
+      </div>
+      <div class="sim-body">
+        <ul class="sim-lanes" aria-hidden="true"><li>Image</li><li>Sound</li><li>Gamepad</li><li>Clipboard</li></ul>
+        <canvas id="sim" height="240" aria-label="Simulation: packets from four lanes crossing the network, with losses"></canvas>
+      </div>
+      <p class="sim-legend"><span><i class="lg lg-pkt"></i>Packet</span><span><i class="lg lg-lost"></i>Lost</span><span><i class="lg lg-fix"></i>Repaired on arrival</span><span class="sim-note">Losses exaggerated for the demonstration.</span></p>
+    </div>
+
+    <div class="points">
+      <div class="point" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Encrypted by default</h3><p>TLS&nbsp;1.3 is part of QUIC: the image and your keystrokes never travel in the clear, even at home.</p></div>
+      <div class="point" data-reveal style="--d:.08s"><svg class="ic-lg"><use href="/assets/icons.svg#stack"/></svg><h3>Independent lanes</h3><p>No head-of-line blocking: a lost image packet delays neither the sound nor the gamepad.</p></div>
+      <div class="point" data-reveal style="--d:.16s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>Losses repaired</h3><p>Error correction on arrival; beyond that, the app immediately asks for a full image.</p></div>
+      <div class="point" data-reveal style="--d:.24s"><svg class="ic-lg"><use href="/assets/icons.svg#plugs"/></svg><h3>One port</h3><p>TCP and UDP on the same number: one firewall rule, one path through the VPN.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · Kyber -->
+<section class="section" id="kyber" data-scene="rest-r">
+  <div class="wrap">
+    <p class="label" data-reveal>The foundation</p>
+    <h2 class="title" data-split>Built on <strong>Kyber.</strong></h2>
+    <p class="body-lg" data-reveal>KyberNow uses <a href="https://kyber.tech" rel="noopener">Kyber</a>, a free, open-source streaming engine (AGPL-3.0) built by VLC developers. Written in Rust, relying on FFmpeg and QUIC, it aims for a few milliseconds of latency. KyberNow turns it into a complete product, ready to install.</p>
+
+    <div class="split-cols">
+      <div class="col" data-reveal>
+        <p class="mono-label">What Kyber does</p>
+        <ul class="ticks">
+          <li>Capture and encoding, on any graphics card or the processor</li>
+          <li>QUIC transport and error correction</li>
+          <li>Remote keyboard, mouse and gamepads</li>
+          <li>Development kit for clients</li>
+        </ul>
+      </div>
+      <div class="col" data-reveal style="--d:.1s">
+        <p class="mono-label">What KyberNow adds</p>
+        <ul class="ticks ticks-on">
+          <li>KyberNow Server: installer, console and updates</li>
+          <li>Virtual display and speakers for each session</li>
+          <li>Clients: a native app (decoding and display by the app) and a web client</li>
+          <li>Engine fixes, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">published and documented</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <aside class="notice" data-reveal>
+      <svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg>
+      <div>
+        <h3>A community, non-commercial project</h3>
+        <p>KyberNow is free and open source: no account, no subscription, no ads, and all the code is open. It is developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow is not affiliated with Kyber: it is neither published nor endorsed by the Kyber team.</p>
+        <p class="notice-links"><a href="https://kyber.tech" rel="noopener">Discover Kyber<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">KyberNow source code<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<!-- 6 · Comparison -->
+<section class="section" id="comparer" data-scene="rest-l">
+  <div class="wrap">
+    <p class="label" data-reveal>Compare</p>
+    <h2 class="title" data-split><strong>KyberNow</strong> and Sunshine + Moonlight.</h2>
+    <p class="body-lg" data-reveal>Sunshine and Moonlight made open-source computer streaming available to everyone, and remain excellent software. KyberNow starts from a newer engine and designs the whole thing as a single product, from installation to image.</p>
+
+    <div class="compare" data-reveal role="table" aria-label="Comparison">
+      <div class="cmp-row cmp-head" role="row"><span role="columnheader"></span><span role="columnheader" class="cmp-us">KyberNow</span><span role="columnheader">Sunshine + Moonlight</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Transport</span><span class="yes" role="cell">QUIC, standardised (RFC&nbsp;9000)</span><span role="cell">GameStream (RTSP and custom UDP)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Image encryption</span><span class="yes" role="cell">Always (TLS&nbsp;1.3)</span><span role="cell">Optional, off by default on the local network</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Ports to open</span><span class="yes" role="cell">One, TCP and UDP</span><span role="cell">Several TCP and UDP ports</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Display at the device's resolution</span><span class="yes" role="cell">Built in, created and removed with each session</span><span role="cell">Outside Sunshine (Apollo fork or a driver to add)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Pairing</span><span class="yes" role="cell">Bonjour, QR code or link, fingerprint verified</span><span role="cell">PIN code to enter on Sunshine's web page</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Sound</span><span class="yes" role="cell">Opus HD, up to 7.1 at 768&nbsp;kbit/s</span><span role="cell">Stereo, 5.1 and 7.1</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">On Mac</span><span class="yes" role="cell">Native app (SwiftUI, VideoToolbox, Metal)</span><span role="cell">Cross-platform (Qt)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the computer itself</span><span role="cell">No</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">One installer: engine, virtual display and sound, gamepads, firewall</span><span role="cell">Sunshine, then the add-ons by hand</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Not yet (a limit of Kyber&nbsp;0.29)</span><span role="cell">Yes</span></div>
+    </div>
+    <p class="footnote" data-reveal>Comparison made in October 2026, with each piece of software in its default configuration. Spotted an error? <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">Tell us</a>.</p>
+  </div>
+</section>
+
+<!-- 7 · Features -->
+<section class="section" id="fonctions" data-scene="rest-r">
+  <div class="wrap">
+    <p class="label" data-reveal>In detail</p>
+    <h2 class="title" data-split>Thought through to <strong>the last pixel.</strong></h2>
+
+    <div class="bento">
+      <article class="card card-feature" data-reveal>
+        <svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg>
+        <h3>Your screen, to the pixel</h3>
+        <p>With each session, the computer creates a virtual display at your device's resolution and refresh rate (4K, 5K, 6K, 120&nbsp;Hz and more), turns off its own displays, then turns them back on at the end. Nothing to set up.</p>
+        <div class="res-demo" aria-hidden="true"><span>2560&nbsp;×&nbsp;1440</span><span>3840&nbsp;×&nbsp;2160</span><span>5120&nbsp;×&nbsp;2880</span></div>
+      </article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>HD sound, up to 7.1</h3><p>A virtual output in place of the computer's speakers, 10&nbsp;ms packets, about twenty milliseconds of buffer.</p></article>
+      <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Variable refresh rate</h3><p>Each image is shown as soon as it is decoded: on a variable refresh rate screen, the screen follows the stream.</p></article>
+      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Pairing at a glance</h3><p>The computer shows up on its own on your network. Otherwise, use a QR code or a link from its console, and its fingerprint is verified.</p></article>
+      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Nothing to install</h3><p>The computer serves its own web client: open its address in a browser, on a computer, tablet or phone, with a trackpad or a finger.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>One-click updates</h3><p>From the console for the computer, from the app for your devices. Each package is verified before it is installed.</p></article>
+    </div>
+
+    <div class="profiles" data-reveal>
+      <div>
+        <p class="mono-label">Three profiles</p>
+        <div class="segmented segmented-lg" role="radiogroup" aria-label="Profile">
+          <button role="radio" aria-checked="true" data-profile="jeu"><svg class="ic"><use href="/assets/icons.svg#game-controller"/></svg>Game</button>
+          <button role="radio" aria-checked="false" data-profile="bureau"><svg class="ic"><use href="/assets/icons.svg#monitor"/></svg>Desktop</button>
+          <button role="radio" aria-checked="false" data-profile="max"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg>Max</button>
+        </div>
+      </div>
+      <div class="profile-panel" id="profile-panel" aria-live="polite">
+        <h3 data-p="title">Lowest latency</h3>
+        <p data-p="text">The highest refresh rate your screen can show, relative mouse, gamepad. 4:2:0 colour to save every millisecond.</p>
+        <ul class="chips" data-p="chips"><li>Maximum refresh rate</li><li>Relative mouse</li><li>Gamepad</li></ul>
+      </div>
+    </div>
+    <p class="footnote" data-reveal>Profiles adapt to what your device can decode: without hardware 4:4:4, they use a higher bitrate in 4:2:0.</p>
+  </div>
+</section>
+
+<!-- 8 · Download -->
+<section class="section downloads" id="telecharger">
+  <div class="scene-anchor" data-scene="assemble" aria-hidden="true"></div>
+  <div class="wrap">
+    <p class="label" data-reveal>Download</p>
+    <h2 class="title" data-split>Ready in <strong>three steps.</strong></h2>
+
+    <ol class="steps" data-reveal>
+      <li><span>1</span>Install KyberNow Server on the computer you want to share.</li>
+      <li><span>2</span>On each device, open a client: the Mac app or the browser.</li>
+      <li><span>3</span>Connect: the computer is already there.</li>
+    </ol>
+
+    <div class="dl-grid">
+      <article class="dl-card" data-reveal data-os="windows">
+        <img src="/assets/img/kybernow-mark-server-dark.svg" alt="" width="44" height="44">
+        <span class="role">Server</span>
+        <p class="mono-label">On the computer you share</p>
+        <h3>KyberNow Server for Windows</h3>
+        <ul class="specs"><li>Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor</li><li>Kyber engine, console, virtual display and sound, gamepads</li><li data-size="KyberNow-Setup.exe">81&nbsp;MB</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Download KyberNow Server</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.08s" data-os="mac">
+        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
+        <span class="role">Client</span>
+        <p class="mono-label">On your Mac</p>
+        <h3>KyberNow for Mac</h3>
+        <ul class="specs"><li>Mac with Apple silicon, macOS 14 or later</li><li>Signed and notarised by Apple</li><li data-size="KyberNow-macOS.zip">40&nbsp;MB</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip"><svg class="ic"><use href="/assets/icons.svg#apple-logo"/></svg>Download the app</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.16s" data-os="web">
+        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
+        <span class="role">Client</span>
+        <p class="mono-label">On all your devices</p>
+        <h3>KyberNow in the browser</h3>
+        <ul class="specs"><li>Computer, tablet or phone</li><li>Served by the computer, nothing to install</li><li class="addr">https://<i>computer</i>:<i>port</i>/ecran</li></ul>
+        <a class="btn btn-ghost" href="/en/guide/#navigateur"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg>How to open it</a>
+      </article>
+    </div>
+
+    <div class="soon" data-reveal>
+      <p class="mono-label">Upcoming clients</p>
+      <ul>
+        <li><svg class="ic"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span class="tag tag-next">Soon</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone and iPad</b><span class="tag">Planned</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span class="tag">Planned</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg><b>Windows</b><span class="tag">Planned</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg><b>Linux</b><span class="tag">Planned</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Planned</span></li>
+      </ul>
+      <p class="soon-note">Until then, all these devices can already open the web client.</p>
+    </div>
+
+    <p class="release" data-reveal><span id="release-version">Version 0.2.0</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Release notes</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">SHA-256 checksums</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Source code</a></p>
+    <aside class="community" data-reveal>
+      <svg class="ic-lg"><use href="/assets/icons.svg#discord-logo"/></svg>
+      <div>
+        <h3>A question, an idea?</h3>
+        <p>Join the community on Discord: help with installation, ideas, announcements of new versions. In French and English.</p>
+      </div>
+      <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener">Join the Discord<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
+    </aside>
+    <p class="guide-link" data-reveal>First installation? Follow the <a href="/en/guide/">step-by-step guide</a>.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <div>
+      <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
+      <p class="footer-mention">KyberNow uses <a href="https://kyber.tech" rel="noopener">Kyber</a>, free software released under the AGPL-3.0 licence. KyberNow is a community, non-commercial project, developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>; it is neither published nor endorsed by the Kyber team, and is not affiliated with it. Sunshine, Moonlight, Discord, Windows, macOS, Apple TV, Android, Linux and Raspberry Pi belong to their respective owners.</p>
+    </div>
+    <ul class="footer-links">
+      <li><a href="/en/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide and FAQ</a></li>
+      <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
+      <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
+      <li><a href="/en/legal/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Legal notice</a></li>
+      <li><a href="/" hreflang="fr" lang="fr" data-set-lang="fr"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>Français</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script type="module" src="/assets/main.js"></script>
+<script type="module" src="/assets/scene.js"></script>
+</body>
+</html>

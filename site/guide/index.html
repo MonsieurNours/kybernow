@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="fr" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide et FAQ · KyberNow</title>
+<meta name="description" content="Installer KyberNow Server sur l'ordinateur à partager, connecter un appareil (app Mac ou navigateur), jouer à distance par VPN, mettre à jour : le guide pas à pas et les questions fréquentes.">
+<meta name="theme-color" content="#05070A">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate" hreflang="fr" href="https://kybernow.app/guide/">
+<link rel="alternate" hreflang="en" href="https://kybernow.app/en/guide/">
+<link rel="alternate" hreflang="x-default" href="https://kybernow.app/en/guide/">
+<script src="/assets/lang.js"></script>
+<link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/kybernow.css">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/doc.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/three.module.min.js",
+  "three/addons/": "/vendor/three/addons/"
+} }
+</script>
+</head>
+<body>
+
+<canvas id="scene" aria-hidden="true"></canvas>
+<div class="veil" aria-hidden="true"></div>
+
+<header class="nav" id="nav">
+  <a class="nav-logo" href="/" aria-label="KyberNow, accueil"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"></a>
+  <nav class="nav-links" aria-label="Sections">
+    <a href="/#pourquoi">Pourquoi</a>
+    <a href="/#trajet">Le trajet</a>
+    <a href="/#quic">QUIC</a>
+    <a href="/#kyber">Kyber</a>
+    <a href="/#comparer">Comparer</a>
+    <a href="/guide/" class="is-active" aria-current="page">Guide</a>
+  </nav>
+  <div class="nav-actions">
+    <a class="nav-icon" href="https://discord.gg/sVy2mu5WdT" rel="noopener" aria-label="Discord"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg></a>
+    <a class="nav-lang" href="/en/guide/" hreflang="en" lang="en" data-set-lang="en">EN</a>
+    <a class="btn btn-ghost btn-sm nav-dl" href="/#telecharger"><svg class="ic"><use href="/assets/icons.svg#download-simple"/></svg>Télécharger</a>
+    <button class="nav-burger" type="button" aria-expanded="false" aria-controls="menu" aria-label="Menu"><span></span><span></span></button>
+  </div>
+</header>
+<div class="menu" id="menu" hidden>
+  <nav aria-label="Menu">
+    <a href="/#pourquoi">Pourquoi</a>
+    <a href="/#trajet">Le trajet d'une image</a>
+    <a href="/#quic">QUIC</a>
+    <a href="/#kyber">Kyber</a>
+    <a href="/#comparer">Comparer</a>
+    <a href="/guide/">Guide et FAQ</a>
+    <a href="/#telecharger">Télécharger</a>
+  </nav>
+  <div class="menu-foot">
+    <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a>
+    <a class="btn btn-ghost" href="/en/guide/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a>
+  </div>
+</div>
+
+<main>
+
+<section class="page-hero" data-scene="guide">
+  <div class="wrap">
+    <p class="label" data-reveal>Guide et FAQ</p>
+    <h1 class="title page-title" data-split>Installer KyberNow, <strong>pas à pas.</strong></h1>
+    <p class="lede" data-reveal style="--d:.3s">Trois minutes sur l'ordinateur à partager, une sur chaque appareil. Ce guide suit les écrans dans l'ordre, puis répond aux questions fréquentes.</p>
+    <ol class="quick" data-reveal style="--d:.45s">
+      <li><a href="#serveur"><span>1</span>Installer KyberNow Server</a></li>
+      <li><a href="#appareil"><span>2</span>Connecter un appareil</a></li>
+      <li><a href="#session"><span>3</span>Jouer, travailler</a></li>
+    </ol>
+  </div>
+</section>
+
+<div class="wrap doc">
+  <aside class="toc" aria-label="Sommaire">
+    <p class="mono-label">Sommaire</p>
+    <a href="#prerequis">Avant de commencer</a>
+    <a href="#serveur">1 · KyberNow Server</a>
+    <a href="#appareil">2 · Connecter un appareil</a>
+    <a href="#session">3 · En session</a>
+    <a href="#distance">Hors de chez vous</a>
+    <a href="#mises-a-jour">Mettre à jour</a>
+    <a href="#desinstaller">Désinstaller</a>
+    <a href="#faq">Questions fréquentes</a>
+  </aside>
+
+  <article class="doc-body">
+
+    <section id="prerequis" class="doc-section">
+      <h2>Avant de commencer</h2>
+      <div class="req">
+        <div class="req-card">
+          <span class="role">Serveur</span>
+          <h3>L'ordinateur à partager</h3>
+          <ul class="ticks ticks-on">
+            <li>Windows 10 ou 11, avec les droits d'administrateur</li>
+            <li>N'importe quelle carte graphique, NVIDIA, AMD ou Intel, eGPU compris. Sans carte graphique, le processeur compresse l'image</li>
+            <li>Microsoft Edge WebView2, présent sur Windows 11 et la plupart des Windows 10 (l'installateur vous guide s'il manque)</li>
+            <li>Steam, si vous voulez le son sur vos appareils plutôt que sur les haut-parleurs de l'ordinateur</li>
+          </ul>
+        </div>
+        <div class="req-card">
+          <span class="role">Client</span>
+          <h3>Vos appareils</h3>
+          <ul class="ticks ticks-on">
+            <li>Un Mac à puce Apple sous macOS 14 ou plus récent, pour l'app</li>
+            <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
+            <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
+          </ul>
+        </div>
+      </div>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg><span>Un câble Ethernet sur l'ordinateur évite les micro-coupures du Wi-Fi. Côté appareil, un Wi-Fi 5&nbsp;GHz ou 6&nbsp;GHz proche du routeur suffit le plus souvent.</span></p>
+    </section>
+
+    <section id="serveur" class="doc-section">
+      <p class="step-label">Étape 1</p>
+      <h2>Installer KyberNow Server</h2>
+      <p>Téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Setup.exe">KyberNow-Setup.exe</a> sur l'ordinateur à partager et ouvrez-le. Windows demande l'autorisation d'administrateur&#8239;: l'installateur pose des pilotes et des services. Rien ne change sur l'ordinateur avant que vous cliquiez sur «&#8239;Installer&#8239;».</p>
+      <ol class="steps-doc">
+        <li>
+          <h3>Bienvenue</h3>
+          <p>L'installateur vérifie l'ordinateur pendant que vous lisez&#8239;: carte graphique et pilote, réseau, ports, écran principal, mode d'alimentation, son à distance. Un point orange explique ce qu'il conseille, sans bloquer.</p>
+          <p>Deux ports sont tirés au hasard, l'un pour le flux, l'autre pour la console, en évitant ceux de Windows et de Sunshine. «&#8239;Modifier&#8239;» permet de les choisir. Un réseau réglé sur «&#8239;Public&#8239;» passera en «&#8239;Privé&#8239;», sinon vos appareils ne verraient pas l'ordinateur.</p>
+        </li>
+        <li>
+          <h3>Votre compte</h3>
+          <p>Un identifiant et un mot de passe d'au moins 10&nbsp;caractères. C'est le seul compte de KyberNow&#8239;: il ouvre la console et connecte vos appareils. Il n'est enregistré que sous forme d'empreinte.</p>
+        </li>
+        <li>
+          <h3>Options</h3>
+          <p>Tout est déjà réglé au mieux&#8239;: écran virtuel adapté à chaque appareil, manettes, son à distance, démarrage avec l'ordinateur, performances maximales. Le pilote d'écran virtuel (SudoVDA, libre) n'est pas signé par Microsoft&#8239;: son certificat est ajouté aux autorités de confiance de l'ordinateur, et retiré à la désinstallation.</p>
+        </li>
+        <li>
+          <h3>Installation, puis Terminé</h3>
+          <p>Moins d'une minute. L'écran final affiche l'adresse de l'ordinateur, un QR code de sa console et l'adresse du client web. Si les manettes l'exigent, un redémarrage est proposé.</p>
+        </li>
+      </ol>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>À la première ouverture de la console, le navigateur signale un certificat inconnu&#8239;: c'est normal, l'ordinateur a créé son propre certificat. Les apps KyberNow, elles, vérifient son empreinte.</span></p>
+      <p>Une icône KyberNow s'installe dans la zone de notification. Elle montre l'état du serveur (vert en marche, violet pendant une session) et ouvre la console, où vous trouverez quatre pages&#8239;: <b>Vue d'ensemble</b>, <b>Image et son</b>, <b>Accès</b> et <b>Système</b>.</p>
+    </section>
+
+    <section id="appareil" class="doc-section">
+      <p class="step-label">Étape 2</p>
+      <h2>Connecter un appareil</h2>
+
+      <h3 id="mac" class="sub">Avec l'app Mac</h3>
+      <ol class="steps-doc">
+        <li><p>Téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip">KyberNow-macOS.zip</a>, ouvrez-le et glissez KyberNow dans Applications. L'app est signée et notarisée par Apple.</p></li>
+        <li><p>Ouvrez-la puis choisissez «&#8239;Ajouter un ordinateur&#8239;»&#8239;:</p>
+          <ul class="ticks">
+            <li><b>Sur ce réseau</b>&#8239;: l'ordinateur apparaît tout seul (Bonjour).</li>
+            <li><b>Par adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN.</li>
+            <li><b>QR code ou lien</b>&#8239;: dans la console, page <b>Accès</b>, «&#8239;Ajouter un appareil&#8239;». Le lien contient l'adresse et l'empreinte du certificat, jamais de mot de passe.</li>
+          </ul>
+        </li>
+        <li><p>«&#8239;C'est bien votre ordinateur&#8239;?&#8239;»&#8239;: venue d'un lien ou de Bonjour, l'empreinte est vérifiée toute seule. Par simple adresse, comparez les quatre premiers groupes avec ceux de la console.</p></li>
+        <li><p>Entrez le compte créé à l'installation. Il est gardé dans le Trousseau du Mac. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
+      </ol>
+
+      <h3 id="navigateur" class="sub">Dans un navigateur</h3>
+      <p>Sur n'importe quel appareil du même réseau (ou relié par VPN), ouvrez l'adresse de la console suivie de <code>/ecran</code>, par exemple <code>https://192.168.1.20:31415/ecran</code>. L'adresse exacte s'affiche à la fin de l'installation et sur la page Vue d'ensemble de la console. Acceptez l'avertissement de certificat, puis connectez-vous avec votre compte.</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg><span>Le client web convient pour dépanner, travailler depuis une tablette ou un ordinateur d'emprunt. Pour jouer, l'app native décode l'image plus vite.</span></p>
+    </section>
+
+    <section id="session" class="doc-section">
+      <p class="step-label">Étape 3</p>
+      <h2>En session</h2>
+      <p>À la connexion, l'ordinateur crée un écran virtuel à la définition et à la fréquence de votre appareil, éteint ses propres écrans et envoie le son vers vos haut-parleurs. À la fin, tout revient comme avant&#8239;: écrans, sortie audio. Windows n'est pas verrouillé.</p>
+      <h3 class="sub">Les profils</h3>
+      <div class="table">
+        <div class="tr"><span class="th">Jeu</span><span>Latence minimale, la fréquence de votre écran, manette prête.</span></div>
+        <div class="tr"><span class="th">Bureau</span><span>Texte net (4:4:4), aucune image perdue, débit plus élevé.</span></div>
+        <div class="tr"><span class="th">Max</span><span>Sans compromis&#8239;: latence minimale, 4:4:4 et gros débit. Idéal en réseau câblé.</span></div>
+      </div>
+      <p>Modifier un réglage fait passer le profil en «&#8239;Personnalisé&#8239;». La souris suit le mode <b>Auto</b>&#8239;: bureau d'ordinaire, jeu (déplacements bruts) quand un jeu passe en plein écran sur l'ordinateur.</p>
+      <h3 class="sub">Raccourcis de l'app Mac</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
+        <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>F</kbd></span><span>Plein écran ou fenêtre</span></div>
+        <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
+        <div class="tr"><span class="th"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>S</kbd></span><span>Mesures détaillées&#8239;: trajet d'une image, latence, débit, pertes</span></div>
+        <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>La manette pilote la barre de session</span></div>
+      </div>
+      <p class="muted">Les raccourcis <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> restent sur le Mac et ne partent jamais vers l'ordinateur. <kbd>⌘</kbd> + touche est envoyé comme <kbd>Ctrl</kbd> + touche.</p>
+    </section>
+
+    <section id="distance" class="doc-section">
+      <h2>Hors de chez vous</h2>
+      <p>KyberNow ne passe par aucun serveur tiers&#8239;: pour atteindre l'ordinateur de loin, reliez vos appareils à lui par un VPN. Tailscale est le plus simple, WireGuard le plus léger.</p>
+      <ol class="steps-doc">
+        <li><p>Installez le même VPN sur l'ordinateur et sur l'appareil, connectés au même compte ou au même réseau.</p></li>
+        <li><p>Dans l'app, ajoutez l'ordinateur «&#8239;Par adresse&#8239;», avec son adresse dans le VPN (par exemple <code>100.x.y.z</code> avec Tailscale), ou scannez le QR code de la console.</p></li>
+        <li><p>Choisissez le profil Jeu ou Bureau selon votre connexion&#8239;: le débit du profil Max est pensé pour un réseau local.</p></li>
+      </ol>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>N'ouvrez pas les ports de KyberNow sur Internet depuis votre box&#8239;: le VPN garde l'ordinateur invisible du reste du monde.</span></p>
+    </section>
+
+    <section id="mises-a-jour" class="doc-section">
+      <h2>Mettre à jour</h2>
+      <p><b>L'ordinateur</b>&#8239;: la console vérifie les nouvelles versions toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» télécharge le paquet, vérifie son empreinte et l'applique en une minute environ (une session en cours est coupée). L'icône de la zone de notification le propose aussi.</p>
+      <p><b>L'app Mac</b>&#8239;: elle se met à jour toute seule, ou par <b>KyberNow › Rechercher des mises à jour…</b></p>
+      <p class="muted">Sans la console, depuis PowerShell en administrateur&#8239;:</p>
+      <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
+    </section>
+
+    <section id="desinstaller" class="doc-section">
+      <h2>Désinstaller</h2>
+      <p><b>L'ordinateur</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow › Désinstaller. Services, console, écran virtuel et son certificat, règles de pare-feu et réglages sont retirés. Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels s'en servent.</p>
+      <p><b>Le Mac</b>&#8239;: glissez KyberNow d'Applications à la corbeille.</p>
+    </section>
+
+    <section id="faq" class="doc-section">
+      <h2>Questions fréquentes</h2>
+      <div class="faq">
+        <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. C'est un projet communautaire et non commercial, sous licence libre AGPL-3.0&#8239;: pas de compte en ligne, pas d'abonnement, pas de publicité. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
+        <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Kyber encode l'image avec toutes les cartes graphiques, NVIDIA, AMD ou Intel, y compris une carte externe (eGPU). Sans carte graphique, le processeur s'en charge. L'encodeur se choisit dans la console, page Système › Avancé.</p></details>
+        <details><summary>Quelles définitions et quelles fréquences&#8239;?</summary><p>Celles de votre écran&#8239;: l'ordinateur crée un écran virtuel à sa mesure, 4K, 5K ou 6K, 60, 120 ou 160&nbsp;Hz. Nous l'avons utilisé en 3840&nbsp;×&nbsp;2160 à 160&nbsp;Hz et en 5K à 60&nbsp;Hz. L'option «&#8239;Au plus 4K&#8239;» allège l'encodage si votre réseau ou votre carte peinent.</p></details>
+        <details><summary>Quelle latence attendre&#8239;?</summary><p>Sur un réseau local, nous mesurons 9,4&nbsp;ms en médiane de la capture à l'affichage, en 4K à 160&nbsp;Hz. Elle dépend surtout de la carte graphique, du réseau et de l'appareil. L'app l'affiche en direct dans sa barre de session.</p></details>
+        <details><summary>Et le HDR&#8239;?</summary><p>Pas encore&#8239;: Kyber 0.29 capture l'écran en 8&nbsp;bits. Gardez le HDR de Windows désactivé pendant les sessions.</p></details>
+        <details><summary>Mes écrans s'éteignent pendant la session, c'est normal&#8239;?</summary><p>Oui&#8239;: l'ordinateur n'affiche que l'écran virtuel, à la taille de votre appareil. Ils se rallument à la fin. En cas de doute, la console offre «&#8239;Rallumer mes écrans&#8239;», et le pilote retire de lui-même l'écran virtuel s'il ne reçoit plus de nouvelles.</p></details>
+        <details><summary>Le son sort encore des haut-parleurs de l'ordinateur.</summary><p>Le son à distance utilise les haut-parleurs virtuels de Steam. Installez Steam sur l'ordinateur, puis relancez l'installateur de KyberNow&#8239;: l'option «&#8239;Son à distance&#8239;» devient disponible.</p></details>
+        <details><summary>Ma manette ne répond pas.</summary><p>Les manettes Xbox et PlayStation passent par le pilote ViGEmBus, posé à l'installation. Un redémarrage de l'ordinateur est parfois nécessaire après la première installation.</p></details>
+        <details><summary>Deux appareils peuvent-ils se connecter en même temps&#8239;?</summary><p>Non&#8239;: le second prend la main, le premier est déconnecté et l'écran virtuel est recréé à la taille du nouvel appareil.</p></details>
+        <details><summary>L'image reste noire ou se fige.</summary><p>Mettez l'ordinateur et l'app à jour&#8239;: l'app redemande une image complète après une perte et allège le flux si l'image ne vient pas. Préférez un câble Ethernet sur l'ordinateur, et vérifiez qu'aucune autre app de streaming n'utilise l'encodeur.</p></details>
+        <details><summary>J'ai oublié le mot de passe.</summary><p>Sur l'ordinateur, clic droit sur l'icône KyberNow › «&#8239;Réinitialiser le mot de passe de la console…&#8239;», puis suivez la console pour en choisir un nouveau.</p></details>
+        <details><summary>L'app fonctionne-t-elle sur un Mac Intel&#8239;?</summary><p>Non, elle demande une puce Apple (M1 ou plus récente). Sur un Mac Intel, utilisez le client web dans le navigateur.</p></details>
+        <details><summary>Quel lien avec Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute un installateur, une console, des écrans et haut-parleurs virtuels et des apps. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
+        <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune. Rien ne passe par un serveur à nous&#8239;: l'image va directement de l'ordinateur à vos appareils. La console interroge seulement GitHub pour savoir si une nouvelle version existe.</p></details>
+      </div>
+    </section>
+
+    <aside class="community">
+      <svg class="ic-lg"><use href="/assets/icons.svg#discord-logo"/></svg>
+      <div>
+        <h3>Pas de réponse ici&#8239;?</h3>
+        <p>Posez votre question dans le forum d'aide du Discord, en français ou en anglais.</p>
+      </div>
+      <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener">Rejoindre le Discord<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
+    </aside>
+  </article>
+</div>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <div>
+      <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
+      <p class="footer-mention">KyberNow utilise <a href="https://kyber.tech" rel="noopener">Kyber</a>, logiciel libre publié sous licence AGPL-3.0. KyberNow est un projet communautaire et non commercial, développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>&#8239;; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Sunshine, Moonlight, Discord, Windows, macOS, Apple TV, Android, Linux et Raspberry Pi appartiennent à leurs propriétaires respectifs.</p>
+    </div>
+    <ul class="footer-links">
+      <li><a href="/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide et FAQ</a></li>
+      <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
+      <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
+      <li><a href="/mentions-legales/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Mentions légales</a></li>
+      <li><a href="/en/guide/" hreflang="en" lang="en" data-set-lang="en"><svg class="ic"><use href="/assets/icons.svg#globe"/></svg>English</a></li>
+    </ul>
+  </div>
+</footer>
+
+<script type="module" src="/assets/main.js"></script>
+<script type="module" src="/assets/scene.js"></script>
+</body>
+</html>

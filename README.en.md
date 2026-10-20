@@ -13,6 +13,7 @@ Ready-to-install Windows streaming server and macOS / tvOS clients, built on [Ky
 | `server/tray/` | Notification area icon |
 | `server/installer/` | `KyberNow-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Patches to Kyber, described in [docs/kyber-changes.en.md](docs/kyber-changes.en.md) |
+| `site/` | kybernow.app website (static, no npm), see [its README](site/README.en.md) |
 | `brand/` | Logo and variants; v2 identity in `brand/v2/` (guidelines, symbol, tokens) |
 | `docs/` | Changes to Kyber, build notes, reference prototype |
 | `tools/latency/` | Latency measurement |
