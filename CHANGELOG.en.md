@@ -41,6 +41,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Apple TV app: game rumble is continuous and follows the game's intensity, instead of stuttering at every change; it also starts faster.
 - Apple TV app: four gamepads at most on the computer, as with XInput; a fifth one waits (message in the Gamepads screen and during the session) and takes the slot of the first one that disconnects, instead of being announced to a computer that cannot see it.
 - Apple TV app: the Siri Remote as mouse accelerates with the finger's speed (slow for aiming, fast to cross) and adapts to the resolution of the computer's screen, instead of a fixed speed that was too slow in 4K; a finger at the centre of the pad is no longer taken for lifted. The gamepad as mouse also crosses the screen in 1.5 s whatever its resolution.
+- Apple TV app: the L1 + R1 + Start + Select combo only opens the menu when held for 250 ms; a brief press of the four buttons stays with the game, without releasing anything behind its back.
 
 ## 0.2.5
 

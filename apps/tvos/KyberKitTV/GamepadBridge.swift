@@ -161,6 +161,9 @@ public final class GamepadBridge: ObservableObject {
         var pendingAxes: [PadAxis: Int16] = [:]
         /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
         var comboSeen = false
+        /// Les quatre touches de la combinaison sont tenues : elle se forme au
+        /// bout de 250 ms si aucune n'a été lâchée entre-temps.
+        var comboTimer: DispatchWorkItem?
         init(controller: GCController, id: UInt32, player: Int) {
             self.controller = controller
             self.id = id
@@ -446,6 +449,7 @@ public final class GamepadBridge: ObservableObject {
             return
         }
         guard let slot = slots.removeValue(forKey: ObjectIdentifier(c)) else { return }
+        slot.comboTimer?.cancel()
         slot.motors?.stop()
         if slot.active, let input {
             releaseAll(slot, input: input)
@@ -536,14 +540,13 @@ public final class GamepadBridge: ObservableObject {
         liveDirty = true
         noteKind(Self.kind(slot.controller))
         guard let input else { return }
-        if config.menuFromCombo, pressed, Self.combo.contains(button), slot.pressed.isSuperset(of: Self.combo) {
-            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
-            slot.comboSeen = true
-            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
-            // contrôleur de session : prendre la manette (il relâche alors
-            // pour l'ordinateur les touches qu'il a vues), ou la rendre.
-            requestMenu()
-            return
+        if Self.combo.contains(button) {
+            if pressed, config.menuFromCombo, slot.pressed.isSuperset(of: Self.combo) {
+                armCombo(slot)
+            } else if !pressed {
+                slot.comboTimer?.cancel()
+                slot.comboTimer = nil
+            }
         }
         defer { if slot.pressed.isDisjoint(with: Self.combo) { slot.comboSeen = false } }
         guard !captured else { return }
@@ -554,6 +557,28 @@ public final class GamepadBridge: ObservableObject {
         guard slot.active else { return }
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
+
+    /// Quatre touches tenues : la combinaison ne se forme qu'au bout de
+    /// 250 ms. En dessous (un jeu qui les presse ensemble, un appui
+    /// maladroit), rien ne change pour le jeu, qui a reçu les quatre touches
+    /// comme les autres, et rien n'est relâché pour lui. Formée, la suite est
+    /// au contrôleur de session : prendre la manette (les touches tenues sont
+    /// alors relâchées pour l'ordinateur), ou la rendre.
+    private func armCombo(_ slot: Slot) {
+        slot.comboTimer?.cancel()
+        let item = DispatchWorkItem { [weak self, weak slot] in
+            guard let self, let slot else { return }
+            slot.comboTimer = nil
+            guard self.config.menuFromCombo, self.input != nil, slot.pressed.isSuperset(of: Self.combo) else { return }
+            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
+            slot.comboSeen = true
+            self.requestMenu()
+        }
+        slot.comboTimer = item
+        queue.asyncAfter(deadline: .now() + Self.comboHold, execute: item)
+    }
+
+    private static let comboHold: DispatchTimeInterval = .milliseconds(250)
 
     /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
     /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
