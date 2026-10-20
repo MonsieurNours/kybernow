@@ -10,3 +10,5 @@ server/admin/dev-data/
 .DS_Store
 /server/dist/
 /dist/
+# Réglages locaux de Claude Code
+/.claude/
