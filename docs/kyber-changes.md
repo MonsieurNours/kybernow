@@ -49,7 +49,16 @@ Le réglage existe pour trancher par la mesure entre la file profonde (rien perd
 3. Saturer le Wi-Fi pendant une session (par exemple un téléchargement continu sur un autre appareil du même point d'accès, ou `iperf3 -c <serveur> -R -t 120` depuis le Mac), puis noter la latence (HUD de l'app), les images perdues et les demandes d'image clé (`/force_idr` dans le journal du contrôleur en `debug`).
 4. Refaire la même mesure avec l'autre politique, et sans saturation pour vérifier qu'aucune ne dégrade le cas normal (4K, image clé).
 
-## Réglé sans modifier le code de Kyber
+## À vérifier sur le PC (correctifs 0006 à 0015)
+
+La surcouche a été recompilée et ses correctifs appliqués depuis l'origine (`build.sh` complet, le 21 octobre 2026), mais rien n'a encore tourné sur le PC.
+
+- **Politique d'envoi** : la mesure ci-dessus, en Wi-Fi saturé, file profonde contre file courte (et une taille intermédiaire avec `datagram_send_queue_size`). Le défaut ne change qu'après.
+- **Pointeur** : avec `[kyavserver] cursor_move_rate = 120`, le pointeur dessiné par l'app en mode jeu suit la souris sans à-coups, sur txproto et sur libavconv ; la forme reste juste après un changement de forme, un masquage, un passage d'un écran à l'autre ; un appareil qui se connecte en cours de session reçoit la forme. Journal de kynputserver sans erreur ; débit de la connexion des entrées nettement plus bas pendant que la souris bouge.
+- **Serveur d'entrées remplacé** : `kynputserver.exe` démarre avec Kyber (manettes ViGEm, clavier, presse-papiers comme avant) ; le client officiel `kyclient.exe` du PC démarre toujours avec la nouvelle `kynput.dll` (manette SDL comprise).
+- **Moteur web** : la page `/ecran` se charge avec le nouveau moteur (même API) ; onglet masqué puis rendu, Alt+Tab, Échap en mode Jeu : rien ne reste enfoncé ; pointeur masqué par Windows en mode Bureau : les clics tombent au bon endroit en WebTransport ; manette non « standard » ignorée ; changement de mode de l'écran pendant une session (nouvelle configuration du décodeur) sans plantage. La saisie Unicode du moteur ne se teste qu'une fois la page modifiée (champ `data-kynput-text`, voir `server/README.md`).
+
+
 
 - **Configuration** (`kyber_config.toml`, par la console) : port, encodeur, compte Basic unique, secret JWT tiré au hasard à l'installation (à la place de la clé de développement fournie par Kyber), réglages de la console (pages Réglages et Avancé), commentaires préservés et sauvegarde à chaque écriture.
 - **Écran virtuel** : SudoVDA (pilote d'Apollo 0.4.6), créé par la console à chaque session à la taille de l'écran du client. La disposition est enregistrée par Windows (`SDC_SAVE_TO_DATABASE`, `CDS_UPDATEREGISTRY`) pour qu'il ne la réapplique pas en boucle. Retiré en fin de session, écrans d'origine restaurés.

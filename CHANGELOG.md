@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Serveur : la surcouche Kyber livrée avec KyberNow est recompilée avec ces correctifs : capture et encodage (kyavserver, txproto), contrôleur, serveur d'entrées (`kynput.dll`, `kynputserver.exe`) et moteur du client web.
 - Kyber : onze correctifs préparés pour être proposés à l'équipe Kyber (horodatage du son, son 5.1 refusé, écran retiré qui figeait l'image, pointeur, image clé à la demande), dans `server/kyber-patches/upstream/`. Rien n'est encore envoyé.
 - Client web : le moteur de Kyber est recompilé avec des correctifs KyberNow et livré avec le serveur. Il tape lui-même le texte d'un champ prévu pour (accents et composition compris, aussi sans WebSocket), garde la position de la souris quand Windows masque son pointeur sans qu'elle soit capturée, relâche tout quand l'onglet passe en arrière-plan ou que la capture du pointeur est perdue, ignore les manettes dont il ne connaît pas la disposition, et ne coupe plus la session sur une erreur de décodage si une image complète arrive dans la seconde.
 - Serveur : le pointeur de l'ordinateur ne voyage plus avec sa forme à chaque déplacement, seulement sa position ; la forme ne part que quand elle change ou qu'il réapparaît. Jusqu'à 1 Mo/s de moins sur la connexion de chaque appareil quand la souris bouge, et la cadence devient réglable : `[kyavserver] cursor_move_rate`, 60 par seconde par défaut, jusqu'à 120. Le serveur d'entrées de Kyber (`kynput.dll`, `kynputserver.exe`) fait maintenant partie de la surcouche.

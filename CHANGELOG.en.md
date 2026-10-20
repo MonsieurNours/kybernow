@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Server: the Kyber overlay shipped with KyberNow is rebuilt with these patches: capture and encoding (kyavserver, txproto), controller, input server (`kynput.dll`, `kynputserver.exe`) and the web client's engine.
 - Kyber: eleven patches prepared to be proposed to the Kyber team (audio timestamps, refused 5.1 sound, removed display freezing the image, pointer, keyframe on request), in `server/kyber-patches/upstream/`. Nothing has been sent yet.
 - Web client: Kyber's engine is rebuilt with KyberNow patches and shipped with the server. It types by itself the text of a field meant for it (accents and composition included, also without WebSocket), keeps the mouse position when Windows hides its pointer without it being locked, releases everything when the tab goes to the background or the pointer lock is lost, ignores gamepads whose layout it does not know, and no longer ends the session on a decoding error if a full frame comes within a second.
 - Server: the computer's pointer no longer travels with its shape at every move, only its position; the shape is only sent when it changes or the pointer shows again. Up to 1 MB/s less on each device's connection while the mouse moves, and the rate becomes configurable: `[kyavserver] cursor_move_rate`, 60 per second by default, up to 120. Kyber's input server (`kynput.dll`, `kynputserver.exe`) is now part of the overlay.

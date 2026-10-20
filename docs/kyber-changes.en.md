@@ -49,7 +49,16 @@ The setting exists to decide by measurement between the deep queue (nothing lost
 3. Saturate the Wi-Fi during a session (for example a continuous download on another device on the same access point, or `iperf3 -c <server> -R -t 120` from the Mac), then note the latency (the app's HUD), lost frames and keyframe requests (`/force_idr` in the controller log at `debug`).
 4. Repeat the same measurement with the other policy, and without saturation to check that neither degrades the normal case (4K, keyframe).
 
-## Handled without changing Kyber's code
+## To check on the PC (patches 0006 to 0015)
+
+The overlay has been rebuilt and its patches applied from the original sources (full `build.sh`, on 21 October 2026), but nothing has run on the PC yet.
+
+- **Send policy**: the measurement above, on a saturated Wi-Fi, deep queue against short queue (and an intermediate size with `datagram_send_queue_size`). The default only changes afterwards.
+- **Pointer**: with `[kyavserver] cursor_move_rate = 120`, the pointer the app draws in game mode follows the mouse smoothly, with txproto and with libavconv; the shape stays right after a shape change, a hide, a move from one display to another; a device connecting during a session gets the shape. kynputserver's log without errors; much lower throughput on the inputs connection while the mouse moves.
+- **Replaced input server**: `kynputserver.exe` starts with Kyber (ViGEm gamepads, keyboard, clipboard as before); the PC's official client `kyclient.exe` still starts with the new `kynput.dll` (SDL gamepad included).
+- **Web engine**: the `/ecran` page loads with the new engine (same API); tab hidden then shown again, Alt+Tab, Escape in Game mode: nothing stays held; pointer hidden by Windows in Desktop mode: clicks land in the right place over WebTransport; non-"standard" gamepad ignored; display mode change during a session (new decoder configuration) without a crash. The engine's Unicode input can only be tested once the page is changed (`data-kynput-text` field, see `server/README.md`).
+
+
 
 - **Configuration** (`kyber_config.toml`, through the console): port, encoder, single Basic account, JWT secret drawn at random at installation (instead of the development key shipped with Kyber), console settings (Settings and Advanced pages), comments kept and a backup at each write.
 - **Virtual display**: SudoVDA (Apollo 0.4.6's driver), created by the console for each session at the size of the client's display. The layout is saved by Windows (`SDC_SAVE_TO_DATABASE`, `CDS_UPDATEREGISTRY`) so that it does not reapply it in a loop. Removed at the end of the session, original displays restored.
