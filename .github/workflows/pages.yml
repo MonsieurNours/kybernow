@@ -1,4 +1,4 @@
-# Publie le site kybernow.app (dossier site/) sur GitHub Pages.
+# Publie le site www.kybernow.app (dossier site/) sur GitHub Pages.
 # Domaine personnalisé : réglé dans Settings › Pages (aucun fichier CNAME nécessaire avec un workflow).
 name: Site
 

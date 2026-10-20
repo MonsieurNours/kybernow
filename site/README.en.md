@@ -1,4 +1,4 @@
-# kybernow.app
+# www.kybernow.app
 
 English · [Français](README.md)
 
@@ -30,7 +30,7 @@ Set-up, once only:
 1. GitHub › Settings › Pages › Source: “GitHub Actions”.
 2. Verify the domain (account Settings › Pages › Add a domain › `kybernow.app`, TXT record at the registrar) before touching the DNS, so that no other account can take it.
 3. DNS for `kybernow.app`: four `A` records (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153), the `AAAA` records 2606:50c0:8000::153 to 8003::153, and `www` as a `CNAME` to `monsieurnours.github.io`.
-4. Settings › Pages › Custom domain: `kybernow.app`, then “Enforce HTTPS” as soon as the certificate is ready (up to 24 h; `.app` requires HTTPS).
+4. Settings › Pages › Custom domain: `www.kybernow.app` (the `A` records of `kybernow.app` make the bare domain redirect to `www`), then “Enforce HTTPS” as soon as the certificate is ready (up to 24 h; `.app` requires HTTPS).
 
 ## Community
 

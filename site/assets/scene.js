@@ -1,4 +1,4 @@
-// kybernow.app — scène 3D : le symbole « Relais » en volume, sa couture en néon, le flux de l'image.
+// www.kybernow.app — scène 3D : le symbole « Relais » en volume, sa couture en néon, le flux de l'image.
 // Géométrie reprise de brand/v2/tools/geometry.json (grille de 48).
 
 import * as THREE from 'three';

@@ -1,4 +1,4 @@
-// kybernow.app — défilement, apparitions, menu, langue, trajet d'une image, simulation QUIC, profils, téléchargements.
+// www.kybernow.app — défilement, apparitions, menu, langue, trajet d'une image, simulation QUIC, profils, téléchargements.
 // Partagé par toutes les pages : chaque bloc ne s'active que si ses éléments sont présents.
 
 const root = document.documentElement;
