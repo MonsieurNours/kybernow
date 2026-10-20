@@ -56,6 +56,13 @@
     const timer = setInterval(async () => {
       try {
         const s = await api.update()
+        if (s.install_error) {
+          clearInterval(timer)
+          installing = null
+          update = s
+          notify('error', s.install_error.split('\n')[0])
+          return
+        }
         if (s.current === version) {
           clearInterval(timer)
           installing = null
@@ -374,6 +381,9 @@
         {#if update.installable}
           <button type="button" class="primary lit" onclick={install}>Installer maintenant</button>
           <span>Environ une minute. Une session en cours sera coupée. Vous avez {update.current}.</span>
+          {#if update.install_error}
+            <pre class="install-error">{update.install_error}</pre>
+          {/if}
         {:else}
           <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">Télécharger KyberNow-Setup.exe</a>
           <span>Cette version s'installe avec l'installateur. Vous avez {update.current}.</span>
@@ -612,6 +622,20 @@
     align-items: flex-start;
   }
 
+  .install-error {
+    margin: 0;
+    max-width: 100%;
+    max-height: 14rem;
+    overflow: auto;
+    padding: 0.75rem;
+    border-radius: 8px;
+    background: var(--bad-bg);
+    border: 1px solid var(--bad-line);
+    color: var(--bad-text);
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   .update-action span {
     font-size: 13px;
     line-height: 1.5;

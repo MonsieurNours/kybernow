@@ -25,6 +25,7 @@ Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installa
 - Le script arrête l'icône et les services, remplace les fichiers (ceux de Kyber remplacés sont gardés dans `kyber\avant-maj`), puis remet les droits des services, les haut-parleurs de Steam et le pare-feu.
 - Il redémarre ensuite les services. La nouvelle console relance l'icône dans la session de l'utilisateur, avec son compte (fichier `update\relaunch-tray`). La page se met à jour seule.
 - Durée : environ une minute. Une session de streaming en cours est coupée. Journal : `C:\ProgramData\KyberNow\update\<version>\update.log`.
+- La console suit le PowerShell de l'installation. S'il s'arrête alors que la console tourne encore (une étape a échoué), elle l'indique : page Mises à jour, fin du journal, et « Installer » redevient possible. Avant la 0.2.2, la console restait sur « une installation est déjà en cours » jusqu'à son redémarrage.
 
 **L'ordinateur, à la main** (PowerShell administrateur) :
 

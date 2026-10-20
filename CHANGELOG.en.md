@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.2
+
+- Console: an update that stops partway no longer blocks the "Install" button ("an installation is already in progress"); the Updates page shows the end of the installation log. Faster unpacking and download of the update (PowerShell without a progress bar).
+
 ## 0.2.1
 
 - All graphics cards: the installation chooses the encoder of the most capable card (NVIDIA, otherwise AMD, otherwise Intel, eGPUs included; otherwise the processor). AMF and Quick Sync are no longer presented as experimental, and an update keeps the encoder you chose.

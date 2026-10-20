@@ -188,6 +188,8 @@ export interface UpdateStatus {
   checked_seconds_ago: number | null
   error: string | null
   installing: string | null
+  /** Dernière installation arrêtée en route, avec la fin de son journal. */
+  install_error?: string | null
   repo: string
 }
 

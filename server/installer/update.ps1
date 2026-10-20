@@ -14,6 +14,9 @@
 param([string]$Source)
 
 $ErrorActionPreference = 'Stop'
+# Sans barre de progression : Invoke-WebRequest et Expand-Archive de
+# PowerShell 5 en sont plusieurs fois plus lents.
+$ProgressPreference = 'SilentlyContinue'
 $base = if ($env:KYBERNOW_UPDATE_BASE) { $env:KYBERNOW_UPDATE_BASE } else { 'https://github.com/MonsieurNours/kybernow/releases/latest/download' }
 $dir = 'C:\Program Files\KyberNow'
 $data = Join-Path $env:ProgramData 'KyberNow'

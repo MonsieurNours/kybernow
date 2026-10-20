@@ -38,7 +38,7 @@ v2 identity (Archivo, Martian Mono, Spectre signal, “console” symbol), four 
 - `POST /api/stream/end`: original displays and audio output given back, with a report; the app gives the session's median latency there;
 - `GET /api/pairing`: pairing link.
 
-**Updates** (console account): `GET /api/update` (installed version, latest published version, notes), `POST /api/update/check`, `POST /api/update/install`. `GET /api/local/state` (reserved for the computer itself, for the icon) also gives `update_available`, `version`, the computer's name, its address and the current session (`activity`).
+**Updates** (console account): `GET /api/update` (installed version, latest published version, notes), `POST /api/update/check`, `POST /api/update/install`. If the installation's PowerShell stops without having replaced the console, `GET /api/update` returns `install_error` (with the end of the log) and the installation can be started again. `GET /api/local/state` (reserved for the computer itself, for the icon) also gives `update_available`, `version`, the computer's name, its address and the current session (`activity`).
 
 Authentication is Basic, with the Kyber account. The apps pin the console's certificate by its fingerprint.
 

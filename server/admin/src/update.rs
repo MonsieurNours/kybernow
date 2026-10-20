@@ -38,6 +38,11 @@ struct State {
     latest: Option<Release>,
     error: Option<String>,
     installing: Option<String>,
+    /// PowerShell de l'installation en cours, suivi pour voir s'il s'arrête
+    /// sans avoir remplacé la console.
+    child: Option<std::process::Child>,
+    /// Dernière installation qui n'a pas abouti (fin de son journal).
+    install_error: Option<String>,
 }
 
 pub struct Updater {
@@ -64,7 +69,8 @@ impl Updater {
 
     /// État pour la console et l'icône (sans appel réseau).
     pub fn status(&self) -> Value {
-        let s = self.state.lock().unwrap();
+        let mut s = self.state.lock().unwrap();
+        self.reap(&mut s);
         let latest = s.latest.as_ref();
         json!({
             "current": current(),
@@ -77,8 +83,24 @@ impl Updater {
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
             "error": s.error,
             "installing": s.installing,
+            "install_error": s.install_error,
             "repo": REPO,
         })
+    }
+
+    /// PowerShell terminé alors que la console tourne encore : l'installation
+    /// s'est arrêtée en route (sinon il aurait arrêté la console).
+    fn reap(&self, s: &mut State) {
+        let Some(child) = s.child.as_mut() else { return };
+        let Ok(Some(exit)) = child.try_wait() else { return };
+        let version = s.installing.take().unwrap_or_default();
+        s.child = None;
+        let log = self.dir.join(&version).join("update.log");
+        let tail = std::fs::read_to_string(&log)
+            .map(|t| t.lines().rev().filter(|l| !l.trim().is_empty()).take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
+            .unwrap_or_else(|_| "journal absent : PowerShell n'a pas démarré".into());
+        tracing::error!("mise à jour {version} interrompue ({exit}) :\n{tail}");
+        s.install_error = Some(format!("L'installation de {version} s'est arrêtée ({exit}). Journal : {}\n{tail}", log.display()));
     }
 
     /// Version disponible, si plus récente (pour l'icône).
@@ -121,7 +143,8 @@ impl Updater {
     /// Télécharge, vérifie et lance l'installation (la console s'arrête ensuite).
     pub fn install(&self) -> Result<String> {
         let release = {
-            let s = self.state.lock().unwrap();
+            let mut s = self.state.lock().unwrap();
+            self.reap(&mut s);
             if s.installing.is_some() {
                 bail!("une installation est déjà en cours");
             }
@@ -133,15 +156,26 @@ impl Updater {
         let (Some(package), Some(sums)) = (&release.package, &release.sums) else {
             bail!("la version {} n'a pas de paquet de mise à jour", release.version);
         };
-        self.state.lock().unwrap().installing = Some(release.version.clone());
-        let result = self.download_and_launch(&release.version, package, sums);
-        if result.is_err() {
-            self.state.lock().unwrap().installing = None;
+        {
+            let mut s = self.state.lock().unwrap();
+            s.installing = Some(release.version.clone());
+            s.install_error = None;
         }
-        result.map(|_| release.version)
+        let result = self.download_and_launch(&release.version, package, sums);
+        let mut s = self.state.lock().unwrap();
+        match result {
+            Ok(child) => {
+                s.child = child;
+                Ok(release.version)
+            }
+            Err(e) => {
+                s.installing = None;
+                Err(e)
+            }
+        }
     }
 
-    fn download_and_launch(&self, version: &str, package_url: &str, sums_url: &str) -> Result<()> {
+    fn download_and_launch(&self, version: &str, package_url: &str, sums_url: &str) -> Result<Option<std::process::Child>> {
         let dir = self.dir.join(version);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
@@ -161,7 +195,7 @@ impl Updater {
             bail!("empreinte du paquet incorrecte : téléchargement abîmé ou falsifié");
         }
         tracing::info!("mise à jour {version} : paquet vérifié, installation");
-        launch_installer(&dir, &zip)
+        launch_installer(&dir, &zip).map(Some)
     }
 }
 
@@ -209,7 +243,7 @@ fn fetch_latest() -> Result<Release> {
 /// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
 /// exécute le `update.ps1` du paquet.
 #[cfg(windows)]
-fn launch_installer(dir: &Path, zip: &Path) -> Result<()> {
+fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
@@ -217,7 +251,9 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<()> {
     let out = dir.join("contenu");
     let log = dir.join("update.log");
     let script = format!(
-        "Start-Transcript -Path '{log}' -Force; Expand-Archive -Path '{zip}' -DestinationPath '{out}' -Force; & '{out}\\update.ps1' -Source '{out}'; Stop-Transcript",
+        // Sans barre de progression : Expand-Archive de PowerShell 5 en est
+        // plusieurs fois plus lent. Toute erreur finit dans le journal.
+        "$ProgressPreference = 'SilentlyContinue'; Start-Transcript -Path '{log}' -Force; try {{ Expand-Archive -Path '{zip}' -DestinationPath '{out}' -Force; & '{out}\\update.ps1' -Source '{out}' }} catch {{ Write-Output \"ERREUR : $($_.Exception.Message)\"; Write-Output $_.ScriptStackTrace; exit 1 }} finally {{ Stop-Transcript }}",
         log = log.display(),
         zip = zip.display(),
         out = out.display(),
@@ -225,18 +261,18 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<()> {
     let mut cmd = std::process::Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
     // Hors du « job » du service s'il y en a un : sinon l'arrêt de la console l'emporterait.
-    if cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB).spawn().is_err() {
-        std::process::Command::new("powershell.exe")
+    match cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB).spawn() {
+        Ok(child) => Ok(child),
+        Err(_) => std::process::Command::new("powershell.exe")
             .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
             .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
             .spawn()
-            .context("lancement de PowerShell")?;
+            .context("lancement de PowerShell"),
     }
-    Ok(())
 }
 
 #[cfg(not(windows))]
-fn launch_installer(dir: &Path, _zip: &Path) -> Result<()> {
+fn launch_installer(dir: &Path, _zip: &Path) -> Result<std::process::Child> {
     bail!("installation réservée à Windows (paquet vérifié dans {})", dir.display())
 }
 
