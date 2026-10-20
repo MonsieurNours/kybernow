@@ -381,8 +381,15 @@
 
   onMount(() => {
     installDiag()
-    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur.
-    installInputGuard((t) => t === canvas() || (!!touchLayer && t === touchLayer))
+    // Avant le moteur : seuls les clics sur l'image partent à l'ordinateur, et
+    // tout ce qui y est tenu enfoncé est relâché quand la page perd la main.
+    installInputGuard({
+      isVideo: (t) => t === canvas() || (!!touchLayer && t === touchLayer),
+      canvas,
+      onRelease: () => {
+        if (mods.size) mods = new Set()
+      },
+    })
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
     watchInputSocket()

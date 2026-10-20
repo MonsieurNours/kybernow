@@ -8,6 +8,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 - Web client: a click in the session bar (Quit, Sound, Keys…) or on a touch button no longer also clicks on the computer, under the bar.
 - Web client on phones and tablets: text typed on the device's keyboard arrives correctly on a computer with an AZERTY layout, with capitals, accents and emoji, and a keyboard attached to the iPad no longer doubles letters. On touch devices the image therefore goes through WebSocket, as on iPhone and iPad.
+- Web client: leaving the window (Alt+Tab, ⌘Tab, another tab) or giving the mouse back releases held keys and buttons on the computer: no more stuck Shift, Alt or click.
 
 ## 0.2.5
 
