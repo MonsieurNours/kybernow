@@ -194,13 +194,22 @@ impl Router {
         self.stop_locked(reason);
     }
 
+    /// Arrêt du service : la sortie d'origine revient tout de suite.
+    pub fn shutdown(&self) {
+        self.stop("arrêt de la console");
+    }
+
     fn stop_locked(&self, reason: &str) {
         let Some(active) = self.active.lock().unwrap().take() else { return };
         tracing::info!("fin de la sortie audio virtuelle : {reason}");
-        if let Err(e) = self.backend.restore(&active.record) {
-            self.fail(&e);
+        match self.backend.restore(&active.record) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(self.record_path());
+            }
+            // La sortie d'origine n'est pas revenue : le fichier reste pour
+            // que le prochain démarrage réessaie.
+            Err(e) => self.fail(&e),
         }
-        let _ = std::fs::remove_file(self.record_path());
     }
 
     pub fn status(&self) -> Value {

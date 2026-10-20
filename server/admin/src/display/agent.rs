@@ -11,14 +11,14 @@ use std::ptr::{null, null_mut};
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
-use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, WAIT_TIMEOUT};
 use windows_sys::Win32::Security::{
     DuplicateTokenEx, SecurityImpersonation, SetTokenInformation, TOKEN_ALL_ACCESS, TokenPrimary, TokenSessionId,
 };
 use windows_sys::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveConsoleSessionId};
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessAsUserW, GetCurrentProcess, GetCurrentProcessId,
-    GetExitCodeProcess, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW, WaitForSingleObject,
+    GetExitCodeProcess, OpenProcessToken, PROCESS_INFORMATION, STARTUPINFOW, TerminateProcess, WaitForSingleObject,
 };
 
 const TIMEOUT_MS: u32 = 30_000;
@@ -174,7 +174,15 @@ fn start_in_console_session(exe: &Path, args: &[String], wait: Option<u32>) -> R
             CloseHandle(pi.hProcess);
             return Ok(0);
         };
-        WaitForSingleObject(pi.hProcess, timeout_ms);
+        let waited = WaitForSingleObject(pi.hProcess, timeout_ms);
+        if waited == WAIT_TIMEOUT {
+            // Un agent qui traîne (session en transition, écran verrouillé) ne
+            // doit pas finir plus tard, hors de tout contrôle, et changer les écrans.
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            bail!("l'agent d'affichage n'a pas répondu en {} s, arrêté", timeout_ms / 1000);
+        }
         let mut code = 0u32;
         GetExitCodeProcess(pi.hProcess, &mut code);
         CloseHandle(pi.hThread);

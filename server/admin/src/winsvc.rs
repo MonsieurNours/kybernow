@@ -96,11 +96,34 @@ fn service_main(_args: Vec<OsString>) {
     }
 }
 
+fn service_status(state: ServiceState, accept: ServiceControlAccept, wait_hint: Duration) -> ServiceStatus {
+    ServiceStatus {
+        service_type: ServiceType::OWN_PROCESS,
+        current_state: state,
+        controls_accepted: accept,
+        exit_code: ServiceExitCode::Win32(0),
+        checkpoint: 0,
+        wait_hint,
+        process_id: None,
+    }
+}
+
 fn run_service() -> Result<()> {
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let tx = std::sync::Mutex::new(Some(tx));
+    // Le gestionnaire de services apprend que l'arrêt est en cours et peut
+    // prendre jusqu'à 30 s : le temps de rendre les écrans et le son.
+    let status_for_stop = std::sync::Arc::new(std::sync::Mutex::new(None::<service_control_handler::ServiceStatusHandle>));
+    let status_in_handler = status_for_stop.clone();
     let handler = move |control| match control {
         ServiceControl::Stop | ServiceControl::Shutdown => {
+            if let Some(status) = *status_in_handler.lock().unwrap() {
+                let _ = status.set_service_status(service_status(
+                    ServiceState::StopPending,
+                    ServiceControlAccept::empty(),
+                    Duration::from_secs(30),
+                ));
+            }
             if let Some(tx) = tx.lock().unwrap().take() {
                 let _ = tx.send(());
             }
@@ -110,17 +133,8 @@ fn run_service() -> Result<()> {
         _ => ServiceControlHandlerResult::NotImplemented,
     };
     let status = service_control_handler::register(SERVICE_NAME, handler)?;
-    let set = |state, accept| {
-        status.set_service_status(ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: state,
-            controls_accepted: accept,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::default(),
-            process_id: None,
-        })
-    };
+    *status_for_stop.lock().unwrap() = Some(status);
+    let set = |state, accept| status.set_service_status(service_status(state, accept, Duration::default()));
     set(ServiceState::Running, ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN)?;
 
     let runtime = tokio::runtime::Runtime::new()?;

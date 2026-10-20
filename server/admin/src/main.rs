@@ -433,6 +433,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         listen_port: listen.port(),
     }));
 
+    let on_shutdown = state.clone();
     let app = Router::new()
         .merge(api::router(state.clone()))
         .fallback(web)
@@ -442,7 +443,17 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     let h = handle.clone();
     tokio::spawn(async move {
         shutdown.await;
-        tracing::info!("arrêt de kyber-admin");
+        tracing::info!("arrêt de kyber-admin : écrans et son rendus à l'ordinateur");
+        // Sans cela, un `Stop-Service` en pleine session laissait le son sur
+        // les haut-parleurs virtuels et les écrans éteints jusqu'au prochain
+        // démarrage (où `recover` les aurait rendus).
+        let st = on_shutdown.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            st.foreground.stop();
+            st.display.shutdown();
+            st.audio.shutdown();
+        })
+        .await;
         h.graceful_shutdown(Some(Duration::from_secs(5)));
     });
 
