@@ -48,8 +48,15 @@ struct StatsPanel: View {
         }
         .padding(18)
         .frame(width: 392)
-        .glass(16, tint: 0.72)
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 16)
+        // Fond opaque, sans verre dépoli : le panneau reste ouvert sur l'image,
+        // et un flou d'arrière-plan serait recalculé à chaque image du flux
+        // (160 fois par seconde en 4K), au point de faire tomber la cadence.
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Theme.background.opacity(0.94))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
+        }
+        .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Mesures détaillées")
     }

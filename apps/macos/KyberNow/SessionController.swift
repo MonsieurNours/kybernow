@@ -80,6 +80,9 @@ final class SessionController: NSObject, ObservableObject {
     private var foregroundPoll: Task<Void, Never>?
     private var lastForeground: String?
     private var lastStallRestart = Date.distantPast
+    /// Dernière reconnexion de Kyber, et nouvel essai déjà fait après elle.
+    private var lastReconnect: Date?
+    private var retriedAfterReconnect = false
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
     enum Hint: Equatable { case commands, mouse, fallback(String) }
@@ -409,17 +412,30 @@ final class SessionController: NSObject, ObservableObject {
                 self.window?.makeFirstResponder(self.streamView)
             }
         case let .streamingFailed(reason), let .pipelineError(reason):
-            fail(reason)
+            // Juste après une reconnexion, l'ordinateur a pu recréer son écran
+            // virtuel : on retente une fois sur la liste d'écrans à jour.
+            if let reconnect = lastReconnect, Date().timeIntervalSince(reconnect) < 15, !retriedAfterReconnect {
+                retriedAfterReconnect = true
+                KyberLog.app.notice("image refusée après la reconnexion : nouvel essai sur l'écran à jour")
+                streaming = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.chooseDisplay() }
+            } else {
+                fail(reason)
+            }
         case let .connectFailed(reason):
             fail(reason)
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
         case let .reconnected(restart):
             phase = .streaming
+            lastReconnect = Date()
+            retriedAfterReconnect = false
             if restart {
+                // L'ordinateur annonce sa liste d'écrans juste après : on la
+                // laisse arriver (écran virtuel recréé sous un autre numéro),
+                // puis chooseDisplay attend s'il en reste plusieurs.
                 streaming = nil
-                if let best = bestDisplay() { display = best }
-                startStreaming()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.chooseDisplay() }
             } else if streamingFallback != fallback {
                 // Repli décidé pendant la coupure : Kyber a relancé l'ancien flux.
                 restartStreaming()
