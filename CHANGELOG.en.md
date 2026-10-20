@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.5
+
+- Apple TV app: if the computer announces only screens that are off (0 × 0), the session says so instead of waiting forever.
+
 ## 0.2.4
 
 - Steadier 4K picture: the computer no longer drops pieces of a large frame (8 MB QUIC send queues and UDP buffers instead of 1 MB), which made the picture stutter or freeze and then request keyframes one after another.

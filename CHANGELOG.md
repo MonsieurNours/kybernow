@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.5
+
+- App Apple TV : si l'ordinateur n'annonce que des écrans éteints (0 × 0), la session le dit au lieu d'attendre sans fin.
+
 ## 0.2.4
 
 - Image plus stable en 4K : l'ordinateur ne jette plus de morceaux d'une grosse image (files d'envoi QUIC et mémoires UDP de 8 Mo au lieu de 1 Mo), ce qui faisait saccader ou figer l'image puis redemander des images clés en chaîne.

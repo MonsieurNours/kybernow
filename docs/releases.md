@@ -51,7 +51,7 @@ Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la 
 
 1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`.
 2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh`.
-3. Quitter KyberNow sur le Mac, puis lancer :
+3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis lancer :
 
 ```bash
 scripts/release.sh X.Y.Z

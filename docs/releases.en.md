@@ -51,7 +51,7 @@ Without it, no app update could be signed any more. To restore it on another Mac
 
 1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`.
 2. If the Kyber patches have changed: `server/kyber-patches/build.sh`.
-3. Quit KyberNow on the Mac, then run:
+3. Quit the KyberNow built in Release if it is open (another copy does not matter), then run:
 
 ```bash
 scripts/release.sh X.Y.Z

@@ -60,6 +60,8 @@ final class SessionController: ObservableObject {
     private var displays: [KyberDisplay] = []
     private var streaming: UInt32?
     private var settling: Task<Void, Never>?
+    /// Fin de l'attente d'une liste d'écrans stable (une seule attente par démarrage).
+    private var settleUntil: Date?
     private var restoring: Task<Void, Never>?
     private var lastRestore = Date.distantPast
     private var requested: (width: Int, height: Int, refresh: Int, channels: Int)?
@@ -207,7 +209,7 @@ final class SessionController: ObservableObject {
                 if let streaming, !list.contains(where: { $0.id == streaming }) { display = bestDisplay() }
             } else if let streaming, !list.contains(where: { $0.id == streaming }) {
                 restartStreaming()
-            } else if settling != nil, list.count == 1 {
+            } else if settling != nil, usableDisplays.count == 1 {
                 settling?.cancel()
                 settling = nil
                 chooseDisplay()
@@ -290,18 +292,27 @@ final class SessionController: ObservableObject {
     }
 
     private func chooseDisplay() {
-        if prepared?.virtualDisplay == true, displays.count > 1, settling == nil, streaming == nil {
-            phase = .starting
-            settling = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(6))
-                guard !Task.isCancelled, let self else { return }
-                self.settling = nil
-                self.chooseDisplay()
+        // Une seule attente de 6 s : si la liste ne se réduit pas à un écran
+        // d'ici là, on prend le meilleur (avant, l'attente se relançait sans fin).
+        if prepared?.virtualDisplay == true, usableDisplays.count != 1, settling == nil, streaming == nil {
+            let until = settleUntil ?? Date().addingTimeInterval(6)
+            settleUntil = until
+            if until > Date() {
+                phase = .starting
+                settling = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(max(0.1, until.timeIntervalSinceNow)))
+                    guard !Task.isCancelled, let self else { return }
+                    self.settling = nil
+                    self.chooseDisplay()
+                }
+                return
             }
-            return
         }
+        settleUntil = nil
         guard let best = bestDisplay() else {
-            fail("l'ordinateur n'a annoncé aucun écran")
+            // Windows ne présente que des écrans de 0 × 0 quand aucun n'est
+            // allumé sur le bureau (écrans physiques pas revenus, écran virtuel absent).
+            fail(displays.isEmpty ? "l'ordinateur n'a annoncé aucun écran" : "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
             return
         }
         if streaming == best.id { return }
@@ -309,7 +320,11 @@ final class SessionController: ObservableObject {
         startStreaming()
     }
 
+    /// Écrans annoncés avec une taille (Windows liste aussi des sorties éteintes, en 0 × 0).
+    private var usableDisplays: [KyberDisplay] { displays.filter { $0.width > 0 && $0.height > 0 } }
+
     private func bestDisplay() -> KyberDisplay? {
+        let displays = usableDisplays
         if displays.count == 1 { return displays[0] }
         let sameMode = displays.filter { $0.width == prepared?.width && $0.height == prepared?.height }
         return sameMode.first { $0.x == 0 && $0.y == 0 } ?? sameMode.first ?? displays.first
