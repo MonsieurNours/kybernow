@@ -5,6 +5,12 @@ import AppKit
 import Carbon.HIToolbox
 @_implementationOnly import CKyber
 
+/// Disposition physique (ANSI, JIS, ISO) d'un type de clavier. HIToolbox
+/// exporte toujours la fonction, mais ses en-têtes ne la déclarent plus ;
+/// SDL s'en sert de la même façon.
+@_silgen_name("KBGetLayoutType") private func KBGetLayoutType(_ keyboardType: Int16) -> UInt8
+private let kKeyboardISO: UInt8 = 2
+
 enum Keymap {
     /// Usage HID des touches de modification, pour le réglage « ⌘ envoyée comme Ctrl ».
     static let leftControl: UInt16 = 0xE0
@@ -44,13 +50,36 @@ enum Keymap {
         kVK_VolumeUp: 0x80, kVK_VolumeDown: 0x81, kVK_Mute: 0x7F,
     ]
 
-    /// Usage HID d'une touche du Mac, en appliquant « ⌘ envoyée comme Ctrl ».
-    static func usage(keyCode: UInt16, commandAsControl: Bool) -> UInt16? {
+    /// Usage HID d'une touche du Mac, en appliquant « ⌘ envoyée comme Ctrl »
+    /// et l'échange des claviers Apple ISO. `keyboardType` : celui de
+    /// l'événement (`kCGKeyboardEventKeyboardType`) ; nil : le dernier clavier
+    /// utilisé.
+    static func usage(keyCode: UInt16, commandAsControl: Bool, keyboardType: Int64? = nil) -> UInt16? {
         guard var usage = hid[Int(keyCode)] else { return nil }
         if commandAsControl {
             if usage == leftGUI { usage = leftControl } else if usage == rightGUI { usage = rightControl }
         }
+        if usage == 0x35 || usage == 0x64, isISO(keyboardType: keyboardType) {
+            usage = usage == 0x35 ? 0x64 : 0x35
+        }
         return usage
+    }
+
+    /// Clavier Apple ISO (européen, une touche de plus près de ⇧ gauche) : le
+    /// Mac rapporte la touche sous Échap (`@#` sur un AZERTY, `§±` ailleurs)
+    /// comme kVK_ISO_Section, usage HID 0x64, et celle près de ⇧ (`<>`) comme
+    /// kVK_ANSI_Grave, usage 0x35, à l'inverse de ce qu'attend l'ordinateur
+    /// (quirk hid-apple ; SDL fait le même échange). Confirmé le 2026-10-20 sur
+    /// un MacBook AZERTY : `@` donnait `<`. Fil principal seulement.
+    private static var layouts: [Int16: Bool] = [:]
+
+    static func isISO(keyboardType: Int64?) -> Bool {
+        let type = keyboardType.map { Int16(clamping: $0) } ?? Int16(LMGetKbdType())
+        if let known = layouts[type] { return known }
+        let iso = KBGetLayoutType(type) == kKeyboardISO
+        layouts[type] = iso
+        KyberLog.app.notice("clavier de type \(type) : \(iso ? "ISO (échange @# / <>)" : "ANSI ou JIS", privacy: .public)")
+        return iso
     }
 
     static func scancode(usage: UInt16) -> UInt16? {

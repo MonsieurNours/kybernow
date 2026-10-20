@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- App Mac : sur un clavier Apple européen (ISO), la touche `@#` donnait `<` sur l'ordinateur et `<>` donnait `@` : les deux retrouvent leur place. App Apple TV : réglage « Clavier Apple ISO » pour les claviers Apple Bluetooth.
 - Apps Mac et Apple TV : un relâchement refusé par la file d'envoi des entrées (64 paquets) n'est plus perdu en silence : il est réessayé jusqu'à 200 ms, et les refus sont comptés dans le journal. Sur l'Apple TV, un stick n'envoie plus que l'axe qui a bougé, par tranche de 4 ms : une DualSense en Bluetooth envoyait jusqu'à 1 500 paquets par seconde.
 - App Apple TV : quand l'app passe en arrière-plan (bouton TV, autre app, veille), plus rien ne reste enfoncé sur l'ordinateur ; au retour, les manettes reprennent leur état réel.
 - Apps Mac et Apple TV : à l'ouverture de la barre ou du menu, la manette est remise à zéro sur l'ordinateur (touches relâchées, sticks et gâchettes au repos). Une gâchette tenue ne reste plus enfoncée dans le jeu pendant le menu ; sur l'Apple TV, la manette en souris relâche aussi ses clics et ses touches, et un stick encore tenu à la fermeture du menu reprend aussitôt.

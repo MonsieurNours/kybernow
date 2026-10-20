@@ -3,6 +3,13 @@
 // GameController donne les touches en usages HID (page 7), que kynput
 // convertit en scancodes ; la souris donne des déplacements bruts, envoyés
 // en relatif (le pointeur de l'ordinateur est dessiné par l'app).
+//
+// Clavier Apple ISO (européen) : la touche sous Échap (`@#` sur un AZERTY)
+// arrive comme usage 0x64 et celle près de ⇧ (`<>`) comme 0x35, à l'inverse
+// de ce qu'attend l'ordinateur (quirk hid-apple ; même échange que sur Mac,
+// où le système dit la disposition). tvOS ne la dit pas : réglage « Clavier
+// Apple ISO », appliqué aux claviers dont le fabricant est Apple, ou inconnu
+// (le clavier fusionné de GameController ne dit pas toujours le sien).
 
 @_implementationOnly import CKyber
 import GameController
@@ -15,6 +22,9 @@ final class KeyboardMouse {
     /// Déplacement de la souris (pixels) : vrai si la vue de session l'a pris
     /// en position absolue, faux pour l'envoyer brut (jeu en plein écran).
     var onMove: ((Double, Double) -> Bool)?
+    /// Réglage « Clavier Apple ISO » : échange des usages 0x35 et 0x64 pour
+    /// les claviers Apple.
+    var appleISO = false
 
     func attach(_ input: InputPipeline) {
         self.input = input
@@ -46,10 +56,15 @@ final class KeyboardMouse {
     }
 
     private func setUp(_ keyboard: GCKeyboard) {
+        let apple = keyboard.vendorName.map { $0.localizedCaseInsensitiveContains("Apple") } ?? true
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
-            guard let input = self?.input else { return }
+            guard let self, let input = self.input else { return }
+            var usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
+            if apple, self.appleISO, usage == 0x35 || usage == 0x64 {
+                usage = usage == 0x35 ? 0x64 : 0x35
+            }
             var scancode: UInt16 = 0
-            guard Self.scancode(UInt16(truncatingIfNeeded: keyCode.rawValue), &scancode) else { return }
+            guard Self.scancode(usage, &scancode) else { return }
             input.key(scancode: scancode, pressed: pressed)
         }
     }

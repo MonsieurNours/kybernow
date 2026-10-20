@@ -393,19 +393,25 @@ public final class StreamView: NSView {
 
     // MARK: - Clavier
 
-    private func send(keyCode: UInt16, pressed: Bool) {
-        guard let usage = Keymap.usage(keyCode: keyCode, commandAsControl: commandAsControl),
+    private func send(keyCode: UInt16, pressed: Bool, keyboardType: Int64? = nil) {
+        guard let usage = Keymap.usage(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType),
               let scancode = Keymap.scancode(usage: usage) else { return }
         input?.key(scancode: scancode, pressed: pressed)
     }
 
+    /// Type du clavier qui a produit l'événement (ANSI, ISO, JIS : échange
+    /// des touches `@#` et `<>` des claviers Apple ISO).
+    private func keyboardType(_ event: NSEvent) -> Int64? {
+        event.cgEvent?.getIntegerValueField(.keyboardEventKeyboardType)
+    }
+
     public override func keyDown(with event: NSEvent) {
         if event.isARepeat { return } // l'ordinateur répète lui-même
-        send(keyCode: event.keyCode, pressed: true)
+        send(keyCode: event.keyCode, pressed: true, keyboardType: keyboardType(event))
     }
 
     public override func keyUp(with event: NSEvent) {
-        send(keyCode: event.keyCode, pressed: false)
+        send(keyCode: event.keyCode, pressed: false, keyboardType: keyboardType(event))
     }
 
     public override func flagsChanged(with event: NSEvent) {

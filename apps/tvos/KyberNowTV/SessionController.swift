@@ -116,6 +116,7 @@ final class SessionController: ObservableObject {
         gamepads.padMouseSpeed = prefs.padMouseSpeed.factor
         streamView.padMouse = padMouse
         streamView.remoteMouse = remoteMouse
+        streamView.appleISOKeyboard = prefs.appleISOKeyboard
         routeObserver = NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.route = AudioRoute.current }
         }

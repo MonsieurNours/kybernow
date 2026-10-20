@@ -53,6 +53,11 @@ public final class StreamView: UIView {
         }
     }
 
+    /// Clavier Apple ISO (Réglages) : touches `@#` et `<>` remises à leur place.
+    public var appleISOKeyboard = false {
+        didSet { keyboardMouse.appleISO = appleISOKeyboard }
+    }
+
     private let keyboardMouse = KeyboardMouse()
     /// Une souris Bluetooth a bougé pendant cette session.
     private var mouseSeen = false

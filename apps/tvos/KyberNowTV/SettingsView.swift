@@ -236,6 +236,9 @@ struct SettingsView: View {
         seg("order", "Ordre des joueurs", "Fixe : chaque manette garde sa place", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
             prefs.padOrderFixed = v == "Fixe"
         }
+        toggle("iso", "Clavier Apple ISO", "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur", prefs.appleISOKeyboard) {
+            prefs.appleISOKeyboard.toggle()
+        }
         value("test", "Tester les manettes", padsSummary, GamepadBridge.shared.pads.map { "J\($0.player)" }.joined(separator: " · ")) {
             app.screen = .gamepads
         }
