@@ -1,7 +1,7 @@
 <!-- Étape 3 · Les options, déjà réglées au mieux. -->
 <script lang="ts">
   import Toggle from '../lib/Toggle.svelte'
-  import { app, go, startInstall } from '../lib/state.svelte'
+  import { app, beforeOptions, go, startInstall } from '../lib/state.svelte'
 </script>
 
 <div class="options">
@@ -47,7 +47,11 @@
     <div class="opt">
       <div>
         <h3>Performances maximales</h3>
-        <p>Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.</p>
+        <p>
+          {app.powerNeedsTuning
+            ? 'Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.'
+            : 'Déjà réglé : cet ordinateur est en mode Performances élevées.'}
+        </p>
       </div>
       <Toggle bind:checked={app.options.maxPerformance} label="Performances maximales" />
     </div>
@@ -55,7 +59,7 @@
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go('account')}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(beforeOptions())}>Retour</button>
   <div class="spacer"></div>
   <button type="button" class="primary" onclick={startInstall}>Installer</button>
 </div>

@@ -22,9 +22,12 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 
 **The computer, in one click.**
 - The console checks for the latest release every 6 hours. The **Updates** page shows it with its notes and an **Install** button; the notification area icon offers “Install version X…”, which opens that page.
-- The installation downloads `kybernow-update.zip` and checks its checksum in `SHA256SUMS`. The console then launches PowerShell, detached: it unzips the package and runs its `update.ps1`.
-- The script stops the icon and the services, replaces the files (the replaced Kyber files are kept in `kyber\avant-maj`), then restores the services' permissions, Steam's speakers and the firewall.
-- It then restarts the services. The new console relaunches the icon in the user's session, with their account (file `update\relaunch-tray`). The page updates by itself.
+- The installation downloads `kybernow-update.zip` and checks its checksum in `SHA256SUMS`. The published release number (`tag_name`) must look like `X.Y.Z`: it is used as a folder name and goes into PowerShell, so any other number is refused. The console then launches PowerShell, detached: it unzips the package and runs its `update.ps1`.
+- The script stops the server (`kyber`), then the console (`kyber-admin`), then the icon. It prepares the new folders next to the old ones (`kyber.new`, `admin.new`, `tray.new`: a copy of the current folder, Kyber's settings and certificate included, with the package's files on top), then switches by renaming: `kyber` becomes `kyber.prev` and `kyber.new` becomes `kyber`, and the same for `admin` and `tray`. Kyber's logs (`kyber\log`) are moved, not copied. It then restores the services' permissions, Steam's speakers and the firewall.
+- It restarts the services, then checks the new version's health: the console must accept a connection on its port within 60 s, and the server must be running. Otherwise it stops everything, puts the previous folders back (`kyber.prev` becomes `kyber` again…), restarts the old version and writes the reason in the log and in `C:\ProgramData\KyberNow\update\resultat.json`. The console reads that file when it starts: the Updates page shows the failure, and `GET /api/update` returns it in `install_error` and `last_failure` (version, reason, rollback, log).
+- Whatever happens once the services are stopped (error, interruption, a rename that fails because a file is open), the script restarts them and relaunches the icon on its way out (`try … finally`): the computer is never left without its server and console.
+- When it succeeds, the update records the new version in `C:\Program Files\KyberNow\kybernow.json` and in “Installed apps” (`DisplayVersion`). The previous version stays in the `.prev` folders until the next update (about 300 MB). In `update\`, only the folders of the two latest versions are kept.
+- The console relaunches the icon in the user's session, with their account (file `update\relaunch-tray`). The page updates by itself.
 - Duration: about one minute. A streaming session in progress is cut. Log: `C:\ProgramData\KyberNow\update\<version>\update.log`.
 - The console watches the installation's PowerShell. If it stops while the console is still running (a step failed), the console says so: Updates page, end of the log, and "Install" can be used again. Before 0.2.2, the console stayed on "an installation is already in progress" until it restarted.
 - PowerShell runs `update\<version>\lancement.ps1` (written by the console) with a hidden console; its output goes to `lancement.log`, to read when `update.log` does not exist. The 0.2.0 console launched it with no console and no output: it could stop before writing its log (only the zip was left in the folder). In that case, update by hand with `update.ps1`.
@@ -35,7 +38,11 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex
 ```
 
-To try a package served from the Mac before publishing it: `$env:KYBERNOW_UPDATE_BASE = 'http://<adresse-du-Mac>:8000'`, then the same command, with `python3 -m http.server 8000` running in `server/installer/dist`.
+The script downloads `kybernow-update.zip` and `SHA256SUMS`, checks the package's checksum like the console does, then performs the same switch with a health check. If it fails, it says so in red (“Mise a jour non installee…”) after restarting everything.
+
+To try a package served from the Mac before publishing it: `$env:KYBERNOW_UPDATE_BASE = 'http://<adresse-du-Mac>:8000'`, then the same command, with `python3 -m http.server 8000` running in `server/installer/dist` (`package-update.sh` also writes `SHA256SUMS` there).
+
+**Testing `update.ps1` without Windows**: `pwsh -NoProfile -File server/installer/tests/update-bench.ps1` (`brew install powershell`). The bench simulates the services and the console, and replays a successful update, a silent console (rollback), an incomplete package and a blocked rename.
 
 **The Mac app.**
 - Sparkle checks every day, and on request (KyberNow menu › Check for Updates…). The app downloads the archive, verifies its EdDSA signature with the app's public key (`SUPublicEDKey`), replaces itself and relaunches.

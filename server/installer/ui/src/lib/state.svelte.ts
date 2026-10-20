@@ -1,13 +1,13 @@
 // État de l'installation, alimenté par les événements de l'installateur.
 
-import { onEvent, send, type BackendEvent, type CheckStatus, type TaskStatus } from './backend'
+import { onEvent, send, type BackendEvent, type CheckStatus, type Existing, type TaskStatus } from './backend'
 
-export type Screen = 'welcome' | 'account' | 'options' | 'install' | 'done' | 'about'
+export type Screen = 'welcome' | 'reinstall' | 'account' | 'options' | 'install' | 'done' | 'about'
 
 /** Quatre étapes : l'analyse de l'ordinateur tourne pendant la bienvenue, « Terminé » clôt l'installation. */
 export const STEPS: { screens: Screen[]; label: string }[] = [
   { screens: ['welcome'], label: 'Bienvenue' },
-  { screens: ['account'], label: 'Votre compte' },
+  { screens: ['reinstall', 'account'], label: 'Votre compte' },
   { screens: ['options'], label: 'Options' },
   { screens: ['install', 'done'], label: 'Installation' },
 ]
@@ -41,6 +41,10 @@ export const app = $state({
   lanIp: null as string | null,
   busyPort: null as { port: number; process: string | null } | null,
   steamSpeakers: false,
+  powerNeedsTuning: true,
+  /** KyberNow déjà installé : écran « Réinstallation ». */
+  existing: null as Existing | null,
+  keepSettings: false,
   ports: { stream: 0, console: 0 },
   portErrors: { stream: null as string | null, console: null as string | null },
   portsPending: false,
@@ -76,6 +80,11 @@ function handle(event: BackendEvent) {
       app.busyPort = event.busy
       app.steamSpeakers = event.steamSpeakers
       if (!event.steamSpeakers) app.options.virtualAudio = false
+      app.powerNeedsTuning = event.powerNeedsTuning
+      app.existing = event.existing
+      app.keepSettings = !!event.existing?.settings
+      // Déjà en Performances élevées : rien à changer.
+      if (!event.powerNeedsTuning) app.options.maxPerformance = false
       app.ports = { stream: event.streamPort, console: event.consolePort }
       break
     case 'portsValidated':
@@ -136,7 +145,20 @@ export function validatePorts(stream: number, consolePort: number): Promise<bool
   })
 }
 
+/** Réinstallation en gardant les réglages de l'installation existante. */
+export function keeping(): boolean {
+  return !!app.existing?.settings && app.keepSettings
+}
+
+/** Écran avant les options : le choix de réinstallation, ou le compte. */
+export function beforeOptions(): Screen {
+  return keeping() ? 'reinstall' : 'account'
+}
+
 export function startInstall() {
+  const keep = keeping()
+  // Ports de l'installation existante : les appareils les connaissent.
+  if (keep) app.ports = { stream: app.existing!.streamPort, console: app.existing!.consolePort }
   app.installing = true
   app.failure = null
   app.percent = 0
@@ -145,11 +167,12 @@ export function startInstall() {
   app.screen = 'install'
   send({
     cmd: 'install',
-    user: app.user.trim(),
-    password: app.password,
+    user: keep ? '' : app.user.trim(),
+    password: keep ? '' : app.password,
     streamPort: app.ports.stream,
     consolePort: app.ports.console,
     ...app.options,
+    keepSettings: keep,
   })
 }
 

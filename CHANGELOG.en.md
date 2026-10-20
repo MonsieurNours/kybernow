@@ -6,16 +6,23 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
-- libavconv capture engine: the pointer follows the mouse again on displays above 60 Hz (it stayed frozen while the mouse moved), and keeps its shape when Kyber's input service restarts.
-- Keyframes requested by the apps after a loss: at most one per session every 150 ms, so a network losing many packets does not weigh down the image of every shared screen.
-- libavconv capture engine: `audio_layout = "stereo"` setting (`[kyavserver]` section) to send stereo sound even when Windows outputs 5.1 or 7.1; otherwise Kyber's web client, which only plays stereo, stays silent. The sound also announces its packet size, without which a Kyber client with unreliable sound stopped.
-
-## 0.2.5
-
 - Console: a second device that connects takes over with notice. The first one is told at its next heartbeat and disconnects cleanly, then the virtual display is recreated at the second one's size; before, the two devices kept stealing the display from each other and the first one's disconnection cut the second one's display and sound. The session is now recognised by the device rather than by the account.
 - Console: five wrong passwords from the same address make it wait 30 s, then twice as long at each attempt; password checks now run at most two at a time.
 - Console: when the service stops (update, shutdown), the displays and the sound are given back to the computer right away; an unreadable setting no longer prevents the console from starting; a display or sound that could not be given back is retried at the next start; a display agent that does not answer is stopped; two simultaneous changes to `kyber_config.toml` no longer overwrite each other.
 - Mac and Apple TV apps: no more possible crash on disconnection or profile change. The decoders were released after a fixed delay while Kyber could still deliver them a packet; Kyber now signals its last call. The keyframe request no longer holds Kyber's loop when the computer does not answer (Quit no longer freezes), and its retry also fires while a menu is open.
+- libavconv capture engine: the pointer follows the mouse again on displays above 60 Hz (it stayed frozen while the mouse moved), and keeps its shape when Kyber's input service restarts.
+- Keyframes requested by the apps after a loss: at most one per session every 150 ms, so a network losing many packets does not weigh down the image of every shared screen.
+- libavconv capture engine: `audio_layout = "stereo"` setting (`[kyavserver]` section) to send stereo sound even when Windows outputs 5.1 or 7.1; otherwise Kyber's web client, which only plays stereo, stays silent. The sound also announces its packet size, without which a Kyber client with unreliable sound stopped.
+- Computer updates without the risk of leaving everything stopped: the new version is prepared next to the old one and then put in place in one go; if the console does not answer within a minute, the old version comes back by itself and the Updates page says why. The manual update also checks the package's checksum, and “Installed apps” shows the right version.
+- Shared computer: KyberNow's data folder (`C:\ProgramData\KyberNow`) is now accessible to administrators only. Another account on the computer can no longer read the password hash there or slip a file into an update.
+- Installer: on a laptop without a “High performance” power mode, the installation no longer stops at 96%: the mode is recreated, or left as it is with a warning. The option is unticked if the computer already uses it.
+- Installer: Alt+F4 no longer closes the window in the middle of an installation, and KyberNow appears in “Installed apps” as soon as the files are copied: an interrupted installation can be uninstalled normally.
+- Installer: run again on a computer where KyberNow is already installed, it offers to keep the settings (accounts, paired devices, ports, certificate, console settings) and replaces only the programs and drivers. “Start from scratch” is still possible, with a warning: devices will have to be paired again.
+- More complete uninstall: the virtual display driver also leaves Windows' driver store, the power mode and network category used before KyberNow are put back, and the settings can be kept for later.
+- Installer: the interface is extracted under Program Files instead of the temporary folder; the end of the installation checks that the server and the console answer; an official Kyber installation whose uninstall command has arguments is removed properly; standard accounts can no longer pause the services.
+
+## 0.2.5
+
 - Apple TV app: gamepads finally respond on the computer. They announced themselves before the inputs were connected, and the computer then ignored their buttons; the remote and the gamepad as a mouse did work.
 - Mac and Apple TV apps: every gamepad, PlayStation ones included, becomes an Xbox 360 gamepad on the computer.
 - Apple TV app: if the computer announces only screens that are off (0 × 0), the session says so instead of waiting forever.

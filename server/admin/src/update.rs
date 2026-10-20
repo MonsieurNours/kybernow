@@ -5,9 +5,11 @@
 //! demande). « Installer » télécharge `kybernow-update.zip`, vérifie son
 //! empreinte dans `SHA256SUMS`, puis lance PowerShell, détaché : il
 //! décompresse le paquet et exécute son `update.ps1`, qui arrête les
-//! services (la console comprise), remplace les fichiers et relance tout.
-//! L'icône de la zone de notification est relancée au démarrage de la
-//! nouvelle console (`update/relaunch-tray`).
+//! services (la console comprise), bascule les dossiers par renommage et
+//! relance tout. Si la nouvelle console ne répond pas en 60 s, le script
+//! remet les dossiers précédents et l'écrit dans `update/resultat.json`, que
+//! la console relit à son démarrage. L'icône de la zone de notification est
+//! relancée au démarrage de la console (`update/relaunch-tray`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -17,9 +19,13 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+pub mod acl;
+
 pub const REPO: &str = "MonsieurNours/kybernow";
 const PACKAGE: &str = "kybernow-update.zip";
 const SUMS: &str = "SHA256SUMS";
+/// Résultat de la dernière installation, écrit par `update.ps1` quand elle échoue.
+const RESULT: &str = "resultat.json";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
 
 #[derive(Clone, Debug)]
@@ -43,6 +49,9 @@ struct State {
     child: Option<std::process::Child>,
     /// Dernière installation qui n'a pas abouti (fin de son journal).
     install_error: Option<String>,
+    /// Échec signalé par `update.ps1` (`update/resultat.json`) : version,
+    /// raison, retour à la version précédente, journal.
+    last_failure: Option<Value>,
 }
 
 pub struct Updater {
@@ -52,6 +61,13 @@ pub struct Updater {
 
 pub fn current() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+/// Numéro de version publiable : trois nombres (« 0.2.6 »). Il sert de nom
+/// de dossier et passe dans un script PowerShell : rien d'autre n'est accepté.
+pub fn valid_version(v: &str) -> bool {
+    let parts: Vec<&str> = v.split('.').collect();
+    parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.len() <= 9 && p.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// « 0.10.2 » > « 0.9.9 » : comparaison nombre par nombre.
@@ -64,7 +80,22 @@ pub fn newer(candidate: &str, than: &str) -> bool {
 
 impl Updater {
     pub fn new(data_dir: &Path) -> Self {
-        Self { dir: data_dir.join("update"), state: Mutex::new(State::default()) }
+        let dir = data_dir.join("update");
+        let mut state = State::default();
+        if let Some(failure) = read_failure(&dir.join(RESULT)) {
+            let version = failure["version"].as_str().unwrap_or("?");
+            let message = failure["message"].as_str().unwrap_or("raison inconnue");
+            let back = if failure["rolled_back"].as_bool() == Some(true) {
+                format!("La version précédente ({}) a été remise en place.", current())
+            } else {
+                "Les fichiers n'ont pas été remplacés.".to_string()
+            };
+            let log = failure["log"].as_str().filter(|l| !l.is_empty()).map(|l| format!("\nJournal : {l}")).unwrap_or_default();
+            tracing::error!("mise à jour {version} non installée : {message}");
+            state.install_error = Some(format!("L'installation de {version} n'a pas abouti : {message}. {back}{log}"));
+            state.last_failure = Some(failure);
+        }
+        Self { dir, state: Mutex::new(state) }
     }
 
     /// État pour la console et l'icône (sans appel réseau).
@@ -84,6 +115,8 @@ impl Updater {
             "error": s.error,
             "installing": s.installing,
             "install_error": s.install_error,
+            // Échec écrit par update.ps1 : contrôle de santé raté, retour arrière.
+            "last_failure": s.last_failure,
             "repo": REPO,
         })
     }
@@ -161,11 +194,16 @@ impl Updater {
         let (Some(package), Some(sums)) = (&release.package, &release.sums) else {
             bail!("la version {} n'a pas de paquet de mise à jour", release.version);
         };
+        if !valid_version(&release.version) {
+            bail!("numéro de version inattendu : {}", release.version);
+        }
         {
             let mut s = self.state.lock().unwrap();
             s.installing = Some(release.version.clone());
             s.install_error = None;
+            s.last_failure = None;
         }
+        let _ = std::fs::remove_file(self.dir.join(RESULT));
         let result = self.download_and_launch(&release.version, package, sums);
         let mut s = self.state.lock().unwrap();
         match result {
@@ -181,6 +219,9 @@ impl Updater {
     }
 
     fn download_and_launch(&self, version: &str, package_url: &str, sums_url: &str) -> Result<Option<std::process::Child>> {
+        if !valid_version(version) {
+            bail!("numéro de version inattendu : {version}");
+        }
         let dir = self.dir.join(version);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
@@ -235,14 +276,32 @@ fn fetch_latest() -> Result<Release> {
             a.iter().find(|x| x["name"] == name).and_then(|x| x["browser_download_url"].as_str()).map(String::from)
         })
     };
+    let version = v["tag_name"].as_str().context("version sans numéro")?.trim_start_matches('v').to_string();
+    if !valid_version(&version) {
+        bail!("numéro de version inattendu sur GitHub : {version}");
+    }
     Ok(Release {
-        version: v["tag_name"].as_str().context("version sans numéro")?.trim_start_matches('v').to_string(),
+        version,
         notes: v["body"].as_str().unwrap_or("").to_string(),
         published: v["published_at"].as_str().unwrap_or("").to_string(),
         page: v["html_url"].as_str().unwrap_or("").to_string(),
         package: asset(PACKAGE),
         sums: asset(SUMS),
     })
+}
+
+
+/// Échec signalé par `update.ps1`, s'il y en a un. Un échec de la version qui
+/// tourne est périmé : elle a été installée depuis.
+fn read_failure(path: &Path) -> Option<Value> {
+    let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+    (value["ok"].as_bool() == Some(false) && value["version"].as_str() != Some(current())).then_some(value)
+}
+
+/// Chaîne entre apostrophes pour PowerShell (une apostrophe se double).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn ps_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
 
 /// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
@@ -267,10 +326,10 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
     // plusieurs fois plus lent. Toute erreur finit dans le journal.
     let script = format!(
         "$ProgressPreference = 'SilentlyContinue'\r\n\
-         Start-Transcript -Path '{log}' -Force\r\n\
+         Start-Transcript -Path {log} -Force\r\n\
          try {{\r\n\
-         \x20   Expand-Archive -Path '{zip}' -DestinationPath '{out}' -Force\r\n\
-         \x20   & '{out}\\update.ps1' -Source '{out}'\r\n\
+         \x20   Expand-Archive -Path {zip} -DestinationPath {out} -Force\r\n\
+         \x20   & {script} -Source {out}\r\n\
          }} catch {{\r\n\
          \x20   Write-Output \"ERREUR : $($_.Exception.Message)\"\r\n\
          \x20   Write-Output $_.ScriptStackTrace\r\n\
@@ -278,9 +337,10 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
          }} finally {{\r\n\
          \x20   Stop-Transcript\r\n\
          }}\r\n",
-        log = log.display(),
-        zip = zip.display(),
-        out = out.display(),
+        log = ps_quote(&log),
+        zip = ps_quote(zip),
+        script = ps_quote(&out.join("update.ps1")),
+        out = ps_quote(&out),
     );
     std::fs::write(&launcher, script).context("écriture de lancement.ps1")?;
     let output = std::fs::File::create(dir.join("lancement.log")).context("création de lancement.log")?;
@@ -307,6 +367,18 @@ fn launch_installer(dir: &Path, _zip: &Path) -> Result<std::process::Child> {
     bail!("installation réservée à Windows (paquet vérifié dans {})", dir.display())
 }
 
+/// Au démarrage de la console : `C:\ProgramData\KyberNow` réservé à SYSTEM et
+/// aux Administrateurs (voir `acl`), avant d'y écrire ou d'y lancer quoi que
+/// ce soit, dont `update\<version>\lancement.ps1`. Un échec n'empêche pas
+/// la console de démarrer : il est journalisé.
+pub fn secure_data_dir(data_dir: &Path) {
+    match acl::secure_dir(data_dir) {
+        Ok(0) => tracing::info!("droits de {} : SYSTEM et Administrateurs seulement", data_dir.display()),
+        Ok(n) => tracing::warn!("droits de {} posés, {n} lien(s) retiré(s)", data_dir.display()),
+        Err(e) => tracing::error!("droits de {} non posés : {e:#}", data_dir.display()),
+    }
+}
+
 /// Au démarrage de la console : relance l'icône si une mise à jour l'a arrêtée.
 pub fn relaunch_tray_if_asked(data_dir: &Path) {
     let marker = data_dir.join("update").join("relaunch-tray");
@@ -328,5 +400,42 @@ pub fn relaunch_tray_if_asked(data_dir: &Path) {
                 }
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_plain_versions_are_accepted() {
+        assert!(valid_version("0.2.6"));
+        assert!(valid_version("10.20.300"));
+        for bad in ["", "0.2", "0.2.6.1", "0.2.6-beta", "0..6", "../0.2.6", "0.2.6'; Remove-Item", "v0.2.6", "0.2.x"] {
+            assert!(!valid_version(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn failure_written_by_the_script_is_reported() {
+        let dir = std::env::temp_dir().join(format!("kybernow-update-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("update")).unwrap();
+        std::fs::write(
+            dir.join("update").join(RESULT),
+            r#"{"version":"9.9.9","ok":false,"rolled_back":true,"message":"la nouvelle console ne repond pas","log":"C:\\x\\update.log"}"#,
+        )
+        .unwrap();
+        let status = Updater::new(&dir).status();
+        assert_eq!(status["last_failure"]["version"], "9.9.9");
+        let error = status["install_error"].as_str().unwrap();
+        assert!(error.contains("9.9.9") && error.contains("remise en place"), "{error}");
+        std::fs::write(dir.join("update").join(RESULT), r#"{"version":"9.9.9","ok":true}"#).unwrap();
+        assert!(Updater::new(&dir).status()["last_failure"].is_null());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn powershell_quotes_are_doubled() {
+        assert_eq!(ps_quote(Path::new(r"C:\Program Files\K'N")), r"'C:\Program Files\K''N'");
     }
 }

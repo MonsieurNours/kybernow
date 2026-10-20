@@ -72,7 +72,7 @@
 </form>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go('welcome')}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(app.existing ? 'reinstall' : 'welcome')}>Retour</button>
   <div class="spacer"></div>
   <button type="submit" form="account" class="primary">Continuer</button>
 </div>

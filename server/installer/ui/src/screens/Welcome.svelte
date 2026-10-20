@@ -79,7 +79,7 @@
 <div class="footer">
   {#if problems}<span class="note bad-note">{problems === 1 ? 'Un point empêche' : `${problems} points empêchent`} un streaming correct : voyez le détail ci-dessus.</span>{/if}
   <div class="spacer"></div>
-  <button type="button" class="primary" disabled={running || editing} onclick={() => go('account')}>
+  <button type="button" class="primary" disabled={running || editing} onclick={() => go(app.existing ? 'reinstall' : 'account')}>
     {running ? 'Analyse en cours…' : 'Continuer'}
   </button>
 </div>

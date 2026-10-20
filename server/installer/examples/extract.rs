@@ -5,7 +5,7 @@ fn main() -> anyhow::Result<()> {
     let (footer, exe_len) = kybernow::payload::read_footer(exe)?;
     println!("lanceur {} o, archive {} o, {} fichiers, {} o décompressés", exe_len, footer.archive_len, footer.files, footer.unpacked_bytes);
     let mut last = 0;
-    let n = kybernow::payload::extract(exe, dest, |p, _| {
+    let n = kybernow::payload::extract(exe, dest, |_| false, |p, _| {
         let pct = (p * 100.0) as u32;
         if pct >= last + 25 { println!("  {pct} %"); last = pct; }
     })?;

@@ -1,8 +1,13 @@
 //! `KyberNow-Setup.exe` : lanceur de l'installation.
 //!
 //! Il porte le contenu à installer (accolé à la fin du fichier), dépose
-//! l'interface et `WebView2Loader.dll` dans un dossier temporaire, puis lance
-//! l'interface. Avec `--uninstall`, il désinstalle KyberNow.
+//! l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup`,
+//! puis lance l'interface. Avec `--uninstall`, il désinstalle KyberNow.
+//!
+//! Pas dans `%TEMP%` : l'interface y tournerait avec le jeton administrateur
+//! depuis un dossier où tout programme de l'utilisateur peut écrire, et
+//! charger une DLL déposée à côté d'elle (contournement de l'UAC). Sous
+//! Program Files, seuls les administrateurs écrivent.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -39,7 +44,11 @@ fn launch() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let tmp: PathBuf = std::env::temp_dir().join(format!("KyberNow-Setup-{}", std::process::id()));
+    let tmp: PathBuf = kybernow::sys::install_dir().join(".setup");
+    // Reste d'une installation interrompue : effacé, jamais réutilisé.
+    if std::fs::symlink_metadata(&tmp).is_ok() {
+        std::fs::remove_dir_all(&tmp).or_else(|_| std::fs::remove_file(&tmp))?;
+    }
     std::fs::create_dir_all(&tmp)?;
     let ui = tmp.join("kybernow-ui.exe");
     std::fs::write(&ui, UI_EXE)?;
@@ -65,15 +74,29 @@ fn launch() -> anyhow::Result<()> {
 fn uninstall() {
     if !message(
         "Désinstaller KyberNow",
-        "KyberNow va être retiré de ce PC : serveur de streaming, console d'administration, écran virtuel et réglages.\n\nLe pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
+        "KyberNow va être retiré de cet ordinateur : serveur de streaming, console d'administration, icône, écran virtuel. \
+         Le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis.\n\n\
+         Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
         true,
     ) {
         return;
     }
-    match kybernow::uninstall::run_uninstall() {
-        Ok(()) => message("KyberNow", "KyberNow a été désinstallé.", false),
-        Err(e) => message("KyberNow", &format!("La désinstallation a rencontré un problème :\n\n{e:#}"), false),
+    let keep_data = message(
+        "Désinstaller KyberNow",
+        "Garder les réglages de KyberNow sur cet ordinateur ?\n\n\
+         Oui : C:\\ProgramData\\KyberNow reste (réglages et certificat de la console, appareils connus, journaux, \
+         copie des réglages de Kyber), lisible par les administrateurs seulement.\n\
+         Non : tout est effacé.",
+        true,
+    );
+    let done = match kybernow::uninstall::run_uninstall(keep_data) {
+        Ok(()) if keep_data => "KyberNow a été désinstallé. Ses réglages restent dans C:\\ProgramData\\KyberNow.".to_string(),
+        Ok(()) => "KyberNow a été désinstallé.".to_string(),
+        Err(e) => format!("La désinstallation a rencontré un problème :\n\n{e:#}"),
     };
+    message("KyberNow", &done, false);
+    // Après la boîte : le dossier est effacé une fois ce programme fermé.
+    kybernow::uninstall::schedule_removal();
 }
 
 fn webview2_installed() -> bool {

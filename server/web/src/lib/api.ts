@@ -207,6 +207,8 @@ export interface UpdateStatus {
   installing: string | null
   /** Dernière installation arrêtée en route, avec la fin de son journal. */
   install_error?: string | null
+  /** Échec écrit par update.ps1 : console muette après la mise à jour, version précédente remise. */
+  last_failure?: { version: string; message: string; rolled_back: boolean; log: string } | null
   repo: string
 }
 

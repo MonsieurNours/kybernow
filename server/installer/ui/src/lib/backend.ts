@@ -2,7 +2,16 @@
 // Dans un navigateur ordinaire, une simulation joue le même rôle.
 
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error'
-export type TaskStatus = 'running' | 'done' | 'skipped' | 'failed'
+export type TaskStatus = 'running' | 'done' | 'skipped' | 'warn' | 'failed'
+
+/** KyberNow déjà installé sur l'ordinateur. */
+export interface Existing {
+  version: string
+  streamPort: number
+  consolePort: number
+  /** Réglages trouvés : « Conserver » possible. */
+  settings: boolean
+}
 
 export type BackendEvent =
   | { type: 'check'; id: string; status: CheckStatus; title: string; detail: string }
@@ -13,6 +22,9 @@ export type BackendEvent =
       busy: { port: number; process: string | null } | null
       lanIp: string | null
       steamSpeakers: boolean
+      /** false : déjà en Performances élevées, l'option est décochée. */
+      powerNeedsTuning: boolean
+      existing: Existing | null
     }
   | { type: 'portsValidated'; streamError: string | null; consoleError: string | null }
   | { type: 'task'; id: string; status: TaskStatus }
@@ -31,6 +43,8 @@ export interface InstallRequest {
   virtualAudio: boolean
   maxPerformance: boolean
   startWithWindows: boolean
+  /** Réinstallation : garder comptes, ports, certificat et réglages. */
+  keepSettings: boolean
 }
 
 export type Command =
@@ -85,12 +99,17 @@ async function simulate(command: Command) {
         ['power', 'warn', "Mode d'alimentation : Équilibré", "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options."],
         ['audio', 'ok', 'Son à distance', 'Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.'],
       ]
+      // ?existant dans l'adresse : simule une réinstallation par-dessus KyberNow 0.2.5.
+      const existing = new URLSearchParams(location.search).has('existant')
+        ? { version: '0.2.5', streamPort: 23456, consolePort: 34567, settings: true }
+        : null
+      if (existing) items.push(['existing', 'ok', 'KyberNow 0.2.5 est installé', "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro."])
       for (const [id, status, title, detail] of items) {
         emit({ type: 'check', id, status: 'running', title, detail: '' })
         await wait(650)
         emit({ type: 'check', id, status, title, detail })
       }
-      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100', steamSpeakers: true })
+      emit({ type: 'checksDone', streamPort: stream, consolePort, busy: { port: 8080, process: 'httpd.exe' }, lanIp: '192.168.1.100', steamSpeakers: true, powerNeedsTuning: true, existing })
       break
     }
     case 'validatePorts': {

@@ -8,11 +8,12 @@
   import Done from './screens/Done.svelte'
   import Install from './screens/Install.svelte'
   import Options from './screens/Options.svelte'
+  import Reinstall from './screens/Reinstall.svelte'
   import Welcome from './screens/Welcome.svelte'
 
   startBackend()
 
-  const screens = { welcome: Welcome, account: Account, options: Options, install: Install, done: Done, about: About }
+  const screens = { welcome: Welcome, reinstall: Reinstall, account: Account, options: Options, install: Install, done: Done, about: About }
   const Screen = $derived(screens[app.screen])
   const inMotion = reducedMotion ? { duration: 0 } : { x: 12, duration: 420, delay: 90 }
   const outMotion = reducedMotion ? { duration: 0 } : { duration: 90 }

@@ -356,6 +356,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     let data_dir = args.data_dir.unwrap_or_else(settings::default_data_dir);
     std::fs::create_dir_all(&data_dir)
         .with_context(|| format!("création de {}", data_dir.display()))?;
+    update::secure_data_dir(&data_dir);
     let settings = Settings::load(&data_dir)?;
 
     let kyber_dir = args

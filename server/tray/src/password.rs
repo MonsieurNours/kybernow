@@ -5,6 +5,11 @@
 //! Le service et ses réglages demandent des droits administrateur : l'icône se
 //! relance élevée (`--reset-console-password`), ce qui affiche une invite UAC.
 //! Les appareils et leurs comptes ne changent pas.
+//!
+//! Le code est écrit par la console dans `C:\ProgramData\KyberNow`, réservé à
+//! SYSTEM et aux administrateurs : la partie élevée l'y lit et en laisse une
+//! copie dans le profil du compte (`%LOCALAPPDATA%\KyberNow\setup-code.txt`),
+//! que l'icône ordinaire lit puis efface.
 
 use std::os::windows::process::CommandExt;
 use std::process::Command;
@@ -27,15 +32,14 @@ pub fn reset() -> Result<Option<String>> {
         Some(0) => {}
         Some(code) => bail!("Le mot de passe n'a pas pu être réinitialisé ({}).", std::io::Error::from_raw_os_error(code as i32)),
     }
-    // La console écrit le code à son démarrage.
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while Instant::now() < deadline {
-        if let Some(code) = console::setup_code() {
-            return Ok(Some(code));
-        }
-        std::thread::sleep(Duration::from_millis(500));
+    // La partie élevée a attendu le code avant de rendre la main.
+    if let Some(code) = console::take_setup_code() {
+        return Ok(Some(code));
     }
-    bail!("Mot de passe effacé, mais le code d'initialisation est illisible : il est dans C:\\ProgramData\\KyberNow\\setup-code.txt.")
+    bail!(
+        "Mot de passe effacé, mais le code d'initialisation n'a pas pu être transmis à l'icône : \
+         il est dans C:\\ProgramData\\KyberNow\\setup-code.txt, lisible par un administrateur."
+    )
 }
 
 /// Partie élevée : arrête la console, efface le mot de passe, la relance.
@@ -62,9 +66,32 @@ fn run() -> Result<()> {
     }
     // Sans fenêtre de console (CREATE_NO_WINDOW).
     let status = Command::new(&admin).arg("reset-password").creation_flags(0x0800_0000).status().with_context(|| format!("lancement de {}", admin.display()))?;
+    // Un ancien code ne doit pas être pris pour celui de la console qui redémarre.
+    let _ = std::fs::remove_file(console::data_setup_code_path());
     services::start(ADMIN)?;
     if !status.success() {
         bail!("kyber-admin reset-password a échoué ({status}).");
     }
-    services::wait(ADMIN, State::Running, Duration::from_secs(30))
+    services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
+    hand_over_code()
+}
+
+/// La console écrit le code à son démarrage, dans ProgramData : la partie
+/// élevée en laisse une copie dans le profil du compte, pour l'icône ordinaire.
+fn hand_over_code() -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Some(code) = console::read_code(&console::data_setup_code_path()) {
+            let path = console::handoff_path().context("dossier du profil introuvable (LOCALAPPDATA)")?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, code).with_context(|| format!("écriture de {}", path.display()))?;
+            return Ok(());
+        }
+        if Instant::now() > deadline {
+            bail!("La console n'a pas écrit de code d'initialisation (C:\\ProgramData\\KyberNow\\setup-code.txt).");
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
 }

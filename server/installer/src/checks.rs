@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use crate::events::{BusyPort, CheckStatus, Emit, Event};
+use crate::events::{BusyPort, CheckStatus, Emit, Event, Existing};
 use crate::ports;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -21,6 +21,8 @@ pub struct SystemInfo {
     pub steam_speakers_inf: Option<std::path::PathBuf>,
     pub stream_port: u16,
     pub console_port: u16,
+    /// KyberNow déjà installé.
+    pub existing: Option<Existing>,
 }
 
 struct Item {
@@ -121,7 +123,16 @@ pub fn run(emit: &Emit) -> SystemInfo {
     let (uninstaller, service) = existing_kyber();
     info.kyber_uninstaller = uninstaller.clone();
     info.kyber_service_exists = service;
-    if uninstaller.is_some() || service {
+    info.existing = existing_kybernow();
+    if let Some(existing) = &info.existing {
+        running(emit, "existing", "Installation existante");
+        let detail = if existing.settings {
+            "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro."
+        } else {
+            "Ses réglages sont introuvables : l'installation repartira de zéro."
+        };
+        emit_item(emit, Item { id: "existing", status: CheckStatus::Ok, title: format!("KyberNow {} est installé", existing.version), detail: detail.into() });
+    } else if uninstaller.is_some() || service {
         running(emit, "existing", "Installation existante");
         emit_item(emit, Item { id: "existing", status: CheckStatus::Warn, title: "Une installation de Kyber existe".into(), detail: "Elle sera retirée puis remplacée par celle de KyberNow (même moteur, réglé pour vous).".into() });
     }
@@ -132,8 +143,50 @@ pub fn run(emit: &Emit) -> SystemInfo {
         busy,
         lan_ip: info.lan_ip.clone(),
         steam_speakers: info.steam_speakers_inf.is_some(),
+        power_needs_tuning: info.power_needs_tuning,
+        existing: info.existing.clone(),
     });
     info
+}
+
+/// KyberNow déjà installé : `kybernow.json`, et les ports réellement en
+/// service (la console peut avoir changé celui de Kyber).
+pub fn existing_kybernow() -> Option<Existing> {
+    let dir = crate::sys::install_dir();
+    let record: crate::install::InstallRecord = serde_json::from_slice(&std::fs::read(dir.join("kybernow.json")).ok()?).ok()?;
+    let kyber_config = std::fs::read_to_string(dir.join(r"kyber\kyber_config.toml")).ok();
+    let admin = std::fs::read_to_string(crate::sys::data_dir().join("kyber-admin.toml")).ok();
+    Some(Existing {
+        version: record.version,
+        stream_port: kyber_config.as_deref().and_then(kyber_port).unwrap_or(record.stream_port),
+        console_port: admin.as_deref().and_then(console_port).unwrap_or(record.console_port),
+        settings: kyber_config.is_some() && admin.is_some(),
+    })
+}
+
+/// `port` de la table `[kycontroller]` de `kyber_config.toml`.
+pub fn kyber_port(toml: &str) -> Option<u16> {
+    let mut section = "";
+    for line in toml.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.split(']').next()) {
+            section = name.trim();
+        } else if section == "kycontroller"
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "port"
+        {
+            return value.split('#').next()?.trim().parse().ok();
+        }
+    }
+    None
+}
+
+/// Port de `listen = "0.0.0.0:9443"` dans `kyber-admin.toml`.
+pub fn console_port(toml: &str) -> Option<u16> {
+    toml.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == "listen").then_some(())?;
+        value.trim().trim_matches('"').rsplit(':').next()?.parse().ok()
+    })
 }
 
 /// Pilote des haut-parleurs virtuels livré avec Steam (même emplacement que
@@ -350,21 +403,54 @@ pub fn existing_kyber() -> (Option<String>, bool) {
         text.lines()
             .find(|l| l.contains("UninstallString"))
             .and_then(|l| l.split("REG_SZ").nth(1))
-            .map(|s| s.trim().trim_matches('"').to_string())
+            .and_then(uninstaller_path)
     });
     let service = crate::sys::run("sc", &["query", "kyber"]).is_ok_and(|o| o.status.success());
     (uninstaller, service)
+}
+
+/// Chemin du programme dans une ligne de commande de désinstallation :
+/// `"C:\…\uninstall.exe" /arg` ou `C:\…\uninstall.exe /arg` (les arguments
+/// sont ajoutés par `remove_official_kyber`).
+pub fn uninstaller_path(command: &str) -> Option<String> {
+    let command = command.trim();
+    let path = if let Some(rest) = command.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        let end = command.to_ascii_lowercase().find(".exe").map(|i| i + 4).unwrap_or(command.len());
+        &command[..end]
+    };
+    let path = path.trim();
+    (!path.is_empty()).then(|| path.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn uninstall_string_with_arguments() {
+        assert_eq!(uninstaller_path(r#""C:\Program Files\Kyber\uninstall.exe" /currentuser"#).as_deref(), Some(r"C:\Program Files\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path(r"C:\Program Files\Kyber\Uninstall.EXE /S").as_deref(), Some(r"C:\Program Files\Kyber\Uninstall.EXE"));
+        assert_eq!(uninstaller_path(r#"  "C:\Kyber\uninstall.exe"  "#).as_deref(), Some(r"C:\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path(r"C:\Kyber\uninstall.exe").as_deref(), Some(r"C:\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path("  "), None);
+    }
+
     const HYBRID: &str = r#"[
         {"Name":"Intel(R) UHD Graphics","PNPDeviceID":"PCI\\VEN_8086&DEV_9A60&SUBSYS_0A6D1028&REV_01\\3&11583659&0&10","DriverVersion":"31.0.101.5186","ConfigManagerErrorCode":0,"InfFilename":"oem42.inf"},
         {"Name":"NVIDIA GeForce RTX 4070 Laptop GPU","PNPDeviceID":"PCI\\VEN_10DE&DEV_2860&SUBSYS_0A6D1028&REV_A1\\4&2B1D6F0E&0&0008","DriverVersion":"32.0.15.6094","ConfigManagerErrorCode":0,"InfFilename":"oem55.inf"},
         {"Name":"SudoMaker Virtual Display Adapter","PNPDeviceID":"ROOT\\DISPLAY\\0000","DriverVersion":"1.0.0.0","ConfigManagerErrorCode":0,"InfFilename":"oem60.inf"}
     ]"#;
+
+    #[test]
+    fn ports_of_an_existing_installation() {
+        let kyber = "[log]\nport = 1\n[kycontroller]\n#port = 8080\nlisten_mode = \"all\"\nport = 23456 # flux\n[kycontroller.security]\nport = 2\n";
+        assert_eq!(kyber_port(kyber), Some(23456));
+        assert_eq!(kyber_port("[kycontroller]\n#port = 8080\n"), None);
+        assert_eq!(console_port("kyber_dir = 'x'\nlisten = \"0.0.0.0:31337\"\n"), Some(31337));
+        assert_eq!(console_port("admin_password_hash = \"a:b\"\n"), None);
+    }
 
     #[test]
     fn hybrid_laptop_picks_nvidia() {

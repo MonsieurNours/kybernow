@@ -11,7 +11,7 @@
 
   const s = $derived(app.ports.stream)
   const c = $derived(app.ports.console)
-  const rows = $derived<Record<string, { title: string; text: string; fact?: string }>>({
+  const rows = $derived<Record<string, { title: string; text: string; fact?: string; warn?: string }>>({
     files: { title: 'Moteur de streaming Kyber 0.29', text: 'Le moteur, ses bibliothèques vidéo et le client web se posent dans C:\\Program Files\\KyberNow.' },
     cert: { title: 'Certificat de cet ordinateur', text: 'Il chiffre tout ce qui circule entre vos appareils et lui.' },
     service: { title: 'Démarrage avec l’ordinateur', text: 'Le serveur devient un service : il démarre seul, avant même votre session Windows.' },
@@ -20,7 +20,11 @@
     gamepad: { title: 'Manettes', text: 'Pour jouer depuis n’importe quel appareil.', fact: 'ViGEmBus' },
     audio: { title: 'Son à distance', text: 'Les haut-parleurs virtuels de Steam : l’ordinateur se tait, l’appareil reçoit le son.' },
     admin: { title: 'Console d’administration', text: `Elle démarre sur le port ${c}.`, fact: `port ${c}` },
-    power: { title: 'Alimentation', text: 'Le mode Performances élevées évite les ralentissements pendant une session.' },
+    power: {
+      title: 'Alimentation',
+      text: 'Le mode Performances élevées évite les ralentissements pendant une session.',
+      warn: 'Windows refuse ce mode ici : inchangé, le reste est installé',
+    },
   })
 
   const finished = $derived(!!app.result)
@@ -64,6 +68,8 @@
             {#if status === 'running'}
               <span class="d">{rows[id].text}</span>
               <span class="bar" aria-hidden="true"><span></span></span>
+            {:else if status === 'warn'}
+              <span class="mono f warn">{rows[id].warn ?? 'à vérifier : voir le détail'}</span>
             {:else if (status === 'done' && rows[id].fact) || status === 'failed'}
               <span class="mono f">{status === 'failed' ? 'échec' : rows[id].fact}</span>
             {/if}
@@ -157,6 +163,10 @@
   li.failed .t,
   li.failed .f {
     color: var(--bad-text);
+  }
+
+  .f.warn {
+    color: var(--warn-text);
   }
 
   .d {

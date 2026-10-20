@@ -7,16 +7,23 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
-- Moteur de capture libavconv : le pointeur suit de nouveau la souris sur les écrans à plus de 60 Hz (il restait figé tant qu'elle bougeait), et garde sa forme quand le service d'entrées de Kyber redémarre.
-- Images clés redemandées par les apps après une perte : une par session toutes les 150 ms au plus, pour qu'un réseau qui perd beaucoup de paquets n'alourdisse pas l'image de tous les écrans partagés.
-- Moteur de capture libavconv : réglage `audio_layout = "stereo"` (section `[kyavserver]`) pour envoyer le son en stéréo même quand Windows sort du 5.1 ou du 7.1 ; le client web de Kyber, qui ne lit que la stéréo, reste sinon muet. Le son annonce aussi sa taille de paquet, sans laquelle un client Kyber en son non fiable s'arrêtait.
-
-## 0.2.5
-
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.
 - Console : cinq mots de passe faux depuis une même adresse font attendre 30 s, puis le double à chaque essai ; les vérifications de mot de passe ne se font plus que deux à la fois.
 - Console : à l'arrêt du service (mise à jour, extinction), les écrans et le son sont rendus à l'ordinateur tout de suite ; un réglage illisible n'empêche plus la console de démarrer ; un écran ou un son qui n'a pas pu être rendu est réessayé au démarrage suivant ; un agent d'affichage qui ne répond pas est arrêté ; deux changements simultanés de `kyber_config.toml` ne s'écrasent plus.
 - Apps Mac et Apple TV : plus de plantage possible à la déconnexion ou au changement de profil. Les décodeurs n'étaient libérés qu'à délai fixe alors que Kyber pouvait encore leur livrer un paquet ; Kyber signale maintenant son dernier appel. La demande d'image clé ne retient plus la boucle de Kyber quand l'ordinateur ne répond pas (Quitter ne gèle plus), et sa relance tire aussi pendant un menu ouvert.
+- Moteur de capture libavconv : le pointeur suit de nouveau la souris sur les écrans à plus de 60 Hz (il restait figé tant qu'elle bougeait), et garde sa forme quand le service d'entrées de Kyber redémarre.
+- Images clés redemandées par les apps après une perte : une par session toutes les 150 ms au plus, pour qu'un réseau qui perd beaucoup de paquets n'alourdisse pas l'image de tous les écrans partagés.
+- Moteur de capture libavconv : réglage `audio_layout = "stereo"` (section `[kyavserver]`) pour envoyer le son en stéréo même quand Windows sort du 5.1 ou du 7.1 ; le client web de Kyber, qui ne lit que la stéréo, reste sinon muet. Le son annonce aussi sa taille de paquet, sans laquelle un client Kyber en son non fiable s'arrêtait.
+- Mises à jour de l'ordinateur sans risque de tout laisser arrêté : la nouvelle version est préparée à côté de l'ancienne puis mise en place d'un coup ; si la console ne répond pas dans la minute, l'ancienne version revient seule et la page Mises à jour dit pourquoi. La mise à jour à la main vérifie aussi l'empreinte du paquet, et « Applications installées » affiche la bonne version.
+- Ordinateur partagé : le dossier des données de KyberNow (`C:\ProgramData\KyberNow`) n'est plus accessible qu'aux administrateurs. Un autre compte de l'ordinateur ne peut plus y lire l'empreinte du mot de passe ni glisser un fichier dans une mise à jour.
+- Installateur : sur un portable sans mode « Performances élevées », l'installation ne s'arrête plus à 96 % : le mode est recréé, ou laissé tel quel avec un avertissement. L'option est décochée si l'ordinateur y est déjà.
+- Installateur : Alt+F4 ne ferme plus la fenêtre en pleine installation, et KyberNow apparaît dans « Applications installées » dès les fichiers copiés : une installation interrompue se désinstalle normalement.
+- Installateur : relancé sur un ordinateur où KyberNow est déjà installé, il propose de conserver les réglages (comptes, appareils appairés, ports, certificat, réglages de la console) et ne remplace que les programmes et les pilotes. « Repartir de zéro » reste possible, avec un avertissement : les appareils seront à appairer de nouveau.
+- Désinstallation plus complète : le pilote d'écran virtuel quitte aussi le magasin de pilotes de Windows, le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis, et les réglages peuvent être gardés pour plus tard.
+- Installateur : l'interface s'extrait sous Program Files et non plus dans le dossier temporaire ; la fin de l'installation vérifie que le serveur et la console répondent ; une installation officielle de Kyber dont la commande de désinstallation a des arguments est bien retirée ; les comptes standard ne peuvent plus suspendre les services.
+
+## 0.2.5
+
 - App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.
 - Apps Mac et Apple TV : toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur.
 - App Apple TV : si l'ordinateur n'annonce que des écrans éteints (0 × 0), la session le dit au lieu d'attendre sans fin.

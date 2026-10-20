@@ -10,25 +10,15 @@ fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(fallback))
 }
 
-/// Port de la console : `listen` dans `C:\ProgramData\KyberNow\kyber-admin.toml`,
-/// sinon `console_port` dans `C:\Program Files\KyberNow\kybernow.json`.
-/// Relu à chaque fois : la console peut changer de port.
+/// Port de la console : `console_port` dans `C:\Program Files\KyberNow\kybernow.json`,
+/// écrit par l'installateur, sans secret et lisible par tous. L'icône ne lit
+/// rien dans `C:\ProgramData\KyberNow` : ce dossier (où `kyber-admin.toml`
+/// garde l'empreinte du mot de passe) est réservé à SYSTEM et aux
+/// administrateurs. Relu à chaque fois : une réinstallation peut changer le port.
 pub fn port() -> Option<u16> {
-    let toml = env_dir("ProgramData", r"C:\ProgramData").join(r"KyberNow\kyber-admin.toml");
-    let from_toml = std::fs::read_to_string(toml).ok().and_then(|text| {
-        text.lines().find_map(|line| {
-            let (key, value) = line.split_once('=')?;
-            if key.trim() != "listen" {
-                return None;
-            }
-            value.trim().trim_matches('"').rsplit(':').next()?.parse().ok()
-        })
-    });
-    from_toml.or_else(|| {
-        let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
-        let record: Value = serde_json::from_slice(&std::fs::read(json).ok()?).ok()?;
-        record["console_port"].as_u64().and_then(|p| u16::try_from(p).ok())
-    })
+    let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
+    let record: Value = serde_json::from_slice(&std::fs::read(json).ok()?).ok()?;
+    record["console_port"].as_u64().and_then(|p| u16::try_from(p).ok())
 }
 
 pub fn url(port: u16) -> String {
@@ -65,6 +55,13 @@ impl Client {
             .http_status_as_error(true)
             .build();
         Client(config.new_agent())
+    }
+
+    /// La console a-t-elle un mot de passe ? (`GET /api/session`, sans compte)
+    pub fn configured(&self, port: u16) -> Option<bool> {
+        let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/session")).call().ok()?;
+        let body: Value = response.body_mut().read_json().ok()?;
+        body["configured"].as_bool()
     }
 
     pub fn local_state(&self, port: u16) -> Option<LocalState> {
@@ -115,8 +112,31 @@ impl Client {
     }
 }
 
-/// Code d'initialisation de la console, quand son mot de passe a été effacé.
-pub fn setup_code() -> Option<String> {
-    let path = env_dir("ProgramData", r"C:\ProgramData").join(r"KyberNow\setup-code.txt");
+/// Code d'initialisation écrit par la console quand son mot de passe a été
+/// effacé (lisible en administrateur seulement).
+pub fn data_setup_code_path() -> PathBuf {
+    env_dir("ProgramData", r"C:\ProgramData").join(r"KyberNow\setup-code.txt")
+}
+
+/// Copie du code laissée par la partie élevée de « Réinitialiser le mot de
+/// passe » dans le profil du compte (`%LOCALAPPDATA%\KyberNow\setup-code.txt`).
+pub fn handoff_path() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join(r"KyberNow\setup-code.txt"))
+}
+
+pub fn read_code(path: &std::path::Path) -> Option<String> {
     std::fs::read_to_string(path).ok().map(|c| c.trim().to_string()).filter(|c| !c.is_empty())
+}
+
+/// Code d'initialisation pour l'icône ordinaire : la copie laissée par la
+/// partie élevée (lue puis effacée), sinon celui de ProgramData si ce compte
+/// peut le lire.
+pub fn take_setup_code() -> Option<String> {
+    if let Some(path) = handoff_path()
+        && let Some(code) = read_code(&path)
+    {
+        let _ = std::fs::remove_file(&path);
+        return Some(code);
+    }
+    read_code(&data_setup_code_path())
 }
