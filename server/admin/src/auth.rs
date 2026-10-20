@@ -5,6 +5,7 @@
 //! est écrit dans le dossier de données : il faut avoir accès à l'ordinateur pour le lire.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -27,11 +28,28 @@ pub const CSRF_HEADER: &str = "x-kyber-admin";
 const SESSION_TTL: Duration = Duration::from_secs(12 * 3600);
 pub const SETUP_TOKEN_FILE: &str = "setup-code.txt";
 
+/// Essais manqués avant un premier verrouillage.
+const LOCKOUT_AFTER: u32 = 5;
+/// Durée du premier verrouillage ; elle double à chaque essai manqué suivant.
+const LOCKOUT_BASE: Duration = Duration::from_secs(30);
+const LOCKOUT_MAX: Duration = Duration::from_secs(10 * 60);
+/// Vérifications argon2 menées de front (≈ 19 Mio chacune) : au-delà, on attend.
+const HASH_PARALLELISM: usize = 2;
+
+#[derive(Default)]
+struct Failures {
+    count: u32,
+    locked_until: Option<Instant>,
+}
+
 pub struct Auth {
     data_dir: PathBuf,
     password_hash: Mutex<Option<String>>,
     setup_code: Mutex<Option<String>>,
     sessions: Mutex<HashMap<String, Instant>>,
+    /// Essais de connexion manqués, par adresse.
+    failures: Mutex<HashMap<IpAddr, Failures>>,
+    hashing: tokio::sync::Semaphore,
 }
 
 impl Auth {
@@ -41,11 +59,51 @@ impl Auth {
             password_hash: Mutex::new(password_hash),
             setup_code: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
+            failures: Mutex::new(HashMap::new()),
+            hashing: tokio::sync::Semaphore::new(HASH_PARALLELISM),
         });
         if !auth.is_configured() {
             auth.issue_setup_code();
         }
         auth
+    }
+
+    /// Un calcul argon2 (vérification ou nouvelle empreinte), hors du fil
+    /// asynchrone et jamais plus de `HASH_PARALLELISM` à la fois : une rafale
+    /// de connexions depuis le réseau ne peut pas épuiser la mémoire.
+    pub async fn hash_limited<T: Send + 'static>(
+        self: Arc<Self>,
+        work: impl FnOnce() -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let _permit = self.hashing.acquire().await.map_err(|_| anyhow::anyhow!("vérification impossible"))?;
+        tokio::task::spawn_blocking(work).await.map_err(|e| anyhow::anyhow!("vérification interrompue : {e}"))?
+    }
+
+    /// Verrouillée pour combien de temps encore, après trop d'essais manqués.
+    pub fn locked_for(&self, ip: IpAddr) -> Option<Duration> {
+        let mut failures = self.failures.lock().unwrap();
+        let now = Instant::now();
+        // Les adresses oubliées depuis longtemps ne s'accumulent pas.
+        failures.retain(|_, f| f.locked_until.is_some_and(|u| u > now) || f.count > 0);
+        let until = failures.get(&ip.to_canonical())?.locked_until?;
+        (until > now).then(|| until - now)
+    }
+
+    /// Un essai manqué : au bout de cinq, l'adresse attend 30 s, puis le double à chaque fois.
+    pub fn note_failure(&self, ip: IpAddr) {
+        let mut failures = self.failures.lock().unwrap();
+        let f = failures.entry(ip.to_canonical()).or_default();
+        f.count += 1;
+        if f.count >= LOCKOUT_AFTER {
+            let factor = 2u32.saturating_pow(f.count - LOCKOUT_AFTER);
+            let wait = LOCKOUT_BASE.saturating_mul(factor).min(LOCKOUT_MAX);
+            f.locked_until = Some(Instant::now() + wait);
+            tracing::warn!("{ip} : {} essais manqués, connexion bloquée {} s", f.count, wait.as_secs());
+        }
+    }
+
+    pub fn note_success(&self, ip: IpAddr) {
+        self.failures.lock().unwrap().remove(&ip.to_canonical());
     }
 
     pub fn is_configured(&self) -> bool {

@@ -81,9 +81,30 @@ pub struct Live {
     /// Dernière latence médiane annoncée par l'app.
     pub latency_ms: Option<f64>,
     pub end_requested: bool,
+    /// Nom de l'appareil qui prend la main (la fin a été demandée pour lui).
+    #[serde(default)]
+    pub taking_over: Option<String>,
     /// Dernier signal de vie (secondes).
     #[serde(skip)]
     last_beat: u64,
+}
+
+/// Réponse à un appareil qui veut ouvrir une session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Claim {
+    /// Personne d'autre en session (ou le même appareil) : il peut commencer.
+    Free,
+    /// Un autre appareil est en session : on lui a demandé de finir, il faut l'attendre.
+    Waiting { previous: String },
+}
+
+/// Identité d'un appareil : son identifiant et son nom. Sans présentation
+/// (app d'avant 0.2.1), un appareil par compte.
+pub fn identity(info: Option<&DeviceInfo>, user: &str) -> (String, String) {
+    match info.filter(|i| !i.id.trim().is_empty() && !i.name.trim().is_empty()) {
+        Some(i) => (i.id.clone(), i.name.clone()),
+        None => (format!("compte:{user}"), format!("Un appareil ({user})")),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,16 +180,38 @@ impl Activity {
         self.push(&mut s, kind, text.into());
     }
 
+    /// Un appareil veut ouvrir une session. Si un autre appareil est en
+    /// session, la console lui demande de finir (il l'apprend à son signal de
+    /// vie suivant) : l'arrivant doit attendre qu'il ait rendu la main.
+    pub fn claim(&self, device_id: &str, newcomer: &str) -> Claim {
+        self.expire();
+        let mut s = self.state.lock().unwrap();
+        let Some(live) = s.live.as_mut() else { return Claim::Free };
+        if live.device_id == device_id {
+            return Claim::Free;
+        }
+        let previous = live.name.clone();
+        let already = live.taking_over.as_deref() == Some(newcomer);
+        live.end_requested = true;
+        live.taking_over = Some(newcomer.to_string());
+        if !already {
+            self.push(&mut s, "info", format!("{newcomer} prend la main : fin de la session de {previous} demandée"));
+        }
+        Claim::Waiting { previous }
+    }
+
+    /// Identifiant de l'appareil en session, s'il y en a un.
+    pub fn live_device_id(&self) -> Option<String> {
+        self.expire();
+        self.state.lock().unwrap().live.as_ref().map(|l| l.device_id.clone())
+    }
+
     /// Une app ouvre une session.
     pub fn begin(&self, info: Option<DeviceInfo>, user: &str, mode: Option<ModeInfo>, profile: Option<String>) {
         let mut s = self.state.lock().unwrap();
         let now = now_secs();
-        // Sans présentation (app d'avant 0.2.1) : un appareil par compte.
-        let info = info.filter(|i| !i.id.trim().is_empty() && !i.name.trim().is_empty()).unwrap_or_else(|| DeviceInfo {
-            id: format!("compte:{user}"),
-            name: format!("Un appareil ({user})"),
-            ..Default::default()
-        });
+        let (id, name) = identity(info.as_ref(), user);
+        let info = DeviceInfo { id, name, ..info.unwrap_or_default() };
         let kind = info.kind.clone().unwrap_or_else(|| "other".into());
         // Même appareil déjà en session : il redemande son écran après un
         // redémarrage de Kyber. La session continue.
@@ -225,6 +268,7 @@ impl Activity {
             profile,
             latency_ms: None,
             end_requested: false,
+            taking_over: None,
             last_beat: now,
         });
         self.save_devices(&s);
@@ -235,11 +279,20 @@ impl Activity {
         self.push(&mut s, "info", text);
     }
 
+    /// La session en cours est-elle celle de cet appareil ? Les apps à partir
+    /// de 0.2.5 donnent leur identifiant ; avant, on ne connaît que le compte.
+    fn is_live(live: &Live, user: &str, device_id: Option<&str>) -> bool {
+        match device_id {
+            Some(id) => live.device_id == id,
+            None => live.user == user,
+        }
+    }
+
     /// Signal de vie d'une app : sa latence, son profil. Vrai si la console
-    /// demande la fin de la session.
-    pub fn heartbeat(&self, user: &str, latency_ms: Option<f64>, profile: Option<String>) -> bool {
+    /// demande la fin de la session (depuis la console, ou pour un autre appareil).
+    pub fn heartbeat(&self, user: &str, device_id: Option<&str>, latency_ms: Option<f64>, profile: Option<String>) -> bool {
         let mut s = self.state.lock().unwrap();
-        let Some(live) = s.live.as_mut().filter(|l| l.user == user) else { return false };
+        let Some(live) = s.live.as_mut().filter(|l| Self::is_live(l, user, device_id)) else { return false };
         live.last_beat = now_secs();
         if latency_ms.is_some() {
             live.latency_ms = latency_ms;
@@ -250,13 +303,15 @@ impl Activity {
         live.end_requested
     }
 
-    /// Fin de session (l'app se déconnecte), avec sa latence médiane.
-    pub fn end(&self, user: &str, latency_ms: Option<f64>) {
+    /// Fin de session (l'app se déconnecte), avec sa latence médiane. Vrai si
+    /// c'était bien la session en cours : un autre appareil qui se déconnecte
+    /// ne touche pas à celle qui a pris la main.
+    pub fn end(&self, user: &str, device_id: Option<&str>, latency_ms: Option<f64>) -> bool {
         let mut s = self.state.lock().unwrap();
-        let Some(live) = s.live.take() else { return };
-        if live.user != user {
+        let Some(live) = s.live.take() else { return false };
+        if !Self::is_live(&live, user, device_id) {
             s.live = Some(live);
-            return;
+            return false;
         }
         let now = now_secs();
         let latency = latency_ms.or(live.latency_ms);
@@ -277,11 +332,16 @@ impl Activity {
         if let Some(ms) = latency {
             text.push_str(&format!(", écart médian {}", milliseconds(ms)));
         }
+        if let Some(next) = live.taking_over {
+            text.push_str(&format!(" ; {next} prend la main"));
+        }
         self.push(&mut s, "info", text);
+        true
     }
 
     /// La console demande la fin de la session d'une app. Faux sans session d'app.
     pub fn request_end(&self) -> bool {
+        self.expire();
         let mut s = self.state.lock().unwrap();
         let Some(live) = s.live.as_mut() else { return false };
         live.end_requested = true;
@@ -424,10 +484,10 @@ mod tests {
         let mac = DeviceInfo { id: "abc".into(), name: "MacBook Pro".into(), kind: Some("mac".into()), os: Some("macOS 26".into()), app: None };
         a.begin(Some(mac.clone()), "matthieu", Some(ModeInfo { width: 3456, height: 2234, refresh: 120 }), Some("Bureau".into()));
         assert_eq!(a.live().unwrap().name, "MacBook Pro");
-        assert!(!a.heartbeat("matthieu", Some(8.3), None));
+        assert!(!a.heartbeat("matthieu", Some("abc"), Some(8.3), None));
         assert!(a.request_end());
-        assert!(a.heartbeat("matthieu", None, None));
-        a.end("matthieu", Some(8.1));
+        assert!(a.heartbeat("matthieu", Some("abc"), None, None));
+        assert!(a.end("matthieu", Some("abc"), Some(8.1)));
         assert!(a.live().is_none());
         let d = &a.devices()[0];
         assert_eq!((d.sessions, d.latency_ms), (1, Some(8.1)));
@@ -454,7 +514,7 @@ mod tests {
         assert_eq!(a.paired(&tv, "Apple-TV-0002").as_deref(), Some("Apple-TV-0001"));
         a.begin(Some(tv.clone()), "Apple-TV-0002", None, None);
         assert!(a.devices()[0].own_account);
-        a.end("Apple-TV-0002", None);
+        assert!(a.end("Apple-TV-0002", Some("tv1"), None));
         // Connecté avec le compte de la console : ce n'est plus son accès.
         a.begin(Some(tv), "matthieu", None, None);
         assert!(!a.devices()[0].own_account);
@@ -466,7 +526,36 @@ mod tests {
         let a = Activity::new(&temp());
         a.begin(None, "lea", None, None);
         assert_eq!(a.devices()[0].id, "compte:lea");
-        a.end("autre", None);
+        assert!(!a.end("autre", None, None));
         assert!(a.live().is_some(), "un autre compte ne termine pas la session");
+        // Sans identifiant d'appareil, le compte suffit (apps d'avant 0.2.5).
+        assert!(!a.heartbeat("lea", None, None, None));
+        assert!(a.end("lea", None, None));
+    }
+
+    #[test]
+    fn reprise_de_main_avec_preavis() {
+        let a = Activity::new(&temp());
+        let mac = DeviceInfo { id: "mac".into(), name: "MacBook".into(), kind: Some("mac".into()), os: None, app: None };
+        let tv = DeviceInfo { id: "tv".into(), name: "Apple TV".into(), kind: Some("tv".into()), os: None, app: None };
+        a.begin(Some(mac.clone()), "matthieu", None, None);
+        // Le même appareil qui redemande son écran : rien ne change.
+        assert_eq!(a.claim("mac", "MacBook"), Claim::Free);
+        // Un autre appareil (même compte) : on demande au premier de finir.
+        assert_eq!(a.claim("tv", "Apple TV"), Claim::Waiting { previous: "MacBook".into() });
+        assert_eq!(a.live().unwrap().taking_over.as_deref(), Some("Apple TV"));
+        // Le premier l'apprend à son signal de vie ; le second n'est pas encore en session.
+        assert!(a.heartbeat("matthieu", Some("mac"), None, None));
+        assert!(!a.heartbeat("matthieu", Some("tv"), None, None));
+        // Une fin de session venue du second ne touche pas à celle du premier.
+        assert!(!a.end("matthieu", Some("tv"), None));
+        assert!(a.live().is_some());
+        // Le premier rend la main ; le second commence.
+        assert!(a.end("matthieu", Some("mac"), None));
+        assert_eq!(a.live_device_id(), None);
+        assert_eq!(a.claim("tv", "Apple TV"), Claim::Free);
+        a.begin(Some(tv), "matthieu", None, None);
+        assert_eq!(a.live_device_id().as_deref(), Some("tv"));
+        assert!(a.events(3).iter().any(|e| e.text.contains("prend la main")));
     }
 }

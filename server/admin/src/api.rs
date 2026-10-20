@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, Trigger, VdSettings};
-use crate::activity::{DeviceInfo, ModeInfo};
+use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
@@ -107,8 +107,33 @@ struct SetupBody {
     password: String,
 }
 
-async fn setup(State(s): State<AppState>, Json(body): Json<SetupBody>) -> ApiResult<Response> {
-    let hash = s.auth.setup(&body.code, &body.password)?;
+/// Trop d'essais manqués depuis cette adresse : 429 avec le délai d'attente.
+fn check_lockout(s: &AppState, peer: SocketAddr) -> ApiResult<()> {
+    match s.auth.locked_for(peer.ip()) {
+        Some(wait) => Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("trop d'essais : réessayez dans {} s", wait.as_secs().max(1)),
+        )),
+        None => Ok(()),
+    }
+}
+
+async fn setup(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(body): Json<SetupBody>,
+) -> ApiResult<Response> {
+    check_lockout(&s, peer)?;
+    let auth = s.auth.clone();
+    let hash = auth.clone().hash_limited(move || auth.setup(&body.code, &body.password)).await;
+    let hash = match hash {
+        Ok(hash) => hash,
+        Err(e) => {
+            s.auth.note_failure(peer.ip());
+            return Err(e.into());
+        }
+    };
+    s.auth.note_success(peer.ip());
     s.update_settings(|st| st.admin_password_hash = Some(hash))?;
     tracing::info!("mot de passe administrateur défini");
     Ok(with_new_session(&s))
@@ -119,17 +144,23 @@ struct LoginBody {
     password: String,
 }
 
-async fn login(State(s): State<AppState>, Json(body): Json<LoginBody>) -> ApiResult<Response> {
-    // argon2 est volontairement coûteux : hors du fil d'exécution asynchrone.
+async fn login(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(body): Json<LoginBody>,
+) -> ApiResult<Response> {
+    check_lockout(&s, peer)?;
+    // argon2 est volontairement coûteux : hors du fil d'exécution asynchrone,
+    // et quelques vérifications à la fois seulement (voir `Auth::hash_limited`).
     let auth = s.auth.clone();
-    let ok = tokio::task::spawn_blocking(move || auth.verify(&body.password))
-        .await
-        .unwrap_or(false);
+    let ok = auth.clone().hash_limited(move || Ok(auth.verify(&body.password))).await.unwrap_or(false);
     if !ok {
+        s.auth.note_failure(peer.ip());
         // Ralentit les essais répétés.
         tokio::time::sleep(Duration::from_millis(800)).await;
         return Err(ApiError(StatusCode::UNAUTHORIZED, "mot de passe incorrect".into()));
     }
+    s.auth.note_success(peer.ip());
     Ok(with_new_session(&s))
 }
 
@@ -157,7 +188,8 @@ struct PasswordBody {
 }
 
 async fn change_password(State(s): State<AppState>, Json(body): Json<PasswordBody>) -> ApiResult<Response> {
-    let hash = s.auth.change_password(&body.current, &body.new)?;
+    let auth = s.auth.clone();
+    let hash = auth.clone().hash_limited(move || auth.change_password(&body.current, &body.new)).await?;
     s.update_settings(|st| st.admin_password_hash = Some(hash))?;
     Ok(with_new_session(&s))
 }
@@ -422,7 +454,7 @@ async fn display_test(State(s): State<AppState>, Json(body): Json<TestBody>) -> 
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let seconds = body.seconds.unwrap_or(20).clamp(5, 300);
     let d = s.display.clone();
-    blocking(move || d.start(Origin::Test, mode, None, Some(Duration::from_secs(seconds)))).await?;
+    blocking(move || d.start(Origin::Test, mode, None, None, Some(Duration::from_secs(seconds)))).await?;
     display_status(State(s)).await
 }
 
@@ -593,12 +625,30 @@ async fn stream_prepare(
 ) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     let trigger = s.display.settings.lock().unwrap().trigger;
-    let port = s
-        .kyber
-        .values()
-        .ok()
-        .and_then(|v| v.into_iter().find(|f| f.id == "network.port"))
-        .and_then(|f| f.value.as_u64());
+    let port = s.kyber.port();
+    let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
+
+    // Reprise de main : un autre appareil est en session. La console lui
+    // demande de finir (il l'apprend à son signal de vie suivant, 5 s au plus)
+    // et attend qu'il ait rendu la main avant de préparer l'écran du nouveau.
+    if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &device_name) {
+        tracing::info!("{device_name} prend la main : on attend que {previous} se déconnecte");
+        let deadline = tokio::time::Instant::now() + TAKEOVER_WAIT;
+        loop {
+            match s.activity.live_device_id() {
+                Some(id) if id != device_id => {}
+                _ => break,
+            }
+            if tokio::time::Instant::now() >= deadline {
+                // Il ne répond plus : sa session est close, ses écrans et son
+                // son seront repris par la préparation qui suit.
+                s.activity.drop_live(&format!("n'a pas rendu la main à {device_name}"));
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
     // Le son d'abord : la sortie d'origine (souvent l'HDMI d'un écran)
     // disparaît quand les écrans physiques s'éteignent.
     let a = s.audio.clone();
@@ -607,15 +657,23 @@ async fn stream_prepare(
     // Veille du plein écran (mode jeu de la souris dans l'app).
     s.foreground.start(&s.data_dir);
     let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
-    s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
     if trigger == Trigger::Off || body.virtual_display == Some(false) {
+        s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
         return Ok(Json(json!({ "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })));
     }
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let d = s.display.clone();
-    let applied = blocking(move || d.start(Origin::App, mode, Some(user), None)).await?;
+    let (u, id) = (user.clone(), device_id.clone());
+    let applied = blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None)).await?;
+    // La session n'est ouverte qu'une fois l'écran en place : un échec ne
+    // laisse pas un appareil « connecté » dans la vue d'ensemble.
+    s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
     Ok(Json(json!({ "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })))
 }
+
+/// Temps laissé à l'appareil en session pour rendre la main (signal de vie
+/// toutes les 5 s, puis sa déconnexion), avant de reprendre l'écran de force.
+const TAKEOVER_WAIT: Duration = Duration::from_secs(7);
 
 #[derive(Deserialize, Default)]
 struct HeartbeatBody {
@@ -624,17 +682,24 @@ struct HeartbeatBody {
     latency_ms: Option<f64>,
     #[serde(default)]
     profile: Option<String>,
+    /// Identifiant de l'appareil (celui de `device` dans `prepare`), à partir
+    /// de 0.2.5 : la console distingue ainsi deux appareils sur le même compte.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
-/// Signal de vie d'une app, avec sa latence. `end` : la console demande la fin.
+/// Signal de vie d'une app, avec sa latence. `end` : la console demande la
+/// fin (depuis la console, ou parce qu'un autre appareil prend la main) ;
+/// `active` : l'écran virtuel en place est bien celui de cet appareil.
 async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     // Corps facultatif : les apps d'avant 0.2.1 n'en envoient pas.
     let body: HeartbeatBody = serde_json::from_slice(&body).unwrap_or_default();
+    let device = body.device_id.as_deref();
     s.audio.heartbeat();
     s.foreground.touch();
-    let end = s.activity.heartbeat(&user, body.latency_ms, body.profile);
-    Ok(Json(json!({ "active": s.display.heartbeat(), "end": end })))
+    let end = s.activity.heartbeat(&user, device, body.latency_ms, body.profile);
+    Ok(Json(json!({ "active": s.display.heartbeat(device), "end": end })))
 }
 
 /// App au premier plan sur l'ordinateur : plein écran, jeu (l'app du Mac
@@ -687,12 +752,26 @@ struct EndBody {
     /// Latence médiane de toute la session, en millisecondes.
     #[serde(default)]
     latency_ms: Option<f64>,
+    /// Identifiant de l'appareil (voir `HeartbeatBody`).
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     let body: EndBody = serde_json::from_slice(&body).unwrap_or_default();
-    s.activity.end(&user, body.latency_ms);
+    let owned = s.activity.end(&user, body.device_id.as_deref(), body.latency_ms);
+    // Un appareil qui a été remplacé par un autre se déconnecte à son tour :
+    // il ne doit pas emporter l'écran et le son de celui qui a pris la main.
+    if !owned {
+        if let Some(live) = s.activity.live() {
+            let display_is_mine = body.device_id.as_deref().is_some_and(|d| s.display.owned_by(d));
+            if !display_is_mine {
+                tracing::info!("fin de session d'un appareil remplacé : l'écran reste à {}", live.name);
+                return Ok(Json(json!({ "ok": true, "display_restored": true, "audio_restored": true, "kept_for": live.name })));
+            }
+        }
+    }
     s.foreground.stop();
     let (d, a) = (s.display.clone(), s.audio.clone());
     let report = blocking(move || {

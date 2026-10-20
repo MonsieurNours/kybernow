@@ -156,7 +156,9 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
             "virtual_display": virtualDisplay, "device": Self.thisDevice,
         ]
         if let profile { body["profile"] = profile }
-        let json = try await call("POST", "api/stream/prepare", body: body)
+        // La console peut d'abord attendre qu'un autre appareil rende la main
+        // (7 s au plus), puis créer l'écran virtuel (jusqu'à 15 s).
+        let json = try await call("POST", "api/stream/prepare", body: body, timeout: 40)
         let applied = json["applied"] as? [String: Any]
         let audio = json["audio"] as? [String: Any]
         return PrepareResult(
@@ -197,15 +199,20 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
 
     /// Réponse au signal de vie.
     public struct Beat: Sendable {
-        /// La console demande la fin de la session (bouton « Mettre fin à la session »).
+        /// La console demande la fin de la session : bouton « Mettre fin à la
+        /// session », ou un autre appareil qui prend la main.
         public let end: Bool
-        /// L'écran virtuel est en place (nil : console injoignable).
+        /// L'écran virtuel en place est celui de cet appareil (nil : console injoignable).
         public let displayActive: Bool?
     }
 
+    /// Identifiant stable de cet appareil, le même que dans `prepare` : la
+    /// console distingue ainsi deux appareils sur le même compte.
+    private static var deviceID: String { thisDevice["id"] as? String ?? "" }
+
     /// Signal de vie, avec la latence du moment.
     public func heartbeat(latencyMs: Double? = nil, profile: String? = nil) async -> Beat {
-        var body: [String: Any] = [:]
+        var body: [String: Any] = ["device_id": Self.deviceID]
         if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
         if let profile { body["profile"] = profile }
         let json = try? await call("POST", "api/stream/heartbeat", body: body)
@@ -215,7 +222,7 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
     /// Fin de session : la console retire l'écran virtuel et rétablit le son.
     @discardableResult
     public func end(latencyMs: Double? = nil) async throws -> EndReport {
-        var body: [String: Any] = [:]
+        var body: [String: Any] = ["device_id": Self.deviceID]
         if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
         let json = try await call("POST", "api/stream/end", body: body)
         return EndReport(
