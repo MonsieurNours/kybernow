@@ -83,6 +83,8 @@ pub fn schedule_removal() {
         let script = format!("ping 127.0.0.1 -n 4 > nul & rmdir /s /q \"{}\"", sys::install_dir().display());
         let _ = std::process::Command::new("cmd")
             .args(["/C", &script])
+            // Pas depuis le dossier à effacer.
+            .current_dir(std::env::temp_dir())
             .creation_flags(0x0800_0000 | 0x0000_0008) // sans fenêtre, détaché
             .spawn();
     }
@@ -116,7 +118,15 @@ pub fn published_infs(text: &str, original: &str) -> Vec<String> {
 
 /// Remet le mode d'alimentation et la catégorie du réseau d'avant KyberNow.
 fn restore_windows(restore: &Restore) {
-    if let Some(created) = &restore.created_power_scheme {
+    // Seulement si l'ordinateur est encore dans le mode de KyberNow : un autre
+    // choix fait depuis par l'utilisateur est gardé.
+    let active = run("powercfg", &["/getactivescheme"]).ok().and_then(|o| crate::install::find_guid(&sys::text(&o), ""));
+    let ours = |g: &str| g == HIGH_PERFORMANCE_SCHEME || restore.created_power_scheme.as_deref() == Some(g);
+    if active.as_deref().is_some_and(|g| !ours(g)) {
+        if let Some(created) = &restore.created_power_scheme {
+            let _ = run("powercfg", &["/delete", created]);
+        }
+    } else if let Some(created) = &restore.created_power_scheme {
         let back = restore.power_scheme.as_deref().unwrap_or(BALANCED_SCHEME);
         if run("powercfg", &["/setactive", back]).is_ok_and(|o| !o.status.success()) {
             let _ = run("powercfg", &["/setactive", BALANCED_SCHEME]);

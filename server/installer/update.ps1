@@ -82,7 +82,7 @@ function Get-ConsolePort {
     }
     $json = Join-Path $dir 'kybernow.json'
     if (Test-Path $json) {
-        $record = Get-Content -Raw $json | ConvertFrom-Json
+        $record = Get-Content -Raw -Encoding UTF8 $json | ConvertFrom-Json
         if ($record.console_port) { return [int]$record.console_port }
     }
     return 9443
@@ -128,6 +128,7 @@ function Write-Result([string]$Version, [string]$Message, [bool]$RolledBack) {
 }
 
 $version = ''
+$pkg = $null
 $stopped = $false
 $trayWasRunning = $false
 $swapped = New-Object System.Collections.ArrayList
@@ -241,6 +242,9 @@ try {
     # (elle lit ce fichier a son demarrage).
     if ($asSystem -and $trayWasRunning) { Request-TrayRelaunch }
 
+    # Un echec precedent ne doit pas s'afficher dans la nouvelle console.
+    Remove-Item (Join-Path $updates 'resultat.json') -Force -ErrorAction SilentlyContinue
+
     Write-Host '==> Redemarrage et controle de sante (la console doit repondre en 60 s)'
     Start-Service kyber-admin, kyber
     $port = Get-ConsolePort
@@ -254,7 +258,7 @@ try {
     try {
         $json = Join-Path $dir 'kybernow.json'
         if (Test-Path $json) {
-            $record = Get-Content -Raw $json | ConvertFrom-Json
+            $record = Get-Content -Raw -Encoding UTF8 $json | ConvertFrom-Json
             $record.version = $version
             Write-Utf8 $json ($record | ConvertTo-Json -Depth 5)
         }
@@ -310,6 +314,8 @@ try {
             Start-Process explorer.exe -ArgumentList "`"$tray`""
         }
     }
+    # Mise a jour a la main : le paquet telecharge ne sert plus.
+    if (-not $Source -and $pkg) { Remove-Item $pkg, "$pkg.zip", "$pkg.sums" -Recurse -Force -ErrorAction SilentlyContinue }
     # Paquets des mises a jour : les deux plus recents restent.
     if (Test-Path $updates) {
         Get-ChildItem $updates -Directory | Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |

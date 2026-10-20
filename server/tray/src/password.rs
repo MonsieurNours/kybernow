@@ -66,6 +66,8 @@ fn run() -> Result<()> {
     }
     // Sans fenêtre de console (CREATE_NO_WINDOW).
     let status = Command::new(&admin).arg("reset-password").creation_flags(0x0800_0000).status().with_context(|| format!("lancement de {}", admin.display()))?;
+    // Un ancien code ne doit pas être pris pour celui de la console qui redémarre.
+    let _ = std::fs::remove_file(console::data_setup_code_path());
     services::start(ADMIN)?;
     if !status.success() {
         bail!("kyber-admin reset-password a échoué ({status}).");

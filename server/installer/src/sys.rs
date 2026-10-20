@@ -39,11 +39,13 @@ pub fn text(out: &Output) -> String {
     s
 }
 
-/// Lance PowerShell sans profil et renvoie la sortie standard.
+/// Lance PowerShell sans profil et renvoie la sortie standard, en UTF-8
+/// (sinon PowerShell 5 écrit dans la page de code OEM : « Réseau » arriverait abîmé).
 pub fn powershell(script: &str) -> Result<String> {
+    let script = format!("[Console]::OutputEncoding = [Text.Encoding]::UTF8; {script}");
     let out = run(
         "powershell.exe",
-        &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script],
     )?;
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

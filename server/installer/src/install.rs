@@ -305,7 +305,8 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         // Jamais bloquant : beaucoup de portables n'ont pas ce mode, ou le refusent.
         ctx.task("power", TaskStatus::Running);
         let before = run("powercfg", &["/getactivescheme"]).ok().and_then(|o| find_guid(&sys::text(&o), ""));
-        match set_high_performance() {
+        let recreated = ctx.restore.lock().unwrap().created_power_scheme.clone();
+        match set_high_performance(recreated.as_deref()) {
             Ok((how, created)) => {
                 let mut restore = ctx.restore.lock().unwrap();
                 if restore.power_scheme.is_none() {
@@ -365,9 +366,15 @@ pub const HIGH_PERFORMANCE_SCHEME: &str = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c"
 /// récents), il est recréé à partir du modèle de Windows
 /// (`powercfg /duplicatescheme`), puis activé. Renvoie un complément pour le
 /// journal et le GUID du mode recréé.
-fn set_high_performance() -> Result<(&'static str, Option<String>)> {
+fn set_high_performance(recreated: Option<&str>) -> Result<(&'static str, Option<String>)> {
     if run_ok("powercfg", &["/setactive", HIGH_PERFORMANCE_SCHEME], &[0]).is_ok() {
         return Ok(("", None));
+    }
+    // Déjà recréé par une installation précédente : pas de second exemplaire.
+    if let Some(guid) = recreated
+        && run_ok("powercfg", &["/setactive", guid], &[0]).is_ok()
+    {
+        return Ok((" (celui recréé à l'installation précédente)", Some(guid.to_string())));
     }
     let out = run_ok("powercfg", &["/duplicatescheme", HIGH_PERFORMANCE_SCHEME], &[0])?;
     let guid = find_guid(&sys::text(&out), HIGH_PERFORMANCE_SCHEME).context("identifiant du mode recréé introuvable")?;
@@ -518,8 +525,8 @@ pub fn wait_stopped(service: &str) {
     }
 }
 
-/// État d'un service d'après `sc query` : « STATE : 4 RUNNING » (« ÉTAT » en
-/// français) donne 4. Le chiffre ne dépend pas de la langue de Windows.
+/// État d'un service d'après `sc query` : « STATE : 4 RUNNING » (« ÉTAT »,
+/// « ESTADO »… selon la langue) donne 4.
 fn service_state(service: &str) -> Option<u32> {
     let out = run("sc", &["query", service]).ok().filter(|o| o.status.success())?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -527,10 +534,13 @@ fn service_state(service: &str) -> Option<u32> {
 }
 
 pub fn parse_state(sc_query: &str) -> Option<u32> {
-    sc_query
-        .lines()
-        .filter(|l| l.to_uppercase().contains("STATE") || l.to_uppercase().contains("TAT"))
-        .find_map(|l| l.split_once(':')?.1.split_whitespace().next()?.parse().ok())
+    // Les noms d'état (RUNNING, STOPPED…) ne sont pas traduits, l'intitulé si.
+    const STATES: [&str; 7] = ["STOPPED", "START_PENDING", "STOP_PENDING", "RUNNING", "CONTINUE_PENDING", "PAUSE_PENDING", "PAUSED"];
+    sc_query.lines().find_map(|line| {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let i = words.iter().position(|w| STATES.contains(w))?;
+        words.get(i.checked_sub(1)?)?.parse().ok()
+    })
 }
 
 /// Attend qu'un service soit en marche (`SERVICE_RUNNING`, 4).
@@ -738,5 +748,8 @@ mod tests {
         assert_eq!(parse_state(en), Some(4));
         let fr = "NOM_SERVICE : kyber\r\n        TYPE               : 10  WIN32_OWN_PROCESS\r\n        ÉTAT               : 2  START_PENDING\r\n";
         assert_eq!(parse_state(fr), Some(2));
+        let es = "NOMBRE_SERVICIO: kyber\r\n        ESTADO             : 1  STOPPED\r\n";
+        assert_eq!(parse_state(es), Some(1));
+        assert_eq!(parse_state("[SC] OpenService FAILED 1060"), None);
     }
 }

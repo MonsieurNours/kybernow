@@ -290,18 +290,12 @@ fn fetch_latest() -> Result<Release> {
     })
 }
 
-/// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
-/// exécute le `update.ps1` du paquet.
-///
-/// Le script est écrit dans `lancement.ps1` (aucun guillemet à faire passer
-/// par la ligne de commande). PowerShell reçoit une console cachée et une
-/// sortie dans `lancement.log` : lancé depuis un service sans console ni
-/// sortie valide (DETACHED_PROCESS, console 0.2.0), il pouvait quitter avant
-/// d'écrire la moindre ligne.
-/// Échec signalé par `update.ps1`, s'il y en a un.
+
+/// Échec signalé par `update.ps1`, s'il y en a un. Un échec de la version qui
+/// tourne est périmé : elle a été installée depuis.
 fn read_failure(path: &Path) -> Option<Value> {
     let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (value["ok"].as_bool() == Some(false)).then_some(value)
+    (value["ok"].as_bool() == Some(false) && value["version"].as_str() != Some(current())).then_some(value)
 }
 
 /// Chaîne entre apostrophes pour PowerShell (une apostrophe se double).
@@ -310,6 +304,14 @@ fn ps_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "''"))
 }
 
+/// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
+/// exécute le `update.ps1` du paquet.
+///
+/// Le script est écrit dans `lancement.ps1` (aucun guillemet à faire passer
+/// par la ligne de commande). PowerShell reçoit une console cachée et une
+/// sortie dans `lancement.log` : lancé depuis un service sans console ni
+/// sortie valide (DETACHED_PROCESS, console 0.2.0), il pouvait quitter avant
+/// d'écrire la moindre ligne.
 #[cfg(windows)]
 fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
