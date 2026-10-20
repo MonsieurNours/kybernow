@@ -213,7 +213,11 @@ public final class KyberClient {
 
         let protocolRef = kyclient_streaming_protocol_kymux(
             options.reliable ? KYCLIENT_KYMUX_VIDEO_PROTOCOL_RELIABLE : KYCLIENT_KYMUX_VIDEO_PROTOCOL_UNRELIABLE_FEC,
-            KYCLIENT_KYMUX_AUDIO_PROTOCOL_RELIABLE
+            // Son non fiable avec correction d'erreurs : un paquet perdu est
+            // masqué par Opus au lieu d'être retransmis (plus de retard qui
+            // s'accumule sur Wi-Fi). L'ordinateur doit annoncer la taille de
+            // ses paquets (correctif serveur 0008).
+            KYCLIENT_KYMUX_AUDIO_PROTOCOL_UNRELIABLE_FEC
         )
         defer { kyclient_streaming_protocol_unref(protocolRef) }
         var session: OpaquePointer?

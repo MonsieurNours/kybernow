@@ -11,6 +11,11 @@ enum KyberLog {
     static let audio = Logger(subsystem: "test", category: "audio")
 }
 
+/// Le lecteur est retenu par Kyber dans l'app (KyberClient.swift) : rien à faire ici.
+enum PacketSinkLease {
+    static func release<T: AnyObject>(_: T.Type, _ pointer: UnsafeMutableRawPointer) {}
+}
+
 func run(channels: Int32, seconds: Double, frame: Int = 960) {
     var err: Int32 = 0
     var streams: Int32 = 0, coupled: Int32 = 0
