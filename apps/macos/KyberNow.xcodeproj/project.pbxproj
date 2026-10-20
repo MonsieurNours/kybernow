@@ -14,6 +14,7 @@
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
 		21098C1E09537AEA98965E43 /* ConnectScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE88CA3F6B110EB52FD12E36 /* ConnectScene.swift */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
+		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		615E3852F93406C4CE59662C /* IBMPlexMono-Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9284C96DE708C736853C8502 /* IBMPlexMono-Medium.ttf */; };
@@ -69,6 +70,7 @@
 /* Begin PBXFileReference section */
 		08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClient.swift; sourceTree = "<group>"; };
 		1689EF4F776E41A31B8D894A /* IBMPlexSans-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "IBMPlexSans-wdth-wght.ttf"; sourceTree = "<group>"; };
+		1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
 		2105139B92C07E1555E99C60 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		2132FE7F8A22F4F68C254657 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		2E52A2468E17E9C7D59192C6 /* BricolageGrotesque-opsz-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "BricolageGrotesque-opsz-wdth-wght.ttf"; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
 				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
+				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
@@ -338,6 +341,7 @@
 				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
 				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
+				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,

@@ -321,37 +321,3 @@ public final class StreamView: NSView {
         return super.resignFirstResponder()
     }
 }
-
-/// Vue qui porte la couche Metal du rendu (vue « hébergeant » une couche).
-final class MetalSurface: NSView {
-    private var renderer: VideoRenderer?
-
-    /// Branche le rendu (nil : VLC dessine, la surface se cache).
-    func show(_ renderer: VideoRenderer?) {
-        self.renderer = renderer
-        isHidden = renderer == nil
-        guard let renderer else { return }
-        layer = renderer.layer
-        wantsLayer = true
-        updateDrawableSize()
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        updateDrawableSize()
-    }
-
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        updateDrawableSize()
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    private func updateDrawableSize() {
-        guard let renderer else { return }
-        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        renderer.layer.contentsScale = scale
-        renderer.setDrawableSize(CGSize(width: bounds.width * scale, height: bounds.height * scale))
-    }
-}

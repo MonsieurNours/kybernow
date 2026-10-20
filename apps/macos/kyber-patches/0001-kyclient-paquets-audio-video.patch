@@ -58,7 +58,7 @@ index 897c92d..422c24a 100644
          0
      }
 diff --git a/kyclient/src/kymux_backend/desktop.rs b/kyclient/src/kymux_backend/desktop.rs
-index c33eb83..91c5fb8 100644
+index c33eb83..1cfe402 100644
 --- a/kyclient/src/kymux_backend/desktop.rs
 +++ b/kyclient/src/kymux_backend/desktop.rs
 @@ -19,7 +19,7 @@
@@ -99,7 +99,7 @@ index c33eb83..91c5fb8 100644
 +            Ok(Some(packet)) => packet,
 +            Ok(None) => break,
 +            Err(err) => {
-+                info!("Video packet sink closed: {err:?}");
++                info!("Packet sink of stream {source_id} closed: {err:?}");
 +                break;
 +            }
 +        };

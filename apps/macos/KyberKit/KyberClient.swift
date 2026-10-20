@@ -164,8 +164,8 @@ public final class KyberClient {
         var player: OpaquePointer?
         try check(kyclient_video_player_config_default(handle, &player), "lecteur vidéo")
         defer { kyclient_video_player_config_unref(player) }
-        var video: OpaquePointer?
-        try check(kyclient_video_session_config_default(display.id, player, &video), "configuration vidéo")
+        // La session vidéo recopie les réglages du lecteur à sa création : la
+        // sortie vers l'app doit être posée avant (sinon l'image part à VLC).
         if options.nativeVideo, options.codec != .av1, let pipeline = VideoPipeline() {
             pipeline.renderer.vsync = options.vsync
             latency.reset()
@@ -177,9 +177,13 @@ public final class KyberClient {
             retire(self.video)
             self.video = pipeline
             view.surface.show(pipeline.renderer)
+            KyberLog.video.notice("image décodée par l'app (VideoToolbox, Metal)")
         } else {
             view.surface.show(nil)
+            KyberLog.video.notice("image décodée par VLC (\(options.codec.rawValue, privacy: .public))")
         }
+        var video: OpaquePointer?
+        try check(kyclient_video_session_config_default(display.id, player, &video), "configuration vidéo")
         kyclient_video_session_config_set_codec(video, options.codec.sdk)
         kyclient_video_session_config_set_yuv444(video, options.yuv444)
         kyclient_streaming_session_config_add_video(session, video)

@@ -61,7 +61,8 @@ apps/macos/
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AudioPlayer
 │   ├── LatencyTracker     # latence de bout en bout (mesures de Kyber)
-│   ├── StreamView         # vue de session : surface Metal, clavier, souris, curseur
+│   ├── StreamView         # vue de session : clavier, souris, curseur
+│   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé
 │   ├── InputPipeline, Keymap, GamepadGate   # entrées via libkynput
@@ -99,6 +100,7 @@ open build/Build/Products/Debug/KyberNow.app
 apps/macos/tests/video/run.sh   # flux HEVC/H.264 générés par ffmpeg : décodage, temps, couleurs rendues
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
 apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
+apps/macos/tests/screen/run.sh  # fenêtre de 2 s : la surface de session montre vraiment les images (presentedTime)
 ```
 
 Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4, couleurs à ±4 niveaux près ; son : 15 à 23 ms de tampon en paquets de 20 ms, 14 à 22 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés.
