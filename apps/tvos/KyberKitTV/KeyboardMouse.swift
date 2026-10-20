@@ -1,8 +1,13 @@
 // Clavier et souris Bluetooth branchés à l'Apple TV (GCKeyboard, GCMouse).
 //
 // GameController donne les touches en usages HID (page 7), que kynput
-// convertit en scancodes ; la souris donne des déplacements bruts, envoyés
-// en relatif (le pointeur de l'ordinateur est dessiné par l'app).
+// convertit en scancodes ; la souris donne des déplacements bruts : position
+// tenue par la vue de session (fil principal), ou envoyés bruts tels quels
+// depuis la file quand la souris est relative (jeu en plein écran).
+//
+// Comme les manettes, tout arrive sur la file des entrées de GamepadBridge
+// (`handlerQueue`), pas sur le fil principal ; `input` et les réglages n'y
+// sont lus que là.
 //
 // Clavier Apple ISO (européen) : la touche sous Échap (`@#` sur un AZERTY)
 // arrive comme usage 0x64 et celle près de ⇧ (`<>`) comme 0x35, à l'inverse
@@ -15,23 +20,32 @@
 import GameController
 
 final class KeyboardMouse {
+    private var queue: DispatchQueue { GamepadBridge.queue }
+    /// Sur la file seulement.
     private weak var input: InputPipeline?
+    private var iso = false
+    private var activitySent = false
     private var observers: [NSObjectProtocol] = []
-    /// Une souris bouge : le pointeur doit s'afficher.
+    /// Une souris bouge : le pointeur doit s'afficher (fil principal).
     var onMouseActivity: (() -> Void)?
-    /// Déplacement de la souris (pixels) : vrai si la vue de session l'a pris
-    /// en position absolue, faux pour l'envoyer brut (jeu en plein écran).
+    /// Déplacement de la souris (pixels), fil principal : vrai si la vue de
+    /// session l'a pris en position absolue, faux pour l'envoyer brut.
     var onMove: ((Double, Double) -> Bool)?
     /// Réglage « Clavier Apple ISO » : échange des usages 0x35 et 0x64 pour
     /// les claviers Apple.
-    var appleISO = false
+    var appleISO = false {
+        didSet { let v = appleISO; queue.async { self.iso = v } }
+    }
 
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
     /// observateurs précédents sont retirés d'abord, sinon ils s'empilaient
     /// et chaque clavier branché était réglé autant de fois.
     func attach(_ input: InputPipeline) {
         observers.forEach(NotificationCenter.default.removeObserver)
-        self.input = input
+        queue.sync {
+            self.input = input
+            activitySent = false
+        }
         if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
         GCMouse.mice().forEach(setUp)
         observers = [
@@ -55,16 +69,19 @@ final class KeyboardMouse {
             mouse.mouseInput?.middleButton?.pressedChangedHandler = nil
             mouse.mouseInput?.scroll.valueChangedHandler = nil
         }
-        input?.flushKeys()
-        input = nil
+        queue.sync {
+            input?.flushKeys()
+            input = nil
+        }
     }
 
     private func setUp(_ keyboard: GCKeyboard) {
+        keyboard.handlerQueue = queue
         let apple = keyboard.vendorName.map { $0.localizedCaseInsensitiveContains("Apple") } ?? true
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             guard let self, let input = self.input else { return }
             var usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
-            if apple, self.appleISO, usage == 0x35 || usage == 0x64 {
+            if apple, self.iso, usage == 0x35 || usage == 0x64 {
                 usage = usage == 0x35 ? 0x64 : 0x35
             }
             var scancode: UInt16 = 0
@@ -74,14 +91,23 @@ final class KeyboardMouse {
     }
 
     private func setUp(_ mouse: GCMouse) {
+        mouse.handlerQueue = queue
         guard let m = mouse.mouseInput else { return }
         m.mouseMovedHandler = { [weak self] _, dx, dy in
-            DispatchQueue.main.async {
-                guard let self, let input = self.input else { return }
-                self.onMouseActivity?()
-                if self.onMove?(Double(dx), Double(-dy)) != true {
-                    input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
-                }
+            guard let self, let input = self.input else { return }
+            if !self.activitySent {
+                self.activitySent = true
+                DispatchQueue.main.async { self.onMouseActivity?() }
+            }
+            // Jeu en plein écran (souris relative) : déplacements bruts, tout
+            // de suite. Sinon, la vue de session tient la position.
+            if input.isRelative {
+                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
+                return
+            }
+            DispatchQueue.main.async { [weak input] in
+                guard let input, self.onMove?(Double(dx), Double(-dy)) != true else { return }
+                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
             }
         }
         m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
