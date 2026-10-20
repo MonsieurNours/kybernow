@@ -60,6 +60,7 @@ export interface GpuDevice {
 
 export interface Status {
   hostname?: string
+  os?: string | null
   lan_ip?: string
   admin_version: string
   kyber_dir: string

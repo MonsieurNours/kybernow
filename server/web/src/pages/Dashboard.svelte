@@ -85,6 +85,8 @@
       <dl class="kv">
         <dt>Machine</dt>
         <dd>{s.hostname ?? '—'}</dd>
+        <dt>Système</dt>
+        <dd>{s.os ?? '—'}</dd>
         <dt>Adresse</dt>
         <dd>{s.lan_ip ?? '—'}</dd>
         <dt>Port</dt>

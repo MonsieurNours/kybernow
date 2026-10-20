@@ -55,6 +55,7 @@ kyber-apps/
 - **Supervision** : GPU, pilote, charge de l'encodeur (NVML), session active, logs en direct.
 - **Appairage** : page « Appareils » de la console : QR code et lien `kybernow://adresse:port?name=…&fp=sha256:…` (adresse, port de la console, empreinte de son certificat ; aucun secret). L'app lit le QR code à la caméra du Mac ou le lien collé (ou ouvert : schéma `kybernow://`). L'empreinte vue est comparée à celle du lien ou de l'annonce ; par simple adresse, l'utilisateur la compare à celle de la console (4 premiers groupes). Puis compte de la console, vérifié et gardé dans le Trousseau ; certificat épinglé.
 - **Découverte** : annonce Bonjour/mDNS `_kybernow._tcp` de la console (TXT `v`, `name`, `fp`), règle de pare-feu UDP 5353 pour kyber-admin.
+- **Accueil des apps** : `GET /api/stream/info` donne le système de l'ordinateur (« Windows 11 Pro 24H2 », pensé pour un serveur multi-plateforme), `GET /api/stream/preview` un aperçu JPEG de l'écran principal (capture GDI par l'agent dans la session de l'utilisateur, 10 s de cache, jamais pendant une session), fond de l'accueil quand l'app n'a pas d'image de la dernière session.
 - **Profils** : « Jeu » (faible latence, manette, haut fps) / « Bureau » (4:4:4, presse-papiers, multi-écrans).
 
 ### Écran virtuel (session de stream)

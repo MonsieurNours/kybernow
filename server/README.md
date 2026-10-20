@@ -26,7 +26,8 @@ Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au ha
 | Journaux | Kyber (`%ProgramData%\Kyber\logs`) et KyberNow |
 
 **Pour les apps.** La console s'annonce en Bonjour (`_kybernow._tcp`, TXT `v`, `name`, `fp`), d'où la règle de pare-feu UDP 5353. Elle sert aussi l'API de session :
-- `GET /api/stream/info` : nom, GPU, AV1, écran virtuel, haut-parleurs ;
+- `GET /api/stream/info` : nom, système (`os`, par exemple « Windows 11 Pro 24H2 », absent si inconnu), GPU, AV1, écran virtuel, haut-parleurs. `GET /api/status` (console web) donne aussi `os`. Sous Windows, le nom vient du registre (ProductName et DisplayVersion, « Windows 11 » d'après le numéro de build, ProductName disant encore « Windows 10 ») ; sur le Mac de développement, de `sw_vers` ; sous Linux, de `PRETTY_NAME` dans `/etc/os-release` ;
+- `GET /api/stream/preview?width=960` : aperçu de l'écran principal tel qu'il est en ce moment, pour le fond de l'accueil des apps. JPEG (qualité 70), largeur bornée entre 320 et 1600 (960 par défaut), hauteur au ratio, en-tête `X-Captured-At` (RFC 3339). `503` et `{"error": "…"}` si l'écran ne peut pas être capturé : personne de connecté, écran verrouillé ou demande de sécurité affichée, agent indisponible. La dernière capture est resservie pendant 10 s (5 s pour un échec) ; pendant une session (app KyberNow ou autre client qui fait encoder le GPU), aucune capture n'est faite : la dernière est resservie, ou `503`. La capture est faite par un agent lancé dans la session Windows (`display-agent preview`, GDI, écran principal réduit à la largeur demandée), qui écrit le JPEG dans `preview\` ; sur le Mac de développement, par `screencapture` (il faut l'autorisation d'enregistrer l'écran) ;
 - `POST /api/stream/prepare` : écran virtuel à la taille du client, son au bon nombre de voies ;
 - `POST /api/stream/heartbeat` : signal de vie (sans lui, l'écran virtuel disparaît) ;
 - `GET /api/stream/foreground` : app au premier plan sur l'ordinateur, en plein écran ou non, jeu ou non (mode Auto de la souris des apps). La console l'obtient d'un agent qui tourne dans la session Windows le temps d'une session (`display-agent foreground`, état écrit toutes les 400 ms). L'agent s'arrête seul sans signal de vie pendant 20 s ;
@@ -46,6 +47,7 @@ Les changements d'écran, de son et de pointeur sont faits dans la session de l'
 | `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
 | `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` |
+| `C:\ProgramData\KyberNow\preview\` | capture en cours de l'aperçu de l'écran (effacée dès qu'elle est lue) |
 | `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | journal du service |
 

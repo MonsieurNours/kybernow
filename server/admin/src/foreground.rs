@@ -32,9 +32,7 @@ impl Watcher {
     /// Début de session : lance l'agent (une seule fois).
     pub fn start(&self, data_dir: &Path) {
         let _ = std::fs::create_dir_all(&self.dir);
-        let fresh = self.run_file().metadata().and_then(|m| m.modified()).ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age < STALE);
+        let fresh = self.active();
         let _ = std::fs::write(self.run_file(), b"");
         if fresh {
             return; // un agent tourne déjà
@@ -53,6 +51,13 @@ impl Watcher {
         if let Err(e) = launched {
             tracing::warn!("veille du plein écran : {e:#}");
         }
+    }
+
+    /// Une session d'app est en cours (signal de vie récent).
+    pub fn active(&self) -> bool {
+        self.run_file().metadata().and_then(|m| m.modified()).ok()
+            .and_then(|t| SystemTime::now().duration_since(t).ok())
+            .is_some_and(|age| age < STALE)
     }
 
     /// Signal de vie de l'app : l'agent continue.
@@ -122,7 +127,7 @@ pub fn run_agent(dir: &Path) -> anyhow::Result<()> {
 }
 
 #[cfg(windows)]
-fn probe() -> Value {
+pub fn probe() -> Value {
     use windows_sys::Win32::Foundation::{CloseHandle, RECT};
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
     use windows_sys::Win32::System::Threading::{

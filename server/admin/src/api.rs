@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, Trigger, VdSettings};
-use crate::{AppState, auth, gpu, logs, schema, service};
+use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -49,6 +49,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
         .route("/api/stream/foreground", get(stream_foreground))
+        .route("/api/stream/preview", get(stream_preview))
         .route("/api/stream/end", post(stream_end))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
 }
@@ -160,6 +161,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 
     Ok(Json(json!({
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "os": crate::system::os_name(),
         "lan_ip": crate::tls::lan_ip(),
         "admin_version": env!("CARGO_PKG_VERSION"),
         "kyber_dir": s.kyber_dir,
@@ -441,7 +443,7 @@ async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     })))
 }
 
-/// Ce que l'app affiche d'un ordinateur : nom, carte graphique, possibilités.
+/// Ce que l'app affiche d'un ordinateur : nom, système, carte graphique, possibilités.
 async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     stream_user(&s, &headers)?;
     let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
@@ -452,6 +454,7 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let (display, audio) = blocking(move || Ok((d.status(), a.status()))).await?;
     Ok(Json(json!({
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        "os": crate::system::os_name(),
         "gpu": gpu_name,
         "av1": av1,
         "virtual_display": {
@@ -509,6 +512,44 @@ async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap) -> ApiR
 async fn stream_foreground(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     stream_user(&s, &headers)?;
     Ok(Json(s.foreground.state()))
+}
+
+#[derive(Deserialize)]
+struct PreviewQuery {
+    width: Option<u32>,
+}
+
+/// Aperçu de l'écran principal en JPEG (fond de l'accueil des apps), daté
+/// par `X-Captured-At`. 503 si l'écran ne peut pas être capturé.
+async fn stream_preview(
+    State(s): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<PreviewQuery>,
+) -> ApiResult<Response> {
+    stream_user(&s, &headers)?;
+    let width = q.width.unwrap_or(preview::DEFAULT_WIDTH).clamp(preview::MIN_WIDTH, preview::MAX_WIDTH);
+    // Pendant une session (la nôtre ou un autre client de Kyber), aucune capture.
+    let (d, a) = (s.display.clone(), s.audio.clone());
+    let streaming = s.foreground.active()
+        || blocking(move || {
+            Ok(gpu::encoder_sessions().unwrap_or(0) > 0
+                || !d.status()["session"].is_null()
+                || !a.status()["session"].is_null())
+        })
+        .await?;
+    let shot = s.preview.get(width, streaming).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e))?;
+    let captured_at = time::OffsetDateTime::from(shot.captured_at)
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/jpeg".to_string()),
+            (header::CACHE_CONTROL, "no-store".to_string()),
+            (header::HeaderName::from_static("x-captured-at"), captured_at),
+        ],
+        shot.jpeg,
+    )
+        .into_response())
 }
 
 async fn stream_end(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {

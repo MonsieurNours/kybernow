@@ -10,9 +10,11 @@ mod foreground;
 mod gpu;
 mod kyber_config;
 mod logs;
+mod preview;
 mod schema;
 mod service;
 mod settings;
+mod system;
 mod tls;
 mod update;
 #[cfg(windows)]
@@ -127,6 +129,15 @@ enum AgentAction {
         #[arg(long)]
         dir: PathBuf,
     },
+    /// Aperçu de l'écran principal en JPEG, `width` pixels de large.
+    Preview {
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        jpeg: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Rétablit la sortie audio d'avant la session.
     AudioRestore {
         #[arg(long, allow_hyphen_values = true)]
@@ -174,6 +185,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
                 .map(|_| serde_json::json!({ "ok": true }));
             (out, r)
         }
+        AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::Foreground { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
@@ -182,6 +194,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::Foreground { .. } => unreachable!(),
     };
     let value = match result {
@@ -199,6 +212,8 @@ pub struct Inner {
     pub audio: Arc<audio::Router>,
     /// App au premier plan pendant une session (plein écran, jeu).
     pub foreground: foreground::Watcher,
+    /// Aperçu de l'écran pour l'accueil des apps.
+    pub preview: preview::Preview,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
@@ -375,6 +390,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         display,
         audio,
         foreground: foreground::Watcher::new(&data_dir),
+        preview: preview::Preview::new(&data_dir),
         updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),

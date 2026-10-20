@@ -30,6 +30,11 @@ fn in_session_zero() -> bool {
 
 /// Lance l'agent avec `args` (sans `--out`) et renvoie son résultat JSON.
 pub fn run(data_dir: &Path, args: &[String]) -> Result<Value> {
+    run_with_timeout(data_dir, args, TIMEOUT_MS)
+}
+
+/// Comme `run`, en attendant l'agent au plus `timeout_ms`.
+pub fn run_with_timeout(data_dir: &Path, args: &[String], timeout_ms: u32) -> Result<Value> {
     let dir = data_dir.join("display");
     std::fs::create_dir_all(&dir)?;
     let out: PathBuf = dir.join(format!("agent-{}.json", rand::random::<u32>()));
@@ -40,7 +45,7 @@ pub fn run(data_dir: &Path, args: &[String]) -> Result<Value> {
     full.push(out.display().to_string());
 
     let code = if in_session_zero() {
-        spawn_in_console_session(&exe, &full)?
+        start_in_console_session(&exe, &full, Some(timeout_ms))?
     } else {
         std::process::Command::new(&exe).args(&full).status()?.code().unwrap_or(-1) as u32
     };
@@ -106,18 +111,15 @@ pub fn launch(data_dir: &Path, args: &[String]) -> Result<()> {
     let mut full: Vec<String> = vec!["display-agent".into()];
     full.extend(args.iter().cloned());
     if in_session_zero() {
-        start_in_console_session(&exe, &full, false)?;
+        start_in_console_session(&exe, &full, None)?;
     } else {
         std::process::Command::new(&exe).args(&full).spawn()?;
     }
     Ok(())
 }
 
-fn spawn_in_console_session(exe: &Path, args: &[String]) -> Result<u32> {
-    start_in_console_session(exe, args, true)
-}
-
-fn start_in_console_session(exe: &Path, args: &[String], wait: bool) -> Result<u32> {
+/// Lance `exe` dans la session console ; avec `wait`, l'attend au plus ce délai (ms).
+fn start_in_console_session(exe: &Path, args: &[String], wait: Option<u32>) -> Result<u32> {
     let session = unsafe { WTSGetActiveConsoleSessionId() };
     if session == 0xFFFF_FFFF {
         bail!("aucune session console active");
@@ -167,12 +169,12 @@ fn start_in_console_session(exe: &Path, args: &[String], wait: bool) -> Result<u
         if ok == 0 {
             bail!("lancement de l'agent d'affichage : {}", std::io::Error::last_os_error());
         }
-        if !wait {
+        let Some(timeout_ms) = wait else {
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
             return Ok(0);
-        }
-        WaitForSingleObject(pi.hProcess, TIMEOUT_MS);
+        };
+        WaitForSingleObject(pi.hProcess, timeout_ms);
         let mut code = 0u32;
         GetExitCodeProcess(pi.hProcess, &mut code);
         CloseHandle(pi.hThread);
