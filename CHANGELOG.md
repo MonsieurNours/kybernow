@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.6
+
+- Moteur de capture libavconv : le pointeur suit de nouveau la souris sur les écrans à plus de 60 Hz (il restait figé tant qu'elle bougeait), et garde sa forme quand le service d'entrées de Kyber redémarre.
+- Images clés redemandées par les apps après une perte : une par session toutes les 150 ms au plus, pour qu'un réseau qui perd beaucoup de paquets n'alourdisse pas l'image de tous les écrans partagés.
+- Moteur de capture libavconv : réglage `audio_layout = "stereo"` (section `[kyavserver]`) pour envoyer le son en stéréo même quand Windows sort du 5.1 ou du 7.1 ; le client web de Kyber, qui ne lit que la stéréo, reste sinon muet. Le son annonce aussi sa taille de paquet, sans laquelle un client Kyber en son non fiable s'arrêtait.
+
 ## 0.2.5
 
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.

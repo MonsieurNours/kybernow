@@ -9,7 +9,7 @@
  
  use log::{info, warn};
  
-@@ -36,8 +36,24 @@
+@@ -36,8 +36,29 @@
  
  const RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
  
@@ -22,10 +22,15 @@
 +/// (position only, empty bitmap), at most this often (same as txproto 0006).
 +const MOVE_INTERVAL: Duration = Duration::from_micros(16_666);
 +
-+/// A packet for the input server, now or at a given time. A later packet
-+/// replaces the one waiting; a packet sent now cancels it.
++/// A packet for the input server. At most one packet waits in the worker: a
++/// later `Move` or `At` replaces it, a `Now` cancels it.
 +enum Msg {
++    /// Sent right away.
 +    Now(Vec<u8>),
++    /// KyberNow: a position-only move, sent once `MOVE_INTERVAL` has passed
++    /// since the last packet actually written to the pipe.
++    Move(Vec<u8>),
++    /// KyberNow: sent at the given time (a delayed hide).
 +    At(Vec<u8>, Instant),
 +}
 +
@@ -35,7 +40,7 @@
      stop: Arc<AtomicBool>,
      connected: Arc<AtomicBool>,
      worker: Option<JoinHandle<()>>,
-@@ -45,7 +61,7 @@
+@@ -45,7 +66,7 @@
  
  impl CursorSink {
      pub(crate) fn new(display_id: u32) -> Arc<Self> {
@@ -44,7 +49,7 @@
          let stop = Arc::new(AtomicBool::new(false));
          let connected = Arc::new(AtomicBool::new(false));
          let stop_thread = Arc::clone(&stop);
-@@ -62,8 +78,8 @@
+@@ -62,8 +83,8 @@
          })
      }
  
@@ -55,16 +60,39 @@
              Ok(()) => true,
              Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
          }
-@@ -83,7 +99,7 @@
-         }
-         match packet {
-             None => self.clear_connected(),
--            Some(p) if self.try_send(p.to_vec()) => self.clear_connected(),
-+            Some(p) if self.try_send(Msg::Now(p.to_vec())) => self.clear_connected(),
-             Some(_) => {}
-         }
+@@ -77,22 +98,34 @@
+         self.connected.store(false, Ordering::Release);
      }
-@@ -92,7 +108,7 @@
+ 
+-    fn replay_on_connect(&self, packet: Option<&[u8]>) {
++    /// Packets sent while the pipe was closed are lost: once connected, send
++    /// the pointer as clients should see it now.
++    fn replay_on_connect(&self, state: &CursorState, display_id: u32) {
+         if !self.connected() {
+             return;
+         }
+-        match packet {
+-            None => self.clear_connected(),
+-            Some(p) if self.try_send(p.to_vec()) => self.clear_connected(),
+-            Some(_) => {}
++        let now = Instant::now();
++        let Some(packet) = state.current_packet(display_id, now) else {
++            self.clear_connected();
++            return;
++        };
++        if !self.try_send(Msg::Now(packet)) {
++            return;
+         }
++        // KyberNow: a hide that is only scheduled stays scheduled.
++        if let Some(at) = state.pending_hide(now) {
++            if !self.try_send(Msg::At(hide_packet(display_id), at)) {
++                return;
++            }
++        }
++        self.clear_connected();
+     }
+ }
+ 
  impl Drop for CursorSink {
      fn drop(&mut self) {
          self.stop.store(true, Ordering::SeqCst);
@@ -73,18 +101,22 @@
          let _ = std::mem::replace(&mut self.tx, closed_tx);
          if let Some(h) = self.worker.take() {
              let _ = h.join();
-@@ -104,8 +120,9 @@
+@@ -104,8 +137,13 @@
      OpenOptions::new().write(true).open(PIPE_NAME).ok()
  }
  
 -fn run_worker(rx: Receiver<Vec<u8>>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
 +fn run_worker(rx: Receiver<Msg>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
      let mut pipe: Option<File> = None;
++    // KyberNow: the packet waiting for its time, and when a packet was last
++    // written. Moves are spaced from actual writes, so a deadline already set
++    // is never pushed back by newer positions.
 +    let mut pending: Option<(Vec<u8>, Instant)> = None;
++    let mut last_write: Option<Instant> = None;
  
      while !stop.load(Ordering::Relaxed) {
          if pipe.is_none() {
-@@ -121,10 +138,25 @@
+@@ -121,15 +159,42 @@
              }
          }
  
@@ -100,6 +132,16 @@
 +                pending = None;
 +                b
 +            }
++            Ok(Msg::Move(b)) => match last_write.map(|t| t + MOVE_INTERVAL) {
++                Some(due) if due > Instant::now() => {
++                    pending = Some((b, due));
++                    continue;
++                }
++                _ => {
++                    pending = None;
++                    b
++                }
++            },
 +            Ok(Msg::At(b, at)) => {
 +                pending = Some((b, at));
 +                continue;
@@ -113,9 +155,19 @@
  
          let f = pipe.as_mut().unwrap();
          if f.write_all(&bytes).is_err() {
-@@ -146,8 +178,8 @@
+             warn!("cursor-pipe: write failed, will reconnect");
+             pipe = None;
++        } else {
++            last_write = Some(Instant::now());
+         }
+     }
+ }
+@@ -144,10 +209,10 @@
+ 
+     move |stream_idx, frame, flags_in, flags_out| {
          if *stream_idx == cursor_capture_idx {
-             sink.replay_on_connect(state.last_packet.as_deref());
+-            sink.replay_on_connect(state.last_packet.as_deref());
++            sink.replay_on_connect(&state, display_id);
  
 -            if let Some(bytes) = state.update(display_id, frame) {
 -                sink.try_send(bytes);
@@ -124,36 +176,31 @@
              }
              -libc::EAGAIN
          } else {
-@@ -160,6 +192,8 @@
+@@ -160,53 +225,98 @@
  struct CursorState {
      started: bool,
      visible: bool,
-+    /// Time of the last packet sent or scheduled (moves are spaced from it).
-+    last_sent: Option<Instant>,
++    /// KyberNow: when the last hide takes effect for clients (`HIDE_DELAY`
++    /// after it was seen); `None` while visible or for an immediate hide.
++    hide_at: Option<Instant>,
      last_pos: (i32, i32),
      last_hotspot: (i32, i32),
      last_dims: (u32, u32),
-@@ -167,23 +201,35 @@
+-    last_packet: Option<Vec<u8>>,
++    /// KyberNow: last shape (RGBA words), so the state replayed on connect
++    /// carries it even when the last packet was position-only.
++    last_pixels: Vec<u32>,
  }
  
  impl CursorState {
 -    fn update(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Vec<u8>> {
 -        let packet = self.next_packet(display_id, frame)?;
-+    fn update(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Msg> {
-+        let now = Instant::now();
-+        let msg = self.next_packet(display_id, frame, now)?;
-+        let (packet, sent) = match &msg {
-+            Msg::Now(p) => (p, now),
-+            Msg::At(p, at) => (p, *at),
-+        };
-         self.last_packet = Some(packet.clone());
+-        self.last_packet = Some(packet.clone());
 -        Some(packet)
-+        self.last_sent = Some(sent);
-+        Some(msg)
-     }
- 
+-    }
+-
 -    fn next_packet(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Vec<u8>> {
-+    fn next_packet(&mut self, display_id: u32, frame: &sys::AVFrame, now: Instant) -> Option<Msg> {
++    fn update(&mut self, display_id: u32, frame: &sys::AVFrame) -> Option<Msg> {
          let coords = side_data::coords(frame);
          let first = !std::mem::replace(&mut self.started, true);
  
@@ -165,9 +212,14 @@
 +            if first {
 +                return Some(Msg::Now(hide_packet(display_id)));
 +            }
-+            // Announced only if it stays hidden: a show within HIDE_DELAY
-+            // replaces it (a packet sent now cancels the one waiting).
-+            return was_visible.then(|| Msg::At(hide_packet(display_id), now + HIDE_DELAY));
++            if !was_visible {
++                return None;
++            }
++            // KyberNow: announced only if it stays hidden. A show within
++            // HIDE_DELAY is sent now, which cancels the waiting hide.
++            let at = Instant::now() + HIDE_DELAY;
++            self.hide_at = Some(at);
++            return Some(Msg::At(hide_packet(display_id), at));
          }
  
 +        let mut moved = false;
@@ -176,36 +228,97 @@
              self.last_pos = (c.x, c.y);
          }
  
-@@ -191,14 +237,25 @@
-             self.visible = true;
+         if let Some((dims, hotspot, rows)) = shape_of(frame) {
+-            self.visible = true;
++            self.show();
              self.last_dims = dims;
              self.last_hotspot = hotspot;
 -            return Some(self.show_packet(display_id, Some(rows)));
-+            return Some(Msg::Now(self.show_packet(display_id, Some(rows))));
++            self.last_pixels.clear();
++            for row in rows {
++                self.last_pixels.extend_from_slice(row);
++            }
++            return Some(Msg::Now(self.show_packet(display_id, true)));
          }
  
 -        if self.visible || coords.is_none() {
 +        if coords.is_none() {
              return None;
          }
--        self.visible = true;
--        Some(self.show_packet(display_id, None))
 +        if !self.visible {
-+            self.visible = true;
-+            return Some(Msg::Now(self.show_packet(display_id, None)));
++            self.show();
++            return Some(Msg::Now(self.show_packet(display_id, false)));
 +        }
-+        if !moved {
-+            return None;
-+        }
-+        // Same shape, new position: position only, spaced by MOVE_INTERVAL.
-+        let packet = self.show_packet(display_id, None);
-+        match self.last_sent.map(|t| t + MOVE_INTERVAL) {
-+            Some(due) if due > now => Some(Msg::At(packet, due)),
-+            _ => Some(Msg::Now(packet)),
-+        }
++        // KyberNow: same shape, new position: position only, paced by the
++        // worker.
++        moved.then(|| Msg::Move(self.show_packet(display_id, false)))
++    }
++
++    fn show(&mut self) {
+         self.visible = true;
+-        Some(self.show_packet(display_id, None))
++        self.hide_at = None;
      }
  
-     fn show_packet(&self, display_id: u32, pixels: Option<side_data::RgbaRows<'_>>) -> Vec<u8> {
+-    fn show_packet(&self, display_id: u32, pixels: Option<side_data::RgbaRows<'_>>) -> Vec<u8> {
++    /// When a hide that is not in effect yet will be.
++    fn pending_hide(&self, now: Instant) -> Option<Instant> {
++        self.hide_at.filter(|at| *at > now)
++    }
++
++    /// The pointer as clients should see it at `now`, shape included: a hide
++    /// still within `HIDE_DELAY` is not in effect yet. `None` before the
++    /// first cursor frame.
++    fn current_packet(&self, display_id: u32, now: Instant) -> Option<Vec<u8>> {
++        if !self.started {
++            return None;
++        }
++        if !self.visible && self.pending_hide(now).is_none() {
++            return Some(hide_packet(display_id));
++        }
++        Some(self.show_packet(display_id, true))
++    }
++
++    /// A visible-pointer packet at the last position. Without the shape, the
++    /// pixel count is 0 and the input server keeps the last shape it got.
++    fn show_packet(&self, display_id: u32, with_shape: bool) -> Vec<u8> {
+         let (x, y) = self.last_pos;
+         let (xhot, yhot) = self.last_hotspot;
+         let (width, height) = self.last_dims;
++        let pixels: &[u32] = if with_shape { &self.last_pixels } else { &[] };
+ 
+-        let mut out: Vec<u8> = Vec::with_capacity(33);
++        let mut out: Vec<u8> = Vec::with_capacity(33 + pixels.len() * 4);
+         out.extend_from_slice(&display_id.to_be_bytes());
+         out.push(1);
+         out.extend_from_slice(&(x.saturating_add(xhot) as u32).to_be_bytes());
+@@ -215,23 +325,10 @@
+         out.extend_from_slice(&yhot.to_be_bytes());
+         out.extend_from_slice(&width.to_be_bytes());
+         out.extend_from_slice(&height.to_be_bytes());
+-
+-        let Some(rows) = pixels else {
+-            out.extend_from_slice(&0u32.to_be_bytes());
+-            return out;
+-        };
+-
+-        let count_at = out.len();
+-        let mut count: usize = 0;
+-        out.extend_from_slice(&0u32.to_be_bytes());
+-        out.reserve(width as usize * height as usize * 4);
+-        for row in rows {
+-            for px in row {
+-                count += 1;
+-                out.extend_from_slice(&px.to_be_bytes());
+-            }
++        out.extend_from_slice(&(pixels.len() as u32).to_be_bytes());
++        for px in pixels {
++            out.extend_from_slice(&px.to_be_bytes());
+         }
+-        out[count_at..count_at + 4].copy_from_slice(&(count as u32).to_be_bytes());
+ 
+         out
+     }
 --- a/kyavservice/src/avconv/displays.rs
 +++ b/kyavservice/src/avconv/displays.rs
 @@ -21,9 +21,6 @@
@@ -315,18 +428,30 @@
  
 --- a/kyavservice/src/avconv/audio.rs
 +++ b/kyavservice/src/avconv/audio.rs
-@@ -74,11 +74,23 @@
+@@ -29,7 +29,7 @@
+ 
+ use super::Result;
+ use super::clock;
+-use crate::config::{AudioBitrate, ClockType, opus_bitrate};
++use crate::config::{AudioBitrate, AudioLayout, ClockType, opus_bitrate};
+ 
+ const SAMPLE_RATE: i32 = 48_000;
+ 
+@@ -74,11 +74,26 @@
      first_loopback.or_else(|| sources.iter().next())
  }
  
 -/// Set up the audio capture source.  Returns `(capture, output_handle)`.
-+/// KyberNow: what the stream carries, from the capture's channel count:
-+/// 5.1 and 7.1 stay as they are (Opus channel mapping family 1), anything
-+/// else is mixed down to stereo. Returns (filter name, channels, mask).
-+fn output_layout(captured: i32) -> (&'static str, i32, u64) {
-+    match captured {
-+        6 => ("5.1", 6, 0x3F),  // FL FR FC LFE BL BR
-+        8 => ("7.1", 8, 0x63F), // FL FR FC LFE BL BR SL SR
++/// KyberNow: what the stream carries, from the capture's channel count. With
++/// `AudioLayout::Native`, 5.1 and 7.1 stay as they are, anything else is mixed
++/// down to stereo. The layouts are the ones libopus takes for channel mapping
++/// family 1 (Vorbis order), spelled out: FFmpeg's "5.1" meant 5.1(side) before
++/// FFmpeg 8, which libopus refuses. aresample maps side channels to back ones.
++/// Returns (aresample layout, channels, mask).
++fn output_layout(captured: i32, layout: AudioLayout) -> (&'static str, i32, u64) {
++    match (layout, captured) {
++        (AudioLayout::Native, 6) => ("FL+FR+FC+LFE+BL+BR", 6, 0x3F),
++        (AudioLayout::Native, 8) => ("FL+FR+FC+LFE+BL+BR+SL+SR", 8, 0x63F),
 +        _ => ("stereo", 2, 0x3),
 +    }
 +}
@@ -341,7 +466,7 @@
      let provider = libavconv_rs::provider_by_name(audio_provider_name()).ok_or(
          libavconv_rs::Error::NotFound {
              name: "audio grab provider",
-@@ -96,7 +108,8 @@
+@@ -96,7 +111,8 @@
      let src = pick_loopback_source(&sources).ok_or(libavconv_rs::Error::NoSource)?;
  
      let name = src.name().unwrap_or_else(|| "<unnamed>".to_string());
@@ -351,7 +476,7 @@
  
      let mut capture = GrabCaptureBuilder::new(src)?;
      // Match the video epoch so audio and video PTS share a clock domain
-@@ -105,20 +118,26 @@
+@@ -105,20 +121,27 @@
      let capture = capture.build(ctx.clone())?;
  
      let handle = capture.stream_handle(0);
@@ -378,19 +503,24 @@
 -    enc.set_option("application", "audio")?;
 -    enc.set_option("frame_duration", "20")?;
 +    // KyberNow: CELT only, without the SILK look-ahead, and 10 ms frames
-+    // instead of 20: about 15 ms less latency (same as txproto 0004).
++    // instead of 20: the encoder delay goes from 26.5 ms to 12.5 ms (same as
++    // txproto 0004).
 +    enc.set_option("application", "lowdelay")?;
 +    enc.set_option("frame_duration", "10")?;
      enc.set_option("vbr", "on")?;
  
      Ok(())
-@@ -135,13 +154,11 @@
+@@ -132,16 +155,15 @@
+     output_hdl: Handle,
+     clock_type: &ClockType,
+     audio_bitrate: AudioBitrate,
++    audio_layout: AudioLayout,
  ) -> Result<AudioPipeline> {
      info!("Start audio grab (loopback), encoder libopus");
  
 -    let (capture, capture_handle) = create_grab_source(Arc::clone(&ctx), clock_type)?;
 +    let (capture, capture_handle, captured) = create_grab_source(Arc::clone(&ctx), clock_type)?;
-+    let (layout_name, channels, mask) = output_layout(captured);
++    let (layout_name, channels, mask) = output_layout(captured, audio_layout);
  
 -    let mut fg = FilterGraphBuilder::new(
 -        Arc::clone(&ctx),
@@ -402,7 +532,7 @@
  
      let codec = libavconv_rs::Codec::find_encoder_by_name("libopus").ok_or(
          libavconv_rs::Error::NotFound {
-@@ -150,12 +167,15 @@
+@@ -150,12 +172,15 @@
      )?;
  
      let enc = EncoderBuilder::new(Arc::clone(&ctx), codec)?;
@@ -423,6 +553,212 @@
      // requires a pre-encoding sync queue for every encoder whose on_open hook
      // reports a frame size without it the scheduler asserts on
      // `enc->sq_idx[0] >= 0`.
+--- a/kyavservice/src/avconv/kymux.rs
++++ b/kyavservice/src/avconv/kymux.rs
+@@ -33,7 +33,7 @@
+     AvconvAudioContext, AvconvVideoContext, Context, PipelineOutput, Result, VideoConfig, audio,
+     video,
+ };
+-use crate::config::{AudioBitrate, ClockType};
++use crate::config::{AudioBitrate, AudioLayout, ClockType};
+ 
+ pub(crate) fn start_video(
+     video_config: VideoConfig,
+@@ -98,6 +98,7 @@
+     uri: &str,
+     clock_type: ClockType,
+     audio_bitrate: AudioBitrate,
++    audio_layout: AudioLayout,
+     sender: EventSender<IpcApi>,
+ ) -> Result<Context> {
+     info!("Start kymux audio (avconv)");
+@@ -110,7 +111,13 @@
+     )?);
+     let on_item = kymux_sink::connect(uri, StreamKind::Audio, None)?;
+ 
+-    let pipeline = audio::configure(Arc::clone(&ctx), sink.handle(), &clock_type, audio_bitrate)?;
++    let pipeline = audio::configure(
++        Arc::clone(&ctx),
++        sink.handle(),
++        &clock_type,
++        audio_bitrate,
++        audio_layout,
++    )?;
+     info!("Audio pipeline configured, starting context");
+ 
+     ctx.start()?;
+--- a/kyavservice/src/avconv/kymux_sink.rs
++++ b/kyavservice/src/avconv/kymux_sink.rs
+@@ -69,8 +69,13 @@
+ 
+ /// Messages forwarded from the (synchronous) muxer hooks to the async task.
+ enum SinkMsg {
+-    /// Stream parameters: codec id plus (optional) extradata.
+-    Config { codec: u32, extradata: Vec<u8> },
++    /// Stream parameters: codec id, samples per audio frame, plus (optional)
++    /// extradata.
++    Config {
++        codec: u32,
++        frame_size: u16,
++        extradata: Vec<u8>,
++    },
+     /// Encoded packet payload.
+     Packet {
+         pts_raw: i64,
+@@ -129,13 +134,17 @@
+     let mut packets_sent: u64 = 0;
+     while let Some(msg) = rx.recv().await {
+         match msg {
+-            SinkMsg::Config { codec, extradata } => {
++            SinkMsg::Config {
++                codec,
++                frame_size,
++                extradata,
++            } => {
+                 let ed_size = extradata.len() as u32;
+                 send.send(AVPacket::Codec(CodecPacket {
+                     header: CodecPacketHeader {
+                         codec,
+                         rotation: 0,
+-                        frame_size: 0,
++                        frame_size,
+                     },
+                 }))
+                 .await?;
+@@ -200,13 +209,24 @@
+         return Err(AVERROR_EINVAL);
+     };
+ 
++    // KyberNow: kyproto's unreliable audio drivers assert a non-zero frame
++    // size (they count lost samples with it); txproto sends it too. 0 for video.
++    let frame_size = u16::try_from(params.frame_size()).unwrap_or(0);
++    if frame_size == 0 && codec == KYMUX_CODEC_OPUS {
++        warn!("kymux_sink: Opus stream without a frame size");
++    }
++
+     // Extradata may be zero length for AV1/OPUS that embed config in-band.
+     let extradata = params.extradata().to_vec();
+ 
+     // blocking_send back-presses the draining thread instead of dropping; it
+     // only errors if the async task has gone away (connection failed/closed).
+     if tx
+-        .blocking_send(SinkMsg::Config { codec, extradata })
++        .blocking_send(SinkMsg::Config {
++            codec,
++            frame_size,
++            extradata,
++        })
+         .is_err()
+     {
+         error!("kymux_sink: config enqueue failed (forward task gone)");
+--- a/kyavservice/src/avconv/mod.rs
++++ b/kyavservice/src/avconv/mod.rs
+@@ -354,7 +354,14 @@
+         Command::RtpStartAudio { ip, port } => {
+             info!("Start RTP Audio: {ip}:{port}");
+ 
+-            let ret = rtp::start_audio(ip, port, config.clock_type(), config.audio_bitrate(), sender.clone());
++            let ret = rtp::start_audio(
++                ip,
++                port,
++                config.clock_type(),
++                config.audio_bitrate(),
++                config.audio_layout(),
++                sender.clone(),
++            );
+             match ret {
+                 Ok(c) => set_ctx(ctx, c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+@@ -391,7 +398,13 @@
+         Command::KymuxStartAudio { uri } => {
+             info!("Start Kymux Audio: URI {uri:?}");
+ 
+-            let ret = kymux::start_audio(&uri, config.clock_type(), config.audio_bitrate(), sender.clone());
++            let ret = kymux::start_audio(
++                &uri,
++                config.clock_type(),
++                config.audio_bitrate(),
++                config.audio_layout(),
++                sender.clone(),
++            );
+             match ret {
+                 Ok(c) => set_ctx(ctx, c),
+                 Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+--- a/kyavservice/src/avconv/rtp.rs
++++ b/kyavservice/src/avconv/rtp.rs
+@@ -36,7 +36,7 @@
+ use super::{
+     AvconvAudioContext, AvconvVideoContext, Context, Error, PipelineOutput, Result, audio, video,
+ };
+-use crate::config::{AudioBitrate, ClockType};
++use crate::config::{AudioBitrate, AudioLayout, ClockType};
+ 
+ const SDP_PROBE_PORT: u16 = 30_000;
+ const SDP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+@@ -266,6 +266,7 @@
+     port: u16,
+     clock_type: ClockType,
+     audio_bitrate: AudioBitrate,
++    audio_layout: AudioLayout,
+     sender: EventSender<IpcApi>,
+ ) -> Result<Context> {
+     info!("Start RTP audio (avconv), target {ip}:{port}");
+@@ -279,7 +280,13 @@
+         sys::AVMediaType_AVMEDIA_TYPE_AUDIO,
+     )?;
+ 
+-    let pipeline = audio::configure(Arc::clone(&ctx), stream_hdl, &clock_type, audio_bitrate)?;
++    let pipeline = audio::configure(
++        Arc::clone(&ctx),
++        stream_hdl,
++        &clock_type,
++        audio_bitrate,
++        audio_layout,
++    )?;
+ 
+     ctx.start()?;
+     info!("RTP audio context started");
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -240,6 +240,7 @@
+     minimum_bitrate: Option<u32>,
+     audio_quality: Option<AudioQuality>,
+     audio_bitrate: Option<u32>,
++    audio_layout: Option<AudioLayout>,
+     pub(crate) video_encoder_config: Option<EncoderConfig>,
+     clock_type: Option<ClockType>,
+     #[cfg(feature = "watermark")]
+@@ -282,6 +283,12 @@
+             quality: self.audio_quality.unwrap_or_default(),
+             bitrate: self.audio_bitrate,
+         }
++    }
++
++    /// Channel layout of the libavconv audio stream, from `[kyavserver]
++    /// audio_layout`.
++    pub(crate) fn audio_layout(&self) -> AudioLayout {
++        self.audio_layout.unwrap_or_default()
+     }
+ 
+     #[cfg(target_os = "linux")]
+@@ -877,3 +884,17 @@
+     };
+     audio.bitrate.map_or(preset, i64::from).clamp(6_000, max)
+ }
++
++/// Channel layout of the libavconv audio stream (`[kyavserver] audio_layout`).
++/// The txproto backend always keeps the captured layout.
++#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq)]
++#[serde(rename_all = "lowercase")]
++pub(crate) enum AudioLayout {
++    /// 5.1 and 7.1 as captured (Opus channel mapping family 1), anything else
++    /// mixed down to stereo.
++    #[default]
++    Native,
++    /// Always mixed down to stereo, like Kyber did before. Clients that only
++    /// play stereo (the web client) need it when the host outputs 5.1 or 7.1.
++    Stereo,
++}
 --- a/libavconv-rs/src/enc.rs
 +++ b/libavconv-rs/src/enc.rs
 @@ -43,6 +43,17 @@
@@ -458,3 +794,19 @@
      }
  
      /// Object width in pixels (video sources).
+--- a/libavconv-rs/src/mux.rs
++++ b/libavconv-rs/src/mux.rs
+@@ -218,6 +218,13 @@
+         unsafe { (*self.raw.codec_par).codec_id }
+     }
+ 
++    /// KyberNow: samples per channel in each audio frame (480 for 10 ms of
++    /// Opus at 48 kHz). 0 for video, or when the encoder does not say.
++    pub fn frame_size(&self) -> i32 {
++        // SAFETY: as in `codec_id`.
++        unsafe { (*self.raw.codec_par).frame_size }
++    }
++
+     /// Out-of-band extradata (SPS/PPS, ...). Empty when none is set or the
+     /// codec embeds its config in-band (AV1 / Opus).
+     pub fn extradata(&self) -> &'a [u8] {
