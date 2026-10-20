@@ -100,10 +100,14 @@ fn watch(shared: SharedState, wake: Receiver<()>) {
     let client = Client::new();
     loop {
         let snapshot = poll(&client);
+        // Le mot de passe a été choisi : le code ne sert plus.
+        let showing_code = shared.lock().unwrap().setup_code.is_some();
+        let configured = showing_code
+            && snapshot.admin == State::Running
+            && console::port().and_then(|p| client.configured(p)) == Some(true);
         {
             let mut s = shared.lock().unwrap();
-            // Le mot de passe a été choisi : le code ne sert plus.
-            if s.setup_code.is_some() && console::setup_code().is_none() {
+            if configured {
                 s.setup_code = None;
             }
             s.snapshot = Some(snapshot);

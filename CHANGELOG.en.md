@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.2.6
 
 - Computer updates without the risk of leaving everything stopped: the new version is prepared next to the old one and then put in place in one go; if the console does not answer within a minute, the old version comes back by itself and the Updates page says why. The manual update also checks the package's checksum, and “Installed apps” shows the right version.
+- Shared computer: KyberNow's data folder (`C:\ProgramData\KyberNow`) is now accessible to administrators only. Another account on the computer can no longer read the password hash there or slip a file into an update.
 
 ## 0.2.5
 

@@ -59,6 +59,8 @@ Le `/webclient/` d'origine de Kyber reste servi par kycontroller, pour le dépan
 
 Les changements d'écran, de son et de pointeur sont faits dans la session de l'utilisateur par `kyber-admin.exe display-agent …`, lancé par le service.
 
+Le dossier `C:\ProgramData\KyberNow` est réservé à SYSTEM et aux Administrateurs : la console reprend ses droits à chaque démarrage (`src/update/acl.rs`, voir [server/installer/README.md](installer/README.md#droits-de-cprogramdatakybernow)).
+
 | Emplacement | Contenu |
 |---|---|
 | `C:\ProgramData\KyberNow\kyber-admin.toml` | réglages : `listen`, dossier de Kyber, empreinte du mot de passe, écran virtuel, son |

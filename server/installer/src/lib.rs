@@ -1,6 +1,7 @@
 //! Cœur de l'installateur KyberNow : vérifications de l'ordinateur, choix des ports,
 //! installation et désinstallation. Partagé par le lanceur et l'interface.
 
+pub mod acl;
 pub mod checks;
 pub mod events;
 pub mod install;

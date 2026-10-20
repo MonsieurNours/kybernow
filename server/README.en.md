@@ -57,6 +57,8 @@ Kyber's original `/webclient/` is still served by kycontroller, for troubleshoot
 
 Display, sound and pointer changes are made in the user's session by `kyber-admin.exe display-agent …`, launched by the service.
 
+The `C:\ProgramData\KyberNow` folder is reserved to SYSTEM and Administrators: the console reapplies its permissions at every start (`src/update/acl.rs`, see [server/installer/README.en.md](installer/README.en.md#permissions-of-cprogramdatakybernow)).
+
 | Location | Contents |
 |---|---|
 | `C:\ProgramData\KyberNow\kyber-admin.toml` | settings: `listen`, Kyber folder, password hash, virtual display, sound |

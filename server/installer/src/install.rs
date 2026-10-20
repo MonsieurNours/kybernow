@@ -107,6 +107,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
 
     step(ctx, "files", || {
         prepare(ctx, info)?;
+        secure_data_dir(ctx);
         ctx.progress(4.0);
         ctx.log(format!("Extraction vers {}", ctx.dir.display()));
         let count = crate::payload::extract(payload, &ctx.dir, |p, _| ctx.progress(4.0 + p * 36.0))?;
@@ -314,6 +315,19 @@ fn prepare(ctx: &Ctx, info: &SystemInfo) -> Result<()> {
         let _ = run("taskkill", &["/F", "/IM", exe]);
     }
     Ok(())
+}
+
+/// `C:\ProgramData\KyberNow` réservé à SYSTEM et aux Administrateurs, avant
+/// que `kyber-admin init` y écrive l'empreinte du mot de passe (voir `acl`).
+/// La console reprend la pose à chaque démarrage : un échec ici est signalé
+/// dans le journal sans arrêter l'installation.
+fn secure_data_dir(ctx: &Ctx) {
+    let dir = sys::data_dir();
+    match crate::acl::secure_dir(&dir) {
+        Ok(0) => ctx.log(format!("Droits de {} : SYSTEM et Administrateurs seulement", dir.display())),
+        Ok(n) => ctx.log(format!("Droits de {} posés, {n} lien(s) retiré(s)", dir.display())),
+        Err(e) => ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; la console réessaiera à son démarrage", dir.display())),
+    }
 }
 
 /// Désinstalle Kyber officiel (désinstalleur NSIS) et attend qu'il ait fini.

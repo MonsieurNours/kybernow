@@ -19,6 +19,8 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+pub mod acl;
+
 pub const REPO: &str = "MonsieurNours/kybernow";
 const PACKAGE: &str = "kybernow-update.zip";
 const SUMS: &str = "SHA256SUMS";
@@ -361,6 +363,18 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
 #[cfg(not(windows))]
 fn launch_installer(dir: &Path, _zip: &Path) -> Result<std::process::Child> {
     bail!("installation réservée à Windows (paquet vérifié dans {})", dir.display())
+}
+
+/// Au démarrage de la console : `C:\ProgramData\KyberNow` réservé à SYSTEM et
+/// aux Administrateurs (voir `acl`), avant d'y écrire ou d'y lancer quoi que
+/// ce soit, dont `update\<version>\lancement.ps1`. Un échec n'empêche pas
+/// la console de démarrer : il est journalisé.
+pub fn secure_data_dir(data_dir: &Path) {
+    match acl::secure_dir(data_dir) {
+        Ok(0) => tracing::info!("droits de {} : SYSTEM et Administrateurs seulement", data_dir.display()),
+        Ok(n) => tracing::warn!("droits de {} posés, {n} lien(s) retiré(s)", data_dir.display()),
+        Err(e) => tracing::error!("droits de {} non posés : {e:#}", data_dir.display()),
+    }
 }
 
 /// Au démarrage de la console : relance l'icône si une mise à jour l'a arrêtée.
