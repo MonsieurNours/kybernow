@@ -1,5 +1,6 @@
 // KyberNow pour macOS.
 
+import Sparkle
 import SwiftUI
 
 enum Route: Equatable {
@@ -62,6 +63,8 @@ final class AppModel: ObservableObject {
 @main
 struct KyberNowApp: App {
     @StateObject private var app = AppModel()
+    /// Mises à jour (Sparkle) : vérification quotidienne, et à la demande.
+    private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
 
     init() {
         Theme.registerFonts()
@@ -82,6 +85,9 @@ struct KyberNowApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Rechercher des mises à jour…") { updater.checkForUpdates(nil) }
+            }
             CommandMenu("Session") {
                 Button("Se déconnecter") { app.session?.end() }
                     .keyboardShortcut("d", modifiers: [.control, .option, .command])

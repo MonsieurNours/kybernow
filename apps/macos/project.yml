@@ -22,6 +22,11 @@ settings:
     CODE_SIGN_STYLE: Manual
     ENABLE_HARDENED_RUNTIME: NO
     DEAD_CODE_STRIPPING: YES
+packages:
+  # Mises à jour de l'app : flux appcast.xml publié avec chaque version sur GitHub.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.9.6
 targets:
   KyberKit:
     type: framework
@@ -44,6 +49,7 @@ targets:
     dependencies:
       - target: KyberKit
         embed: true
+      - package: Sparkle
     # Complète l'Info.plist généré : lien kybernow:// et service Bonjour.
     info:
       path: KyberNow/Info.plist
@@ -52,6 +58,11 @@ targets:
           - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
             CFBundleURLSchemes: [kybernow]
         NSBonjourServices: [_kybernow._tcp]
+        # Sparkle : dernière version publiée, signature EdDSA vérifiée avec cette clé.
+        SUFeedURL: https://github.com/MonsieurNours/kybernow/releases/latest/download/appcast.xml
+        SUPublicEDKey: BRT7PuVvNR6zfm4Rpn9QWxgLUUn8mE8aaDLDXBg1Po4=
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow

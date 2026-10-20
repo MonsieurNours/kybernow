@@ -122,6 +122,20 @@ export interface AudioStatus {
   last_error: string | null
 }
 
+export interface UpdateStatus {
+  current: string
+  latest: string | null
+  available: boolean
+  notes: string | null
+  published: string | null
+  page: string | null
+  installable: boolean
+  checked_seconds_ago: number | null
+  error: string | null
+  installing: string | null
+  repo: string
+}
+
 export interface Pairing {
   link: string
   hostname: string
@@ -198,6 +212,9 @@ export const api = {
   displayStop: () => request<DisplayStatus>('POST', '/api/display/stop'),
   audio: () => request<AudioStatus>('GET', '/api/audio'),
   pairing: () => request<Pairing>('GET', '/api/pairing'),
+  update: () => request<UpdateStatus>('GET', '/api/update'),
+  updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
+  updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   logs: () => request<{ files: LogFile[] }>('GET', '/api/logs'),

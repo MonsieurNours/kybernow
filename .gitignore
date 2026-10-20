@@ -9,3 +9,4 @@ tools/latency/runs/
 server/admin/dev-data/
 .DS_Store
 /server/dist/
+/dist/

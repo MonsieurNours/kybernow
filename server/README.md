@@ -22,6 +22,7 @@ Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au ha
 | Écran virtuel | SudoVDA : déclenchement, test, état ; disposition enregistrée par ensemble d'écrans |
 | Son | Sortie audio virtuelle (haut-parleurs de Steam), voies, qualité Opus |
 | Appareils | QR code et lien `kybernow://` pour ajouter l'ordinateur dans l'app, empreinte du certificat |
+| Mises à jour | Version installée, dernière version publiée sur GitHub et ses notes, installation en un clic |
 | Journaux | Kyber (`%ProgramData%\Kyber\logs`) et KyberNow |
 
 **Pour les apps.** La console s'annonce en Bonjour (`_kybernow._tcp`, TXT `v`, `name`, `fp`), d'où la règle de pare-feu UDP 5353. Elle sert aussi l'API de session :
@@ -31,6 +32,8 @@ Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au ha
 - `GET /api/stream/foreground` : app au premier plan sur l'ordinateur, en plein écran ou non, jeu ou non (mode Auto de la souris des apps). La console l'obtient d'un agent qui tourne dans la session Windows le temps d'une session (`display-agent foreground`, état écrit toutes les 400 ms). L'agent s'arrête seul sans signal de vie pendant 20 s ;
 - `POST /api/stream/end` : écrans et sortie audio d'origine rendus, avec un compte rendu ;
 - `GET /api/pairing` : lien d'appairage.
+
+**Mises à jour** (compte de la console) : `GET /api/update` (version installée, dernière version publiée, notes), `POST /api/update/check`, `POST /api/update/install`. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available` et `version`.
 
 L'authentification est en Basic, avec le compte Kyber. Les apps épinglent le certificat de la console par son empreinte.
 
@@ -42,6 +45,7 @@ Les changements d'écran, de son et de pointeur sont faits dans la session de l'
 | `C:\ProgramData\KyberNow\tls\` | certificat de la console |
 | `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
+| `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` |
 | `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | journal du service |
 
@@ -67,8 +71,6 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 ## Mettre à jour un ordinateur déjà installé
 
-`server/installer/dist/update.ps1` remplace la console, l'icône et la surcouche Kyber sans réinstaller ni changer les ports. Il garde les fichiers Kyber remplacés dans `kyber\avant-maj`, installe les haut-parleurs de Steam s'ils manquent et ajoute la règle de pare-feu Bonjour. Il attend le paquet `kybernow-update.zip` à côté de lui, servi par exemple depuis le Mac (`python3 -m http.server 8000` dans `server/installer/dist`). Sur l'ordinateur, dans PowerShell en administrateur :
+En un clic : page **Mises à jour** de la console (ou « Installer la version X… » dans le menu de l'icône). La console télécharge la dernière version publiée sur GitHub, vérifie son empreinte et lance `update.ps1`. Détails, mise à jour à la main et publication d'une version : [docs/releases.md](../docs/releases.md).
 
-```powershell
-irm http://<adresse-du-Mac>:8000/update.ps1 | iex
-```
+`server/installer/update.ps1` remplace la console, l'icône et la surcouche Kyber sans réinstaller ni changer les ports. Il garde les fichiers Kyber remplacés dans `kyber\avant-maj`, installe les haut-parleurs de Steam s'ils manquent et ajoute la règle de pare-feu Bonjour. `server/installer/package-update.sh` fabrique son paquet (`dist/kybernow-update.zip`).

@@ -14,6 +14,7 @@ mod schema;
 mod service;
 mod settings;
 mod tls;
+mod update;
 #[cfg(windows)]
 mod winsvc;
 
@@ -198,6 +199,8 @@ pub struct Inner {
     pub audio: Arc<audio::Router>,
     /// App au premier plan pendant une session (plein écran, jeu).
     pub foreground: foreground::Watcher,
+    /// Mises à jour depuis les versions publiées sur GitHub.
+    pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
@@ -361,12 +364,18 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     let tls_fingerprint = tls::fingerprint(&cert);
     let _bonjour = discovery::announce(listen.port(), tls_fingerprint.as_deref());
 
+    // Mises à jour : vérification de fond, et relance de l'icône après une installation.
+    let updater = Arc::new(update::Updater::new(&data_dir));
+    updater.clone().supervise();
+    update::relaunch_tray_if_asked(&data_dir);
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
         display,
         audio,
         foreground: foreground::Watcher::new(&data_dir),
+        updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),
         kyber_dir,

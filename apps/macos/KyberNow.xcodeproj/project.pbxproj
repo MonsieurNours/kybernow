@@ -14,6 +14,7 @@
 		148075D1CF746CDD7F6FE166 /* IBMPlexSans-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1689EF4F776E41A31B8D894A /* IBMPlexSans-wdth-wght.ttf */; };
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
 		21098C1E09537AEA98965E43 /* ConnectScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE88CA3F6B110EB52FD12E36 /* ConnectScene.swift */; };
+		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
@@ -113,6 +114,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */,
+				252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -230,6 +232,7 @@
 			);
 			name = KyberNow;
 			packageProductDependencies = (
+				8EB2368866E8C3CB15143EE9 /* Sparkle */,
 			);
 			productName = KyberNow;
 			productReference = B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */;
@@ -263,6 +266,9 @@
 			);
 			mainGroup = 2D7773CF2F87A3120EDB4EDE;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				235D241EFE363F66AFC00CAF /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2FACB175AA7CE3FF883BDC30 /* Products */;
 			projectDirPath = "";
@@ -618,6 +624,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		235D241EFE363F66AFC00CAF /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.6;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8EB2368866E8C3CB15143EE9 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 235D241EFE363F66AFC00CAF /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EE8BF35C2AE5EC7631F2EDF1 /* Project object */;
 }

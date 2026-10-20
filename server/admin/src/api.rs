@@ -40,6 +40,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/display/stop", post(display_stop))
         .route("/api/audio", get(audio_status))
         .route("/api/audio/settings", put(audio_settings))
+        .route("/api/update", get(update_status))
+        .route("/api/update/check", post(update_check))
+        .route("/api/update/install", post(update_install))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
         .route("/api/pairing", get(pairing))
         .route("/api/stream/info", get(stream_info))
@@ -184,7 +187,27 @@ async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<S
         "session": !display.is_null() || !audio.is_null(),
         "user": user,
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "update_available": s.updater.available(),
+        "version": crate::update::current(),
     })))
+}
+
+async fn update_status(State(s): State<AppState>) -> Json<Value> {
+    Json(s.updater.status())
+}
+
+async fn update_check(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let u = s.updater.clone();
+    Ok(Json(blocking(move || Ok(u.check())).await?))
+}
+
+/// Télécharge et lance l'installation : la console s'arrête dans la minute
+/// et revient dans la nouvelle version.
+async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let u = s.updater.clone();
+    let version = blocking(move || u.install()).await?;
+    tracing::info!("mise à jour {version} lancée");
+    Ok(Json(json!({ "ok": true, "version": version })))
 }
 
 async fn schema_route() -> Json<Value> {

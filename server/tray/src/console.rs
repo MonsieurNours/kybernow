@@ -40,6 +40,8 @@ pub fn url(port: u16) -> String {
 pub struct LocalState {
     pub session: bool,
     pub user: Option<String>,
+    /// Version plus récente publiée sur GitHub, si la console en a vu une.
+    pub update: Option<String>,
 }
 
 pub struct Client(ureq::Agent);
@@ -62,6 +64,7 @@ impl Client {
         Some(LocalState {
             session: body["session"].as_bool().unwrap_or(false),
             user: body["user"].as_str().map(str::to_owned),
+            update: body["update_available"].as_str().map(str::to_owned),
         })
     }
 }

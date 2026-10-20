@@ -39,4 +39,5 @@ fi
 
 # 2. Dans l'app : seulement ce qui diffère (taille ou heure), en place
 #    jamais pour un fichier identique.
-rsync -a --delete --exclude 'KyberKit.framework' --exclude '.signed' "$STAGE/" "$DST/"
+# Les frameworks intégrés par Xcode (KyberKit, Sparkle) ne viennent pas de Vendor/ : on n'y touche pas.
+rsync -a --delete --exclude '*.framework' --exclude '.signed' "$STAGE/" "$DST/"

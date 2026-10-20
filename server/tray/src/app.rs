@@ -52,8 +52,14 @@ fn open_url(url: &str) {
 }
 
 fn open_console() -> Result<()> {
+    open_console_at("")
+}
+
+/// Une page de la console (« updates »…), la page d'accueil si vide.
+fn open_console_at(page: &str) -> Result<()> {
     let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable : KyberNow est-il installé ?"))?;
-    open_url(&console::url(port));
+    let url = console::url(port);
+    open_url(&if page.is_empty() { url } else { format!("{url}#/{page}") });
     Ok(())
 }
 
@@ -107,8 +113,8 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         (_, State::Unknown) => "État du serveur inconnu",
     };
     let session = match (s.kyber, s.admin, &s.console) {
-        (State::Running, State::Running, Some(LocalState { session: true, user: Some(user) })) => format!("Session en cours ({user})"),
-        (State::Running, State::Running, Some(LocalState { session: true, user: None })) => "Session en cours".into(),
+        (State::Running, State::Running, Some(LocalState { session: true, user: Some(user), .. })) => format!("Session en cours ({user})"),
+        (State::Running, State::Running, Some(LocalState { session: true, user: None, .. })) => "Session en cours".into(),
         (State::Running, State::Running, Some(_)) => "Aucune session en cours".into(),
         (State::Running, State::Running, None) => "La console ne répond pas".into(),
         (State::Running, _, _) => "Console arrêtée".into(),
@@ -133,6 +139,7 @@ struct App {
     status: MenuItem,
     session: MenuItem,
     open: MenuItem,
+    updates: MenuItem,
     toggle: MenuItem,
     restart: MenuItem,
     start_with_computer: CheckMenuItem,
@@ -162,6 +169,7 @@ pub fn run() -> Result<()> {
     let status = MenuItem::new("KyberNow", false, None);
     let session = MenuItem::new("Patientez…", false, None);
     let open = MenuItem::new("Ouvrir la console", true, None);
+    let updates = MenuItem::new("Mises à jour…", true, None);
     let toggle = MenuItem::new("Arrêter le serveur", false, None);
     let restart = MenuItem::new("Redémarrer le serveur", false, None);
     let start_with_computer = CheckMenuItem::new("Démarrer avec l'ordinateur", false, false, None);
@@ -172,6 +180,7 @@ pub fn run() -> Result<()> {
         &session,
         &PredefinedMenuItem::separator(),
         &open,
+        &updates,
         &PredefinedMenuItem::separator(),
         &toggle,
         &restart,
@@ -199,6 +208,7 @@ pub fn run() -> Result<()> {
         status,
         session,
         open,
+        updates,
         toggle,
         restart,
         start_with_computer,
@@ -252,6 +262,12 @@ impl App {
         self.start_with_computer.set_checked(snap.start_with_computer == Some(true));
         self.start_with_computer.set_enabled(idle && snap.start_with_computer.is_some());
         self.open.set_enabled(snap.admin != State::Missing);
+        let update = snap.console.as_ref().and_then(|c| c.update.clone());
+        self.updates.set_text(match &update {
+            Some(v) => format!("Installer la version {v}…"),
+            None => "Mises à jour…".to_string(),
+        });
+        self.updates.set_enabled(snap.admin == State::Running);
         let _ = self.tray.set_tooltip(Some(format!("{TITLE}\n{status}\n{session}")));
         if self.look != Some(look) {
             if let Ok(icon) = self.icons.get(look) {
@@ -292,7 +308,11 @@ impl App {
         let (snap, _) = self.snapshot();
         let Some(snap) = snap else { return };
         let id = event.id;
-        if id == *self.open.id() {
+        if id == *self.updates.id() {
+            if let Err(e) = open_console_at("updates") {
+                alert(&format!("{e:#}"));
+            }
+        } else if id == *self.open.id() {
             if snap.admin == State::Running {
                 if let Err(e) = open_console() {
                     alert(&format!("{e:#}"));

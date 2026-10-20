@@ -41,6 +41,8 @@ Compiler seule : `cd server/tray && cargo build --release --target x86_64-pc-win
 
 ## Construire (depuis le Mac)
 
+`build.sh` produit `dist/KyberNow-Setup.exe` ; `package-update.sh` produit ensuite le paquet de mise à jour d'un ordinateur déjà installé (`dist/kybernow-update.zip`, avec `update.ps1`). Publication : [docs/releases.md](../../docs/releases.md).
+
 ```bash
 server/installer/build.sh      # → server/installer/dist/KyberNow-Setup.exe
 ```

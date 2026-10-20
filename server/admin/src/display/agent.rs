@@ -61,6 +61,44 @@ fn quote(arg: &str) -> String {
     }
 }
 
+/// Lance `exe` dans la session de l'utilisateur connecté, avec son compte
+/// (pas celui du service) : l'icône de la zone de notification.
+pub fn launch_as_user(exe: &Path) -> Result<()> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    use windows_sys::Win32::System::RemoteDesktop::WTSQueryUserToken;
+    let session = unsafe { WTSGetActiveConsoleSessionId() };
+    if session == 0xFFFF_FFFF {
+        bail!("aucune session ouverte");
+    }
+    unsafe {
+        let mut token: HANDLE = null_mut();
+        if WTSQueryUserToken(session, &mut token) == 0 {
+            bail!("jeton de l'utilisateur : {}", std::io::Error::last_os_error());
+        }
+        let mut env: *mut std::ffi::c_void = null_mut();
+        CreateEnvironmentBlock(&mut env, token, 0);
+        let mut cmdline: Vec<u16> = quote(&exe.display().to_string()).encode_utf16().chain(std::iter::once(0)).collect();
+        let mut desktop: Vec<u16> = "winsta0\\default".encode_utf16().chain(std::iter::once(0)).collect();
+        let mut si: STARTUPINFOW = std::mem::zeroed();
+        si.cb = size_of::<STARTUPINFOW>() as u32;
+        si.lpDesktop = desktop.as_mut_ptr();
+        let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+        let ok = CreateProcessAsUserW(
+            token, null(), cmdline.as_mut_ptr(), null(), null(), 0, CREATE_UNICODE_ENVIRONMENT, env, null(), &si, &mut pi,
+        );
+        if !env.is_null() {
+            DestroyEnvironmentBlock(env);
+        }
+        CloseHandle(token);
+        if ok == 0 {
+            bail!("lancement : {}", std::io::Error::last_os_error());
+        }
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    Ok(())
+}
+
 /// Lance l'agent avec `args` sans l'attendre (veille de longue durée).
 pub fn launch(data_dir: &Path, args: &[String]) -> Result<()> {
     let _ = data_dir;
