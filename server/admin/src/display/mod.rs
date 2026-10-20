@@ -9,6 +9,12 @@
 //! - le pilote retire ses écrans s'il ne reçoit plus de signal de vie (3 s) ;
 //! - l'état d'une session est écrit sur disque et nettoyé au démarrage suivant ;
 //! - une session client sans nouvelles depuis 20 s, et sans flux encodé (NVIDIA, AMD ou Intel), s'arrête.
+//!
+//! Pendant la session, la console relit chaque seconde le mode de l'écran
+//! virtuel et les écrans actifs (agent de veille, `watch.rs`) : le mode
+//! courant est donné aux apps avec le signal de vie, et un écran physique
+//! qui se rallume (câble rebranché, disposition réappliquée par Windows) est
+//! éteint de nouveau après 2 s.
 
 #[cfg(windows)]
 pub mod agent;
@@ -18,6 +24,8 @@ pub mod pointer;
 mod sudovda;
 #[cfg(windows)]
 pub mod topology;
+#[cfg(windows)]
+pub mod watch;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -103,6 +111,42 @@ pub struct Created {
     pub target: u32,
 }
 
+/// Ce que Windows affiche pendant la session (agent de veille).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Observed {
+    /// Mode courant de l'écran virtuel (0 × 0 s'il n'est plus actif).
+    pub mode: Mode,
+    #[serde(skip)]
+    pub gdi_name: String,
+    /// Écrans actifs, écran virtuel compris.
+    pub displays: u32,
+    /// Écrans actifs autres que l'écran virtuel (écrans physiques rallumés).
+    pub others: u32,
+}
+
+/// Un écran physique rallumé n'est éteint qu'après ce délai de stabilité.
+const PHYSICAL_DEBOUNCE: Duration = Duration::from_secs(2);
+/// Au plus un nouvel isolement dans cet intervalle (Windows qui insiste).
+const REISOLATE_COOLDOWN: Duration = Duration::from_secs(10);
+
+/// Même mode, à 1 Hz près (Windows dit 59 pour 59,94).
+fn same_mode(a: Mode, b: Mode) -> bool {
+    a.width == b.width && a.height == b.height && a.refresh.abs_diff(b.refresh) <= 1
+}
+
+/// Mode réellement obtenu à la création (`applied`), sinon celui demandé.
+fn applied_mode(applied: &Value, requested: Mode) -> Mode {
+    let n = |k: &str| applied[k].as_u64().filter(|v| *v > 0).map(|v| v as u32);
+    match (n("width"), n("height")) {
+        (Some(width), Some(height)) => Mode { width, height, refresh: n("refresh").unwrap_or(requested.refresh) },
+        _ => requested,
+    }
+}
+
+fn label(m: Mode) -> String {
+    format!("{} × {} à {} Hz", m.width, m.height, m.refresh)
+}
+
 struct Session {
     origin: Origin,
     mode: Mode,
@@ -114,7 +158,20 @@ struct Session {
     last_seen: Instant,
     until: Option<Instant>,
     applied: Value,
+    created: Created,
+    /// Mode obtenu à la création : la référence pour dire que le mode a changé.
+    target: Mode,
+    /// Dernier état lu par la veille.
+    observed: Option<Observed>,
+    /// Écrans physiques vus allumés depuis cet instant.
+    others_since: Option<Instant>,
+    last_reisolate: Option<Instant>,
+    /// Dernier mode inattendu annoncé dans le fil (une fois par mode).
+    announced: Option<Mode>,
 }
+
+/// Fil des événements de la console (vue d'ensemble).
+pub type EventSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 /// Fichier écrit pendant une session, pour nettoyer après un plantage.
 #[derive(Serialize, Deserialize)]
@@ -129,6 +186,11 @@ trait Backend: Send + Sync {
     fn ping(&self) -> Result<()>;
     fn isolate(&self, created: Created, mode: Mode) -> Result<Value>;
     fn restore(&self) -> Result<()>;
+    /// Début et fin de la veille de l'écran créé.
+    fn watch(&self, created: Created);
+    fn unwatch(&self);
+    /// Dernier état vu par la veille (None : inconnu pour l'instant).
+    fn observe(&self) -> Option<Observed>;
 }
 
 pub struct Manager {
@@ -141,6 +203,7 @@ pub struct Manager {
     /// Un écran virtuel existe : le fil des signaux de vie doit pinguer le pilote.
     alive: AtomicBool,
     pub settings: Mutex<VdSettings>,
+    events: Mutex<Option<EventSink>>,
 }
 
 /// « KyberNow écran virtuel », identifiant stable du moniteur SudoVDA.
@@ -155,7 +218,11 @@ impl Manager {
         #[cfg(windows)]
         let backend: Box<dyn Backend> = Box::new(windows::WinBackend::new(data_dir.clone()));
         #[cfg(not(windows))]
-        let backend: Box<dyn Backend> = Box::new(Simulated);
+        let backend: Box<dyn Backend> = Box::new(Simulated::default());
+        Self::with_backend(data_dir, settings, backend)
+    }
+
+    fn with_backend(data_dir: PathBuf, settings: VdSettings, backend: Box<dyn Backend>) -> Arc<Self> {
         Arc::new(Self {
             backend,
             data_dir,
@@ -164,7 +231,21 @@ impl Manager {
             last_error: Mutex::new(None),
             alive: AtomicBool::new(false),
             settings: Mutex::new(settings),
+            events: Mutex::new(None),
         })
+    }
+
+    /// Branche le fil des événements (vue d'ensemble de la console).
+    pub fn on_event(&self, sink: EventSink) {
+        *self.events.lock().unwrap() = Some(sink);
+    }
+
+    fn event(&self, kind: &str, text: &str) {
+        let sink = self.events.lock().unwrap().clone();
+        match sink {
+            Some(sink) => sink(kind, text),
+            None => tracing::info!("écran virtuel : {text}"),
+        }
     }
 
     fn record_path(&self) -> PathBuf {
@@ -278,6 +359,7 @@ impl Manager {
             begun.elapsed().as_millis()
         );
         *self.last_error.lock().unwrap() = None;
+        self.backend.watch(created);
         *self.session.lock().unwrap() = Some(Session {
             origin,
             mode,
@@ -287,7 +369,13 @@ impl Manager {
             started_at: now_secs(),
             last_seen: Instant::now(),
             until: duration.map(|d| Instant::now() + d),
+            target: applied_mode(&applied, mode),
             applied: applied.clone(),
+            created,
+            observed: None,
+            others_since: None,
+            last_reisolate: None,
+            announced: None,
         });
         Ok(applied)
     }
@@ -324,6 +412,7 @@ impl Manager {
     fn stop_locked(&self, reason: &str) {
         let Some(session) = self.session.lock().unwrap().take() else { return };
         tracing::info!("fin de l'écran virtuel : {reason}");
+        self.backend.unwatch();
         if let Err(e) = self.backend.remove(session.guid) {
             self.fail(&e);
         }
@@ -340,6 +429,7 @@ impl Manager {
     }
 
     pub fn status(&self) -> Value {
+        let observed = self.observed();
         let session = self.session.lock().unwrap();
         let session = session.as_ref().map(|s| {
             json!({
@@ -360,8 +450,85 @@ impl Manager {
             "settings": *self.settings.lock().unwrap(),
             "driver": driver,
             "session": session,
+            // Mode courant de l'écran virtuel et nombre d'écrans actifs, en session.
+            "mode": observed.as_ref().map(|o| o.mode).filter(|m| m.width > 0),
+            "displays": observed.as_ref().map(|o| o.displays),
             "last_error": *self.last_error.lock().unwrap(),
         })
+    }
+
+    /// Ce que la veille a vu en dernier, pendant une session.
+    pub fn observed(&self) -> Option<Observed> {
+        self.session.lock().unwrap().as_ref().and_then(|s| s.observed.clone())
+    }
+
+    /// Un tour de veille (chaque seconde pendant une session) : relit le mode
+    /// de l'écran virtuel et les écrans actifs, annonce un changement de mode,
+    /// et éteint de nouveau un écran physique rallumé depuis 2 s.
+    pub fn watch_tick(&self, now: Instant) {
+        // Une création ou une fin en cours a la priorité : on repassera.
+        let Ok(_op) = self.ops.try_lock() else { return };
+        if self.session.lock().unwrap().is_none() {
+            return;
+        }
+        let observed = self.backend.observe();
+        let mut notes: Vec<(&str, String)> = Vec::new();
+        let mut reisolate: Option<(Created, Mode, u32)> = None;
+        {
+            let mut guard = self.session.lock().unwrap();
+            let Some(s) = guard.as_mut() else { return };
+            s.observed = observed.clone();
+            let Some(o) = observed else { return };
+
+            // Écran physique rallumé pendant la session.
+            if o.others > 0 {
+                let since = *s.others_since.get_or_insert(now);
+                let cooled = s.last_reisolate.is_none_or(|t| now.duration_since(t) >= REISOLATE_COOLDOWN);
+                if now.duration_since(since) >= PHYSICAL_DEBOUNCE && cooled {
+                    // Le mode en cours est gardé (un jeu a pu le choisir).
+                    let keep = if o.mode.width > 0 { o.mode } else { s.target };
+                    reisolate = Some((s.created, keep, o.others));
+                }
+            } else {
+                s.others_since = None;
+            }
+
+            // Mode changé sur l'ordinateur (jeu, réglage de Windows).
+            if o.mode.width > 0 && !same_mode(o.mode, s.target) {
+                if s.announced != Some(o.mode) {
+                    s.announced = Some(o.mode);
+                    notes.push(("info", format!("L'écran virtuel est passé en {} (demandé : {})", label(o.mode), label(s.target))));
+                }
+            } else {
+                s.announced = None;
+            }
+        }
+        for (kind, text) in notes {
+            self.event(kind, &text);
+        }
+        if let Some((created, mode, others)) = reisolate {
+            match self.backend.isolate(created, mode) {
+                Ok(applied) => {
+                    if let Some(s) = self.session.lock().unwrap().as_mut() {
+                        s.applied = applied;
+                        s.last_reisolate = Some(now);
+                        s.others_since = None;
+                    }
+                    self.event("info", &if others > 1 {
+                        format!("{others} écrans de l'ordinateur se sont rallumés pendant la session : éteints de nouveau")
+                    } else {
+                        "Un écran de l'ordinateur s'est rallumé pendant la session : éteint de nouveau".to_string()
+                    });
+                }
+                Err(e) => {
+                    self.fail(&e);
+                    if let Some(s) = self.session.lock().unwrap().as_mut() {
+                        s.last_reisolate = Some(now);
+                    }
+                    self.event("warn", &format!("Un écran de l'ordinateur s'est rallumé pendant la session et n'a pas pu être éteint : {e:#}"));
+                }
+            }
+        }
     }
 
     /// Fils dédiés : signaux de vie du pilote, puis surveillance des sessions.
@@ -408,6 +575,7 @@ impl Manager {
                 };
 
                 if active {
+                    self.watch_tick(Instant::now());
                     idle_since = if encoding { None } else { idle_since.or(Some(Instant::now())) };
                     let idle_long = idle_since.is_some_and(|t| t.elapsed() > Duration::from_secs(10));
                     if expired_test {
@@ -443,9 +611,24 @@ impl Manager {
     }
 }
 
-/// Hors Windows : pilote simulé, pour développer l'interface sur Mac.
+/// Hors Windows : pilote simulé, pour développer l'interface sur Mac. La
+/// veille y voit le mode demandé ; les tests changent l'écran à la main.
 #[cfg(not(windows))]
-struct Simulated;
+#[derive(Clone, Default)]
+struct Simulated {
+    screen: Arc<Mutex<SimScreen>>,
+}
+
+#[cfg(not(windows))]
+#[derive(Default)]
+struct SimScreen {
+    /// Mode de l'écran virtuel, s'il existe.
+    mode: Option<Mode>,
+    /// Écrans physiques allumés.
+    others: u32,
+    watching: bool,
+    isolations: u32,
+}
 
 #[cfg(not(windows))]
 impl Backend for Simulated {
@@ -454,20 +637,38 @@ impl Backend for Simulated {
     }
     fn create(&self, _: [u8; 16], mode: Mode) -> Result<Created> {
         tracing::info!("(simulé) création d'un écran {}×{} à {} Hz", mode.width, mode.height, mode.refresh);
+        self.screen.lock().unwrap().mode = Some(mode);
         Ok(Created { luid_low: 0, luid_high: 0, target: 0 })
     }
     fn remove(&self, _: [u8; 16]) -> Result<()> {
+        self.screen.lock().unwrap().mode = None;
         Ok(())
     }
     fn ping(&self) -> Result<()> {
         Ok(())
     }
     fn isolate(&self, _: Created, mode: Mode) -> Result<Value> {
-        Ok(json!({ "gdi_name": "\\\\.\\DISPLAY9", "width": mode.width, "height": mode.height, "refresh": mode.refresh, "disabled_others": 1 }))
+        let mut screen = self.screen.lock().unwrap();
+        let disabled = screen.others;
+        screen.mode = Some(mode);
+        screen.others = 0;
+        screen.isolations += 1;
+        Ok(json!({ "gdi_name": "\\\\.\\DISPLAY9", "width": mode.width, "height": mode.height, "refresh": mode.refresh, "disabled_others": disabled }))
     }
     fn restore(&self) -> Result<()> {
         tracing::info!("(simulé) restauration des écrans");
         Ok(())
+    }
+    fn watch(&self, _: Created) {
+        self.screen.lock().unwrap().watching = true;
+    }
+    fn unwatch(&self) {
+        self.screen.lock().unwrap().watching = false;
+    }
+    fn observe(&self) -> Option<Observed> {
+        let screen = self.screen.lock().unwrap();
+        let mode = screen.mode.filter(|_| screen.watching)?;
+        Some(Observed { mode, gdi_name: "\\\\.\\DISPLAY9".into(), displays: 1 + screen.others, others: screen.others })
     }
 }
 
@@ -478,11 +679,12 @@ mod windows {
     pub struct WinBackend {
         data_dir: PathBuf,
         device: Mutex<Option<sudovda::Device>>,
+        watch: watch::Watch,
     }
 
     impl WinBackend {
         pub fn new(data_dir: PathBuf) -> Self {
-            Self { data_dir, device: Mutex::new(None) }
+            Self { watch: watch::Watch::new(&data_dir), data_dir, device: Mutex::new(None) }
         }
 
         fn with_device<T>(&self, f: impl FnOnce(&sudovda::Device) -> Result<T>) -> Result<T> {
@@ -530,6 +732,15 @@ mod windows {
         }
         fn restore(&self) -> Result<()> {
             agent::run(&self.data_dir, &["restore".to_string()]).map(|_| ())
+        }
+        fn watch(&self, created: Created) {
+            self.watch.start(&self.data_dir, created);
+        }
+        fn unwatch(&self) {
+            self.watch.stop();
+        }
+        fn observe(&self) -> Option<Observed> {
+            self.watch.observe(&self.data_dir)
         }
     }
 }

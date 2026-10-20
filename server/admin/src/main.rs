@@ -131,6 +131,17 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Veille de l'écran virtuel (mode courant, écrans actifs) pendant une session.
+    Watch {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long, allow_hyphen_values = true)]
+        luid_low: u32,
+        #[arg(long, allow_hyphen_values = true)]
+        luid_high: i32,
+        #[arg(long)]
+        target: u32,
+    },
     /// Veille de l'app au premier plan (plein écran, jeu) pendant une session.
     Foreground {
         #[arg(long)]
@@ -170,6 +181,15 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
+    if let AgentAction::Watch { dir, luid_low, luid_high, target } = &action {
+        #[cfg(windows)]
+        return display::watch::run_agent(dir, *luid_low, *luid_high, *target);
+        #[cfg(not(windows))]
+        {
+            let _ = (dir, luid_low, luid_high, target);
+            anyhow::bail!("réservé à Windows");
+        }
+    }
     #[cfg(windows)]
     let (out, result) = match action {
         AgentAction::Isolate { luid_low, luid_high, target, width, height, refresh, out } => {
@@ -193,7 +213,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, r)
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
-        AgentAction::Foreground { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
@@ -202,7 +222,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
-        AgentAction::Foreground { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     let value = match result {
         Ok(v) => v,
@@ -414,6 +434,13 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     updater.clone().supervise();
     update::relaunch_tray_if_asked(&data_dir);
 
+    // Fil des événements : l'écran virtuel y annonce ce que la veille voit.
+    let activity = Arc::new(activity::Activity::new(&data_dir));
+    {
+        let a = activity.clone();
+        display.on_event(Arc::new(move |kind: &str, text: &str| a.event(kind, text)));
+    }
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber: KyberConfig::new(config_path, data_dir.join("backups")),
@@ -421,7 +448,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         audio,
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
-        activity: Arc::new(activity::Activity::new(&data_dir)),
+        activity,
         pairing: pairing::Pairing::new(),
         updater: updater.clone(),
         service,

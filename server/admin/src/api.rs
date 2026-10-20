@@ -690,7 +690,9 @@ struct HeartbeatBody {
 
 /// Signal de vie d'une app, avec sa latence. `end` : la console demande la
 /// fin (depuis la console, ou parce qu'un autre appareil prend la main) ;
-/// `active` : l'écran virtuel en place est bien celui de cet appareil.
+/// `active` : l'écran virtuel en place est bien celui de cet appareil ;
+/// `mode` : mode courant de l'écran virtuel (il a pu changer : un jeu) et
+/// `displays` : écrans actifs sur l'ordinateur (null : pas encore relus).
 async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     // Corps facultatif : les apps d'avant 0.2.1 n'en envoient pas.
@@ -699,7 +701,14 @@ async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: B
     s.audio.heartbeat();
     s.foreground.touch();
     let end = s.activity.heartbeat(&user, device, body.latency_ms, body.profile);
-    Ok(Json(json!({ "active": s.display.heartbeat(device), "end": end })))
+    let active = s.display.heartbeat(device);
+    let observed = if active { s.display.observed() } else { None };
+    Ok(Json(json!({
+        "active": active,
+        "end": end,
+        "mode": observed.as_ref().map(|o| o.mode).filter(|m| m.width > 0),
+        "displays": observed.as_ref().map(|o| o.displays),
+    })))
 }
 
 /// App au premier plan sur l'ordinateur : plein écran, jeu (l'app du Mac

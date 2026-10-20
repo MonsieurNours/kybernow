@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console : pendant une session, le mode de l'écran virtuel et les écrans allumés sont relus chaque seconde. Les apps reçoivent le mode courant avec leur signal de vie ; un changement de mode (un jeu qui passe en 1080p) est noté dans le fil d'événements ; un écran de l'ordinateur qui se rallume en pleine session (câble rebranché, Windows qui remet son ancienne disposition) est éteint de nouveau au bout de 2 s.
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.
 - Console : cinq mots de passe faux depuis une même adresse font attendre 30 s, puis le double à chaque essai ; les vérifications de mot de passe ne se font plus que deux à la fois.
 - Console : à l'arrêt du service (mise à jour, extinction), les écrans et le son sont rendus à l'ordinateur tout de suite ; un réglage illisible n'empêche plus la console de démarrer ; un écran ou un son qui n'a pas pu être rendu est réessayé au démarrage suivant ; un agent d'affichage qui ne répond pas est arrêté ; deux changements simultanés de `kyber_config.toml` ne s'écrasent plus.
