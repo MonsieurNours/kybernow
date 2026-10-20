@@ -234,14 +234,19 @@ final class InputPipeline {
         else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
 
         var pixels = [UInt32](repeating: 0, count: width * height)
+        var opaque = false
         for i in 0..<(width * height) {
             let p = raw[i]
             let a = (p >> 24) & 0xFF
+            if a > 0 { opaque = true }
             let r = ((p >> 16) & 0xFF) * a / 255
             let g = ((p >> 8) & 0xFF) * a / 255
             let b = (p & 0xFF) * a / 255
             pixels[i] = (a << 24) | (r << 16) | (g << 8) | b
         }
+        // Forme entièrement transparente (lecteurs vidéo, certains jeux) :
+        // le Mac garderait un pointeur invisible ; on garde la forme précédente.
+        guard opaque else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
         let image: NSImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let ctx = CGContext(
                 data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,

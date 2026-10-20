@@ -42,6 +42,10 @@ final class AudioPlayer {
     private var pcm: [Float] = []
     private var unit: AudioUnit?
     private var outputMs: Double = 0
+    /// La sortie démarre hors du fil réseau de Kyber : démarrer Core Audio
+    /// prend jusqu'à 100 ms, et ce fil reçoit aussi l'image (paquets perdus
+    /// sinon, au moment où le son commence).
+    private let outputQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.audio-output", qos: .userInteractive)
     /// Kyber livre depuis son fil réseau, l'app arrête depuis le fil principal.
     private let io = NSLock()
 
@@ -117,8 +121,10 @@ final class AudioPlayer {
             $0.volume = volume
             $0.ring = [Float](repeating: 0, count: Self.sampleRate * channels) // une seconde
         }
-        startOutput(channels: channels)
-        KyberLog.audio.notice("son : Opus, \(channels) voies, \(streams) flux, latence de sortie \(String(format: "%.1f", self.outputMs)) ms")
+        outputQueue.async { [self] in
+            startOutput(channels: channels)
+            KyberLog.audio.notice("son : Opus, \(channels) voies, \(streams) flux, latence de sortie \(String(format: "%.1f", self.outputMs), privacy: .public) ms")
+        }
     }
 
     func decode(_ data: UnsafeBufferPointer<UInt8>) {
@@ -236,12 +242,14 @@ final class AudioPlayer {
     }
 
     private func teardown() {
-        if let unit {
-            AudioOutputUnitStop(unit)
-            AudioUnitUninitialize(unit)
-            AudioComponentInstanceDispose(unit)
+        outputQueue.sync {
+            if let unit {
+                AudioOutputUnitStop(unit)
+                AudioUnitUninitialize(unit)
+                AudioComponentInstanceDispose(unit)
+            }
+            unit = nil
         }
-        unit = nil
         if let decoder { opus_multistream_decoder_destroy(decoder) }
         decoder = nil
         channels = 0

@@ -35,6 +35,12 @@ public final class StreamView: NSView {
     public var onRelativeChanged: ((Bool) -> Void)?
     private let relative = RelativeMouse()
     private var remoteHidden = false
+    /// Pointeur caché par l'ordinateur pendant que la souris bouge : c'est un
+    /// jeu qui l'a capturé (une vidéo, elle, le réaffiche au premier mouvement).
+    private var hiddenWhileMoving: (since: TimeInterval, last: TimeInterval)?
+    private var hostCapturedPointer = false
+    /// Forme du pointeur de l'ordinateur, en pixels de l'ordinateur.
+    private var remoteShape: (image: NSImage, hotSpot: CGPoint)?
     private var remotePosition: CGPoint?
     /// Libérée par l'utilisateur (⌃⌥⌘M) : reprise au prochain clic dans l'image.
     private var releasedByUser = false
@@ -76,6 +82,7 @@ public final class StreamView: NSView {
         var window = kynput_RectSize(width: bounds.width, height: bounds.height)
         var host = kynput_RectSize(width: hostSize.width, height: hostSize.height)
         layout = kynput_video_layout_new(&window, &host)
+        applyCursorShape()
         // AppKit ne transmet pas aux vues le relâchement d'une touche tapée
         // avec ⌘ : on le récupère avant qu'il ne se perde.
         relative.onMove = { [weak input] dx, dy in input?.mouseMove(dx: dx, dy: dy) }
@@ -90,6 +97,8 @@ public final class StreamView: NSView {
     public func detach() {
         endRelative(warp: false)
         remoteHidden = false
+        hiddenWhileMoving = nil
+        hostCapturedPointer = false
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
         input?.flushKeys()
@@ -105,6 +114,7 @@ public final class StreamView: NSView {
             var window = kynput_RectSize(width: newSize.width, height: newSize.height)
             kynput_video_layout_set_window_size(layout, &window)
         }
+        applyCursorShape()
     }
 
     // Les sous-vues de VLC ne doivent pas capter les événements.
@@ -129,14 +139,31 @@ public final class StreamView: NSView {
         remotePosition = remote.position
         if remote.visible == remoteHidden {
             remoteHidden = !remote.visible
+            KyberLog.app.notice("pointeur de l'ordinateur \(remote.visible ? "visible" : "caché", privacy: .public)")
+            if !remoteHidden {
+                hiddenWhileMoving = nil
+                hostCapturedPointer = false
+            }
             evaluateRelative()
         }
-        // Forme nouvelle : on l'adopte. Masquage : on garde la dernière forme.
+        // Forme nouvelle : on l'adopte. Masquage ou forme vide : on garde la dernière.
         guard let image = remote.image else { return }
-        let scale = window?.backingScaleFactor ?? 2
-        image.size = NSSize(width: image.size.width / scale, height: image.size.height / scale)
-        cursor = NSCursor(image: image, hotSpot: NSPoint(x: remote.hotSpot.x / scale, y: remote.hotSpot.y / scale))
-        if let window, window.isKeyWindow, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
+        remoteShape = (image, remote.hotSpot)
+        applyCursorShape()
+    }
+
+    /// Le pointeur du Mac a la taille et le point actif de celui de
+    /// l'ordinateur à l'échelle de l'image affichée : sa pointe tombe là où
+    /// l'ordinateur la place.
+    private func applyCursorShape() {
+        guard let shape = remoteShape, hostSize.width > 0, hostSize.height > 0 else { return }
+        let factor = min(bounds.width / hostSize.width, bounds.height / hostSize.height)
+        guard factor > 0, let copy = shape.image.copy() as? NSImage else { return }
+        let pixels = shape.image.representations.first.map { CGSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? shape.image.size
+        copy.size = NSSize(width: max(1, pixels.width * factor), height: max(1, pixels.height * factor))
+        cursor = NSCursor(image: copy, hotSpot: NSPoint(x: shape.hotSpot.x * factor, y: shape.hotSpot.y * factor))
+        window?.invalidateCursorRects(for: self)
+        if let window, window.isKeyWindow, !relative.active, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             cursor.set()
         }
     }
@@ -174,16 +201,18 @@ public final class StreamView: NSView {
     }
 
     private func evaluateRelative() {
-        let want = mouseMode == .auto && remoteHidden && !relativeSuspended && !releasedByUser
+        let want = mouseMode == .auto && remoteHidden && hostCapturedPointer && !relativeSuspended && !releasedByUser
             && input != nil && window?.isKeyWindow == true
         if want, !relative.active {
             // On n'entre qu'avec le pointeur sur l'image (pas pendant un tour dans les menus).
             guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
             input?.setRelative(true)
             relative.start()
+            KyberLog.app.notice("souris relative (pointeur capturé par l'ordinateur)")
             onRelativeChanged?(true)
         } else if !want, relative.active {
             endRelative(warp: true)
+            KyberLog.app.notice("souris absolue")
         }
     }
 
@@ -205,6 +234,26 @@ public final class StreamView: NSView {
         CGAssociateMouseAndMouseCursorPosition(1)
     }
 
+    /// La souris bouge alors que l'ordinateur cache son pointeur depuis plus
+    /// de 0,35 s de mouvement continu : un jeu l'a capturé.
+    private func noteMovementWhileHidden() {
+        guard mouseMode == .auto, remoteHidden, !hostCapturedPointer else {
+            hiddenWhileMoving = nil
+            return
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        // Une pause de plus de 0,3 s remet le compte à zéro.
+        guard let motion = hiddenWhileMoving, now - motion.last < 0.3 else {
+            hiddenWhileMoving = (now, now)
+            return
+        }
+        hiddenWhileMoving = (motion.since, now)
+        if now - motion.since >= 0.35 {
+            hostCapturedPointer = true
+            evaluateRelative()
+        }
+    }
+
     // MARK: - Souris
 
     private func inReservedBand(_ event: NSEvent) -> Bool {
@@ -219,6 +268,7 @@ public final class StreamView: NSView {
         }
         let p = convert(event.locationInWindow, from: nil)
         onPointerMoved?(bounds.height - p.y)
+        noteMovementWhileHidden()
         guard let input, let layout, !inReservedBand(event) else { return }
         var local = kynput_Position(x: p.x, y: bounds.height - p.y)
         var host = kynput_Position(x: 0, y: 0)
