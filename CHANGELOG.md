@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- App Apple TV : quand l'app passe en arrière-plan (bouton TV, autre app, veille), plus rien ne reste enfoncé sur l'ordinateur ; au retour, les manettes reprennent leur état réel.
 - Apps Mac et Apple TV : à l'ouverture de la barre ou du menu, la manette est remise à zéro sur l'ordinateur (touches relâchées, sticks et gâchettes au repos). Une gâchette tenue ne reste plus enfoncée dans le jeu pendant le menu ; sur l'Apple TV, la manette en souris relâche aussi ses clics et ses touches, et un stick encore tenu à la fermeture du menu reprend aussitôt.
 - Apps Mac et Apple TV : la combinaison L1 + R1 + Start + Select pressée pendant une reconnexion ou avant la première image ne rend plus la manette muette jusqu'à la combinaison suivante. La manette n'est prise que quand la barre (Mac) ou le menu (Apple TV) s'ouvre vraiment, et un redémarrage de l'image ne la rend plus au jeu pendant que le menu est ouvert.
 - App Mac : après ⌘Tab, ⌘Espace ou un passage dans une autre app, la touche ⌘ (envoyée comme Ctrl) ne reste plus enfoncée sur l'ordinateur. Tout est relâché quand la fenêtre perd le clavier, et les modificateurs vraiment tenus sont renvoyés quand elle le retrouve.

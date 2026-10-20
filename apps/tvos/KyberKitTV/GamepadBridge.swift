@@ -114,6 +114,13 @@ public final class GamepadBridge: ObservableObject {
         }
         GCController.controllers().forEach(connected)
         GCController.startWirelessControllerDiscovery {}
+        // Arrière-plan (bouton TV, autre app, veille) : les relâchements qui
+        // suivent ne nous parviendront pas, rien ne doit rester enfoncé sur
+        // l'ordinateur. Au retour, l'état réel des manettes est renvoyé.
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.appLeft() }
+        }
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.appBack() }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.publishPads() }
         liveTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
             guard let self, self.monitoring, self.liveDirty else { return }
@@ -202,6 +209,26 @@ public final class GamepadBridge: ObservableObject {
     }
 
     public var inSession: Bool { input != nil }
+
+    // MARK: - Arrière-plan
+
+    private var inBackground = false
+
+    private func appLeft() {
+        guard !inBackground, let input else { return }
+        inBackground = true
+        KyberLog.app.notice("app en arrière-plan : tout relâché sur l'ordinateur")
+        for slot in slots.values { releaseAll(slot, input: input) }
+        releaseMouse(input)
+        // Clavier Bluetooth et tout le reste : l'ordinateur relâche de son côté.
+        input.flushKeys()
+    }
+
+    private func appBack() {
+        guard inBackground else { return }
+        inBackground = false
+        resync(buttons: true)
+    }
 
     // MARK: - Branchements
 
