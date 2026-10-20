@@ -14,7 +14,9 @@
 //! virtuel et les écrans actifs (agent de veille, `watch.rs`) : le mode
 //! courant est donné aux apps avec le signal de vie, et un écran physique
 //! qui se rallume (câble rebranché, disposition réappliquée par Windows) est
-//! éteint de nouveau après 2 s.
+//! éteint de nouveau après 2 s. Si le mode change (un jeu qui passe en
+//! 1080p), la politique décide : `follow` laisse faire et l'annonce,
+//! `restore` remet le mode de la session (au plus une fois toutes les 5 s).
 
 #[cfg(windows)]
 pub mod agent;
@@ -48,6 +50,17 @@ pub enum Trigger {
     All,
 }
 
+/// Que faire quand le mode de l'écran virtuel change pendant la session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ModePolicy {
+    /// Laisser faire (un jeu choisit sa définition) et l'annoncer.
+    #[default]
+    Follow,
+    /// Remettre le mode demandé par l'appareil.
+    Restore,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VdSettings {
     #[serde(default)]
@@ -58,6 +71,9 @@ pub struct VdSettings {
     pub height: u32,
     #[serde(default = "default_refresh")]
     pub refresh: u32,
+    /// Politique par défaut, quand l'app n'en donne pas (`mode_policy`).
+    #[serde(default)]
+    pub on_mode_change: ModePolicy,
 }
 
 fn default_width() -> u32 {
@@ -72,7 +88,13 @@ fn default_refresh() -> u32 {
 
 impl Default for VdSettings {
     fn default() -> Self {
-        Self { trigger: Trigger::Apps, width: default_width(), height: default_height(), refresh: default_refresh() }
+        Self {
+            trigger: Trigger::Apps,
+            width: default_width(),
+            height: default_height(),
+            refresh: default_refresh(),
+            on_mode_change: ModePolicy::default(),
+        }
     }
 }
 
@@ -128,6 +150,8 @@ pub struct Observed {
 const PHYSICAL_DEBOUNCE: Duration = Duration::from_secs(2);
 /// Au plus un nouvel isolement dans cet intervalle (Windows qui insiste).
 const REISOLATE_COOLDOWN: Duration = Duration::from_secs(10);
+/// Politique `restore` : au plus une remise du mode dans cet intervalle.
+const MODE_FIX_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Même mode, à 1 Hz près (Windows dit 59 pour 59,94).
 fn same_mode(a: Mode, b: Mode) -> bool {
@@ -168,6 +192,9 @@ struct Session {
     last_reisolate: Option<Instant>,
     /// Dernier mode inattendu annoncé dans le fil (une fois par mode).
     announced: Option<Mode>,
+    /// Politique donnée par l'app (sinon, celle des réglages).
+    policy: Option<ModePolicy>,
+    last_mode_fix: Option<Instant>,
 }
 
 /// Fil des événements de la console (vue d'ensemble).
@@ -191,6 +218,8 @@ trait Backend: Send + Sync {
     fn unwatch(&self);
     /// Dernier état vu par la veille (None : inconnu pour l'instant).
     fn observe(&self) -> Option<Observed>;
+    /// Remet `mode` sur l'écran `gdi_name` ; rend le mode obtenu.
+    fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode>;
 }
 
 pub struct Manager {
@@ -283,6 +312,7 @@ impl Manager {
     /// Démarre (ou reprend) une session à `mode`. Un autre mode remplace la
     /// session en cours, sauf qu'une session d'app n'est jamais remplacée par
     /// le déclenchement automatique ni par un essai depuis la console.
+    /// `policy` : ce que l'app veut quand le mode change (sinon, le réglage).
     pub fn start(
         &self,
         origin: Origin,
@@ -290,10 +320,11 @@ impl Manager {
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
+        policy: Option<ModePolicy>,
     ) -> Result<Value> {
         mode.validate()?;
         let _op = self.ops.lock().unwrap();
-        self.start_locked(origin, mode, user, device, duration)
+        self.start_locked(origin, mode, user, device, duration, policy)
     }
 
     fn start_locked(
@@ -303,30 +334,48 @@ impl Manager {
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
+        policy: Option<ModePolicy>,
     ) -> Result<Value> {
-        {
+        let default_policy = self.settings.lock().unwrap().on_mode_change;
+        let mut fix: Option<(String, Mode)> = None;
+        let kept = {
             let mut session = self.session.lock().unwrap();
-            if let Some(s) = session.as_mut() {
-                if s.mode == mode {
+            match session.as_mut() {
+                Some(s) if s.mode == mode => {
                     s.last_seen = Instant::now();
                     // Une app garde son écran : « Auto » ne la rétrograde pas.
                     if !(s.origin == Origin::App && origin == Origin::Auto) {
                         s.origin = origin;
                         s.until = duration.map(|d| Instant::now() + d);
                     }
-                    s.user = user.or(s.user.take());
-                    s.device = device.or(s.device.take());
-                    return Ok(s.applied.clone());
-                }
-                if s.origin == Origin::App {
-                    match origin {
-                        // Le fil de surveillance pendant une session d'app : rien à faire.
-                        Origin::Auto => return Ok(s.applied.clone()),
-                        Origin::Test => bail!("un appareil utilise l'écran virtuel : essai impossible pendant sa session"),
-                        Origin::App => {}
+                    s.user = user.clone().or(s.user.take());
+                    s.device = device.clone().or(s.device.take());
+                    if policy.is_some() {
+                        s.policy = policy;
                     }
+                    // Même écran redemandé alors que le mode a changé : en
+                    // politique `restore` (« Remettre » dans l'app), on le remet.
+                    if s.policy.unwrap_or(default_policy) == ModePolicy::Restore {
+                        if let Some(o) = s.observed.as_ref().filter(|o| o.mode.width > 0 && !same_mode(o.mode, s.target)) {
+                            fix = Some((o.gdi_name.clone(), s.target));
+                        }
+                    }
+                    Some(s.applied.clone())
                 }
+                Some(s) if s.origin == Origin::App => match origin {
+                    // Le fil de surveillance pendant une session d'app : rien à faire.
+                    Origin::Auto => return Ok(s.applied.clone()),
+                    Origin::Test => bail!("un appareil utilise l'écran virtuel : essai impossible pendant sa session"),
+                    Origin::App => None,
+                },
+                _ => None,
             }
+        };
+        if let Some(applied) = kept {
+            if let Some((gdi_name, target)) = fix {
+                self.fix_mode(&gdi_name, target, Instant::now());
+            }
+            return Ok(applied);
         }
         // Mode différent (un autre appareil prend la main) : on repart de zéro.
         self.stop_locked("remplacée par une nouvelle session");
@@ -376,6 +425,8 @@ impl Manager {
             others_since: None,
             last_reisolate: None,
             announced: None,
+            policy,
+            last_mode_fix: None,
         });
         Ok(applied)
     }
@@ -383,7 +434,8 @@ impl Manager {
     /// Signal de vie d'un appareil. Vrai si l'écran virtuel en place est le
     /// sien : un appareil dont l'écran a été remplacé par celui d'un autre
     /// l'apprend ainsi, au lieu de le redemander sans fin.
-    pub fn heartbeat(&self, device: Option<&str>) -> bool {
+    /// `policy` : celle du profil choisi en ce moment dans l'app.
+    pub fn heartbeat(&self, device: Option<&str>, policy: Option<ModePolicy>) -> bool {
         match self.session.lock().unwrap().as_mut() {
             Some(s) => {
                 let owner = match (device, s.device.as_deref()) {
@@ -392,10 +444,31 @@ impl Manager {
                 };
                 if owner {
                     s.last_seen = Instant::now();
+                    if policy.is_some() {
+                        s.policy = policy;
+                    }
                 }
                 owner
             }
             None => false,
+        }
+    }
+
+    /// Politique en vigueur pour la session en cours.
+    pub fn policy(&self) -> Option<ModePolicy> {
+        let default = self.settings.lock().unwrap().on_mode_change;
+        self.session.lock().unwrap().as_ref().map(|s| s.policy.unwrap_or(default))
+    }
+
+    /// Remet le mode de la session sur l'écran virtuel (politique `restore`).
+    fn fix_mode(&self, gdi_name: &str, target: Mode, now: Instant) {
+        if let Some(s) = self.session.lock().unwrap().as_mut() {
+            s.last_mode_fix = Some(now);
+        }
+        match self.backend.set_mode(gdi_name, target) {
+            Ok(got) if same_mode(got, target) => tracing::info!("mode de l'écran virtuel remis en {}", label(target)),
+            Ok(got) => tracing::warn!("mode de l'écran virtuel : {} demandé, {} obtenu", label(target), label(got)),
+            Err(e) => self.fail(&e),
         }
     }
 
@@ -439,6 +512,7 @@ impl Manager {
                 "started_at": s.started_at,
                 "seconds_left": s.until.map(|u| u.saturating_duration_since(Instant::now()).as_secs()),
                 "applied": s.applied,
+                "mode_policy": s.policy.unwrap_or(self.settings.lock().unwrap().on_mode_change),
             })
         });
         let driver = match self.backend.driver() {
@@ -474,9 +548,12 @@ impl Manager {
         let observed = self.backend.observe();
         let mut notes: Vec<(&str, String)> = Vec::new();
         let mut reisolate: Option<(Created, Mode, u32)> = None;
+        let mut fix: Option<(String, Mode)> = None;
+        let default_policy = self.settings.lock().unwrap().on_mode_change;
         {
             let mut guard = self.session.lock().unwrap();
             let Some(s) = guard.as_mut() else { return };
+            let policy = s.policy.unwrap_or(default_policy);
             s.observed = observed.clone();
             let Some(o) = observed else { return };
 
@@ -485,8 +562,8 @@ impl Manager {
                 let since = *s.others_since.get_or_insert(now);
                 let cooled = s.last_reisolate.is_none_or(|t| now.duration_since(t) >= REISOLATE_COOLDOWN);
                 if now.duration_since(since) >= PHYSICAL_DEBOUNCE && cooled {
-                    // Le mode en cours est gardé (un jeu a pu le choisir).
-                    let keep = if o.mode.width > 0 { o.mode } else { s.target };
+                    // En `follow`, le mode en cours est gardé (un jeu a pu le choisir).
+                    let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { s.target };
                     reisolate = Some((s.created, keep, o.others));
                 }
             } else {
@@ -494,17 +571,27 @@ impl Manager {
             }
 
             // Mode changé sur l'ordinateur (jeu, réglage de Windows).
-            if o.mode.width > 0 && !same_mode(o.mode, s.target) {
+            if reisolate.is_none() && o.mode.width > 0 && !same_mode(o.mode, s.target) {
                 if s.announced != Some(o.mode) {
                     s.announced = Some(o.mode);
-                    notes.push(("info", format!("L'écran virtuel est passé en {} (demandé : {})", label(o.mode), label(s.target))));
+                    notes.push(("info", match policy {
+                        ModePolicy::Follow => format!("L'écran virtuel est passé en {} (demandé : {}), laissé tel quel", label(o.mode), label(s.target)),
+                        ModePolicy::Restore => format!("L'écran virtuel est passé en {} : remis en {}", label(o.mode), label(s.target)),
+                    }));
                 }
-            } else {
+                let due = s.last_mode_fix.is_none_or(|t| now.duration_since(t) >= MODE_FIX_INTERVAL);
+                if policy == ModePolicy::Restore && due {
+                    fix = Some((o.gdi_name.clone(), s.target));
+                }
+            } else if same_mode(o.mode, s.target) {
                 s.announced = None;
             }
         }
         for (kind, text) in notes {
             self.event(kind, &text);
+        }
+        if let Some((gdi_name, target)) = fix {
+            self.fix_mode(&gdi_name, target, now);
         }
         if let Some((created, mode, others)) = reisolate {
             match self.backend.isolate(created, mode) {
@@ -598,7 +685,7 @@ impl Manager {
                         continue;
                     }
                     let mode = Mode { width: settings.width, height: settings.height, refresh: settings.refresh };
-                    let _ = self.start_locked(Origin::Auto, mode, None, None, None);
+                    let _ = self.start_locked(Origin::Auto, mode, None, None, None, None);
                 }
             }
         });
@@ -628,6 +715,7 @@ struct SimScreen {
     others: u32,
     watching: bool,
     isolations: u32,
+    mode_fixes: u32,
 }
 
 #[cfg(not(windows))]
@@ -664,6 +752,12 @@ impl Backend for Simulated {
     }
     fn unwatch(&self) {
         self.screen.lock().unwrap().watching = false;
+    }
+    fn set_mode(&self, _: &str, mode: Mode) -> Result<Mode> {
+        let mut screen = self.screen.lock().unwrap();
+        screen.mode = Some(mode);
+        screen.mode_fixes += 1;
+        Ok(mode)
     }
     fn observe(&self) -> Option<Observed> {
         let screen = self.screen.lock().unwrap();
@@ -742,6 +836,21 @@ mod windows {
         fn observe(&self) -> Option<Observed> {
             self.watch.observe(&self.data_dir)
         }
+        fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
+            if gdi_name.is_empty() {
+                bail!("écran virtuel introuvable pour remettre son mode");
+            }
+            let args = [
+                "set-mode".to_string(),
+                "--gdi-name".into(), gdi_name.to_string(),
+                "--width".into(), mode.width.to_string(),
+                "--height".into(), mode.height.to_string(),
+                "--refresh".into(), mode.refresh.to_string(),
+            ];
+            let v = agent::run_with_timeout(&self.data_dir, &args, 10_000)?;
+            let n = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
+            Ok(Mode { width: n("width"), height: n("height"), refresh: n("refresh") })
+        }
     }
 }
 
@@ -761,33 +870,33 @@ mod tests {
     #[test]
     fn une_app_garde_son_ecran_face_au_declenchement_automatique() {
         let m = manager();
-        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None).unwrap();
+        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None, None).unwrap();
         // Le fil de surveillance (mode par défaut) ne remplace pas l'écran de l'app.
-        m.start(Origin::Auto, TV, None, None, None).unwrap();
+        m.start(Origin::Auto, TV, None, None, None, None).unwrap();
         let status = m.status();
         assert_eq!(status["session"]["mode"]["width"], 3456);
         assert_eq!(status["session"]["origin"], "app");
         // Même mode en « Auto » : l'origine reste celle de l'app.
-        m.start(Origin::Auto, MAC, None, None, None).unwrap();
+        m.start(Origin::Auto, MAC, None, None, None, None).unwrap();
         assert_eq!(m.status()["session"]["origin"], "app");
         // Un essai depuis la console est refusé pendant la session de l'app.
-        assert!(m.start(Origin::Test, TV, None, None, Some(Duration::from_secs(5))).is_err());
+        assert!(m.start(Origin::Test, TV, None, None, Some(Duration::from_secs(5)), None).is_err());
     }
 
     #[test]
     fn signal_de_vie_du_proprietaire_seulement() {
         let m = manager();
-        assert!(!m.heartbeat(Some("mac")));
-        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None).unwrap();
-        assert!(m.heartbeat(Some("mac")));
+        assert!(!m.heartbeat(Some("mac"), None));
+        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None, None).unwrap();
+        assert!(m.heartbeat(Some("mac"), None));
         assert!(m.owned_by("mac"));
         // Un autre appareil prend la main : le premier n'a plus « son » écran.
-        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None).unwrap();
-        assert!(!m.heartbeat(Some("mac")));
-        assert!(m.heartbeat(Some("tv")));
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, None).unwrap();
+        assert!(!m.heartbeat(Some("mac"), None));
+        assert!(m.heartbeat(Some("tv"), None));
         // Une app d'avant 0.2.5 (sans identifiant) est crue sur parole.
-        assert!(m.heartbeat(None));
+        assert!(m.heartbeat(None, None));
         m.stop("fin du test");
-        assert!(!m.heartbeat(Some("tv")));
+        assert!(!m.heartbeat(Some("tv"), None));
     }
 }

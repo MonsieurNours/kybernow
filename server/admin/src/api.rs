@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
-use crate::display::{Mode, Origin, Trigger, VdSettings};
+use crate::display::{Mode, ModePolicy, Origin, Trigger, VdSettings};
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
@@ -454,7 +454,7 @@ async fn display_test(State(s): State<AppState>, Json(body): Json<TestBody>) -> 
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let seconds = body.seconds.unwrap_or(20).clamp(5, 300);
     let d = s.display.clone();
-    blocking(move || d.start(Origin::Test, mode, None, None, Some(Duration::from_secs(seconds)))).await?;
+    blocking(move || d.start(Origin::Test, mode, None, None, Some(Duration::from_secs(seconds)), None)).await?;
     display_status(State(s)).await
 }
 
@@ -568,6 +568,11 @@ struct PrepareBody {
     /// Profil choisi dans l'app (« Jeu », « Bureau », « Max »).
     #[serde(default)]
     profile: Option<String>,
+    /// Si le mode de l'écran virtuel change en session : `follow` (laisser
+    /// faire, profil Jeu) ou `restore` (le remettre, profil Bureau). Absent :
+    /// réglage `on_mode_change` de la console.
+    #[serde(default)]
+    mode_policy: Option<ModePolicy>,
 }
 
 /// Lien d'appairage pour les apps (aussi affiché en QR code par la console) :
@@ -663,8 +668,8 @@ async fn stream_prepare(
     }
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let d = s.display.clone();
-    let (u, id) = (user.clone(), device_id.clone());
-    let applied = blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None)).await?;
+    let (u, id, policy) = (user.clone(), device_id.clone(), body.mode_policy);
+    let applied = blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None, policy)).await?;
     // La session n'est ouverte qu'une fois l'écran en place : un échec ne
     // laisse pas un appareil « connecté » dans la vue d'ensemble.
     s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
@@ -686,13 +691,17 @@ struct HeartbeatBody {
     /// de 0.2.5 : la console distingue ainsi deux appareils sur le même compte.
     #[serde(default)]
     device_id: Option<String>,
+    /// Politique du profil choisi en ce moment (voir `PrepareBody`).
+    #[serde(default)]
+    mode_policy: Option<ModePolicy>,
 }
 
 /// Signal de vie d'une app, avec sa latence. `end` : la console demande la
 /// fin (depuis la console, ou parce qu'un autre appareil prend la main) ;
 /// `active` : l'écran virtuel en place est bien celui de cet appareil ;
 /// `mode` : mode courant de l'écran virtuel (il a pu changer : un jeu) et
-/// `displays` : écrans actifs sur l'ordinateur (null : pas encore relus).
+/// `displays` : écrans actifs sur l'ordinateur (null : pas encore relus) ;
+/// `mode_policy` : la politique appliquée si le mode change.
 async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
     // Corps facultatif : les apps d'avant 0.2.1 n'en envoient pas.
@@ -701,13 +710,14 @@ async fn stream_heartbeat(State(s): State<AppState>, headers: HeaderMap, body: B
     s.audio.heartbeat();
     s.foreground.touch();
     let end = s.activity.heartbeat(&user, device, body.latency_ms, body.profile);
-    let active = s.display.heartbeat(device);
+    let active = s.display.heartbeat(device, body.mode_policy);
     let observed = if active { s.display.observed() } else { None };
     Ok(Json(json!({
         "active": active,
         "end": end,
         "mode": observed.as_ref().map(|o| o.mode).filter(|m| m.width > 0),
         "displays": observed.as_ref().map(|o| o.displays),
+        "mode_policy": if active { s.display.policy() } else { None },
     })))
 }
 

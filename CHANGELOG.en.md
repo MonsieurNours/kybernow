@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Console: “If a game changes the resolution” setting (Picture and sound): let it be, or put the device's resolution back. The apps choose according to their profile: Game lets the game choose, Desktop puts the display back to the device's size.
 - Console: during a session, the virtual display's mode and the active displays are read every second. The apps receive the current mode with their heartbeat; a mode change (a game switching to 1080p) is noted in the event feed; a computer display that turns back on mid-session (cable plugged back in, Windows reapplying its old layout) is turned off again after 2 s.
 - Console: a second device that connects takes over with notice. The first one is told at its next heartbeat and disconnects cleanly, then the virtual display is recreated at the second one's size; before, the two devices kept stealing the display from each other and the first one's disconnection cut the second one's display and sound. The session is now recognised by the device rather than by the account.
 - Console: five wrong passwords from the same address make it wait 30 s, then twice as long at each attempt; password checks now run at most two at a time.

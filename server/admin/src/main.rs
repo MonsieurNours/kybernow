@@ -124,6 +124,19 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Remet un mode sur l'écran `gdi_name` (politique « restore »).
+    SetMode {
+        #[arg(long)]
+        gdi_name: String,
+        #[arg(long)]
+        width: u32,
+        #[arg(long)]
+        height: u32,
+        #[arg(long)]
+        refresh: u32,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Son vers les haut-parleurs virtuels, à `channels` canaux.
     AudioRoute {
         #[arg(long)]
@@ -202,6 +215,10 @@ fn display_agent(action: AgentAction) -> Result<()> {
             display::pointer::end(agent_dir(&out));
             (out, display::topology::restore().map(|_| serde_json::json!({ "ok": true })))
         }
+        AgentAction::SetMode { gdi_name, width, height, refresh, out } => {
+            let (w, h, hz) = display::topology::set_mode(&gdi_name, width, height, refresh);
+            (out, Ok(serde_json::json!({ "width": w, "height": h, "refresh": hz })))
+        }
         AgentAction::AudioRoute { channels, out } => {
             display::pointer::begin(agent_dir(&out));
             (out, audio::endpoint::route(channels).and_then(|r| Ok(serde_json::to_value(r)?)))
@@ -219,6 +236,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
         | AgentAction::Restore { out }
+        | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }
         | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
