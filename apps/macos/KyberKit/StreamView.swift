@@ -42,8 +42,10 @@ public final class StreamView: NSView {
     /// Forme du pointeur de l'ordinateur, en pixels de l'ordinateur.
     private var remoteShape: (image: NSImage, hotSpot: CGPoint)?
     private var remotePosition: CGPoint?
-    /// Libérée par l'utilisateur (⌃⌥⌘M) : reprise au prochain clic dans l'image.
+    /// Libérée par l'utilisateur (⌃⌥⌘M) en mode auto : reprise au prochain clic dans l'image.
     private var releasedByUser = false
+    /// Capturée à la main (⌃⌥⌘M), jusqu'au prochain ⌃⌥⌘M.
+    private var capturedByUser = false
     private var windowObservers: [NSObjectProtocol] = []
 
     private var input: InputPipeline?
@@ -152,14 +154,16 @@ public final class StreamView: NSView {
         applyCursorShape()
     }
 
-    /// Le pointeur du Mac a la taille et le point actif de celui de
-    /// l'ordinateur à l'échelle de l'image affichée : sa pointe tombe là où
-    /// l'ordinateur la place.
+    /// Le pointeur du Mac prend la forme de celui de l'ordinateur, à la
+    /// taille d'un pointeur du Mac ; pointe et image suivent la même échelle.
     private func applyCursorShape() {
-        guard let shape = remoteShape, hostSize.width > 0, hostSize.height > 0 else { return }
-        let factor = min(bounds.width / hostSize.width, bounds.height / hostSize.height)
-        guard factor > 0, let copy = shape.image.copy() as? NSImage else { return }
+        guard let shape = remoteShape, let copy = shape.image.copy() as? NSImage else { return }
         let pixels = shape.image.representations.first.map { CGSize(width: $0.pixelsWide, height: $0.pixelsHigh) } ?? shape.image.size
+        // Windows dessine ses pointeurs dans une case de 32 pixels à 100 %,
+        // 48 à 150 %, 64 à 200 %… On ramène cette case à 32 points : la
+        // taille d'un pointeur du Mac, quelle que soit la mise à l'échelle de
+        // Windows ou de macOS. Pointe et image suivent le même facteur.
+        let factor = min(1, 32 / max(pixels.width, pixels.height, 1))
         copy.size = NSSize(width: max(1, pixels.width * factor), height: max(1, pixels.height * factor))
         cursor = NSCursor(image: copy, hotSpot: NSPoint(x: shape.hotSpot.x * factor, y: shape.hotSpot.y * factor))
         window?.invalidateCursorRects(for: self)
@@ -178,12 +182,14 @@ public final class StreamView: NSView {
 
     // MARK: - Souris relative
 
-    /// ⌃⌥⌘M : rend la souris au Mac (ou la reprend).
+    /// ⌃⌥⌘M : confie la souris au jeu, ou la rend au Mac.
     public func toggleMouseCapture() {
         if relative.active {
+            capturedByUser = false
             releasedByUser = true
         } else {
             releasedByUser = false
+            capturedByUser = true
         }
         evaluateRelative()
     }
@@ -201,14 +207,14 @@ public final class StreamView: NSView {
     }
 
     private func evaluateRelative() {
-        let want = mouseMode == .auto && remoteHidden && hostCapturedPointer && !relativeSuspended && !releasedByUser
-            && input != nil && window?.isKeyWindow == true
+        let automatic = mouseMode == .auto && remoteHidden && hostCapturedPointer && !releasedByUser
+        let want = (capturedByUser || automatic) && !relativeSuspended && input != nil && window?.isKeyWindow == true
         if want, !relative.active {
             // On n'entre qu'avec le pointeur sur l'image (pas pendant un tour dans les menus).
             guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
             input?.setRelative(true)
             relative.start()
-            KyberLog.app.notice("souris relative (pointeur capturé par l'ordinateur)")
+            KyberLog.app.notice("souris relative (\(self.capturedByUser ? "⌃⌥⌘M" : "pointeur capturé par l'ordinateur", privacy: .public))")
             onRelativeChanged?(true)
         } else if !want, relative.active {
             endRelative(warp: true)
@@ -283,7 +289,7 @@ public final class StreamView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        if releasedByUser {
+        if releasedByUser, mouseMode == .auto {
             // Clic dans l'image après ⌃⌥⌘M : le jeu reprend la souris.
             releasedByUser = false
             evaluateRelative()

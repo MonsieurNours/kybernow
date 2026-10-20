@@ -289,11 +289,13 @@ private struct SettingsContent: View {
     /// Ce que KyberNow a mesuré de ce Mac : les profils s'y adaptent.
     private var machineCard: some View {
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let size = screen.frame.size
-        let scale = screen.backingScaleFactor
+        let native = DisplayInfo.nativePixels(screen)
         return SettingsCard(symbol: "laptopcomputer", title: "Ce Mac") {
             VStack(alignment: .leading, spacing: 8) {
-                fact("Écran", "\(Int(size.width * scale)) × \(Int(size.height * scale)) · \(DisplayInfo.refreshLabel(screen))")
+                fact("Écran", "\(screen.localizedName) · \(native.width) × \(native.height) · \(DisplayInfo.refreshLabel(screen))")
+                if let looks = DisplayInfo.scaledLooksLike(screen) {
+                    fact("Affichage de macOS", "agrandi, comme \(looks)")
+                }
                 fact("Décodage matériel", DecoderCapabilities.current.summary)
             }
             Text(variableRefresh
@@ -339,14 +341,14 @@ private struct SettingsContent: View {
                 Switch(isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }), label: "Touche ⌘ envoyée comme Ctrl")
             }
             HStack(spacing: 8) {
-                Text("Souris des jeux").font(Theme.sans(14)).foregroundStyle(Theme.text)
-                InfoTip(label: "Souris des jeux") {
+                Text("Souris capturée par les jeux").font(Theme.sans(14)).foregroundStyle(Theme.text)
+                InfoTip(label: "Souris capturée par les jeux") {
                     Text("Viser comme sur l'ordinateur").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
-                    Text("Quand un jeu cache le pointeur (vue subjective), celui du Mac se fige et seuls les déplacements bruts de la souris partent, sans l'accélération de macOS.")
-                    Text("⌃⌥⌘M rend la souris au Mac ; un clic dans l'image la redonne au jeu. Dès que l'ordinateur remontre son pointeur, celui du Mac réapparaît au même endroit.")
+                    Text("⌃⌥⌘M confie la souris au jeu : le pointeur du Mac se fige et seuls les déplacements bruts partent, sans l'accélération de macOS. ⌃⌥⌘M la rend au Mac, au même endroit.")
+                    Text("Activé, le jeu la prend de lui-même quand il cache son pointeur. À éviter si l'ordinateur n'a pas de souris branchée : Windows cache alors son pointeur sans cesse, même sur le bureau.").foregroundStyle(Theme.warn)
                 }
                 Spacer()
-                Switch(isOn: Binding(get: { s.relativeMouse }, set: { v in update { $0.relativeMouse = v } }), label: "Souris des jeux")
+                Switch(isOn: Binding(get: { s.autoMouseCapture }, set: { v in update { $0.autoMouseCapture = v } }), label: "Souris capturée par les jeux")
             }
             HStack(spacing: 8) {
                 Text("Presse-papiers partagé").font(Theme.sans(14)).foregroundStyle(Theme.text)

@@ -114,8 +114,10 @@ struct ConnectionSettings: Codable, Hashable {
     var vsync = true
     /// « Comme cet écran » ramené à la 4K au plus (écrans 5K, 6K).
     var limit4K = false
-    /// Souris relative quand l'ordinateur masque son pointeur (jeux en vue subjective).
-    var relativeMouse = true
+    /// Souris capturée d'elle-même quand un jeu cache le pointeur. Désactivé
+    /// par défaut : sur un ordinateur sans souris branchée, Windows cache et
+    /// remontre son pointeur sans cesse, même sur le bureau. ⌃⌥⌘M capture à la main.
+    var autoMouseCapture = false
     /// Presse-papiers partagé avec l'ordinateur (texte).
     var clipboard = true
 
@@ -186,7 +188,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, relativeMouse, clipboard
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, autoMouseCapture, clipboard
     }
 
     init(from decoder: Decoder) throws {
@@ -206,7 +208,7 @@ extension ConnectionSettings {
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
-        relativeMouse = (try? c.decodeIfPresent(Bool.self, forKey: .relativeMouse)) ?? relativeMouse
+        autoMouseCapture = (try? c.decodeIfPresent(Bool.self, forKey: .autoMouseCapture)) ?? autoMouseCapture
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
     }
 }

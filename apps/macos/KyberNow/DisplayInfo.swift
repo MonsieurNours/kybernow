@@ -11,15 +11,36 @@ enum DisplayInfo {
     /// large, l'écran virtuel et les autres formats à 7680 × 4320 ; « au plus
     /// 4K » allège l'encodage, le décodage et le débit.
     static func mode(for screen: NSScreen, codec: VideoCodec = .hevc, limit4K: Bool = false) -> (width: Int, height: Int, refresh: Int) {
-        let scale = screen.backingScaleFactor
-        var w = screen.frame.width * scale
-        var h = screen.frame.height * scale
+        let native = nativePixels(screen)
+        var w = CGFloat(native.width)
+        var h = CGFloat(native.height)
         let (maxW, maxH): (CGFloat, CGFloat) = limit4K ? (3840, 2160) : codec == .h264 ? (4096, 4096) : (7680, 4320)
         let fit = min(1, maxW / w, maxH / h)
         w = (w * fit / 2).rounded() * 2
         h = (h * fit / 2).rounded() * 2
         let hz = max(30, screen.maximumFramesPerSecond)
         return (Int(w), Int(h), hz)
+    }
+
+    /// Pixels réels de la dalle. En mode « plus d'espace », macOS dessine plus
+    /// grand puis réduit (un 4K réglé en 3008 × 1692 points dessine
+    /// 6016 × 3384) : demander ces pixels-là à l'ordinateur ne servirait qu'à
+    /// les jeter. Repli : points × échelle.
+    static func nativePixels(_ screen: NSScreen) -> (width: Int, height: Int) {
+        let drawn = (Int(screen.frame.width * screen.backingScaleFactor), Int(screen.frame.height * screen.backingScaleFactor))
+        guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID,
+              let modes = CGDisplayCopyAllDisplayModes(id, [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary) as? [CGDisplayMode],
+              let native = modes.first(where: { $0.ioFlags & UInt32(kDisplayModeNativeFlag) != 0 })
+        else { return drawn }
+        return (native.pixelWidth, native.pixelHeight)
+    }
+
+    /// « 3008 × 1692 » si macOS agrandit l'affichage (mode « plus d'espace »), nil sinon.
+    static func scaledLooksLike(_ screen: NSScreen) -> String? {
+        let native = nativePixels(screen)
+        let drawn = Int(screen.frame.width * screen.backingScaleFactor)
+        guard drawn != native.width else { return nil }
+        return "\(Int(screen.frame.width)) × \(Int(screen.frame.height))"
     }
 
     /// Fréquence variable (ProMotion, Adaptive-Sync) : l'écran attend l'image

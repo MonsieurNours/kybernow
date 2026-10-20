@@ -245,8 +245,9 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             mode = (settings.customWidth, settings.customHeight, settings.customRefresh)
         case .window:
             // Session fenêtrée : l'écran virtuel prend la taille de la fenêtre, en pixels.
+            // Pixels de la dalle par point (moins que l'échelle de macOS en mode « plus d'espace »).
             let content = window?.contentLayoutRect.size ?? screen.frame.size
-            let scale = screen.backingScaleFactor
+            let scale = CGFloat(DisplayInfo.nativePixels(screen).width) / screen.frame.width
             mode = (Int(content.width * scale) / 2 * 2, Int(content.height * scale) / 2 * 2, max(30, screen.maximumFramesPerSecond))
         case .match, .physical:
             mode = DisplayInfo.mode(for: screen, codec: settings.codec, limit4K: settings.limit4K)
@@ -388,7 +389,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         do {
             KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")
             streamView.commandAsControl = host.settings.commandAsControl
-            streamView.mouseMode = host.settings.relativeMouse ? .auto : .absolute
+            streamView.mouseMode = host.settings.autoMouseCapture ? .auto : .absolute
             streamView.onRelativeChanged = { [weak self] on in
                 // Première capture par un jeu : on dit comment reprendre la souris.
                 guard let self, on, !self.mouseHintShown else { return }
