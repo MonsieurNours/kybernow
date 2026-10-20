@@ -73,7 +73,9 @@ function init() {
   function halfGeometry(d) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg"><path transform="matrix(1 0 0 -1 -24 24)" d="${d}"/></svg>`;
     const shapes = SVGLoader.createShapes(loader.parse(svg).paths[0]);
-    const g = new THREE.ExtrudeGeometry(shapes, { depth: 6, curveSegments: 32, bevelEnabled: true, bevelThickness: 1.4, bevelSize: .6, bevelSegments: 6 });
+    // Biseau fin : il élargit chaque bord vers l'extérieur ; plus large que l'arrondi
+    // de la pointe (1,2), il y formait un bourrelet, visible sur la moitié violette.
+    const g = new THREE.ExtrudeGeometry(shapes, { depth: 6, curveSegments: 32, bevelEnabled: true, bevelThickness: 1.4, bevelSize: .3, bevelSegments: 8 });
     g.translate(0, 0, -3);
     g.scale(UNIT, UNIT, UNIT);
     g.computeVertexNormals();
