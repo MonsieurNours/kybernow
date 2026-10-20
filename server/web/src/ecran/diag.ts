@@ -1,0 +1,47 @@
+// Diagnostic des entrées (`/ecran/?diag`) : ce que la souris produit, ce
+// qu'on relaie au moteur, et ce que le moteur envoie vraiment à l'ordinateur.
+
+export const diagEnabled = new URLSearchParams(location.search).has('diag')
+
+export const diag = {
+  trusted: 0,
+  relayed: 0,
+  wsInputs: 0,
+  wsInputBytes: 0,
+  streamWrites: 0,
+  lastX: 0,
+  lastY: 0,
+  outside: 0,
+}
+
+export function installDiag() {
+  if (!diagEnabled) return
+  const send = WebSocket.prototype.send
+  WebSocket.prototype.send = function (this: WebSocket, data: any) {
+    if (this.url.includes('/websocket/inputs')) {
+      diag.wsInputs++
+      diag.wsInputBytes += data?.byteLength ?? data?.length ?? 0
+    }
+    return send.call(this, data)
+  }
+  const write = WritableStreamDefaultWriter.prototype.write
+  WritableStreamDefaultWriter.prototype.write = function (this: WritableStreamDefaultWriter, chunk?: any) {
+    diag.streamWrites++
+    return write.call(this, chunk)
+  }
+  window.addEventListener(
+    'mousemove',
+    (e) => {
+      if (e.isTrusted) {
+        diag.trusted++
+        diag.lastX = Math.round(e.clientX)
+        diag.lastY = Math.round(e.clientY)
+      }
+    },
+    true,
+  )
+  window.addEventListener('mousemove', (e) => {
+    if (!e.isTrusted) diag.relayed++
+  })
+  document.documentElement.addEventListener('mouseleave', () => diag.outside++)
+}

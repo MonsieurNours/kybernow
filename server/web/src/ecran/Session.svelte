@@ -14,6 +14,7 @@
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
+  import { diag, diagEnabled, installDiag } from './diag'
 
   let { hostname, prefs = $bindable(), onEnd }: { hostname: string; prefs: Prefs; onEnd: () => void } = $props()
 
@@ -40,6 +41,7 @@
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
   let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
+  let diagText = $state('')
 
   let stage: HTMLElement
   let canvasBox: HTMLElement
@@ -371,6 +373,7 @@
   }
 
   onMount(() => {
+    installDiag()
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
     start()
@@ -383,6 +386,20 @@
       }
     }
     window.addEventListener('keydown', shortcut, true)
+    let prev = { ...diag }
+    const diagTimer = diagEnabled
+      ? setInterval(() => {
+          const c = document.getElementById('kn-canvas')
+          const r = c?.getBoundingClientRect()
+          diagText = [
+            `souris ${diag.trusted - prev.trusted}/s · relayée ${diag.relayed - prev.relayed}/s · sorties ${diag.outside}`,
+            `entrées WebSocket ${diag.wsInputs - prev.wsInputs}/s (${diag.wsInputBytes - prev.wsInputBytes} o) · écritures flux ${diag.streamWrites - prev.streamWrites}/s`,
+            `dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
+            `capture ${document.pointerLockElement ? 'oui' : 'non'} · curseur ${c?.style.cursor.slice(0, 24) || '—'} · transport ${plan?.protocol ?? '—'}`,
+          ].join('\n')
+          prev = { ...diag }
+        }, 1000)
+      : null
     const foreground = setInterval(async () => {
       if (phase !== 'live' || mouseMode !== 'auto') return
       const f = await backend.foreground().catch(() => null)
@@ -428,6 +445,7 @@
       clearInterval(metrics)
       clearInterval(heartbeat)
       clearInterval(foreground)
+      if (diagTimer) clearInterval(diagTimer)
       cursorWatch?.disconnect()
       document.removeEventListener('pointerlockchange', cursorFix)
       if (imageWatch) clearTimeout(imageWatch)
@@ -641,6 +659,10 @@
         <button type="button" onclick={closeGuide}>Compris</button>
       </section>
     {/if}
+  {/if}
+
+  {#if diagEnabled && diagText}
+    <pre class="diag mono" aria-hidden="true">{diagText}</pre>
   {/if}
 
   <textarea
@@ -1271,6 +1293,21 @@
     color: #fff;
     font-size: 14px;
     font-weight: 600;
+  }
+
+  .diag {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgb(0 0 0 / 0.75);
+    color: #c9f2da;
+    font-size: 11px;
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 9;
   }
 
   /* Champ caché qui fait apparaître le clavier de l'appareil. */
