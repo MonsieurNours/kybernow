@@ -68,23 +68,35 @@ final class GamepadGate: @unchecked Sendable {
         // Tout à zéro sur l'ordinateur : les touches tenues (les trois premières
         // de la combinaison, ou une gâchette) relâchées, les six axes au repos,
         // pour chaque manette connue. kynput ne dit pas l'état des axes : on
-        // les remet tous à zéro.
+        // les remet tous à zéro. L'envoi (et son autorisation) revient à
+        // InputPipeline, hors du verrou.
         var buttons: [(UInt32, kynput_GamepadButton)] = []
         var axes: [(UInt32, kynput_GamepadAxis)] = []
         for id in known {
-            for b in pressed[id] ?? [] {
-                buttons.append((id, kynput_GamepadButton(rawValue: b)))
-                allowed[id, default: []].insert(b)
-            }
-            for a in Self.axes {
-                axes.append((id, a))
-                allowedAxes[id, default: []].insert(a.rawValue)
-            }
+            for b in pressed[id] ?? [] { buttons.append((id, kynput_GamepadButton(rawValue: b))) }
+            for a in Self.axes { axes.append((id, a)) }
         }
         lock.unlock()
         if !buttons.isEmpty || !axes.isEmpty {
             DispatchQueue.global().async { [weak self] in self?.release?(buttons, axes) }
         }
+    }
+
+    /// Autorise le prochain passage d'un relâchement, ou d'un axe au repos,
+    /// que nous injectons : à rappeler avant chaque envoi, réessai compris.
+    /// Le hook consomme l'autorisation avant que la file d'envoi accepte ou
+    /// refuse le paquet, et un paquet qu'il écarte compte comme parti (le
+    /// routeur rend 0) : sans réarmement, un réessai serait avalé.
+    func allow(id: UInt32, button: kynput_GamepadButton) {
+        lock.lock()
+        allowed[id, default: []].insert(button.rawValue)
+        lock.unlock()
+    }
+
+    func allow(id: UInt32, axis: kynput_GamepadAxis) {
+        lock.lock()
+        allowedAxes[id, default: []].insert(axis.rawValue)
+        lock.unlock()
     }
 
     /// `true` : le paquet part vers l'ordinateur.

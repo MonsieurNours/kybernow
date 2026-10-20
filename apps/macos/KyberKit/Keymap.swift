@@ -112,6 +112,11 @@ enum Keymap {
         .init(flag: .command, left: UInt16(kVK_Command), right: UInt16(kVK_RightCommand), leftBit: 0x08, rightBit: 0x10),
     ]
 
+    /// Les deux bits de côté d'un drapeau (0 : Verr. maj.).
+    static func sideBits(of flag: NSEvent.ModifierFlags) -> UInt {
+        heldModifiers.first { $0.flag == flag }.map { $0.leftBit | $0.rightBit } ?? 0
+    }
+
     /// Bit du côté que porte cette touche de modification (nil : Verr. maj.).
     static func sideBit(_ code: UInt16) -> UInt? {
         for m in heldModifiers {

@@ -185,24 +185,24 @@ public final class GamepadBridge: ObservableObject {
             for slot in slots.values { releaseAll(slot, input: input) }
             releaseMouse(input)
         } else {
-            resync(buttons: false)
+            resync()
         }
     }
 
-    /// Renvoie l'état réel des manettes : après une remise à zéro, GameController
-    /// ne signale que les changements, et un stick tenu resterait muet. Les
-    /// touches ne sont renvoyées que sur demande : celle qui vient de fermer le
-    /// menu est encore enfoncée, le jeu ne doit pas la recevoir.
-    private func resync(buttons: Bool) {
-        guard let input, !captured, !padMouse else { return }
+    /// Renvoie l'état réel des sticks et gâchettes : après une remise à zéro,
+    /// GameController ne signale que les changements, et un stick tenu
+    /// resterait muet. Les touches ne sont pas renvoyées (celle qui vient de
+    /// fermer le menu ou de ramener l'app est encore enfoncée, le jeu ne doit
+    /// pas la recevoir) ; seul leur état chez nous est remis d'aplomb, pour la
+    /// combinaison et l'écran de test.
+    private func resync() {
+        guard input != nil, !captured, !padMouse else { return }
         for slot in slots.values {
             guard let pad = slot.controller.extendedGamepad else { continue }
-            if buttons {
-                for (element, button) in Self.buttons(pad) where element?.isPressed == true {
-                    slot.pressed.insert(button)
-                    input.gamepadButton(id: slot.id, button, pressed: true)
-                }
-            }
+            let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
+            slot.pressed = pressed
+            slot.live.pressed = Set(pressed.map(\.name))
+            liveDirty = true
             axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
             axis(slot, .leftY, Self.stick(-pad.leftThumbstick.yAxis.value))
             axis(slot, .rightX, Self.stick(pad.rightThumbstick.xAxis.value))
@@ -231,7 +231,7 @@ public final class GamepadBridge: ObservableObject {
     private func appBack() {
         guard inBackground else { return }
         inBackground = false
-        resync(buttons: true)
+        resync()
     }
 
     // MARK: - Branchements
@@ -391,10 +391,16 @@ public final class GamepadBridge: ObservableObject {
             for slot in slots.values { slot.pendingAxes.removeAll() }
             return
         }
+        var again = false
         for slot in slots.values where !slot.pendingAxes.isEmpty {
-            for (axis, value) in slot.pendingAxes { input.gamepadAxis(id: slot.id, axis, value: value) }
-            slot.pendingAxes.removeAll()
+            for (axis, value) in slot.pendingAxes {
+                if input.gamepadAxis(id: slot.id, axis, value: value) { slot.pendingAxes[axis] = nil }
+            }
+            if !slot.pendingAxes.isEmpty { again = true }
         }
+        // Refusé (file pleine, ou un retour au repos qui attend encore devant) :
+        // la valeur reste en attente de la tranche suivante.
+        if again { scheduleAxisFlush() }
     }
 
     // MARK: - Manette en souris

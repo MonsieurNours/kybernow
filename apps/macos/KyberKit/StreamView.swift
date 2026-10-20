@@ -64,8 +64,10 @@ public final class StreamView: NSView {
     private var layout: OpaquePointer?
     private var hostSize = CGSize(width: 1920, height: 1080)
     private var pressedModifiers = Set<UInt16>()
-    /// Boutons de souris tenus, relâchés si la fenêtre perd le clavier.
+    /// Boutons de souris et touches (scancodes) tenus, relâchés si la fenêtre
+    /// perd le clavier.
     private var heldMouseButtons = Set<InputPipeline.MouseButton>()
+    private var heldScancodes = Set<UInt16>()
     private var cursor: NSCursor = .arrow
     private var tracking: NSTrackingArea?
     private var keyUpMonitor: Any?
@@ -121,6 +123,7 @@ public final class StreamView: NSView {
         input = nil
         pressedModifiers.removeAll()
         heldMouseButtons.removeAll()
+        heldScancodes.removeAll()
     }
 
     // MARK: - Mise en page
@@ -253,12 +256,16 @@ public final class StreamView: NSView {
         evaluateRelative()
     }
 
+    /// Relâche sur l'ordinateur ce que cette vue y tient : touches,
+    /// modificateurs, boutons de souris. Pas de FlushKeys : il relâcherait
+    /// aussi les manettes, qui, lues par SDL, continuent de parler à
+    /// l'ordinateur sans la fenêtre et ne renverraient pas leur état.
     private func releaseEverything() {
         for button in heldMouseButtons { input?.mouseButton(button, pressed: false) }
         heldMouseButtons.removeAll()
+        for scancode in heldScancodes { input?.key(scancode: scancode, pressed: false) }
+        heldScancodes.removeAll()
         pressedModifiers.removeAll()
-        // L'ordinateur relâche de son côté touches, modificateurs, boutons et manettes.
-        input?.flushKeys()
     }
 
     /// La fenêtre retrouve le clavier : les modificateurs tenus à cet instant
@@ -396,6 +403,7 @@ public final class StreamView: NSView {
     private func send(keyCode: UInt16, pressed: Bool, keyboardType: Int64? = nil) {
         guard let usage = Keymap.usage(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType),
               let scancode = Keymap.scancode(usage: usage) else { return }
+        if pressed { heldScancodes.insert(scancode) } else { heldScancodes.remove(scancode) }
         input?.key(scancode: scancode, pressed: pressed)
     }
 
@@ -427,9 +435,17 @@ public final class StreamView: NSView {
             return
         }
         // Le bit du côté dit si cette touche-ci est enfoncée (les deux ⇧ tenues
-        // et une relâchée : le drapeau reste levé) ; à défaut, le drapeau.
+        // et une relâchée : le drapeau reste levé). Sans aucun bit de côté
+        // (événements synthétiques : partage d'écran, clavier d'accessibilité),
+        // le drapeau, en bascule.
         let flags = event.modifierFlags
-        let down = Keymap.sideBit(code).map { flags.rawValue & $0 != 0 } ?? flags.contains(flag)
+        let raw = flags.rawValue
+        let down: Bool
+        if let side = Keymap.sideBit(code), raw & Keymap.sideBits(of: flag) != 0 {
+            down = raw & side != 0
+        } else {
+            down = flags.contains(flag) && !pressedModifiers.contains(code)
+        }
         if down {
             guard pressedModifiers.insert(code).inserted else { return }
             send(keyCode: code, pressed: true)

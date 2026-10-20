@@ -250,14 +250,20 @@ final class InputPipeline {
         )
         kynput_pipeline_set_hook(pipeline, &hook)
         gamepad.release = { [weak self] buttons, axes in
+            guard let self else { return }
+            let gate = self.gamepad
+            // Chaque essai réarme son autorisation : le hook la consomme avant
+            // que la file d'envoi se prononce.
             for (id, button) in buttons {
-                self?.sendReliably("manette") {
+                self.sendReliably("manette") {
+                    gate.allow(id: id, button: button)
                     var b = kynput_GamepadEventButton(id: id, type_: button, pressed: false)
                     return kynput_gamepad_button_to_packet(KYNPUT_INPUT_TARGET_HOST, &b)
                 }
             }
             for (id, axis) in axes {
-                self?.sendReliably("axe de manette") {
+                self.sendReliably("axe de manette") {
+                    gate.allow(id: id, axis: axis)
                     var a = kynput_GamepadEventAxis(id: id, type_: axis, value: 0)
                     return kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a)
                 }
@@ -339,14 +345,24 @@ final class InputPipeline {
 
     /// Paquet qui se rattrape tout seul au suivant (position, déplacement,
     /// molette, axe en mouvement) : envoyé une fois, perdu s'il est refusé.
-    /// Appelé du fil principal, et du fil de la souris relative.
-    private func send(_ packet: OpaquePointer?, _ kind: String) {
-        guard let packet else { return }
-        let rc = kynput_consumer_consume(sink, packet)
+    /// Derrière une file de secours non vide, il n'est pas envoyé non plus :
+    /// il doublerait ce qui attend (le retour au repos d'un axe, puis sa
+    /// nouvelle valeur). `false` : perdu. Appelé du fil principal, et du fil
+    /// de la souris relative.
+    @discardableResult
+    private func send(_ packet: OpaquePointer?, _ kind: String) -> Bool {
+        guard let packet else { return false }
         lock.lock()
+        defer { lock.unlock() }
+        if stopped || !backlog.isEmpty {
+            kynput_packet_unref(packet)
+            if !stopped { dropped(kind) }
+            return false
+        }
+        let rc = kynput_consumer_consume(sink, packet)
         logFirst(kind, rc)
         if rc != 0 { dropped(kind) }
-        lock.unlock()
+        return rc == 0
     }
 
     /// Paquet qui ne se rattrape pas (touche, clic, bouton, branchement, retour
@@ -475,16 +491,19 @@ final class InputPipeline {
     }
 
     /// Un axe en mouvement se rattrape au suivant ; son retour au repos, non.
-    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) {
+    /// `false` : la valeur n'est pas partie (file pleine, ou un retour au repos
+    /// qui attend encore devant elle), à représenter.
+    @discardableResult
+    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) -> Bool {
         if value == 0 {
             sendReliably("axe de manette") {
                 var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: 0)
                 return kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a)
             }
-        } else {
-            var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: value)
-            send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
+            return true
         }
+        var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: value)
+        return send(kynput_gamepad_axis_to_packet(KYNPUT_INPUT_TARGET_HOST, &a), "axe de manette")
     }
 
     /// Texte tapé (clavier de l'écran, de l'iPhone) : un caractère à la fois.
