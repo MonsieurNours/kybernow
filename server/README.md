@@ -65,7 +65,8 @@ Les changements d'écran, de son et de pointeur sont faits dans la session de l'
 | `C:\ProgramData\KyberNow\tls\` | certificat de la console |
 | `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
-| `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` |
+| `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` (les deux dernières versions) |
+| `C:\ProgramData\KyberNow\update\resultat.json` | échec de la dernière mise à jour (écrit par `update.ps1`, lu par la console à son démarrage) |
 | `C:\ProgramData\KyberNow\preview\` | capture en cours de l'aperçu de l'écran (effacée dès qu'elle est lue) |
 | `C:\ProgramData\KyberNow\devices.json`, `events.json` | appareils connus et dernière session, fil des événements de la vue d'ensemble |
 | `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
@@ -97,4 +98,4 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 En un clic : page **Mises à jour** de la console (ou « Installer la version X… » dans le menu de l'icône). La console télécharge la dernière version publiée sur GitHub, vérifie son empreinte et lance `update.ps1`. Détails, mise à jour à la main et publication d'une version : [docs/releases.md](../docs/releases.md).
 
-`server/installer/update.ps1` remplace la console, l'icône et la surcouche Kyber sans réinstaller ni changer les ports. Il garde les fichiers Kyber remplacés dans `kyber\avant-maj`, installe les haut-parleurs de Steam s'ils manquent et ajoute la règle de pare-feu Bonjour. `server/installer/package-update.sh` fabrique son paquet (`dist/kybernow-update.zip`).
+`server/installer/update.ps1` remplace la console, l'icône et la surcouche Kyber sans réinstaller ni changer les ports. Il prépare `kyber.new`, `admin.new` et `tray.new`, bascule par renommage (la version précédente reste dans `kyber.prev`, `admin.prev`, `tray.prev`), puis vérifie que la console répond en 60 s ; sinon il remet la version précédente. Il installe aussi les haut-parleurs de Steam s'ils manquent et ajoute la règle de pare-feu Bonjour. `server/installer/package-update.sh` fabrique son paquet (`dist/kybernow-update.zip`).

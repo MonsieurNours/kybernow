@@ -57,7 +57,7 @@ Building it alone: `cd server/tray && cargo build --release --target x86_64-pc-w
 
 ## Building (from the Mac)
 
-`build.sh` produces `dist/KyberNow-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1`). Publishing: [docs/releases.en.md](../../docs/releases.en.md).
+`build.sh` produces `dist/KyberNow-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1` and `version.txt`, plus `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
 
 ```bash
 server/installer/build.sh      # → server/installer/dist/KyberNow-Setup.exe

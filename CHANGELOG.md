@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.6
+
+- Mises à jour de l'ordinateur sans risque de tout laisser arrêté : la nouvelle version est préparée à côté de l'ancienne puis mise en place d'un coup ; si la console ne répond pas dans la minute, l'ancienne version revient seule et la page Mises à jour dit pourquoi. La mise à jour à la main vérifie aussi l'empreinte du paquet, et « Applications installées » affiche la bonne version.
+
 ## 0.2.5
 
 - App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.

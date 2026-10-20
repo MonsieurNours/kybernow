@@ -63,7 +63,8 @@ Display, sound and pointer changes are made in the user's session by `kyber-admi
 | `C:\ProgramData\KyberNow\tls\` | the console's certificate |
 | `C:\ProgramData\KyberNow\backups\` | previous versions of `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | what to restore at the end of the session, even after a crash |
-| `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, contents, `update.log` |
+| `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, contents, `update.log` (the two latest versions) |
+| `C:\ProgramData\KyberNow\update\resultat.json` | failure of the last update (written by `update.ps1`, read by the console when it starts) |
 | `C:\ProgramData\KyberNow\preview\` | screen preview capture in progress (deleted as soon as it is read) |
 | `C:\ProgramData\KyberNow\devices.json`, `events.json` | known devices and last session, event feed of the Overview page |
 | `C:\ProgramData\KyberNow\foreground\` | full-screen watch during a session (`run`: heartbeat, `state.json`: last state) |
@@ -99,4 +100,4 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release published on GitHub, checks its checksum and launches `update.ps1`. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
 
-`server/installer/update.ps1` replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It keeps the replaced Kyber files in `kyber\avant-maj`, installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).
+`server/installer/update.ps1` replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It prepares `kyber.new`, `admin.new` and `tray.new`, switches by renaming (the previous version stays in `kyber.prev`, `admin.prev`, `tray.prev`), then checks that the console answers within 60 s; otherwise it puts the previous version back. It also installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).

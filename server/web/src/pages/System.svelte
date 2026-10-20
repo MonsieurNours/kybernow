@@ -401,6 +401,10 @@
         </div>
         <button type="button" class="ghost" disabled={checking} onclick={check}>{checking ? 'Vérification…' : 'Vérifier maintenant'}</button>
       </div>
+      {#if update?.install_error}
+        <!-- Échec signalé après un retour à la version précédente (update.ps1). -->
+        <pre class="install-error">{update.install_error}</pre>
+      {/if}
     </section>
   {/if}
 

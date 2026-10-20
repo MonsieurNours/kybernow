@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.6
+
+- Computer updates without the risk of leaving everything stopped: the new version is prepared next to the old one and then put in place in one go; if the console does not answer within a minute, the old version comes back by itself and the Updates page says why. The manual update also checks the package's checksum, and “Installed apps” shows the right version.
+
 ## 0.2.5
 
 - Apple TV app: gamepads finally respond on the computer. They announced themselves before the inputs were connected, and the computer then ignored their buttons; the remote and the gamepad as a mouse did work.
