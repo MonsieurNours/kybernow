@@ -78,11 +78,18 @@ final class AudioPlayer {
 
     // MARK: - Paquets (fil réseau)
 
-    /// Rappel C donné à Kyber (`userdata` : ce lecteur, non retenu).
+    /// Rappel C donné à Kyber (`userdata` : ce lecteur, retenu par
+    /// `PacketSinkLease` jusqu'au dernier appel, `CLOSED`).
     static let callback: kyclient_MediaPacketCb = { packet, userdata in
         guard let packet, let userdata else { return }
         let me = Unmanaged<AudioPlayer>.fromOpaque(userdata).takeUnretainedValue()
         let p = packet.pointee
+        if p.kind == KYCLIENT_MEDIA_PACKET_KIND_CLOSED {
+            // Plus aucun paquet ne viendra : le lecteur peut être libéré.
+            me.stop()
+            PacketSinkLease.release(AudioPlayer.self, userdata)
+            return
+        }
         switch p.kind {
         case KYCLIENT_MEDIA_PACKET_KIND_MEDIA:
             guard let data = p.data, p.len > 0 else { return }

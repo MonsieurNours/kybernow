@@ -76,6 +76,38 @@ private func check(_ code: Int32, _ what: String) throws {
     if code != 0 { throw KyberError.sdk(what, code) }
 }
 
+/// Objets passés à Kyber comme `userdata` des sorties de paquets (pipeline
+/// vidéo, lecteur audio). Ils sont **retenus** le temps que Kyber puisse les
+/// appeler : la tâche qui livre les paquets ne s'arrête qu'avec le message
+/// d'arrêt de la session, derrière d'autres messages, et une libération à
+/// délai fixe pouvait tomber trop tôt (plantage sur un pointeur libéré).
+/// Kyber (correctif KyberNow) signale son dernier appel par `CLOSED` : c'est
+/// là que l'objet est rendu. Au cas où la bibliothèque n'enverrait pas ce
+/// signal, `releaseLater` rend l'objet 30 s après l'arrêt ; le premier des
+/// deux gagne, l'autre ne fait rien.
+enum PacketSinkLease {
+    private static let lock = NSLock()
+    private static var live = Set<UnsafeMutableRawPointer>()
+
+    /// Retient `object` et rend le pointeur à donner à Kyber.
+    static func lease<T: AnyObject>(_ object: T) -> UnsafeMutableRawPointer {
+        let pointer = Unmanaged.passRetained(object).toOpaque()
+        lock.withLock { _ = live.insert(pointer) }
+        return pointer
+    }
+
+    /// Rend l'objet si c'est le premier à le demander.
+    static func release<T: AnyObject>(_: T.Type, _ pointer: UnsafeMutableRawPointer) {
+        let leased = lock.withLock { live.remove(pointer) != nil }
+        if leased { Unmanaged<T>.fromOpaque(pointer).release() }
+    }
+
+    static func releaseLater<T: AnyObject>(_ type: T.Type, _ object: T, after seconds: TimeInterval = 30) {
+        let pointer = Unmanaged.passUnretained(object).toOpaque()
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { release(type, pointer) }
+    }
+}
+
 public final class KyberClient {
     public var onEvent: ((KyberEvent) -> Void)?
     /// L1 + R1 + START + SELECT : la manette passe de l'ordinateur à l'app, ou revient.
@@ -206,7 +238,7 @@ public final class KyberClient {
             }
             pipeline.decoder.onLostReference = { [weak self] in DispatchQueue.main.async { self?.keyframeNeeded() } }
             pipeline.decoder.onRecovered = { [weak self] in DispatchQueue.main.async { self?.keyframeArrived() } }
-            kyclient_video_player_config_set_packet_sink(player, VideoPipeline.callback, Unmanaged.passUnretained(pipeline).toOpaque())
+            kyclient_video_player_config_set_packet_sink(player, VideoPipeline.callback, PacketSinkLease.lease(pipeline))
             retire(self.video)
             self.video = pipeline
             view.surface.show(pipeline.renderer)
@@ -227,7 +259,7 @@ public final class KyberClient {
             if options.nativeAudio {
                 let player = AudioPlayer()
                 player.onStats = { [weak self] in self?.onAudioStats?($0) }
-                kyclient_audio_session_config_set_packet_sink(audio, AudioPlayer.callback, Unmanaged.passUnretained(player).toOpaque())
+                kyclient_audio_session_config_set_packet_sink(audio, AudioPlayer.callback, PacketSinkLease.lease(player))
                 retire(self.audio)
                 self.audio = player
             }
@@ -275,7 +307,7 @@ public final class KyberClient {
         keyframeAsked = Date()
         latency.keyframeRequested()
         kyclient_client_request_keyframe(client)
-        keyframeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self, let asked = self.keyframeAsked, let client = self.client else { return }
             if Date().timeIntervalSince(asked) > 1.5 {
                 KyberLog.video.error("pas d'image clé en 1,5 s : relance du flux")
@@ -286,6 +318,10 @@ public final class KyberClient {
                 kyclient_client_request_keyframe(client)
             }
         }
+        // Mode « common » : la relance tire aussi pendant un menu ouvert ou un
+        // redimensionnement, où la boucle principale quitte le mode par défaut.
+        RunLoop.main.add(timer, forMode: .common)
+        keyframeTimer = timer
     }
 
     private func keyframeArrived() {
@@ -307,10 +343,13 @@ public final class KyberClient {
     }
 
     /// Kyber peut finir de livrer un paquet après l'arrêt : le pipeline vit
-    /// encore un peu avant d'être libéré.
+    /// encore un peu, et sa mémoire n'est rendue qu'au dernier appel de Kyber
+    /// (`CLOSED`, voir `PacketSinkLease`), ou 30 s plus tard si une
+    /// bibliothèque d'avant ce signal ne l'envoie pas.
     private func retire(_ pipeline: VideoPipeline?) {
         guard let pipeline else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { pipeline.stop() }
+        PacketSinkLease.releaseLater(VideoPipeline.self, pipeline)
     }
 
     private func retire(_ player: AudioPlayer?) {
@@ -318,6 +357,7 @@ public final class KyberClient {
         // La sortie se tait tout de suite ; le lecteur vit encore un peu (Kyber peut finir un paquet).
         player.volume = 0
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { player.stop() }
+        PacketSinkLease.releaseLater(AudioPlayer.self, player)
     }
 
     /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.

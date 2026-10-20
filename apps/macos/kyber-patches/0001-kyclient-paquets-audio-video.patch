@@ -113,7 +113,7 @@ index c214ec2..bf28881 100644
      let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
  
 diff --git a/kyclient/src/kymux_backend/desktop.rs b/kyclient/src/kymux_backend/desktop.rs
-index c33eb83..1cfe402 100644
+index c33eb83..9285cdc 100644
 --- a/kyclient/src/kymux_backend/desktop.rs
 +++ b/kyclient/src/kymux_backend/desktop.rs
 @@ -19,7 +19,7 @@
@@ -134,13 +134,40 @@ index c33eb83..1cfe402 100644
  use crate::platform::{InputClient, InputPipeline};
  use crate::{BackendDriver, MessageSender};
  use crate::{Error, Result};
-@@ -43,10 +45,61 @@ impl Player {
+@@ -43,10 +45,88 @@ impl Player {
      }
  }
  
++/// KyberNow: tells the application that a sink will never be called again.
++/// Dropped on every exit of `packet_sink_task`, including an abort (the
++/// task is cancelled when the session stops), so the application can tie
++/// the lifetime of `userdata` to this last call.
++struct SinkClosed {
++    source_id: u32,
++    sink: PacketSink,
++}
++
++impl Drop for SinkClosed {
++    fn drop(&mut self) {
++        let out = MediaPacket {
++            kind: MediaPacketKind::Closed,
++            source_id: self.source_id,
++            codec: 0,
++            is_config: false,
++            is_key: false,
++            pts: 0,
++            missing_samples: 0,
++            data: std::ptr::null(),
++            len: 0,
++        };
++        (self.sink.cb)(&out, self.sink.userdata as *mut std::ffi::c_void);
++    }
++}
++
 +/// KyberNow: forward audio or video packets to the application (native
 +/// decoding). Audio and video endpoints share the same packet type.
 +async fn packet_sink_task(source_id: u32, endpoint: types::VideoClientEndpoint, sink: PacketSink) {
++    let _closed = SinkClosed { source_id, sink };
 +    let mut recv = match endpoint.ready().await {
 +        Ok(recv) => recv,
 +        Err(err) => {
@@ -196,7 +223,7 @@ index c33eb83..1cfe402 100644
  ) -> Result<Option<Vec<player::VideoConfig>>> {
      if endpoints.is_empty() {
          return Ok(None);
-@@ -67,6 +120,10 @@ fn create_video_config(
+@@ -67,6 +147,10 @@ fn create_video_config(
      let mut player_config_list = vec![];
  
      for (config, endpoint) in video_config.iter().zip(endpoints.into_iter()) {
@@ -207,7 +234,7 @@ index c33eb83..1cfe402 100644
          let uri = kycom.register_and_forward(endpoint)?.url();
  
          let player_config = player::VideoConfig {
-@@ -80,6 +137,9 @@ fn create_video_config(
+@@ -80,6 +164,9 @@ fn create_video_config(
          player_config_list.push(player_config);
      }
  
@@ -217,7 +244,7 @@ index c33eb83..1cfe402 100644
      Ok(Some(player_config_list))
  }
  
-@@ -87,6 +147,7 @@ fn create_audio_config(
+@@ -87,6 +174,7 @@ fn create_audio_config(
      kycom: &mut kycom::KyCom,
      backend_config: &KymuxBackendConfig<'_>,
      endpoint: Option<types::AudioClientEndpoint>,
@@ -225,7 +252,7 @@ index c33eb83..1cfe402 100644
  ) -> Result<Option<player::AudioConfig>> {
      let Some(endpoint) = endpoint else {
          return Ok(None);
-@@ -98,6 +159,11 @@ fn create_audio_config(
+@@ -98,6 +186,11 @@ fn create_audio_config(
          .as_ref()
          .expect("called without audio config");
  
@@ -237,7 +264,7 @@ index c33eb83..1cfe402 100644
      let uri = kycom.register_and_forward(endpoint)?.url();
      let player_config = player::AudioConfig {
          uri,
-@@ -113,10 +179,11 @@ fn create_player(
+@@ -113,10 +206,11 @@ fn create_player(
      metrics: Option<&MetricsProducer>,
      video_endpoints: Vec<types::VideoClientEndpoint>,
      audio_endpoint: Option<types::AudioClientEndpoint>,
@@ -251,7 +278,7 @@ index c33eb83..1cfe402 100644
  
      let player = if video_config.is_some() || audio_config.is_some() {
          let audio_buffer = audio_config.as_ref().map(|config| config.audio_buffer);
-@@ -190,6 +257,7 @@ struct InputService {
+@@ -190,6 +284,7 @@ struct InputService {
  
  pub(super) struct KymuxDesktop {
      _kycom: kycom::KyCom,
@@ -259,7 +286,7 @@ index c33eb83..1cfe402 100644
      player: Option<Player>,
      input_service: Option<InputService>,
  }
-@@ -204,12 +272,14 @@ impl KymuxDesktop {
+@@ -204,12 +299,14 @@ impl KymuxDesktop {
          let mut kycom = kycom::KyCom::start_on_any_port(IPC_PORTS).await?;
  
          // Play Video and Audio
@@ -274,7 +301,7 @@ index c33eb83..1cfe402 100644
          )?;
  
          // Start input
-@@ -222,6 +292,7 @@ impl KymuxDesktop {
+@@ -222,6 +319,7 @@ impl KymuxDesktop {
  
          Ok(Self {
              _kycom: kycom,
@@ -282,7 +309,7 @@ index c33eb83..1cfe402 100644
              player,
              input_service,
          })
-@@ -268,6 +339,9 @@ impl BackendDriver for KymuxDesktop {
+@@ -268,6 +366,9 @@ impl BackendDriver for KymuxDesktop {
      }
  
      async fn stop(&mut self) -> Result<()> {
@@ -293,7 +320,7 @@ index c33eb83..1cfe402 100644
              player.stop().await?;
          }
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index f09fec4..96787ec 100644
+index f09fec4..c414be7 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
 @@ -28,6 +28,7 @@ mod message_bus;
@@ -304,21 +331,73 @@ index f09fec4..96787ec 100644
  
  #[cfg_attr(not(target_family = "wasm"), path = "./platform/desktop/mod.rs")]
  #[cfg_attr(target_family = "wasm", path = "./platform/web/mod.rs")]
-@@ -671,6 +672,13 @@ impl Handler {
+@@ -197,10 +198,12 @@ enum ConnectOutcome {
+ 
+ struct Handler {
+     conn_params: ConnectionParams,
+-    http_client: HttpClient,
++    http_client: Arc<HttpClient>,
+     event_manager: EventManager,
+     message_sender: MessageSender,
+     metrics: Option<MetricsProducer>,
++    /// KyberNow: a keyframe request is being sent (see `Message::RequestKeyframe`).
++    keyframe_in_flight: Arc<std::sync::atomic::AtomicBool>,
+ 
+     state: Arc<Mutex<State>>,
+     reconnection_state: ReconnectionState,
+@@ -240,7 +243,7 @@ impl Handler {
+     ) -> Result<Self> {
+         let auto_reconnection = connect_config.auto_reconnection;
+         let conn_params = ConnectionParams::new(connect_config)?;
+-        let http_client = HttpClient::new(conn_params.clone())?;
++        let http_client = Arc::new(HttpClient::new(conn_params.clone())?);
+ 
+         Ok(Self {
+             conn_params,
+@@ -248,6 +251,7 @@ impl Handler {
+             event_manager,
+             message_sender,
+             metrics,
++            keyframe_in_flight: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+             state,
+             reconnection_state: ReconnectionState::new(auto_reconnection),
+ 
+@@ -671,6 +675,34 @@ impl Handler {
              Message::SetBitrate { bitrate } => {
                  host_service::set_bitrate(&self.http_client, bitrate).await?
              }
 +            Message::RequestKeyframe => {
 +                // A host without this endpoint (unpatched Kyber) answers 404:
-+                // log it, never stop the main loop for it.
-+                if let Err(err) = host_service::force_idr(&self.http_client).await {
-+                    warn!("Keyframe request failed: {err:?}");
++                // log it, never stop the main loop for it. The request runs
++                // off the main loop, bounded to a second and one at a time:
++                // a host that stops answering must not hold up the other
++                // messages (stop, reconnection), and a decoder asking every
++                // 300 ms must not pile requests up.
++                use std::sync::atomic::Ordering::SeqCst;
++                if !self.keyframe_in_flight.swap(true, SeqCst) {
++                    let http_client = self.http_client.clone();
++                    let in_flight = self.keyframe_in_flight.clone();
++                    runtime::spawn(async move {
++                        let request = host_service::force_idr(&http_client);
++                        let deadline = runtime::sleep(Duration::from_secs(1));
++                        futures::pin_mut!(request, deadline);
++                        match futures::future::select(request, deadline).await {
++                            futures::future::Either::Left((Ok(()), _)) => {}
++                            futures::future::Either::Left((Err(err), _)) => {
++                                warn!("Keyframe request failed: {err:?}");
++                            }
++                            futures::future::Either::Right(_) => {
++                                warn!("Keyframe request not answered within 1 s");
++                            }
++                        }
++                        in_flight.store(false, SeqCst);
++                    });
 +                }
 +            }
              Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
              Message::PlayerStarted => {
                  info!("Player started");
-@@ -840,6 +848,8 @@ pub struct VideoSessionConfig {
+@@ -840,6 +872,8 @@ pub struct VideoSessionConfig {
  #[derive(Clone, Debug)]
  pub struct AudioSessionConfig {
      pub audio_buffer: Option<u32>, // None means default value
@@ -327,7 +406,7 @@ index f09fec4..96787ec 100644
  }
  
  impl AudioSessionConfig {
-@@ -1170,6 +1180,13 @@ impl Client {
+@@ -1170,6 +1204,13 @@ impl Client {
          Ok(())
      }
  
@@ -343,10 +422,10 @@ index f09fec4..96787ec 100644
      }
 diff --git a/kyclient/src/media_sink.rs b/kyclient/src/media_sink.rs
 new file mode 100644
-index 0000000..3598f74
+index 0000000..24ac288
 --- /dev/null
 +++ b/kyclient/src/media_sink.rs
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,44 @@
 +// KyberNow: audio and video packets handed to the application for native
 +// decoding (VideoToolbox + Metal, Opus + Core Audio on Apple platforms)
 +// instead of VLC.
@@ -362,6 +441,10 @@ index 0000000..3598f74
 +    Media,
 +    /// Lost data (`missing_samples` for audio).
 +    Hole,
++    /// Last call for this sink: the stream is over (stopped, failed or
++    /// aborted) and no packet will follow. The application may release
++    /// whatever `userdata` points to.
++    Closed,
 +}
 +
 +/// Packet handed to the application. `data` is only valid during the
