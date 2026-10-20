@@ -30,8 +30,11 @@ export interface Latency {
 
 export type EngineEvent =
   | { type: 'connecting' }
+  /** Plan de contrôle connecté : Kyber a accepté la session, l'image n'a pas encore commencé. */
+  | { type: 'connected' }
   | { type: 'reconnecting'; attempt: number; max: number }
   | { type: 'auth-required' }
+  /** Kyber a démarré l'image (`streaming_started`) : les données doivent arriver. */
   | { type: 'streaming' }
   | { type: 'first-image' }
   | { type: 'resized'; width: number; height: number }
@@ -103,11 +106,34 @@ class LatencyWindow {
   }
 }
 
+/** Moteurs en cours d'arrêt, toutes sessions confondues, et ce qui doit
+ * suivre leur arrêt (rendre l'écran à la console). */
+let retiring: Promise<unknown> = Promise.resolve()
+
+/** Arrête un moteur, puis lance `after`. Le prochain moteur, ou la prochaine
+ * préparation d'écran, attend `allStopped()` : jamais deux moteurs à la fois
+ * (chacun écoute souris et clavier sur la page), jamais une fin de session
+ * qui arrive après la préparation de la suivante. */
+export function retire(e: Engine | null, after?: () => Promise<unknown>): Promise<unknown> {
+  const stop = e ? e.stop() : Promise.resolve()
+  retiring = Promise.all([retiring, stop])
+    .then(() => after?.())
+    .catch(() => {})
+  return retiring
+}
+
+export function allStopped(): Promise<unknown> {
+  return retiring
+}
+
 export class Engine {
   private m: Wasm = null
   private client: any = null
   private config: any = null
   private stopping = false
+  /** Fin de l'arrêt : l'événement `stopped` du moteur. */
+  private stoppedNow: (() => void) | null = null
+  private stopped = new Promise<void>((r) => (this.stoppedNow = r))
   private gotImage = false
   readonly latency = new LatencyWindow()
   /** Médianes de toute la session (pour la console, à la fin). */
@@ -140,32 +166,54 @@ export class Engine {
 
     const credentials = m.AuthCredentials.jwt(token)
     this.onEvent({ type: 'connecting' })
-    this.client = await m.Client.new(
-      host,
-      port,
-      credentials,
-      (name: string, event: any) => this.handle(name, event),
-      true,
-      'live',
-      (frame: any) => {
-        this.latency.push(frame)
-      },
-      true,
-    )
-    this.client.connect()
+    let client: any
+    try {
+      client = await m.Client.new(
+        host,
+        port,
+        credentials,
+        (name: string, event: any) => this.handle(name, event),
+        true,
+        'live',
+        (frame: any) => {
+          this.latency.push(frame)
+        },
+        true,
+      )
+    } catch (e) {
+      this.stoppedNow?.()
+      throw e
+    }
+    // Arrêté pendant sa création : il ne doit pas démarrer.
+    if (this.stopping) {
+      client.stop().catch(() => {})
+      this.stoppedNow?.()
+      return
+    }
+    this.client = client
+    client.connect()
   }
 
   private async handle(name: string, event: any) {
+    if (name === 'stopped') this.stoppedNow?.()
     // Un moteur qu'on arrête ne parle plus (bascule de transport, fin).
     if (this.stopping) return
     switch (name) {
       case 'controlplane_connected':
+        this.onEvent({ type: 'connected' })
         try {
           await this.client.start_streaming(this.canvasId, this.config.clone())
-          this.onEvent({ type: 'streaming' })
+          // `streaming_started` le dit aussi ; la page n'en tient compte qu'une fois.
+          if (!this.stopping) this.onEvent({ type: 'streaming' })
         } catch (e) {
-          this.onEvent({ type: 'error', message: String(e) })
+          if (!this.stopping) this.onEvent({ type: 'error', message: `start_streaming: ${e}` })
         }
+        break
+      case 'streaming_started':
+        this.onEvent({ type: 'streaming' })
+        break
+      case 'streaming_start_failed':
+        this.onEvent({ type: 'error', message: 'streaming_start_failed' })
         break
       case 'controlplane_connect_failed':
         this.onEvent({ type: 'error', message: String(event) })
@@ -242,24 +290,28 @@ export class Engine {
     this.client?.audio_try_resume?.()
   }
 
-  async stop() {
-    this.stopping = true
-    const c = this.client
-    this.client = null
-    if (!c) return
-    // Un moteur bloqué (connexion qui n'aboutit pas) ne répond plus : on
-    // n'attend pas plus d'une seconde et demie.
-    const done = (async () => {
-      try {
-        await c.disconnect_and_stop(true)
-      } catch {
+  /** Arrête le moteur et attend son événement `stopped` (ses écouteurs de
+   * souris et de clavier sont alors retirés) : un nouveau moteur créé avant
+   * doublerait les entrées. Un moteur bloqué (connexion qui n'aboutit pas)
+   * peut ne jamais répondre : `timeout` borne l'attente. */
+  stop(timeout = 3000): Promise<void> {
+    if (!this.stopping) {
+      this.stopping = true
+      const c = this.client
+      this.client = null
+      if (c) {
+        // `disconnect_and_stop` consomme le client : en cas d'échec, il n'y a
+        // plus rien à arrêter.
         try {
-          await c.stop()
+          c.disconnect_and_stop(true).catch(() => this.stoppedNow?.())
         } catch {
-          // Déjà arrêté.
+          this.stoppedNow?.()
         }
+      } else if (!this.m) {
+        // Jamais créé : rien à attendre.
+        this.stoppedNow?.()
       }
-    })()
-    await Promise.race([done, new Promise((r) => setTimeout(r, 1500))])
+    }
+    return Promise.race([this.stopped, new Promise<void>((r) => setTimeout(r, timeout))])
   }
 }

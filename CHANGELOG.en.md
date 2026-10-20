@@ -10,6 +10,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client on phones and tablets: text typed on the device's keyboard arrives correctly on a computer with an AZERTY layout, with capitals, accents and emoji, and a keyboard attached to the iPad no longer doubles letters. On touch devices the image therefore goes through WebSocket, as on iPhone and iPad.
 - Web client: leaving the window (Alt+Tab, ⌘Tab, another tab) or giving the mouse back releases held keys and buttons on the computer: no more stuck Shift, Alt or click.
 - Web client: the session holds in a hidden tab (the console no longer thinks it ended after 30 s), and an expired console sign-in is announced clearly instead of a reconnection that fails.
+- Web client: the page no longer wrongly switches from WebTransport to WebSocket while the display is being prepared, and closes the old connection before opening the new one (no more doubled inputs). “Kyber is not responding” and “the image does not arrive” are no longer confused.
 
 ## 0.2.5
 

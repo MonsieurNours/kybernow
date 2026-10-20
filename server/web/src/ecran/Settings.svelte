@@ -32,7 +32,7 @@
         ? 'WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).'
         : websocketReason === 'unsupported'
           ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
-          : 'WebTransport, en direct ; sans image au bout de 12 s, la page passe par WebSocket.'
+          : 'WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.'
   let dialog: HTMLElement
 
   onMount(() => {

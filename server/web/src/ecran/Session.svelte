@@ -8,7 +8,7 @@
   import { backend, endBody, heartbeatBody } from './backend'
   import { Heartbeat } from './heartbeat'
   import { ApiError } from '../lib/api'
-  import { Engine, supportedCodecs, type Latency } from './engine'
+  import { Engine, allStopped, retire, supportedCodecs, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, screenMode, type Mode } from './device'
@@ -58,8 +58,19 @@
   let ended = false
   let ticketToken = ''
   let codecList: import('./engine').CodecSupport[] = []
-  /** Sans première image à temps, on essaie l'autre transport. */
+  /** Kyber a démarré l'image, mais elle n'arrive pas : on essaie l'autre transport. */
   let imageWatch: ReturnType<typeof setTimeout> | null = null
+  /** Le plan de contrôle ne se connecte pas : Kyber ne répond pas. */
+  let connectWatch: ReturnType<typeof setTimeout> | null = null
+  let connectStep = $state<'kyber' | 'image'>('kyber')
+  /** D'où part le délai de l'image : la connexion (le démarrage de l'image
+   * peut ne jamais venir) ou le démarrage lui-même. */
+  let imageWatchFrom: 'connected' | 'streaming' | null = null
+  /** Numéro de la tentative en cours. `start`, `fail` et `quit` le changent :
+   * une tentative dépassée (fin, nouvelle tentative) s'arrête à son prochain
+   * `await` au lieu de créer un moteur ou de préparer un écran pour rien. */
+  let generation = 0
+  const stale = (gen: number) => gen !== generation || ended
   let gameInForeground = false
   /** La console a préparé l'écran : il faudra le lui rendre. */
   let prepared = false
@@ -170,10 +181,15 @@
   }
 
   async function start() {
+    const gen = ++generation
     error = ''
     phase = 'preparing'
     try {
+      // La session d'avant doit avoir rendu son écran et arrêté son moteur.
+      await allStopped()
+      if (stale(gen)) return
       const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
+      if (stale(gen)) return
       mode = screenMode(refresh)
       codecList = codecs
       ticketToken = ticket.token
@@ -185,42 +201,103 @@
         profile: profileLabel,
         device: { id: deviceId(), name: device.name, kind: deviceKind(), os: device.os, app: device.app },
       })
+      if (stale(gen)) {
+        // Finie pendant la préparation (Annuler, fin demandée) : l'écran est rendu.
+        retire(null, () => backend.end(null, extra()))
+        return
+      }
       prepared = true
-      await connect(preferredProtocol)
+      await connect(preferredProtocol, gen)
     } catch (e) {
-      fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
+      if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
     }
   }
 
-  async function connect(protocol: 'kymux' | 'websocket') {
-    if (!mode) return
-    phase = 'connecting'
-    plan = choose(prefs, mode, codecList, protocol)
-    await tick()
-    freshCanvas()
-    const e = new Engine('kn-canvas', onEngine)
-    engine = e
+  function clearWatches() {
     if (imageWatch) clearTimeout(imageWatch)
-    imageWatch = setTimeout(() => noImage(e, protocol), protocol === 'kymux' ? 12000 : 20000)
+    if (connectWatch) clearTimeout(connectWatch)
+    imageWatch = null
+    connectWatch = null
+    imageWatchFrom = null
+  }
+
+  async function connect(protocol: 'kymux' | 'websocket', gen = generation) {
+    if (!mode || stale(gen)) return
+    phase = 'connecting'
+    connectStep = 'kyber'
+    clearWatches()
+    plan = choose(prefs, mode, codecList, protocol)
+    // Jamais deux moteurs à la fois : chacun écoute souris et clavier sur la page.
+    await allStopped()
+    if (stale(gen)) return
+    await tick()
+    if (stale(gen)) return
+    freshCanvas()
+    const e: Engine = new Engine('kn-canvas', (ev) => onEngine(ev, e, protocol))
+    engine = e
+    connectWatch = setTimeout(() => noControlPlane(e), 25000)
     await e.connect(streamHost(), location.port || '443', ticketToken, plan)
   }
 
-  /** L'image n'est pas venue : WebTransport bloqué (réseau, navigateur), on passe par WebSocket. */
-  async function noImage(e: Engine, protocol: 'kymux' | 'websocket') {
-    if (engine !== e || phase === 'live' || ended) return
+  /** Pas de plan de contrôle : Kyber ne répond pas (ce n'est pas une affaire de transport). */
+  function noControlPlane(e: Engine) {
+    connectWatch = null
+    if (engine !== e || ended || phase !== 'connecting') return
+    fail(`Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`)
+  }
+
+  /** Kyber a démarré l'image (`streaming`) : elle doit arriver dans les 12 s
+   * (20 s en WebSocket). Le délai part d'ici, pas de la connexion : préparer
+   * l'écran virtuel prend à lui seul jusqu'à 8 s. Dès la connexion
+   * (`connected`), un délai plus long couvre un démarrage qui ne vient pas. */
+  function watchImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
+    if (engine !== e || phase !== 'connecting' || imageWatchFrom === 'streaming' || imageWatchFrom === from) return
+    if (imageWatch) clearTimeout(imageWatch)
+    imageWatchFrom = from
+    const delay = from === 'connected' ? 25000 : protocol === 'kymux' ? 12000 : 20000
+    imageWatch = setTimeout(() => noImage(e, protocol, from), delay)
+  }
+
+  /** Connecté, mais rien n'arrive : WebTransport bloqué (réseau, navigateur),
+   * on passe par WebSocket ; en WebSocket, on le dit. */
+  async function noImage(e: Engine, protocol: 'kymux' | 'websocket', from: 'connected' | 'streaming') {
+    imageWatch = null
+    imageWatchFrom = null
+    const gen = generation
+    if (engine !== e || phase !== 'connecting' || stale(gen)) return
     if (protocol === 'kymux') {
-      console.warn('KyberNow : pas d’image en WebTransport, essai par WebSocket')
+      console.warn('KyberNow : connecté, mais pas d’image en WebTransport ; essai par WebSocket')
       reconnecting = 'Autre chemin pour l’image (WebSocket)…'
       engine = null
-      await e.stop()
-      if (!ended) connect('websocket')
+      await retire(e)
+      if (!stale(gen) && phase === 'connecting') {
+        connect('websocket', gen).catch((err) => {
+          if (!stale(gen)) fail(errorText(err))
+        })
+      }
+    } else if (from === 'connected') {
+      fail(`Kyber sur ${hostname} n'a pas démarré l'image. Réessayez dans un instant.`)
     } else {
-      fail(`L'image de ${hostname} n'arrive pas dans ce navigateur. Essayez Chrome ou Edge, ou le format H.264 dans Réglages › Avancé.`)
+      fail(`${hostname} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Avancé, ou Chrome ou Edge.`)
     }
   }
 
-  function onEngine(e: import('./engine').EngineEvent) {
+  function connectError(message: string): string {
+    if (message === 'unauthorized') return `Kyber sur ${hostname} refuse le jeton de la console. Rechargez la page ; si cela continue, vérifiez Kyber dans la console.`
+    if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return `Kyber sur ${hostname} n'a pas pu démarrer l'image. Réessayez dans un instant.`
+    return `Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`
+  }
+
+  function onEngine(e: import('./engine').EngineEvent, src: Engine, protocol: 'kymux' | 'websocket') {
+    // Un moteur remplacé ne décide plus de rien.
+    if (src !== engine) return
     switch (e.type) {
+      case 'connected':
+        if (connectWatch) clearTimeout(connectWatch)
+        connectWatch = null
+        connectStep = 'image'
+        watchImage(src, protocol, 'connected')
+        break
       case 'reconnecting':
         reconnecting = `Connexion perdue, nouvelle tentative (${e.attempt} sur ${e.max})…`
         refreshTicket()
@@ -230,14 +307,14 @@
         break
       case 'streaming':
         reconnecting = ''
+        watchImage(src, protocol, 'streaming')
         break
       case 'resized':
         canvasSize = { width: e.width, height: e.height }
         fit()
         break
       case 'first-image':
-        if (imageWatch) clearTimeout(imageWatch)
-        imageWatch = null
+        clearWatches()
         phase = 'live'
         reconnecting = ''
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
@@ -248,7 +325,7 @@
         break
       case 'error':
         console.warn('KyberNow : connexion impossible', e.message)
-        fail(`Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`)
+        fail(connectError(e.message))
         break
       case 'stopped':
         if (ended) return
@@ -267,32 +344,33 @@
   }
 
   async function restart() {
-    await engine?.stop()
+    const e = engine
     engine = null
-    start()
+    const gen = generation
+    await retire(e)
+    if (!stale(gen)) start()
   }
 
   function fail(message: string) {
-    if (imageWatch) clearTimeout(imageWatch)
-    imageWatch = null
+    generation++
+    clearWatches()
     error = message
     phase = 'ended'
     barVisible = true
     heartbeat.stop()
-    // L'écran préparé pour cette session est rendu à l'ordinateur.
+    // Le moteur s'arrête, puis l'écran préparé pour cette session est rendu.
     const e = engine
     engine = null
-    e?.stop()
-    if (prepared) {
-      prepared = false
-      backend.end(null, extra()).catch(() => {})
-    }
+    const wasPrepared = prepared
+    prepared = false
+    retire(e, wasPrepared ? () => backend.end(null, extra()) : undefined)
   }
 
   async function quit() {
     if (ended) return
     ended = true
-    if (imageWatch) clearTimeout(imageWatch)
+    generation++
+    clearWatches()
     const median = engine?.sessionMedian() ?? null
     const e = engine
     engine = null
@@ -303,8 +381,7 @@
     releasePointer()
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     onEnd()
-    await e?.stop()
-    if (wasPrepared) backend.end(median, extra()).catch(() => {})
+    await retire(e, wasPrepared ? () => backend.end(median, extra()) : undefined)
   }
 
   function setMouseMode(m: MouseMode) {
@@ -539,7 +616,7 @@
       if (diagTimer) clearInterval(diagTimer)
       cursorWatch?.disconnect()
       document.removeEventListener('pointerlockchange', cursorFix)
-      if (imageWatch) clearTimeout(imageWatch)
+      clearWatches()
       window.removeEventListener('keydown', shortcut, true)
       releasePointer()
       removePointerGate()
@@ -557,8 +634,7 @@
       document.removeEventListener('visibilitychange', hidden)
       if (!ended) {
         ended = true
-        engine?.stop()
-        if (prepared) backend.end(null, extra()).catch(() => {})
+        retire(engine, prepared ? () => backend.end(null, extra()) : undefined)
       }
     }
   })
@@ -591,7 +667,10 @@
           <h2 class="disp">Vous entrez dans {hostname}</h2>
           <ul class="steps mono">
             <li class:done={phase === 'connecting'}>{phase === 'preparing' ? 'Préparation de l’écran…' : `Écran ${mode?.width ?? ''} × ${mode?.height ?? ''} à ${mode?.refresh ?? ''} Hz`}</li>
-            {#if phase === 'connecting'}<li>{reconnecting || 'Connexion et premières images…'}</li>{/if}
+            {#if phase === 'connecting'}
+              <li class:done={connectStep === 'image'}>{connectStep === 'image' ? 'Connecté à Kyber' : reconnecting || 'Connexion à Kyber…'}</li>
+              {#if connectStep === 'image'}<li>{reconnecting || 'Premières images…'}</li>{/if}
+            {/if}
           </ul>
           <button type="button" class="ghost" onclick={quit}>Annuler</button>
         </div>
