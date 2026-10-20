@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- App Mac : l'image part à l'écran dès qu'elle est décodée. L'image suivante n'attend plus que l'écran ait montré la précédente (un rafraîchissement complet de latence, 8 ms à 120 Hz, 17 ms à 60 Hz) ; Core Animation montre la plus récente au balayage. L'ancien comportement reste disponible avec `KN_INFLIGHT_GUARD=1`.
 - App Mac : mesures de présentation de l'image. Lancée avec `KN_PRESENT_STATS=1`, l'app écrit chaque seconde dans le journal les images rendues, montrées et écartées par l'écran, et le délai commit → écran (médiane, 95e centile) ; `KN_INFLIGHT_GUARD=1` remet la garde « une image en vol » pour comparer. Le test d'affichage hors ligne compare les deux.
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.
 - Console : cinq mots de passe faux depuis une même adresse font attendre 30 s, puis le double à chaque essai ; les vérifications de mot de passe ne se font plus que deux à la fois.

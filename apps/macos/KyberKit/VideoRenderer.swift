@@ -1,10 +1,14 @@
 // Affichage de l'image décodée avec Metal.
 //
-// Latence : on affiche toujours l'image la plus récente. Avec la synchro
-// verticale, une seule image attend l'écran à la fois ; celles qui arrivent
-// entre-temps remplacent la suivante au lieu de faire la queue. Sur un écran
-// à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale sur
-// l'arrivée des images. Sans synchro, chaque image part tout de suite
+// Latence : on affiche toujours l'image la plus récente. Chaque image part
+// à l'écran dès qu'elle est décodée ; celles qui arrivent pendant qu'un
+// rendu attend son tampon remplacent la précédente au lieu de faire la
+// queue (coalescence `scheduled`), et Core Animation montre la plus récente
+// au balayage, en écartant les autres (`presentedTime == 0`). L'ancienne
+// garde « une image en vol » (N+1 attend que l'écran ait montré N, soit un
+// rafraîchissement complet) reste disponible avec KN_INFLIGHT_GUARD=1. Sur
+// un écran à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale
+// sur l'arrivée des images. Sans synchro, chaque image part tout de suite
 // (déchirure possible).
 //
 // Les plans Y et CbCr sortent de VideoToolbox en IOSurface : Metal les lit
@@ -87,7 +91,7 @@ final class VideoRenderer {
     /// `KN_INFLIGHT_GUARD=1` la remet (comparaison) ; sans elle, chaque image
     /// part dès qu'elle est décodée et Core Animation montre la plus récente
     /// au balayage.
-    var inFlightGuard = ProcessInfo.processInfo.environment["KN_INFLIGHT_GUARD"].map { $0 == "1" } ?? true
+    var inFlightGuard = ProcessInfo.processInfo.environment["KN_INFLIGHT_GUARD"] == "1"
     /// `KN_PRESENT_STATS=1` : mesures de présentation dans le journal chaque seconde.
     var logPresentStats = ProcessInfo.processInfo.environment["KN_PRESENT_STATS"] == "1"
     /// Mesures de présentation, une fois par seconde (tests).
@@ -203,6 +207,9 @@ final class VideoRenderer {
     // MARK: - Rendu (fil de rendu)
 
     private func render() {
+        // Le tampon d'abord (il peut faire attendre un balayage quand tous
+        // sont pris) : l'image prise ensuite est la plus récente arrivée.
+        let drawable = layer.nextDrawable()
         lock.lock()
         let frame = pending
         pending = nil
@@ -217,7 +224,7 @@ final class VideoRenderer {
             onUnsupportedFormat?(pixelFormat)
             return
         }
-        guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
+        guard let drawable, let commands = queue.makeCommandBuffer(),
               draw(buffer, layout: layout, into: drawable.texture, commands: commands)
         else {
             latency?.skipped(pts: frame.pts)

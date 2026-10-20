@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac app: the image leaves for the display as soon as it is decoded. The next frame no longer waits until the display has shown the previous one (a whole refresh of latency, 8 ms at 120 Hz, 17 ms at 60 Hz); Core Animation shows the most recent one at the refresh. The old behaviour remains available with `KN_INFLIGHT_GUARD=1`.
 - Mac app: image presentation measurements. Launched with `KN_PRESENT_STATS=1`, the app logs every second the frames rendered, shown and discarded by the display, and the commit → screen delay (median, 95th percentile); `KN_INFLIGHT_GUARD=1` puts back the “one frame in flight” guard for comparison. The offline display test compares both.
 - Console: a second device that connects takes over with notice. The first one is told at its next heartbeat and disconnects cleanly, then the virtual display is recreated at the second one's size; before, the two devices kept stealing the display from each other and the first one's disconnection cut the second one's display and sound. The session is now recognised by the device rather than by the account.
 - Console: five wrong passwords from the same address make it wait 30 s, then twice as long at each attempt; password checks now run at most two at a time.
