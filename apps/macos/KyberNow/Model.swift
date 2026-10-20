@@ -127,6 +127,31 @@ enum AudioChoice: String, Codable, CaseIterable {
     }
 }
 
+/// Manette vue par l'ordinateur (`gamepad_force_xbox360` de la session, qui
+/// prime sur le réglage de la console ; celui-ci ne reste qu'un défaut pour
+/// les autres clients).
+enum GamepadChoice: String, Codable, CaseIterable {
+    /// Toujours une manette Xbox 360 : celle que tous les jeux reconnaissent.
+    case xbox360
+    /// Le modèle réel : une manette Sony devient une DualShock 4 (pavé
+    /// tactile, barre lumineuse, pour les jeux qui s'en servent).
+    case faithful
+
+    var label: String {
+        switch self {
+        case .xbox360: return "Xbox 360"
+        case .faithful: return "Fidèle"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .xbox360: return "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
+        case .faithful: return "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas."
+        }
+    }
+}
+
 /// Réglages de connexion d'un ordinateur. Un profil remplit l'image et le
 /// réseau ; toucher à l'un de ces réglages rend le profil « Personnalisé ».
 struct ConnectionSettings: Codable, Hashable {
@@ -154,6 +179,8 @@ struct ConnectionSettings: Codable, Hashable {
     var clipboard = true
     /// Garder la dernière image de la session sur ce Mac (fond de l'accueil).
     var keepLastImage = true
+    /// Manette vue par l'ordinateur : Xbox 360 (compatible) ou fidèle.
+    var gamepad: GamepadChoice = .xbox360
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -211,6 +238,7 @@ struct ConnectionSettings: Codable, Hashable {
         o.yuv444 = yuv444 && Self.decodes444(codec)
         o.vsync = vsync
         o.clipboard = clipboard
+        o.gamepadAsXbox360 = gamepad == .xbox360
         return o
     }
 
@@ -222,7 +250,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard, keepLastImage
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard, keepLastImage, gamepad
     }
 
     init(from decoder: Decoder) throws {
@@ -245,6 +273,7 @@ extension ConnectionSettings {
         mouse = (try? c.decodeIfPresent(MouseChoice.self, forKey: .mouse)) ?? mouse
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
         keepLastImage = (try? c.decodeIfPresent(Bool.self, forKey: .keepLastImage)) ?? keepLastImage
+        gamepad = (try? c.decodeIfPresent(GamepadChoice.self, forKey: .gamepad)) ?? gamepad
     }
 }
 

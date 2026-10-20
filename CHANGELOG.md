@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Apps Mac et Apple TV : réglage par ordinateur « Manette vue par l'ordinateur » : Xbox 360 (par défaut, reconnue par tous les jeux) ou fidèle (une manette Sony reste une DualShock 4). Il prime sur l'option « Toutes les manettes en Xbox 360 » de la console, qui ne reste qu'un défaut pour les autres clients.
 - App Mac : sur un clavier Apple européen (ISO), la touche `@#` donnait `<` sur l'ordinateur et `<>` donnait `@` : les deux retrouvent leur place. App Apple TV : réglage « Clavier Apple ISO » pour les claviers Apple Bluetooth.
 - Apps Mac et Apple TV : un relâchement refusé par la file d'envoi des entrées (64 paquets) n'est plus perdu en silence : il est réessayé jusqu'à 200 ms, et les refus sont comptés dans le journal. Sur l'Apple TV, un stick n'envoie plus que l'axe qui a bougé, par tranche de 4 ms : une DualSense en Bluetooth envoyait jusqu'à 1 500 paquets par seconde.
 - App Apple TV : quand l'app passe en arrière-plan (bouton TV, autre app, veille), plus rien ne reste enfoncé sur l'ordinateur ; au retour, les manettes reprennent leur état réel.

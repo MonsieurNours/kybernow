@@ -227,6 +227,9 @@ struct SettingsView: View {
         toggle("mouse", "Télécommande en souris", "Toujours active en profil Bureau", s.mouse == .desktop || s.profile == .bureau) {
             edit { st in st.mouse = st.mouse == .desktop ? .auto : .desktop }
         }
+        seg("gamepad", "Manette vue par l'ordinateur", s.gamepad.hint, GamepadChoice.allCases.map(\.label), s.gamepad.label) { v in
+            edit { st in st.gamepad = GamepadChoice.allCases.first { $0.label == v } ?? .xbox360 }
+        }
         toggle("rumble", "Vibrations", "Renvoyées par le jeu, sur chaque manette", prefs.rumble) {
             prefs.rumble.toggle()
         }
