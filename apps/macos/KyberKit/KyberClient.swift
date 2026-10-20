@@ -80,6 +80,9 @@ public final class KyberClient {
     public var onGamepadNavigate: ((PadKey) -> Void)?
     /// Mesures de l'image, une fois par seconde (fil principal).
     public var onVideoStats: ((VideoStats) -> Void)?
+    /// L'image reste figée malgré les demandes d'image clé (ordinateur sans
+    /// le correctif KyberNow) : relancer le flux la fait repartir.
+    public var onVideoStalled: (() -> Void)?
     /// Mesures du son, une fois par seconde (fil principal).
     public var onAudioStats: ((AudioStats) -> Void)?
 
@@ -173,6 +176,8 @@ public final class KyberClient {
             pipeline.renderer.onStats = { [weak self] stats in
                 DispatchQueue.main.async { self?.onVideoStats?(stats) }
             }
+            pipeline.decoder.onLostReference = { [weak self] in DispatchQueue.main.async { self?.keyframeNeeded() } }
+            pipeline.decoder.onRecovered = { [weak self] in DispatchQueue.main.async { self?.keyframeArrived() } }
             kyclient_video_player_config_set_packet_sink(player, VideoPipeline.callback, Unmanaged.passUnretained(pipeline).toOpaque())
             retire(self.video)
             self.video = pipeline
@@ -211,6 +216,7 @@ public final class KyberClient {
     }
 
     public func stopStreaming() {
+        stopKeyframeWait()
         input?.stop()
         input = nil
         kyclient_client_stop_streaming(client)
@@ -218,6 +224,44 @@ public final class KyberClient {
         video = nil
         retire(audio)
         audio = nil
+    }
+
+    // MARK: - Image clé après une perte
+
+    private var keyframeTimer: Timer?
+    private var keyframeAsked: Date?
+
+    /// Paquets perdus au-delà de la correction d'erreurs : avec le
+    /// rafraîchissement progressif de l'encodeur, aucune image clé n'arrive
+    /// d'elle-même. On en demande une (kyber-patches serveur 0005), de nouveau
+    /// toutes les 300 ms ; au bout de 1,5 s, on relance le flux.
+    private func keyframeNeeded() {
+        guard keyframeAsked == nil, let client else { return }
+        keyframeAsked = Date()
+        kyclient_client_request_keyframe(client)
+        keyframeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            guard let self, let asked = self.keyframeAsked, let client = self.client else { return }
+            if Date().timeIntervalSince(asked) > 1.5 {
+                KyberLog.video.error("pas d'image clé en 1,5 s : relance du flux")
+                self.stopKeyframeWait()
+                self.onVideoStalled?()
+            } else {
+                kyclient_client_request_keyframe(client)
+            }
+        }
+    }
+
+    private func keyframeArrived() {
+        if let asked = keyframeAsked {
+            KyberLog.video.notice("image clé reçue en \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
+        }
+        stopKeyframeWait()
+    }
+
+    private func stopKeyframeWait() {
+        keyframeTimer?.invalidate()
+        keyframeTimer = nil
+        keyframeAsked = nil
     }
 
     /// Synchro verticale à chaud.

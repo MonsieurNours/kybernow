@@ -1,5 +1,5 @@
 diff --git a/kyclient/src/capi.rs b/kyclient/src/capi.rs
-index 897c92d..422c24a 100644
+index 897c92d..3f1a2b7 100644
 --- a/kyclient/src/capi.rs
 +++ b/kyclient/src/capi.rs
 @@ -811,6 +811,7 @@ pub unsafe extern "C" fn kyclient_video_player_config_default(
@@ -57,6 +57,61 @@ index 897c92d..422c24a 100644
          *out_config = Box::into_raw(Box::new(AudioSessionConfig { config }));
          0
      }
+@@ -1146,6 +1178,17 @@ pub unsafe extern "C" fn kyclient_client_audio_set_mute(client: *mut Client, mut
+     }
+ }
+ 
++/// KyberNow: ask the host for a keyframe (the application's decoder lost a
++/// reference picture). Needs the KyberNow kycontroller patch on the host;
++/// otherwise the request is logged and ignored.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn kyclient_client_request_keyframe(client: *mut Client) -> c_int {
++    unsafe {
++        let ret = (&(*client)).client.request_keyframe();
++        result_to_c_int(ret)
++    }
++}
++
+ #[unsafe(no_mangle)]
+ pub unsafe extern "C" fn kyclient_client_set_bitrate(client: *mut Client, bitrate: u32) -> c_int {
+     unsafe {
+diff --git a/kyclient/src/enums.rs b/kyclient/src/enums.rs
+index 38b3c57..4f9715a 100644
+--- a/kyclient/src/enums.rs
++++ b/kyclient/src/enums.rs
+@@ -121,6 +121,8 @@ pub(crate) enum Message {
+         state: crate::player::AudioResumeState,
+     },
+ 
++    /// KyberNow: ask the host for a keyframe (decoder lost a reference).
++    RequestKeyframe,
+     SetBitrate {
+         bitrate: u32,
+     },
+diff --git a/kyclient/src/host_service.rs b/kyclient/src/host_service.rs
+index c214ec2..bf28881 100644
+--- a/kyclient/src/host_service.rs
++++ b/kyclient/src/host_service.rs
+@@ -236,6 +236,19 @@ pub(crate) async fn logout(client: &HttpClient) -> Result<()> {
+     Ok(())
+ }
+ 
++/// KyberNow: `POST /force_idr` (kycontroller patched by KyberNow).
++pub(crate) async fn force_idr(http_client: &HttpClient) -> Result<()> {
++    let url = format!("{base_url}/force_idr", base_url = http_client.base_url());
++
++    http_client
++        .post(&url)
++        .send()
++        .await?
++        .error_for_status()?;
++
++    Ok(())
++}
++
+ pub(crate) async fn set_bitrate(http_client: &HttpClient, bitrate: u32) -> Result<()> {
+     let url = format!("{base_url}/set_bitrate", base_url = http_client.base_url());
+ 
 diff --git a/kyclient/src/kymux_backend/desktop.rs b/kyclient/src/kymux_backend/desktop.rs
 index c33eb83..1cfe402 100644
 --- a/kyclient/src/kymux_backend/desktop.rs
@@ -238,7 +293,7 @@ index c33eb83..1cfe402 100644
              player.stop().await?;
          }
 diff --git a/kyclient/src/lib.rs b/kyclient/src/lib.rs
-index f09fec4..a5f0211 100644
+index f09fec4..96787ec 100644
 --- a/kyclient/src/lib.rs
 +++ b/kyclient/src/lib.rs
 @@ -28,6 +28,7 @@ mod message_bus;
@@ -249,7 +304,21 @@ index f09fec4..a5f0211 100644
  
  #[cfg_attr(not(target_family = "wasm"), path = "./platform/desktop/mod.rs")]
  #[cfg_attr(target_family = "wasm", path = "./platform/web/mod.rs")]
-@@ -840,6 +841,8 @@ pub struct VideoSessionConfig {
+@@ -671,6 +672,13 @@ impl Handler {
+             Message::SetBitrate { bitrate } => {
+                 host_service::set_bitrate(&self.http_client, bitrate).await?
+             }
++            Message::RequestKeyframe => {
++                // A host without this endpoint (unpatched Kyber) answers 404:
++                // log it, never stop the main loop for it.
++                if let Err(err) = host_service::force_idr(&self.http_client).await {
++                    warn!("Keyframe request failed: {err:?}");
++                }
++            }
+             Message::BitrateChanged { bitrate } => self.bitrate_changed(bitrate)?,
+             Message::PlayerStarted => {
+                 info!("Player started");
+@@ -840,6 +848,8 @@ pub struct VideoSessionConfig {
  #[derive(Clone, Debug)]
  pub struct AudioSessionConfig {
      pub audio_buffer: Option<u32>, // None means default value
@@ -258,6 +327,20 @@ index f09fec4..a5f0211 100644
  }
  
  impl AudioSessionConfig {
+@@ -1170,6 +1180,13 @@ impl Client {
+         Ok(())
+     }
+ 
++    /// KyberNow: ask the host for a keyframe on every video stream of this
++    /// session (the application's decoder lost a reference picture).
++    pub fn request_keyframe(&self) -> Result<()> {
++        self.msg_sender.send(Message::RequestKeyframe)?;
++        Ok(())
++    }
++
+     pub fn get_event_manager(&self) -> EventManager {
+         self.event_manager.clone()
+     }
 diff --git a/kyclient/src/media_sink.rs b/kyclient/src/media_sink.rs
 new file mode 100644
 index 0000000..3598f74

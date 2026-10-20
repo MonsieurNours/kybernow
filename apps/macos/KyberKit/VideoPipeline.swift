@@ -38,8 +38,10 @@ final class VideoPipeline {
         case KYCLIENT_MEDIA_PACKET_KIND_MEDIA:
             guard let data = p.data, p.len > 0 else { return }
             decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
+        case KYCLIENT_MEDIA_PACKET_KIND_HOLE:
+            // Données perdues : l'image suivante n'a plus sa référence.
+            decoder.dataLost()
         default:
-            // Données perdues : le décodeur continue, l'image se répare à la prochaine image clé.
             break
         }
     }

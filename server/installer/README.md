@@ -15,7 +15,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 ## Ce que fait l'installation
 
 1. Arrête et retire une version précédente ou Kyber officiel (désinstalleur NSIS lancé avec `_?=` pour l'attendre).
-2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). Dans `kyber\`, les fichiers de Kyber 0.29 recouverts par la surcouche corrigée (`kyavserver.exe`, txproto et leur runtime, voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
+2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). Dans `kyber\`, les fichiers de Kyber 0.29 recouverts par la surcouche corrigée (`kyavserver.exe`, txproto et leur runtime, `kycontroller.exe`, voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
 3. Génère le certificat TLS de Kyber (`cert-gen.exe`).
 4. `kyber-admin init` : port, encodeur, compte unique (Kyber Basic + console), secret JWT aléatoire à la place de la clé de développement de Kyber.
 5. Crée le service `kyber` (chemin entre guillemets, redémarrage automatique en cas d'échec) et ouvre son démarrage et son arrêt aux utilisateurs interactifs (`sc sdset`, voir plus bas).

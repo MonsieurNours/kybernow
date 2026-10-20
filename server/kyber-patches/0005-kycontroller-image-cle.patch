@@ -1,0 +1,64 @@
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index 9a65dad..76fc63d 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -581,6 +581,49 @@ pub(crate) async fn set_bitrate(
+     HttpResponse::Ok().finish()
+ }
+ 
++/// KyberNow: the client's decoder lost a reference picture (packets lost
++/// beyond FEC). Under intra-refresh (the default) the encoder never sends a
++/// keyframe on its own, so the client asks for one. Same scoping as
++/// `set_bitrate`: only this session's video streams; the dispatcher collapses
++/// concurrent requests.
++#[post("/force_idr")]
++pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> HttpResponse {
++    let Ok(uid) = user.uid() else {
++        return HttpResponse::Unauthorized().finish();
++    };
++
++    let services = match ctrl.with_session(&uid, |s| Ok(s.services.clone())) {
++        Ok(s) => s,
++        Err(err) => {
++            warn!("Session not found: {err}");
++            return HttpResponse::Forbidden().finish();
++        }
++    };
++
++    let mut services = services.lock().await;
++    info!("Keyframe requested by the client");
++
++    if !services.video_subscriptions.is_empty() {
++        let av_services_manager = ctrl.av_services_manager.lock().await;
++        for sub in &services.video_subscriptions {
++            let Some(stream) = av_services_manager.video_streams.get(sub.key()) else {
++                continue;
++            };
++            if let Err(err) = stream.avservice.video_force_idr() {
++                warn!("Failed to force IDR: {err:?}");
++            }
++        }
++    } else {
++        for avserver in &mut services.video {
++            if let Err(err) = avserver.video_force_idr().await {
++                warn!("Failed to force IDR: {err:?}");
++            }
++        }
++    }
++
++    HttpResponse::Ok().finish()
++}
++
+ fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
+     use socket2::{Domain, Protocol, Socket, Type};
+     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+@@ -773,7 +816,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+                 .service(websocket_service)
+                 .service(enumerate_displays)
+                 .service(stop_streaming)
+-                .service(set_bitrate);
++                .service(set_bitrate)
++                .service(force_idr);
+ 
+             if let Some(webclient_root) = &webclient_root {
+                 app.service(web::redirect("/webclient", "/webclient/"))

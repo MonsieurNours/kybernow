@@ -29,6 +29,11 @@ final class VideoDecoder {
 
     /// Image prête (fil du décodeur).
     var onFrame: ((DecodedFrame) -> Void)?
+    /// Une image de référence manque (paquets perdus, image refusée) : il
+    /// faut une image clé pour repartir (fil du décodeur).
+    var onLostReference: (() -> Void)?
+    /// L'image est repartie sur une image clé.
+    var onRecovered: (() -> Void)?
 
     private(set) var codec: Codec = .hevc
     private var parameterSets: [UInt8: Data] = [:]
@@ -37,6 +42,8 @@ final class VideoDecoder {
     /// Format de sortie imposé, si celui du décodeur ne convient pas au rendu.
     private var forcedPixelFormat: OSType?
     private var waitingKey = true
+    /// Une référence a été perdue en cours de route (pas au démarrage).
+    private var lostReference = false
     private var failures = 0
     /// Kyber livre depuis son fil réseau, le rendu peut demander un autre format, l'app arrête.
     private let lock = NSLock()
@@ -79,8 +86,15 @@ final class VideoDecoder {
         }
         guard !frame.isEmpty, let session, let format else { return }
         if waitingKey {
+            // Sans image clé, une image qui s'appuie sur une référence perdue
+            // est refusée : inutile de la donner au décodeur.
             guard isKey else { return }
             waitingKey = false
+            if lostReference {
+                lostReference = false
+                KyberLog.video.notice("image repartie sur une image clé")
+                onRecovered?()
+            }
         }
         guard let sample = Self.sample(frame, format: format) else { return }
         let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
@@ -90,6 +104,8 @@ final class VideoDecoder {
                 if self.failures == 1 || self.failures % 120 == 0 {
                     KyberLog.video.error("décodage : erreur \(status) (\(self.failures) au total)")
                 }
+                // Appelé pendant DecodeFrame (décodage synchrone) : le verrou est déjà pris.
+                self.markLost()
                 return
             }
             self.onFrame?(DecodedFrame(buffer: image, pts: pts, received: received, decoded: mach_absolute_time()))
@@ -98,9 +114,28 @@ final class VideoDecoder {
             // Session perdue (veille, changement de carte graphique) : on la refait.
             KyberLog.video.notice("session de décodage perdue, recréée")
             rebuild()
+            markLost()
         } else if status != noErr {
             failures += 1
+            markLost()
         }
+    }
+
+    /// Données perdues (trou dans le flux) : on attend une image clé.
+    func dataLost() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard session != nil else { return }
+        markLost()
+    }
+
+    /// À appeler verrou pris.
+    private func markLost() {
+        waitingKey = true
+        guard !lostReference else { return }
+        lostReference = true
+        KyberLog.video.notice("référence perdue : demande d'une image clé")
+        onLostReference?()
     }
 
     /// Le rendu ne sait pas afficher ce format : on en demande un autre.

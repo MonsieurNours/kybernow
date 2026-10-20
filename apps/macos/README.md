@@ -35,6 +35,7 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode 
 - VideoToolbox, décodeur matériel exigé (logiciel en dernier recours), mode temps réel, une image par appel, sans file d'attente.
 - Sortie dans les formats compressés sans perte des puces Apple (`&8v0`, `&8v4`), lus sans copie par Metal (`CVMetalTextureCache`). Conversion YCbCr → RGB dans le shader, selon la matrice annoncée par le flux (709, 601, 2020) et sa plage.
 - Affichage : toujours l'image la plus récente, au plus une image en attente d'écran. Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale sur l'arrivée des images. Synchro verticale désactivable : latence la plus basse, déchirure possible.
+- Reprise après une perte : quand des paquets se perdent au-delà de la correction d'erreurs, VideoToolbox refuse les images qui s'appuient sur la référence perdue. Avec le rafraîchissement progressif de l'encodeur, aucune image clé n'arrive d'elle-même. L'app garde alors la dernière image et cesse d'envoyer au décodeur des images inutilisables. Elle demande une image clé à l'ordinateur (`kyclient_client_request_keyframe`, serveur avec le correctif 0005), relance la demande toutes les 300 ms et repart sur l'image clé. Sans réponse en 1,5 s (ordinateur pas à jour), elle relance le flux, qui commence toujours par une image clé.
 - AV1 : encore décodé par VLC (description `av1C` à écrire).
 
 **Son** (`AudioPlayer`)
@@ -97,7 +98,7 @@ open build/Build/Products/Debug/KyberNow.app
 ## Tester sans ordinateur distant
 
 ```bash
-apps/macos/tests/video/run.sh   # flux HEVC/H.264 générés par ffmpeg : décodage, temps, couleurs rendues
+apps/macos/tests/video/run.sh   # flux HEVC/H.264 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
 apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
 apps/macos/tests/screen/run.sh  # fenêtre de 2 s : la surface de session montre vraiment les images (presentedTime)

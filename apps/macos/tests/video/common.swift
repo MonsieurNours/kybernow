@@ -36,3 +36,18 @@ func run(_ path: String, codec: UInt32) {
         print("\(path): \(aus.count) unités, \(frames) images, décodage moyen \(String(format: "%.2f", total/Double(max(frames,1)))) ms, max \(String(format: "%.2f", maxMs)) ms, \(fmt)")
     }
 }
+
+/// Unités d'accès (AUD en tête) d'un flux Annex B, chacune en Annex B.
+func accessUnits(_ path: String, codec: UInt32) -> [[UInt8]] {
+    let data = try! Data(contentsOf: URL(fileURLWithPath: path))
+    var aus: [[UInt8]] = []
+    data.withUnsafeBytes { raw in
+        for n in VideoDecoder.nalUnits(raw.bindMemory(to: UInt8.self)) {
+            let t = codec == 0x68323635 ? (n[0] >> 1) & 0x3F : n[0] & 0x1F
+            let isAUD = codec == 0x68323635 ? t == 35 : t == 9
+            if isAUD || aus.isEmpty { aus.append([]) }
+            aus[aus.count - 1] += [0, 0, 0, 1] + Array(n)
+        }
+    }
+    return aus
+}

@@ -44,6 +44,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     }
     /// Mesures de l'image (décodage par l'app), une fois par seconde.
     @Published private(set) var stats: VideoStats?
+    private var lastStallRestart = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
     enum Hint { case commands, mouse }
@@ -289,6 +290,12 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
         kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }
         kyber.onVideoStats = { [weak self] in self?.stats = $0 }
+        kyber.onVideoStalled = { [weak self] in
+            // Ordinateur sans le correctif d'image clé : un flux neuf repart sur une image clé.
+            guard let self, Date().timeIntervalSince(self.lastStallRestart) > 5 else { return }
+            self.lastStallRestart = Date()
+            self.restartStreaming()
+        }
         kyber.onAudioStats = { [weak self] in self?.audioStats = $0 }
         self.kyber = kyber
         try kyber.connect()
