@@ -6,6 +6,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 ## 0.2.1
 
 - Manette : elle ne répondait plus après une reconnexion de Kyber (par exemple quand l'écran virtuel est recréé). L'app ne garde plus qu'une seule chaîne d'entrées à la fois.
+- App Mac : après un redémarrage de Kyber sur l'ordinateur, la session reprend sur l'écran virtuel au lieu de se couper (l'app le redemande à la console). Le panneau des mesures ne fait plus chuter la fluidité de l'image (plus de verre dépoli recalculé à chaque image).
 - Mode jeu : le pointeur de l'ordinateur (menus, inventaires) est dessiné par l'app à sa vraie place. L'ordinateur transmet maintenant aussi les déplacements du pointeur.
 - AV1 décodé par l'app, choix de l'écran de l'ordinateur dans la barre (sans écran virtuel).
 - Console : aperçu de l'écran de l'ordinateur et nom de son système (« Windows 11 Pro 24H2 ») pour l'accueil des apps ; le système est aussi affiché au tableau de bord.

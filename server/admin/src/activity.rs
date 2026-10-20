@@ -166,6 +166,16 @@ impl Activity {
             ..Default::default()
         });
         let kind = info.kind.clone().unwrap_or_else(|| "other".into());
+        // Même appareil déjà en session : il redemande son écran après un
+        // redémarrage de Kyber. La session continue.
+        if let Some(live) = s.live.as_mut().filter(|l| l.device_id == info.id) {
+            live.last_beat = now;
+            if mode.is_some() {
+                live.mode = mode;
+            }
+            live.profile = profile.or(live.profile.take());
+            return;
+        }
         match s.stored.devices.iter_mut().find(|d| d.id == info.id) {
             Some(d) => {
                 d.name = info.name.clone();

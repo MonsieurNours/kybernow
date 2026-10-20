@@ -195,14 +195,21 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         )
     }
 
-    /// Signal de vie, avec la latence du moment. Vrai si la console demande
-    /// la fin de la session (bouton « Mettre fin à la session »).
-    public func heartbeat(latencyMs: Double? = nil, profile: String? = nil) async -> Bool {
+    /// Réponse au signal de vie.
+    public struct Beat: Sendable {
+        /// La console demande la fin de la session (bouton « Mettre fin à la session »).
+        public let end: Bool
+        /// L'écran virtuel est en place (nil : console injoignable).
+        public let displayActive: Bool?
+    }
+
+    /// Signal de vie, avec la latence du moment.
+    public func heartbeat(latencyMs: Double? = nil, profile: String? = nil) async -> Beat {
         var body: [String: Any] = [:]
         if let latencyMs { body["latency_ms"] = (latencyMs * 10).rounded() / 10 }
         if let profile { body["profile"] = profile }
         let json = try? await call("POST", "api/stream/heartbeat", body: body)
-        return json?["end"] as? Bool ?? false
+        return Beat(end: json?["end"] as? Bool ?? false, displayActive: json?["active"] as? Bool)
     }
 
     /// Fin de session : la console retire l'écran virtuel et rétablit le son.

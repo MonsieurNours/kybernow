@@ -83,6 +83,11 @@ final class SessionController: NSObject, ObservableObject {
     /// Dernière reconnexion de Kyber, et nouvel essai déjà fait après elle.
     private var lastReconnect: Date?
     private var retriedAfterReconnect = false
+    /// Écran et son demandés à la console (redemandés si l'écran virtuel disparaît).
+    private var requested: (width: Int, height: Int, refresh: Int, channels: Int)?
+    /// Écran virtuel redemandé à la console, et dernière demande.
+    private var restoring: Task<Void, Never>?
+    private var lastRestore = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
     enum Hint: Equatable { case commands, mouse, fallback(String) }
@@ -312,6 +317,7 @@ final class SessionController: NSObject, ObservableObject {
             do {
                 phase = .preparing
                 let channels = settings.audio.channels
+                requested = (mode.width, mode.height, mode.refresh, channels)
                 KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
                 let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel)
                 prepared = result
@@ -412,13 +418,14 @@ final class SessionController: NSObject, ObservableObject {
                 self.window?.makeFirstResponder(self.streamView)
             }
         case let .streamingFailed(reason), let .pipelineError(reason):
-            // Juste après une reconnexion, l'ordinateur a pu recréer son écran
-            // virtuel : on retente une fois sur la liste d'écrans à jour.
-            if let reconnect = lastReconnect, Date().timeIntervalSince(reconnect) < 15, !retriedAfterReconnect {
+            // Juste après une reconnexion, l'écran virtuel a pu disparaître
+            // (Kyber redémarré) : on le redemande, puis on retente une fois.
+            if restoring != nil {
+                KyberLog.app.notice("image refusée pendant que l'écran virtuel revient : on attend")
+            } else if let reconnect = lastReconnect, Date().timeIntervalSince(reconnect) < 15, !retriedAfterReconnect {
                 retriedAfterReconnect = true
                 KyberLog.app.notice("image refusée après la reconnexion : nouvel essai sur l'écran à jour")
-                streaming = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.chooseDisplay() }
+                restoreScreen()
             } else {
                 fail(reason)
             }
@@ -431,11 +438,9 @@ final class SessionController: NSObject, ObservableObject {
             lastReconnect = Date()
             retriedAfterReconnect = false
             if restart {
-                // L'ordinateur annonce sa liste d'écrans juste après : on la
-                // laisse arriver (écran virtuel recréé sous un autre numéro),
-                // puis chooseDisplay attend s'il en reste plusieurs.
-                streaming = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.chooseDisplay() }
+                // Kyber a redémarré sur l'ordinateur : l'écran virtuel a pu
+                // partir avec lui. On le redemande à la console avant l'image.
+                restoreScreen()
             } else if streamingFallback != fallback {
                 // Repli décidé pendant la coupure : Kyber a relancé l'ancien flux.
                 restartStreaming()
@@ -447,6 +452,41 @@ final class SessionController: NSObject, ObservableObject {
         case .streamingStopped:
             break
         }
+    }
+
+    /// Redemande l'écran virtuel à la console (sans effet s'il est toujours là),
+    /// attend que Kyber l'annonce, puis relance l'image dessus. Sans écran
+    /// virtuel, relance seulement l'image sur la liste d'écrans à jour.
+    private func restoreScreen() {
+        guard restoring == nil else { return }
+        streaming = nil
+        lastRestore = Date()
+        restoring = Task { [weak self] in
+            guard let self else { return }
+            defer { self.restoring = nil }
+            if self.prepared?.virtualDisplay == true, let console = self.console, let r = self.requested {
+                KyberLog.app.notice("écran virtuel redemandé à la console")
+                do {
+                    _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel)
+                } catch {
+                    KyberLog.app.error("écran virtuel pas rétabli : \(error.localizedDescription, privacy: .public)")
+                }
+                // Kyber annonce l'écran quelques instants après la console.
+                for _ in 0..<30 where !self.virtualDisplayAnnounced {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            } else {
+                try? await Task.sleep(for: .milliseconds(600))
+            }
+            guard !Task.isCancelled, self.kyber != nil, self.phase != .ending, self.phase != .ended else { return }
+            self.restoring = nil
+            self.chooseDisplay()
+        }
+    }
+
+    /// Kyber n'annonce plus que l'écran virtuel (les écrans physiques éteints).
+    private var virtualDisplayAnnounced: Bool {
+        displays.count == 1 && displays[0].width == streamMode.width && displays[0].height == streamMode.height
     }
 
     /// Avec l'écran virtuel, Kyber doit finir par n'annoncer qu'un écran :
@@ -567,11 +607,18 @@ final class SessionController: NSObject, ObservableObject {
                 guard let self else { return }
                 let latency = self.stats?.latencyMs
                 let profile = self.host.settings.profileLabel
+                guard let beat = await self.console?.heartbeat(latencyMs: latency, profile: profile) else { continue }
                 // La console a demandé la fin de la session.
-                if await self.console?.heartbeat(latencyMs: latency, profile: profile) == true {
+                if beat.end {
                     KyberLog.app.notice("fin de session demandée par la console")
                     self.end()
                     return
+                }
+                // L'écran virtuel a disparu (console redémarrée, par exemple) : on le redemande.
+                if beat.displayActive == false, self.prepared?.virtualDisplay == true, self.phase == .streaming,
+                   self.restoring == nil, Date().timeIntervalSince(self.lastRestore) > 30 {
+                    KyberLog.app.notice("la console n'a plus d'écran virtuel")
+                    self.restoreScreen()
                 }
             }
         }
