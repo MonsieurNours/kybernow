@@ -1,0 +1,43 @@
+From 6b09bafcf7b75f5c9c8e121b9f196ba32d630547 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:22:34 +0200
+Subject: [PATCH 4/5] dxgi: stop with an error when the captured output is
+ unplugged
+
+When the captured display goes away (monitor unplugged, virtual display
+removed), AcquireNextFrame() reports DXGI_ERROR_ACCESS_LOST and the
+capture thread tries to duplicate the output again every 100 ms. On a
+removed output this never succeeds: the stream froze silently, with no
+event for the application, and the capture thread kept running.
+
+Once the entry has been marked unplugged by the output scan, stop the
+capture with AVERROR(ENODEV) instead: the existing error path dispatches
+SP_EVENT_ON_ERROR, so the application can tell the client and restart
+the stream on another display. A display that comes back before the
+scan notices its removal is still picked up again as before.
+---
+ src/iosys_dxgi.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/src/iosys_dxgi.c b/src/iosys_dxgi.c
+index 51a7322..03776c2 100644
+--- a/src/iosys_dxgi.c
++++ b/src/iosys_dxgi.c
+@@ -915,6 +915,14 @@ static void *dxgi_capture_thread(void *s)
+         if (!priv->output_duplication) {
+             err = start_capture(priv, ctx, dxgi_output);
+             if (err < 0) {
++                /* The output is gone (display unplugged, virtual display
++                 * removed): duplication can never start again. Stop with an
++                 * error rather than retrying forever on a frozen stream. */
++                if (entry->is_unplugged) {
++                    sp_log(entry, SP_LOG_ERROR, "Output unplugged, stopping capture\n");
++                    err = AVERROR(ENODEV);
++                    goto fail;
++                }
+                 av_usleep(100000);
+                 continue;
+             }
+-- 
+2.54.0 (Apple Git-157)
+

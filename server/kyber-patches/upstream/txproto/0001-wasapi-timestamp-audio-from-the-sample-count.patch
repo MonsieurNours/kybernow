@@ -1,0 +1,107 @@
+From 9682739cbae6edcaf990f781cd0b7dc958023204 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:20:40 +0200
+Subject: [PATCH 1/5] wasapi: timestamp audio from the sample count
+
+Each packet was stamped with av_gettime_relative() at the time
+IAudioCaptureClient_GetBuffer() returned it. Packets read in a burst
+(after a scheduling delay, or several per wake-up) got almost the same
+timestamp, so audio went backward in time for the encoder and the
+player ("Queue input is backward in time"), and the sound was choppy.
+
+Timestamp packets from the number of samples captured since the last
+synchronisation point instead, and resynchronise on the capture clock
+reported by WASAPI (u64QPCPosition, the same QueryPerformanceCounter
+clock as av_gettime_relative()) at the first packet, on a data
+discontinuity, or when the two drift apart by more than 40 ms. The
+wall clock is only used when WASAPI reports no valid position
+(AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR).
+
+Also send zeros for packets flagged AUDCLNT_BUFFERFLAGS_SILENT: their
+buffer content is undefined.
+---
+ src/iosys_wasapi.c | 36 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/src/iosys_wasapi.c b/src/iosys_wasapi.c
+index f75d405..549fae6 100644
+--- a/src/iosys_wasapi.c
++++ b/src/iosys_wasapi.c
+@@ -19,6 +19,7 @@
+ #define COBJMACROS
+ #define CONST_VTABLE
+ 
++#include <stdlib.h>
+ #include <initguid.h>
+ #include <mmdeviceapi.h>
+ #include <functiondiscoverykeys_devpkey.h>
+@@ -27,6 +28,7 @@
+ 
+ #include <libavutil/channel_layout.h>
+ #include <libavutil/crc.h>
++#include <libavutil/mathematics.h>
+ #include <libavutil/time.h>
+ 
+ #include "iosys_common.h"
+@@ -58,8 +60,19 @@ typedef struct WasapiCapture {
+     int pool_entry_size;
+ 
+     int dropped_frames;
++
++    /* Timestamps follow the sample count, resynchronised on the capture
++     * clock when they drift from it. The wall-clock time at GetBuffer() gave
++     * packets read in a burst almost the same timestamp, which went
++     * backward in time for the encoder and the player. */
++    int64_t sync_pts;     /* us, timestamp of the first sample since the last sync */
++    int64_t sync_samples; /* samples captured since the last sync */
++    int synced;
+ } WasapiCapture;
+ 
++/* Largest drift from the capture clock before resynchronising. */
++#define WASAPI_RESYNC_US 40000
++
+ static uint32_t gen_identifier(const LPWSTR s)
+ {
+     const AVCRC *table = av_crc_get_table(AV_CRC_32_IEEE);
+@@ -296,7 +309,22 @@ static int handle_samples(IOSysEntry *entry, IAudioCaptureClient *capture)
+         f->nb_samples       = frames;
+         f->opaque_ref       = av_buffer_allocz(sizeof(FormatExtraData));
+ 
+-        f->pts              = av_gettime_relative() - priv->epoch;
++        /* u64QPCPosition is in 100 ns units, on the same clock as
++         * av_gettime_relative() (QueryPerformanceCounter). */
++        int qpc_valid = qpc && !(flags & AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);
++        int64_t captured = qpc_valid ? (int64_t)(qpc / 10) - priv->epoch
++                                     : av_gettime_relative() - priv->epoch;
++        int64_t expected = priv->sync_pts +
++                           av_rescale(priv->sync_samples, 1000000, entry->sample_rate);
++        if (!priv->synced || (flags & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) ||
++            llabs(captured - expected) > WASAPI_RESYNC_US) {
++            priv->sync_pts = captured;
++            priv->sync_samples = 0;
++            priv->synced = 1;
++            expected = captured;
++        }
++        f->pts = expected;
++        priv->sync_samples += frames;
+ 
+         FormatExtraData *fe = (FormatExtraData *)f->opaque_ref->data;
+         fe->time_base       = av_make_q(1, 1000000);
+@@ -321,7 +349,11 @@ static int handle_samples(IOSysEntry *entry, IAudioCaptureClient *capture)
+         f->data[0] = f->buf[0]->data;
+         f->extended_data = f->data;
+ 
+-        memcpy(f->data[0], buf, frames * priv->sample_size);
++        /* The buffer of a silent packet is undefined: send zeros. */
++        if (flags & AUDCLNT_BUFFERFLAGS_SILENT)
++            memset(f->data[0], 0, frames * priv->sample_size);
++        else
++            memcpy(f->data[0], buf, frames * priv->sample_size);
+ 
+         IAudioCaptureClient_ReleaseBuffer(capture, frames);
+ 
+
+base-commit: 7f84b9e76bab936f57f1c184e65fb2118a020f06
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,45 @@
+From 83f470427a6533eb5a44f78334e27e8d946b13b8 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:21:10 +0200
+Subject: [PATCH 2/5] dxgi_cursor: keep the pointer update when its shape
+ cannot be read
+
+When IDXGIOutputDuplication_GetFramePointerShape() failed,
+sp_dxgi_cursor_handler_send() returned without queueing the update and
+without releasing its buffer: the position and visibility change was
+lost, and the buffer leaked.
+
+Queue the update without the shape instead (the consumer keeps the last
+shape it has), and log the failure. Also log when the cursor queue is
+full and an update is dropped.
+---
+ src/dxgi_cursor.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/dxgi_cursor.c b/src/dxgi_cursor.c
+index 213770c..0a6a652 100644
+--- a/src/dxgi_cursor.c
++++ b/src/dxgi_cursor.c
+@@ -658,12 +658,17 @@ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
+                 &required_size,
+                 &dxgi_cursor->shape_info);
+             if (FAILED(hr)) {
+-                return 0;
++                /* Keep the position and visibility update, without the
++                 * unusable shape. */
++                sp_log(ctx, SP_LOG_WARN, "GetFramePointerShape() failed: %lX\n", hr);
++                av_freep(&dxgi_cursor->data);
++                dxgi_cursor->size = 0;
+             }
+         }
+     }
+ 
+-    sp_bufferref_fifo_push(ctx->fifo, ref);
++    if (sp_bufferref_fifo_push(ctx->fifo, ref) < 0)
++        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
+     SetEvent(ctx->fifo_event);
+ 
+     av_buffer_unref(&ref);
+-- 
+2.54.0 (Apple Git-157)
+

@@ -59,4 +59,17 @@ The setting exists to decide by measurement between the deep queue (nothing lost
 
 ## To report to the Kyber team
 
-Server patches 0001 to 0009 fix general defects or limits: fixed Opus bitrate, cursor flicker, WASAPI timestamps, sound latency, no keyframe on request from a client that lost packets, pointer position missing while it moves, zero audio frame size with libavconv. They could be proposed as they are. The client patches are API extensions, with no effect if the app does not use them.
+`server/kyber-patches/upstream/` holds a series ready to send, in `git format-patch` format (one patch per subject, English messages, nothing about KyberNow in the code), to apply with `git am` on Kyber 0.29.0, one folder per repository (txproto, libavconv, kymedia, kyctl, kynput, kyber-desktop). The `README.md` (English) is the cover letter. Nothing has been sent.
+
+| Subject | Upstream patches | Original KyberNow patches |
+|---|---|---|
+| WASAPI timestamps, silences as zeros (bug) | txproto 0001, libavconv 0001 | 0003, 0009 (without the channel count), plus `AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR` |
+| Audio frame size of libavconv (bug) | kymedia 0001 | part of 0008 |
+| Channel layout refused by libopus: 5.1 and 7.1 brought to the Vorbis order, stereo otherwise (bug) | txproto 0005 | new, modelled on 0008 |
+| Removed display: capture stops with `SP_EVENT_ON_ERROR` instead of freezing (bug) | txproto 0004 | new (audit §15) |
+| Unreadable pointer shape: update kept, memory freed (bug) | txproto 0002 | part of 0002 |
+| Pointer hide delay, as an option (`cursor_hide_delay_ms`, 0 by default) | txproto 0003, kymedia 0002, kyber-desktop 0001 | 0002 (fixed 250 ms delay) |
+| `POST /force_idr`, at most one per session every 150 ms | kyctl 0001 | 0005 |
+| kynputserver's `build.rs` and cross-compilation (bug) | kynput 0001 | 0012 |
+
+Before sending, review: the commits' identity (`From:` = git's on this Mac), the letter's "Testing" paragraph (what really ran on the PC), and the three new patches, never run on the hardware (removed display, channel layout, delay as an option). Left out of the series, mentioned in the letter: the send queue (0007, 0010, awaiting measurement), the position-only pointer (0006, 0008, 0011: the official client must first keep the shape when a packet carries none), the web engine (0013 to 0015) and the Opus settings (0001, 0004). The client patches remain API extensions, with no effect if the app does not use them.

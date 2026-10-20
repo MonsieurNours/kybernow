@@ -1,0 +1,201 @@
+From 92352802d2a7811435eab5829e33a362bdddac34 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:22:12 +0200
+Subject: [PATCH 3/5] dxgi: add a cursor_hide_delay option
+
+Windows hides the pointer for a few frames on many occasions: at each
+key press while "Hide pointer while typing" is on, when the shape
+changes, or all the time when no mouse is plugged in. Every flip went to
+the clients, which made their pointer blink and, for clients that
+switch to relative mouse mode while the host cursor is hidden (desktop
+client, web client), toggled the mouse mode back and forth.
+
+Add a "cursor_hide_delay" option to the DXGI capture (milliseconds,
+0 by default): a hide is only forwarded once the pointer has stayed
+hidden that long; showing it again within the delay cancels it. With
+the default, hides are forwarded right away as before.
+
+While here:
+- the "unexpected value" log of the cursor sender printed the previous
+  error code instead of the WaitForSingleObject() result;
+- the result of sp_dxgi_cursor_handler_init() was compared before being
+  stored (err = f() < 0), so a failure was never reported.
+---
+ src/dxgi_cursor.c | 64 +++++++++++++++++++++++++++++++++++++++--------
+ src/dxgi_cursor.h |  5 +++-
+ src/iosys_dxgi.c  | 10 +++++++-
+ 3 files changed, 67 insertions(+), 12 deletions(-)
+
+diff --git a/src/dxgi_cursor.c b/src/dxgi_cursor.c
+index 0a6a652..0254230 100644
+--- a/src/dxgi_cursor.c
++++ b/src/dxgi_cursor.c
+@@ -80,6 +80,14 @@ struct DxgiCursorHandler {
+     int first_frame;
+     uint8_t visible;
+     ArgbCursor cursor;
++
++    /* A hide is only sent once the cursor has stayed hidden for hide_delay.
++     * Windows hides the pointer for a few frames on many occasions (typing,
++     * shape changes): forwarding each flip makes clients blink, and switch
++     * to relative mouse mode and back. */
++    int64_t hide_delay;    /* us, 0 = hides are sent right away */
++    uint8_t sent_visible;  /* visibility last sent to the consumer */
++    int64_t hide_deadline; /* av_gettime_relative(), 0 = no pending hide */
+ };
+ 
+ static void dxgi_cursor_free(void *opaque, uint8_t *data)
+@@ -472,17 +480,38 @@ static int process_pending_cursors(DxgiCursorHandler *ctx)
+     return updated;
+ }
+ 
++static int send_cursor_state(DxgiCursorHandler *ctx)
++{
++    int err = send_cursor(ctx);
++    if (err >= 0)
++        ctx->sent_visible = ctx->visible;
++    return err;
++}
++
+ static int handle_cursor_received(DxgiCursorHandler *ctx)
+ {
+     int updated = process_pending_cursors(ctx);
+-    if (updated) {
+-        int err = send_cursor(ctx);
+-        if (err < 0) {
+-            return err;
+-        }
++    if (!updated)
++        return 0;
++
++    if (ctx->hide_delay && !ctx->visible && ctx->sent_visible) {
++        /* Hidden: wait before telling the consumer, it may come back. */
++        if (!ctx->hide_deadline)
++            ctx->hide_deadline = av_gettime_relative() + ctx->hide_delay;
++        return 0;
+     }
+ 
+-    return 0;
++    ctx->hide_deadline = 0;
++    return send_cursor_state(ctx);
++}
++
++/* Milliseconds to wait for the next cursor update. */
++static DWORD next_wait_ms(DxgiCursorHandler *ctx)
++{
++    if (!ctx->hide_deadline)
++        return INFINITE;
++    int64_t left = ctx->hide_deadline - av_gettime_relative();
++    return left <= 0 ? 0 : (DWORD)((left + 999) / 1000);
+ }
+ 
+ static int handle_connecting(DxgiCursorHandler *ctx)
+@@ -514,13 +543,14 @@ static int handle_connected(DxgiCursorHandler *ctx)
+      * would not see the cursor bitmap until the next shape change (e.g.
+      * Alt+Tab). */
+     process_pending_cursors(ctx);
+-    err = send_cursor(ctx);
++    ctx->hide_deadline = 0;
++    err = send_cursor_state(ctx);
+     if (err < 0) {
+         return err;
+     }
+ 
+     while (!atomic_load(&ctx->quit)) {
+-        DWORD wait_err = WaitForSingleObject(ctx->fifo_event, INFINITE);
++        DWORD wait_err = WaitForSingleObject(ctx->fifo_event, next_wait_ms(ctx));
+ 
+         switch (wait_err) {
+             case WAIT_OBJECT_0:
+@@ -539,9 +569,21 @@ static int handle_connected(DxgiCursorHandler *ctx)
+                 return AVERROR_EXTERNAL;
+ 
+             case WAIT_TIMEOUT:
++                if (ctx->hide_deadline) {
++                    /* Still hidden after the delay: tell the consumer. */
++                    ctx->hide_deadline = 0;
++                    if (!ctx->visible) {
++                        err = send_cursor_state(ctx);
++                        if (err < 0)
++                            return err;
++                    }
++                    break;
++                }
++                /* fall through */
+             case WAIT_ABANDONED:
+             default:
+-                sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);
++                sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %lu\n",
++                       wait_err);
+                 break;
+         }
+     }
+@@ -573,11 +615,13 @@ static void *sender_thread(void *arg)
+     return NULL;
+ }
+ 
+-int sp_dxgi_cursor_handler_init(DxgiCursorHandler **out_ctx, uint32_t identifier)
++int sp_dxgi_cursor_handler_init(DxgiCursorHandler **out_ctx, uint32_t identifier,
++                                int hide_delay_ms)
+ {
+     DxgiCursorHandler *ctx = av_mallocz(sizeof(*ctx));
+ 
+     ctx->identifier = identifier;
++    ctx->hide_delay = hide_delay_ms > 0 ? hide_delay_ms * INT64_C(1000) : 0;
+     ctx->pipe_handle = INVALID_HANDLE_VALUE;
+     ctx->quit = ATOMIC_VAR_INIT(0);
+     ctx->first_frame = 1;
+diff --git a/src/dxgi_cursor.h b/src/dxgi_cursor.h
+index 164bea5..ffdc4c6 100644
+--- a/src/dxgi_cursor.h
++++ b/src/dxgi_cursor.h
+@@ -22,7 +22,10 @@
+ 
+ typedef struct DxgiCursorHandler DxgiCursorHandler;
+ 
+-int sp_dxgi_cursor_handler_init(DxgiCursorHandler **ctx, uint32_t identifier);
++/* hide_delay_ms: a hide is only forwarded once the cursor has stayed hidden
++ * that long (0 forwards it right away). */
++int sp_dxgi_cursor_handler_init(DxgiCursorHandler **ctx, uint32_t identifier,
++                                int hide_delay_ms);
+ void sp_dxgi_cursor_handler_uninit(DxgiCursorHandler **ctx);
+ 
+ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
+diff --git a/src/iosys_dxgi.c b/src/iosys_dxgi.c
+index ba86d3a..51a7322 100644
+--- a/src/iosys_dxgi.c
++++ b/src/iosys_dxgi.c
+@@ -125,6 +125,7 @@ typedef struct DxgiCapture {
+     HDESK current_desk;
+     IDXGIOutputDuplication *output_duplication;
+     DxgiCursorHandler *cursor_sink;
++    int cursor_hide_delay; /* ms, "cursor_hide_delay" option */
+ 
+     int64_t epoch;
+ 
+@@ -895,7 +896,8 @@ static void *dxgi_capture_thread(void *s)
+         goto fail;
+     }
+ 
+-    err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier) < 0;
++    err = sp_dxgi_cursor_handler_init(&priv->cursor_sink, entry->identifier,
++                                      priv->cursor_hide_delay);
+     if (err < 0) {
+         sp_log(ctx, SP_LOG_ERROR, "sp_dxgi_cursor_handler_init() failed: %d\n", err);
+         goto fail;
+@@ -1149,6 +1151,12 @@ static int dxgi_init_io(AVBufferRef *ctx_ref, AVBufferRef *entry,
+     cap_priv->height = -1;
+     cap_priv->quit = ATOMIC_VAR_INIT(0);
+ 
++    /* Milliseconds a hidden cursor must stay hidden before the hide is
++     * forwarded, 0 (default) to forward it right away. */
++    AVDictionaryEntry *hide_delay = av_dict_get(opts, "cursor_hide_delay", NULL, 0);
++    if (hide_delay)
++        cap_priv->cursor_hide_delay = av_clip(strtol(hide_delay->value, NULL, 10), 0, 10000);
++
+     iosys_entry->ctrl = dxgi_ioctx_ctrl;
+     iosys_entry->events = sp_bufferlist_new();
+ 
+-- 
+2.54.0 (Apple Git-157)
+

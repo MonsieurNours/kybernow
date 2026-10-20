@@ -1,0 +1,35 @@
+From 2e665727dc9982e9438a614c94a556b70aec2ace Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:27:44 +0200
+Subject: [PATCH] kynputserver: only build the macOS helper for a macOS target
+
+The build script compiled src/macos_prelogin.c under
+#[cfg(target_os = "macos")], which is the platform the build script
+runs on, not the target. Cross-compiling for Windows from a Mac then
+assembled the macOS code with the MinGW toolchain and failed.
+
+Also check CARGO_CFG_TARGET_OS, so the helper is only built when the
+target is macOS.
+---
+ kynputserver/build.rs | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/kynputserver/build.rs b/kynputserver/build.rs
+index 13b2761..307a464 100644
+--- a/kynputserver/build.rs
++++ b/kynputserver/build.rs
+@@ -1,6 +1,8 @@
+ fn main() {
++    // The script runs on the build machine: also check the target, so that a
++    // cross build from macOS (to Windows) does not compile the macOS helper.
+     #[cfg(target_os = "macos")]
+-    {
++    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+         cc::Build::new()
+             .file("src/macos_prelogin.c")
+             .compile("macos_prelogin");
+
+base-commit: 729244364151dfbb4e17beec3c361fe83349afb5
+-- 
+2.54.0 (Apple Git-157)
+

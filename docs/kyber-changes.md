@@ -59,4 +59,17 @@ Le réglage existe pour trancher par la mesure entre la file profonde (rien perd
 
 ## Pour remonter à l'équipe Kyber
 
-Les correctifs serveur 0001 à 0009 corrigent des défauts ou des limites générales : débit Opus fixe, clignotement du curseur, horodatage WASAPI, latence du son, aucune image clé à la demande d'un client qui a perdu des paquets, position du pointeur absente pendant ses déplacements, taille de trame audio nulle avec libavconv. Ils pourraient être proposés tels quels. Les correctifs client sont des extensions d'API, sans effet si l'app ne les utilise pas.
+`server/kyber-patches/upstream/` contient une série prête à envoyer, au format `git format-patch` (un correctif par sujet, messages en anglais, rien sur KyberNow dans le code), à appliquer avec `git am` sur Kyber 0.29.0, un dossier par dépôt (txproto, libavconv, kymedia, kyctl, kynput, kyber-desktop). Le `README.md` (anglais) sert de lettre d'accompagnement. Rien n'est envoyé.
+
+| Sujet | Correctifs amont | Correctifs KyberNow d'origine |
+|---|---|---|
+| Horodatage WASAPI, silences à zéro (bug) | txproto 0001, libavconv 0001 | 0003, 0009 (sans le nombre de voies), plus `AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR` |
+| Taille de trame audio de libavconv (bug) | kymedia 0001 | partie de 0008 |
+| Disposition des voies refusée par libopus : 5.1 et 7.1 ramenés à l'ordre Vorbis, sinon stéréo (bug) | txproto 0005 | nouveau, sur le modèle de 0008 |
+| Écran retiré : la capture s'arrête avec `SP_EVENT_ON_ERROR` au lieu de geler (bug) | txproto 0004 | nouveau (§15 de l'audit) |
+| Forme de pointeur illisible : mise à jour gardée, mémoire libérée (bug) | txproto 0002 | partie de 0002 |
+| Délai de masquage du pointeur, en option (`cursor_hide_delay_ms`, 0 par défaut) | txproto 0003, kymedia 0002, kyber-desktop 0001 | 0002 (délai fixe de 250 ms) |
+| `POST /force_idr`, une par session toutes les 150 ms au plus | kyctl 0001 | 0005 |
+| `build.rs` de kynputserver et compilation croisée (bug) | kynput 0001 | 0012 |
+
+Avant d'envoyer, relire : l'identité des commits (`From:` = celle de git sur ce Mac), le paragraphe « Testing » de la lettre (ce qui a vraiment tourné sur le PC), et les trois correctifs nouveaux, jamais lancés sur le matériel (écran retiré, disposition des voies, délai en option). Restent hors de la série, signalés dans la lettre : la file d'envoi (0007, 0010, en attente de mesure), le pointeur en positions seules (0006, 0008, 0011 : il faut d'abord que le client officiel garde la forme quand un paquet n'en porte pas), le moteur web (0013 à 0015) et les réglages Opus (0001, 0004). Les correctifs client restent des extensions d'API, sans effet si l'app ne les utilise pas.

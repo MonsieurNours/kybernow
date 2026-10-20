@@ -1,0 +1,88 @@
+From 407109d9c0f98f40492cf211f6599f84f5027d11 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:23:27 +0200
+Subject: [PATCH 5/5] encode: fall back to a channel layout libopus takes
+
+libopus only takes one channel layout per channel count, in the Vorbis
+order (channel mapping family 1). The captured layout was passed as is,
+so a WASAPI output in 5.1 with side channels (KSAUDIO_SPEAKER_5POINT1_SURROUND,
+"5.1 Surround" in Windows), 7.1 with other channels than the Vorbis 7.1,
+quadraphonic with side channels or 2.1 made avcodec_open2() fail with
+"Invalid channel layout": no sound at all.
+
+When encoding with libopus, keep a layout it takes, resample other 6 and
+8 channel layouts to its 5.1 and 7.1 (swresample moves the side
+channels to the back), and downmix anything else to stereo. Layouts of
+unspecified order are left alone: libopus assumes the Vorbis order for
+them.
+---
+ src/encode.c | 46 ++++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+
+diff --git a/src/encode.c b/src/encode.c
+index d52336d..32ed140 100644
+--- a/src/encode.c
++++ b/src/encode.c
+@@ -79,6 +79,40 @@ static int codec_supports_format(const AVCodec *codec, enum AVPixelFormat pix_fm
+     return 0;
+ }
+ 
++/* libopus only takes one channel layout per channel count, in the Vorbis
++ * order (channel mapping family 1). Keep a layout it takes; resample other
++ * 6 and 8 channel layouts (5.1 and 7.1 with side instead of back channels)
++ * to its 5.1 and 7.1, side channels moved to the back; downmix anything else
++ * to stereo. Otherwise the encoder fails to open and there is no sound. */
++static AVChannelLayout libopus_channel_layout(const AVChannelLayout *in)
++{
++    static const AVChannelLayout vorbis[] = {
++        AV_CHANNEL_LAYOUT_MONO,
++        AV_CHANNEL_LAYOUT_STEREO,
++        AV_CHANNEL_LAYOUT_SURROUND,
++        AV_CHANNEL_LAYOUT_QUAD,
++        AV_CHANNEL_LAYOUT_5POINT0_BACK,
++        AV_CHANNEL_LAYOUT_5POINT1_BACK,
++        AV_CHANNEL_LAYOUT_MASK(7, AV_CH_LAYOUT_5POINT1 | AV_CH_BACK_CENTER),
++        AV_CHANNEL_LAYOUT_7POINT1,
++    };
++    const int nb_vorbis = sizeof(vorbis) / sizeof(vorbis[0]);
++    int nb_channels = in->nb_channels;
++
++    /* Unknown order: libopus assumes the Vorbis one. */
++    if (in->order == AV_CHANNEL_ORDER_UNSPEC)
++        return *in;
++
++    if (nb_channels >= 1 && nb_channels <= nb_vorbis &&
++        !av_channel_layout_compare(in, &vorbis[nb_channels - 1]))
++        return *in;
++
++    if (nb_channels == 6 || nb_channels == 8)
++        return vorbis[nb_channels - 1];
++
++    return (AVChannelLayout)AV_CHANNEL_LAYOUT_STEREO;
++}
++
+ static int init_avctx(EncodingContext *ctx, AVFrame *conf)
+ {
+     FormatExtraData *fe = (FormatExtraData *)conf->opaque_ref->data;
+@@ -152,6 +186,18 @@ static int init_avctx(EncodingContext *ctx, AVFrame *conf)
+             ctx->avctx->ch_layout = pick_codec_channel_layout(ctx->codec, ctx->ch_layout);
+         else
+             ctx->avctx->ch_layout = pick_codec_channel_layout(ctx->codec, conf->ch_layout);
++
++        if (!strcmp(ctx->codec->name, "libopus")) {
++            AVChannelLayout layout = libopus_channel_layout(&ctx->avctx->ch_layout);
++            if (av_channel_layout_compare(&layout, &ctx->avctx->ch_layout)) {
++                char in[64], out[64];
++                av_channel_layout_describe(&ctx->avctx->ch_layout, in, sizeof(in));
++                av_channel_layout_describe(&layout, out, sizeof(out));
++                sp_log(ctx, SP_LOG_INFO, "libopus does not take the %s layout, encoding %s\n",
++                       in, out);
++                ctx->avctx->ch_layout = layout;
++            }
++        }
+     }
+ 
+     if (ctx->need_global_header)
+-- 
+2.54.0 (Apple Git-157)
+
