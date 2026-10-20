@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.2.6
 
 - libavconv capture engine: the pointer follows the mouse again on displays above 60 Hz (it stayed frozen while the mouse moved), and keeps its shape when Kyber's input service restarts.
+- Keyframes requested by the apps after a loss: at most one per session every 150 ms, so a network losing many packets does not weigh down the image of every shared screen.
 
 ## 0.2.5
 

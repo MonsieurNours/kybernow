@@ -8,6 +8,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 ## 0.2.6
 
 - Moteur de capture libavconv : le pointeur suit de nouveau la souris sur les écrans à plus de 60 Hz (il restait figé tant qu'elle bougeait), et garde sa forme quand le service d'entrées de Kyber redémarre.
+- Images clés redemandées par les apps après une perte : une par session toutes les 150 ms au plus, pour qu'un réseau qui perd beaucoup de paquets n'alourdisse pas l'image de tous les écrans partagés.
 
 ## 0.2.5
 
