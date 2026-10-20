@@ -14,6 +14,9 @@ export const hasWebTransport = typeof (globalThis as any).WebTransport === 'func
  * vérifie pas un certificat par son empreinte, l'image passe par WebSocket. */
 export const isWebKit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\/|OPR\//.test(navigator.userAgent)
 
+/** Firefox : image par WebSocket et en H.264 par défaut (`plan.ts`). */
+export const isFirefox = /Firefox\//.test(navigator.userAgent)
+
 export const isIsolated = (globalThis as any).crossOriginIsolated === true
 export const hasKeyboardLock = typeof (navigator as any).keyboard?.lock === 'function'
 export const canFullscreen = typeof document.documentElement.requestFullscreen === 'function'

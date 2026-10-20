@@ -12,6 +12,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web : quitter la fenêtre (Alt+Tab, ⌘Tab, autre onglet) ou rendre la souris relâche sur l'ordinateur les touches et les boutons tenus : plus de Maj, d'Alt ou de clic collés.
 - Client web : la session tient dans un onglet masqué (la console ne la croit plus terminée au bout de 30 s), et une connexion à la console expirée est annoncée clairement au lieu d'une reconnexion qui échoue.
 - Client web : la page ne bascule plus à tort de WebTransport vers WebSocket pendant la préparation de l'écran, et ferme l'ancienne connexion avant d'ouvrir la nouvelle (plus d'entrées en double). « Kyber ne répond pas » et « l'image n'arrive pas » ne sont plus confondus.
+- Client web : la molette marche sous Firefox, et le défilement à deux doigts en tactile avance par crans entiers. Sous Firefox, l'image passe par WebSocket, en H.264 par défaut.
 
 ## 0.2.5
 

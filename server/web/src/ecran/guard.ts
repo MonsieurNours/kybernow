@@ -5,7 +5,11 @@
 //   dans la barre de session cliquait aussi sur l'ordinateur, sous la barre) ;
 // - elle suit les touches et les boutons enfoncés, et les relâche sur
 //   l'ordinateur quand la page perd la main (autre fenêtre, onglet masqué,
-//   souris rendue) : sinon Maj, Alt ou un clic restaient tenus là-bas.
+//   souris rendue) : sinon Maj, Alt ou un clic restaient tenus là-bas ;
+// - elle remet la molette en pixels : le moteur ignore tout `deltaMode` autre
+//   que DOM_DELTA_PIXEL (Firefox compte en lignes : sa molette était muette),
+//   et sur la couche tactile, qui recouvre la toile, la molette n'atteignait
+//   pas le moteur (il l'écoute sur la toile).
 //
 // `click` et `auxclick` ne sont pas arrêtés : le moteur ne les lit pas, et les
 // arrêter en capture sur `window` couperait aussi les boutons de la page.
@@ -44,6 +48,40 @@ function onKey(e: KeyboardEvent) {
   if (!e.code) return
   if (e.type === 'keydown') keys.set(e.code, e.key)
   else keys.delete(e.code)
+}
+
+/** Pixels par ligne. Firefox compte trois lignes par cran ; le moteur divise
+ * par 120 (un cran pour Windows) : à 40 px la ligne, un cran de Firefox fait
+ * un cran sur l'ordinateur (Chrome compte 100 px par cran sous Windows). À
+ * 16 px, la taille d'une ligne de texte, il n'en ferait que 0,4. */
+const LINE_PX = 40
+
+function onWheel(e: WheelEvent) {
+  if (!e.isTrusted || !options || !options.isVideo(e.target)) return
+  const canvas = options.canvas()
+  if (!canvas) return
+  // `deltaMode` lu en premier : Firefox garde alors les lignes d'une molette
+  // (et les pixels d'un pavé tactile) au lieu d'un compte approché.
+  const mode = e.deltaMode
+  if (mode === WheelEvent.DOM_DELTA_PIXEL && e.target === canvas) return
+  const k = mode === WheelEvent.DOM_DELTA_LINE ? LINE_PX : mode === WheelEvent.DOM_DELTA_PAGE ? window.innerHeight : 1
+  e.preventDefault()
+  e.stopImmediatePropagation()
+  canvas.dispatchEvent(
+    new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: e.clientX,
+      clientY: e.clientY,
+      deltaX: e.deltaX * k,
+      deltaY: e.deltaY * k,
+      deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+      ctrlKey: e.ctrlKey,
+      shiftKey: e.shiftKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+    }),
+  )
 }
 
 const MENU_KEYS = ['MetaLeft', 'MetaRight', 'AltLeft', 'AltRight']
@@ -86,6 +124,7 @@ export function installInputGuard(o: GuardOptions) {
   window.addEventListener('mouseup', onMouseButton, true)
   window.addEventListener('keydown', onKey, true)
   window.addEventListener('keyup', onKey, true)
+  window.addEventListener('wheel', onWheel, { capture: true, passive: false })
   window.addEventListener('blur', onBlur)
   document.addEventListener('visibilitychange', onVisibility)
   document.addEventListener('pointerlockchange', onPointerLock)
@@ -96,6 +135,7 @@ export function removeInputGuard() {
   window.removeEventListener('mouseup', onMouseButton, true)
   window.removeEventListener('keydown', onKey, true)
   window.removeEventListener('keyup', onKey, true)
+  window.removeEventListener('wheel', onWheel, true)
   window.removeEventListener('blur', onBlur)
   document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('pointerlockchange', onPointerLock)

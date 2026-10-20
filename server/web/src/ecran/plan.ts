@@ -2,11 +2,11 @@
 // l'app Mac (Model.swift), bornées à ce qu'un navigateur décode bien.
 
 import type { CodecSupport, StreamSettings } from './engine'
-import { hasWebTransport, isTouch, isWebKit, type Mode } from './device'
+import { hasWebTransport, isFirefox, isTouch, isWebKit, type Mode } from './device'
 import type { Prefs } from './prefs'
 
 /** Pourquoi l'image passe par WebSocket dans ce navigateur. */
-export type WebSocketReason = 'touch' | 'webkit' | 'unsupported'
+export type WebSocketReason = 'touch' | 'webkit' | 'firefox' | 'unsupported'
 
 /**
  * Transport de l'image. WebTransport (direct, vérifié par l'empreinte du
@@ -17,9 +17,18 @@ export type WebSocketReason = 'touch' | 'webkit' | 'unsupported'
  *   rien glisser dans son flux ;
  * - dans Safari et sur iPhone et iPad : leur WebTransport ne vérifie pas un
  *   certificat par son empreinte ;
+ * - dans Firefox (avec H.264 par défaut), la combinaison retenue pour lui ;
  * - sans WebTransport.
  */
-export const websocketReason: WebSocketReason | null = !hasWebTransport ? 'unsupported' : isTouch ? 'touch' : isWebKit ? 'webkit' : null
+export const websocketReason: WebSocketReason | null = isTouch
+  ? 'touch'
+  : isWebKit
+    ? 'webkit'
+    : isFirefox
+      ? 'firefox'
+      : !hasWebTransport
+        ? 'unsupported'
+        : null
 
 export const preferredProtocol: 'kymux' | 'websocket' = websocketReason ? 'websocket' : 'kymux'
 
@@ -42,7 +51,8 @@ export interface Plan extends StreamSettings {
 export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: 'kymux' | 'websocket' = preferredProtocol): Plan {
   const hevc = codecs.find((c) => c.codec === 'hevc')
   const h264 = codecs.find((c) => c.codec === 'h264')
-  let codec: 'h264' | 'hevc' = p.codec === 'h264' ? 'h264' : p.codec === 'hevc' ? 'hevc' : hevc?.hardware ? 'hevc' : 'h264'
+  // Auto : HEVC si la carte graphique le décode, sauf dans Firefox (H.264).
+  let codec: 'h264' | 'hevc' = p.codec === 'h264' ? 'h264' : p.codec === 'hevc' ? 'hevc' : hevc?.hardware && !isFirefox ? 'hevc' : 'h264'
   if (codec === 'hevc' && !hevc) codec = 'h264'
   const support = codec === 'hevc' ? hevc : h264
   const want444 = p.profile === 'bureau'

@@ -4,7 +4,7 @@
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
   import type { Mode } from './device'
-  import { isTouch } from './device'
+  import { isFirefox, isTouch } from './device'
   import type { Plan } from './plan'
   import { MAX_MBPS, MIN_MBPS, websocketReason } from './plan'
   import type { Codec, MouseMode, Prefs, Profile, TouchMode, Transport } from './prefs'
@@ -30,9 +30,11 @@
       ? 'WebSocket sur cet appareil tactile : c’est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).'
       : websocketReason === 'webkit'
         ? 'WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).'
-        : websocketReason === 'unsupported'
-          ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
-          : 'WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.'
+        : websocketReason === 'firefox'
+          ? 'WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).'
+          : websocketReason === 'unsupported'
+            ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
+            : 'WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.'
   let dialog: HTMLElement
 
   onMount(() => {
@@ -187,7 +189,7 @@
           onchange={(v: Transport) => (prefs.transport = v)}
         />
         <div class="row">
-          <div class="text"><span>Format</span><span class="sub">Auto : HEVC quand la carte graphique de cet appareil le décode</span></div>
+          <div class="text"><span>Format</span><span class="sub">{isFirefox ? 'Auto : H.264 dans Firefox' : 'Auto : HEVC quand la carte graphique de cet appareil le décode'}</span></div>
         </div>
         <Segmented
           label="Format"

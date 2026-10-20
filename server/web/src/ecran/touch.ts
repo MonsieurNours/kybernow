@@ -13,6 +13,10 @@ const TAP_MS = 220
 const TAP_SLOP = 10
 const LONG_PRESS_MS = 550
 const TRACKPAD_SPEED = 1.8
+/** Un cran de molette pour Windows : le moteur divise les pixels par 120. */
+const WHEEL_NOTCH = 120
+/** Défilement à deux doigts : pixels de molette par pixel de doigt. */
+const SCROLL_GAIN = 2
 
 export class TouchInput {
   mode: TouchMode
@@ -132,10 +136,13 @@ export class TouchInput {
       const t = touches[0]
       const prev = this.last.get(t.identifier)
       if (prev) {
-        this.scrollAcc += prev.y - t.clientY
-        if (Math.abs(this.scrollAcc) >= 8) {
-          this.wheel(this.cursor, this.scrollAcc * 2)
-          this.scrollAcc = 0
+        // Par crans entiers : de petits pas (0,13 cran) se perdaient dans
+        // les applications qui attendent un cran complet.
+        this.scrollAcc += (prev.y - t.clientY) * SCROLL_GAIN
+        const notches = Math.trunc(this.scrollAcc / WHEEL_NOTCH)
+        if (notches) {
+          this.wheel(this.cursor, notches * WHEEL_NOTCH)
+          this.scrollAcc -= notches * WHEEL_NOTCH
         }
       }
       this.moved = true
