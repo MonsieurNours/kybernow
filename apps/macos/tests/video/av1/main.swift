@@ -26,6 +26,7 @@ func decodeAll(_ path: String) -> (frames: Int, units: Int, ms: Double, last: CV
     for (i, u) in units.enumerated() {
         u.withUnsafeBufferPointer { dec.decode($0, isConfig: false, isKey: i == 0, pts: UInt64(i)) }
     }
+    dec.flush()
     return (frames, units.count, total / Double(max(frames, 1)), last)
 }
 

@@ -204,12 +204,13 @@ struct ConnectionSettings: Codable, Hashable {
         if codec == .h264 { bitrateMbps += bitrateMbps / 2 }
     }
 
-    /// Le 4:4:4 n'est proposé que si ce Mac le décode en matériel.
+    /// Le 4:4:4 n'est proposé que si ce Mac le décode en matériel. En AV1,
+    /// les décodeurs Apple ne lisent que le profil Main (4:2:0) : un flux
+    /// 4:4:4 (profil High) ne s'ouvrait pas, toutes les images étaient perdues.
     static func decodes444(_ codec: VideoCodec) -> Bool {
         switch codec {
         case .hevc: return DecoderCapabilities.current.hevc444
-        case .av1: return DecoderCapabilities.current.av1
-        case .h264: return false
+        case .av1, .h264: return false
         }
     }
 

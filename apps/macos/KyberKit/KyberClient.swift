@@ -176,6 +176,8 @@ public final class KyberClient {
                     DispatchQueue.main.async { me.input?.networkConnected() }
                 }
                 if let e = KyberClient.unpack(event) {
+                    // Nouveau flux (démarrage, reconnexion) : les pts repartent de zéro.
+                    if case .streamingStarted = e { me.latency.reset() }
                     DispatchQueue.main.async { me.onEvent?(e) }
                 }
             },
@@ -213,7 +215,11 @@ public final class KyberClient {
 
         let protocolRef = kyclient_streaming_protocol_kymux(
             options.reliable ? KYCLIENT_KYMUX_VIDEO_PROTOCOL_RELIABLE : KYCLIENT_KYMUX_VIDEO_PROTOCOL_UNRELIABLE_FEC,
-            KYCLIENT_KYMUX_AUDIO_PROTOCOL_RELIABLE
+            // Son non fiable avec correction d'erreurs : un paquet perdu est
+            // masqué par Opus au lieu d'être retransmis (plus de retard qui
+            // s'accumule sur Wi-Fi). L'ordinateur doit annoncer la taille de
+            // ses paquets (correctif serveur 0008).
+            KYCLIENT_KYMUX_AUDIO_PROTOCOL_UNRELIABLE_FEC
         )
         defer { kyclient_streaming_protocol_unref(protocolRef) }
         var session: OpaquePointer?
@@ -234,6 +240,7 @@ public final class KyberClient {
         // sortie vers l'app doit être posée avant (sinon l'image part à VLC).
         if options.nativeVideo, options.codec != .av1 || DecoderCapabilities.current.av1, let pipeline = VideoPipeline() {
             pipeline.renderer.vsync = options.vsync
+            pipeline.renderer.paused = occluded
             latency.reset()
             pipeline.renderer.latency = latency
             pipeline.renderer.onStats = { [weak self] stats in
@@ -344,6 +351,15 @@ public final class KyberClient {
     public func setVSync(_ on: Bool) {
         video?.renderer.vsync = on
     }
+
+    /// Fenêtre occultée ou réduite : plus de rendu (le décodeur continue, les
+    /// références restent bonnes) ; le débit est à baisser à côté (`setBitrate`).
+    public func setOccluded(_ occluded: Bool) {
+        self.occluded = occluded
+        video?.renderer.paused = occluded
+    }
+
+    private var occluded = false
 
     /// Kyber peut finir de livrer un paquet après l'arrêt : le pipeline vit
     /// encore un peu, et sa mémoire n'est rendue qu'au dernier appel de Kyber

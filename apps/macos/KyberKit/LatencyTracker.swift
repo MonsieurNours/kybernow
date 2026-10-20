@@ -12,6 +12,13 @@
 // les paquets perdus (cumulés depuis le début du flux). Une image envoyée par
 // l'ordinateur qui n'est ni montrée ni remplacée par une plus récente est
 // perdue (paquets manquants, ou image refusée en attendant une image clé).
+//
+// Les mesures du serveur peuvent arriver après l'affichage de l'image (sans
+// synchro verticale surtout) : les instants d'une image montrée sans mesure
+// sont gardés une seconde, et la latence est calculée à l'arrivée de la
+// mesure. Ce qui n'a pas pu être mesuré est compté (`rejected`), et le
+// rapport images mesurées / images montrées est exposé : une médiane sur
+// peu d'images serait optimiste.
 
 import Foundation
 @_implementationOnly import CKyber
@@ -45,10 +52,23 @@ final class LatencyTracker {
         let seen: Int64
     }
 
+    /// Image montrée dont la mesure du serveur n'est pas encore arrivée (µs, CLOCK_MONOTONIC).
+    private struct Shown {
+        let received: Int64
+        let decoded: Int64
+        let at: Int64
+        let seen: Int64
+    }
+
     /// Mesures de la seconde écoulée.
     struct Second {
         var latencyMs: Double?
         var chain: ChainTimes?
+        /// Images montrées, images avec une latence mesurée, images montrées
+        /// sans mesure (du serveur) ou avec une valeur absurde.
+        var displayed = 0
+        var measured = 0
+        var rejected = 0
         /// Images envoyées par l'ordinateur jamais montrées.
         var lostFrames = 0
         /// Trous dans le flux (paquets perdus au-delà de la correction d'erreurs).
@@ -65,6 +85,9 @@ final class LatencyTracker {
     /// pts → étapes sur l'ordinateur (µs, son horloge).
     private var frames: [UInt64: Sent] = [:]
     private var order: [UInt64] = []
+    /// Images montrées en attendant la mesure du serveur (une seconde au plus).
+    private var shown: [UInt64: Shown] = [:]
+    private var shownOrder: [UInt64] = []
     /// Images déjà montrées ou remplacées : une mesure en retard ne les rouvre pas.
     private var done: Set<UInt64> = []
     private var doneOrder: [UInt64] = []
@@ -104,6 +127,8 @@ final class LatencyTracker {
         lock.lock()
         frames.removeAll()
         order.removeAll()
+        shown.removeAll()
+        shownOrder.removeAll()
         done.removeAll()
         doneOrder.removeAll()
         samples.removeAll()
@@ -141,17 +166,30 @@ final class LatencyTracker {
         default: f.sent = ts
         }
         frames[pts] = f
+        // Image déjà montrée : sa latence se calcule maintenant.
+        if f.acquired != nil, let s = shown[pts] {
+            measure(f, received: s.received, decoded: s.decoded, at: s.at)
+            finish(pts)
+            return
+        }
         // Deux secondes d'images à 240 Hz au plus.
         while order.count > 480 { expire(order.removeFirst()) }
     }
 
-    /// Image jamais montrée : perdue si l'ordinateur l'avait envoyée.
+    /// Image jamais montrée : perdue si l'ordinateur l'avait envoyée. Montrée
+    /// sans mesure arrivée : mesure rejetée.
     private func expire(_ pts: UInt64) {
+        if shown[pts] != nil {
+            second.rejected += 1
+            finish(pts)
+            return
+        }
         if let f = frames.removeValue(forKey: pts), f.sent != nil { second.lostFrames += 1 }
     }
 
     private func finish(_ pts: UInt64) {
         if frames.removeValue(forKey: pts) != nil, let i = order.firstIndex(of: pts) { order.remove(at: i) }
+        shown.removeValue(forKey: pts)
         if done.insert(pts).inserted {
             doneOrder.append(pts)
             if doneOrder.count > 480 { done.remove(doneOrder.removeFirst()) }
@@ -208,14 +246,38 @@ final class LatencyTracker {
     func displayed(pts: UInt64, received: Int64, decoded: Int64, at micros: Int64) {
         lock.lock()
         defer { lock.unlock() }
-        let f = frames[pts]
-        finish(pts)
-        guard let f, let captured = f.acquired, !offsets.isEmpty else { return }
+        second.displayed += 1
+        guard !done.contains(pts) else { return }
+        if let f = frames[pts], f.acquired != nil {
+            measure(f, received: received, decoded: decoded, at: micros)
+            finish(pts)
+            return
+        }
+        // Mesure du serveur pas encore là : on garde les instants une seconde.
+        let now = Self.nowMicros()
+        if frames[pts] == nil {
+            frames[pts] = Sent(seen: now)
+            order.append(pts)
+        }
+        shown[pts] = Shown(received: received, decoded: decoded, at: micros, seen: now)
+        shownOrder.append(pts)
+    }
+
+    /// Latence et étapes d'une image montrée dont la capture est datée (verrou pris).
+    private func measure(_ f: Sent, received: Int64, decoded: Int64, at micros: Int64) {
+        guard let captured = f.acquired, !offsets.isEmpty else {
+            second.rejected += 1
+            return
+        }
         let offset = offsets.sorted()[offsets.count / 2]
         let ms = Double(micros - (captured - offset)) / 1000
         // Écarte les valeurs absurdes (horloge pas encore recalée).
-        guard ms > 0, ms < 2000 else { return }
+        guard ms > 0, ms < 2000 else {
+            second.rejected += 1
+            return
+        }
         samples.append(ms)
+        second.measured += 1
 
         guard let encoding = f.encoding, let encoded = f.encoded, let sent = f.sent else { return }
         let steps = [
@@ -230,8 +292,15 @@ final class LatencyTracker {
     func drain() -> Second {
         lock.lock()
         defer { lock.unlock() }
-        // Images vues il y a plus d'une seconde et toujours pas montrées.
+        // Images montrées il y a plus d'une seconde dont la mesure n'est jamais venue.
         let limit = Self.nowMicros() - 1_000_000
+        while let first = shownOrder.first {
+            guard let s = shown[first] else { shownOrder.removeFirst(); continue }
+            guard s.seen < limit else { break }
+            shownOrder.removeFirst()
+            expire(first)
+        }
+        // Images vues il y a plus d'une seconde et toujours pas montrées.
         while let first = order.first, let f = frames[first], f.seen < limit {
             order.removeFirst()
             expire(first)

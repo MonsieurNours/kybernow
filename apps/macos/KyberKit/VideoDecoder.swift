@@ -6,6 +6,13 @@
 // longueurs sur 4 octets, une image par appel, en mode temps réel : pas de
 // file d'attente, pas de réordonnancement (l'encodeur n'utilise pas d'images B).
 //
+// Le décodage est asynchrone : `decode` rend la main au fil réseau de Kyber
+// dès l'image remise à VideoToolbox (il lit aussi QUIC et livre le son),
+// l'image décodée sort sur un fil de VideoToolbox. Une image plus ancienne
+// que la dernière sortie est ignorée (garde de monotonie des `pts`). Une
+// session perdue (veille, changement de carte graphique) est recréée tout
+// de suite, sans attendre la relance du flux.
+//
 // Indépendant d'AppKit : sert tel quel sur iOS et tvOS.
 
 import CoreMedia
@@ -32,11 +39,13 @@ final class VideoDecoder {
     /// Une image de référence manque (paquets perdus, image refusée) : il
     /// faut une image clé pour repartir (fil du décodeur).
     var onLostReference: (() -> Void)?
-    /// L'image est repartie sur une image clé.
+    /// L'image est repartie sur une image clé (émis une fois l'image clé décodée).
     var onRecovered: (() -> Void)?
 
     private(set) var codec: Codec = .hevc
-    private var parameterSets: [UInt8: Data] = [:]
+    /// Jeux de paramètres par (type de NAL, identifiant) : deux PPS qui
+    /// alternent ne refont plus la session à chaque image.
+    private var parameterSets: [UInt16: Data] = [:]
     /// AV1 : dernier en-tête de séquence reçu.
     private var av1Sequence: AV1.OBU?
     private var format: CMVideoFormatDescription?
@@ -46,9 +55,20 @@ final class VideoDecoder {
     private var waitingKey = true
     /// Une référence a été perdue en cours de route (pas au démarrage).
     private var lostReference = false
-    private var failures = 0
+    /// Numéro de la session en cours : une erreur d'une session déjà remplacée ne la recrée pas.
+    private var generation = 0
     /// Kyber livre depuis son fil réseau, le rendu peut demander un autre format, l'app arrête.
     private let lock = NSLock()
+    /// Sortie du décodeur (fil de VideoToolbox) : jamais `lock`, qui peut
+    /// attendre la fin des images en cours.
+    private let out = NSLock()
+    private var failures = 0
+    /// Dernier `pts` sorti : une image plus ancienne est ignorée.
+    private var lastDelivered: UInt64?
+    /// Une image clé a été soumise après une perte : `onRecovered` à sa sortie.
+    private var pendingRecovery = false
+    /// Reprise après une erreur de sortie (prend `lock`), hors du fil de VideoToolbox.
+    private let recovery = DispatchQueue(label: "fr.leslignesclaires.kybernow.decoder-recovery", qos: .userInteractive)
 
     deinit { reset() }
 
@@ -100,8 +120,9 @@ final class VideoDecoder {
                 guard let type = nalType(nal) else { continue }
                 if isParameterSet(type) {
                     let d = Data(nal)
-                    if parameterSets[type] != d {
-                        parameterSets[type] = d
+                    let key = UInt16(type) << 8 | UInt16(parameterSetId(nal, type: type) & 0xFF)
+                    if parameterSets[key] != d {
+                        parameterSets[key] = d
                         changed = true
                     }
                 } else {
@@ -130,23 +151,20 @@ final class VideoDecoder {
             waitingKey = false
             if lostReference {
                 lostReference = false
-                KyberLog.video.notice("image repartie sur une image clé")
-                onRecovered?()
+                out.lock()
+                pendingRecovery = true
+                out.unlock()
             }
         }
         guard let sample = makeSample(format) else { return }
-        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
+        let generation = self.generation
+        let status = VTDecompressionSessionDecodeFrame(session, sampleBuffer: sample, flags: [._EnableAsynchronousDecompression], infoFlagsOut: nil) { [weak self] status, _, image, _, _ in
             guard let self else { return }
             guard status == noErr, let image else {
-                self.failures += 1
-                if self.failures == 1 || self.failures % 120 == 0 {
-                    KyberLog.video.error("décodage : erreur \(status) (\(self.failures) au total)")
-                }
-                // Appelé pendant DecodeFrame (décodage synchrone) : le verrou est déjà pris.
-                self.markLost()
+                self.failed(status, generation: generation)
                 return
             }
-            self.onFrame?(DecodedFrame(buffer: image, pts: pts, received: received, decoded: mach_absolute_time()))
+            self.deliver(DecodedFrame(buffer: image, pts: pts, received: received, decoded: mach_absolute_time()))
         }
         if status == kVTInvalidSessionErr {
             // Session perdue (veille, changement de carte graphique) : on la refait.
@@ -154,9 +172,64 @@ final class VideoDecoder {
             rebuild()
             markLost()
         } else if status != noErr {
+            out.lock()
             failures += 1
+            out.unlock()
             markLost()
         }
+    }
+
+    /// Image décodée (fil de VideoToolbox) : remise au rendu si elle est plus
+    /// récente que la dernière sortie.
+    private func deliver(_ frame: DecodedFrame) {
+        out.lock()
+        if let last = lastDelivered, frame.pts <= last {
+            out.unlock()
+            return
+        }
+        lastDelivered = frame.pts
+        let recovered = pendingRecovery
+        pendingRecovery = false
+        out.unlock()
+        onFrame?(frame)
+        if recovered {
+            KyberLog.video.notice("image repartie sur une image clé")
+            onRecovered?()
+        }
+    }
+
+    /// Erreur de sortie (fil de VideoToolbox) : comptée ici, traitée hors de ce fil.
+    private func failed(_ status: OSStatus, generation: Int) {
+        out.lock()
+        failures += 1
+        let count = failures
+        out.unlock()
+        if count == 1 || count % 120 == 0 {
+            KyberLog.video.error("décodage : erreur \(status) (\(count) au total)")
+        }
+        recovery.async { [weak self] in self?.recover(after: status, generation: generation) }
+    }
+
+    /// Session morte (−12785 après la veille, −12911 après un changement de
+    /// carte graphique) : recréée tout de suite (50 ms) au lieu d'attendre la
+    /// relance du flux (2 à 3 s). Dans tous les cas, une image clé est demandée.
+    private func recover(after status: OSStatus, generation: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard session != nil else { return }
+        if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr, generation == self.generation {
+            KyberLog.video.notice("session de décodage en panne (\(status)), recréée")
+            rebuild()
+        }
+        markLost()
+    }
+
+    /// Attend les images en cours de décodage (tests).
+    func flush() {
+        lock.lock()
+        if let session { VTDecompressionSessionWaitForAsynchronousFrames(session) }
+        lock.unlock()
+        recovery.sync {}
     }
 
     /// Données perdues (trou dans le flux) : on attend une image clé.
@@ -170,6 +243,9 @@ final class VideoDecoder {
     /// À appeler verrou pris.
     private func markLost() {
         waitingKey = true
+        out.lock()
+        pendingRecovery = false
+        out.unlock()
         guard !lostReference else { return }
         lostReference = true
         KyberLog.video.notice("référence perdue : demande d'une image clé")
@@ -205,6 +281,7 @@ final class VideoDecoder {
 
     private func rebuild() {
         reset()
+        generation += 1
         guard let format = makeFormat() else { return }
         let dims = CMVideoFormatDescriptionGetDimensions(format)
         guard let session = Self.makeSession(format: format, pixelFormat: forcedPixelFormat, requireHardware: true)
@@ -250,10 +327,97 @@ final class VideoDecoder {
             guard let obu = av1Sequence, let header = AV1.parseSequenceHeader(obu.payload) else { return nil }
             return AV1.format(header, sequenceHeaderOBU: obu.bytes)
         }
+        // Tous les jeux connus, par type (VPS, SPS, PPS) puis par identifiant :
+        // VideoToolbox choisit celui que chaque image désigne.
         let order: [UInt8] = codec == .hevc ? [32, 33, 34] : [7, 8]
-        let sets = order.compactMap { parameterSets[$0] }
-        guard sets.count == order.count else { return nil }
+        var sets: [Data] = []
+        for type in order {
+            let ofType = parameterSets.filter { $0.key >> 8 == UInt16(type) }.sorted { $0.key < $1.key }.map(\.value)
+            guard !ofType.isEmpty else { return nil }
+            sets += ofType
+        }
         return Self.format(codec: codec, parameterSets: sets)
+    }
+
+    // MARK: - Identifiants des jeux de paramètres
+
+    /// Identifiant d'un VPS/SPS/PPS (H.264 : SPS et PPS ; HEVC : VPS, SPS, PPS),
+    /// 0 si l'en-tête ne se lit pas.
+    private func parameterSetId(_ nal: UnsafeBufferPointer<UInt8>, type: UInt8) -> Int {
+        var bits = BitReader(nal, skip: codec == .hevc ? 2 : 1)
+        if codec == .hevc {
+            switch type {
+            case 32: return Int(bits.read(4)) // vps_video_parameter_set_id
+            case 33:
+                bits.skip(4) // sps_video_parameter_set_id
+                let subLayers = Int(bits.read(3)) // sps_max_sub_layers_minus1
+                bits.skip(1) // temporal_id_nesting
+                bits.skipProfileTierLevel(subLayers: subLayers)
+                return bits.ue() // sps_seq_parameter_set_id
+            default: return bits.ue() // pps_pic_parameter_set_id
+            }
+        }
+        switch type {
+        case 7:
+            bits.skip(24) // profile_idc, constraint flags, level_idc
+            return bits.ue() // seq_parameter_set_id
+        default:
+            return bits.ue() // pic_parameter_set_id
+        }
+    }
+
+    /// Lecture bit à bit d'un en-tête (octets d'échappement 00 00 03 retirés).
+    private struct BitReader {
+        private let bytes: [UInt8]
+        private var pos = 0 // en bits
+
+        init(_ nal: UnsafeBufferPointer<UInt8>, skip header: Int) {
+            var out: [UInt8] = []
+            out.reserveCapacity(min(nal.count, 96))
+            var zeros = 0
+            for (i, b) in nal.enumerated() where i >= header {
+                if zeros >= 2, b == 3 { zeros = 0; continue }
+                out.append(b)
+                zeros = b == 0 ? zeros + 1 : 0
+                if out.count >= 96 { break } // les identifiants sont dans les premiers octets
+            }
+            bytes = out
+        }
+
+        mutating func read(_ n: Int) -> UInt32 {
+            var v: UInt32 = 0
+            for _ in 0..<n {
+                let byte = pos >> 3
+                let bit = byte < bytes.count ? (bytes[byte] >> (7 - UInt8(pos & 7))) & 1 : 0
+                v = v << 1 | UInt32(bit)
+                pos += 1
+            }
+            return v
+        }
+
+        mutating func skip(_ n: Int) { pos += n }
+
+        /// Exp-Golomb non signé.
+        mutating func ue() -> Int {
+            var zeros = 0
+            while read(1) == 0, zeros < 32 { zeros += 1 }
+            return zeros == 0 ? 0 : Int((1 << zeros) - 1 + read(zeros))
+        }
+
+        /// profile_tier_level(1, sps_max_sub_layers_minus1) du HEVC.
+        mutating func skipProfileTierLevel(subLayers: Int) {
+            skip(88 + 8) // profil général (2 + 1 + 5 + 32 + 48) et niveau général
+            var profilePresent: [Bool] = [], levelPresent: [Bool] = []
+            for _ in 0..<subLayers {
+                profilePresent.append(read(1) == 1)
+                levelPresent.append(read(1) == 1)
+            }
+            if subLayers > 0 { skip(2 * (8 - subLayers)) } // reserved_zero_2bits
+            for i in 0..<subLayers {
+                if profilePresent[i] { skip(88) }
+                if levelPresent[i] { skip(8) }
+            }
+        }
     }
 
     static func format(codec: Codec, parameterSets sets: [Data]) -> CMVideoFormatDescription? {

@@ -18,6 +18,7 @@ func checkColor(_ path: String, expect: String) {
         }
         aus.append(au)
         for (i, a) in aus.enumerated() { a.withUnsafeBufferPointer { dec.decode($0, isConfig: false, isKey: i == 0, pts: UInt64(i)) } }
+        dec.flush()
     }
     guard let buf = last, let r = VideoRenderer() else { print("\(path): pas d'image"); return }
     let pf = CVPixelBufferGetPixelFormatType(buf)

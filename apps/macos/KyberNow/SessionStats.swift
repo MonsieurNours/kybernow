@@ -181,6 +181,9 @@ struct StatsPanel: View {
         return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
             row("Réseau", s.rttMs.map { "aller-retour \(Moment.ms($0))" } ?? "aller-retour —")
             row("Image", "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s")
+            if s.latencyMs != nil || s.rejectedSamples > 0 {
+                row("Mesures", "\(Int((s.measuredRatio * 100).rounded())) % des images" + (s.rejectedSamples > 0 ? " · \(s.rejectedSamples) rejetées" : ""))
+            }
             if let audio, audio.channels > 0 {
                 let lag = audio.bufferMs + audio.outputMs - s.displayMs
                 row("Son", "tampon \(Moment.ms(audio.bufferMs)) · sortie \(Moment.ms(audio.outputMs))")
@@ -442,6 +445,8 @@ struct StatsPanelPreview: View {
             s.displayMs = 7.4
             let spike = i == 17 || i == 18
             s.latencyMs = 13.2 + sin(Double(i) / 3) * 0.9 + (spike ? 9 : 0)
+            s.measuredRatio = 0.97
+            s.rejectedSamples = i % 9 == 0 ? 2 : 0
             var c = ChainTimes()
             (c.capture, c.encode, c.send, c.network, c.decode, c.display) = (0.9, 3.4, 0.6, spike ? 9.6 : 1.3, 2.1, 5.3)
             s.chain = c

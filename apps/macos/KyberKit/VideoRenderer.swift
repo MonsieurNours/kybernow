@@ -1,10 +1,14 @@
 // Affichage de l'image décodée avec Metal.
 //
-// Latence : on affiche toujours l'image la plus récente. Avec la synchro
-// verticale, une seule image attend l'écran à la fois ; celles qui arrivent
-// entre-temps remplacent la suivante au lieu de faire la queue. Sur un écran
-// à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale sur
-// l'arrivée des images. Sans synchro, chaque image part tout de suite
+// Latence : on affiche toujours l'image la plus récente. Chaque image part
+// à l'écran dès qu'elle est décodée ; celles qui arrivent pendant qu'un
+// rendu attend son tampon remplacent la précédente au lieu de faire la
+// queue (coalescence `scheduled`), et Core Animation montre la plus récente
+// au balayage, en écartant les autres (`presentedTime == 0`). L'ancienne
+// garde « une image en vol » (N+1 attend que l'écran ait montré N, soit un
+// rafraîchissement complet) reste disponible avec KN_INFLIGHT_GUARD=1. Sur
+// un écran à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale
+// sur l'arrivée des images. Sans synchro, chaque image part tout de suite
 // (déchirure possible).
 //
 // Les plans Y et CbCr sortent de VideoToolbox en IOSurface : Metal les lit
@@ -47,12 +51,35 @@ public struct VideoStats: Sendable {
     public var rttMs: Double?
     /// Débit reçu pour l'image, en mégabits par seconde.
     public var mbps: Double = 0
+    /// Images avec une latence mesurée sur les images montrées (0 à 1) :
+    /// la médiane n'est fiable que si ce rapport est proche de 1.
+    public var measuredRatio: Double = 0
+    /// Images montrées sans mesure du serveur (arrivée trop tard, jamais) ou valeur absurde.
+    public var rejectedSamples = 0
 
     public init() {}
 }
 
+/// Mesures de présentation d'une seconde (`KN_PRESENT_STATS=1` : une ligne
+/// par seconde dans le journal `video`).
+public struct PresentStats: Sendable {
+    /// Images rendues (envoyées à l'écran) dans la seconde.
+    public var rendered = 0
+    /// Images que l'écran confirme avoir montrées.
+    public var presented = 0
+    /// Images écartées par Core Animation au profit d'une plus récente (`presentedTime == 0`).
+    public var discarded = 0
+    /// `presentedTime − instant du commit` : médiane et 95e centile, en millisecondes.
+    public var p50Ms: Double = 0
+    public var p95Ms: Double = 0
+    public init() {}
+}
+
 final class VideoRenderer {
-    let layer = CAMetalLayer()
+    /// Couche dessinée : celle du rendu, ou celle de la surface de session
+    /// (`attach(to:)`, couche de la vue elle-même sur Mac : présentation
+    /// directe possible en plein écran).
+    private(set) var layer: CAMetalLayer
     /// Format que le rendu ne sait pas lire : le décodeur doit en produire un autre.
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
@@ -63,15 +90,32 @@ final class VideoRenderer {
     var vsync = true {
         didSet {
             #if os(macOS)
-            layer.displaySyncEnabled = vsync
+            renderQueue.async { [self] in layer.displaySyncEnabled = vsync }
             #endif
         }
     }
+
+    /// Garde « une image en vol » : l'image N+1 attend que l'écran ait montré N.
+    /// `KN_INFLIGHT_GUARD=1` la remet (comparaison) ; sans elle, chaque image
+    /// part dès qu'elle est décodée et Core Animation montre la plus récente
+    /// au balayage.
+    var inFlightGuard = ProcessInfo.processInfo.environment["KN_INFLIGHT_GUARD"] == "1"
+    /// `KN_PRESENT_STATS=1` : mesures de présentation dans le journal chaque seconde.
+    var logPresentStats = ProcessInfo.processInfo.environment["KN_PRESENT_STATS"] == "1"
+    /// Mesures de présentation, une fois par seconde (tests).
+    var onPresentStats: ((PresentStats) -> Void)?
+
+    /// Vue (fenêtre occultée ou réduite) : rien n'est rendu, les images sont
+    /// comptées comme remplacées ; le décodeur continue (références intactes).
+    var paused = false
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
     private var cache: CVMetalTextureCache?
+    /// Matrice de couleur du format en cours, relue au plus une fois par seconde
+    /// (fil de rendu) : `CVBufferCopyAttachment` à chaque image coûtait pour rien.
+    private var colorCache: (format: OSType, width: Int, height: Int, read: CFTimeInterval, value: ColorConversion)?
     private let renderQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.render", qos: .userInteractive)
 
     private let lock = NSLock()
@@ -86,23 +130,57 @@ final class VideoRenderer {
     // Mesures (fil de rendu).
     private var window = (start: CACurrentMediaTime(), frames: 0, decode: 0.0, display: 0.0, displayed: 0)
     private var current = VideoStats()
+    /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées.
+    private var present = (lags: [Double](), rendered: 0, discarded: 0)
 
-    init?() {
+    /// GPU, file de commandes et pipeline, compilés une fois par processus
+    /// (le shader était compilé depuis la source à chaque flux, 30 à 150 ms
+    /// sur le fil principal).
+    private struct Core {
+        let device: MTLDevice
+        let queue: MTLCommandQueue
+        let pipeline: MTLRenderPipelineState
+    }
+
+    private static let core: Core? = {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
-        self.device = device
-        self.queue = queue
         do {
-            let library = try device.makeLibrary(source: Self.shader, options: nil)
+            let library = try device.makeLibrary(source: shader, options: nil)
             let desc = MTLRenderPipelineDescriptor()
             desc.vertexFunction = library.makeFunction(name: "kn_vertex")
             desc.fragmentFunction = library.makeFunction(name: "kn_fragment")
             desc.colorAttachments[0].pixelFormat = .bgra8Unorm
-            pipeline = try device.makeRenderPipelineState(descriptor: desc)
+            return Core(device: device, queue: queue, pipeline: try device.makeRenderPipelineState(descriptor: desc))
         } catch {
             KyberLog.video.error("rendu Metal : \(error.localizedDescription, privacy: .public)")
             return nil
         }
+    }()
+
+    /// Compile le pipeline (au lancement, hors du fil principal).
+    static func warmUp() {
+        _ = core
+    }
+
+    init?() {
+        guard let core = Self.core else { return nil }
+        device = core.device
+        queue = core.queue
+        pipeline = core.pipeline
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+        layer = CAMetalLayer()
+        configure(layer)
+    }
+
+    /// Dessine désormais dans `layer` (nil : dans une couche à soi, hors écran).
+    func attach(to layer: CAMetalLayer?) {
+        renderQueue.sync {
+            self.layer = layer ?? CAMetalLayer()
+            configure(self.layer)
+        }
+    }
+
+    private func configure(_ layer: CAMetalLayer) {
         layer.device = device
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
@@ -111,7 +189,7 @@ final class VideoRenderer {
         layer.backgroundColor = CGColor(gray: 0, alpha: 1)
         layer.allowsNextDrawableTimeout = true
         #if os(macOS)
-        layer.displaySyncEnabled = true
+        layer.displaySyncEnabled = vsync
         #endif
     }
 
@@ -125,6 +203,13 @@ final class VideoRenderer {
 
     /// Nouvelle image (fil du décodeur) : elle remplace celle qui attendait.
     func submit(_ frame: DecodedFrame) {
+        if paused {
+            lock.lock()
+            skipped += 1
+            lock.unlock()
+            latency?.skipped(pts: frame.pts)
+            return
+        }
         lock.lock()
         if let replaced = pending {
             skipped += 1
@@ -141,7 +226,7 @@ final class VideoRenderer {
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
     /// `presentedTime` à 0 : écartée par l'écran.
-    private func presented(at presentedTime: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
+    private func presented(at presentedTime: CFTimeInterval, committed: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
         if presentedTime > 0, let latency {
             // presentedTime et les instants mach sont sur l'horloge de
             // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
@@ -160,11 +245,14 @@ final class VideoRenderer {
         let go = pending != nil && !scheduled
         if go { scheduled = true }
         lock.unlock()
-        if presentedTime > 0 {
-            renderQueue.async { [weak self] in
-                guard let self else { return }
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            if presentedTime > 0 {
                 self.window.display += (presentedTime - Self.seconds(received)) * 1000
                 self.window.displayed += 1
+                self.present.lags.append((presentedTime - committed) * 1000)
+            } else {
+                self.present.discarded += 1
             }
         }
         if go { renderQueue.async { [weak self] in self?.render() } }
@@ -173,6 +261,9 @@ final class VideoRenderer {
     // MARK: - Rendu (fil de rendu)
 
     private func render() {
+        // Le tampon d'abord (il peut faire attendre un balayage quand tous
+        // sont pris) : l'image prise ensuite est la plus récente arrivée.
+        let drawable = layer.nextDrawable()
         lock.lock()
         let frame = pending
         pending = nil
@@ -187,29 +278,33 @@ final class VideoRenderer {
             onUnsupportedFormat?(pixelFormat)
             return
         }
-        guard let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
-              draw(buffer, layout: layout, into: drawable.texture, commands: commands)
+        guard let drawable, let commands = queue.makeCommandBuffer(),
+              draw(buffer, layout: layout, into: drawable.texture, commands: commands, color: conversion(buffer, layout: layout))
         else {
             latency?.skipped(pts: frame.pts)
             return
         }
 
         let received = frame.received, decoded = frame.decoded, pts = frame.pts
+        let committed = CACurrentMediaTime()
         #if os(tvOS)
         // tvOS ne dit pas quand l'image est montrée : elle l'est au
         // rafraîchissement qui suit la fin du rendu (60 Hz au plus).
         commands.addCompletedHandler { [weak self] _ in
-            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, received: received, decoded: decoded, pts: pts)
+            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts)
         }
         #else
-        drawable.addPresentedHandler { [weak self] d in self?.presented(at: d.presentedTime, received: received, decoded: decoded, pts: pts) }
+        drawable.addPresentedHandler { [weak self] d in
+            self?.presented(at: d.presentedTime, committed: committed, received: received, decoded: decoded, pts: pts)
+        }
         #endif
         lock.lock()
-        inFlight = vsync
-        inFlightSince = CACurrentMediaTime()
+        inFlight = vsync && inFlightGuard
+        inFlightSince = committed
         lock.unlock()
         commands.present(drawable)
         commands.commit()
+        present.rendered += 1
         lock.lock()
         shown = (buffer, layout)
         lock.unlock()
@@ -217,9 +312,21 @@ final class VideoRenderer {
         account(frame, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer), layout: layout)
     }
 
+    /// Matrice de couleur de l'image, lue à chaque changement de format ou de
+    /// taille et au plus une fois par seconde (fil de rendu).
+    private func conversion(_ buffer: CVPixelBuffer, layout: Layout) -> ColorConversion {
+        let format = CVPixelBufferGetPixelFormatType(buffer)
+        let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+        let now = CACurrentMediaTime()
+        if let c = colorCache, c.format == format, c.width == width, c.height == height, now - c.read < 1 { return c.value }
+        let value = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        colorCache = (format, width, height, now, value)
+        return value
+    }
+
     /// Dessine l'image dans `target`, centrée et entière. Faux si les plans
-    /// ne se lisent pas en texture.
-    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer) -> Bool {
+    /// ne se lisent pas en texture. `color` : conversion déjà connue (sinon lue sur l'image).
+    func draw(_ buffer: CVPixelBuffer, layout: Layout, into target: MTLTexture, commands: MTLCommandBuffer, color known: ColorConversion? = nil) -> Bool {
         guard let cache,
               let luma = texture(buffer, plane: 0, format: layout.deep ? .r16Unorm : .r8Unorm, cache: cache),
               let chroma = texture(buffer, plane: 1, format: layout.deep ? .rg16Unorm : .rg8Unorm, cache: cache)
@@ -241,7 +348,7 @@ final class VideoRenderer {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(luma), index: 0)
         encoder.setFragmentTexture(CVMetalTextureGetTexture(chroma), index: 1)
-        var color = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
+        var color = known ?? Self.color(buffer, fullRange: layout.full, deep: layout.deep)
         encoder.setFragmentBytes(&color, length: MemoryLayout<ColorConversion>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
@@ -304,6 +411,8 @@ final class VideoRenderer {
         let now = CACurrentMediaTime()
         let elapsed = now - window.start
         guard elapsed >= 1 else { return }
+        // Textures des images déjà rendues : le cache les garde sinon jusqu'à saturation.
+        if let cache { CVMetalTextureCacheFlush(cache, 0) }
         lock.lock()
         let skipped = self.skipped
         self.skipped = 0
@@ -324,8 +433,30 @@ final class VideoRenderer {
         current.lostPackets = second.lostPackets
         current.rttMs = second.rttMs
         current.mbps = Double(second.bytes) * 8 / elapsed / 1_000_000
+        current.measuredRatio = second.displayed > 0 ? Double(second.measured) / Double(second.displayed) : 0
+        current.rejectedSamples = second.rejected
         onStats?(current)
         window = (now, 0, 0, 0, 0)
+        reportPresentation()
+    }
+
+    /// Mesures de présentation de la seconde : journal (`KN_PRESENT_STATS=1`) et rappel.
+    private func reportPresentation() {
+        var stats = PresentStats()
+        stats.rendered = present.rendered
+        stats.presented = present.lags.count
+        stats.discarded = present.discarded
+        if !present.lags.isEmpty {
+            let sorted = present.lags.sorted()
+            stats.p50Ms = sorted[sorted.count / 2]
+            stats.p95Ms = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        }
+        present = ([], 0, 0)
+        if logPresentStats {
+            // Metal ne dit pas publiquement si la présentation est directe ou composée : voir MTL_HUD_ENABLED=1.
+            KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées, \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
+        }
+        onPresentStats?(stats)
     }
 
     // MARK: - Formats et couleurs

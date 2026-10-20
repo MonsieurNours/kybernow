@@ -20,6 +20,15 @@ public struct DecoderCapabilities: Sendable {
 
     public static let current = DecoderCapabilities.probe()
 
+    /// À appeler au lancement, hors du fil principal : sonde les décodeurs
+    /// (20 à 80 ms, dont le décodage 4:4:4) et compile le pipeline Metal du
+    /// rendu (30 à 150 ms), pour que ni l'accueil ni le premier flux
+    /// n'attendent.
+    public static func prepare() {
+        _ = current
+        VideoRenderer.warmUp()
+    }
+
     /// Résumé lisible pour les réglages.
     public var summary: String {
         var parts: [String] = []
