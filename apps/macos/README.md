@@ -62,6 +62,7 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode 
 - Durée de vie des décodeurs : le pipeline vidéo et le lecteur audio donnés à Kyber comme `userdata` sont retenus (`PacketSinkLease`) jusqu'au dernier appel de Kyber (`CLOSED`, correctif `kyber-patches/0001`), ou 30 s après l'arrêt si la bibliothèque ne l'envoie pas. Avant, ils étaient libérés 2 s après l'arrêt alors que Kyber pouvait encore livrer un paquet (plantage possible à la déconnexion).
 - Image clé du début perdue : un flux lourd (4K à haute fréquence en 4:4:4) peut perdre sa première image clé entière, sans trou signalé par Kyber. Les images suivantes arrivent sans référence : le décodeur demande alors une image clé comme après une perte, au lieu d'attendre en silence.
 - Repli : si aucune image n'est montrée 4 s après le démarrage du flux, ou si les demandes d'image clé restent sans réponse avant la première image, l'app allège le flux pour cette session seulement (débit ramené à 250 Mb/s, puis 4:2:0), le dit en haut de l'écran et le note dans le journal (`flux : …`, `repli …`). Changer de profil dans la barre repart du réglage choisi.
+- Mesurer l'affichage : `KN_PRESENT_STATS=1 /Applications/KyberNow.app/Contents/MacOS/KyberNow` écrit chaque seconde dans le journal (catégorie `video`) une ligne `présentation : …` avec les images rendues, celles que l'écran confirme avoir montrées, celles que Core Animation a écartées au profit d'une plus récente (`presentedTime == 0`), et le délai commit → écran (médiane et 95e centile), plus l'état de la synchro verticale et de la garde. `KN_INFLIGHT_GUARD=1` remet la garde « une image en vol » (l'image N+1 attend que l'écran ait montré N) pour comparer. À lire : sans la garde, le délai commit → écran doit tomber vers un demi-intervalle de rafraîchissement (≈ 4 ms à 120 Hz) et des images écartées apparaissent dès que le flux dépasse la fréquence de l'écran, c'est attendu ; avec la garde, le délai vaut un intervalle entier. `MTL_HUD_ENABLED=1` (même commande) affiche le HUD Metal sur l'image : Metal ne dit pas publiquement si la présentation est directe (l'image va à l'écran sans passer par le compositeur) ou composée, seul le HUD l'indique.
 - AV1 (puces M3 et suivantes) : l'en-tête de séquence est lu bit à bit pour construire la description `av1C` qu'attend VideoToolbox. Les échantillons sont débarrassés des délimiteurs temporels, et chaque OBU porte sa taille (`AV1.swift`). Mesuré sur M4 Max en 2560 × 1440 : 1 ms de décodage. VLC ne sert plus que de secours (AV1 sur un Mac sans décodeur AV1 matériel, que les réglages ne proposent pas).
 
 **Son** (`AudioPlayer`)
@@ -141,7 +142,7 @@ Xcode met le profil dans l'app (`Contents/embedded.provisionprofile`) et y ajout
 apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
 apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
-apps/macos/tests/screen/run.sh  # fenêtre de 2 s : la surface de session montre vraiment les images (presentedTime)
+apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
 ```
 
 Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4, couleurs à ±4 niveaux près ; son : 15 à 23 ms de tampon en paquets de 20 ms, 14 à 22 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés.
@@ -152,6 +153,7 @@ Console.app, sous-système `fr.leslignesclaires.kybernow`, catégories `app`, `k
 
 ```bash
 log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow"' --level info
+log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category == "video" AND eventMessage BEGINSWITH "présentation"'   # avec KN_PRESENT_STATS=1
 ```
 
 ## Données

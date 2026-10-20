@@ -51,6 +51,21 @@ public struct VideoStats: Sendable {
     public init() {}
 }
 
+/// Mesures de présentation d'une seconde (`KN_PRESENT_STATS=1` : une ligne
+/// par seconde dans le journal `video`).
+public struct PresentStats: Sendable {
+    /// Images rendues (envoyées à l'écran) dans la seconde.
+    public var rendered = 0
+    /// Images que l'écran confirme avoir montrées.
+    public var presented = 0
+    /// Images écartées par Core Animation au profit d'une plus récente (`presentedTime == 0`).
+    public var discarded = 0
+    /// `presentedTime − instant du commit` : médiane et 95e centile, en millisecondes.
+    public var p50Ms: Double = 0
+    public var p95Ms: Double = 0
+    public init() {}
+}
+
 final class VideoRenderer {
     let layer = CAMetalLayer()
     /// Format que le rendu ne sait pas lire : le décodeur doit en produire un autre.
@@ -67,6 +82,16 @@ final class VideoRenderer {
             #endif
         }
     }
+
+    /// Garde « une image en vol » : l'image N+1 attend que l'écran ait montré N.
+    /// `KN_INFLIGHT_GUARD=1` la remet (comparaison) ; sans elle, chaque image
+    /// part dès qu'elle est décodée et Core Animation montre la plus récente
+    /// au balayage.
+    var inFlightGuard = ProcessInfo.processInfo.environment["KN_INFLIGHT_GUARD"].map { $0 == "1" } ?? true
+    /// `KN_PRESENT_STATS=1` : mesures de présentation dans le journal chaque seconde.
+    var logPresentStats = ProcessInfo.processInfo.environment["KN_PRESENT_STATS"] == "1"
+    /// Mesures de présentation, une fois par seconde (tests).
+    var onPresentStats: ((PresentStats) -> Void)?
 
     private let device: MTLDevice
     private let queue: MTLCommandQueue
@@ -86,6 +111,8 @@ final class VideoRenderer {
     // Mesures (fil de rendu).
     private var window = (start: CACurrentMediaTime(), frames: 0, decode: 0.0, display: 0.0, displayed: 0)
     private var current = VideoStats()
+    /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées.
+    private var present = (lags: [Double](), rendered: 0, discarded: 0)
 
     init?() {
         guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
@@ -141,7 +168,7 @@ final class VideoRenderer {
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
     /// `presentedTime` à 0 : écartée par l'écran.
-    private func presented(at presentedTime: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
+    private func presented(at presentedTime: CFTimeInterval, committed: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
         if presentedTime > 0, let latency {
             // presentedTime et les instants mach sont sur l'horloge de
             // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
@@ -160,11 +187,14 @@ final class VideoRenderer {
         let go = pending != nil && !scheduled
         if go { scheduled = true }
         lock.unlock()
-        if presentedTime > 0 {
-            renderQueue.async { [weak self] in
-                guard let self else { return }
+        renderQueue.async { [weak self] in
+            guard let self else { return }
+            if presentedTime > 0 {
                 self.window.display += (presentedTime - Self.seconds(received)) * 1000
                 self.window.displayed += 1
+                self.present.lags.append((presentedTime - committed) * 1000)
+            } else {
+                self.present.discarded += 1
             }
         }
         if go { renderQueue.async { [weak self] in self?.render() } }
@@ -195,21 +225,25 @@ final class VideoRenderer {
         }
 
         let received = frame.received, decoded = frame.decoded, pts = frame.pts
+        let committed = CACurrentMediaTime()
         #if os(tvOS)
         // tvOS ne dit pas quand l'image est montrée : elle l'est au
         // rafraîchissement qui suit la fin du rendu (60 Hz au plus).
         commands.addCompletedHandler { [weak self] _ in
-            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, received: received, decoded: decoded, pts: pts)
+            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts)
         }
         #else
-        drawable.addPresentedHandler { [weak self] d in self?.presented(at: d.presentedTime, received: received, decoded: decoded, pts: pts) }
+        drawable.addPresentedHandler { [weak self] d in
+            self?.presented(at: d.presentedTime, committed: committed, received: received, decoded: decoded, pts: pts)
+        }
         #endif
         lock.lock()
-        inFlight = vsync
-        inFlightSince = CACurrentMediaTime()
+        inFlight = vsync && inFlightGuard
+        inFlightSince = committed
         lock.unlock()
         commands.present(drawable)
         commands.commit()
+        present.rendered += 1
         lock.lock()
         shown = (buffer, layout)
         lock.unlock()
@@ -326,6 +360,26 @@ final class VideoRenderer {
         current.mbps = Double(second.bytes) * 8 / elapsed / 1_000_000
         onStats?(current)
         window = (now, 0, 0, 0, 0)
+        reportPresentation()
+    }
+
+    /// Mesures de présentation de la seconde : journal (`KN_PRESENT_STATS=1`) et rappel.
+    private func reportPresentation() {
+        var stats = PresentStats()
+        stats.rendered = present.rendered
+        stats.presented = present.lags.count
+        stats.discarded = present.discarded
+        if !present.lags.isEmpty {
+            let sorted = present.lags.sorted()
+            stats.p50Ms = sorted[sorted.count / 2]
+            stats.p95Ms = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        }
+        present = ([], 0, 0)
+        if logPresentStats {
+            // Metal ne dit pas publiquement si la présentation est directe ou composée : voir MTL_HUD_ENABLED=1.
+            KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées, \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
+        }
+        onPresentStats?(stats)
     }
 
     // MARK: - Formats et couleurs
