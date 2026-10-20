@@ -15,7 +15,7 @@ Ready-to-install Windows streaming server and macOS / tvOS clients, built on [Ky
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Patches to Kyber, described in [docs/kyber-changes.en.md](docs/kyber-changes.en.md) |
 | `site/` | www.kybernow.app website (static, no npm), see [its README](site/README.en.md) |
 | `brand/` | Logo and variants; v2 identity in `brand/v2/` (guidelines, symbol, tokens) |
-| `docs/` | Changes to Kyber, build notes, reference prototype |
+| `docs/` | Changes to Kyber, build notes, reference prototype, the 20 October 2026 audit and [measurements to run on the hardware](docs/mesures.en.md) |
 | `tools/latency/` | Latency measurement |
 
 Documentation exists in French (`*.md`, the source) and in English (`*.en.md`, next to each French file). Every change updates both versions in the same commit.

@@ -15,7 +15,7 @@ Serveur de streaming Windows clé en main et clients macOS / tvOS, construits su
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
 | `brand/` | Logo et déclinaisons ; identité v2 dans `brand/v2/` (charte, symbole, jetons) |
-| `docs/` | Changements de Kyber, notes de compilation, prototype de référence |
+| `docs/` | Changements de Kyber, notes de compilation, prototype de référence, audit du 20 octobre 2026 et [mesures à faire sur le matériel](docs/mesures.md) |
 | `tools/latency/` | Mesure de latence |
 
 La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français). Chaque évolution met à jour les deux versions dans le même commit.
