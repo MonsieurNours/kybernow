@@ -111,16 +111,28 @@ final class KeyboardMouse {
                 input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
             }
         }
-        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
-        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }
-        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.middle, pressed: pressed) }
+        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.left, pressed: pressed) } }
+        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.right, pressed: pressed) } }
+        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.middle, pressed: pressed) } }
         // Boutons 4 et 5 (côté du pouce) : précédent et suivant, X1 et X2 sous Windows.
         for (button, kind) in zip(m.auxiliaryButtons ?? [], [InputPipeline.MouseButton.side, .extra]) {
-            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(kind, pressed: pressed) }
+            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(kind, pressed: pressed) } }
         }
-        m.scroll.valueChangedHandler = { [weak self] _, x, y in
-            guard let self, let input = self.input else { return }
-            self.scrolled(first: x, second: y, input: input)
+        m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
+    }
+
+    /// En position absolue, les déplacements passent par la vue de session
+    /// (fil principal) : clics et molette les suivent par le même chemin, sinon
+    /// un clic pourrait doubler le déplacement qui le précède. En relatif
+    /// (jeu en plein écran), tout part de la file.
+    private func afterMoves(_ send: @escaping (InputPipeline) -> Void) {
+        guard let input else { return }
+        if input.isRelative {
+            send(input)
+            return
+        }
+        DispatchQueue.main.async { [weak input] in
+            if let input { send(input) }
         }
     }
 
@@ -132,7 +144,7 @@ final class KeyboardMouse {
     /// positif = bas), mais au plus un cran par paquet : un grand coup de
     /// molette part en plusieurs paquets. Avant, x et y partaient tels quels,
     /// donc échangés : la molette défilait de côté.
-    private func scrolled(first: Float, second: Float, input: InputPipeline) {
+    private func scrolled(first: Float, second: Float) {
         if scrollLogged < 8, first != 0 || second != 0 {
             // Unités à confirmer sur une vraie souris : les premières valeurs au journal.
             scrollLogged += 1
@@ -143,11 +155,15 @@ final class KeyboardMouse {
         // Pas plus de 20 crans d'un coup (valeur aberrante).
         dx = max(-20, min(20, dx))
         dy = max(-20, min(20, dy))
+        var steps: [(Float, Float)] = []
         while dx != 0 || dy != 0 {
             let sx = max(-1, min(1, dx)), sy = max(-1, min(1, dy))
-            input.wheel(dx: sx, dy: sy)
+            steps.append((sx, sy))
             dx -= sx
             dy -= sy
+        }
+        afterMoves { input in
+            for (sx, sy) in steps { input.wheel(dx: sx, dy: sy) }
         }
     }
 

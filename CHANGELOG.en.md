@@ -44,6 +44,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Apple TV app: the L1 + R1 + Start + Select combo only opens the menu when held for 250 ms; a brief press of the four buttons stays with the game, without releasing anything behind its back.
 - Apple TV app: the gamepad's Home button can go to the game as Guide (Steam Big Picture, Game Bar), if tvOS allows it; otherwise, set “Bouton Guide” to long press: Menu or Options held for 0.6 s send Guide. The test screen shows whether Home reaches the app.
 - Apple TV app: a Bluetooth mouse's wheel finally scrolls the right way (it scrolled sideways), one notch per notch; buttons 4 and 5 (back, forward) work.
+- Apple TV app: gamepad as mouse, pushing the right stick up scrolls up (it was the other way round); a click from the mouse, the remote or the gamepad as mouse no longer lands beside the pointer when the interface is busy, and a held click is no longer forgotten when the menu opens or the gamepad turns off.
 
 ## 0.2.5
 
