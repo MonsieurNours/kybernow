@@ -36,6 +36,13 @@ if pgrep -f "apps/macos/build/Build/Products/Release/KyberNow.app/" >/dev/null; 
     echo "Quittez la KyberNow compilée en Release avant de publier (⌘Q)" >&2; exit 1
 fi
 
+# La notarisation lit son mot de passe dans le Trousseau, illisible écran
+# verrouillé : on le vérifie avant les compilations, et l'écran reste
+# allumé jusqu'à la fin (il ne se verrouille pas en route).
+xcrun notarytool history --keychain-profile kybernow >/dev/null 2>&1 \
+    || { echo "Profil de notarisation « kybernow » illisible : déverrouillez le Mac (ou voyez docs/releases.md)" >&2; exit 1; }
+caffeinate -dimsu -w $$ &
+
 echo "==> Version $VERSION"
 for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml; do
     sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
