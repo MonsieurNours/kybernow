@@ -8,6 +8,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 - libavconv capture engine: the pointer follows the mouse again on displays above 60 Hz (it stayed frozen while the mouse moved), and keeps its shape when Kyber's input service restarts.
 - Keyframes requested by the apps after a loss: at most one per session every 150 ms, so a network losing many packets does not weigh down the image of every shared screen.
+- libavconv capture engine: `audio_layout = "stereo"` setting (`[kyavserver]` section) to send stereo sound even when Windows outputs 5.1 or 7.1; otherwise Kyber's web client, which only plays stereo, stays silent. The sound also announces its packet size, without which a Kyber client with unreliable sound stopped.
 
 ## 0.2.5
 
