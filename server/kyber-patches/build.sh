@@ -11,6 +11,7 @@
 #   0004  son basse latence : capture et paquets Opus de 10 ms, Opus « lowdelay »
 #   0005  image clé à la demande : POST /force_idr sur kycontroller (le client
 #         la demande quand il a perdu une référence)
+#   0006  pointeur : ses déplacements aussi (position seule, 60 par seconde au plus)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans

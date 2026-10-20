@@ -31,6 +31,9 @@ private let clipboardTypes: UnsafeMutablePointer<kynput_InputType> = {
 
 private final class CursorSink {
     weak var view: StreamView?
+    /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
+    /// la même image (kyber-patches serveur 0006), inutile de la refaire.
+    var lastShape: Int?
     init(view: StreamView) { self.view = view }
 }
 
@@ -58,7 +61,8 @@ final class InputPipeline {
             consume: { packet, userdata in
                 guard let packet, let userdata, let c = kynput_cursor_from_packet(packet) else { return }
                 defer { kynput_cursor_unref(c) }
-                let remote = InputPipeline.decode(c)
+                let box = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
+                let remote = InputPipeline.decode(c, lastShape: &box.lastShape)
                 let sink = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
                 DispatchQueue.main.async { sink.view?.remoteCursorChanged(remote) }
             },
@@ -160,6 +164,11 @@ final class InputPipeline {
         kynput_pipeline_flush_keys(pipeline)
     }
 
+    /// Arrête les gestionnaires de kynput (manettes SDL) ; sans effet s'ils le sont déjà.
+    func shutdown() {
+        kynput_pipeline_stop(pipeline)
+    }
+
     /// À appeler une fois le pipeline branché au réseau.
     func startClipboard() {
         guard let clipboard else { return }
@@ -221,7 +230,7 @@ final class InputPipeline {
     }
 
     /// Forme ARGB (32 bits, non prémultipliée) → NSImage.
-    private static func decode(_ c: OpaquePointer) -> RemoteCursor {
+    private static func decode(_ c: OpaquePointer, lastShape: inout Int?) -> RemoteCursor {
         let visible = kynput_cursor_visible(c)
         let width = Int(kynput_cursor_width(c))
         let height = Int(kynput_cursor_height(c))
@@ -232,6 +241,14 @@ final class InputPipeline {
               let raw = kynput_cursor_raw_data(c, &count),
               width > 0, height > 0, Int(count) >= width * height
         else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
+        // Même forme que la dernière fois : seule la position change.
+        var hasher = Hasher()
+        hasher.combine(width)
+        hasher.combine(height)
+        hasher.combine(bytes: UnsafeRawBufferPointer(start: raw, count: width * height * 4))
+        let shape = hasher.finalize()
+        if shape == lastShape { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
+        lastShape = shape
 
         var pixels = [UInt32](repeating: 0, count: width * height)
         var opaque = false

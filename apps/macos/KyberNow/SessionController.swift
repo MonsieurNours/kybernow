@@ -328,7 +328,11 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             chooseDisplay()
         case let .displaysChanged(list):
             displays = list
-            if let streaming, !list.contains(where: { $0.id == streaming }) {
+            if case .reconnecting = phase {
+                // Kyber se reconnecte et relancera l'image lui-même (reconnected) :
+                // la relancer ici en ferait démarrer deux.
+                if let streaming, !list.contains(where: { $0.id == streaming }) { display = bestDisplay() }
+            } else if let streaming, !list.contains(where: { $0.id == streaming }) {
                 // L'écran suivi a disparu (écran physique éteint) : on passe au bon.
                 restartStreaming()
             } else if settling != nil, list.count == 1 {
@@ -361,6 +365,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
             phase = .streaming
             if restart {
                 streaming = nil
+                if let best = bestDisplay() { display = best }
                 startStreaming()
             }
         case .reconnectionFailed:
@@ -404,6 +409,8 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
 
     private func startStreaming() {
         guard let kyber, let display else { return }
+        // Pendant une reconnexion, c'est « reconnected » qui relance l'image.
+        if case .reconnecting = phase { return }
         if revealedAt == nil { phase = .starting }
         do {
             KyberLog.app.notice("image : écran \(display.id) \(display.width)×\(display.height) en (\(display.x), \(display.y))")

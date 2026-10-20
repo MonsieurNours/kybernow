@@ -1,0 +1,132 @@
+--- a/subprojects/txproto/src/dxgi_cursor.c	2026-10-20 11:53:37
++++ b/subprojects/txproto/src/dxgi_cursor.c	2026-10-20 11:53:47
+@@ -87,9 +87,17 @@
+      * client blink and switch to relative mouse mode. */
+     uint8_t sent_visible;
+     int64_t hide_deadline; /* av_gettime_relative(), 0 = none pending */
++
++    /* KyberNow: pointer moves are forwarded too (position only, at most
++     * every MOVE_INTERVAL_US), so a client in relative mouse mode can draw
++     * the pointer where the host has it. */
++    uint8_t moved;
++    int64_t last_sent;
++    int64_t move_deadline; /* 0 = none pending */
+ };
+ 
+ #define HIDE_DELAY_US 250000
++#define MOVE_INTERVAL_US 16666
+ 
+ static void dxgi_cursor_free(void *opaque, uint8_t *data)
+ {
+@@ -462,6 +470,11 @@
+ 
+         ctx->cursor.x = handle->position.x;
+         ctx->cursor.y = handle->position.y;
++    } else if (ctx->cursor.x != handle->position.x || ctx->cursor.y != handle->position.y) {
++        /* Same shape, new position. */
++        ctx->cursor.x = handle->position.x;
++        ctx->cursor.y = handle->position.y;
++        ctx->moved = 1;
+     }
+ 
+     return updated;
+@@ -484,16 +497,55 @@
+ static int send_cursor_state(DxgiCursorHandler *ctx)
+ {
+     int err = send_cursor(ctx);
+-    if (err >= 0)
++    if (err >= 0) {
+         ctx->sent_visible = ctx->visible;
++        ctx->moved = 0;
++        ctx->move_deadline = 0;
++        ctx->last_sent = av_gettime_relative();
++    }
+     return err;
+ }
+ 
++/* Position only: an empty bitmap tells the consumer to keep the last shape. */
++static int send_cursor_position(DxgiCursorHandler *ctx)
++{
++    uint8_t buffer[33];
++
++    AV_WB32(buffer, ctx->identifier);
++    buffer[4] = 1;
++    AV_WB32(buffer + 5, ctx->cursor.x + ctx->cursor.xhot);
++    AV_WB32(buffer + 9, ctx->cursor.y + ctx->cursor.yhot);
++    AV_WB32(buffer + 13, ctx->cursor.xhot);
++    AV_WB32(buffer + 17, ctx->cursor.yhot);
++    AV_WB32(buffer + 21, ctx->cursor.width);
++    AV_WB32(buffer + 25, ctx->cursor.height);
++    AV_WB32(buffer + 29, 0);
++
++    int err = write_to_pipe(ctx, buffer, sizeof(buffer));
++    ctx->moved = 0;
++    ctx->move_deadline = 0;
++    ctx->last_sent = av_gettime_relative();
++    return err;
++}
++
++/* A move is sent now, or once MOVE_INTERVAL_US has passed since the last send. */
++static int handle_move(DxgiCursorHandler *ctx)
++{
++    if (!ctx->moved || !ctx->visible || !ctx->sent_visible)
++        return 0;
++    int64_t due = ctx->last_sent + MOVE_INTERVAL_US;
++    if (av_gettime_relative() >= due)
++        return send_cursor_position(ctx);
++    if (!ctx->move_deadline)
++        ctx->move_deadline = due;
++    return 0;
++}
++
+ static int handle_cursor_received(DxgiCursorHandler *ctx)
+ {
+     int updated = process_pending_cursors(ctx);
+     if (!updated)
+-        return 0;
++        return handle_move(ctx);
+ 
+     if (!ctx->visible && ctx->sent_visible) {
+         /* Hidden: wait before telling the client, it may come back. */
+@@ -509,9 +561,12 @@
+ /* Milliseconds to wait for the next cursor update. */
+ static DWORD next_wait_ms(DxgiCursorHandler *ctx)
+ {
+-    if (!ctx->hide_deadline)
++    int64_t deadline = ctx->hide_deadline;
++    if (ctx->move_deadline && (!deadline || ctx->move_deadline < deadline))
++        deadline = ctx->move_deadline;
++    if (!deadline)
+         return INFINITE;
+-    int64_t left = ctx->hide_deadline - av_gettime_relative();
++    int64_t left = deadline - av_gettime_relative();
+     return left <= 0 ? 0 : (DWORD)((left + 999) / 1000);
+ }
+ 
+@@ -570,7 +625,7 @@
+                 return AVERROR_EXTERNAL;
+ 
+             case WAIT_TIMEOUT:
+-                if (ctx->hide_deadline) {
++                if (ctx->hide_deadline && av_gettime_relative() >= ctx->hide_deadline) {
+                     /* Still hidden after the delay: tell the client. */
+                     ctx->hide_deadline = 0;
+                     if (!ctx->visible) {
+@@ -578,9 +633,15 @@
+                         if (err < 0)
+                             return err;
+                     }
+-                    break;
+                 }
+-                /* fall through */
++                if (ctx->move_deadline && av_gettime_relative() >= ctx->move_deadline) {
++                    ctx->move_deadline = 0;
++                    err = handle_move(ctx);
++                    if (err < 0)
++                        return err;
++                }
++                break;
++
+             case WAIT_ABANDONED:
+             default:
+                 sp_log(ctx, SP_LOG_ERROR, "WaitForSingleObject() returned an unexpected value: %d\n", err);

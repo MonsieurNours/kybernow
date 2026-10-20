@@ -3,6 +3,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.1
+
+- Manette : elle ne répondait plus après une reconnexion de Kyber (par exemple quand l'écran virtuel est recréé). L'app ne garde plus qu'une seule chaîne d'entrées à la fois.
+- Mode jeu : le pointeur de l'ordinateur (menus, inventaires) est dessiné par l'app à sa vraie place. L'ordinateur transmet maintenant aussi les déplacements du pointeur.
+- AV1 décodé par l'app, choix de l'écran de l'ordinateur dans la barre (sans écran virtuel).
+
 ## 0.2.0
 
 Première version publiée.

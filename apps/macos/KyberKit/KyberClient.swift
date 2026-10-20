@@ -146,6 +146,13 @@ public final class KyberClient {
 
     /// Démarre l'image de `display` dans `view`, avec le son et les entrées.
     public func startStreaming(display: KyberDisplay, view: StreamView, options: StreamOptions) throws {
+        // Une seule image à la fois : deux chaînes d'entrées se disputeraient
+        // les manettes (SDL n'en sert qu'une), et l'ancienne, débranchée du
+        // réseau, rejetterait tout.
+        if input != nil {
+            KyberLog.app.notice("image déjà démarrée : arrêt de la précédente")
+            stopStreaming()
+        }
         // Les gestionnaires d'entrées ne redémarrent pas : un pipeline neuf par session.
         let input = InputPipeline(display: display, view: view, clipboard: options.clipboard)
         input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
@@ -217,9 +224,13 @@ public final class KyberClient {
 
     public func stopStreaming() {
         stopKeyframeWait()
-        input?.stop()
+        let old = input
+        old?.stop()
         input = nil
         kyclient_client_stop_streaming(client)
+        // Kyber arrête lui-même la chaîne d'entrées de la session, sauf si la
+        // connexion était déjà perdue : on s'en assure (manettes libérées).
+        old?.shutdown()
         retire(video)
         video = nil
         retire(audio)

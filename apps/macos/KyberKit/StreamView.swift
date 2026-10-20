@@ -47,6 +47,16 @@ public final class StreamView: NSView {
     private var remoteVisibleSince: TimeInterval? = 0
     /// Forme du pointeur de l'ordinateur, en pixels de l'ordinateur.
     private var remoteShape: (image: NSImage, hotSpot: CGPoint)?
+    /// En mode jeu, le pointeur du Mac est caché : celui de l'ordinateur
+    /// (menus, inventaires) est dessiné ici, là où l'ordinateur le place.
+    /// Ses déplacements arrivent du serveur (kyber-patches 0006).
+    private let pointerLayer: CALayer = {
+        let layer = CALayer()
+        layer.zPosition = 100
+        layer.isHidden = true
+        layer.actions = ["position": NSNull(), "bounds": NSNull(), "contents": NSNull(), "hidden": NSNull()]
+        return layer
+    }()
     private var remotePosition: CGPoint?
     private var windowObservers: [NSObjectProtocol] = []
 
@@ -70,6 +80,7 @@ public final class StreamView: NSView {
         surface.autoresizingMask = [.width, .height]
         surface.isHidden = true
         addSubview(surface)
+        layer?.addSublayer(pointerLayer)
     }
 
     @available(*, unavailable)
@@ -152,9 +163,34 @@ public final class StreamView: NSView {
             }
         }
         // Forme nouvelle : on l'adopte. Masquage ou forme vide : on garde la dernière.
-        guard let image = remote.image else { return }
-        remoteShape = (image, remote.hotSpot)
-        applyCursorShape()
+        if let image = remote.image {
+            remoteShape = (image, remote.hotSpot)
+            applyCursorShape()
+        }
+        updatePointerLayer()
+    }
+
+    /// Pointeur de l'ordinateur dessiné par l'app, en mode jeu seulement.
+    private func updatePointerLayer() {
+        guard relative.active, !remoteHidden, let shape = remoteShape, let host = remotePosition, let layout,
+              let cg = shape.image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else {
+            pointerLayer.isHidden = true
+            return
+        }
+        // Même taille que le pointeur du Mac (voir applyCursorShape).
+        let pixels = CGSize(width: cg.width, height: cg.height)
+        let factor = min(1, 32 / max(pixels.width, pixels.height, 1))
+        var hostPos = kynput_Position(x: host.x, y: host.y)
+        var local = kynput_Position(x: 0, y: 0)
+        kynput_video_layout_host_to_local(layout, &hostPos, &local)
+        let size = CGSize(width: pixels.width * factor, height: pixels.height * factor)
+        // La position annoncée est la pointe (point actif) ; vue non retournée : y vers le haut.
+        let top = local.y - shape.hotSpot.y * factor
+        pointerLayer.contents = cg
+        pointerLayer.contentsScale = window?.backingScaleFactor ?? 2
+        pointerLayer.frame = CGRect(x: local.x - shape.hotSpot.x * factor, y: bounds.height - top - size.height, width: size.width, height: size.height)
+        pointerLayer.isHidden = false
     }
 
     /// Le pointeur du Mac prend la forme de celui de l'ordinateur, à la
@@ -211,6 +247,7 @@ public final class StreamView: NSView {
             guard let window, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) else { return }
             input?.setRelative(true)
             relative.start()
+            updatePointerLayer()
             KyberLog.app.notice("souris en mode jeu (\(self.mouseMode == .game ? "choisi" : "jeu en plein écran", privacy: .public))")
             onRelativeChanged?(true)
         } else if !want, relative.active {
@@ -223,6 +260,7 @@ public final class StreamView: NSView {
     private func endRelative(warp: Bool) {
         guard relative.active else { return }
         relative.stop()
+        pointerLayer.isHidden = true
         input?.setRelative(false)
         onRelativeChanged?(false)
         guard warp, let layout, let host = remotePosition, let window, let screen = window.screen ?? NSScreen.screens.first else { return }
