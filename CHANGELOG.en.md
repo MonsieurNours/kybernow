@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Apple TV app: every picture restart (profile change, fallback) left Bluetooth keyboard and mouse observers behind; they are now removed.
 - Mac and Apple TV apps: per-computer setting “Manette vue par l'ordinateur” (gamepad seen by the computer): Xbox 360 (default, recognised by every game) or faithful (a Sony gamepad stays a DualShock 4). It overrides the console's “all gamepads as Xbox 360” option, which only remains a default for other clients.
 - Mac app: on a European (ISO) Apple keyboard, the `@#` key gave `<` on the computer and `<>` gave `@`: both are back in place. Apple TV app: “Clavier Apple ISO” setting for Apple Bluetooth keyboards.
 - Mac and Apple TV apps: a release refused by the input send queue (64 packets) is no longer lost silently: it is retried for up to 200 ms, and refusals are counted in the log. On the Apple TV, a stick only sends the axis that moved, in 4 ms slices: a DualSense over Bluetooth sent up to 1,500 packets per second.

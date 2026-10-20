@@ -26,7 +26,11 @@ final class KeyboardMouse {
     /// les claviers Apple.
     var appleISO = false
 
+    /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
+    /// observateurs précédents sont retirés d'abord, sinon ils s'empilaient
+    /// et chaque clavier branché était réglé autant de fois.
     func attach(_ input: InputPipeline) {
+        observers.forEach(NotificationCenter.default.removeObserver)
         self.input = input
         if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
         GCMouse.mice().forEach(setUp)

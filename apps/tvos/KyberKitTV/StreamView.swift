@@ -110,7 +110,15 @@ public final class StreamView: UIView {
 
     // MARK: - Session
 
+    /// Rappelé à chaque redémarrage de l'image sans `detach` entre les deux
+    /// (KyberClient arrête la chaîne précédente puis en crée une neuve) : ce
+    /// qui tenait à l'ancienne chaîne est défait d'abord, le pointeur et le
+    /// menu restent en place.
     func attach(input: InputPipeline, hostSize: CGSize) {
+        if self.input != nil {
+            keyboardMouse.detach()
+            GamepadBridge.shared.pointerMove = nil
+        }
         self.input = input
         self.hostSize = hostSize
         rebuildLayout()
