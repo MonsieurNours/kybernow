@@ -31,6 +31,7 @@ export interface Latency {
 export type EngineEvent =
   | { type: 'connecting' }
   | { type: 'reconnecting'; attempt: number; max: number }
+  | { type: 'auth-required' }
   | { type: 'streaming' }
   | { type: 'first-image' }
   | { type: 'resized'; width: number; height: number }
@@ -103,6 +104,7 @@ class LatencyWindow {
 }
 
 export class Engine {
+  private m: Wasm = null
   private client: any = null
   private config: any = null
   private stopping = false
@@ -118,6 +120,7 @@ export class Engine {
 
   async connect(host: string, port: string, token: string, s: StreamSettings) {
     const m = await loadEngine()
+    this.m = m
     const b = new m.StreamingConfigBuilder()
     b.protocol = s.protocol
     if (s.protocol === 'kymux') {
@@ -170,6 +173,10 @@ export class Engine {
       case 'reconnecting':
         this.onEvent({ type: 'reconnecting', attempt: event.attempt, max: event.maxAttempts })
         break
+      case 'authentication_required':
+        // Jeton refusé : le moteur attend un nouveau jeton puis `connect()`.
+        this.onEvent({ type: 'auth-required' })
+        break
       case 'reconnected':
         if (event.shouldRestartStreaming) this.onEvent({ type: 'stopped', reason: 'restart' })
         break
@@ -209,6 +216,18 @@ export class Engine {
     if (!this.sessionTotals.length) return null
     const v = [...this.sessionTotals].sort((a, b) => a - b)
     return v[Math.floor(v.length / 2)]
+  }
+
+  /** Nouveau jeton (la console en signe pour 12 h) : servira aux reconnexions.
+   * `resume` : le moteur attendait ce jeton pour retenter la connexion. */
+  updateCredentials(token: string, resume = false) {
+    if (!this.client || !this.m) return
+    try {
+      this.client.update_credentials(this.m.AuthCredentials.jwt(token))
+      if (resume) this.client.connect()
+    } catch (e) {
+      console.warn('KyberNow : jeton non transmis au moteur', e)
+    }
   }
 
   ctrlAltDel() {

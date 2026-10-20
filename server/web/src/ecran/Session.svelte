@@ -5,7 +5,9 @@
 -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte'
-  import { backend } from './backend'
+  import { backend, endBody, heartbeatBody } from './backend'
+  import { Heartbeat } from './heartbeat'
+  import { ApiError } from '../lib/api'
   import { Engine, supportedCodecs, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
@@ -61,6 +63,33 @@
   let gameInForeground = false
   /** La console a préparé l'écran : il faudra le lui rendre. */
   let prepared = false
+  /** Champs ajoutés aux corps du signal de vie et de la fin : cet appareil. */
+  const extra = () => ({ device_id: deviceId() })
+  /** La session de la console (le cookie et le jeton durent 12 h) a expiré. */
+  const EXPIRED = 'Votre connexion à la console a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.'
+
+  // Signal de vie depuis un Worker : il continue dans un onglet masqué.
+  const heartbeat = new Heartbeat((r) => {
+    if (ended || phase === 'ended') return
+    if (r.status === 401) fail(EXPIRED)
+    // Fin demandée depuis la console, ou un autre appareil prend la main.
+    else if (r.end) fail('La session a été reprise par un autre appareil, ou arrêtée depuis la console de l’ordinateur.')
+  })
+
+  /** Jeton Kyber relu sur la console (reconnexion, puis toutes les heures),
+   * pour que le moteur ne se reconnecte pas avec un jeton périmé. */
+  let ticketAt = 0
+  async function refreshTicket(resume = false) {
+    if (!resume && Date.now() - ticketAt < 30_000) return
+    ticketAt = Date.now()
+    try {
+      const t = await backend.ticket()
+      ticketToken = t.token
+      engine?.updateCredentials(t.token, resume)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) fail(EXPIRED)
+    }
+  }
 
   const profileLabel = $derived(prefs.profile === 'jeu' ? 'Jeu' : 'Bureau')
   const latencyText = $derived(latency ? `${latency.total.toFixed(latency.total < 10 ? 1 : 0).replace('.', ',')} ms` : '— ms')
@@ -159,7 +188,7 @@
       prepared = true
       await connect(preferredProtocol)
     } catch (e) {
-      fail(errorText(e))
+      fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
     }
   }
 
@@ -194,6 +223,10 @@
     switch (e.type) {
       case 'reconnecting':
         reconnecting = `Connexion perdue, nouvelle tentative (${e.attempt} sur ${e.max})…`
+        refreshTicket()
+        break
+      case 'auth-required':
+        refreshTicket(true)
         break
       case 'streaming':
         reconnecting = ''
@@ -207,6 +240,7 @@
         imageWatch = null
         phase = 'live'
         reconnecting = ''
+        if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
         learnDisplayId()
         document.getElementById('kn-canvas')?.focus()
         scheduleBarHide()
@@ -244,13 +278,14 @@
     error = message
     phase = 'ended'
     barVisible = true
+    heartbeat.stop()
     // L'écran préparé pour cette session est rendu à l'ordinateur.
     const e = engine
     engine = null
     e?.stop()
     if (prepared) {
       prepared = false
-      backend.end(null).catch(() => {})
+      backend.end(null, extra()).catch(() => {})
     }
   }
 
@@ -264,11 +299,12 @@
     // On rend la main tout de suite ; le moteur et la console finissent derrière.
     const wasPrepared = prepared
     prepared = false
+    heartbeat.stop()
     releasePointer()
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     onEnd()
     await e?.stop()
-    if (wasPrepared) backend.end(median).catch(() => {})
+    if (wasPrepared) backend.end(median, extra()).catch(() => {})
   }
 
   function setMouseMode(m: MouseMode) {
@@ -458,13 +494,18 @@
     const unlockAudio = () => engine?.resumeAudio()
     const leave = () => {
       if (ended || !prepared) return
-      fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: '{}' })
+      fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
+    }
+    // Onglet qui passe en arrière-plan : un signal tout de suite.
+    const hidden = () => {
+      if (document.visibilityState === 'hidden' && heartbeat.running) heartbeat.now()
     }
     window.addEventListener('resize', resize)
     document.addEventListener('fullscreenchange', onFullscreenChange)
     window.addEventListener('pointerdown', unlockAudio)
     window.addEventListener('keydown', unlockAudio)
     window.addEventListener('pagehide', leave)
+    document.addEventListener('visibilitychange', hidden)
     if (document.fullscreenElement) onFullscreenChange()
 
     // Mesures et signal de vie.
@@ -474,12 +515,13 @@
       fps = engine.latency.fps()
       if (latency) spark = [...spark.slice(-31), latency.total]
     }, 500)
-    const heartbeat = setInterval(async () => {
+    // La latence du signal de vie (le Worker envoie la dernière connue).
+    const sampler = setInterval(() => {
       if (!engine || phase !== 'live') return
       const l = engine.sample()
-      const r = await backend.heartbeat(l?.total ?? null, profileLabel).catch(() => null)
-      if (r?.end) fail('La console de l’ordinateur a mis fin à la session.')
+      heartbeat.update(heartbeatBody(l?.total ?? null, profileLabel, extra()))
     }, 5000)
+    const ticketTimer = setInterval(() => phase === 'live' && refreshTicket(), 3_600_000)
 
     // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
     textInput.setAttribute('autocorrect', 'off')
@@ -490,7 +532,9 @@
 
     return () => {
       clearInterval(metrics)
-      clearInterval(heartbeat)
+      clearInterval(sampler)
+      clearInterval(ticketTimer)
+      heartbeat.stop()
       clearInterval(foreground)
       if (diagTimer) clearInterval(diagTimer)
       cursorWatch?.disconnect()
@@ -510,10 +554,11 @@
       window.removeEventListener('pointerdown', unlockAudio)
       window.removeEventListener('keydown', unlockAudio)
       window.removeEventListener('pagehide', leave)
+      document.removeEventListener('visibilitychange', hidden)
       if (!ended) {
         ended = true
         engine?.stop()
-        if (prepared) backend.end(null).catch(() => {})
+        if (prepared) backend.end(null, extra()).catch(() => {})
       }
     }
   })

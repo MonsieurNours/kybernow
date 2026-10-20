@@ -78,8 +78,22 @@ export const backend = {
       device: body.device,
       profile: body.profile,
     }),
-  heartbeat: (latency: number | null, profile: string) =>
-    call<{ active: boolean; end: boolean }>('POST', '/api/stream/heartbeat', { latency_ms: latency, profile }),
+  heartbeat: (latency: number | null, profile: string, extra: Extra = {}) =>
+    call<{ active: boolean; end: boolean }>('POST', '/api/stream/heartbeat', heartbeatBody(latency, profile, extra)),
   foreground: () => call<{ known: boolean; fullscreen: boolean; game: boolean }>('GET', '/api/stream/foreground'),
-  end: (latency: number | null) => call('POST', '/api/stream/end', { latency_ms: latency }),
+  end: (latency: number | null, extra: Extra = {}) => call('POST', '/api/stream/end', endBody(latency, extra)),
+}
+
+/** Champs en plus dans les corps du signal de vie et de la fin (par exemple
+ * `device_id`) : la console ignore ceux qu'elle ne connaît pas. */
+export type Extra = Record<string, unknown>
+
+/** Corps du signal de vie (aussi envoyé par le Worker, `heartbeat.ts`). */
+export function heartbeatBody(latency: number | null, profile: string, extra: Extra = {}) {
+  return { ...extra, latency_ms: latency, profile }
+}
+
+/** Corps de la fin de session (aussi envoyé en `keepalive` quand la page se ferme). */
+export function endBody(latency: number | null, extra: Extra = {}) {
+  return { ...extra, latency_ms: latency }
 }

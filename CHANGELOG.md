@@ -10,6 +10,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web : un clic dans la barre de session (Quitter, Son, Touches…) ou sur un bouton tactile ne clique plus aussi sur l'ordinateur, sous la barre.
 - Client web sur téléphone et tablette : le texte tapé au clavier de l'appareil arrive juste sur un ordinateur en AZERTY, avec majuscules, accents et emoji, et un clavier branché à l'iPad ne double plus les lettres. Sur un appareil tactile, l'image passe donc par WebSocket, comme sur iPhone et iPad.
 - Client web : quitter la fenêtre (Alt+Tab, ⌘Tab, autre onglet) ou rendre la souris relâche sur l'ordinateur les touches et les boutons tenus : plus de Maj, d'Alt ou de clic collés.
+- Client web : la session tient dans un onglet masqué (la console ne la croit plus terminée au bout de 30 s), et une connexion à la console expirée est annoncée clairement au lieu d'une reconnexion qui échoue.
 
 ## 0.2.5
 
