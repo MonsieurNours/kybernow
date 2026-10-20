@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.6
+
+- App Mac : après ⌘Tab, ⌘Espace ou un passage dans une autre app, la touche ⌘ (envoyée comme Ctrl) ne reste plus enfoncée sur l'ordinateur. Tout est relâché quand la fenêtre perd le clavier, et les modificateurs vraiment tenus sont renvoyés quand elle le retrouve.
+
 ## 0.2.5
 
 - App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.

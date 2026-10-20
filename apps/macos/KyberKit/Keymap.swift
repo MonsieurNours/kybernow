@@ -66,4 +66,29 @@ enum Keymap {
         UInt16(kVK_Command): .command, UInt16(kVK_RightCommand): .command,
         UInt16(kVK_CapsLock): .capsLock,
     ]
+
+    /// Modificateurs tenus : drapeau, touche de chaque côté, et le bit propre
+    /// à chaque côté dans `modifierFlags.rawValue` (NX_DEVICE…KEYMASK d'IOKit),
+    /// seul moyen de savoir lequel des deux est enfoncé.
+    struct HeldModifier {
+        let flag: NSEvent.ModifierFlags
+        let left: UInt16, right: UInt16
+        let leftBit: UInt, rightBit: UInt
+    }
+
+    static let heldModifiers: [HeldModifier] = [
+        .init(flag: .shift, left: UInt16(kVK_Shift), right: UInt16(kVK_RightShift), leftBit: 0x02, rightBit: 0x04),
+        .init(flag: .control, left: UInt16(kVK_Control), right: UInt16(kVK_RightControl), leftBit: 0x01, rightBit: 0x2000),
+        .init(flag: .option, left: UInt16(kVK_Option), right: UInt16(kVK_RightOption), leftBit: 0x20, rightBit: 0x40),
+        .init(flag: .command, left: UInt16(kVK_Command), right: UInt16(kVK_RightCommand), leftBit: 0x08, rightBit: 0x10),
+    ]
+
+    /// Bit du côté que porte cette touche de modification (nil : Verr. maj.).
+    static func sideBit(_ code: UInt16) -> UInt? {
+        for m in heldModifiers {
+            if m.left == code { return m.leftBit }
+            if m.right == code { return m.rightBit }
+        }
+        return nil
+    }
 }

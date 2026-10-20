@@ -64,6 +64,8 @@ public final class StreamView: NSView {
     private var layout: OpaquePointer?
     private var hostSize = CGSize(width: 1920, height: 1080)
     private var pressedModifiers = Set<UInt16>()
+    /// Boutons de souris tenus, relâchés si la fenêtre perd le clavier.
+    private var heldMouseButtons = Set<InputPipeline.MouseButton>()
     private var cursor: NSCursor = .arrow
     private var tracking: NSTrackingArea?
     private var keyUpMonitor: Any?
@@ -118,6 +120,7 @@ public final class StreamView: NSView {
         input?.flushKeys()
         input = nil
         pressedModifiers.removeAll()
+        heldMouseButtons.removeAll()
     }
 
     // MARK: - Mise en page
@@ -226,10 +229,56 @@ public final class StreamView: NSView {
         windowObservers.forEach(NotificationCenter.default.removeObserver)
         windowObservers = []
         guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            windowObservers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                self?.evaluateRelative()
-            })
+        let center = NotificationCenter.default
+        windowObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in
+            self?.keyboardRegained()
+        })
+        windowObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+            self?.keyboardLost()
+        })
+        // Spotlight et certains raccourcis système ne retirent pas toujours le
+        // clavier à la fenêtre ; l'app, elle, cesse d'être active.
+        windowObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.keyboardLost()
+        })
+    }
+
+    // MARK: - Tout relâcher
+
+    /// La fenêtre perd le clavier (⌘Tab, ⌘Espace, Spotlight, autre app) : les
+    /// relâchements qui suivent ne nous parviendront pas, rien ne doit rester
+    /// enfoncé sur l'ordinateur, ni dans notre état.
+    private func keyboardLost() {
+        releaseEverything()
+        evaluateRelative()
+    }
+
+    private func releaseEverything() {
+        for button in heldMouseButtons { input?.mouseButton(button, pressed: false) }
+        heldMouseButtons.removeAll()
+        pressedModifiers.removeAll()
+        // L'ordinateur relâche de son côté touches, modificateurs, boutons et manettes.
+        input?.flushKeys()
+    }
+
+    /// La fenêtre retrouve le clavier : les modificateurs tenus à cet instant
+    /// (⌘ encore enfoncée après un ⌘Tab) repartent vers l'ordinateur, du côté
+    /// réellement tenu quand le système le dit, sinon du côté gauche.
+    private func keyboardRegained() {
+        evaluateRelative()
+        resyncModifiers()
+    }
+
+    private func resyncModifiers() {
+        guard input != nil, window?.isKeyWindow == true, window?.firstResponder === self else { return }
+        let flags = NSEvent.modifierFlags
+        let raw = flags.rawValue
+        for m in Keymap.heldModifiers where flags.contains(m.flag) {
+            var sides = [(m.left, m.leftBit), (m.right, m.rightBit)].filter { raw & $0.1 != 0 }.map(\.0)
+            if sides.isEmpty { sides = [m.left] }
+            for code in sides where pressedModifiers.insert(code).inserted {
+                send(keyCode: code, pressed: true)
+            }
         }
     }
 
@@ -301,16 +350,21 @@ public final class StreamView: NSView {
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
 
+    private func mouseButton(_ button: InputPipeline.MouseButton, pressed: Bool) {
+        if pressed { heldMouseButtons.insert(button) } else { heldMouseButtons.remove(button) }
+        input?.mouseButton(button, pressed: pressed)
+    }
+
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if !relative.active, inReservedBand(event) { return }
         sendPosition(event)
-        input?.mouseButton(.left, pressed: true)
+        mouseButton(.left, pressed: true)
     }
 
-    public override func mouseUp(with event: NSEvent) { input?.mouseButton(.left, pressed: false) }
-    public override func rightMouseDown(with event: NSEvent) { sendPosition(event); input?.mouseButton(.right, pressed: true) }
-    public override func rightMouseUp(with event: NSEvent) { input?.mouseButton(.right, pressed: false) }
+    public override func mouseUp(with event: NSEvent) { mouseButton(.left, pressed: false) }
+    public override func rightMouseDown(with event: NSEvent) { sendPosition(event); mouseButton(.right, pressed: true) }
+    public override func rightMouseUp(with event: NSEvent) { mouseButton(.right, pressed: false) }
 
     private func otherButton(_ event: NSEvent) -> InputPipeline.MouseButton? {
         switch event.buttonNumber {
@@ -322,11 +376,11 @@ public final class StreamView: NSView {
     }
 
     public override func otherMouseDown(with event: NSEvent) {
-        if let b = otherButton(event) { input?.mouseButton(b, pressed: true) }
+        if let b = otherButton(event) { mouseButton(b, pressed: true) }
     }
 
     public override func otherMouseUp(with event: NSEvent) {
-        if let b = otherButton(event) { input?.mouseButton(b, pressed: false) }
+        if let b = otherButton(event) { mouseButton(b, pressed: false) }
     }
 
     public override func scrollWheel(with event: NSEvent) {
@@ -358,13 +412,34 @@ public final class StreamView: NSView {
         let code = event.keyCode
         guard let flag = Keymap.modifiers[code] else { return }
         if flag == .capsLock {
+            // Une bascule, pas une touche tenue : appui + relâchement, comme une
+            // frappe, et l'ordinateur bascule son verrouillage à l'appui. Jamais
+            // dans `pressedModifiers`, jamais resynchronisée : les deux côtés
+            // restent d'accord tant que chaque bascule est signalée une fois.
             send(keyCode: code, pressed: true)
             send(keyCode: code, pressed: false)
             return
         }
-        let down = event.modifierFlags.contains(flag) && !pressedModifiers.contains(code)
-        if down { pressedModifiers.insert(code) } else { pressedModifiers.remove(code) }
-        send(keyCode: code, pressed: down)
+        // Le bit du côté dit si cette touche-ci est enfoncée (les deux ⇧ tenues
+        // et une relâchée : le drapeau reste levé) ; à défaut, le drapeau.
+        let flags = event.modifierFlags
+        let down = Keymap.sideBit(code).map { flags.rawValue & $0 != 0 } ?? flags.contains(flag)
+        if down {
+            guard pressedModifiers.insert(code).inserted else { return }
+            send(keyCode: code, pressed: true)
+            return
+        }
+        // Relâchement : cette touche, et, si le drapeau est retombé, tout ce
+        // qui le portait encore chez nous (côté resynchronisé au retour du
+        // clavier, qui n'est pas forcément celui-ci).
+        var codes: Set<UInt16> = [code]
+        if !flags.contains(flag) {
+            codes.formUnion(pressedModifiers.filter { Keymap.modifiers[$0] == flag })
+        }
+        for c in codes {
+            pressedModifiers.remove(c)
+            send(keyCode: c, pressed: false)
+        }
     }
 
     // ⌘ + touche : pour l'ordinateur, sauf les raccourcis ⌃⌥⌘ de l'app.
@@ -380,9 +455,15 @@ public final class StreamView: NSView {
         return false
     }
 
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        // La fenêtre ne nous a pas encore inscrits : au prochain tour.
+        if ok { DispatchQueue.main.async { [weak self] in self?.resyncModifiers() } }
+        return ok
+    }
+
     public override func resignFirstResponder() -> Bool {
-        input?.flushKeys()
-        pressedModifiers.removeAll()
+        releaseEverything()
         return super.resignFirstResponder()
     }
 }

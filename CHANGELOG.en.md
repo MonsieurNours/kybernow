@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.6
+
+- Mac app: after ⌘Tab, ⌘Space or a trip to another app, the ⌘ key (sent as Ctrl) no longer stays pressed on the computer. Everything is released when the window loses the keyboard, and the modifiers really held are sent again when it gets it back.
+
 ## 0.2.5
 
 - Apple TV app: gamepads finally respond on the computer. They announced themselves before the inputs were connected, and the computer then ignored their buttons; the remote and the gamepad as a mouse did work.
