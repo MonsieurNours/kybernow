@@ -2,7 +2,7 @@
 
 English · [Français](PROJECT.md)
 
-Ready-to-install Windows (NVIDIA) server + web administration GUI, and native macOS / tvOS clients “in the style of Moonlight”, built on [Kyber](https://kyber.tech) (low-latency streaming SDK by the VLC team, Rust + FFmpeg + VLC + QUIC).
+Ready-to-install Windows server (any graphics card: NVIDIA, AMD, Intel, eGPUs included; otherwise the processor) + web administration GUI, and native macOS / tvOS clients “in the style of Moonlight”, built on [Kyber](https://kyber.tech) (low-latency streaming SDK by the VLC team, Rust + FFmpeg + VLC + QUIC).
 
 ## Decisions made
 
@@ -19,13 +19,14 @@ Ready-to-install Windows (NVIDIA) server + web administration GUI, and native ma
 | Trigger | Configurable in the admin: never / our apps only / all clients (default mode for those that do not send their resolution) |
 | End of session | Virtual display removed, physical displays restored, **no** Windows lock |
 | 2nd client | It takes over: the 1st is disconnected and the virtual display recreated at its dimensions |
+| Encoder | Chosen at installation according to the graphics cards in use (eGPUs included), from the most to the least capable: NVIDIA → `nvenc`, otherwise AMD → `amf`, otherwise Intel → `qsv`, otherwise the processor → `x264`. Hybrid laptop (Intel + NVIDIA): NVENC. No encoder presented as experimental; an update never touches the user's choice |
 | Ports | Drawn at random at installation (stream and console separate), within 20000–44999, outside ranges reserved by Windows (Hyper-V/WSL) and Sunshine/Moonlight ports; free in TCP **and** UDP; shown and editable on the check screen; announced over Bonjour |
 | Installer (UX) | Immersive, animated (“signal flow” background, transitions, step-by-step diagnosis, live installation, celebration), educational; mock-up: https://claude.ai/artifact/3BnFPgxYmz2etqHXM1cd8S; respects “reduce motion”; “About” screen (licences, developer's website) |
 | Web admin | Rust service + embedded Svelte SPA. Console v2 (20/10/2026): four pages by intent, Overview · Picture and sound · Access · System; the computer's image first; Kyber's raw settings filed under System › Advanced; menu on the left, tabs at the bottom on a phone. Known devices and event feed kept by the console (the apps introduce themselves at the start of a session); end of session requested from the console or the icon. Icon next to the clock: a panel (WebView2) on left click, the Windows menu on right click. Installer in four steps (analysis during the welcome step) |
 | Web client (20/10/2026) | New client served by the console (`/ecran`), same account, for this computer only; “Open in the browser” entry on the Overview page. Kyber's `kyclient_wasm` engine, interface rebuilt on the model of the Mac app: Desktop / Game profiles, app settings (protocol, buffers and format chosen automatically, filed under “Advanced”), session bar with a Keys menu (Ctrl+Alt+Del…). Windows computer, Mac, tablet (trackpad or direct touch) and phone; dark theme only. Kyber's `/webclient/` stays in place for troubleshooting. Mock-ups: the “In the browser” row of https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
 | Identity (v2, 20/10/2026) | “Relay” symbol (square cut at 45°: the computer, the link, you; with no letter, it survives a name change), Spectre signal `#9A8CFF` as neon lit only in active moments, Archivo + Martian Mono; “computer” for the shared machine, “device” for what connects to it, no system named outside technical information; everything in `brand/v2/`; guidelines: https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt; mock-ups: https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
-| Apple | SwiftUI, macOS then tvOS; paid Apple Developer account available |
 | Website (20/10/2026) | **kybernow.app**, in `site/`: static, no npm, everything vendored (Three.js r170, fonts, icons). French at the root, English under `/en/`, language detected and choice remembered; step-by-step guide and FAQ (`/guide/`), legal notice (`/mentions-legales/`, publisher Matthieu Requenna EI “Les Lignes Claires”, SIREN 510 178 577); hosted on GitHub Pages (workflow `.github/workflows/pages.yml`, domain to be connected); community Discord (https://discord.gg/sVy2mu5WdT: Welcome, Community, Help in forums, Voice, private Team; Community mode). Presents KyberNow as “next-generation computer streaming” (your own cloud), the measured path of an image (9.4 ms), QUIC, the comparison with Sunshine + Moonlight, and the downloads (`releases/latest` links). States that it uses Kyber (link), that it is not affiliated with it, and that it is community-run and non-commercial. 3D scene of the symbol and neon according to the guidelines. See `site/README.md` ([English](site/README.en.md)) |
+| Apple | SwiftUI, macOS then tvOS; paid Apple Developer account available |
 | Environment | Development on a Mac, Windows NVIDIA computer reachable on the LAN |
 
 ## What Kyber provides (v0.29.0, 2026-10-09)
@@ -58,7 +59,7 @@ kyber-apps/
 - Runs as a Windows service, HTTPS on a dedicated port, access protected by a password.
 - **Config**: reads/writes `kyber_config.toml` while keeping its comments (`toml_edit`), schema validation, applied with a controlled restart of the Kyber service.
 - **Service**: start / stop / restart / state of the Kyber service.
-- **Monitoring**: GPU, driver, encoder load (NVML), active session, live logs.
+- **Monitoring**: GPU, driver, encoder load (NVML, NVIDIA cards; for AMD and Intel, the console shows the configured encoder), active session, live logs.
 - **Pairing**: the console's “Devices” page: QR code and link `kybernow://adresse:port?name=…&fp=sha256:…` (address, console port, fingerprint of its certificate; no secret). The app reads the QR code with the Mac's camera, or the pasted (or opened: `kybernow://` scheme) link. The fingerprint seen is compared with the one in the link or the announcement; with a plain address, the user compares it with the console's (first 4 groups). Then the console account, verified and kept in the Keychain; certificate pinned.
 - **Discovery**: Bonjour/mDNS announcement `_kybernow._tcp` from the console (TXT `v`, `name`, `fp`), UDP 5353 firewall rule for kyber-admin.
 - **Apps' home screen**: `GET /api/stream/info` gives the computer's system (“Windows 11 Pro 24H2”, designed for a multi-platform server), `GET /api/stream/preview` a JPEG preview of the main display (GDI capture by the agent in the user's session, 10 s cache, never during a session), background of the home screen when the app has no image from the last session.

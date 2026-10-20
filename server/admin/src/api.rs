@@ -625,7 +625,7 @@ async fn stream_preview(
     let (d, a) = (s.display.clone(), s.audio.clone());
     let streaming = s.foreground.active()
         || blocking(move || {
-            Ok(gpu::encoder_sessions().unwrap_or(0) > 0
+            Ok(gpu::encoding()
                 || !d.status()["session"].is_null()
                 || !a.status()["session"].is_null())
         })
@@ -726,7 +726,7 @@ async fn admin_preview(State(s): State<AppState>, Query(q): Query<PreviewQuery>)
     let (d, a) = (s.display.clone(), s.audio.clone());
     let streaming = s.foreground.active()
         || blocking(move || {
-            Ok(gpu::encoder_sessions().unwrap_or(0) > 0
+            Ok(gpu::encoding()
                 || !d.status()["session"].is_null()
                 || !a.status()["session"].is_null())
         })

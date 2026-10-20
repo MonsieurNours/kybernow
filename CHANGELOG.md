@@ -7,6 +7,8 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.1
 
+- Toutes les cartes graphiques : l'installation choisit l'encodeur de la carte la plus performante (NVIDIA, sinon AMD, sinon Intel, eGPU compris ; sinon le processeur). AMF et Quick Sync ne sont plus présentés comme expérimentaux, et une mise à jour garde l'encodeur que vous avez choisi.
+- Console : l'état en direct de la carte graphique pour AMD et Intel aussi. La page Système montre son nom, son pilote, sa charge et si un flux est en cours ; l'aperçu de l'écran et l'arrêt automatique de l'écran virtuel et du son voient maintenant les flux encodés par AMF et Quick Sync.
 - Manette : elle ne répondait plus après une reconnexion de Kyber (par exemple quand l'écran virtuel est recréé). L'app ne garde plus qu'une seule chaîne d'entrées à la fois.
 - App Mac : après un redémarrage de Kyber sur l'ordinateur, la session reprend sur l'écran virtuel au lieu de se couper (l'app le redemande à la console). Le panneau des mesures ne fait plus chuter la fluidité de l'image (plus de verre dépoli recalculé à chaque image).
 - Mode jeu : le pointeur de l'ordinateur (menus, inventaires) est dessiné par l'app à sa vraie place. L'ordinateur transmet maintenant aussi les déplacements du pointeur.

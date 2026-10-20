@@ -372,6 +372,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         tracing::warn!("service Kyber simulé (pas sous Windows) : démarrer/arrêter ne fait rien");
     }
 
+    // Cartes graphiques : liste et activité relevées en fond (flux en cours, console).
+    gpu::start();
+
     // Écran virtuel : nettoyage d'une session interrompue, puis surveillance.
     let display = display::Manager::new(data_dir.clone(), settings.virtual_display.clone());
     {

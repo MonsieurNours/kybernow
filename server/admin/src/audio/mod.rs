@@ -226,7 +226,7 @@ impl Router {
             let mut idle_since: Option<Instant> = None;
             loop {
                 std::thread::sleep(Duration::from_secs(1));
-                let encoding = crate::gpu::encoder_sessions().unwrap_or(0) > 0;
+                let encoding = crate::gpu::encoding();
                 let state = self.active.lock().unwrap().as_ref().map(|a| (a.origin, a.last_seen.elapsed()));
                 match state {
                     Some((origin, silent)) => {

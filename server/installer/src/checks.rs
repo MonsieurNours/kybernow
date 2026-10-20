@@ -43,23 +43,19 @@ fn running(emit: &Emit, id: &str, title: &str) {
 pub fn run(emit: &Emit) -> SystemInfo {
     let mut info = SystemInfo::default();
 
-    running(emit, "gpu", "Carte graphique NVIDIA");
-    let gpu = gpu();
+    running(emit, "gpu", "Carte graphique");
+    let gpu = best_gpu(gpus());
+    info.encoder = gpu.as_ref().map_or("x264", |g| g.vendor.encoder()).into();
     match &gpu {
-        Some((name, _)) => {
-            info.encoder = "nvenc".into();
-            emit_item(emit, Item { id: "gpu", status: CheckStatus::Ok, title: "Carte graphique NVIDIA".into(), detail: format!("{name} · encodeur matériel NVENC disponible") });
-        }
-        None => {
-            info.encoder = "x264".into();
-            emit_item(emit, Item { id: "gpu", status: CheckStatus::Warn, title: "Aucune carte NVIDIA détectée".into(), detail: "L'encodage se fera par le processeur (x264) : plus lent et plus gourmand.".into() });
-        }
+        Some(g) => emit_item(emit, Item { id: "gpu", status: CheckStatus::Ok, title: "Carte graphique".into(), detail: format!("{} · encodage matériel {}", g.name, g.vendor.encoder_name()) }),
+        None => emit_item(emit, Item { id: "gpu", status: CheckStatus::Warn, title: "Aucune carte graphique compatible".into(), detail: "L'encodage se fera par le processeur (x264) : plus lent et plus gourmand.".into() }),
     }
 
     running(emit, "driver", "Pilote graphique");
-    match gpu.and_then(|(_, v)| v) {
-        Some(v) => emit_item(emit, Item { id: "driver", status: CheckStatus::Ok, title: "Pilote graphique".into(), detail: format!("Version {v}") }),
-        None => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: "Pilote graphique".into(), detail: "Version inconnue : pensez à mettre à jour le pilote NVIDIA.".into() }),
+    match &gpu {
+        Some(Gpu { driver: Some(v), .. }) => emit_item(emit, Item { id: "driver", status: CheckStatus::Ok, title: "Pilote graphique".into(), detail: format!("Version {v}") }),
+        Some(_) => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: "Pilote graphique".into(), detail: "Version inconnue : pensez à mettre à jour le pilote de la carte graphique.".into() }),
+        None => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: "Pilote graphique".into(), detail: "Aucun pilote de carte graphique : installez celui du fabricant (NVIDIA, AMD ou Intel) pour profiter de l'encodage matériel.".into() }),
     }
 
     running(emit, "network", "Réseau local");
@@ -151,11 +147,115 @@ pub fn steam_speakers_inf() -> Option<std::path::PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// (nom du GPU, version du pilote)
-fn gpu() -> Option<(String, Option<String>)> {
-    let nvml = nvml_wrapper::Nvml::init().ok()?;
-    let device = nvml.device_by_index(0).ok()?;
-    Some((device.name().ok()?, nvml.sys_driver_version().ok()))
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Vendor {
+    // Du plus performant au moins performant : l'ordre décide de l'encodeur.
+    Nvidia,
+    Amd,
+    Intel,
+}
+
+impl Vendor {
+    fn from_pci(id: u16) -> Option<Self> {
+        match id {
+            0x10DE => Some(Self::Nvidia),
+            0x1002 | 0x1022 => Some(Self::Amd),
+            0x8086 => Some(Self::Intel),
+            _ => None,
+        }
+    }
+
+    /// Valeur de `[kyavserver] encoder` dans kyber_config.toml.
+    fn encoder(self) -> &'static str {
+        match self {
+            Self::Nvidia => "nvenc",
+            Self::Amd => "amf",
+            Self::Intel => "qsv",
+        }
+    }
+
+    fn encoder_name(self) -> &'static str {
+        match self {
+            Self::Nvidia => "NVENC",
+            Self::Amd => "AMF",
+            Self::Intel => "Quick Sync",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Gpu {
+    vendor: Vendor,
+    name: String,
+    driver: Option<String>,
+}
+
+/// La carte qui encodera : NVIDIA, sinon AMD, sinon Intel. Sur un portable
+/// hybride (Intel intégré + NVIDIA), c'est donc la NVIDIA.
+fn best_gpu(gpus: Vec<Gpu>) -> Option<Gpu> {
+    gpus.into_iter().min_by_key(|g| g.vendor)
+}
+
+/// Cartes graphiques en service, cartes externes (eGPU) comprises.
+fn gpus() -> Vec<Gpu> {
+    let mut found = if cfg!(windows) {
+        crate::sys::powershell(
+            "ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_VideoController | \
+             Select-Object Name,PNPDeviceID,DriverVersion,ConfigManagerErrorCode,InfFilename)",
+        )
+        .map(|json| parse_video_controllers(&json))
+        .unwrap_or_default()
+    } else {
+        vec![Gpu { vendor: Vendor::Nvidia, name: "NVIDIA GeForce RTX (simulation)".into(), driver: Some("000.00".into()) }]
+    };
+    // Repli si Windows n'a pas répondu : NVML voit au moins les cartes NVIDIA.
+    if found.is_empty()
+        && let Some(nvml) = nvml_wrapper::Nvml::init().ok()
+        && let Some(name) = nvml.device_by_index(0).ok().and_then(|d| d.name().ok())
+    {
+        found.push(Gpu { vendor: Vendor::Nvidia, name, driver: nvml.sys_driver_version().ok() });
+    }
+    found
+}
+
+/// Lit la liste de `Win32_VideoController`. Ne garde que les cartes PCI
+/// des fabricants connus, en état de marche, avec le pilote du fabricant :
+/// les écrans virtuels, le bureau à distance et l'adaptateur de base de
+/// Microsoft (`display.inf`, aucun encodeur matériel) sont écartés.
+fn parse_video_controllers(json: &str) -> Vec<Gpu> {
+    let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            let field = |key: &str| item.get(key).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty());
+            if item.get("ConfigManagerErrorCode").and_then(|v| v.as_u64()).is_some_and(|code| code != 0) {
+                return None;
+            }
+            if field("InfFilename").is_some_and(|inf| inf.eq_ignore_ascii_case("display.inf")) {
+                return None;
+            }
+            let pnp = field("PNPDeviceID")?.to_ascii_uppercase();
+            let ven = pnp.strip_prefix(r"PCI\VEN_")?.get(..4)?;
+            let vendor = Vendor::from_pci(u16::from_str_radix(ven, 16).ok()?)?;
+            let driver = field("DriverVersion").map(|v| driver_version(vendor, v));
+            Some(Gpu { vendor, name: field("Name").unwrap_or(vendor.encoder_name()).to_string(), driver })
+        })
+        .collect()
+}
+
+/// NVIDIA publie ses pilotes sous un autre numéro que celui de Windows :
+/// 32.0.15.6094 est le pilote 560.94 (les cinq derniers chiffres).
+fn driver_version(vendor: Vendor, windows: &str) -> String {
+    if vendor == Vendor::Nvidia {
+        let digits: String = windows.split('.').skip(2).collect();
+        if digits.len() >= 5 && digits.bytes().all(|b| b.is_ascii_digit()) {
+            let last = &digits[digits.len() - 5..];
+            return format!("{}.{}", last[..3].trim_start_matches('0'), &last[3..]);
+        }
+    }
+    windows.to_string()
 }
 
 pub fn lan_ip() -> Option<String> {
@@ -254,4 +354,52 @@ pub fn existing_kyber() -> (Option<String>, bool) {
     });
     let service = crate::sys::run("sc", &["query", "kyber"]).is_ok_and(|o| o.status.success());
     (uninstaller, service)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HYBRID: &str = r#"[
+        {"Name":"Intel(R) UHD Graphics","PNPDeviceID":"PCI\\VEN_8086&DEV_9A60&SUBSYS_0A6D1028&REV_01\\3&11583659&0&10","DriverVersion":"31.0.101.5186","ConfigManagerErrorCode":0,"InfFilename":"oem42.inf"},
+        {"Name":"NVIDIA GeForce RTX 4070 Laptop GPU","PNPDeviceID":"PCI\\VEN_10DE&DEV_2860&SUBSYS_0A6D1028&REV_A1\\4&2B1D6F0E&0&0008","DriverVersion":"32.0.15.6094","ConfigManagerErrorCode":0,"InfFilename":"oem55.inf"},
+        {"Name":"SudoMaker Virtual Display Adapter","PNPDeviceID":"ROOT\\DISPLAY\\0000","DriverVersion":"1.0.0.0","ConfigManagerErrorCode":0,"InfFilename":"oem60.inf"}
+    ]"#;
+
+    #[test]
+    fn hybrid_laptop_picks_nvidia() {
+        let gpu = best_gpu(parse_video_controllers(HYBRID)).unwrap();
+        assert_eq!(gpu.vendor.encoder(), "nvenc");
+        assert_eq!(gpu.name, "NVIDIA GeForce RTX 4070 Laptop GPU");
+        assert_eq!(gpu.driver.as_deref(), Some("560.94"));
+    }
+
+    #[test]
+    fn amd_before_intel() {
+        let json = r#"[
+            {"Name":"Intel(R) Arc(TM) A770","PNPDeviceID":"PCI\\VEN_8086&DEV_56A0","DriverVersion":"32.0.101.6078","ConfigManagerErrorCode":0,"InfFilename":"oem3.inf"},
+            {"Name":"AMD Radeon RX 7900 XTX","PNPDeviceID":"PCI\\VEN_1002&DEV_744C","DriverVersion":"32.0.12011.1036","ConfigManagerErrorCode":0,"InfFilename":"oem7.inf"}
+        ]"#;
+        let gpu = best_gpu(parse_video_controllers(json)).unwrap();
+        assert_eq!(gpu.vendor.encoder(), "amf");
+        assert_eq!(gpu.driver.as_deref(), Some("32.0.12011.1036"));
+    }
+
+    #[test]
+    fn intel_alone_uses_quick_sync() {
+        let json = r#"[{"Name":"Intel(R) Iris(R) Xe Graphics","PNPDeviceID":"PCI\\VEN_8086&DEV_9A49","DriverVersion":"31.0.101.5186","ConfigManagerErrorCode":0,"InfFilename":"oem12.inf"}]"#;
+        assert_eq!(best_gpu(parse_video_controllers(json)).unwrap().vendor.encoder(), "qsv");
+    }
+
+    #[test]
+    fn unusable_adapters_fall_back_to_processor() {
+        // Carte sans pilote (adaptateur de base), carte désactivée, bureau à distance.
+        let json = r#"[
+            {"Name":"Microsoft Basic Display Adapter","PNPDeviceID":"PCI\\VEN_1002&DEV_73BF","DriverVersion":"10.0.22621.1","ConfigManagerErrorCode":0,"InfFilename":"display.inf"},
+            {"Name":"NVIDIA GeForce RTX 3080","PNPDeviceID":"PCI\\VEN_10DE&DEV_2206","DriverVersion":"32.0.15.6094","ConfigManagerErrorCode":22,"InfFilename":"oem5.inf"},
+            {"Name":"Microsoft Remote Display Adapter","PNPDeviceID":"SWD\\REMOTEDISPLAYENUM\\RDPIDD_INDIRECTDISPLAY","DriverVersion":"10.0.22621.1","ConfigManagerErrorCode":0,"InfFilename":"rdpidd.inf"}
+        ]"#;
+        assert!(best_gpu(parse_video_controllers(json)).is_none());
+        assert!(parse_video_controllers("").is_empty());
+    }
 }

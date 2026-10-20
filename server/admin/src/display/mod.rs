@@ -8,7 +8,7 @@
 //! Filets de sécurité :
 //! - le pilote retire ses écrans s'il ne reçoit plus de signal de vie (3 s) ;
 //! - l'état d'une session est écrit sur disque et nettoyé au démarrage suivant ;
-//! - une session client sans nouvelles depuis 20 s, et sans flux NVENC, s'arrête.
+//! - une session client sans nouvelles depuis 20 s, et sans flux encodé (NVIDIA, AMD ou Intel), s'arrête.
 
 #[cfg(windows)]
 pub mod agent;
@@ -336,7 +336,7 @@ impl Manager {
             let mut idle_since: Option<Instant> = None;
             loop {
                 std::thread::sleep(Duration::from_secs(1));
-                let encoding = crate::gpu::encoder_sessions().unwrap_or(0) > 0;
+                let encoding = crate::gpu::encoding();
                 let (active, expired_test, client_gone, origin) = {
                     let s = self.session.lock().unwrap();
                     match s.as_ref() {

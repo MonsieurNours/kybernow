@@ -14,14 +14,14 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 
 - **Launcher** (`src/bin/setup.rs`): without WebView2, administrator rights. It drops the interface and `WebView2Loader.dll` into `%TEMP%`, then launches the interface. With `--uninstall`, it uninstalls (it is also `uninstall.exe` once installed).
 - **Interface** (`src/bin/ui.rs` + `ui/`): borderless window (tao + wry/WebView2) that serves the Svelte app through the `kn://` protocol. JSON messages: `window.ipc.postMessage` one way, `window.__knReceive` the other (`src/events.rs`). v2 identity (“server” symbol, Archivo and Martian Mono embedded), four steps in the left column, whose seam fills up as you go: **Welcome** (the computer is already being analysed alongside, ports can be changed; nothing changes before “Install”), **Your account**, **Options** (virtual display, gamepads, sound, start with the computer, performance), **Installation** then “Done” (address, the console's QR code, `/ecran` in a browser, restart for the gamepads). Version shown: the one in `Cargo.toml`.
-- **Core** (`src/`): `checks` (diagnosis), `ports` (random draw, reserved ranges, TCP + UDP), `install` (tasks), `uninstall`, `payload` (payload format).
+- **Core** (`src/`): `checks` (diagnosis; graphics card and encoder, see below), `ports` (random draw, reserved ranges, TCP + UDP), `install` (tasks), `uninstall`, `payload` (payload format).
 
 ## What the installation does
 
 1. Stops and removes a previous version or official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
 2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)).
 3. Generates Kyber's TLS certificate (`cert-gen.exe`).
-4. `kyber-admin init`: port, encoder, single account (Kyber Basic + console), random JWT secret instead of Kyber's development key.
+4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + console), random JWT secret instead of Kyber's development key.
 5. Creates the `kyber` service (quoted path, automatic restart on failure) and opens its start and stop to interactive users (`sc sdset`, see below).
 6. Firewall: stream ports (TCP/UDP) and console port (TCP), the console's Bonjour announcement (UDP 5353, so the apps can find the computer), on the private and domain profiles; a “Public” network is switched to “Private”.
 7. SudoVDA: certificate in Root + Trusted Publishers, device node and driver through `nefconc`.
@@ -31,6 +31,12 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with Windows” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
 
 Log: `C:\Program Files\KyberNow\install.log` (and `%TEMP%\KyberNow-install.log`).
+
+## Choosing the encoder
+
+The analysis lists Windows' graphics cards (`Win32_VideoController`, connected eGPUs included) and keeps only working NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) and Intel (`VEN_8086`) PCI cards with the manufacturer's driver: Microsoft's basic adapter (`display.inf`, card without a driver), disabled cards, virtual displays (SudoVDA) and remote desktop are left out. It then takes the most capable: NVIDIA → `nvenc`, otherwise AMD → `amf`, otherwise Intel → `qsv`, otherwise the processor → `x264` (warning “No compatible graphics card”). On a hybrid laptop (integrated Intel + NVIDIA), that means NVENC. If Windows does not answer, NVML is the fallback for NVIDIA cards. The choice is written to `[kyavserver] encoder` by `kyber-admin init` and can then be changed in the console (System › Advanced). The update (`update.ps1`) replaces only the programs, never `kyber_config.toml`: the chosen encoder is kept.
+
+The “Graphics driver” check shows the driver version of that card (for NVIDIA, in the manufacturer's format: 32.0.15.6094 becomes 560.94).
 
 ## Notification area icon (`server/tray`)
 

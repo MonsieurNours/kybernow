@@ -14,7 +14,7 @@ export const STEPS: { screens: Screen[]; label: string }[] = [
 
 export const CHECK_ORDER = ['gpu', 'driver', 'network', 'ports', 'display', 'power', 'audio']
 const CHECK_TITLES: Record<string, string> = {
-  gpu: 'Carte graphique NVIDIA',
+  gpu: 'Carte graphique',
   driver: 'Pilote graphique',
   network: 'Réseau local',
   ports: 'Ports réseau',

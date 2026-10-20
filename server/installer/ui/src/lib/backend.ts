@@ -77,7 +77,7 @@ async function simulate(command: Command) {
       const stream = randomPort()
       const consolePort = randomPort()
       const items: [string, CheckStatus, string, string][] = [
-        ['gpu', 'ok', 'Carte graphique NVIDIA', 'NVIDIA GeForce RTX (simulation) · encodeur matériel NVENC disponible'],
+        ['gpu', 'ok', 'Carte graphique', 'NVIDIA GeForce RTX (simulation) · encodage matériel NVENC'],
         ['driver', 'ok', 'Pilote graphique', 'Version 000.00 (simulation)'],
         ['network', 'ok', 'Réseau local', 'Ethernet · 192.168.1.100'],
         ['ports', 'ok', 'Ports réseau', `Le port habituel 8080 est déjà utilisé par httpd.exe. Tirés au hasard et vérifiés libres : stream ${stream} · console ${consolePort}`],

@@ -43,11 +43,18 @@ export interface User {
 
 export type ServiceState = 'running' | 'stopped' | 'starting' | 'stopping' | 'not_installed' | 'unknown'
 
+export type GpuVendor = 'nvidia' | 'amd' | 'intel'
+
 export interface GpuDevice {
   name: string
+  vendor: GpuVendor
+  driver?: string
+  /** Un flux de Kyber est encodé par cette carte (toutes marques). */
+  encoding: boolean
   gpu_utilization?: number
   encoder_utilization?: number
   decoder_utilization?: number
+  /** NVIDIA seulement (NVML), comme les champs suivants. */
   encoder_sessions?: number
   encoder_fps?: number
   encoder_latency_us?: number

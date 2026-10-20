@@ -12,14 +12,14 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 
 - **Lanceur** (`src/bin/setup.rs`) : sans WebView2, droits administrateur. Il dépose l'interface et `WebView2Loader.dll` dans `%TEMP%`, puis lance l'interface. Avec `--uninstall`, il désinstalle (c'est aussi `uninstall.exe` une fois installé).
 - **Interface** (`src/bin/ui.rs` + `ui/`) : fenêtre sans bordure (tao + wry/WebView2) qui sert l'app Svelte via le protocole `kn://`. Messages JSON : `window.ipc.postMessage` dans un sens, `window.__knReceive` dans l'autre (`src/events.rs`). Identité v2 (symbole « server », Archivo et Martian Mono embarquées), quatre étapes dans la colonne de gauche, dont la couture se remplit au fil du parcours : **Bienvenue** (l'analyse de l'ordinateur tourne déjà à côté, ports modifiables ; rien ne change avant « Installer »), **Votre compte**, **Options** (écran virtuel, manettes, son, démarrage avec l'ordinateur, performances), **Installation** puis « Terminé » (adresse, QR code de la console, `/ecran` dans un navigateur, redémarrage pour les manettes). Version affichée : celle de `Cargo.toml`.
-- **Cœur** (`src/`) : `checks` (diagnostic), `ports` (tirage au hasard, plages réservées, TCP + UDP), `install` (tâches), `uninstall`, `payload` (format du contenu).
+- **Cœur** (`src/`) : `checks` (diagnostic ; carte graphique et encodeur, voir plus bas), `ports` (tirage au hasard, plages réservées, TCP + UDP), `install` (tâches), `uninstall`, `payload` (format du contenu).
 
 ## Ce que fait l'installation
 
 1. Arrête et retire une version précédente ou Kyber officiel (désinstalleur NSIS lancé avec `_?=` pour l'attendre).
 2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). Dans `kyber\`, les fichiers de Kyber 0.29 recouverts par la surcouche corrigée (`kyavserver.exe`, txproto et leur runtime, `kycontroller.exe`, voir [docs/kyber-changes.md](../../docs/kyber-changes.md)).
 3. Génère le certificat TLS de Kyber (`cert-gen.exe`).
-4. `kyber-admin init` : port, encodeur, compte unique (Kyber Basic + console), secret JWT aléatoire à la place de la clé de développement de Kyber.
+4. `kyber-admin init` : port, encodeur (voir « Choix de l'encodeur »), compte unique (Kyber Basic + console), secret JWT aléatoire à la place de la clé de développement de Kyber.
 5. Crée le service `kyber` (chemin entre guillemets, redémarrage automatique en cas d'échec) et ouvre son démarrage et son arrêt aux utilisateurs interactifs (`sc sdset`, voir plus bas).
 6. Pare-feu : ports du stream (TCP/UDP) et de la console (TCP), annonce Bonjour de la console (UDP 5353, pour que les apps trouvent l'ordinateur), sur les profils privé et domaine ; réseau « Public » passé en « Privé ».
 7. SudoVDA : certificat dans Racine + Éditeurs approuvés, nœud de périphérique et pilote via `nefconc`.
@@ -29,6 +29,12 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 10. Icône de la zone de notification : lancée à la fin de l'installation, et à chaque ouverture de session si « Démarrer avec Windows » est coché (valeur `KyberNow` de `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Sans cette option, les deux services passent en démarrage manuel.
 
 Journal : `C:\Program Files\KyberNow\install.log` (et `%TEMP%\KyberNow-install.log`).
+
+## Choix de l'encodeur
+
+L'analyse liste les cartes graphiques de Windows (`Win32_VideoController`, eGPU branchés compris) et ne garde que les cartes PCI NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) et Intel (`VEN_8086`) en état de marche, avec le pilote du fabricant : l'adaptateur de base de Microsoft (`display.inf`, carte sans pilote), les cartes désactivées, les écrans virtuels (SudoVDA) et le bureau à distance sont écartés. Elle prend ensuite la plus performante : NVIDIA → `nvenc`, sinon AMD → `amf`, sinon Intel → `qsv`, sinon le processeur → `x264` (avertissement « Aucune carte graphique compatible »). Sur un portable hybride (Intel intégré + NVIDIA), c'est donc NVENC. Si Windows ne répond pas, NVML sert de repli pour les cartes NVIDIA. Le choix est écrit dans `[kyavserver] encoder` par `kyber-admin init` et se change ensuite dans la console (Système › Avancé). La mise à jour (`update.ps1`) ne remplace que les programmes, jamais `kyber_config.toml` : l'encodeur choisi est conservé.
+
+Le contrôle « Pilote graphique » affiche la version du pilote de cette carte (pour NVIDIA, au format du fabricant : 32.0.15.6094 devient 560.94).
 
 ## Icône de la zone de notification (`server/tray`)
 

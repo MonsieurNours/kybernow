@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.1
 
+- All graphics cards: the installation chooses the encoder of the most capable card (NVIDIA, otherwise AMD, otherwise Intel, eGPUs included; otherwise the processor). AMF and Quick Sync are no longer presented as experimental, and an update keeps the encoder you chose.
 - Gamepad: it stopped responding after Kyber reconnected (for example when the virtual display is recreated). The app now keeps only one input chain at a time.
 - Mac app: after Kyber restarts on the computer, the session resumes on the virtual display instead of ending (the app asks the console for it again). The stats panel no longer makes the picture stutter (no more frosted glass recomputed on every frame).
 - Game mode: the computer's pointer (menus, inventories) is drawn by the app at its real position. The computer now also sends the pointer's movements.

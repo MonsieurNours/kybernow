@@ -2,7 +2,7 @@
 
 [English](PROJECT.en.md) · Français
 
-Serveur Windows (NVIDIA) clé en main + GUI web d'administration, et clients natifs macOS / tvOS « à la Moonlight », construits sur [Kyber](https://kyber.tech) (SDK de streaming basse latence de l'équipe VLC, Rust + FFmpeg + VLC + QUIC).
+Serveur Windows (toute carte graphique : NVIDIA, AMD, Intel, eGPU compris ; sinon le processeur) clé en main + GUI web d'administration, et clients natifs macOS / tvOS « à la Moonlight », construits sur [Kyber](https://kyber.tech) (SDK de streaming basse latence de l'équipe VLC, Rust + FFmpeg + VLC + QUIC).
 
 ## Décisions prises
 
@@ -19,13 +19,14 @@ Serveur Windows (NVIDIA) clé en main + GUI web d'administration, et clients nat
 | Déclenchement | Réglable dans l'admin : jamais / nos apps seulement / tous les clients (mode par défaut pour ceux qui n'envoient pas leur résolution) |
 | Fin de session | Écran virtuel retiré, écrans physiques restaurés, **pas** de verrouillage de Windows |
 | 2e client | Il prend la main : le 1er est déconnecté et l'écran virtuel recréé à ses dimensions |
+| Encodeur | Choisi à l'installation selon les cartes graphiques en service (eGPU compris), de la plus à la moins performante : NVIDIA → `nvenc`, sinon AMD → `amf`, sinon Intel → `qsv`, sinon le processeur → `x264`. Portable hybride (Intel + NVIDIA) : NVENC. Aucun encodeur présenté comme expérimental ; une mise à jour ne touche jamais au choix de l'utilisateur |
 | Ports | Tirés au hasard à l'installation (stream et console séparés), dans 20000–44999, hors plages réservées par Windows (Hyper-V/WSL) et ports Sunshine/Moonlight ; libres en TCP **et** UDP ; affichés et modifiables à l'écran de vérification ; annoncés en Bonjour |
 | Installateur (UX) | Immersif, animé (fond « flux de signal », transitions, diagnostic pas à pas, installation vivante, célébration), didactique ; maquette : https://claude.ai/artifact/3BnFPgxYmz2etqHXM1cd8S ; respecte « réduire les animations » ; écran « À propos » (licences, site du développeur) |
 | Admin web | Service Rust + SPA Svelte embarquée. Console v2 (20/10/2026) : quatre espaces par intention, Vue d'ensemble · Image et son · Accès · Système ; l'image de l'ordinateur d'abord ; réglages bruts de Kyber rangés dans Système › Avancé ; menu à gauche, onglets en bas sur téléphone. Appareils connus et fil d'événements tenus par la console (les apps se présentent en début de session) ; fin de session demandée depuis la console ou l'icône. Icône près de l'horloge : un panneau (WebView2) au clic gauche, le menu de Windows au clic droit. Installateur en quatre étapes (l'analyse pendant la bienvenue) |
 | Client web (20/10/2026) | Nouveau client servi par la console (`/ecran`), même compte, pour cet ordinateur seulement ; entrée « Ouvrir dans le navigateur » sur la Vue d'ensemble. Moteur `kyclient_wasm` de Kyber, interface refaite sur le modèle de l'app Mac : profils Bureau / Jeu, réglages de l'app (protocole, tampons et format choisis seuls, rangés dans « Avancé »), barre de session avec menu Touches (Ctrl+Alt+Suppr…). PC, Mac, tablette (pavé tactile ou toucher direct) et téléphone ; thème sombre seulement. Le `/webclient/` de Kyber reste en place pour le dépannage. Maquettes : rangée « Dans le navigateur » de https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
 | Identité (v2, 20/10/2026) | Symbole « Relais » (carré coupé à 45° : l'ordinateur, le lien, vous ; sans lettre, il survit à un changement de nom), signal Spectre `#9A8CFF` en néon allumé seulement dans les moments actifs, Archivo + Martian Mono ; « ordinateur » pour la machine partagée, « appareil » pour ce qui s'y connecte, aucun système nommé hors des informations techniques ; tout dans `brand/v2/` ; charte : https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt ; maquettes : https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
-| Apple | SwiftUI, macOS puis tvOS ; compte Apple Developer payant dispo |
 | Site (20/10/2026) | **kybernow.app**, dans `site/` : statique, sans npm, tout vendorisé (Three.js r170, polices, icônes). Français à la racine, anglais sous `/en/`, langue détectée et choix retenu ; guide pas à pas et FAQ (`/guide/`), mentions légales (`/mentions-legales/`, éditeur Matthieu Requenna EI « Les Lignes Claires », SIREN 510 178 577) ; hébergé sur GitHub Pages (workflow `.github/workflows/pages.yml`, domaine à brancher) ; Discord communautaire (https://discord.gg/sVy2mu5WdT : Bienvenue, Communauté, Aide en forums, Vocal, Équipe privée ; mode Communauté). Présente KyberNow comme « streaming d'ordinateur nouvelle génération » (votre propre cloud), le trajet d'une image mesuré (9,4 ms), QUIC, la comparaison avec Sunshine + Moonlight, et les téléchargements (liens `releases/latest`). Dit qu'il utilise Kyber (lien), qu'il n'y est pas affilié, et qu'il est communautaire et non commercial. Scène 3D du symbole et néon selon la charte. Voir `site/README.md` |
+| Apple | SwiftUI, macOS puis tvOS ; compte Apple Developer payant dispo |
 | Environnement | Dev sur Mac, PC Windows NVIDIA accessible sur le LAN |
 
 ## Ce que Kyber fournit (v0.29.0, 2026-10-09)
@@ -56,7 +57,7 @@ kyber-apps/
 - Tourne en service Windows, HTTPS sur un port dédié, accès protégé par mot de passe.
 - **Config** : lecture/écriture de `kyber_config.toml` en préservant les commentaires (`toml_edit`), validation par schéma, application avec redémarrage contrôlé du service Kyber.
 - **Service** : start / stop / restart / état du service Kyber.
-- **Supervision** : GPU, pilote, charge de l'encodeur (NVML), session active, logs en direct.
+- **Supervision** : carte graphique et pilote (`Win32_VideoController`), charge de la carte et de son encodeur, flux en cours (compteurs « GPU Engine » de Windows, pour NVIDIA, AMD et Intel) ; en plus pour NVIDIA, par NVML : sessions NVENC, images par seconde, latence, alimentation, température. Session active, logs en direct.
 - **Appairage** : page « Appareils » de la console : QR code et lien `kybernow://adresse:port?name=…&fp=sha256:…` (adresse, port de la console, empreinte de son certificat ; aucun secret). L'app lit le QR code à la caméra du Mac ou le lien collé (ou ouvert : schéma `kybernow://`). L'empreinte vue est comparée à celle du lien ou de l'annonce ; par simple adresse, l'utilisateur la compare à celle de la console (4 premiers groupes). Puis compte de la console, vérifié et gardé dans le Trousseau ; certificat épinglé.
 - **Découverte** : annonce Bonjour/mDNS `_kybernow._tcp` de la console (TXT `v`, `name`, `fp`), règle de pare-feu UDP 5353 pour kyber-admin.
 - **Accueil des apps** : `GET /api/stream/info` donne le système de l'ordinateur (« Windows 11 Pro 24H2 », pensé pour un serveur multi-plateforme), `GET /api/stream/preview` un aperçu JPEG de l'écran principal (capture GDI par l'agent dans la session de l'utilisateur, 10 s de cache, jamais pendant une session), fond de l'accueil quand l'app n'a pas d'image de la dernière session.
@@ -66,7 +67,7 @@ kyber-apps/
 ### Écran virtuel (session de stream)
 - **Début de session** : le client annonce sa résolution et sa fréquence à kyber-admin (nos apps) ou on prend le mode par défaut ; kyber-admin crée l'écran virtuel SudoVDA à ce mode, mémorise la disposition des écrans, n'active que l'écran virtuel, et la capture Kyber le suit.
 - **Fin de session** : écran virtuel retiré, disposition d'origine restaurée.
-- **Filet de sécurité** : le pilote retire l'écran s'il ne reçoit plus de signal de vie (3 s) ; kyber-admin restaure la disposition à son démarrage et quand plus aucun flux n'est encodé ; raccourci clavier d'urgence.
+- **Filet de sécurité** : le pilote retire l'écran s'il ne reçoit plus de signal de vie (3 s) ; kyber-admin restaure la disposition à son démarrage et quand plus aucun flux n'est encodé (toute carte graphique) ; raccourci clavier d'urgence.
 - ✅ **Validé le 2026-10-19** sur le PC (RTX 3080 Ti, 2 écrans 4K) : écran virtuel 3840 × 2160 à 160 Hz créé avant la connexion, écrans physiques éteints puis restaurés, stream reçu à 152 i/s, 8,3 ms de latence médiane.
 - **Piège connu** : l'énumérateur d'écrans de Kyber voit l'ancienne disposition pendant ~50 ms ; `prepare` attend que Windows n'affiche plus que l'écran virtuel, puis 1,5 s, avant de répondre. Les apps devront choisir l'écran d'après la liste mise à jour.
 - **Reste à valider** : le mode « Pour toute connexion » (écran créé en cours de flux), et la reprise de main par un 2e appareil (déconnexion du 1er).

@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte'
-  import { api, type LogFile, type UpdateStatus } from '../lib/api'
+  import { api, type GpuVendor, type LogFile, type UpdateStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
@@ -109,7 +109,37 @@
     }
   }
 
-  const gpu = $derived(status?.gpu?.devices[0] ?? null)
+  // La carte qui encode : celle de l'encodeur réglé, sinon la première
+  // (NVIDIA, puis AMD, puis Intel, comme à l'installation).
+  const ENCODERS: Record<string, { vendor?: GpuVendor; name: string }> = {
+    nvenc: { vendor: 'nvidia', name: 'NVENC' },
+    amf: { vendor: 'amd', name: 'AMF' },
+    qsv: { vendor: 'intel', name: 'Quick Sync' },
+    x264: { name: 'x264' },
+  }
+  const VENDOR_ENCODER: Record<GpuVendor, string> = { nvidia: 'nvenc', amd: 'amf', intel: 'qsv' }
+  const encoderValue = $derived(kyber.loaded ? value<string>('video.encoder') : null)
+  const gpu = $derived.by(() => {
+    const devices = status?.gpu?.devices ?? []
+    const vendor = encoderValue ? ENCODERS[encoderValue]?.vendor : undefined
+    return devices.find((d) => d.vendor === vendor) ?? devices[0] ?? null
+  })
+  const encoderLine = $derived.by(() => {
+    const id = encoderValue ?? (gpu ? VENDOR_ENCODER[gpu.vendor] : null)
+    if (!id) return null
+    const f = kyber.loaded ? field('video.encoder') : undefined
+    const label = f?.kind.type === 'enum' ? f.kind.options.find((o) => o.value === id)?.label : undefined
+    const name = ENCODERS[id]?.name
+    if (!name || !gpu || ENCODERS[id].vendor !== gpu.vendor) return label ?? name ?? id
+    // NVIDIA : sessions, images par seconde et latence de NVENC.
+    if (gpu.encoder_sessions != null) {
+      const fps = gpu.encoder_fps ? `, ${gpu.encoder_fps} i/s` : ''
+      const latency = gpu.encoder_latency_us ? ` · ${(gpu.encoder_latency_us / 1000).toFixed(1).replace('.', ',')} ms par image` : ''
+      return `${name}${gpu.encoder_sessions ? ` · ${gpu.encoder_sessions} flux${fps}` : ' · au repos'}${latency}`
+    }
+    const load = gpu.encoding && gpu.encoder_utilization ? `, occupé à ${gpu.encoder_utilization} %` : ''
+    return `${name} · ${gpu.encoding ? `flux en cours${load}` : 'au repos'}`
+  })
   const PSTATES: Record<number, string> = { 0: 'Puissance maximale', 2: 'Performances élevées', 5: 'Puissance réduite', 8: 'Au repos' }
   const serviceLine = $derived.by(() => {
     switch (status?.service.state) {
@@ -389,10 +419,14 @@
     {/if}
     <div class="kv-grid">
       <div>
-        <div class="kv"><span>Carte graphique</span><span>{gpu ? `${gpu.name}${status?.gpu?.driver ? ` · pilote ${status.gpu.driver}` : ''}` : 'Aucune carte NVIDIA détectée'}</span></div>
-        {#if gpu}
-          <div class="kv"><span>Encodeur</span><span>NVENC{gpu.encoder_sessions ? ` · ${gpu.encoder_sessions} flux${gpu.encoder_fps ? `, ${gpu.encoder_fps} i/s` : ''}` : ' · au repos'}{gpu.encoder_latency_us ? ` · ${(gpu.encoder_latency_us / 1000).toFixed(1).replace('.', ',')} ms par image` : ''}</span></div>
+        <div class="kv"><span>Carte graphique</span><span>{gpu ? `${gpu.name}${(gpu.driver ?? status?.gpu?.driver) ? ` · pilote ${gpu.driver ?? status?.gpu?.driver}` : ''}` : status ? 'Aucune carte graphique compatible' : '—'}</span></div>
+        {#if encoderLine}
+          <div class="kv"><span>Encodeur</span><span>{encoderLine}</span></div>
+        {/if}
+        {#if gpu && (gpu.pstate != null || gpu.temperature_c != null || gpu.power_w != null)}
           <div class="kv"><span>Alimentation</span><span>{gpu.pstate != null ? (PSTATES[gpu.pstate] ?? `P${gpu.pstate}`) : '—'}{gpu.temperature_c != null ? ` · ${gpu.temperature_c} °C` : ''}{gpu.power_w != null ? ` · ${Math.round(gpu.power_w)} W` : ''}</span></div>
+        {:else if gpu?.gpu_utilization != null}
+          <div class="kv"><span>Charge</span><span>{gpu.gpu_utilization} %</span></div>
         {/if}
       </div>
       <div>
