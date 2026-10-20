@@ -119,6 +119,9 @@ final class InputPipeline {
     let pipeline: OpaquePointer
     private let sink: OpaquePointer
     let displayID: UInt32
+    /// Taille de l'écran de l'ordinateur au départ de l'image, en pixels
+    /// (Apple TV : vitesse du pointeur rapportée à l'écran).
+    let hostSize: CGSize
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
     #if os(macOS)
@@ -134,6 +137,7 @@ final class InputPipeline {
 
     init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
         displayID = display.id
+        hostSize = CGSize(width: display.width, height: display.height)
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
 

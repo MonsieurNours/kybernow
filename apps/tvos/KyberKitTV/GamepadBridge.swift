@@ -177,6 +177,9 @@ public final class GamepadBridge: ObservableObject {
     private var liveTimer: DispatchSourceTimer?
     private var liveDirty = false
     private var lastTouch: CGPoint?
+    private var lastTouchTime: TimeInterval = 0
+    /// Écran de l'ordinateur (pixels) : la vitesse du pointeur s'y rapporte.
+    private var hostSize = CGSize(width: 1920, height: 1080)
     private var batteryTimer: DispatchSourceTimer?
     private var publishedKind: Kind?
     private var remotePresent = false
@@ -269,6 +272,7 @@ public final class GamepadBridge: ObservableObject {
         }
         queue.sync {
             self.input = input
+            if input.hostSize.width > 0, input.hostSize.height > 0 { hostSize = input.hostSize }
             // `captured` reste au contrôleur de session : l'image redémarre
             // (changement de profil) sans que le menu se ferme.
             for slot in slots.values { slot.motors?.session = true }
@@ -744,10 +748,9 @@ public final class GamepadBridge: ObservableObject {
             let m = Double(hypot(left.x, left.y))
             if m > 0.12 {
                 let n = min(1, (m - 0.12) / 0.88)
-                // Jusqu'à ~2 600 px/s à fond : l'écran 4K traversé en 1,5 s.
                 let precision = 1 - 0.7 * Double(slot.live.leftTrigger)
                 let boost = 1 + 1.5 * Double(slot.live.rightTrigger)
-                let speed = 2600 * pow(n, 2.2) * config.padMouseSpeed * precision * boost
+                let speed = Self.fullSpeed(hostSize) * Self.curve(n) * config.padMouseSpeed * precision * boost
                 dx += Double(left.x) / m * speed * dt
                 dy -= Double(left.y) / m * speed * dt
             }
@@ -764,6 +767,14 @@ public final class GamepadBridge: ObservableObject {
             wheelRest = (0, 0)
         }
     }
+
+    /// Courbe d'accélération du pointeur (manette et Siri Remote) : lent près
+    /// de zéro, pour viser, rapide à fond.
+    private static func curve(_ n: Double) -> Double { pow(min(1, max(0, n)), 2.2) }
+
+    /// Pointeur à fond (pixels par seconde) : l'écran de l'ordinateur traversé
+    /// en 1,5 s, quelle que soit sa définition (2 560 px/s en 4K).
+    private static func fullSpeed(_ host: CGSize) -> Double { Double(host.width) / 1.5 }
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         guard slot.active else { return }
@@ -795,18 +806,17 @@ public final class GamepadBridge: ObservableObject {
             guard let self, pressed, self.config.menuFromRemote, self.input != nil, !self.captured else { return }
             self.requestMenu()
         }
-        micro.dpad.valueChangedHandler = { [weak self] _, x, y in
+        // Doigt sur le pavé : bouton « surface tactile » de la Siri Remote
+        // (2ᵉ génération et suivantes), dont l'état `touched` dit si le doigt
+        // est posé, centre du pavé compris. Sans lui (1ʳᵉ génération), (0, 0)
+        // reste le seul signe d'un doigt levé.
+        let surface = c.physicalInputProfile.buttons[GCInputDirectionalTouchSurfaceButton]
+        surface?.touchedChangedHandler = { [weak self] _, _, _, touched in
+            if !touched { self?.lastTouch = nil }
+        }
+        micro.dpad.valueChangedHandler = { [weak self, weak surface] _, x, y in
             guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
-            let point = CGPoint(x: CGFloat(x), y: CGFloat(y))
-            // Doigt posé (0, 0 : levé) : déplacement depuis la dernière position.
-            if x == 0, y == 0 {
-                self.lastTouch = nil
-                return
-            }
-            if let last = self.lastTouch {
-                self.move(dx: Double(point.x - last.x) * 900, dy: Double(last.y - point.y) * 900, input: input)
-            }
-            self.lastTouch = point
+            self.remoteMoved(x: x, y: y, touched: surface?.isTouched, input: input)
         }
         micro.buttonA.pressedChangedHandler = { [weak self] _, _, pressed in
             guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
@@ -816,6 +826,39 @@ public final class GamepadBridge: ObservableObject {
             guard let self, self.config.remoteMouse, !self.captured, let input = self.input else { return }
             input.mouseButton(.right, pressed: pressed)
         }
+    }
+
+    /// Pavé de la Siri Remote en souris (positions absolues de -1 à 1) : le
+    /// déplacement du doigt devient un déplacement du pointeur, avec la courbe
+    /// de la manette en souris appliquée à la vitesse du doigt, et rapporté à
+    /// l'écran de l'ordinateur (avant : 900 px par demi-pavé quelle que soit
+    /// la définition, lent en 4K).
+    private func remoteMoved(x: Float, y: Float, touched: Bool?, input: InputPipeline) {
+        let now = ProcessInfo.processInfo.systemUptime
+        let lifted = touched.map { !$0 } ?? (x == 0 && y == 0)
+        guard !lifted else {
+            lastTouch = nil
+            return
+        }
+        let point = CGPoint(x: CGFloat(x), y: CGFloat(y))
+        defer {
+            lastTouch = point
+            lastTouchTime = now
+        }
+        guard let last = lastTouch else { return }
+        let dx = Double(point.x - last.x), dy = Double(last.y - point.y)
+        let distance = hypot(dx, dy)
+        // Saut (doigt reposé ailleurs, échantillon parasite au lever) : on
+        // repart de là sans bouger.
+        guard distance > 0, distance < 0.6 else { return }
+        let dt = min(0.05, max(0.004, now - lastTouchTime))
+        // Vitesse du doigt en pavés (2 unités) par seconde ; pleine vitesse
+        // vers 2,5 pavés par seconde (balayage rapide).
+        let n = distance / 2 / dt / 2.5
+        // Pixels par unité de pavé : doigt lent, un pavé = 40 % de l'écran
+        // (pour viser) ; vite, la courbe en ajoute jusqu'à 2,4 écrans de plus.
+        let gain = Double(hostSize.width) * (0.2 + 1.2 * Self.curve(n))
+        move(dx: dx * gain, dy: dy * gain, input: input)
     }
 
     // MARK: - Vibrations
