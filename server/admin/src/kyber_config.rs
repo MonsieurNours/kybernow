@@ -7,6 +7,8 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
@@ -25,6 +27,13 @@ const DEFAULT_PASSWORD_HASH: &str =
 pub struct KyberConfig {
     path: PathBuf,
     backup_dir: PathBuf,
+    /// Une seule lecture-modification-écriture à la fois : deux changements
+    /// simultanés (un appairage accepté depuis la console et depuis l'icône,
+    /// un réglage appliqué pendant un appairage) ne s'écrasent plus.
+    write: Mutex<()>,
+    /// Comptes lus la dernière fois, avec la date du fichier : les appels des
+    /// appareils (signal de vie chaque seconde) ne relisent pas le TOML à chaque fois.
+    logins: Mutex<Option<(SystemTime, u64, Vec<(String, String)>)>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -44,7 +53,21 @@ pub struct User {
 
 impl KyberConfig {
     pub fn new(path: PathBuf, backup_dir: PathBuf) -> Self {
-        Self { path, backup_dir }
+        Self { path, backup_dir, write: Mutex::new(()), logins: Mutex::new(None) }
+    }
+
+    /// Comptes Kyber (identifiant, empreinte), relus seulement si le fichier a changé.
+    fn cached_logins(&self) -> Result<Vec<(String, String)>> {
+        let meta = fs::metadata(&self.path).with_context(|| format!("lecture de {}", self.path.display()))?;
+        let stamp = (meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), meta.len());
+        if let Some((modified, len, logins)) = self.logins.lock().unwrap().as_ref() {
+            if (*modified, *len) == stamp {
+                return Ok(logins.clone());
+            }
+        }
+        let logins = read_logins(&self.load()?);
+        *self.logins.lock().unwrap() = Some((stamp.0, stamp.1, logins.clone()));
+        Ok(logins)
     }
 
     pub fn path(&self) -> &Path {
@@ -76,6 +99,7 @@ impl KyberConfig {
     /// Applique des modifications : `Some(v)` écrit la valeur, `None` retire la clé
     /// pour revenir à la valeur par défaut de Kyber.
     pub fn apply(&self, changes: &BTreeMap<String, Option<Value>>) -> Result<()> {
+        let _write = self.write.lock().unwrap();
         let fields = schema::fields();
         let mut doc = self.load()?;
         for (id, value) in changes {
@@ -132,9 +156,9 @@ impl KyberConfig {
 
     /// Vérifie un identifiant et un mot de passe Kyber (connexion Basic).
     pub fn verify_login(&self, username: &str, password: &str) -> bool {
-        let Ok(doc) = self.load() else { return false };
+        let Ok(logins) = self.cached_logins() else { return false };
         let hash = hex::encode(Sha256::digest(password.as_bytes()));
-        read_logins(&doc).iter().any(|(u, h)| {
+        logins.iter().any(|(u, h)| {
             // Comparaison à temps constant des empreintes.
             u == username && h.len() == hash.len() && h.bytes().zip(hash.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
         })
@@ -147,6 +171,7 @@ impl KyberConfig {
             bail!("le mot de passe doit faire au moins 8 caractères");
         }
         let hash = hex::encode(Sha256::digest(password.as_bytes()));
+        let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
         let mut logins = read_logins(&doc);
         match logins.iter_mut().find(|(u, _)| u == username) {
@@ -164,6 +189,7 @@ impl KyberConfig {
             bail!("le mot de passe doit faire au moins 8 caractères");
         }
         let hash = hex::encode(Sha256::digest(password.as_bytes()));
+        let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
         write_logins(&mut doc, &[(username.to_string(), hash)])?;
         self.save(&doc.to_string())
@@ -171,6 +197,7 @@ impl KyberConfig {
 
     /// Remplace la clé de développement JWT de Kyber par un secret aléatoire.
     pub fn set_jwt_secret(&self, secret: &str) -> Result<()> {
+        let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
         let mut key = InlineTable::new();
         key.insert("plain", secret.into());
@@ -181,6 +208,7 @@ impl KyberConfig {
     }
 
     pub fn delete_user(&self, username: &str) -> Result<()> {
+        let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
         let mut logins = read_logins(&doc);
         let before = logins.len();
@@ -196,6 +224,7 @@ impl KyberConfig {
     pub fn write_raw(&self, text: &str) -> Result<()> {
         text.parse::<DocumentMut>()
             .map_err(|e| anyhow!("TOML invalide : {e}"))?;
+        let _write = self.write.lock().unwrap();
         self.save(text)
     }
 

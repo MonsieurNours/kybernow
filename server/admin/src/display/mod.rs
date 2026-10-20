@@ -108,6 +108,8 @@ struct Session {
     mode: Mode,
     guid: [u8; 16],
     user: Option<String>,
+    /// Appareil pour lequel l'écran a été créé (apps à partir de 0.2.5).
+    device: Option<String>,
     started_at: u64,
     last_seen: Instant,
     until: Option<Instant>,
@@ -187,25 +189,61 @@ impl Manager {
         }
         self.alive.store(false, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(500));
-        if let Err(e) = self.backend.restore() {
-            self.fail(&e);
+        match self.backend.restore() {
+            Ok(()) => {
+                let _ = std::fs::remove_file(self.record_path());
+            }
+            // Les écrans ne sont pas rendus (pas de session console, par
+            // exemple) : on garde le fichier pour réessayer au prochain démarrage.
+            Err(e) => self.fail(&e),
         }
-        let _ = std::fs::remove_file(self.record_path());
     }
 
-    /// Démarre (ou reprend) une session à `mode`. Un autre mode remplace la session en cours.
-    pub fn start(&self, origin: Origin, mode: Mode, user: Option<String>, duration: Option<Duration>) -> Result<Value> {
+    /// Démarre (ou reprend) une session à `mode`. Un autre mode remplace la
+    /// session en cours, sauf qu'une session d'app n'est jamais remplacée par
+    /// le déclenchement automatique ni par un essai depuis la console.
+    pub fn start(
+        &self,
+        origin: Origin,
+        mode: Mode,
+        user: Option<String>,
+        device: Option<String>,
+        duration: Option<Duration>,
+    ) -> Result<Value> {
         mode.validate()?;
         let _op = self.ops.lock().unwrap();
+        self.start_locked(origin, mode, user, device, duration)
+    }
+
+    fn start_locked(
+        &self,
+        origin: Origin,
+        mode: Mode,
+        user: Option<String>,
+        device: Option<String>,
+        duration: Option<Duration>,
+    ) -> Result<Value> {
         {
             let mut session = self.session.lock().unwrap();
             if let Some(s) = session.as_mut() {
                 if s.mode == mode {
                     s.last_seen = Instant::now();
-                    s.origin = origin;
-                    s.until = duration.map(|d| Instant::now() + d);
+                    // Une app garde son écran : « Auto » ne la rétrograde pas.
+                    if !(s.origin == Origin::App && origin == Origin::Auto) {
+                        s.origin = origin;
+                        s.until = duration.map(|d| Instant::now() + d);
+                    }
                     s.user = user.or(s.user.take());
+                    s.device = device.or(s.device.take());
                     return Ok(s.applied.clone());
+                }
+                if s.origin == Origin::App {
+                    match origin {
+                        // Le fil de surveillance pendant une session d'app : rien à faire.
+                        Origin::Auto => return Ok(s.applied.clone()),
+                        Origin::Test => bail!("un appareil utilise l'écran virtuel : essai impossible pendant sa session"),
+                        Origin::App => {}
+                    }
                 }
             }
         }
@@ -245,6 +283,7 @@ impl Manager {
             mode,
             guid,
             user,
+            device,
             started_at: now_secs(),
             last_seen: Instant::now(),
             until: duration.map(|d| Instant::now() + d),
@@ -253,14 +292,28 @@ impl Manager {
         Ok(applied)
     }
 
-    pub fn heartbeat(&self) -> bool {
+    /// Signal de vie d'un appareil. Vrai si l'écran virtuel en place est le
+    /// sien : un appareil dont l'écran a été remplacé par celui d'un autre
+    /// l'apprend ainsi, au lieu de le redemander sans fin.
+    pub fn heartbeat(&self, device: Option<&str>) -> bool {
         match self.session.lock().unwrap().as_mut() {
             Some(s) => {
-                s.last_seen = Instant::now();
-                true
+                let owner = match (device, s.device.as_deref()) {
+                    (Some(d), Some(owner)) => d == owner,
+                    _ => true,
+                };
+                if owner {
+                    s.last_seen = Instant::now();
+                }
+                owner
             }
             None => false,
         }
+    }
+
+    /// L'écran virtuel en place a-t-il été créé pour cet appareil ?
+    pub fn owned_by(&self, device: &str) -> bool {
+        self.session.lock().unwrap().as_ref().is_some_and(|s| s.device.as_deref() == Some(device))
     }
 
     pub fn stop(&self, reason: &str) {
@@ -276,10 +329,14 @@ impl Manager {
         }
         self.alive.store(false, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(500));
-        if let Err(e) = self.backend.restore() {
-            self.fail(&e);
+        match self.backend.restore() {
+            // Le fichier de session reste tant que les écrans ne sont pas
+            // rendus : le prochain démarrage réessaiera.
+            Ok(()) => {
+                let _ = std::fs::remove_file(self.record_path());
+            }
+            Err(e) => self.fail(&e),
         }
-        let _ = std::fs::remove_file(self.record_path());
     }
 
     pub fn status(&self) -> Value {
@@ -366,11 +423,23 @@ impl Manager {
                 idle_since = None;
                 let settings = self.settings.lock().unwrap().clone();
                 if settings.trigger == Trigger::All && encoding {
+                    // Une opération en cours (l'écran d'une app en train d'être
+                    // créé) a la priorité : on ne lui passe pas devant.
+                    let Ok(_op) = self.ops.try_lock() else { continue };
+                    if self.session.lock().unwrap().is_some() {
+                        continue;
+                    }
                     let mode = Mode { width: settings.width, height: settings.height, refresh: settings.refresh };
-                    let _ = self.start(Origin::Auto, mode, None, None);
+                    let _ = self.start_locked(Origin::Auto, mode, None, None, None);
                 }
             }
         });
+    }
+
+    /// Arrêt du service : l'ordinateur retrouve ses écrans tout de suite,
+    /// sans attendre le prochain démarrage.
+    pub fn shutdown(&self) {
+        self.stop("arrêt de la console");
     }
 }
 
@@ -462,5 +531,52 @@ mod windows {
         fn restore(&self) -> Result<()> {
             agent::run(&self.data_dir, &["restore".to_string()]).map(|_| ())
         }
+    }
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use super::*;
+
+    fn manager() -> Arc<Manager> {
+        let dir = std::env::temp_dir().join(format!("kn-display-{}", rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        Manager::new(dir, VdSettings::default())
+    }
+
+    const MAC: Mode = Mode { width: 3456, height: 2234, refresh: 120 };
+    const TV: Mode = Mode { width: 3840, height: 2160, refresh: 60 };
+
+    #[test]
+    fn une_app_garde_son_ecran_face_au_declenchement_automatique() {
+        let m = manager();
+        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None).unwrap();
+        // Le fil de surveillance (mode par défaut) ne remplace pas l'écran de l'app.
+        m.start(Origin::Auto, TV, None, None, None).unwrap();
+        let status = m.status();
+        assert_eq!(status["session"]["mode"]["width"], 3456);
+        assert_eq!(status["session"]["origin"], "app");
+        // Même mode en « Auto » : l'origine reste celle de l'app.
+        m.start(Origin::Auto, MAC, None, None, None).unwrap();
+        assert_eq!(m.status()["session"]["origin"], "app");
+        // Un essai depuis la console est refusé pendant la session de l'app.
+        assert!(m.start(Origin::Test, TV, None, None, Some(Duration::from_secs(5))).is_err());
+    }
+
+    #[test]
+    fn signal_de_vie_du_proprietaire_seulement() {
+        let m = manager();
+        assert!(!m.heartbeat(Some("mac")));
+        m.start(Origin::App, MAC, Some("matthieu".into()), Some("mac".into()), None).unwrap();
+        assert!(m.heartbeat(Some("mac")));
+        assert!(m.owned_by("mac"));
+        // Un autre appareil prend la main : le premier n'a plus « son » écran.
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None).unwrap();
+        assert!(!m.heartbeat(Some("mac")));
+        assert!(m.heartbeat(Some("tv")));
+        // Une app d'avant 0.2.5 (sans identifiant) est crue sur parole.
+        assert!(m.heartbeat(None));
+        m.stop("fin du test");
+        assert!(!m.heartbeat(Some("tv")));
     }
 }

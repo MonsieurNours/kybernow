@@ -24,10 +24,17 @@ final class VideoPipeline {
         }
     }
 
-    /// Rappel C donné à Kyber (`userdata` : ce pipeline, non retenu).
+    /// Rappel C donné à Kyber (`userdata` : ce pipeline, retenu par
+    /// `PacketSinkLease` jusqu'au dernier appel, `CLOSED`).
     static let callback: kyclient_MediaPacketCb = { packet, userdata in
         guard let packet, let userdata else { return }
         let me = Unmanaged<VideoPipeline>.fromOpaque(userdata).takeUnretainedValue()
+        if packet.pointee.kind == KYCLIENT_MEDIA_PACKET_KIND_CLOSED {
+            // Plus aucun paquet ne viendra : le pipeline peut être libéré.
+            me.stop()
+            PacketSinkLease.release(VideoPipeline.self, userdata)
+            return
+        }
         me.handle(packet.pointee)
     }
 

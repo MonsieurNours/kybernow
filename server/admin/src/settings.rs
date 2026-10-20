@@ -26,20 +26,42 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Lit les réglages. Un fichier illisible (coupure pendant une écriture,
+    /// édition à la main) est mis de côté à côté de l'original et la console
+    /// repart des valeurs par défaut, plutôt que de ne plus démarrer du tout.
     pub fn load(data_dir: &Path) -> Result<Self> {
         let path = data_dir.join(FILE_NAME);
         match fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).with_context(|| format!("lecture de {}", path.display())),
+            Ok(text) => match toml::from_str(&text) {
+                Ok(settings) => Ok(settings),
+                Err(e) => {
+                    let aside = data_dir.join(format!(
+                        "{FILE_NAME}.invalide-{}",
+                        crate::display::now_secs()
+                    ));
+                    tracing::error!(
+                        "{} illisible ({e}) : mis de côté dans {}, réglages par défaut",
+                        path.display(),
+                        aside.display()
+                    );
+                    let _ = fs::rename(&path, &aside);
+                    Ok(Self::default())
+                }
+            },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("lecture de {}", path.display())),
         }
     }
 
+    /// Écrit les réglages d'un bloc : fichier temporaire puis renommage, pour
+    /// qu'une coupure ne laisse jamais un fichier à moitié écrit.
     pub fn save(&self, data_dir: &Path) -> Result<()> {
         fs::create_dir_all(data_dir)?;
         let path = data_dir.join(FILE_NAME);
-        fs::write(&path, toml::to_string_pretty(self)?)
-            .with_context(|| format!("écriture de {}", path.display()))
+        let tmp = data_dir.join(format!("{FILE_NAME}.tmp"));
+        fs::write(&tmp, toml::to_string_pretty(self)?)
+            .with_context(|| format!("écriture de {}", tmp.display()))?;
+        fs::rename(&tmp, &path).with_context(|| format!("remplacement de {}", path.display()))
     }
 }
 
