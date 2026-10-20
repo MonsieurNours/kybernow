@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: when the shown display disappears then comes back (cable plugged back in), the image finds it again instead of switching to the first display around, and never asks for a display that no longer exists.
 - Mac and Apple TV apps: an image error on the computer no longer ends the session right away: the image is restarted up to three times, and a capsule says so.
 - Mac and Apple TV apps: when the computer changes resolution mid-session (a game switching to 1080p), the mouse lands in the right place again; a capsule says so, and in the Desktop profile the app offers to put the device's resolution back.
 - Console: automated tests for a mode change and for a physical display turning back on mid-session, for each policy.

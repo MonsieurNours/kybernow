@@ -440,13 +440,31 @@ final class SessionController: ObservableObject {
     private func bestDisplay() -> KyberDisplay? {
         let displays = usableDisplays
         if displays.count == 1 { return displays[0] }
+        // L'écran affiché revenu sous un autre numéro (câble rebranché, écran
+        // recréé) : même place et même taille. Kyber connaît le nom de l'écran
+        // mais kyclient ne le transmet pas (kyclient_Display : numéro, taille,
+        // position), d'où la géométrie.
+        if let last = display, let same = displays.first(where: { $0.x == last.x && $0.y == last.y && $0.width == last.width && $0.height == last.height }) {
+            return same
+        }
         let sameMode = displays.filter { $0.width == prepared?.width && $0.height == prepared?.height }
-        return sameMode.first { $0.x == 0 && $0.y == 0 } ?? sameMode.first ?? displays.first
+        return sameMode.first { $0.x == 0 && $0.y == 0 } ?? sameMode.first ?? displays.first { $0.x == 0 && $0.y == 0 } ?? displays.first
     }
 
     private func startStreaming() {
-        guard let kyber, let display else { return }
+        guard let kyber, var display else { return }
         if case .reconnecting = phase { return }
+        // Jamais un numéro absent de la dernière liste (refusé, 403) : la
+        // liste a pu changer depuis le choix (relance différée de 0,3 s).
+        if !displays.isEmpty, !usableDisplays.contains(where: { $0.id == display.id }) {
+            guard let best = bestDisplay() else {
+                fail("aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
+                return
+            }
+            KyberLog.app.notice("écran \(display.id) absent de la liste : écran \(best.id) à la place")
+            display = best
+            self.display = best
+        }
         if revealedAt == nil { phase = .starting }
         do {
             let options = streamOptions
