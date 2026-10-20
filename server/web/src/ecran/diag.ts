@@ -12,6 +12,8 @@ export const diag = {
   lastX: 0,
   lastY: 0,
   outside: 0,
+  /** Tailles des messages d'entrées envoyés depuis le dernier relevé. */
+  sizes: new Set<number>(),
 }
 
 export function installDiag() {
@@ -20,7 +22,9 @@ export function installDiag() {
   WebSocket.prototype.send = function (this: WebSocket, data: any) {
     if (this.url.includes('/websocket/inputs')) {
       diag.wsInputs++
-      diag.wsInputBytes += data?.byteLength ?? data?.length ?? 0
+      const n = data?.byteLength ?? data?.length ?? 0
+      diag.wsInputBytes += n
+      diag.sizes.add(n)
     }
     return send.call(this, data)
   }
