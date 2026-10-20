@@ -12,6 +12,9 @@ final class KeyboardMouse {
     private var observers: [NSObjectProtocol] = []
     /// Une souris bouge : le pointeur doit s'afficher.
     var onMouseActivity: (() -> Void)?
+    /// Déplacement de la souris (pixels) : vrai si la vue de session l'a pris
+    /// en position absolue, faux pour l'envoyer brut (jeu en plein écran).
+    var onMove: ((Double, Double) -> Bool)?
 
     func attach(_ input: InputPipeline) {
         self.input = input
@@ -54,9 +57,13 @@ final class KeyboardMouse {
     private func setUp(_ mouse: GCMouse) {
         guard let m = mouse.mouseInput else { return }
         m.mouseMovedHandler = { [weak self] _, dx, dy in
-            guard let self, let input = self.input else { return }
-            input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
-            DispatchQueue.main.async { self.onMouseActivity?() }
+            DispatchQueue.main.async {
+                guard let self, let input = self.input else { return }
+                self.onMouseActivity?()
+                if self.onMove?(Double(dx), Double(-dy)) != true {
+                    input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
+                }
+            }
         }
         m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
         m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }

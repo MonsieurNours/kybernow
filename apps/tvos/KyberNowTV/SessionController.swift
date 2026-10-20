@@ -53,6 +53,8 @@ final class SessionController: ObservableObject {
     private var console: ConsoleClient?
     private var kyber: KyberClient?
     private var heartbeat: Task<Void, Never>?
+    /// La console dit chaque seconde si un jeu est en plein écran (souris Bluetooth en brut).
+    private var foregroundPoll: Task<Void, Never>?
     private var prepared: PrepareResult?
     private var display: KyberDisplay?
     private var displays: [KyberDisplay] = []
@@ -135,6 +137,7 @@ final class SessionController: ObservableObject {
                     store.update(host)
                 }
                 startHeartbeat(every: result.heartbeatSeconds)
+                startForegroundPoll()
                 try connect(password: password)
             } catch {
                 fail(error.localizedDescription)
@@ -382,6 +385,23 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// Comme le mode Auto du Mac : un jeu en plein écran sur l'ordinateur
+    /// (pas un navigateur ni un lecteur vidéo) fait passer la souris Bluetooth en brut.
+    private func startForegroundPoll() {
+        foregroundPoll?.cancel()
+        foregroundPoll = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, let console = self.console else { return }
+                let game = await console.foreground()?.game == true
+                if game != self.streamView.pcGameFullscreen {
+                    KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
+                    self.streamView.pcGameFullscreen = game
+                }
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+    }
+
     // MARK: - Menu
 
     /// Bouton Retour de la télécommande, ou combinaison à la manette.
@@ -490,6 +510,7 @@ final class SessionController: ObservableObject {
             menuOpen = false
         }
         heartbeat?.cancel()
+        foregroundPoll?.cancel()
         imageWatch?.cancel()
         streamView.detach()
         kyber?.stop()
@@ -513,6 +534,7 @@ final class SessionController: ObservableObject {
         KyberLog.app.error("session : \(message, privacy: .public)")
         GamepadBridge.shared.onMenuRequest = nil
         heartbeat?.cancel()
+        foregroundPoll?.cancel()
         imageWatch?.cancel()
         streamView.detach()
         kyber?.stop()

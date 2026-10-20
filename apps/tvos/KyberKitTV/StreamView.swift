@@ -1,6 +1,15 @@
 // Vue de session de l'Apple TV : l'image (Metal), le pointeur de
-// l'ordinateur quand une souris sert (télécommande, souris Bluetooth), et le
-// branchement des entrées de GameController sur la chaîne de la session.
+// l'ordinateur quand une souris sert (télécommande, manette, souris
+// Bluetooth), et le branchement des entrées de GameController sur la chaîne
+// de la session.
+//
+// Souris, comme l'app Mac en mode bureau : l'Apple TV tient la position du
+// pointeur et envoie des positions absolues. Windows masque son pointeur sans
+// souris branchée (ou à la moindre frappe) et ne le réaffiche que sur une
+// position absolue : avec des déplacements relatifs, il restait masqué et
+// l'app le perdait. Le pointeur est dessiné par l'app à cette position,
+// toujours visible, avec la forme de celui de l'ordinateur. Seule une souris
+// Bluetooth dans un jeu en plein écran envoie des déplacements bruts.
 //
 // Même rôle que StreamView sur Mac (apps/macos/KyberKit) ; KyberClient
 // l'utilise de la même façon.
@@ -14,9 +23,18 @@ public final class StreamView: UIView {
     public let videoView = UIView()
     let surface = MetalSurface()
 
-    /// Modes de souris de l'app Mac (réglages partagés) ; sur l'Apple TV, la
-    /// souris se déplace toujours en relatif.
+    /// Modes de souris de l'app Mac (réglages partagés).
     public enum MouseMode { case auto, desktop, game }
+
+    /// Un jeu est en plein écran sur l'ordinateur (d'après la console) : la
+    /// souris Bluetooth envoie des déplacements bruts, sans pointeur dessiné.
+    public var pcGameFullscreen = false {
+        didSet {
+            guard pcGameFullscreen != oldValue else { return }
+            updateRelative()
+            updatePointerLayer()
+        }
+    }
 
     /// La télécommande sert de souris (menu de session, profil Bureau).
     public var remoteMouse = false {
@@ -44,6 +62,9 @@ public final class StreamView: UIView {
     private var remoteHidden = false
     private var remoteShape: (image: CGImage, hotSpot: CGPoint)?
     private var remotePosition: CGPoint?
+    /// Position du pointeur tenue par l'app, en pixels de l'écran de l'ordinateur.
+    private var pointer: CGPoint?
+    private var lastLocalMove = 0.0
 
     private let pointerLayer: CALayer = {
         let layer = CALayer()
@@ -88,14 +109,25 @@ public final class StreamView: UIView {
         self.input = input
         self.hostSize = hostSize
         rebuildLayout()
+        GamepadBridge.shared.pointerMove = { [weak self] dx, dy in self?.movePointer(dx: dx, dy: dy) }
         GamepadBridge.shared.attach(input)
+        keyboardMouse.onMove = { [weak self] dx, dy in
+            guard let self else { return false }
+            // Jeu en plein écran : déplacements bruts, comme une souris de jeu.
+            if self.pcGameFullscreen { return false }
+            self.movePointer(dx: dx, dy: dy)
+            return true
+        }
         keyboardMouse.attach(input)
         updateRelative()
     }
 
     public func detach() {
+        GamepadBridge.shared.pointerMove = nil
         GamepadBridge.shared.detach()
+        keyboardMouse.onMove = nil
         keyboardMouse.detach()
+        pointer = nil
         input?.flushKeys()
         input = nil
         mouseSeen = false
@@ -107,9 +139,23 @@ public final class StreamView: UIView {
         input?.type(text)
     }
 
-    /// Sur l'Apple TV, toute souris (télécommande comprise) se déplace en relatif.
+    /// Déplacements bruts seulement pour la souris Bluetooth dans un jeu en
+    /// plein écran ; sinon, les positions absolues suffisent.
     private func updateRelative() {
-        input?.setRelative(true)
+        input?.setRelative(pcGameFullscreen)
+    }
+
+    /// Déplace le pointeur tenu par l'app (en pixels de l'écran de l'ordinateur)
+    /// et envoie sa position.
+    func movePointer(dx: Double, dy: Double) {
+        guard let input, hostSize.width > 0, hostSize.height > 0 else { return }
+        var p = pointer ?? remotePosition ?? CGPoint(x: hostSize.width / 2, y: hostSize.height / 2)
+        p.x = min(max(0, p.x + dx), hostSize.width - 1)
+        p.y = min(max(0, p.y + dy), hostSize.height - 1)
+        pointer = p
+        lastLocalMove = CACurrentMediaTime()
+        input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
+        updatePointerLayer()
     }
 
     private func rebuildLayout() {
@@ -166,18 +212,24 @@ public final class StreamView: UIView {
     func remoteCursorChanged(_ remote: RemoteCursor) {
         remotePosition = remote.position
         remoteHidden = !remote.visible
+        // L'ordinateur a déplacé son pointeur lui-même (au repos de nos
+        // entrées) : on repart de sa position.
+        if CACurrentMediaTime() - lastLocalMove > 0.4 { pointer = remote.position }
         if let image = remote.image?.cgImage {
             remoteShape = (image, remote.hotSpot)
         }
         updatePointerLayer()
     }
 
-    /// Dessiné seulement quand une souris sert : à la manette, le jeu a son propre curseur.
+    /// Dessiné quand une souris sert (à la manette, le jeu a son propre
+    /// curseur), toujours visible : Windows masque le sien sans raison pour nous.
     private func updatePointerLayer() {
-        guard remoteMouse || padMouse || mouseSeen, !remoteHidden, let shape = remoteShape, let host = remotePosition, let layout else {
+        let mouseOn = remoteMouse || padMouse || (mouseSeen && !pcGameFullscreen)
+        guard mouseOn, let host = pointer ?? remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
         }
+        let shape = remoteShape ?? Self.arrow
         // Lisible à 3 mètres : deux fois la taille d'un pointeur de bureau.
         let pixels = CGSize(width: shape.image.width, height: shape.image.height)
         let factor = min(2, 48 / max(pixels.width, pixels.height, 1))
@@ -192,4 +244,27 @@ public final class StreamView: UIView {
         pointerLayer.isHidden = false
         CATransaction.commit()
     }
+
+    /// Flèche de secours, tant que l'ordinateur n'a pas envoyé la forme du sien.
+    private static let arrow: (image: CGImage, hotSpot: CGPoint) = {
+        let size = CGSize(width: 24, height: 32)
+        let image = UIGraphicsImageRenderer(size: size, format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { ctx in
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: 1, y: 1))
+            path.addLine(to: CGPoint(x: 1, y: 26))
+            path.addLine(to: CGPoint(x: 7.5, y: 20))
+            path.addLine(to: CGPoint(x: 12, y: 30))
+            path.addLine(to: CGPoint(x: 16, y: 28))
+            path.addLine(to: CGPoint(x: 11.5, y: 18.5))
+            path.addLine(to: CGPoint(x: 20, y: 18.5))
+            path.close()
+            UIColor.white.setFill()
+            path.fill()
+            UIColor.black.setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+            _ = ctx
+        }
+        return (image.cgImage!, CGPoint(x: 1, y: 1))
+    }()
 }

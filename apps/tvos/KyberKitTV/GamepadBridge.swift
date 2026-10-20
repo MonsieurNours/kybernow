@@ -72,6 +72,9 @@ public final class GamepadBridge: ObservableObject {
     }
     /// Vitesse du pointeur à la manette (1 : normale).
     public var padMouseSpeed: Double = 1
+    /// Le pointeur se déplace (pixels de l'écran de l'ordinateur) : la vue de
+    /// session tient sa position et l'envoie en absolu.
+    var pointerMove: ((Double, Double) -> Void)?
 
     private final class Slot {
         let controller: GCController
@@ -375,6 +378,22 @@ public final class GamepadBridge: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: release)
     }
 
+    /// Position absolue par la vue de session ; à défaut, déplacement relatif
+    /// (sous-pixels gardés d'un appel à l'autre).
+    private func move(dx: Double, dy: Double, input: InputPipeline) {
+        if let pointerMove {
+            pointerMove(dx, dy)
+            return
+        }
+        moveRest.x += dx
+        moveRest.y += dy
+        let ix = Int16(clamping: Int(moveRest.x.rounded(.towardZero)))
+        let iy = Int16(clamping: Int(moveRest.y.rounded(.towardZero)))
+        moveRest.x -= Double(ix)
+        moveRest.y -= Double(iy)
+        if ix != 0 || iy != 0 { input.mouseMove(dx: ix, dy: iy) }
+    }
+
     private func releaseMouse(_ input: InputPipeline) {
         for b in heldMouse { input.mouseButton(b, pressed: false) }
         heldMouse.removeAll()
@@ -429,13 +448,7 @@ public final class GamepadBridge: ObservableObject {
             if abs(right.y) > 0.15 { wy += Double(right.y) * 14 * dt }
             if abs(right.x) > 0.15 { wx += Double(right.x) * 14 * dt }
         }
-        moveRest.x += dx
-        moveRest.y += dy
-        let ix = Int16(clamping: Int(moveRest.x.rounded(.towardZero)))
-        let iy = Int16(clamping: Int(moveRest.y.rounded(.towardZero)))
-        moveRest.x -= Double(ix)
-        moveRest.y -= Double(iy)
-        if ix != 0 || iy != 0 { input.mouseMove(dx: ix, dy: iy) }
+        if dx != 0 || dy != 0 { move(dx: dx, dy: dy, input: input) }
         wheelRest.x += wx
         wheelRest.y += wy
         if abs(wheelRest.y) >= 0.25 || abs(wheelRest.x) >= 0.25 {
@@ -480,9 +493,7 @@ public final class GamepadBridge: ObservableObject {
                 return
             }
             if let last = self.lastTouch {
-                let dx = (point.x - last.x) * 900
-                let dy = (last.y - point.y) * 900
-                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int(dy.rounded())))
+                self.move(dx: Double(point.x - last.x) * 900, dy: Double(last.y - point.y) * 900, input: input)
             }
             self.lastTouch = point
         }
