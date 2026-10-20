@@ -6,6 +6,7 @@
 // ouvre l'accueil en deux sur l'image, et l'y referme à la fin.
 
 import AppKit
+import Combine
 import KyberKit
 import SwiftUI
 
@@ -105,6 +106,13 @@ final class SessionController: NSObject, ObservableObject {
     private var homeImage: CGImage?
     private let windowDelegate = SessionWindowDelegate()
     private var enteredFullScreen = false
+    /// Barre, rappels, panneaux (SwiftUI), par-dessus l'image. Retirée de la
+    /// composition quand elle n'a rien à montrer : l'image peut aller
+    /// directement à l'écran (présentation directe en plein écran).
+    private var chrome: ChromeHostingView?
+    private var compositing: AnyCancellable?
+    /// Le passage (accueil ouvert en deux) sort de la composition une fois ouvert.
+    private var sceneHide: Task<Void, Never>?
     /// Délai entre le démarrage du flux et l'apparition : le décodeur et la
     /// synchronisation du son se calent, les premières images irrégulières
     /// restent sous l'écran d'attente.
@@ -163,7 +171,10 @@ final class SessionController: NSObject, ObservableObject {
         chrome.frame = container.bounds
         chrome.autoresizingMask = [.width, .height]
         container.addSubview(chrome)
+        self.chrome = chrome
         window.contentView = container
+        // Après chaque changement d'état : ce qui n'a rien à montrer sort de la composition.
+        compositing = objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.updateCompositing() }
         windowDelegate.original = window.delegate
         windowDelegate.onClose = { [weak self] in
             guard let self, self.phase != .ended else { return }
@@ -177,6 +188,29 @@ final class SessionController: NSObject, ObservableObject {
         if host.settings.display != .window, !window.styleMask.contains(.fullScreen) {
             enteredFullScreen = true
             window.toggleFullScreen(nil)
+        }
+    }
+
+    /// Pendant le flux, seule la couche Metal doit rester dans la composition
+    /// de la fenêtre pour que l'image aille directement à l'écran : la couche
+    /// SwiftUI est cachée tant qu'elle n'a rien à montrer (barre, manette,
+    /// rappel, panneau des mesures, entrée, fin), et le passage une fois
+    /// ouvert (son animation dure 1,1 s). Hors flux, tout revient.
+    private func updateCompositing() {
+        let streaming = phase == .streaming
+        let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || entering
+        if chrome?.isHidden == needed { chrome?.isHidden = !needed }
+        if streaming {
+            guard sceneHide == nil, !scene.isHidden else { return }
+            sceneHide = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(1400))
+                guard let self, !Task.isCancelled, self.phase == .streaming else { return }
+                self.scene.isHidden = true
+            }
+        } else {
+            sceneHide?.cancel()
+            sceneHide = nil
+            if scene.isHidden { scene.isHidden = false }
         }
     }
 
@@ -768,6 +802,9 @@ final class SessionController: NSObject, ObservableObject {
     private func restoreHome() {
         windowDelegate.onExitFullScreen = nil
         windowDelegate.onClose = nil
+        compositing = nil
+        sceneHide?.cancel()
+        chrome = nil
         if let window {
             window.delegate = windowDelegate.original
             if let homeView { window.contentView = homeView }

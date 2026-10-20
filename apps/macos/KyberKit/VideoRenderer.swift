@@ -71,7 +71,10 @@ public struct PresentStats: Sendable {
 }
 
 final class VideoRenderer {
-    let layer = CAMetalLayer()
+    /// Couche dessinée : celle du rendu, ou celle de la surface de session
+    /// (`attach(to:)`, couche de la vue elle-même sur Mac : présentation
+    /// directe possible en plein écran).
+    private(set) var layer: CAMetalLayer
     /// Format que le rendu ne sait pas lire : le décodeur doit en produire un autre.
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
@@ -82,7 +85,7 @@ final class VideoRenderer {
     var vsync = true {
         didSet {
             #if os(macOS)
-            layer.displaySyncEnabled = vsync
+            renderQueue.async { [self] in layer.displaySyncEnabled = vsync }
             #endif
         }
     }
@@ -134,6 +137,19 @@ final class VideoRenderer {
             return nil
         }
         CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache)
+        layer = CAMetalLayer()
+        configure(layer)
+    }
+
+    /// Dessine désormais dans `layer` (nil : dans une couche à soi, hors écran).
+    func attach(to layer: CAMetalLayer?) {
+        renderQueue.sync {
+            self.layer = layer ?? CAMetalLayer()
+            configure(self.layer)
+        }
+    }
+
+    private func configure(_ layer: CAMetalLayer) {
         layer.device = device
         layer.pixelFormat = .bgra8Unorm
         layer.framebufferOnly = true
@@ -142,7 +158,7 @@ final class VideoRenderer {
         layer.backgroundColor = CGColor(gray: 0, alpha: 1)
         layer.allowsNextDrawableTimeout = true
         #if os(macOS)
-        layer.displaySyncEnabled = true
+        layer.displaySyncEnabled = vsync
         #endif
     }
 

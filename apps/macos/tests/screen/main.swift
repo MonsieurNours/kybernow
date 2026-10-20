@@ -68,7 +68,7 @@ func pass(guard inFlightGuard: Bool, then next: @escaping () -> Void) {
         print(String(format: "  garde une image en vol %@ : %.0f images montrées, réception → écran %.1f ms, commit → écran p50 %.1f ms, p95 %.1f ms, %d rendues, %d écartées par l'écran",
                      inFlightGuard ? "oui" : "non", p.shown, p.displayMs, p50, p95, p.rendered, p.discarded))
         if results.isEmpty {
-            print("couche Metal : \(renderer.layer.superlayer === surface.layer ? "dans la surface" : "ABSENTE"), taille \(renderer.layer.frame.size), image \(renderer.layer.drawableSize)")
+            print("couche Metal : \(renderer.layer === surface.layer ? "couche de la surface" : "ABSENTE"), taille \(renderer.layer.frame.size), image \(renderer.layer.drawableSize)")
         }
         results.append(p)
         decoder.invalidate()

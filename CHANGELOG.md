@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- App Mac : en plein écran, l'image peut aller directement à l'écran sans passer par le compositeur de macOS (un rafraîchissement de moins) : la couche Metal est la couche de la surface de session, et la barre, les rappels, le panneau des mesures et le passage sortent de la composition quand ils n'ont rien à montrer. À vérifier avec `MTL_HUD_ENABLED=1`.
 - App Mac : l'image part à l'écran dès qu'elle est décodée. L'image suivante n'attend plus que l'écran ait montré la précédente (un rafraîchissement complet de latence, 8 ms à 120 Hz, 17 ms à 60 Hz) ; Core Animation montre la plus récente au balayage. L'ancien comportement reste disponible avec `KN_INFLIGHT_GUARD=1`.
 - App Mac : mesures de présentation de l'image. Lancée avec `KN_PRESENT_STATS=1`, l'app écrit chaque seconde dans le journal les images rendues, montrées et écartées par l'écran, et le délai commit → écran (médiane, 95e centile) ; `KN_INFLIGHT_GUARD=1` remet la garde « une image en vol » pour comparer. Le test d'affichage hors ligne compare les deux.
 - Console : un second appareil qui se connecte prend la main avec préavis. Le premier est prévenu à son signal de vie suivant et se déconnecte proprement, puis l'écran virtuel est recréé à la taille du second ; avant, les deux appareils se volaient l'écran en boucle et la déconnexion du premier coupait l'écran et le son du second. La session est maintenant reconnue par l'appareil et non plus par le compte.
