@@ -10,7 +10,7 @@
   import { choose, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
-  import { installAbsoluteMouse, installPointerGate, releasePointer, removeAbsoluteMouse, removePointerGate } from './pointer'
+  import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setRemoteCursorHidden } from './pointer'
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
@@ -103,8 +103,13 @@
    * fait sans cesse sans souris branchée. Hors capture, on garde une flèche. */
   function keepPointerVisible(canvas: HTMLCanvasElement) {
     cursorWatch?.disconnect()
+    setRemoteCursorHidden(false)
     const fix = () => {
-      if (canvas.style.cursor === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
+      const c = canvas.style.cursor
+      // Le moteur pose `none` (masqué) ou l'image du pointeur ; `default` vient de nous.
+      if (c === 'none') setRemoteCursorHidden(true)
+      else if (c && c !== 'default') setRemoteCursorHidden(false)
+      if (c === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
     }
     cursorWatch = new MutationObserver(fix)
     cursorWatch.observe(canvas, { attributes: true, attributeFilter: ['style'] })
@@ -410,7 +415,7 @@
             `flux    ${row('flux')}`,
             `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
             `sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
-            `capture ${document.pointerLockElement ? 'oui' : 'non'} · curseur ${c?.style.cursor.slice(0, 24) || '—'} · transport ${plan?.protocol ?? '—'}`,
+            `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'}`,
           ].join('\n')
           prev = { ...diag }
         }, 1000)

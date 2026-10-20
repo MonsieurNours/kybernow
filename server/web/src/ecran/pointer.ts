@@ -23,13 +23,28 @@ export function releasePointer() {
   if (document.pointerLockElement) document.exitPointerLock()
 }
 
-/** Hors capture, le moteur envoie à chaque mouvement un déplacement relatif
- * (`movementX/Y`) puis la position absolue, et l'ordinateur applique les deux.
- * Le relatif passe par l'accélération de Windows et se perd hors de la
- * fenêtre : les pointeurs se décalent. Comme l'app Mac en mode bureau, on ne
- * laisse partir que la position : le moteur reçoit un mouvement à déplacement nul. */
+/** Le pointeur de l'ordinateur est-il masqué ? Le moteur le dit en posant
+ * `cursor: none` sur la toile ; il passe alors en souris relative et n'envoie
+ * plus la position, seulement le déplacement. */
+let remoteHidden = false
+
+export function setRemoteCursorHidden(hidden: boolean) {
+  remoteHidden = hidden
+}
+
+export function isRemoteCursorHidden() {
+  return remoteHidden
+}
+
+/** Pointeur de l'ordinateur visible, hors capture : le moteur envoie à chaque
+ * mouvement un déplacement relatif puis la position absolue, et l'ordinateur
+ * applique les deux. Le relatif passe par l'accélération de Windows et se perd
+ * hors de la fenêtre : les pointeurs se décalent. On ne laisse partir que la
+ * position (déplacement nul), comme l'app Mac en mode bureau.
+ * Pointeur masqué (Windows le cache à la moindre frappe) : le déplacement
+ * passe, Windows réaffiche son pointeur, le moteur revient aux positions. */
 function absoluteOnly(e: MouseEvent) {
-  if (!e.isTrusted || document.pointerLockElement || (!e.movementX && !e.movementY)) return
+  if (!e.isTrusted || remoteHidden || document.pointerLockElement || (!e.movementX && !e.movementY)) return
   e.stopImmediatePropagation()
   ;(e.target ?? window).dispatchEvent(
     new MouseEvent('mousemove', {
