@@ -5,8 +5,10 @@
 //! temps de la session et écrit chaque seconde dans `display-watch/state.json`
 //! le mode courant de l'écran virtuel (`EnumDisplaySettingsW`) et les écrans
 //! actifs (`QueryDisplayConfig`). Il s'arrête de lui-même quand
-//! `display-watch/run` disparaît ou n'est plus rafraîchi (la console le touche
-//! à chaque lecture), et au bout de 24 h quoi qu'il arrive.
+//! `display-watch/run` disparaît, n'est plus rafraîchi (la console le touche
+//! à chaque lecture) ou porte le jeton d'une autre session (une session qui
+//! recommence dans la seconde n'a jamais deux agents), et au bout de 24 h
+//! quoi qu'il arrive.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -29,8 +31,8 @@ fn age(path: &Path) -> Option<Duration> {
 
 pub struct Watch {
     dir: PathBuf,
-    /// Écran surveillé et dernier lancement de l'agent.
-    target: Mutex<Option<(Created, Instant)>>,
+    /// Écran surveillé, jeton de la session et dernier lancement de l'agent.
+    target: Mutex<Option<(Created, String, Instant)>>,
 }
 
 impl Watch {
@@ -38,12 +40,13 @@ impl Watch {
         Self { dir: data_dir.join("display-watch"), target: Mutex::new(None) }
     }
 
-    fn launch(&self, data_dir: &Path, c: Created) {
+    fn launch(&self, data_dir: &Path, c: Created, token: &str) {
         let _ = std::fs::create_dir_all(&self.dir);
-        let _ = std::fs::write(self.dir.join("run"), b"");
+        let _ = std::fs::write(self.dir.join("run"), token);
         let args = [
             "watch".to_string(),
             "--dir".into(), self.dir.display().to_string(),
+            "--token".into(), token.to_string(),
             "--luid-low".into(), c.luid_low.to_string(),
             "--luid-high".into(), c.luid_high.to_string(),
             "--target".into(), c.target.to_string(),
@@ -56,8 +59,9 @@ impl Watch {
     /// Début de session : l'agent part sur l'écran créé.
     pub fn start(&self, data_dir: &Path, c: Created) {
         let _ = std::fs::remove_file(self.dir.join("state.json"));
-        self.launch(data_dir, c);
-        *self.target.lock().unwrap() = Some((c, Instant::now()));
+        let token = format!("{:016x}", rand::random::<u64>());
+        self.launch(data_dir, c, &token);
+        *self.target.lock().unwrap() = Some((c, token, Instant::now()));
     }
 
     /// Fin de session : l'agent s'arrête à son prochain tour.
@@ -71,14 +75,14 @@ impl Watch {
     /// relancé s'il se tait (session Windows changée, agent tué).
     pub fn observe(&self, data_dir: &Path) -> Option<Observed> {
         let mut target = self.target.lock().unwrap();
-        let (created, launched) = (*target)?;
-        let _ = std::fs::write(self.dir.join("run"), b"");
+        let (created, token, launched) = target.clone()?;
+        let _ = std::fs::write(self.dir.join("run"), &token);
         let state = self.dir.join("state.json");
         if !age(&state).is_some_and(|a| a < FRESH) {
             if launched.elapsed() > RELAUNCH {
                 tracing::info!("veille de l'écran virtuel muette : relance");
-                self.launch(data_dir, created);
-                *target = Some((created, Instant::now()));
+                self.launch(data_dir, created, &token);
+                *target = Some((created, token, Instant::now()));
             }
             return None;
         }
@@ -97,12 +101,18 @@ impl Watch {
 }
 
 /// Agent : boucle de veille, dans la session de l'écran.
-pub fn run_agent(dir: &Path, luid_low: u32, luid_high: i32, target: u32) -> anyhow::Result<()> {
+pub fn run_agent(dir: &Path, token: &str, luid_low: u32, luid_high: i32, target: u32) -> anyhow::Result<()> {
     let run = dir.join("run");
     let state = dir.join("state.json");
     let tmp = dir.join("state.tmp");
     let started = Instant::now();
     loop {
+        let ours = std::fs::read_to_string(&run).is_ok_and(|t| t.trim() == token);
+        if !ours {
+            // Fin de session, ou une autre session a pris la suite : son
+            // agent écrit l'état, celui-ci s'efface sans rien toucher.
+            return Ok(());
+        }
         let alive = age(&run).is_some_and(|a| a < STALE);
         if !alive || started.elapsed() > Duration::from_secs(86_400) {
             let _ = std::fs::remove_file(&state);

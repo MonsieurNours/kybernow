@@ -148,6 +148,9 @@ enum AgentAction {
     Watch {
         #[arg(long)]
         dir: PathBuf,
+        /// Jeton de la session : l'agent s'arrête quand `run` en porte un autre.
+        #[arg(long)]
+        token: String,
         #[arg(long, allow_hyphen_values = true)]
         luid_low: u32,
         #[arg(long, allow_hyphen_values = true)]
@@ -194,12 +197,12 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
-    if let AgentAction::Watch { dir, luid_low, luid_high, target } = &action {
+    if let AgentAction::Watch { dir, token, luid_low, luid_high, target } = &action {
         #[cfg(windows)]
-        return display::watch::run_agent(dir, *luid_low, *luid_high, *target);
+        return display::watch::run_agent(dir, token, *luid_low, *luid_high, *target);
         #[cfg(not(windows))]
         {
-            let _ = (dir, luid_low, luid_high, target);
+            let _ = (dir, token, luid_low, luid_high, target);
             anyhow::bail!("réservé à Windows");
         }
     }

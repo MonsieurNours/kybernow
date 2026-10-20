@@ -153,9 +153,15 @@ public final class StreamView: UIView {
     /// L'écran de l'ordinateur a changé de taille en cours de session : le
     /// pointeur tenu par l'app reste dans l'écran, les positions suivent.
     func setHostSize(_ size: CGSize) {
+        let old = hostSize
         hostSize = size
-        if let p = pointer {
-            pointer = CGPoint(x: min(p.x, size.width - 1), y: min(p.y, size.height - 1))
+        // Le pointeur garde sa place relative (le centre reste au centre), et
+        // l'ordinateur l'apprend tout de suite.
+        if let p = pointer, old.width > 0, old.height > 0 {
+            let q = CGPoint(x: min(max(0, p.x * size.width / old.width), size.width - 1),
+                            y: min(max(0, p.y * size.height / old.height), size.height - 1))
+            pointer = q
+            input?.mouse(x: Int16(clamping: Int(q.x.rounded())), y: Int16(clamping: Int(q.y.rounded())))
         }
         rebuildLayout()
         updatePointerLayer()

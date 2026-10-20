@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
-use crate::display::{Mode, ModePolicy, Origin, Trigger, VdSettings};
+use crate::display::{Mode, Origin, PolicyChoice, Trigger, VdSettings};
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
@@ -569,10 +569,10 @@ struct PrepareBody {
     #[serde(default)]
     profile: Option<String>,
     /// Si le mode de l'écran virtuel change en session : `follow` (laisser
-    /// faire, profil Jeu) ou `restore` (le remettre, profil Bureau). Absent :
-    /// réglage `on_mode_change` de la console.
+    /// faire, profil Jeu) ou `restore` (le remettre, profil Bureau) ;
+    /// `default` ou absent : réglage `on_mode_change` de la console.
     #[serde(default)]
-    mode_policy: Option<ModePolicy>,
+    mode_policy: Option<PolicyChoice>,
 }
 
 /// Lien d'appairage pour les apps (aussi affiché en QR code par la console) :
@@ -693,7 +693,7 @@ struct HeartbeatBody {
     device_id: Option<String>,
     /// Politique du profil choisi en ce moment (voir `PrepareBody`).
     #[serde(default)]
-    mode_policy: Option<ModePolicy>,
+    mode_policy: Option<PolicyChoice>,
 }
 
 /// Signal de vie d'une app, avec sa latence. `end` : la console demande la

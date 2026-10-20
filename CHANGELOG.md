@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console : face à un jeu qui réimpose sa définition ou à Windows qui rallume sans cesse un écran, la console renonce au bout de quelques essais au lieu de boucler (et de faire relancer l'image sans fin) ; un changement de profil en session vers Max ou Personnalisé rend la main au réglage de la console.
 - Apps Mac et Apple TV : en profil Bureau, si l'ordinateur reste dans une autre définition malgré la console, l'app la redemande d'elle-même (au plus toutes les 30 s). Un changement de profil en session change aussi ce que fait la console.
 - Apps Mac et Apple TV : après une relance de l'image, la souris reste en mode jeu si elle y était (sur Mac, elle ne répondait plus) et les touches de modification encore tenues sont renvoyées à l'ordinateur ; sur l'Apple TV, le pointeur revient à sa place.
 - Apps Mac et Apple TV : quand l'écran affiché disparaît puis revient (câble rebranché), l'image le retrouve au lieu de passer au premier écran venu, et ne redemande jamais un écran qui n'existe plus.

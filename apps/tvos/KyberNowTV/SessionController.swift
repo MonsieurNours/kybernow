@@ -47,8 +47,10 @@ final class SessionController: ObservableObject {
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans le menu.
     @Published private(set) var modeRestoreOffer: String?
-    /// Dernière demande de remise du mode faite d'après le signal de vie.
+    /// Dernière demande de remise du mode faite d'après le signal de vie, et
+    /// la demande en cours.
     private var lastModeRestore = Date.distantPast
+    private var modeRestore: Task<Void, Never>?
     /// Du démarrage du flux à la première image affichée, en secondes.
     @Published private(set) var firstImageDelay: Double?
     private var streamStartedAt: Date?
@@ -224,9 +226,10 @@ final class SessionController: ObservableObject {
             // Même écran, autre taille (un jeu a changé le mode) : l'image
             // continue (txproto recrée l'encodeur), les entrées se recalent.
             if let shown = display, shown.id == streaming,
-               let now = list.first(where: { $0.id == shown.id }), now.width > 0, now.height > 0,
-               now.width != shown.width || now.height != shown.height {
-                display = now
+               let now = list.first(where: { $0.id == shown.id }), now.width > 0, now.height > 0 {
+                if now != shown { display = now }
+                // KyberClient compare à la dernière taille de la liste, pas à
+                // celle des images : la liste corrige une image mise à l'échelle.
                 kyber?.displayResized(width: now.width, height: now.height)
             }
             if case .reconnecting = phase {
@@ -273,8 +276,14 @@ final class SessionController: ObservableObject {
         case let .connectFailed(reason):
             fail(reason)
         case let .reconnecting(attempt, _):
+            // Une relance prévue tomberait sur la reconnexion : c'est
+            // « reconnected » qui relancera l'image.
+            pipelineRetry?.cancel()
+            pipelineRetry = nil
             phase = .reconnecting(attempt)
         case let .reconnected(restart):
+            pipelineRetry?.cancel()
+            pipelineRetry = nil
             phase = .streaming
             lastReconnect = Date()
             retriedAfterReconnect = false
@@ -310,7 +319,8 @@ final class SessionController: ObservableObject {
             try? await Task.sleep(for: .seconds(1))
             guard let self, !Task.isCancelled else { return }
             self.pipelineRetry = nil
-            guard self.kyber != nil, self.phase != .ending, self.phase != .ended else { return }
+            // L'écran virtuel revient (restoreScreen) : c'est lui qui relancera l'image.
+            guard self.kyber != nil, self.restoring == nil, self.phase != .ending, self.phase != .ended else { return }
             if case .failed = self.phase { return }
             // Pendant une reconnexion, c'est « reconnected » qui relancera l'image.
             if case .reconnecting = self.phase { return }
@@ -408,16 +418,23 @@ final class SessionController: ObservableObject {
 
     /// « Remettre » : la console remet le mode demandé au début de la session.
     func restoreMode() {
-        guard let console, let r = requested else { return }
+        guard let console, let r = requested, modeRestore == nil else { return }
         modeRestoreOffer = nil
         KyberLog.app.notice("mode de l'ordinateur : retour à \(r.width)×\(r.height) demandé")
-        Task {
+        modeRestore = Task { [weak self] in
+            defer { self?.modeRestore = nil }
+            // Session finie entre-temps : un prepare recréerait l'écran virtuel.
+            guard let self, !Task.isCancelled, self.phase == .streaming else { return }
             do {
-                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: host.settings.profileLabel, modePolicy: "restore")
+                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: "restore")
+                // La console peut répondre sans avoir rien remis (mode refusé,
+                // jeu qui insiste) : si l'image n'est pas revenue, le bouton revient.
+                try? await Task.sleep(for: .seconds(6))
             } catch {
                 KyberLog.app.error("mode de l'ordinateur pas remis : \(error.localizedDescription, privacy: .public)")
-                refreshModeOffer()
             }
+            guard !Task.isCancelled else { return }
+            self.refreshModeOffer()
         }
     }
 
@@ -678,6 +695,7 @@ final class SessionController: ObservableObject {
         foregroundPoll?.cancel()
         imageWatch?.cancel()
         pipelineRetry?.cancel()
+        modeRestore?.cancel()
         streamView.detach()
         kyber?.stop()
         kyber = nil
@@ -703,6 +721,7 @@ final class SessionController: ObservableObject {
         foregroundPoll?.cancel()
         imageWatch?.cancel()
         pipelineRetry?.cancel()
+        modeRestore?.cancel()
         streamView.detach()
         kyber?.stop()
         kyber = nil

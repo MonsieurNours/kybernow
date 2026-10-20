@@ -141,8 +141,10 @@ public final class KyberClient {
     /// le repère de ses entrées.
     private weak var view: StreamView?
     private var hostSize = (width: 0, height: 0)
-    /// Taille des dernières images décodées par l'app.
+    /// Taille des dernières images décodées par l'app, et celle que la liste
+    /// de Kyber donne à l'écran affiché.
     private var frameSize: (width: Int, height: Int)?
+    private var listSize = (width: 0, height: 0)
     /// Latence de bout en bout, à partir des mesures de Kyber.
     private let latency = LatencyTracker()
 
@@ -231,6 +233,7 @@ public final class KyberClient {
         self.input = input
         self.view = view
         hostSize = (display.width, display.height)
+        listSize = hostSize
         frameSize = nil
         view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
 
@@ -329,9 +332,17 @@ public final class KyberClient {
     /// Images d'une autre taille (txproto recrée l'encodeur quand le mode de
     /// l'écran change, le décodeur suit les nouveaux SPS/PPS) : les positions
     /// de souris se calent sur elles, avant même que Kyber annonce la liste.
+    /// Seul un *changement* de taille compte : la première image peut être
+    /// à l'échelle (encodeur limité, libavconv), la liste reste alors la
+    /// référence. Une image qui change de taille en cours de flux annonce un
+    /// changement de mode, que la liste confirmera ou corrigera.
     private func decoded(width: Int, height: Int) {
         guard width > 0, height > 0 else { return }
-        if let frameSize, frameSize == (width, height) { return }
+        guard let previous = frameSize else {
+            frameSize = (width, height)
+            return
+        }
+        guard previous != (width, height) else { return }
         frameSize = (width, height)
         // Quelques pixels d'écart : l'alignement de l'encodeur (2234 → 2240
         // lignes), pas un changement de mode.
@@ -339,12 +350,13 @@ public final class KyberClient {
         setHostSize(width: width, height: height, from: "image décodée")
     }
 
-    /// La liste de Kyber donne une autre taille à l'écran affiché. Elle fait
-    /// foi elle aussi : avec libavconv, l'image garde sa taille de départ
-    /// (mise à l'échelle) alors que les positions suivent l'écran ; et avec
-    /// VLC, l'app ne voit pas les images. Le dernier changement l'emporte.
+    /// Taille que la liste de Kyber donne à l'écran affiché (à chaque liste).
+    /// Quand elle change, elle fait foi : avec libavconv, l'image garde sa
+    /// taille de départ (mise à l'échelle) alors que les positions suivent
+    /// l'écran, et avec VLC l'app ne voit pas les images.
     public func displayResized(width: Int, height: Int) {
-        guard width > 0, height > 0 else { return }
+        guard width > 0, height > 0, listSize != (width, height) else { return }
+        listSize = (width, height)
         setHostSize(width: width, height: height, from: "liste des écrans")
     }
 

@@ -61,6 +61,27 @@ pub enum ModePolicy {
     Restore,
 }
 
+/// Ce qu'un appareil demande (`mode_policy` de `prepare` et du signal de
+/// vie) : une politique, ou `default` pour revenir au réglage de la console
+/// (profil Max ou personnalisé choisi en session).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyChoice {
+    Follow,
+    Restore,
+    Default,
+}
+
+impl PolicyChoice {
+    fn policy(self) -> Option<ModePolicy> {
+        match self {
+            PolicyChoice::Follow => Some(ModePolicy::Follow),
+            PolicyChoice::Restore => Some(ModePolicy::Restore),
+            PolicyChoice::Default => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VdSettings {
     #[serde(default)]
@@ -152,6 +173,15 @@ const PHYSICAL_DEBOUNCE: Duration = Duration::from_secs(2);
 const REISOLATE_COOLDOWN: Duration = Duration::from_secs(10);
 /// Politique `restore` : au plus une remise du mode dans cet intervalle.
 const MODE_FIX_INTERVAL: Duration = Duration::from_secs(5);
+/// Un jeu qui remet sa définition après chaque remise : au bout de trois
+/// remises en une minute, la console laisse faire pour le reste de la session.
+const MAX_MODE_FIXES: usize = 3;
+const MODE_FIX_WINDOW: Duration = Duration::from_secs(60);
+/// Windows qui rallume sans cesse un écran : au bout de cinq isolements en
+/// deux minutes, ou de trois échecs de suite, la console renonce.
+const MAX_REISOLATIONS: usize = 5;
+const REISOLATE_WINDOW: Duration = Duration::from_secs(120);
+const MAX_REISOLATE_FAILURES: u32 = 3;
 
 /// Même mode, à 1 Hz près (Windows dit 59 pour 59,94).
 fn same_mode(a: Mode, b: Mode) -> bool {
@@ -195,6 +225,21 @@ struct Session {
     /// Politique donnée par l'app (sinon, celle des réglages).
     policy: Option<ModePolicy>,
     last_mode_fix: Option<Instant>,
+    /// Remises du mode de la dernière minute ; au-delà, la console renonce.
+    mode_fixes: Vec<Instant>,
+    restore_gave_up: bool,
+    /// Isolements refaits des deux dernières minutes, échecs de suite.
+    reisolations: Vec<Instant>,
+    reisolate_failures: u32,
+    reisolate_gave_up: bool,
+}
+
+impl Session {
+    /// Politique en vigueur : celle de l'app, sinon le réglage ; `follow` si
+    /// la console a renoncé à remettre le mode.
+    fn effective_policy(&self, default: ModePolicy) -> ModePolicy {
+        if self.restore_gave_up { ModePolicy::Follow } else { self.policy.unwrap_or(default) }
+    }
 }
 
 /// Fil des événements de la console (vue d'ensemble).
@@ -320,7 +365,7 @@ impl Manager {
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
-        policy: Option<ModePolicy>,
+        policy: Option<PolicyChoice>,
     ) -> Result<Value> {
         mode.validate()?;
         let _op = self.ops.lock().unwrap();
@@ -334,7 +379,7 @@ impl Manager {
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
-        policy: Option<ModePolicy>,
+        policy: Option<PolicyChoice>,
     ) -> Result<Value> {
         let default_policy = self.settings.lock().unwrap().on_mode_change;
         let mut fix: Option<(String, Mode)> = None;
@@ -350,12 +395,18 @@ impl Manager {
                     }
                     s.user = user.clone().or(s.user.take());
                     s.device = device.clone().or(s.device.take());
-                    if policy.is_some() {
-                        s.policy = policy;
+                    if let Some(choice) = policy {
+                        s.policy = choice.policy();
+                    }
+                    // « Remettre » dans l'app : la console réessaie, même si
+                    // elle avait renoncé face à un jeu qui insistait.
+                    if policy == Some(PolicyChoice::Restore) {
+                        s.restore_gave_up = false;
+                        s.mode_fixes.clear();
                     }
                     // Même écran redemandé alors que le mode a changé : en
                     // politique `restore` (« Remettre » dans l'app), on le remet.
-                    if s.policy.unwrap_or(default_policy) == ModePolicy::Restore {
+                    if s.effective_policy(default_policy) == ModePolicy::Restore {
                         if let Some(o) = s.observed.as_ref().filter(|o| o.mode.width > 0 && !same_mode(o.mode, s.target)) {
                             fix = Some((o.gdi_name.clone(), s.target));
                         }
@@ -425,8 +476,13 @@ impl Manager {
             others_since: None,
             last_reisolate: None,
             announced: None,
-            policy,
+            policy: policy.and_then(PolicyChoice::policy),
             last_mode_fix: None,
+            mode_fixes: Vec::new(),
+            restore_gave_up: false,
+            reisolations: Vec::new(),
+            reisolate_failures: 0,
+            reisolate_gave_up: false,
         });
         Ok(applied)
     }
@@ -435,7 +491,7 @@ impl Manager {
     /// sien : un appareil dont l'écran a été remplacé par celui d'un autre
     /// l'apprend ainsi, au lieu de le redemander sans fin.
     /// `policy` : celle du profil choisi en ce moment dans l'app.
-    pub fn heartbeat(&self, device: Option<&str>, policy: Option<ModePolicy>) -> bool {
+    pub fn heartbeat(&self, device: Option<&str>, policy: Option<PolicyChoice>) -> bool {
         match self.session.lock().unwrap().as_mut() {
             Some(s) => {
                 let owner = match (device, s.device.as_deref()) {
@@ -444,8 +500,8 @@ impl Manager {
                 };
                 if owner {
                     s.last_seen = Instant::now();
-                    if policy.is_some() {
-                        s.policy = policy;
+                    if let Some(choice) = policy {
+                        s.policy = choice.policy();
                     }
                 }
                 owner
@@ -457,7 +513,7 @@ impl Manager {
     /// Politique en vigueur pour la session en cours.
     pub fn policy(&self) -> Option<ModePolicy> {
         let default = self.settings.lock().unwrap().on_mode_change;
-        self.session.lock().unwrap().as_ref().map(|s| s.policy.unwrap_or(default))
+        self.session.lock().unwrap().as_ref().map(|s| s.effective_policy(default))
     }
 
     /// Remet le mode de la session sur l'écran virtuel (politique `restore`).
@@ -512,7 +568,7 @@ impl Manager {
                 "started_at": s.started_at,
                 "seconds_left": s.until.map(|u| u.saturating_duration_since(Instant::now()).as_secs()),
                 "applied": s.applied,
-                "mode_policy": s.policy.unwrap_or(self.settings.lock().unwrap().on_mode_change),
+                "mode_policy": s.effective_policy(self.settings.lock().unwrap().on_mode_change),
             })
         });
         let driver = match self.backend.driver() {
@@ -553,18 +609,30 @@ impl Manager {
         {
             let mut guard = self.session.lock().unwrap();
             let Some(s) = guard.as_mut() else { return };
-            let policy = s.policy.unwrap_or(default_policy);
+            let policy = s.effective_policy(default_policy);
             s.observed = observed.clone();
-            let Some(o) = observed else { return };
+            let Some(o) = observed else {
+                // Veille muette : la stabilité d'un écran rallumé se recompte à son retour.
+                s.others_since = None;
+                return;
+            };
 
             // Écran physique rallumé pendant la session.
-            if o.others > 0 {
+            if o.others > 0 && !s.reisolate_gave_up {
                 let since = *s.others_since.get_or_insert(now);
-                let cooled = s.last_reisolate.is_none_or(|t| now.duration_since(t) >= REISOLATE_COOLDOWN);
+                // Après un échec, les essais s'espacent (10, 20, 40 s).
+                let cooldown = REISOLATE_COOLDOWN * (1 << s.reisolate_failures.min(4));
+                let cooled = s.last_reisolate.is_none_or(|t| now.duration_since(t) >= cooldown);
                 if now.duration_since(since) >= PHYSICAL_DEBOUNCE && cooled {
-                    // En `follow`, le mode en cours est gardé (un jeu a pu le choisir).
-                    let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { s.target };
-                    reisolate = Some((s.created, keep, o.others));
+                    s.reisolations.retain(|t| now.duration_since(*t) < REISOLATE_WINDOW);
+                    if s.reisolations.len() >= MAX_REISOLATIONS {
+                        s.reisolate_gave_up = true;
+                        notes.push(("warn", "Windows rallume sans cesse un écran de l'ordinateur : il reste allumé pour le reste de la session".to_string()));
+                    } else {
+                        // En `follow`, le mode en cours est gardé (un jeu a pu le choisir).
+                        let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { s.target };
+                        reisolate = Some((s.created, keep, o.others));
+                    }
                 }
             } else {
                 s.others_since = None;
@@ -581,7 +649,16 @@ impl Manager {
                 }
                 let due = s.last_mode_fix.is_none_or(|t| now.duration_since(t) >= MODE_FIX_INTERVAL);
                 if policy == ModePolicy::Restore && due {
-                    fix = Some((o.gdi_name.clone(), s.target));
+                    s.mode_fixes.retain(|t| now.duration_since(*t) < MODE_FIX_WINDOW);
+                    if s.mode_fixes.len() >= MAX_MODE_FIXES {
+                        // Le jeu remet sa définition après chaque remise : on
+                        // arrête la ronde (et les relances d'image qu'elle coûte).
+                        s.restore_gave_up = true;
+                        notes.push(("warn", format!("La définition de l'écran virtuel revient sans cesse à {} (un jeu l'impose) : laissée telle quelle pour le reste de la session", label(o.mode))));
+                    } else {
+                        s.mode_fixes.push(now);
+                        fix = Some((o.gdi_name.clone(), s.target));
+                    }
                 }
             } else if same_mode(o.mode, s.target) {
                 s.announced = None;
@@ -600,6 +677,8 @@ impl Manager {
                         s.applied = applied;
                         s.last_reisolate = Some(now);
                         s.others_since = None;
+                        s.reisolations.push(now);
+                        s.reisolate_failures = 0;
                     }
                     self.event("info", &if others > 1 {
                         format!("{others} écrans de l'ordinateur se sont rallumés pendant la session : éteints de nouveau")
@@ -609,10 +688,21 @@ impl Manager {
                 }
                 Err(e) => {
                     self.fail(&e);
-                    if let Some(s) = self.session.lock().unwrap().as_mut() {
-                        s.last_reisolate = Some(now);
+                    let (first, gave_up) = match self.session.lock().unwrap().as_mut() {
+                        Some(s) => {
+                            s.last_reisolate = Some(now);
+                            s.reisolate_failures += 1;
+                            s.reisolate_gave_up = s.reisolate_failures >= MAX_REISOLATE_FAILURES;
+                            (s.reisolate_failures == 1, s.reisolate_gave_up)
+                        }
+                        None => (false, false),
+                    };
+                    // Annoncé au premier échec et quand la console renonce, pas à chaque essai.
+                    if first {
+                        self.event("warn", &format!("Un écran de l'ordinateur s'est rallumé pendant la session et n'a pas pu être éteint : {e:#}"));
+                    } else if gave_up {
+                        self.event("warn", "L'écran rallumé n'a pas pu être éteint après trois essais : il reste allumé pour le reste de la session");
                     }
-                    self.event("warn", &format!("Un écran de l'ordinateur s'est rallumé pendant la session et n'a pas pu être éteint : {e:#}"));
                 }
             }
         }
@@ -716,6 +806,9 @@ struct SimScreen {
     watching: bool,
     isolations: u32,
     mode_fixes: u32,
+    /// Les isolements échouent (écran virtuel introuvable, par exemple).
+    isolate_fails: bool,
+    isolate_attempts: u32,
 }
 
 #[cfg(not(windows))]
@@ -737,6 +830,10 @@ impl Backend for Simulated {
     }
     fn isolate(&self, _: Created, mode: Mode) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
+        screen.isolate_attempts += 1;
+        if screen.isolate_fails {
+            bail!("(simulé) l'écran virtuel n'apparaît pas dans la configuration d'affichage");
+        }
         let disabled = screen.others;
         screen.mode = Some(mode);
         screen.others = 0;
@@ -888,7 +985,7 @@ mod tests {
     #[test]
     fn mode_change_en_session_politique_follow() {
         let (m, sim, events) = simulated(VdSettings::default());
-        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Follow)).unwrap();
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(PolicyChoice::Follow)).unwrap();
         let t0 = Instant::now();
         m.watch_tick(t0);
         assert_eq!(m.observed().unwrap().mode, TV);
@@ -928,7 +1025,7 @@ mod tests {
     #[test]
     fn mode_change_en_session_politique_restore() {
         let (m, sim, events) = simulated(VdSettings::default());
-        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
         let t0 = Instant::now();
         m.watch_tick(t0);
         assert_eq!(sim.screen.lock().unwrap().mode_fixes, 0);
@@ -956,16 +1053,54 @@ mod tests {
         sim.screen.lock().unwrap().mode = Some(GAME);
         m.watch_tick(t0 + Duration::from_secs(7));
         assert_eq!(sim.screen.lock().unwrap().mode_fixes, 2);
-        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        m.start(Origin::App, TV, Some("matthieu".into()), Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
         assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
         assert_eq!(screen_mode(&sim), TV);
 
         // Profil Jeu choisi en session (signal de vie) : la console laisse faire.
-        assert!(m.heartbeat(Some("tv"), Some(ModePolicy::Follow)));
+        assert!(m.heartbeat(Some("tv"), Some(PolicyChoice::Follow)));
         sim.screen.lock().unwrap().mode = Some(GAME);
         m.watch_tick(t0 + Duration::from_secs(20));
         assert_eq!(screen_mode(&sim), GAME);
         assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
+    }
+
+    #[test]
+    fn politique_restore_face_a_un_jeu_qui_insiste() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
+        let t0 = Instant::now();
+        // Le jeu repasse en 1080p après chaque remise ; la veille voit les deux.
+        for i in 0..12u64 {
+            let at = t0 + Duration::from_secs(i * 3);
+            sim.screen.lock().unwrap().mode = Some(GAME);
+            m.watch_tick(at);
+            m.watch_tick(at + Duration::from_secs(1));
+        }
+        // Trois remises, puis la console laisse faire pour le reste de la session.
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
+        assert_eq!(m.policy(), Some(ModePolicy::Follow));
+        assert_eq!(m.status()["session"]["mode_policy"], "follow");
+        let feed = events.lock().unwrap().clone();
+        assert!(feed.last().unwrap().contains("laissée telle quelle"), "{feed:?}");
+        assert!(feed.len() <= 5, "{feed:?}");
+        // Le signal de vie (profil Bureau) ne relance pas la ronde…
+        assert!(m.heartbeat(Some("tv"), Some(PolicyChoice::Restore)));
+        assert_eq!(m.policy(), Some(ModePolicy::Follow));
+        // … « Remettre » dans l'app, si.
+        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
+        assert_eq!(m.policy(), Some(ModePolicy::Restore));
+        assert_eq!(screen_mode(&sim), TV);
+    }
+
+    #[test]
+    fn profil_sans_politique_revient_au_reglage() {
+        let (m, _, _) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
+        assert_eq!(m.policy(), Some(ModePolicy::Restore));
+        // Profil Max choisi en session : le réglage de la console (follow).
+        assert!(m.heartbeat(Some("tv"), Some(PolicyChoice::Default)));
+        assert_eq!(m.policy(), Some(ModePolicy::Follow));
     }
 
     #[test]
@@ -1031,9 +1166,55 @@ mod tests {
     }
 
     #[test]
+    fn ecran_physique_qui_revient_sans_cesse() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        let t0 = Instant::now();
+        // Windows le rallume juste après chaque isolement.
+        for i in 0..40u64 {
+            sim.screen.lock().unwrap().others = 1;
+            m.watch_tick(t0 + Duration::from_secs(i * 3));
+        }
+        // Cinq isolements en deux minutes, puis la console renonce, une seule annonce.
+        assert_eq!(sim.screen.lock().unwrap().isolations, 1 + 5);
+        let feed = events.lock().unwrap().clone();
+        assert_eq!(feed.iter().filter(|e| e.contains("sans cesse")).count(), 1, "{feed:?}");
+    }
+
+    #[test]
+    fn ecran_physique_qui_ne_s_eteint_pas() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        sim.screen.lock().unwrap().isolate_fails = true;
+        sim.screen.lock().unwrap().others = 1;
+        let t0 = Instant::now();
+        let attempts = |sim: &Simulated| sim.screen.lock().unwrap().isolate_attempts - 1;
+        // Premier essai après 2 s de stabilité, puis 20 s et 40 s plus tard.
+        m.watch_tick(t0);
+        m.watch_tick(t0 + Duration::from_secs(2));
+        assert_eq!(attempts(&sim), 1);
+        m.watch_tick(t0 + Duration::from_secs(21));
+        assert_eq!(attempts(&sim), 1);
+        m.watch_tick(t0 + Duration::from_secs(22));
+        assert_eq!(attempts(&sim), 2);
+        m.watch_tick(t0 + Duration::from_secs(61));
+        assert_eq!(attempts(&sim), 2);
+        m.watch_tick(t0 + Duration::from_secs(62));
+        assert_eq!(attempts(&sim), 3);
+        // Puis plus rien : la console a renoncé, deux annonces en tout.
+        for i in 63..400u64 {
+            m.watch_tick(t0 + Duration::from_secs(i));
+        }
+        assert_eq!(attempts(&sim), 3);
+        let feed = events.lock().unwrap().clone();
+        assert_eq!(feed.len(), 2, "{feed:?}");
+        assert!(feed[1].contains("trois essais"), "{feed:?}");
+    }
+
+    #[test]
     fn ecran_physique_revenu_politique_restore() {
         let (m, sim, _) = simulated(VdSettings::default());
-        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(ModePolicy::Restore)).unwrap();
+        m.start(Origin::App, TV, None, Some("tv".into()), None, Some(PolicyChoice::Restore)).unwrap();
         let t0 = Instant::now();
         sim.screen.lock().unwrap().others = 2;
         sim.screen.lock().unwrap().mode = Some(GAME);
