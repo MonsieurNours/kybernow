@@ -7,13 +7,13 @@
   import { onMount, tick, untrack } from 'svelte'
   import { backend } from './backend'
   import { Engine, supportedCodecs, type Latency } from './engine'
-  import { choose, type Plan } from './plan'
+  import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
+  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
   import { forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, removeInputGuard } from './guard'
-  import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
+  import { SPECIAL_KEYS, TouchInput, TypedText, sendKey } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import { diag, diagEnabled, installDiag } from './diag'
@@ -347,14 +347,13 @@
     sendKey(canvas(), last.key, last.code, new Set(keys.map((k) => k.key)))
   }
 
-  function onTextInput(e: Event) {
-    const ev = e as InputEvent
-    if (ev.inputType === 'deleteContentBackward') sendKey(canvas(), 'Backspace', 'Backspace', mods)
-    else if (ev.inputType === 'insertLineBreak') sendKey(canvas(), 'Enter', 'Enter', mods)
-    else if (ev.data) sendText(canvas(), ev.data, mods)
-    textInput.value = ''
-    if (mods.size) mods = new Set()
-  }
+  // Clavier de l'appareil : texte en Unicode, touches par leur code.
+  const typed = new TypedText(
+    () => textInput ?? null,
+    canvas,
+    () => mods,
+    () => (mods = new Set()),
+  )
 
   async function openKeyboard() {
     keyboardOpen = true
@@ -434,6 +433,7 @@
             `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
             `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
             `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'}`,
+            `clavier tactile : frappe ${diag.lastKey} · saisie ${diag.lastInput}`,
           ].join('\n')
           prev = { ...diag }
         }, 1000)
@@ -474,6 +474,8 @@
       if (r?.end) fail('La console de l’ordinateur a mis fin à la session.')
     }, 5000)
 
+    // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
+    textInput.setAttribute('autocorrect', 'off')
     if (isTouch) {
       touch = new TouchInput(touchLayer, canvas, touchMode, (p) => (cursor = touchMode === 'trackpad' ? p : null))
       if (touchMode === 'trackpad') cursor = touch.cursor
@@ -709,7 +711,11 @@
   <textarea
     class="ime"
     bind:this={textInput}
-    oninput={onTextInput}
+    onkeydown={typed.keydown}
+    onbeforeinput={typed.beforeinput}
+    oncompositionstart={typed.compositionstart}
+    oncompositionend={typed.compositionend}
+    oninput={typed.input}
     autocapitalize="off"
     autocomplete="off"
     spellcheck="false"

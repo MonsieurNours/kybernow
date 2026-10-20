@@ -3,6 +3,9 @@
 // champ caché ouvre le clavier de l'appareil.
 
 import type { TouchMode } from './prefs'
+import { sendText as sendUnicode } from './inputs'
+import { isRemoteCursorHidden, sendHostPosition } from './pointer'
+import { diag, diagEnabled } from './diag'
 
 type Point = { x: number; y: number }
 
@@ -22,6 +25,8 @@ export class TouchInput {
   private lastTapEnd = 0
   private longPress: ReturnType<typeof setTimeout> | null = null
   private scrollAcc = 0
+  /** Dernière position donnée au moteur (déplacement relatif de repli). */
+  private lastMove: Point | null = null
 
   constructor(
     private layer: HTMLElement,
@@ -56,7 +61,19 @@ export class TouchInput {
     const el = this.target()
     if (!el) return
     const buttons = type === 'mouseup' ? 0 : this.dragging || type === 'mousedown' ? (button === 2 ? 2 : 1) : 0
-    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, button, buttons, ...extra }))
+    const move = type === 'mousemove' ? this.movement(p) : {}
+    el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: p.x, clientY: p.y, button, buttons, ...move, ...extra }))
+  }
+
+  /** Pointeur de l'ordinateur masqué (Windows le cache sans souris branchée) :
+   * le moteur n'envoie plus que des déplacements, nuls pour nos événements.
+   * La page envoie alors la position elle-même (WebSocket), ou à défaut un
+   * déplacement relatif, approximatif mais qui fait bouger le pointeur. */
+  private movement(p: Point): Partial<MouseEventInit> {
+    const last = this.lastMove
+    this.lastMove = p
+    if (!isRemoteCursorHidden() || sendHostPosition(p.x, p.y) || !last) return { movementX: 0, movementY: 0 }
+    return { movementX: Math.round(p.x - last.x), movementY: Math.round(p.y - last.y) }
   }
 
   private wheel(p: Point, dy: number) {
@@ -211,10 +228,146 @@ export function sendKey(target: HTMLElement | null, key: string, code: string, m
   for (const m of mods) target.dispatchEvent(new KeyboardEvent('keyup', { key: m, code: `${m}Left`, bubbles: true }))
 }
 
-/** Texte tapé au clavier de l'appareil, caractère par caractère. */
-export function sendText(target: HTMLElement | null, text: string, mods: Set<string>) {
+/** Texte en touches (codes physiques d'un clavier QWERTY) : seulement pour un
+ * raccourci avec Ctrl, Alt ou ⊞, ou sans connexion WebSocket. */
+function sendTextAsKeys(target: HTMLElement | null, text: string, mods: Set<string>) {
   for (const ch of text) {
     if (ch === '\n') sendKey(target, 'Enter', 'Enter', mods)
     else sendKey(target, ch, codeFor(ch), mods)
+  }
+}
+
+/** Touches du clavier de l'appareil qui restent des touches (par leur code). */
+const DEVICE_KEYS: Record<string, string> = {
+  Enter: 'Enter',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  Tab: 'Tab',
+  Escape: 'Escape',
+  ArrowLeft: 'ArrowLeft',
+  ArrowRight: 'ArrowRight',
+  ArrowUp: 'ArrowUp',
+  ArrowDown: 'ArrowDown',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+}
+
+/** Une frappe de vrai clavier suivie de son texte arrive dans ce délai. */
+const HARDWARE_TEXT_MS = 150
+
+/**
+ * Saisie dans le champ caché qui ouvre le clavier de l'appareil.
+ *
+ * Le texte part en paquets Unicode : juste quelle que soit la disposition de
+ * l'ordinateur (AZERTY…), avec majuscules, accents et composition (iOS,
+ * Android, dictée). Il est lu sur `beforeinput` et `compositionend`, jamais
+ * pendant une composition, et le champ n'est vidé qu'en dehors d'elle.
+ * Les touches (Entrée, Retour, flèches, Échap, Tab) restent des touches.
+ *
+ * Un vrai clavier (iPad avec clavier, clavier Bluetooth) donne un `code` à
+ * ses frappes : le moteur les envoie déjà ; le texte qu'elles produisent
+ * dans le champ ne repart pas.
+ */
+export class TypedText {
+  private composing = false
+  private hardwareAt = -Infinity
+
+  constructor(
+    private field: () => HTMLTextAreaElement | null,
+    private target: () => HTMLElement | null,
+    private mods: () => Set<string>,
+    private clearMods: () => void,
+  ) {}
+
+  private fromHardware(): boolean {
+    return performance.now() - this.hardwareAt < HARDWARE_TEXT_MS
+  }
+
+  keydown = (e: KeyboardEvent) => {
+    if (!e.isTrusted) return
+    if (diagEnabled) diag.lastKey = `${e.key}/${e.code || '∅'}`
+    // Un `code` : un vrai clavier, même à travers une méthode de saisie.
+    if (e.code && e.code !== 'Unidentified') {
+      this.hardwareAt = performance.now()
+      return
+    }
+    // Clavier de l'appareil : ses touches spéciales arrivent avec leur nom,
+    // sans code. On les envoie, et le champ n'en reçoit rien.
+    const code = DEVICE_KEYS[e.key]
+    if (code && !e.isComposing && !this.composing) {
+      e.preventDefault()
+      this.key(e.key, code)
+    }
+  }
+
+  beforeinput = (e: InputEvent) => {
+    if (diagEnabled) diag.lastInput = `${e.inputType}${this.fromHardware() ? ' (vrai clavier)' : ''}`
+    if (this.fromHardware()) return
+    switch (e.inputType) {
+      case 'insertText':
+      case 'insertReplacementText':
+      case 'insertFromPaste':
+      case 'insertFromDrop': {
+        if (e.isComposing || this.composing) return
+        const text = e.data ?? e.dataTransfer?.getData('text/plain') ?? ''
+        e.preventDefault()
+        if (text) this.text(text)
+        break
+      }
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        e.preventDefault()
+        this.key('Enter', 'Enter')
+        break
+      case 'deleteContentBackward':
+        if (this.composing) return
+        e.preventDefault()
+        this.key('Backspace', 'Backspace')
+        break
+      case 'deleteContentForward':
+        if (this.composing) return
+        e.preventDefault()
+        this.key('Delete', 'Delete')
+        break
+      // insertCompositionText, deleteCompositionText, insertFromComposition :
+      // la composition se lit à sa fin.
+    }
+  }
+
+  compositionstart = () => {
+    this.composing = true
+  }
+
+  compositionend = (e: CompositionEvent) => {
+    this.composing = false
+    if (e.data && !this.fromHardware()) this.text(e.data)
+    // Le navigateur termine la composition après cet événement : on vide ensuite.
+    setTimeout(() => this.clear(), 0)
+  }
+
+  /** Repli : ce qu'un navigateur aurait inséré malgré tout. */
+  input = (e: Event) => {
+    if (this.composing || (e as InputEvent).isComposing) return
+    this.clear()
+  }
+
+  private clear() {
+    const f = this.field()
+    if (f && !this.composing && f.value) f.value = ''
+  }
+
+  private text(text: string) {
+    const mods = this.mods()
+    // Ctrl, Alt ou ⊞ collants : c'est un raccourci, il lui faut des touches.
+    if (mods.size || !sendUnicode(text)) sendTextAsKeys(this.target(), text, mods)
+    if (mods.size) this.clearMods()
+  }
+
+  private key(key: string, code: string) {
+    const mods = this.mods()
+    sendKey(this.target(), key, code, mods)
+    if (mods.size) this.clearMods()
   }
 }

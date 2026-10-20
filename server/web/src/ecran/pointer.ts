@@ -45,6 +45,13 @@ export function setPositionMapper(fn: typeof toHost) {
   toHost = fn
 }
 
+/** Envoie nous-mêmes la position d'un point de la page sur l'ordinateur
+ * (WebSocket seulement). `false` hors de l'image ou sans WebSocket. */
+export function sendHostPosition(clientX: number, clientY: number): boolean {
+  const p = toHost(clientX, clientY)
+  return !!p && sendPosition(p.x, p.y)
+}
+
 /** Pointeur de l'ordinateur visible, hors capture : le moteur envoie à chaque
  * mouvement un déplacement relatif puis la position absolue, et l'ordinateur
  * applique les deux. Le relatif passe par l'accélération de Windows et se perd
@@ -58,8 +65,7 @@ function absoluteOnly(e: MouseEvent) {
     // Le moteur n'enverra que le déplacement, et Windows ne réaffiche son
     // pointeur que sur une position absolue : on l'envoie nous-mêmes (en
     // WebSocket seulement). Sinon, le déplacement passe tel quel.
-    const p = toHost(e.clientX, e.clientY)
-    if (!p || !sendPosition(p.x, p.y)) return
+    if (!sendHostPosition(e.clientX, e.clientY)) return
   }
   e.stopImmediatePropagation()
   ;(e.target ?? window).dispatchEvent(

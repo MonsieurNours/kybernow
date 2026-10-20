@@ -1,22 +1,39 @@
 // Entrées envoyées par le moteur en mode WebSocket : chaque message est un
-// paquet kynput entier, `[type u8][contenu]` (kymux-types/src/input.rs).
-// Position absolue : type 2, puis écran (u32), x et y (i16), en gros-boutiste.
+// paquet kynput entier, `[type u8][contenu]` (kymux-types/src/input.rs), en
+// gros-boutiste. La page peut glisser ses propres paquets sur cette connexion :
+// - type 2, position absolue : écran (u32), x et y (i16) ;
+// - type 10, texte : un point de code Unicode (u32), tapé par l'ordinateur
+//   avec KEYEVENTF_UNICODE (Entrée, Espace, Tab, Échap et Retour y deviennent
+//   leurs touches).
+// En WebTransport, les entrées passent dans un flux du moteur où l'on ne peut
+// rien glisser : ces envois échouent (`false`).
 
 const MOUSE_POSITION = 2
+const UNICODE = 10
 
 let socket: WebSocket | null = null
 let displayId: number | null = null
 /** Positions envoyées par la page (diagnostic). */
 export const injected = { count: 0 }
 
-/** Repère la connexion des entrées et l'écran visé par le moteur. */
+/** Repère la connexion des entrées (dès sa création) et l'écran visé par le moteur. */
 let watching = false
 
 export function watchInputSocket() {
   if (watching) return
   watching = true
-  const send = WebSocket.prototype.send
-  WebSocket.prototype.send = function (this: WebSocket, data: any) {
+  const Native = window.WebSocket
+  // Le moteur crée ses connexions par le constructeur global : on la repère
+  // avant son premier envoi (du texte peut partir avant le premier mouvement).
+  class Watched extends Native {
+    constructor(url: string | URL, protocols?: string | string[]) {
+      super(url, protocols)
+      if (String(url).includes('/websocket/inputs')) socket = this
+    }
+  }
+  window.WebSocket = Watched
+  const send = Native.prototype.send
+  Native.prototype.send = function (this: WebSocket, data: any) {
     if (this.url.includes('/websocket/inputs')) {
       socket = this
       const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : null
@@ -42,18 +59,48 @@ export async function learnDisplayId() {
   }
 }
 
+/** La connexion WebSocket des entrées est-elle ouverte ? */
+export function canSendPackets(): boolean {
+  return !!socket && socket.readyState === WebSocket.OPEN
+}
+
+/** Envoie un paquet kynput `[type][contenu]`. `false` sans connexion WebSocket. */
+export function sendPacket(type: number, payload: Uint8Array): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  const msg = new Uint8Array(1 + payload.byteLength)
+  msg[0] = type
+  msg.set(payload, 1)
+  socket.send(msg)
+  return true
+}
+
 /** Envoie une position absolue nous-mêmes. `false` si ce n'est pas possible
  * (pas de WebSocket : WebTransport, ou écran encore inconnu). */
 export function sendPosition(x: number, y: number): boolean {
-  if (!socket || socket.readyState !== WebSocket.OPEN || displayId === null) return false
-  const buf = new ArrayBuffer(9)
-  const view = new DataView(buf)
-  view.setUint8(0, MOUSE_POSITION)
-  view.setUint32(1, displayId)
-  view.setInt16(5, Math.max(-32768, Math.min(32767, Math.round(x))))
-  view.setInt16(7, Math.max(-32768, Math.min(32767, Math.round(y))))
-  socket.send(new Uint8Array(buf))
+  if (displayId === null) return false
+  const payload = new Uint8Array(8)
+  const view = new DataView(payload.buffer)
+  view.setUint32(0, displayId)
+  view.setInt16(4, Math.max(-32768, Math.min(32767, Math.round(x))))
+  view.setInt16(6, Math.max(-32768, Math.min(32767, Math.round(y))))
+  if (!sendPacket(MOUSE_POSITION, payload)) return false
   injected.count++
+  return true
+}
+
+/** Tape du texte sur l'ordinateur, caractère par caractère (paquets
+ * Unicode) : juste quelle que soit la disposition du clavier de l'ordinateur.
+ * `false` sans connexion WebSocket (rien n'est envoyé). */
+export function sendText(text: string): boolean {
+  if (!canSendPackets()) return false
+  for (const ch of text.replace(/\r\n?/g, '\n')) {
+    const cp = ch.codePointAt(0)!
+    // Moitié de paire isolée : l'ordinateur la refuserait.
+    if (cp >= 0xd800 && cp <= 0xdfff) continue
+    const payload = new Uint8Array(4)
+    new DataView(payload.buffer).setUint32(0, cp)
+    sendPacket(UNICODE, payload)
+  }
   return true
 }
 

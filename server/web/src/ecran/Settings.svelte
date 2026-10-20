@@ -6,7 +6,7 @@
   import type { Mode } from './device'
   import { isTouch } from './device'
   import type { Plan } from './plan'
-  import { MAX_MBPS, MIN_MBPS } from './plan'
+  import { MAX_MBPS, MIN_MBPS, websocketReason } from './plan'
   import type { Codec, MouseMode, Prefs, Profile, TouchMode, Transport } from './prefs'
 
   let {
@@ -23,6 +23,16 @@
   ]
 
   let advanced = $state(false)
+
+  /** Chemin de l'image dans ce navigateur, et pourquoi. */
+  const pathText =
+    websocketReason === 'touch'
+      ? 'WebSocket sur cet appareil tactile : c’est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).'
+      : websocketReason === 'webkit'
+        ? 'WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).'
+        : websocketReason === 'unsupported'
+          ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
+          : 'WebTransport, en direct ; sans image au bout de 12 s, la page passe par WebSocket.'
   let dialog: HTMLElement
 
   onMount(() => {
@@ -160,6 +170,9 @@
         <svg class:open={advanced} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </button>
       {#if advanced}
+        <div class="row">
+          <div class="text"><span>Chemin de l'image</span><span class="sub">{pathText}</span></div>
+        </div>
         <div class="row">
           <div class="text"><span>Transport</span><span class="sub">Fiable : chaque image arrive. Rapide : une image perdue est sautée.</span></div>
         </div>

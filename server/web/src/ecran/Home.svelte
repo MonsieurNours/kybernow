@@ -6,12 +6,11 @@
   import { onMount } from 'svelte'
   import { backend, type Live, type Preview } from './backend'
   import { supportedCodecs, type CodecSupport } from './engine'
-  import { choose } from './plan'
+  import { choose, preferredProtocol } from './plan'
   import {
     canFullscreen,
     deviceKind,
     hasKeyboardLock,
-    preferredProtocol,
     isIsolated,
     isStandalone,
     isTouch,
@@ -203,7 +202,7 @@
         {/if}
         <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? "Écran de l'ordinateur à la taille du vôtre" : "Écrans de l'ordinateur tels quels"}</li>
         {#if preferredProtocol === 'websocket'}
-          <li class="off"><Icon name="info" size={14} stroke={2.4} />Image par WebSocket : un peu plus de latence que dans Chrome ou Edge</li>
+          <li class="off"><Icon name="info" size={14} stroke={2.4} />Image par WebSocket : un peu plus de latence qu'en WebTransport</li>
         {/if}
         <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? 'Toutes les touches en plein écran' : 'Raccourcis système par le menu Touches'}</li>
         {#if prefs.profile === 'bureau' && plan}
