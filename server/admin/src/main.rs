@@ -10,6 +10,7 @@ mod display;
 mod foreground;
 mod gpu;
 mod kyber_config;
+mod kyber_proxy;
 mod logs;
 mod preview;
 mod schema;
@@ -332,6 +333,16 @@ pub fn init_logging(file: Option<PathBuf>) {
     }
 }
 
+/// Tout ce qui n'est pas l'API : la console, le client web (`/ecran`) et les
+/// appels de son moteur, relayés à Kyber.
+async fn web(state: axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {
+    let path = req.uri().path();
+    if kyber_proxy::is_kyber_path(path) || kyber_proxy::engine_file(path).is_some() {
+        return kyber_proxy::proxy(state, req).await;
+    }
+    assets::serve(req.uri().clone()).await
+}
+
 pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'static) -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -408,7 +419,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     let app = Router::new()
         .merge(api::router(state.clone()))
-        .fallback(assets::serve)
+        .fallback(web)
         .with_state(state);
 
     let handle = axum_server::Handle::new();

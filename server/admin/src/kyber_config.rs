@@ -105,6 +105,31 @@ impl KyberConfig {
             .collect())
     }
 
+    /// Port du serveur Kyber (TCP et UDP).
+    pub fn port(&self) -> Option<u16> {
+        self.values()
+            .ok()?
+            .into_iter()
+            .find(|f| f.id == "network.port")
+            .and_then(|f| f.value.as_u64())
+            .and_then(|p| u16::try_from(p).ok())
+    }
+
+    /// Clé HS256 des jetons JWT acceptés par Kyber, posée par `init`.
+    pub fn jwt_secret(&self) -> Option<String> {
+        let doc = self.load().ok()?;
+        let jwt = table(&doc, &["kycontroller", "auth", "jwt"])?;
+        if jwt.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+            return None;
+        }
+        if jwt.get("algorithm").and_then(|v| v.as_str()).is_some_and(|a| a != "HS256") {
+            return None;
+        }
+        let key = jwt.get("key")?;
+        let plain = key.as_table_like()?.get("plain")?;
+        plain.as_str().map(str::to_string).filter(|s| !s.is_empty())
+    }
+
     /// Vérifie un identifiant et un mot de passe Kyber (connexion Basic).
     pub fn verify_login(&self, username: &str, password: &str) -> bool {
         let Ok(doc) = self.load() else { return false };
@@ -435,6 +460,8 @@ logins = [
         let text = cfg.read_raw().unwrap();
         assert!(text.contains("key = { plain = \"secret-de-test\" }"));
         assert!(text.parse::<DocumentMut>().is_ok());
+        // Le client web signe ses jetons avec cette clé.
+        assert_eq!(cfg.jwt_secret().as_deref(), Some("secret-de-test"));
     }
 
     /// Petit répertoire temporaire, sans dépendance supplémentaire.

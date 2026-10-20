@@ -185,7 +185,10 @@
           {/if}
         </span>
       </div>
-      <a href="#/acces" class="primary"><Icon name="plus" size={15} stroke={2.2} />Ajouter un appareil</a>
+      <div class="ctas">
+        <a href="/ecran/" class="ghost glass-ghost"><Icon name="browser" size={16} />Ouvrir dans le navigateur</a>
+        <a href="#/acces" class="primary"><Icon name="plus" size={15} stroke={2.2} />Ajouter un appareil</a>
+      </div>
     {/if}
   </div>
 </section>
@@ -338,6 +341,19 @@
   .specs {
     font-size: 11px;
     color: var(--text-2);
+  }
+
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .glass-ghost {
+    height: 42px;
+    background: rgb(9 12 17 / 0.55);
+    backdrop-filter: blur(18px);
   }
 
   .bottom {
@@ -628,9 +644,14 @@
       font-size: 12.5px;
     }
 
-    .bottom > .primary,
-    .bottom > .danger {
+    .bottom > .danger,
+    .ctas,
+    .ctas > a {
       width: 100%;
+    }
+
+    .ctas {
+      flex-direction: column-reverse;
     }
 
     .body {

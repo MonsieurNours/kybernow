@@ -51,6 +51,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/events", get(events))
         .route("/api/session/end", post(end_session))
         .route("/api/preview", get(admin_preview))
+        // Client web (/ecran) : jeton Kyber pour la session de la console.
+        .route("/api/web/ticket", get(web_ticket))
         // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
         .route("/api/pairing", get(pairing))
         .route("/api/stream/info", get(stream_info))
@@ -419,11 +421,47 @@ async fn audio_settings(State(s): State<AppState>, Json(body): Json<AudioSetting
 /// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
 fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
     let bad = || ApiError(StatusCode::UNAUTHORIZED, "identifiants Kyber requis".into());
+    // Le client web (/ecran) passe par la session de la console.
+    if !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t)) {
+        return Ok(web_user(s));
+    }
     let value = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).ok_or_else(bad)?;
     let encoded = value.strip_prefix("Basic ").ok_or_else(bad)?;
     let decoded = base64_decode(encoded.trim()).ok_or_else(bad)?;
     let (user, pass) = decoded.split_once(':').ok_or_else(bad)?;
     if s.kyber.verify_login(user, pass) { Ok(user.to_string()) } else { Err(bad()) }
+}
+
+/// Nom sous lequel le client web se connecte à Kyber : le compte créé à
+/// l'installation (celui de la console).
+fn web_user(s: &AppState) -> String {
+    s.kyber
+        .users()
+        .ok()
+        .and_then(|users| users.into_iter().next())
+        .map(|u| u.username)
+        .unwrap_or_else(|| "KyberNow".into())
+}
+
+/// Ce dont le client web a besoin pour se connecter à Kyber : un jeton signé
+/// avec la clé que Kyber connaît (posée à l'installation), valable le temps
+/// d'une session de la console.
+async fn web_ticket(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    const LIFETIME: i64 = 12 * 3600;
+    let secret = s.kyber.jwt_secret().ok_or_else(|| {
+        ApiError(
+            StatusCode::CONFLICT,
+            "Kyber n'a pas de clé pour les jetons de la console. Réinstallez KyberNow Server pour la créer.".into(),
+        )
+    })?;
+    let user = web_user(&s);
+    Ok(Json(json!({
+        "token": crate::kyber_proxy::jwt(&secret, &user, LIFETIME),
+        "user": user,
+        "expires_in": LIFETIME,
+        "kyber_port": s.kyber.port(),
+        "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+    })))
 }
 
 fn base64_decode(input: &str) -> Option<String> {

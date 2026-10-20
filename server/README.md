@@ -40,6 +40,13 @@ Identité v2 (Archivo, Martian Mono, signal Spectre, symbole « console »), qua
 
 L'authentification est en Basic, avec le compte Kyber. Les apps épinglent le certificat de la console par son empreinte.
 
+**Client web** (`/ecran/`, sources dans `server/web/src/ecran/`, entrée « Ouvrir dans le navigateur » de la Vue d'ensemble). Ouvrir l'ordinateur depuis un navigateur, sans rien installer : accueil sur l'aperçu de l'écran, profils Bureau / Jeu, réglages gardés dans le navigateur, barre de session (latence, mesures détaillées, son, menu Touches avec Ctrl+Alt+Suppr, plein écran avec toutes les touches sous Chrome et Edge), et en tactile une languette, un pavé tactile ou le toucher direct, et une rangée de touches au-dessus du clavier de l'appareil. Il demande WebTransport (Chrome, Edge, Firefox). Fonctionnement :
+- **Compte** : la session de la console (même mot de passe). `GET /api/web/ticket` (session requise) signe un jeton JWT HS256 (`aud` « kyber », `sub` : le premier compte Kyber, 12 h) avec la clé que Kyber connaît, posée par `init` dans `[kycontroller.auth.jwt]`. Les routes `/api/stream/*` acceptent aussi la session de la console : le client web prépare l'écran et envoie son signal de vie comme une app.
+- **Moteur** : `kyclient_wasm` de Kyber, chargé depuis `/ecran/kyclient_wasm.js` (avec `kyclient_wasm_bg.wasm`, `audio_worklet.js`, `spinlock.js`). La console relaie ces fichiers depuis le `/webclient/` de Kyber installé : toujours de la même version que le serveur. La page et ces fichiers sont servis avec `Cross-Origin-Opener-Policy` et `Cross-Origin-Embedder-Policy` (mémoire partagée du son).
+- **Relais** (`kyber_proxy.rs`) : le moteur parle à kycontroller sur l'adresse de la page, et kycontroller refuse les autres origines. La console relaie donc `/session/*`, `/kymux/*`, `/ws` (WebSocket), `/capabilities`, `/enumerate_displays`, `/stop_streaming`, `/set_bitrate`, `/force_idr` et `/websocket/*` vers kycontroller sur cette machine (TLS, certificat de Kyber non vérifié, connexion locale). Dans `/kymux/start_mux`, le port de l'image annoncé par le moteur (celui de la console) est remplacé par celui de Kyber. L'image elle-même ne passe pas par la console : WebTransport sur le port de Kyber, vérifié par l'empreinte de son certificat.
+
+Le `/webclient/` d'origine de Kyber reste servi par kycontroller, pour le dépannage.
+
 Les changements d'écran, de son et de pointeur sont faits dans la session de l'utilisateur par `kyber-admin.exe display-agent …`, lancé par le service.
 
 | Emplacement | Contenu |
@@ -65,6 +72,8 @@ cd ../admin && cargo run -- --http --listen 127.0.0.1:9443 \
 ```
 
 Hors Windows, le service Kyber, l'écran virtuel, le son et le GPU sont simulés ou absents.
+
+Client web contre le Kyber du PC : lancer la console en HTTPS (le moteur appelle toujours `https://`) avec `KYBERNOW_KYBER_ADDR=192.168.1.100:30241` (adresse et port de Kyber sur le PC), puis `npm run dev` dans `server/web` (relais vers `https://127.0.0.1:9448`) ou ouvrir `https://localhost:<port>/ecran/`. L'image ne peut arriver que si le navigateur joint Kyber sur l'adresse de la page : sur le Mac, l'écran d'accueil et les réglages se vérifient, la session se teste sur le PC.
 
 ## Compiler pour Windows (depuis le Mac)
 
