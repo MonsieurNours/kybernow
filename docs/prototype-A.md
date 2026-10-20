@@ -1,5 +1,7 @@
 # Prototype A — Kyber 0.29 de bout en bout (PC Windows → Mac)
 
+[English](prototype-A.en.md) · Français
+
 Objectif : un serveur Kyber qui tourne sur le PC NVIDIA, le client macOS en ligne de commande qui s'y connecte, et une **mesure de latence de référence** avant d'écrire la moindre ligne de notre code.
 
 ## 1. Côté PC Windows

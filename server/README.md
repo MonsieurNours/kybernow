@@ -1,5 +1,7 @@
 # Serveur KyberNow (Windows)
 
+[English](README.en.md) · Français
+
 Tout ce qui tourne sur l'ordinateur partagé : le serveur Kyber 0.29 (corrigé, voir [docs/kyber-changes.md](../docs/kyber-changes.md)), la console d'administration, l'icône de la zone de notification et l'installateur qui pose le tout.
 
 | Dossier | Contenu |

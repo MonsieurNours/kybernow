@@ -1,5 +1,7 @@
 # Notes de build
 
+[English](build-notes.en.md) · Français
+
 ## Client macOS Kyber 0.29 (kyber-desktop) avec Xcode 27
 
 **Symptôme** : l'édition de liens finale de `kyclient` échoue :

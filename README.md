@@ -1,5 +1,7 @@
 # KyberNow
 
+[English](README.en.md) · Français
+
 Serveur de streaming Windows clé en main et clients macOS / tvOS, construits sur [Kyber](https://kyber.tech). Développé par [Les Lignes Claires](https://www.leslignesclaires.fr).
 
 | Dossier | Contenu |
@@ -14,5 +16,9 @@ Serveur de streaming Windows clé en main et clients macOS / tvOS, construits su
 | `brand/` | Logo et déclinaisons ; identité v2 dans `brand/v2/` (charte, symbole, jetons) |
 | `docs/` | Changements de Kyber, notes de compilation, prototype de référence |
 | `tools/latency/` | Mesure de latence |
+
+La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français). Chaque évolution met à jour les deux versions dans le même commit.
+
+KyberNow utilise [Kyber](https://kyber.tech), un moteur de streaming libre (AGPL-3.0) conçu par des développeurs de VLC. KyberNow est un projet communautaire et non commercial, développé par Les Lignes Claires ; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié.
 
 Licence : AGPL-3.0-or-later.

@@ -1,5 +1,7 @@
 # Identité KyberNow v2
 
+[English](README.en.md) · Français
+
 Adoptée le 20 octobre 2026, signal Spectre. Remplace le K en ruban de `brand/` ; les apps y passent au fil des évolutions. Charte complète : [`charte/index.html`](charte/index.html), à ouvrir dans un navigateur (version en ligne : https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt). Maquettes animées des apps (accueil, passage et session sur Mac, installateur, console) : https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8.
 
 ## En bref

@@ -1,5 +1,7 @@
 # Versions et mises à jour
 
+[English](releases.en.md) · Français
+
 Les versions de KyberNow sont publiées sur GitHub : https://github.com/MonsieurNours/kybernow/releases. Le dépôt est public : les mises à jour se téléchargent sans jeton, et le code reste disponible comme l'exige l'AGPL (avec les correctifs de Kyber, voir [kyber-changes.md](kyber-changes.md)).
 
 Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installateur et l'app Mac changent ensemble.
@@ -44,7 +46,7 @@ Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la 
 
 ## Publier une version
 
-1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app.
+1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`.
 2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh`.
 3. Quitter KyberNow sur le Mac, puis lancer :
 

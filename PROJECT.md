@@ -1,5 +1,7 @@
 # KyberNow — cadrage
 
+[English](PROJECT.en.md) · Français
+
 Serveur Windows (NVIDIA) clé en main + GUI web d'administration, et clients natifs macOS / tvOS « à la Moonlight », construits sur [Kyber](https://kyber.tech) (SDK de streaming basse latence de l'équipe VLC, Rust + FFmpeg + VLC + QUIC).
 
 ## Décisions prises

@@ -1,5 +1,7 @@
 # Versions de KyberNow
 
+[English](CHANGELOG.en.md) · Français
+
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 

@@ -1,0 +1,98 @@
+# KyberNow Server (Windows)
+
+English · [Français](README.md)
+
+Everything that runs on the shared computer: the Kyber 0.29 server (patched, see [docs/kyber-changes.en.md](../docs/kyber-changes.en.md)), the administration console, the notification area icon and the installer that sets it all up.
+
+| Folder | Contents |
+|---|---|
+| `admin/` | `kyber-admin.exe` console: Windows service (Rust, axum), HTTPS |
+| `web/` | The console's interface (Svelte), embedded in the binary |
+| `tray/` | `kybernow-tray.exe` notification area icon |
+| `installer/` | `KyberNow-Setup.exe`, see [installer/README.en.md](installer/README.en.md) |
+| `kyber-patches/` | Server-side patches to Kyber and their build script |
+
+## The console (`kyber-admin`)
+
+Installed by `KyberNow-Setup.exe`, as a Windows service, on a port drawn at random at installation (shown at the end, and in the notification area icon). The account is the one chosen during installation.
+
+v2 identity (Archivo, Martian Mono, Spectre signal, “console” symbol), four pages by intent, menu on the left and tabs at the bottom on a phone. Choices apply immediately; Kyber's need a restart, offered at the top of the page. The old addresses (`#/dashboard`, `#/logs`…) lead to the page that now holds them.
+
+| Page | Role |
+|---|---|
+| Overview (`#/ensemble`) | The screen preview in large; during a session, the connected device, since when, its profile, its latency and “End the session”; the state in four cards (server, virtual display, sound, update), the latest devices and today's feed |
+| Picture and sound (`#/image-son`) | SudoVDA virtual display (trigger, default mode, 15 s test, turn the displays back on), sound (trigger, channels, Opus quality), keyboard, mouse and gamepads (clipboard, Xbox 360, repeat) |
+| Access (`#/acces`) | Add a device (QR code and `kybernow://` link, certificate fingerprint), known devices (forget), several devices at the same time, Kyber accounts (Basic) |
+| System (`#/systeme`) | One-click updates, server (start, stop, restart, graphics card, ports), logs by source (connections, picture and sound, commands, console; filter, follow, download, level of detail), Advanced: Kyber's raw settings (NVENC, AMF, Quick Sync or x264 encoder, chosen at installation according to the graphics card; engine, progressive refresh, minimum bitrate, port, addresses, connection methods), `kyber_config.toml` editor, console password |
+
+**Devices and event feed** (`activity.rs`). KyberNow apps introduce themselves in `POST /api/stream/prepare` (`device`: stable identifier, name, type, system, app version; `profile`), give their median latency with their heartbeat (`latency_ms`) and that of the whole session at the end. The console keeps the last 50 devices (`devices.json`) and the last 300 events, written as sentences (`events.json`): connections, disconnections with duration and latency, interrupted sessions (no heartbeat for 30 s), accounts, restarts, updates. An app older than 0.2.1 counts as “one device” per account. Console routes: `GET /api/devices`, `DELETE /api/devices/{id}`, `GET /api/events?limit=`, `POST /api/session/end`, `GET /api/preview?width=` (screen preview, as for the apps). `GET /api/status` also gives the current and the last session (`activity`) and the available update.
+
+**Ending a session.** A KyberNow app learns it at its next heartbeat (`"end": true`, 5 s at most) and disconnects cleanly; another client (browser, command line) is cut by restarting Kyber. `POST /api/local/end` does the same from the icon, reserved for the computer itself.
+
+**For the apps.** The console announces itself over Bonjour (`_kybernow._tcp`, TXT `v`, `name`, `fp`), hence the UDP 5353 firewall rule. It also serves the session API:
+- `GET /api/stream/info`: name, system (`os`, for example “Windows 11 Pro 24H2”, absent if unknown), GPU, AV1, virtual display, speakers. `GET /api/status` (web console) also gives `os`. On Windows, the name comes from the registry (ProductName and DisplayVersion, “Windows 11” from the build number, as ProductName still says “Windows 10”); on the development Mac, from `sw_vers`; on Linux, from `PRETTY_NAME` in `/etc/os-release`;
+- `GET /api/stream/preview?width=960`: preview of the main display as it is right now, for the background of the apps' home screen. JPEG (quality 70), width bounded between 320 and 1600 (960 by default), height to ratio, `X-Captured-At` header (RFC 3339). `503` and `{"error": "…"}` if the screen cannot be captured: nobody signed in, screen locked or a security prompt shown, agent unavailable. The last capture is served again for 10 s (5 s for a failure); during a session (KyberNow app or another client that makes the GPU encode), no capture is taken: the last one is served again, or `503`. The capture is taken by an agent launched in the Windows session (`display-agent preview`, GDI, main display scaled down to the requested width), which writes the JPEG to `preview\`; on the development Mac, by `screencapture` (screen recording permission needed);
+- `POST /api/stream/prepare`: virtual display at the client's size, sound with the right number of channels; the app introduces itself there (`device`, `profile`);
+- `POST /api/stream/heartbeat`: heartbeat (without it, the virtual display disappears), with the current latency; the answer says whether the console asks for the session to end (`end`) and whether the virtual display is in place (`active`). A new call to `prepare` by the device already in session (display requested again after Kyber restarts) continues the same session: no new connection in the event feed and no extra session for the device;
+- `GET /api/stream/foreground`: app in the foreground on the computer, full screen or not, game or not (Auto mode of the apps' mouse). The console gets it from an agent that runs in the Windows session for the duration of a session (`display-agent foreground`, state written every 400 ms). The agent stops by itself after 20 s without a heartbeat;
+- `POST /api/stream/end`: original displays and audio output given back, with a report; the app gives the session's median latency there;
+- `GET /api/pairing`: pairing link.
+
+**Updates** (console account): `GET /api/update` (installed version, latest published version, notes), `POST /api/update/check`, `POST /api/update/install`. `GET /api/local/state` (reserved for the computer itself, for the icon) also gives `update_available`, `version`, the computer's name, its address and the current session (`activity`).
+
+Authentication is Basic, with the Kyber account. The apps pin the console's certificate by its fingerprint.
+
+**Web client** (`/ecran/`, sources in `server/web/src/ecran/`, “Open in the browser” entry on the Overview page). Open the computer from a browser, with nothing to install: home screen on the screen preview, Desktop / Game profiles, settings kept in the browser, session bar (latency, detailed measurements, sound, Keys menu with Ctrl+Alt+Del, full screen with all keys in Chrome and Edge), and on touch devices a tab, a trackpad or direct touch, and a row of keys above the device's keyboard. How it works:
+- **Account**: the console's session (same password). `GET /api/web/ticket` (session required) signs an HS256 JWT (`aud` “kyber”, `sub`: the first Kyber account, 12 h) with the key Kyber knows, set by `init` in `[kycontroller.auth.jwt]`. The `/api/stream/*` routes also accept the console's session: the web client prepares the display and sends its heartbeat like an app.
+- **Engine**: Kyber's `kyclient_wasm`, loaded from `/ecran/kyclient_wasm.js` (with `kyclient_wasm_bg.wasm`, `audio_worklet.js`, `spinlock.js`). The console relays these files from the installed Kyber `/webclient/`: always the same version as the server. The page and these files are served with `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` (shared memory for the sound).
+- **Relay** (`kyber_proxy.rs`): the engine talks to kycontroller at the page's address, and kycontroller refuses other origins. So the console relays `/session/*`, `/kymux/*`, `/ws` (WebSocket), `/capabilities`, `/enumerate_displays`, `/stop_streaming`, `/set_bitrate`, `/force_idr` and `/websocket/*` to kycontroller on this machine (TLS, Kyber's certificate not verified, local connection). In `/kymux/start_mux`, the image port announced by the engine (the console's) is replaced by Kyber's. The image itself does not go through the console: WebTransport on Kyber's port, verified by its certificate's fingerprint.
+- **Safari, iPhone, iPad**: their WebTransport does not verify a certificate by its fingerprint; the image goes through WebSocket (`/websocket/*`, relayed by the console, a little more latency). Elsewhere, with no first frame within 12 s over WebTransport, the page also switches to WebSocket.
+- **Mouse**: the engine captures the pointer as soon as the computer hides its cursor, which Windows does constantly with no mouse plugged in. The page only allows capture in Game mode, or in Auto when the console sees a full-screen game (`GET /api/stream/foreground`). `Ctrl + Alt + Shift` gives the mouse back and shows the bar; a tab at the top of the image shows it too. The engine draws the computer's pointer as the canvas cursor and sets `cursor: none` when the computer says it is hidden (always, with no mouse plugged in): outside capture, the page puts an arrow back.
+
+Kyber's original `/webclient/` is still served by kycontroller, for troubleshooting.
+
+Display, sound and pointer changes are made in the user's session by `kyber-admin.exe display-agent …`, launched by the service.
+
+| Location | Contents |
+|---|---|
+| `C:\ProgramData\KyberNow\kyber-admin.toml` | settings: `listen`, Kyber folder, password hash, virtual display, sound |
+| `C:\ProgramData\KyberNow\tls\` | the console's certificate |
+| `C:\ProgramData\KyberNow\backups\` | previous versions of `kyber_config.toml` |
+| `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | what to restore at the end of the session, even after a crash |
+| `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, contents, `update.log` |
+| `C:\ProgramData\KyberNow\preview\` | screen preview capture in progress (deleted as soon as it is read) |
+| `C:\ProgramData\KyberNow\devices.json`, `events.json` | known devices and last session, event feed of the Overview page |
+| `C:\ProgramData\KyberNow\foreground\` | full-screen watch during a session (`run`: heartbeat, `state.json`: last state) |
+| `C:\ProgramData\KyberNow\kyber-admin.log` | the service's log |
+
+Commands: `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (then restart the service), `kyber-admin.exe init …` (used by the installer), `kyber-admin.exe` alone to run in a console window (diagnosis).
+
+## Developing on the Mac
+
+```bash
+cd server/web && npm run build                       # ou npm run dev (proxy /api vers la console)
+cd ../admin && cargo run -- --http --listen 127.0.0.1:9443 \
+    --data-dir dev-data --kyber-dir dev-data/kyber    # copier un kyber_config.toml dans dev-data/kyber
+```
+
+(`npm run dev` proxies `/api` to the console; copy a `kyber_config.toml` into `dev-data/kyber`.)
+
+Outside Windows, the Kyber service, the virtual display, the sound and the GPU are simulated or absent.
+
+Web client against the Kyber on the test computer: run the console over HTTPS (the engine always calls `https://`) with `KYBERNOW_KYBER_ADDR=192.168.1.100:30241` (Kyber's address and port on the test computer), then `npm run dev` in `server/web` (relay to `https://127.0.0.1:9448`) or open `https://localhost:<port>/ecran/`. The image can only arrive if the browser reaches Kyber at the page's address: on the Mac, the home screen and the settings can be checked; the session is tested on the computer itself.
+
+## Building for Windows (from the Mac)
+
+```bash
+server/build-windows.sh            # console seule → server/dist/kyber-admin.exe
+server/kyber-patches/build.sh      # Kyber corrigé → third_party/payload/kyber-overlay/
+server/installer/build.sh          # tout → server/installer/dist/KyberNow-Setup.exe
+```
+
+(Console only; patched Kyber; everything.)
+
+## Updating a computer that is already installed
+
+In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release published on GitHub, checks its checksum and launches `update.ps1`. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
+
+`server/installer/update.ps1` replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It keeps the replaced Kyber files in `kyber\avant-maj`, installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).

@@ -1,5 +1,7 @@
 # Ce que KyberNow change dans Kyber
 
+[English](kyber-changes.en.md) · Français
+
 KyberNow s'appuie sur Kyber 0.29 (AGPL-3.0, sources dans `third_party/kyber-desktop`). Le code de Kyber n'est jamais modifié en place dans ce dépôt : chaque changement est un correctif rangé ici, appliqué par un script au moment de compiler. Le reste (écran virtuel, sortie audio virtuelle, curseur, comptes) passe par la console KyberNow et par la configuration de Kyber, sans toucher à son code.
 
 | Correctif | Où | Ce qu'il change | Pourquoi |
@@ -18,7 +20,7 @@ KyberNow s'appuie sur Kyber 0.29 (AGPL-3.0, sources dans `third_party/kyber-desk
 - **Serveur** : `server/kyber-patches/build.sh` remet les fichiers concernés dans leur état d'origine (git), applique tous les correctifs dans l'ordre (`*-kycontroller-*` dans `kysdk/kyctl`, les autres dans `kysdk/kymedia`), recompile kyavserver et txproto pour Windows depuis macOS (MinGW, UCRT), puis kycontroller (Rust, mêmes options que la version officielle : `auth-jwt,auth-oidc,cli,kyhub,win32-hide-console,win32-tray`). Il assemble enfin `third_party/payload/kyber-overlay/`. L'installateur et `update.ps1` posent cette surcouche par-dessus les fichiers de Kyber 0.29 ; l'ancienne version est gardée dans `kyber\avant-maj`. Détails de la compilation croisée : [build-notes.md](build-notes.md).
 - **Client macOS** : `apps/macos/scripts/build-kyclient.sh` applique chaque correctif au dépôt que nomme son fichier (`*-kyclient-*` : `kysdk/kyctl`, `*-kynput-*` : `kysdk/kynput`), recompile libkynput et libkyclient (`cargo cinstall`) et les remplace dans `apps/macos/Vendor/`.
 
-Ajouter un correctif : modifier les sources dans `third_party/kyber-desktop`, puis enregistrer la différence ici. Pour le serveur, un fichier `NNNN-sujet.patch` au format `diff -u` (chemins `a/…` et `b/…` relatifs à `kysdk/kymedia`). Pour le client, `git -C kysdk/kyctl diff -- kyclient` ou `git -C kysdk/kynput diff -- kynput`, dans un fichier nommé d'après le dépôt (`NNNN-kyclient-…`, `NNNN-kynput-…`). Ensuite, compléter le tableau ci-dessus.
+Ajouter un correctif : modifier les sources dans `third_party/kyber-desktop`, puis enregistrer la différence ici. Pour le serveur, un fichier `NNNN-sujet.patch` au format `diff -u` (chemins `a/…` et `b/…` relatifs à `kysdk/kymedia`). Pour le client, `git -C kysdk/kyctl diff -- kyclient` ou `git -C kysdk/kynput diff -- kynput`, dans un fichier nommé d'après le dépôt (`NNNN-kyclient-…`, `NNNN-kynput-…`). Ensuite, compléter le tableau ci-dessus, dans les deux langues.
 
 ## Réglé sans modifier le code de Kyber
 

@@ -1,5 +1,7 @@
 # Installateur KyberNow
 
+[English](README.en.md) · Français
+
 `KyberNow-Setup.exe` : un seul fichier qui installe le serveur Kyber 0.29, la console d'administration, l'icône de la zone de notification, le pilote d'écran virtuel SudoVDA et le pilote de manettes ViGEmBus.
 
 ## Architecture

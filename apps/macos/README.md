@@ -1,5 +1,7 @@
 # KyberNow pour macOS
 
+[English](README.en.md) · Français
+
 Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29 + console KyberNow) en plein écran sur le Mac, avec l'image, le son, le clavier, la souris et les manettes. Identité v2 ([charte](../../brand/v2/README.md)) ; maquettes : [Claude Design](https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8) (accueil, premier contact, passage, session). Le code vidéo, audio et la détection des capacités n'utilisent pas AppKit : ils serviront tels quels aux apps iOS et Apple TV.
 
 ## Ce que fait l'app

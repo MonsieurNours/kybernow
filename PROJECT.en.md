@@ -1,0 +1,131 @@
+# KyberNow — scope
+
+English · [Français](PROJECT.md)
+
+Ready-to-install Windows (NVIDIA) server + web administration GUI, and native macOS / tvOS clients “in the style of Moonlight”, built on [Kyber](https://kyber.tech) (low-latency streaming SDK by the VLC team, Rust + FFmpeg + VLC + QUIC).
+
+## Decisions made
+
+| Topic | Choice |
+|---|---|
+| Product | **KyberNow**, developed by Les Lignes Claires (https://www.leslignesclaires.fr) — name to be confirmed with Kyber before any public release |
+| Foundation | Kyber (server + C client SDK), pinned version |
+| Use | Gaming **and** remote desktop → “Game” / “Desktop” profiles |
+| Distribution | Personal / team use (AGPLv3 fine, no public App Store) |
+| Network | LAN (Bonjour discovery) + remote access through a VPN (Tailscale/WireGuard, documented) |
+| Windows installer | Our own **NSIS** installer (can be built on a Mac), which lays down Kyber 0.29's files itself (no call to the official installer) |
+| Password | Asked during installation: same username/password for Kyber (Basic) and kyber-admin |
+| Virtual display | **SudoVDA** driver (MIT/CC0, Apollo's), isolated behind an interface so we can switch to Kidd when Kyber publishes it |
+| Trigger | Configurable in the admin: never / our apps only / all clients (default mode for those that do not send their resolution) |
+| End of session | Virtual display removed, physical displays restored, **no** Windows lock |
+| 2nd client | It takes over: the 1st is disconnected and the virtual display recreated at its dimensions |
+| Ports | Drawn at random at installation (stream and console separate), within 20000–44999, outside ranges reserved by Windows (Hyper-V/WSL) and Sunshine/Moonlight ports; free in TCP **and** UDP; shown and editable on the check screen; announced over Bonjour |
+| Installer (UX) | Immersive, animated (“signal flow” background, transitions, step-by-step diagnosis, live installation, celebration), educational; mock-up: https://claude.ai/artifact/3BnFPgxYmz2etqHXM1cd8S; respects “reduce motion”; “About” screen (licences, developer's website) |
+| Web admin | Rust service + embedded Svelte SPA. Console v2 (20/10/2026): four pages by intent, Overview · Picture and sound · Access · System; the computer's image first; Kyber's raw settings filed under System › Advanced; menu on the left, tabs at the bottom on a phone. Known devices and event feed kept by the console (the apps introduce themselves at the start of a session); end of session requested from the console or the icon. Icon next to the clock: a panel (WebView2) on left click, the Windows menu on right click. Installer in four steps (analysis during the welcome step) |
+| Web client (20/10/2026) | New client served by the console (`/ecran`), same account, for this computer only; “Open in the browser” entry on the Overview page. Kyber's `kyclient_wasm` engine, interface rebuilt on the model of the Mac app: Desktop / Game profiles, app settings (protocol, buffers and format chosen automatically, filed under “Advanced”), session bar with a Keys menu (Ctrl+Alt+Del…). Windows computer, Mac, tablet (trackpad or direct touch) and phone; dark theme only. Kyber's `/webclient/` stays in place for troubleshooting. Mock-ups: the “In the browser” row of https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
+| Identity (v2, 20/10/2026) | “Relay” symbol (square cut at 45°: the computer, the link, you; with no letter, it survives a name change), Spectre signal `#9A8CFF` as neon lit only in active moments, Archivo + Martian Mono; “computer” for the shared machine, “device” for what connects to it, no system named outside technical information; everything in `brand/v2/`; guidelines: https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt; mock-ups: https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8 |
+| Apple | SwiftUI, macOS then tvOS; paid Apple Developer account available |
+| Environment | Development on a Mac, Windows NVIDIA computer reachable on the LAN |
+
+## What Kyber provides (v0.29.0, 2026-10-09)
+
+- Windows 10/11 server: Windows service (`kyservice` → `kycontroller`, `kyavserver`, `kynputserver`), notification area icon, NVENC recommended, single port `8080` TCP+UDP.
+- Single config `kyber_config.toml` (encoder, minimum bitrate, port, TLS, JWT/OIDC, clipboard, gamepad, “Kidd” virtual displays). Most changes require a restart. Can be overridden with `KYBER_CONFIG`.
+- Gamepads: ViGEmBus driver required on the server.
+- Web client served by the controller at `/webclient/`.
+- Client SDK: Rust core, C bindings (`libclient`, `libkynput`) through cbindgen; rendering through VLC (fork). `kyber-ios` app (iOS/tvOS) **not public**.
+- No NAT traversal → LAN / VPN.
+- Sources: https://gitlab.com/kyber (docs: `kyber/kyber`, apps: `kyber/apps/*`, core: `kyber/core/*`).
+
+## Target architecture
+
+```
+kyber-apps/
+├── server/
+│   ├── admin/          # kyber-admin : service Windows en Rust (axum)
+│   ├── web/            # SPA Svelte, compilée et embarquée dans admin
+│   └── installer/      # NSIS : Kyber + SudoVDA + ViGEmBus + kyber-admin + pare-feu + alimentation
+└── apple/
+    ├── KyberKit/       # Swift package : xcframework du SDK C Kyber + API Swift
+    ├── KyberMac/       # app macOS (SwiftUI)
+    └── KyberTV/        # app tvOS (SwiftUI)
+```
+
+(`admin/`: kyber-admin, Windows service in Rust (axum); `web/`: Svelte SPA, built and embedded in admin; `installer/`: NSIS: Kyber + SudoVDA + ViGEmBus + kyber-admin + firewall + power; `KyberKit/`: Swift package: xcframework of Kyber's C SDK + Swift API; `KyberMac/`, `KyberTV/`: macOS and tvOS apps in SwiftUI.)
+
+### kyber-admin (Windows)
+- Runs as a Windows service, HTTPS on a dedicated port, access protected by a password.
+- **Config**: reads/writes `kyber_config.toml` while keeping its comments (`toml_edit`), schema validation, applied with a controlled restart of the Kyber service.
+- **Service**: start / stop / restart / state of the Kyber service.
+- **Monitoring**: GPU, driver, encoder load (NVML), active session, live logs.
+- **Pairing**: the console's “Devices” page: QR code and link `kybernow://adresse:port?name=…&fp=sha256:…` (address, console port, fingerprint of its certificate; no secret). The app reads the QR code with the Mac's camera, or the pasted (or opened: `kybernow://` scheme) link. The fingerprint seen is compared with the one in the link or the announcement; with a plain address, the user compares it with the console's (first 4 groups). Then the console account, verified and kept in the Keychain; certificate pinned.
+- **Discovery**: Bonjour/mDNS announcement `_kybernow._tcp` from the console (TXT `v`, `name`, `fp`), UDP 5353 firewall rule for kyber-admin.
+- **Apps' home screen**: `GET /api/stream/info` gives the computer's system (“Windows 11 Pro 24H2”, designed for a multi-platform server), `GET /api/stream/preview` a JPEG preview of the main display (GDI capture by the agent in the user's session, 10 s cache, never during a session), background of the home screen when the app has no image from the last session.
+- **Profiles**: “Game” (low latency, gamepad, high fps) / “Desktop” (4:4:4, clipboard, multiple displays).
+- **Web client** (`/ecran/`, 20/10/2026): served by the console, with its session. The console signs a JWT for Kyber (key set at installation), relays the HTTPS and WebSocket calls of the `kyclient_wasm` engine to kycontroller (which refuses other origins) and serves the engine's files from the installed `/webclient/`; the image arrives directly from Kyber over WebTransport. Details in [server/README.en.md](server/README.en.md). **Still to validate on the test computer**: the session end to end (image, sound, keyboard, mouse, gamepad, clipboard), takeover by another device, touch and the keyboard of phones and tablets (gestures are translated into mouse and keyboard events sent to the engine).
+
+### Virtual display (stream session)
+- **Start of session**: the client announces its resolution and refresh rate to kyber-admin (our apps), or we use the default mode; kyber-admin creates the SudoVDA virtual display at that mode, remembers the display layout, enables only the virtual display, and Kyber's capture follows it.
+- **End of session**: virtual display removed, original layout restored.
+- **Safety net**: the driver removes the display if it no longer receives a heartbeat (3 s); kyber-admin restores the layout when it starts and when no stream is being encoded any more; emergency keyboard shortcut.
+- ✅ **Validated on 2026-10-19** on the test computer (RTX 3080 Ti, two 4K displays): 3840 × 2160 virtual display at 160 Hz created before connecting, physical displays turned off then restored, stream received at 152 fps, 8.3 ms median latency.
+- **Known pitfall**: Kyber's display enumerator sees the old layout for ~50 ms; `prepare` waits until Windows shows only the virtual display, then 1.5 s, before answering. The apps will have to choose the display from the updated list.
+- **Still to validate**: the “For any connection” mode (display created during the stream), and takeover by a 2nd device (disconnection of the 1st).
+- **Fixed pitfall**: SudoVDA's watchdog (3 s) is armed as soon as the display is created. The heartbeat therefore starts from a dedicated thread as soon as `add` runs, not only once the session is active: otherwise the display disappeared during set-up (white screen on the client, encoder initialisation failure on the server).
+- **Architecture**: the service drives SudoVDA (IOCTL, heartbeat); a short-lived agent `kyber-admin display-agent`, launched with the SYSTEM token in the console session, changes the layout (CCD API).
+- **Security trade-off**: SudoVDA is self-signed; its certificate is added to the computer's root authorities.
+
+### Image quality: 4:4:4, HDR, VRR (Kyber 0.29)
+- **4:4:4** ✅ validated on 2026-10-19 (HEVC, 3840 × 2160 at 160 Hz, client `--444`). Cost compared with 4:2:0: NVENC encoding ~9 ms median (p95 46 ms), decoding ~6.6 ms, total latency ~18 ms median. To offer in the “Desktop” profile (sharp text), not in the “Game” profile.
+- **HDR** ❌ impossible with Kyber 0.29: capture (DXGI Desktop Duplication) is 8-bit BGRA. Keep Windows HDR turned off on the virtual display.
+- **Multichannel and HD sound** (patch `server/kyber-patches/0001`): the txproto engine already captures Windows output with all its channels; the Opus bitrate, fixed at 128 kbit/s by Kyber, now follows the number of channels. Setting `[kyavserver] audio_quality`: `standard` (128 kbit/s), `hd` (default: 256 kbit/s in stereo, 576 in 5.1, 768 in 7.1), `studio` (Opus maximum); `audio_bitrate` for an exact value. The libavconv engine stays in stereo. The app offers Auto, Stereo, 5.1, 7.1 or None; Auto follows the Mac's audio output.
+- **VRR**: on the server, Kyber sends a frame when the screen changes (frame rate following the content). On the client, the app presents each frame as soon as it is decoded (Metal, at most one frame waiting for the display, the most recent replaces the others): on a ProMotion / Adaptive-Sync display, the display follows the arrival of frames. Vertical sync can be turned off (minimal latency, possible tearing). No VRR on Apple TV.
+- **Decoding by the app (2026-10-20)**: patch `apps/macos/kyber-patches/0001` on libkyclient (`kyclient_video_player_config_set_packet_sink`): video packets (Annex B, parameter sets, keyframe, pts) go to the app instead of VLC. KyberKit decodes them with VideoToolbox (hardware required, real-time mode, output in the Apple silicon lossless compressed formats, read without copying by Metal) and draws them with Metal (YCbCr → RGB conversion according to the stream's matrix). Measured offline on an M4 Max at 2560 × 1440: 2.0 ms decoding in 4:2:0, 2.7 ms in 4:4:4. VLC is now only a fallback (AV1 is also decoded by the app since 2026-10-20, M3 chips and later). Code without AppKit (decoder, renderer, capabilities, sound): reused as is on iOS/tvOS.
+- **Sound by the app (2026-10-20)**: the same patch passes Opus packets to the app (`kyclient_audio_session_config_set_packet_sink`). libopus (multistream, loss concealment) → Core Audio, 5 ms requests to the sound card, adaptive buffer of about twenty ms (VLC: a fixed 50 ms, plus its own). On the server, `server/kyber-patches/0004`: 10 ms capture and packets, Opus `lowdelay`. Sound and image each leave as soon as they are ready; the offset is shown in the session bar. Full list of changes: [docs/kyber-changes.en.md](docs/kyber-changes.en.md).
+- **Mouse, clipboard, bitrate, latency (2026-10-20)**: Auto, Desktop or Game mouse (relative, GCMouse), set in the session bar and with ⌃⌥⌘M; Auto switches to game mode when the console sees a full-screen game on the computer (not a browser or a video player), not merely when the pointer is hidden, which Windows does constantly with no mouse plugged in; text clipboard shared both ways (`apps/macos/kyber-patches/0002` on libkynput); profile bitrate proportional to the session's pixels per second; end-to-end latency (capture → display) measured with Kyber's timestamps and clock alignment, in the bar and on the home screen. Console and installer: “computer” instead of “PC” everywhere.
+- **Recovery after a loss (2026-10-20)**: under progressive refresh, NVENC never sends a keyframe; after a loss beyond what FEC can repair, VideoToolbox froze the image. The app requests a keyframe (`POST /force_idr`, `server/kyber-patches/0005` on kycontroller, now in the overlay), and restarts the stream if there is no answer within 1.5 s.
+- **Releases and updates (2026-10-20)**: public repository https://github.com/MonsieurNours/kybernow, one version number for all of KyberNow, releases published by `scripts/release.sh` (notes: `CHANGELOG.md`). The computer updates in one click from the console (package verified by SHA-256, `update.ps1` launched detached, icon relaunched in the user's session), the Mac app through Sparkle (EdDSA). Remaining: Developer ID signing and notarisation. See [docs/releases.en.md](docs/releases.en.md).
+- **Resolution**: “Like this display” follows the Mac's display to the pixel (5K, 6K), up to 7680 × 4320 (limit of the console and the virtual display), 4096 wide at most in H.264 (NVENC limit). “4K at most” option to lighten encoding, decoding and bitrate.
+- **Client capabilities**: at launch, the app checks the hardware decoders (H.264, HEVC, AV1) and actually decodes an HEVC 4:4:4 frame, requiring hardware. The profiles are brought down to them (without hardware 4:4:4: 4:2:0 with more bitrate; without HEVC: H.264); the settings' “This Mac” card shows them, with the display's resolution and refresh rate (variable or not).
+
+### Virtual audio output (stream session)
+- **Why**: without it, sound also comes out of the computer's speakers, in the format set in Windows, and disappears if the output was the HDMI of a display turned off by the virtual display.
+- **Driver**: Steam Streaming Speakers (Valve, signed by Microsoft, stereo to 7.1), installed by the installer from Steam's folder if present (as Sunshine and Apollo do). No open-source driver is signed (Virtual-Audio-Driver requires test mode); plan B: our own driver signed by Microsoft (EV certificate + Partner Center in the name of Les Lignes Claires).
+- **Session**: `prepare` receives `audio_channels` (2, 6, 8; 0 = sound on the computer). Sound switches to the virtual speakers set to that format (`IPolicyConfig`, like the Sound panel) before the virtual display; at the end, the original output comes back after the displays (it can come back with them). Same safety nets as the virtual display (state on disk, 20 s without news). The console's “Sound” page: trigger and number of channels.
+
+### Mouse pointer
+- **Finding**: Kyber does not draw the cursor into the image; the client draws it from the computer's announcements and switches to relative mouse as soon as Windows says it is hidden, with no delay. Hence a cursor that flickers or disappears.
+- **Fixes**: txproto announces a hide only after 250 ms (`server/kyber-patches/0002`); the console turns off “Hide pointer while typing” for the duration of the session; the macOS app will keep a cursor that is always visible in desktop use and reserve relative mouse for games.
+- **Still possible**: Windows with no physical mouse hides its cursor permanently; to watch on a computer with no mouse.
+
+### Kyber patches
+- `server/kyber-patches/build.sh` rebuilds kyavserver and txproto for Windows from macOS (see docs/build-notes.md) and assembles `third_party/payload/kyber-overlay/`, laid down by the installer on top of Kyber 0.29. The kyavserver chain (txproto, Lua, SPIRV-Cross, MinGW runtime) moves to UCRT; no other Kyber binary depends on it.
+
+### Installer
+- Kyber at a pinned version (binaries taken from the official release), SudoVDA, ViGEmBus, kyber-admin.
+- Firewall rules, TLS certificate generation, high-performance power plan (Kyber's docs measure 2.5 ms of NVENC encoding, against 8 ms when the GPU saves power).
+- Clean uninstall.
+
+### Apple clients
+- **State (2026-10-20)**: see [apps/macos/README.en.md](apps/macos/README.en.md). `apps/macos` (XcodeGen, `project.yml`). KyberKit = Swift facade over libkyclient/libkynput (C module `CKyber`), session view (image decoded by the app and drawn with Metal; VLC for AV1), keyboard (kVK → HID → scancode), absolute mouse, the computer's cursor shown as an `NSCursor` and never hidden in desktop use. App: add by Bonjour, address, QR code or link (fingerprint verified), password in the Keychain, Game/Desktop/Max profiles, `prepare` (resolution and refresh rate of this Mac's display, sound channels), heartbeat, clean end (⌃⌥⌘D), full screen (⌃⌥⌘F). Before the first build: `scripts/vendor-kyber.sh`, then `scripts/build-kyclient.sh` (libkyclient with the KyberNow patches), then `xcodegen generate`.
+- **KyberKit**: `libclient` + `libkynput` + VLC built into an xcframework (macOS arm64/x86_64, tvOS arm64 + simulator), Swift facade (connection, video surface, inputs, metrics).
+- **App**: list of computers (Bonjour + manual add), pairing, full screen, settings (resolution, fps, codec, bitrate, profile), gamepads (GameController framework), keyboard, mouse and clipboard on macOS, metrics overlay.
+
+## Risks to clear first (quick prototypes)
+
+- ✅ **A. End-to-end reference** (validated: 9.4 ms median, see docs/prototype-A-results.en.md): Kyber 0.29 on the Windows computer ↔ command-line macOS client; measurement of latency and stability.
+- **B. tvOS**: build the Rust client SDK (tvOS target, less well supported by Rust than macOS) and the VLC layer of Kyber's fork for tvOS. Fallback: ask for access to `kyber-ios` or to their Swift layer.
+- **C. Controller API**: list what `kycontroller` exposes over HTTP (session state, metrics) and the exact format of the expected JWTs (`docs/Architecture/Authentication.md`).
+
+## Phases
+
+0. Prototypes A, B, C
+1. Server: kyber-admin + Svelte UI + NSIS installer + virtual display
+2. KyberKit + macOS app
+3. tvOS app
+4. Finishing: Wake-on-LAN, HDR, display selection, automatic updates
+
+## Open questions
+
+- Product name / bundle identifier.
+- Several simultaneous users on the same computer?

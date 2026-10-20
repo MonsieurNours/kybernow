@@ -1,5 +1,7 @@
 # Prototype A — résultats
 
+[English](prototype-A-results.en.md) · Français
+
 ## Run 1 — référence (2026-10-19 16:41, `tools/latency/runs/20261019-164146`)
 
 **Configuration** : serveur Kyber 0.29.0 (installeur officiel) sur PC Windows NVIDIA `192.168.1.100`, NVENC, h264, débit par défaut. Client `kyclient` 0.29.0 compilé localement, MacBook Pro M4 Max. Réseau : RTT QUIC 0,66 ms (LAN). Écran du PC : **4K à 160 Hz**.
