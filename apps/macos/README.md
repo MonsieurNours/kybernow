@@ -19,6 +19,7 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
   - Le seul masquage du pointeur ne suffit pas à déclencher le mode jeu : sur un ordinateur sans souris branchée, Windows le cache et le remontre toutes les demi-secondes, même sur le bureau.
 - **Présentation à la console** : en début de session, l'app donne à la console un identifiant stable (tiré à la première ouverture), le nom du Mac, son système, sa version et le profil ; puis sa latence médiane avec chaque signal de vie, et celle de toute la session à la fin. La console en tire ses appareils connus et son fil d'événements. Si la console demande la fin de la session (« Mettre fin à la session », dans la console ou l'icône de l'ordinateur), l'app l'apprend au signal de vie suivant et se déconnecte comme avec Quitter.
 - **Presse-papiers partagé** : texte, dans les deux sens, jusqu'à 60 Ko (`ClipboardBridge`, protocole de kynput, fonctions C de `kyber-patches/0002`). Ce que l'ordinateur annonce est demandé tout de suite, pour que ⌘V marche aussitôt ; ce que le Mac copie est annoncé (vérifié deux fois par seconde) et envoyé à la demande. La console peut l'interdire dans un sens ou dans l'autre.
+- **iCloud pour l'Apple TV** (`CloudPublisher`) : à chaque ajout, modification ou retrait d'un ordinateur, l'app publie la liste dans le magasin clé-valeur d'iCloud (clé `hosts` : nom, adresse, port de la console, compte, port du flux, empreinte, et `from` = nom de ce Mac) et copie le mot de passe dans le Trousseau iCloud. L'app Apple TV du même compte les ajoute sans rien taper. Les ordinateurs publiés par un autre Mac restent dans la liste. Réglage « Synchroniser avec iCloud » dans KyberNow › Réglages… (⌘,), actif par défaut ; le couper retire de la liste et du Trousseau iCloud les ordinateurs de ce Mac (l'Apple TV garde ceux qu'elle a déjà). Il faut les droits iCloud, donc un profil de provisionnement, en place en Debug comme en Developer ID (voir « Signature et iCloud »).
 - **Mises à jour** : Sparkle, vérification quotidienne et menu KyberNow › Rechercher des mises à jour… ; flux `appcast.xml` signé EdDSA, publié avec chaque version sur GitHub (voir [docs/releases.md](../../docs/releases.md)).
 - **Reconnexion** : pendant une reconnexion de Kyber, l'app attend : c'est elle qui relance l'image quand Kyber est revenu. Si Kyber a redémarré sur l'ordinateur, l'écran virtuel a pu partir avec lui (il garde toujours le même numéro, mais la console le retire et rallume les écrans physiques). L'app le redemande donc à la console (`/api/stream/prepare`, sans effet s'il est toujours là), attend au plus 3 s que Kyber n'annonce plus que lui, puis relance l'image dessus. Si l'ordinateur refuse quand même l'image dans les 15 s, elle refait cette demande une fois au lieu de couper la session. Le signal de vie dit aussi si l'écran virtuel est en place (`active`) : s'il a disparu en cours de session, l'app le redemande (au plus une fois toutes les 30 s). Quand l'app relance elle-même l'image (pas d'image clé en 1,5 s), Kyber ferme la connexion des données et se reconnecte sans relancer l'image : l'app la relance alors elle-même, au lieu de rester sur une image figée.
 - **Panneaux sur l'image** : le panneau des mesures, qui reste ouvert, a un fond opaque. Un verre dépoli (`ultraThinMaterial`) serait recalculé par macOS à chaque image du flux (160 par seconde en 4K) et fait tomber la cadence. La barre, ouverte brièvement, garde son verre. Démarrer une image arrête toujours la précédente, chaîne d'entrées comprise : deux chaînes se disputaient la manette (SDL n'en sert qu'une), et l'ancienne, débranchée, rejetait tout.
@@ -88,7 +89,8 @@ apps/macos/
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
 │   ├── KyberNowApp, Model (ordinateurs, réglages, Trousseau)
-│   ├── HomeView, HostImagery, AddHostFlow, SettingsView
+│   ├── CloudPublisher     # ordinateurs publiés dans iCloud pour l'Apple TV
+│   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
 │   ├── SessionController, SessionChrome, SessionStats, Passage
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
@@ -112,6 +114,19 @@ open build/Build/Products/Debug/KyberNow.app
 ```
 
 `build-kyclient.sh` est à relancer après chaque `vendor-kyber.sh` : sans lui, l'app reprend des bibliothèques sans les correctifs. Quand `Vendor/` change, il faut quitter l'app avant de recompiler : VLC planterait en chargeant des modules réécrits sous ses pieds (voir [build-notes](../../docs/build-notes.md)). Une recompilation sans changement de `Vendor/` ne touche plus aux bibliothèques de l'app. Signature : certificat « Apple Development: info@leslignesclaires.fr », équipe P6DB682S4K (`project.yml`). Elle reste la même d'une compilation à l'autre, ce qui évite que le Trousseau redemande l'accès au mot de passe ; prévoir un Developer ID pour distribuer.
+
+### Signature et iCloud
+
+La publication pour l'Apple TV exige deux droits, `com.apple.developer.ubiquity-kvstore-identifier` (`$(TeamIdentifierPrefix)fr.leslignesclaires.kybernow`, le magasin clé-valeur de l'app Apple TV) et `keychain-access-groups` (`$(AppIdentifierPrefix)fr.leslignesclaires.kybernow`, Trousseau à protection des données). Ils sont dans `KyberNow/KyberNow.entitlements`, avec la caméra. Sur macOS, ces droits demandent un profil de provisionnement embarqué, sans quoi l'app est tuée au lancement : en Debug, le profil « macOS App Development » `fr.leslignesclaires.kybernow` (ce Mac, certificat info@leslignesclaires.fr) ; en Release, le profil « Developer ID » `P6DB682S4K.fr.leslignesclaires.kybernow` (tous les Mac, valable jusqu'en 2044). Les deux doivent être installés sur le Mac qui compile, sinon Xcode refuse de signer. L'app vérifie aussi les droits à l'exécution (`CloudPublisher.entitled`) : signée sans eux, elle ne publie rien et le dit.
+
+Mise en place (faite le 2026-10-20), à refaire pour un nouveau Mac de compilation ou un profil expiré, sur [developer.apple.com](https://developer.apple.com/account/resources) :
+
+1. Identifiant d'app `fr.leslignesclaires.kybernow` : la capacité iCloud y est déjà (créée pour l'Apple TV, magasin clé-valeur compris) ; rien à cocher de plus, le groupe du Trousseau `P6DB682S4K.fr.leslignesclaires.kybernow` vient de l'identifiant lui-même.
+2. Appareils : enregistrer ce Mac (Provisioning UDID dans Informations système › Matériel ; ou laisser Xcode le faire depuis Réglages › Comptes).
+3. Profils : « macOS App Development » pour `fr.leslignesclaires.kybernow`, certificat « Apple Development: info@leslignesclaires.fr », ce Mac ; « Developer ID » (Mac) pour le même identifiant, certificat Developer ID Application. Pour qu'Xcode les trouve, copier chaque fichier téléchargé dans `~/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.provisionprofile` (le double-clic ne suffit pas sur macOS).
+4. Leurs noms vont dans `project.yml` (`PROVISIONING_PROFILE_SPECIFIER`, par configuration), puis `xcodegen generate`.
+
+Xcode met le profil dans l'app (`Contents/embedded.provisionprofile`) et y ajoute l'identifiant d'app et l'équipe. `scripts/sign-release.sh` re-signe l'app avec les droits que Xcode lui a donnés (et non plus avec le fichier `.entitlements`) : la version Developer ID garde le profil et ses droits jusqu'à la notarisation. L'élément local du Trousseau (service `fr.leslignesclaires.kybernow`) ne change pas : la signature reste la même, l'accès au mot de passe aussi.
 
 ## Tester sans ordinateur distant
 
@@ -137,6 +152,7 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow"' --level inf
 - Ordinateurs et réglages : `UserDefaults` (clé `hosts`), relus avec tolérance (un réglage ajouté garde sa valeur par défaut).
 - Images des ordinateurs : `~/Library/Application Support/KyberNow/Images/<id>-last.jpg` (dernière session) et `<id>-preview.jpg` (aperçu de la console), effacées avec l'ordinateur.
 - Mots de passe : Trousseau, service `fr.leslignesclaires.kybernow`, un élément par ordinateur.
+- iCloud (synchro active, app signée avec les droits) : magasin clé-valeur, clé `hosts` (tableau JSON de `CloudHost`, format partagé avec `apps/tvos/KyberNowTV/CloudSync.swift`) ; mots de passe dans le Trousseau iCloud, service `fr.leslignesclaires.kybernow.cloud`, compte = identifiant de l'ordinateur. Réglages de l'app : `UserDefaults` `icloudSync` (synchro) et `icloudPublished` (ordinateurs publiés par ce Mac).
 
 ## Vers iOS et Apple TV
 

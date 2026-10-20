@@ -19,6 +19,7 @@ KyberNow's streaming client: you get your computer (Kyber 0.29 server + KyberNow
   - The pointer being hidden is not enough on its own to trigger game mode: on a computer with no mouse plugged in, Windows hides it and shows it again every half-second, even on the desktop.
 - **Introduction to the console**: at the start of a session, the app gives the console a stable identifier (drawn at first launch), the Mac's name, its system, its version and the profile; then its median latency with each heartbeat, and that of the whole session at the end. The console builds its known devices and its event feed from this. If the console asks for the session to end (“End the session”, in the console or the computer's icon), the app learns it at the next heartbeat and disconnects as with Quit.
 - **Shared clipboard**: text, both ways, up to 60 KB (`ClipboardBridge`, kynput protocol, C functions of `kyber-patches/0002`). What the computer announces is requested immediately, so that ⌘V works straight away; what the Mac copies is announced (checked twice a second) and sent on request. The console can forbid it in one direction or the other.
+- **iCloud for the Apple TV** (`CloudPublisher`): each time a computer is added, changed or removed, the app publishes the list to the iCloud key-value store (key `hosts`: name, address, console port, account, stream port, fingerprint, and `from` = this Mac's name) and copies the password to the iCloud Keychain. The Apple TV app on the same account adds them without typing anything. Computers published by another Mac stay in the list. “Synchroniser avec iCloud” setting in KyberNow › Settings… (⌘,), on by default; turning it off removes this Mac's computers from the list and from the iCloud Keychain (the Apple TV keeps those it already added). It needs the iCloud entitlements, hence a provisioning profile, in place for Debug and Developer ID builds alike (see “Signing and iCloud”).
 - **Updates**: Sparkle, daily check and the KyberNow › Check for Updates… menu; `appcast.xml` feed signed with EdDSA, published with each release on GitHub (see [docs/releases.en.md](../../docs/releases.en.md)).
 - **Reconnection**: during a Kyber reconnection, the app waits: it is the app that restarts the image once Kyber is back. If Kyber restarted on the computer, the virtual display may have gone with it (it always keeps the same number, but the console removes it and turns the physical displays back on). So the app asks the console for it again (`/api/stream/prepare`, no effect if it is still there), waits at most 3 s until Kyber announces only that display, then restarts the image on it. If the computer still refuses the image within 15 s, it makes this request once more instead of cutting the session. The heartbeat also says whether the virtual display is in place (`active`): if it disappeared during the session, the app asks for it again (at most once every 30 s).
 - **Panels over the image**: the measurements panel, which stays open, has an opaque background. Frosted glass (`ultraThinMaterial`) would be recomputed by macOS at each frame of the stream (160 per second in 4K) and makes the frame rate drop. The bar, opened briefly, keeps its glass. Starting an image always stops the previous one, input chain included: two chains were fighting over the gamepad (SDL only serves one), and the old one, unplugged, rejected everything.
@@ -88,7 +89,8 @@ apps/macos/
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
 │   ├── KyberNowApp, Model (ordinateurs, réglages, Trousseau)
-│   ├── HomeView, HostImagery, AddHostFlow, SettingsView
+│   ├── CloudPublisher     # computers published to iCloud for the Apple TV
+│   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
 │   ├── SessionController, SessionChrome, SessionStats, Passage
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
@@ -117,6 +119,19 @@ open build/Build/Products/Debug/KyberNow.app
 
 Run `build-kyclient.sh` again after each `vendor-kyber.sh`: without it, the app picks up libraries without the patches. When `Vendor/` changes, quit the app before rebuilding: VLC would crash while loading modules rewritten under its feet (see [build-notes](../../docs/build-notes.en.md)). A rebuild without a change to `Vendor/` no longer touches the app's libraries. Signing: “Apple Development: info@leslignesclaires.fr” certificate, team P6DB682S4K (`project.yml`). It stays the same from one build to the next, which keeps the Keychain from asking again for access to the password; plan a Developer ID for distribution.
 
+### Signing and iCloud
+
+Publishing for the Apple TV requires two entitlements, `com.apple.developer.ubiquity-kvstore-identifier` (`$(TeamIdentifierPrefix)fr.leslignesclaires.kybernow`, the Apple TV app's key-value store) and `keychain-access-groups` (`$(AppIdentifierPrefix)fr.leslignesclaires.kybernow`, data protection keychain). They live in `KyberNow/KyberNow.entitlements`, along with the camera. On macOS these entitlements need an embedded provisioning profile, otherwise the app is killed at launch: in Debug, the “macOS App Development” profile `fr.leslignesclaires.kybernow` (this Mac, info@leslignesclaires.fr certificate); in Release, the “Developer ID” profile `P6DB682S4K.fr.leslignesclaires.kybernow` (all Macs, valid until 2044). Both must be installed on the Mac that builds, otherwise Xcode refuses to sign. The app also checks the entitlements at runtime (`CloudPublisher.entitled`): signed without them, it publishes nothing and says so.
+
+Setup (done on 2026-10-20), to redo for a new build Mac or an expired profile, on [developer.apple.com](https://developer.apple.com/account/resources):
+
+1. App ID `fr.leslignesclaires.kybernow`: the iCloud capability is already there (created for the Apple TV, key-value store included); nothing more to tick, the Keychain group `P6DB682S4K.fr.leslignesclaires.kybernow` comes from the identifier itself.
+2. Devices: register this Mac (Provisioning UDID in System Information › Hardware; or let Xcode do it from Settings › Accounts).
+3. Profiles: “macOS App Development” for `fr.leslignesclaires.kybernow`, “Apple Development: info@leslignesclaires.fr” certificate, this Mac; “Developer ID” (Mac) for the same identifier, Developer ID Application certificate. For Xcode to find them, copy each downloaded file to `~/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.provisionprofile` (double-clicking is not enough on macOS).
+4. Their names go in `project.yml` (`PROVISIONING_PROFILE_SPECIFIER`, per configuration), then `xcodegen generate`.
+
+Xcode puts the profile in the app (`Contents/embedded.provisionprofile`) and adds the App ID and team to its entitlements. `scripts/sign-release.sh` re-signs the app with the entitlements Xcode gave it (no longer with the `.entitlements` file): the Developer ID release keeps the profile and its entitlements through notarisation. The local Keychain item (service `fr.leslignesclaires.kybernow`) does not change: the signature stays the same, and so does access to the password.
+
 ## Testing without a remote computer
 
 ```bash
@@ -143,6 +158,7 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow"' --level inf
 - Computers and settings: `UserDefaults` (key `hosts`), read back tolerantly (a newly added setting keeps its default value).
 - Computers' images: `~/Library/Application Support/KyberNow/Images/<id>-last.jpg` (last session) and `<id>-preview.jpg` (the console's preview), deleted with the computer.
 - Passwords: Keychain, service `fr.leslignesclaires.kybernow`, one item per computer.
+- iCloud (sync on, app signed with the entitlements): key-value store, key `hosts` (JSON array of `CloudHost`, format shared with `apps/tvos/KyberNowTV/CloudSync.swift`); passwords in the iCloud Keychain, service `fr.leslignesclaires.kybernow.cloud`, account = the computer's identifier. App settings: `UserDefaults` `icloudSync` (sync) and `icloudPublished` (computers published by this Mac).
 
 ## Towards iOS and Apple TV
 

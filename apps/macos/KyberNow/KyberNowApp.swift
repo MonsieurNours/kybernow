@@ -20,6 +20,13 @@ final class AppModel: ObservableObject {
     var addTab: AddHostSheet.Tab = .network
     /// Ordinateurs annoncés sur le réseau local (Bonjour), montrés sur l'accueil.
     let discovery = Discovery()
+    /// Ordinateurs et accès publiés dans iCloud pour l'Apple TV.
+    let cloud = CloudPublisher()
+
+    init() {
+        store.didSave = { [cloud] in cloud.publish($0) }
+        cloud.publish(store.hosts)
+    }
 
     func add(link: Candidate? = nil, tab: AddHostSheet.Tab = .network) {
         pendingLink = link
@@ -129,6 +136,10 @@ struct KyberNowApp: App {
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
                     .disabled(app.session == nil)
             }
+        }
+        // Réglages de l'app (⌘,) ; ceux de connexion vont par ordinateur.
+        Settings {
+            AppSettingsView(cloud: app.cloud)
         }
     }
 }

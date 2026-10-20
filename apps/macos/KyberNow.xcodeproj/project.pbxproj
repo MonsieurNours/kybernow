@@ -18,6 +18,7 @@
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
+		5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */; };
 		651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132FE7F8A22F4F68C254657 /* Theme.swift */; };
 		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
 		65AB3D77F652B8FF228125D6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = B26BF360224E6C12792A4710 /* AppIcon.icon */; };
@@ -42,6 +43,7 @@
 		C1B3C4BCD7D8194F9A0CEB59 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */; };
 		D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */; };
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
+		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
 		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
@@ -95,6 +97,8 @@
 		8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RelativeMouse.swift; sourceTree = "<group>"; };
 		8C0DDB25384557B8B551045E /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
 		94C101B09449F09428C0AF60 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		99198F43007755A8AA639EA3 /* CloudPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPublisher.swift; sourceTree = "<group>"; };
+		9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		9E6C27264097C061402863DD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A78F7EAA3D887DF32857AA27 /* KyberClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberClient.swift; sourceTree = "<group>"; };
@@ -147,7 +151,9 @@
 			children = (
 				F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */,
 				B26BF360224E6C12792A4710 /* AppIcon.icon */,
+				9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */,
 				63D40A4F73C24372966564C8 /* Assets.xcassets */,
+				99198F43007755A8AA639EA3 /* CloudPublisher.swift */,
 				B5B2EC8B704608F092769F7C /* DisplayInfo.swift */,
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */,
@@ -328,6 +334,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */,
+				5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */,
+				EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */,
 				81CBCEAB79C853406E2A26B8 /* DisplayInfo.swift in Sources */,
 				4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */,
 				AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */,
@@ -505,6 +513,7 @@
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
 				PRODUCT_NAME = KyberNow;
+				PROVISIONING_PROFILE_SPECIFIER = P6DB682S4K.fr.leslignesclaires.kybernow;
 				SDKROOT = macosx;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";
 			};
@@ -598,6 +607,7 @@
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
 				PRODUCT_NAME = KyberNow;
+				PROVISIONING_PROFILE_SPECIFIER = fr.leslignesclaires.kybernow;
 				SDKROOT = macosx;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";
 			};

@@ -330,6 +330,9 @@ final class HostStore: ObservableObject {
     let imagery = HostImagery()
     private let key = "hosts"
     private var polling: Task<Void, Never>?
+    /// Appelé après chaque ajout, modification ou retrait : l'app Mac publie
+    /// ses ordinateurs dans iCloud pour l'Apple TV (CloudPublisher).
+    var didSave: (([Host]) -> Void)?
 
     init() {
         if let data = UserDefaults.standard.data(forKey: key),
@@ -348,6 +351,7 @@ final class HostStore: ObservableObject {
         if let data = try? JSONEncoder().encode(hosts) {
             UserDefaults.standard.set(data, forKey: key)
         }
+        didSave?(hosts)
     }
 
     func add(_ host: Host, password: String) {
