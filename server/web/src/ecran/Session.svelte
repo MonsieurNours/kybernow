@@ -45,6 +45,8 @@
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
   let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
+  /** Le navigateur attend un geste pour jouer le son. */
+  let soundBlocked = $state(false)
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -319,6 +321,7 @@
         reconnecting = ''
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
         learnDisplayId()
+        probeAudio(src)
         document.getElementById('kn-canvas')?.focus()
         scheduleBarHide()
         setTimeout(() => (hintOn = false), 7000)
@@ -433,6 +436,36 @@
       }
     }
     setTimeout(fit, 50)
+  }
+
+  /** Sonde du son en cours (une seule à la fois). */
+  let audioProbe = 0
+
+  /** Après la première image : le son a-t-il démarré, ou le navigateur
+   * attend-il un geste ? Le moteur crée son lecteur au premier paquet de son,
+   * parfois quelques secondes après l'image : on sonde toutes les 200 ms
+   * jusqu'à le savoir, 30 s au plus (un ordinateur sans son n'en envoie pas). */
+  async function probeAudio(e: Engine) {
+    if (!prefs.audio) return
+    const id = ++audioProbe
+    const t0 = performance.now()
+    while (id === audioProbe && engine === e && phase === 'live' && performance.now() - t0 < 30_000) {
+      const state = await e.audioState()
+      if (id !== audioProbe || engine !== e) return
+      if (state !== 'absent') {
+        soundBlocked = state === 'suspended'
+        return
+      }
+      await new Promise((r) => setTimeout(r, 200))
+    }
+  }
+
+  /** Puce « Toucher pour le son » : la reprise se demande dans le geste. */
+  async function unlockSound() {
+    const e = engine
+    if (!e) return
+    await e.audioResume()
+    soundBlocked = (await e.audioState()) === 'suspended'
   }
 
   function toggleMute() {
@@ -568,7 +601,10 @@
       }
     }, 1000)
     const resize = () => fit()
-    const unlockAudio = () => engine?.resumeAudio()
+    // Tout clic ou toute touche est un geste : le son peut y reprendre.
+    const unlockAudio = async () => {
+      if (engine && (await engine.audioState()) === 'running') soundBlocked = false
+    }
     const leave = () => {
       if (ended || !prepared) return
       fetch('/api/stream/end', { method: 'POST', keepalive: true, credentials: 'same-origin', headers: { 'x-kyber-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(endBody(null, extra())) })
@@ -680,6 +716,13 @@
 
   {#if phase === 'live' && reconnecting}
     <div class="toast glass" role="status">{reconnecting}</div>
+  {/if}
+
+  {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
+    <button type="button" class="sound glass" onpointerdown={(e) => e.preventDefault()} onclick={unlockSound}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M19.5 6.5a8 8 0 0 1 0 11" /></svg>
+      {isTouch ? 'Toucher pour le son' : 'Cliquer pour le son'}
+    </button>
   {/if}
 
   <!-- Barre de session (souris et clavier) -->
@@ -1263,6 +1306,25 @@
     animation: none;
     top: 80px;
     bottom: auto;
+  }
+
+  /* Son en attente d'un geste : au-dessus de tout, en bas au centre. */
+  .sound {
+    position: absolute;
+    left: 50%;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    translate: -50% 0;
+    height: 46px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: 23px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 7;
   }
 
   kbd {

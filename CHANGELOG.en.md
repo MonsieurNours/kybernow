@@ -12,6 +12,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client: the session holds in a hidden tab (the console no longer thinks it ended after 30 s), and an expired console sign-in is announced clearly instead of a reconnection that fails.
 - Web client: the page no longer wrongly switches from WebTransport to WebSocket while the display is being prepared, and closes the old connection before opening the new one (no more doubled inputs). “Kyber is not responding” and “the image does not arrive” are no longer confused.
 - Web client: the mouse wheel works in Firefox, and two-finger scrolling on touch devices moves in whole notches. In Firefox the image goes through WebSocket, in H.264 by default.
+- Web client: when the browser blocks the sound (Safari, iPhone), a “Tap for sound” chip brings it back, instead of a silent session.
 
 ## 0.2.5
 

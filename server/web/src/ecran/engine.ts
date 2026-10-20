@@ -286,8 +286,28 @@ export class Engine {
     this.client?.audio_set_mute(mute)
   }
 
-  resumeAudio() {
-    this.client?.audio_try_resume?.()
+  /** Remet le son en marche si le navigateur le permet (appelé dans un geste,
+   * il y parvient), et dit où il en est : `absent` tant que le moteur n'a pas
+   * reçu de son (il crée son lecteur au premier paquet), `suspended` si le
+   * navigateur attend un geste (Safari, iPhone, page ouverte sans clic). */
+  async audioState(): Promise<'absent' | 'running' | 'suspended'> {
+    const c = this.client
+    if (!c) return 'absent'
+    try {
+      const state = await c.audio_try_resume()
+      return state === 1 ? 'running' : state === 2 ? 'suspended' : 'absent'
+    } catch {
+      return 'absent'
+    }
+  }
+
+  /** Reprend le son : à appeler dans le geste même (clic, toucher). */
+  async audioResume() {
+    try {
+      await this.client?.audio_resume()
+    } catch (e) {
+      console.warn('KyberNow : son non repris', e)
+    }
   }
 
   /** Arrête le moteur et attend son événement `stopped` (ses écouteurs de
