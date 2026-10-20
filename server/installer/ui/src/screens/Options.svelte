@@ -1,7 +1,7 @@
 <!-- Étape 3 · Les options, déjà réglées au mieux. -->
 <script lang="ts">
   import Toggle from '../lib/Toggle.svelte'
-  import { app, go, startInstall } from '../lib/state.svelte'
+  import { app, beforeOptions, go, startInstall } from '../lib/state.svelte'
 </script>
 
 <div class="options">
@@ -59,7 +59,7 @@
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go('account')}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(beforeOptions())}>Retour</button>
   <div class="spacer"></div>
   <button type="button" class="primary" onclick={startInstall}>Installer</button>
 </div>

@@ -26,6 +26,10 @@ pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// Changer la configuration (DC) reste réservé aux administrateurs.
 pub const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\
     (A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
+/// Réglages de Kyber, relatif au dossier d'installation.
+pub const KYBER_CONFIG: &str = r"kyber\kyber_config.toml";
+/// Certificat TLS de Kyber (`cert-gen.exe`), relatif à `kyber\`.
+pub const KYBER_CERT: [&str; 2] = ["kybertest_cert.pem", "kybertest_key.pem"];
 pub const FIREWALL_RULES: &[&str] = &[
     "KyberNow-stream-TCP",
     "KyberNow-stream-UDP",
@@ -105,12 +109,21 @@ fn step<T>(ctx: &Ctx, id: &str, f: impl FnOnce() -> Result<T>) -> Result<T> {
 fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -> Result<bool> {
     let mut need_reboot = false;
 
+    let keep = req.keep_settings;
     step(ctx, "files", || {
+        if keep {
+            check_kept_settings()?;
+        }
         prepare(ctx, info)?;
         secure_data_dir(ctx);
+        if keep {
+            backup_kyber_config(ctx)?;
+        }
         ctx.progress(4.0);
         ctx.log(format!("Extraction vers {}", ctx.dir.display()));
-        let count = crate::payload::extract(payload, &ctx.dir, |p, _| ctx.progress(4.0 + p * 36.0))?;
+        // Réglages de Kyber gardés : la copie d'origine du contenu n'est pas écrite.
+        let skip = |p: &Path| keep && p.components().map(|c| c.as_os_str()).eq(Path::new(KYBER_CONFIG).components().map(|c| c.as_os_str()));
+        let count = crate::payload::extract(payload, &ctx.dir, skip, |p, _| ctx.progress(4.0 + p * 36.0))?;
         ctx.log(format!("{count} fichiers installés"));
         // Désinstallable dès maintenant : une installation interrompue plus
         // loin se retire depuis « Applications installées ».
@@ -124,6 +137,11 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
 
     step(ctx, "cert", || {
         let kyber = ctx.kyber();
+        if keep && KYBER_CERT.iter().all(|f| kyber.join(f).is_file()) {
+            ctx.log("Certificat TLS de Kyber conservé : les appareils le reconnaissent déjà");
+            ctx.progress(44.0);
+            return Ok(());
+        }
         let out = run_ok(&kyber.join("cert-gen.exe").display().to_string(), &["--output", &kyber.display().to_string()], &[0])?;
         ctx.log(format!("Certificat TLS généré. {}", sys::text(&out).trim()));
         ctx.progress(44.0);
@@ -131,32 +149,15 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     })?;
 
     step(ctx, "service", || {
-        let admin = ctx.path(r"admin\kyber-admin.exe");
-        let mut cmd = std::process::Command::new(&admin);
-        cmd.args([
-            "init",
-            "--user", &req.user,
-            "--kyber-port", &req.stream_port.to_string(),
-            "--encoder", &info.encoder,
-            "--kyber-dir", &ctx.kyber().display().to_string(),
-            "--data-dir", &sys::data_dir().display().to_string(),
-            "--listen", &format!("0.0.0.0:{}", req.console_port),
-        ]);
-        cmd.env("KYBERNOW_PASSWORD", &req.password);
-        hide_window(&mut cmd);
-        let out = cmd.output().context("configuration initiale")?;
-        if !out.status.success() {
-            anyhow::bail!("configuration initiale : {}", sys::text(&out).trim());
+        if keep {
+            ctx.log(format!(
+                "Réglages conservés : comptes, encodeur, ports (flux {}, console {}), mot de passe de la console",
+                req.stream_port, req.console_port
+            ));
+        } else {
+            init_settings(ctx, req, info)?;
         }
-        ctx.log(format!("Configuration : port {}, encodeur {}, compte « {} »", req.stream_port, info.encoder, req.user));
-
-        let bin = format!("\"{}\"", ctx.kyber().join("kyservice.exe").display());
-        let start = if req.start_with_windows { "auto" } else { "demand" };
-        run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", "KyberNow - serveur de streaming"], &[0])?;
-        let _ = run("sc", &["description", "kyber", "Serveur de streaming Kyber, installé et géré par KyberNow."]);
-        let _ = run("sc", &["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"]);
-        run_ok("sc", &["sdset", "kyber", SERVICE_SDDL], &[0])?;
-        ctx.log(format!("Service Windows « kyber » créé (démarrage {start})"));
+        create_kyber_service(ctx, req)?;
         ctx.progress(52.0);
         Ok(())
     })?;
@@ -362,6 +363,68 @@ fn secure_data_dir(ctx: &Ctx) {
         Ok(n) => ctx.log(format!("Droits de {} posés, {n} lien(s) retiré(s)", dir.display())),
         Err(e) => ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; la console réessaiera à son démarrage", dir.display())),
     }
+}
+
+/// `kyber-admin init` : port, encodeur, compte unique, secret JWT, mot de
+/// passe de la console (installation neuve, ou « Repartir de zéro »).
+fn init_settings(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo) -> Result<()> {
+    let admin = ctx.path(r"admin\kyber-admin.exe");
+    let mut cmd = std::process::Command::new(&admin);
+    cmd.args([
+        "init",
+        "--user", &req.user,
+        "--kyber-port", &req.stream_port.to_string(),
+        "--encoder", &info.encoder,
+        "--kyber-dir", &ctx.kyber().display().to_string(),
+        "--data-dir", &sys::data_dir().display().to_string(),
+        "--listen", &format!("0.0.0.0:{}", req.console_port),
+    ]);
+    cmd.env("KYBERNOW_PASSWORD", &req.password);
+    hide_window(&mut cmd);
+    let out = cmd.output().context("configuration initiale")?;
+    if !out.status.success() {
+        anyhow::bail!("configuration initiale : {}", sys::text(&out).trim());
+    }
+    ctx.log(format!("Configuration : port {}, encodeur {}, compte « {} »", req.stream_port, info.encoder, req.user));
+    Ok(())
+}
+
+/// Service `kyber` : chemin entre guillemets, redémarrage en cas d'échec,
+/// démarrer et arrêter ouverts aux utilisateurs interactifs.
+fn create_kyber_service(ctx: &Ctx, req: &InstallRequest) -> Result<()> {
+    let bin = format!("\"{}\"", ctx.kyber().join("kyservice.exe").display());
+    let start = if req.start_with_windows { "auto" } else { "demand" };
+    run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", "KyberNow - serveur de streaming"], &[0])?;
+    let _ = run("sc", &["description", "kyber", "Serveur de streaming Kyber, installé et géré par KyberNow."]);
+    let _ = run("sc", &["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"]);
+    run_ok("sc", &["sdset", "kyber", SERVICE_SDDL], &[0])?;
+    ctx.log(format!("Service Windows « kyber » créé (démarrage {start})"));
+    Ok(())
+}
+
+/// « Conserver mes réglages » : ceux de Kyber et de la console doivent exister.
+fn check_kept_settings() -> Result<()> {
+    let kyber = sys::install_dir().join(KYBER_CONFIG);
+    let admin = sys::data_dir().join("kyber-admin.toml");
+    for file in [&kyber, &admin] {
+        if !file.is_file() {
+            anyhow::bail!("réglages introuvables ({}) : choisissez « Repartir de zéro »", file.display());
+        }
+    }
+    Ok(())
+}
+
+/// Copie de `kyber_config.toml` dans `C:\ProgramData\KyberNow\backups`
+/// avant l'extraction (qui ne l'écrase pas), par précaution.
+fn backup_kyber_config(ctx: &Ctx) -> Result<()> {
+    let from = ctx.dir.join(KYBER_CONFIG);
+    let dir = sys::data_dir().join("backups");
+    std::fs::create_dir_all(&dir)?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let to = dir.join(format!("kyber_config.toml.reinstallation-{stamp}"));
+    std::fs::copy(&from, &to).with_context(|| format!("sauvegarde de {}", from.display()))?;
+    ctx.log(format!("Réglages de Kyber gardés (copie : {})", to.display()));
+    Ok(())
 }
 
 /// Désinstalle Kyber officiel (désinstalleur NSIS) et attend qu'il ait fini.

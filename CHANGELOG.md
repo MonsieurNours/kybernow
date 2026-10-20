@@ -11,6 +11,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Ordinateur partagé : le dossier des données de KyberNow (`C:\ProgramData\KyberNow`) n'est plus accessible qu'aux administrateurs. Un autre compte de l'ordinateur ne peut plus y lire l'empreinte du mot de passe ni glisser un fichier dans une mise à jour.
 - Installateur : sur un portable sans mode « Performances élevées », l'installation ne s'arrête plus à 96 % : le mode est recréé, ou laissé tel quel avec un avertissement. L'option est décochée si l'ordinateur y est déjà.
 - Installateur : Alt+F4 ne ferme plus la fenêtre en pleine installation, et KyberNow apparaît dans « Applications installées » dès les fichiers copiés : une installation interrompue se désinstalle normalement.
+- Installateur : relancé sur un ordinateur où KyberNow est déjà installé, il propose de conserver les réglages (comptes, appareils appairés, ports, certificat, réglages de la console) et ne remplace que les programmes et les pilotes. « Repartir de zéro » reste possible, avec un avertissement : les appareils seront à appairer de nouveau.
 
 ## 0.2.5
 

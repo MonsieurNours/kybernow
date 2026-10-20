@@ -29,6 +29,18 @@ pub struct BusyPort {
     pub process: Option<String>,
 }
 
+/// KyberNow déjà installé sur cet ordinateur (`kybernow.json`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Existing {
+    pub version: String,
+    /// Ports en service (réglages de Kyber et de la console, sinon `kybernow.json`).
+    pub stream_port: u16,
+    pub console_port: u16,
+    /// `kyber_config.toml` et `kyber-admin.toml` présents : « Conserver » possible.
+    pub settings: bool,
+}
+
 /// Ce que l'installateur envoie à l'interface.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -42,6 +54,8 @@ pub enum Event {
         steam_speakers: bool,
         /// `false` : déjà en Performances élevées (ou optimales), l'option est décochée.
         power_needs_tuning: bool,
+        /// KyberNow déjà installé : l'interface propose de conserver les réglages.
+        existing: Option<Existing>,
     },
     PortsValidated { stream_error: Option<String>, console_error: Option<String> },
     Task { id: String, status: TaskStatus },
@@ -79,6 +93,12 @@ pub struct InstallRequest {
     pub virtual_audio: bool,
     pub max_performance: bool,
     pub start_with_windows: bool,
+    /// Réinstallation par-dessus KyberNow : garder `kyber_config.toml`, le
+    /// certificat de Kyber, les comptes, les ports et les réglages de la
+    /// console ; ne remplacer que les programmes, les pilotes et la surcouche.
+    /// `user` et `password` sont alors ignorés.
+    #[serde(default)]
+    pub keep_settings: bool,
 }
 
 pub type Emit = std::sync::Arc<dyn Fn(Event) + Send + Sync>;

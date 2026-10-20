@@ -28,6 +28,15 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 9. Service `kyber-admin` (console, mêmes droits que `kyber`), mode d'alimentation Performances élevées (option décochée d'office si l'ordinateur y est déjà ; recréé par `powercfg /duplicatescheme` s'il manque, comme sur beaucoup de portables ; si Windows le refuse, l'étape passe en avertissement et l'installation continue), raccourcis de la console et de l'icône dans le menu Démarrer.
 10. Icône de la zone de notification : lancée à la fin de l'installation, et à chaque ouverture de session si « Démarrer avec Windows » est coché (valeur `KyberNow` de `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Sans cette option, les deux services passent en démarrage manuel.
 
+## Réinstaller par-dessus KyberNow
+
+L'analyse lit `C:\Program Files\KyberNow\kybernow.json` : si KyberNow est déjà installé, l'étape « Votre compte » commence par un choix.
+
+- **Conserver mes réglages** (recommandé, proposé si `kyber\kyber_config.toml` et `C:\ProgramData\KyberNow\kyber-admin.toml` existent) : seuls les programmes, les pilotes et la surcouche de Kyber sont remplacés. `kyber_config.toml` n'est pas extrait du contenu (une copie part d'abord dans `C:\ProgramData\KyberNow\backups\kyber_config.toml.reinstallation-<date>`), le certificat de Kyber (`kybertest_cert.pem`, `kybertest_key.pem`) n'est pas régénéré, `kyber-admin init` n'est pas lancé : comptes Kyber, secret JWT, encodeur, mot de passe de la console, `devices.json` et `events.json` restent. Les ports sont ceux en service (`[kycontroller] port` de `kyber_config.toml`, `listen` de `kyber-admin.toml`, sinon `kybernow.json`), et le pare-feu est refait avec eux. L'écran « Votre compte » est sauté.
+- **Repartir de zéro** : comme une première installation (nouveau compte, nouveaux ports tirés au hasard, nouveau certificat, `kyber_config.toml` d'origine), avec un avertissement : tous les appareils doivent être appairés de nouveau.
+
+Une version de Kyber officielle (sans `kybernow.json`) est toujours retirée puis remplacée.
+
 Pendant l'installation, la fenêtre ne se ferme pas : le bouton est grisé et Alt+F4 est ignoré.
 
 Journal : `C:\Program Files\KyberNow\install.log` (et `%TEMP%\KyberNow-install.log`).
@@ -45,7 +54,7 @@ Vérifier sur l'ordinateur : `icacls C:\ProgramData\KyberNow` doit lister `NT AU
 
 ## Choix de l'encodeur
 
-L'analyse liste les cartes graphiques de Windows (`Win32_VideoController`, eGPU branchés compris) et ne garde que les cartes PCI NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) et Intel (`VEN_8086`) en état de marche, avec le pilote du fabricant : l'adaptateur de base de Microsoft (`display.inf`, carte sans pilote), les cartes désactivées, les écrans virtuels (SudoVDA) et le bureau à distance sont écartés. Elle prend ensuite la plus performante : NVIDIA → `nvenc`, sinon AMD → `amf`, sinon Intel → `qsv`, sinon le processeur → `x264` (avertissement « Aucune carte graphique compatible »). Sur un portable hybride (Intel intégré + NVIDIA), c'est donc NVENC. Si Windows ne répond pas, NVML sert de repli pour les cartes NVIDIA. Le choix est écrit dans `[kyavserver] encoder` par `kyber-admin init` et se change ensuite dans la console (Système › Avancé). La mise à jour (`update.ps1`) ne remplace que les programmes, jamais `kyber_config.toml` : l'encodeur choisi est conservé.
+L'analyse liste les cartes graphiques de Windows (`Win32_VideoController`, eGPU branchés compris) et ne garde que les cartes PCI NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) et Intel (`VEN_8086`) en état de marche, avec le pilote du fabricant : l'adaptateur de base de Microsoft (`display.inf`, carte sans pilote), les cartes désactivées, les écrans virtuels (SudoVDA) et le bureau à distance sont écartés. Elle prend ensuite la plus performante : NVIDIA → `nvenc`, sinon AMD → `amf`, sinon Intel → `qsv`, sinon le processeur → `x264` (avertissement « Aucune carte graphique compatible »). Sur un portable hybride (Intel intégré + NVIDIA), c'est donc NVENC. Si Windows ne répond pas, NVML sert de repli pour les cartes NVIDIA. Le choix est écrit dans `[kyavserver] encoder` par `kyber-admin init` et se change ensuite dans la console (Système › Avancé). La mise à jour (`update.ps1`) ne remplace que les programmes, jamais `kyber_config.toml` : l'encodeur choisi est conservé. L'installateur aussi quand on réinstalle en choisissant « Conserver mes réglages » ; « Repartir de zéro » refait le choix.
 
 Le contrôle « Pilote graphique » affiche la version du pilote de cette carte (pour NVIDIA, au format du fabricant : 32.0.15.6094 devient 560.94).
 

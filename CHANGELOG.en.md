@@ -10,6 +10,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Shared computer: KyberNow's data folder (`C:\ProgramData\KyberNow`) is now accessible to administrators only. Another account on the computer can no longer read the password hash there or slip a file into an update.
 - Installer: on a laptop without a “High performance” power mode, the installation no longer stops at 96%: the mode is recreated, or left as it is with a warning. The option is unticked if the computer already uses it.
 - Installer: Alt+F4 no longer closes the window in the middle of an installation, and KyberNow appears in “Installed apps” as soon as the files are copied: an interrupted installation can be uninstalled normally.
+- Installer: run again on a computer where KyberNow is already installed, it offers to keep the settings (accounts, paired devices, ports, certificate, console settings) and replaces only the programs and drivers. “Start from scratch” is still possible, with a warning: devices will have to be paired again.
 
 ## 0.2.5
 

@@ -30,6 +30,15 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 9. `kyber-admin` service (console, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), shortcuts to the console and the icon in the Start menu.
 10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with Windows” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
 
+## Reinstalling over KyberNow
+
+The analysis reads `C:\Program Files\KyberNow\kybernow.json`: if KyberNow is already installed, the “Your account” step starts with a choice.
+
+- **Keep my settings** (recommended, offered when `kyber\kyber_config.toml` and `C:\ProgramData\KyberNow\kyber-admin.toml` exist): only the programs, the drivers and Kyber's overlay are replaced. `kyber_config.toml` is not extracted from the payload (a copy first goes to `C:\ProgramData\KyberNow\backups\kyber_config.toml.reinstallation-<date>`), Kyber's certificate (`kybertest_cert.pem`, `kybertest_key.pem`) is not regenerated, `kyber-admin init` is not run: Kyber accounts, JWT secret, encoder, console password, `devices.json` and `events.json` stay. The ports are the ones in use (`[kycontroller] port` in `kyber_config.toml`, `listen` in `kyber-admin.toml`, otherwise `kybernow.json`), and the firewall is redone with them. The “Your account” screen is skipped.
+- **Start from scratch**: like a first installation (new account, new random ports, new certificate, original `kyber_config.toml`), with a warning: every device must be paired again.
+
+An official Kyber installation (without `kybernow.json`) is always removed and replaced.
+
 During the installation, the window does not close: the button is greyed out and Alt+F4 is ignored.
 
 Log: `C:\Program Files\KyberNow\install.log` (and `%TEMP%\KyberNow-install.log`).
@@ -47,7 +56,7 @@ To check on the computer: `icacls C:\ProgramData\KyberNow` must list `NT AUTHORI
 
 ## Choosing the encoder
 
-The analysis lists Windows' graphics cards (`Win32_VideoController`, connected eGPUs included) and keeps only working NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) and Intel (`VEN_8086`) PCI cards with the manufacturer's driver: Microsoft's basic adapter (`display.inf`, card without a driver), disabled cards, virtual displays (SudoVDA) and remote desktop are left out. It then takes the most capable: NVIDIA → `nvenc`, otherwise AMD → `amf`, otherwise Intel → `qsv`, otherwise the processor → `x264` (warning “No compatible graphics card”). On a hybrid laptop (integrated Intel + NVIDIA), that means NVENC. If Windows does not answer, NVML is the fallback for NVIDIA cards. The choice is written to `[kyavserver] encoder` by `kyber-admin init` and can then be changed in the console (System › Advanced). The update (`update.ps1`) replaces only the programs, never `kyber_config.toml`: the chosen encoder is kept.
+The analysis lists Windows' graphics cards (`Win32_VideoController`, connected eGPUs included) and keeps only working NVIDIA (`VEN_10DE`), AMD (`VEN_1002`, `VEN_1022`) and Intel (`VEN_8086`) PCI cards with the manufacturer's driver: Microsoft's basic adapter (`display.inf`, card without a driver), disabled cards, virtual displays (SudoVDA) and remote desktop are left out. It then takes the most capable: NVIDIA → `nvenc`, otherwise AMD → `amf`, otherwise Intel → `qsv`, otherwise the processor → `x264` (warning “No compatible graphics card”). On a hybrid laptop (integrated Intel + NVIDIA), that means NVENC. If Windows does not answer, NVML is the fallback for NVIDIA cards. The choice is written to `[kyavserver] encoder` by `kyber-admin init` and can then be changed in the console (System › Advanced). The update (`update.ps1`) replaces only the programs, never `kyber_config.toml`: the chosen encoder is kept. So does the installer when reinstalling with “Keep my settings”; “Start from scratch” makes the choice again.
 
 The “Graphics driver” check shows the driver version of that card (for NVIDIA, in the manufacturer's format: 32.0.15.6094 becomes 560.94).
 
