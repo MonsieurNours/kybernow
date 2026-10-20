@@ -21,11 +21,12 @@ pub const TRAY_EXE: &str = r"tray\kybernow-tray.exe";
 /// Lancement de l'icône à l'ouverture de session (valeur `KyberNow`).
 pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// Droits des services `kyber` et `kyber-admin` : ceux de Windows par défaut,
-/// plus démarrer, arrêter et suspendre (RP, WP, DT) pour les utilisateurs
-/// interactifs (IU), afin que l'icône pilote le serveur sans élévation.
-/// Changer la configuration (DC) reste réservé aux administrateurs.
+/// plus démarrer et arrêter (RP, WP) pour les utilisateurs interactifs (IU),
+/// afin que l'icône pilote le serveur sans élévation. Suspendre (DT) ne sert
+/// pas : il n'est pas donné. Changer la configuration (DC) reste réservé aux
+/// administrateurs. Même chaîne dans `update.ps1`.
 pub const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\
-    (A;;CCLCSWRPWPDTLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
+    (A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
 /// Réglages de Kyber, relatif au dossier d'installation.
 pub const KYBER_CONFIG: &str = r"kyber\kyber_config.toml";
 /// Certificat TLS de Kyber (`cert-gen.exe`), relatif à `kyber\`.
@@ -336,7 +337,19 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         let _ = run("reg", &["add", UNINSTALL_KEY, "/v", "EstimatedSize", "/t", "REG_DWORD", "/d", &(dir_size(&ctx.dir) / 1024).to_string(), "/f"]);
         write_shortcut(req.console_port);
         run_ok("sc", &["start", "kyber"], &[0, 1056])?; // 1056 : déjà démarré
-        ctx.log("Serveur de streaming démarré");
+        // Démarré pour de bon : service en marche, puis serveur et console qui répondent.
+        if !wait_running("kyber", Duration::from_secs(30)) {
+            ctx.log("ATTENTION : le service « kyber » n'est pas passé en marche en 30 s (voir C:\\Program Files\\KyberNow\\kyber\\log)");
+        } else if !port_answers(req.stream_port, Duration::from_secs(30)) {
+            ctx.log(format!("ATTENTION : le serveur ne répond pas encore sur le port {}", req.stream_port));
+        } else {
+            ctx.log(format!("Serveur de streaming démarré (port {})", req.stream_port));
+        }
+        if port_answers(req.console_port, Duration::from_secs(15)) {
+            ctx.log(format!("Console en ligne (port {})", req.console_port));
+        } else {
+            ctx.log(format!("ATTENTION : la console ne répond pas encore sur le port {}", req.console_port));
+        }
         setup_tray(ctx, req.start_with_windows);
         ctx.progress(100.0);
         Ok(())
@@ -495,18 +508,55 @@ fn remove_official_kyber(uninstaller: &str) {
     let _ = std::fs::remove_dir(&dir);
 }
 
-/// Attend qu'un service soit arrêté (20 s au plus).
+/// Attend qu'un service soit arrêté (20 s au plus), ou qu'il n'existe plus.
 pub fn wait_stopped(service: &str) {
     for _ in 0..40 {
-        let Ok(out) = run("sc", &["query", service]) else { return };
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
-        // « STATE : 1 STOPPED » : le chiffre ne dépend pas de la langue de Windows.
-        let stopped = text.lines().any(|l| {
-            l.contains(':') && l.split(':').nth(1).is_some_and(|v| v.split_whitespace().next() == Some("1"))
-                && l.to_uppercase().contains("STATE")
-        });
-        if stopped || !out.status.success() {
-            return;
+        match service_state(service) {
+            None | Some(1) => return, // SERVICE_STOPPED
+            Some(_) => std::thread::sleep(Duration::from_millis(500)),
+        }
+    }
+}
+
+/// État d'un service d'après `sc query` : « STATE : 4 RUNNING » (« ÉTAT » en
+/// français) donne 4. Le chiffre ne dépend pas de la langue de Windows.
+fn service_state(service: &str) -> Option<u32> {
+    let out = run("sc", &["query", service]).ok().filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    parse_state(&text)
+}
+
+pub fn parse_state(sc_query: &str) -> Option<u32> {
+    sc_query
+        .lines()
+        .filter(|l| l.to_uppercase().contains("STATE") || l.to_uppercase().contains("TAT"))
+        .find_map(|l| l.split_once(':')?.1.split_whitespace().next()?.parse().ok())
+}
+
+/// Attend qu'un service soit en marche (`SERVICE_RUNNING`, 4).
+fn wait_running(service: &str, timeout: Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if service_state(service) == Some(4) {
+            return true;
+        }
+        if std::time::Instant::now() > deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// Un programme accepte une connexion TCP sur ce port de l'ordinateur.
+fn port_answers(port: u16, timeout: Duration) -> bool {
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if std::net::TcpStream::connect_timeout(&address, Duration::from_secs(1)).is_ok() {
+            return true;
+        }
+        if std::time::Instant::now() > deadline {
+            return false;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
@@ -680,5 +730,13 @@ mod tests {
         let echo = format!("{HIGH_PERFORMANCE_SCHEME} -> 11111111-2222-3333-4444-555555555555");
         assert_eq!(find_guid(&echo, HIGH_PERFORMANCE_SCHEME).as_deref(), Some("11111111-2222-3333-4444-555555555555"));
         assert_eq!(find_guid("Paramètre non valide.", HIGH_PERFORMANCE_SCHEME), None);
+    }
+
+    #[test]
+    fn service_state_whatever_the_language() {
+        let en = "SERVICE_NAME: kyber\r\n        TYPE               : 10  WIN32_OWN_PROCESS\r\n        STATE              : 4  RUNNING\r\n";
+        assert_eq!(parse_state(en), Some(4));
+        let fr = "NOM_SERVICE : kyber\r\n        TYPE               : 10  WIN32_OWN_PROCESS\r\n        ÉTAT               : 2  START_PENDING\r\n";
+        assert_eq!(parse_state(fr), Some(2));
     }
 }

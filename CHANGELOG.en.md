@@ -12,6 +12,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Installer: Alt+F4 no longer closes the window in the middle of an installation, and KyberNow appears in “Installed apps” as soon as the files are copied: an interrupted installation can be uninstalled normally.
 - Installer: run again on a computer where KyberNow is already installed, it offers to keep the settings (accounts, paired devices, ports, certificate, console settings) and replaces only the programs and drivers. “Start from scratch” is still possible, with a warning: devices will have to be paired again.
 - More complete uninstall: the virtual display driver also leaves Windows' driver store, the power mode and network category used before KyberNow are put back, and the settings can be kept for later.
+- Installer: the interface is extracted under Program Files instead of the temporary folder; the end of the installation checks that the server and the console answer; an official Kyber installation whose uninstall command has arguments is removed properly; standard accounts can no longer pause the services.
 
 ## 0.2.5
 

@@ -13,6 +13,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Installateur : Alt+F4 ne ferme plus la fenêtre en pleine installation, et KyberNow apparaît dans « Applications installées » dès les fichiers copiés : une installation interrompue se désinstalle normalement.
 - Installateur : relancé sur un ordinateur où KyberNow est déjà installé, il propose de conserver les réglages (comptes, appareils appairés, ports, certificat, réglages de la console) et ne remplace que les programmes et les pilotes. « Repartir de zéro » reste possible, avec un avertissement : les appareils seront à appairer de nouveau.
 - Désinstallation plus complète : le pilote d'écran virtuel quitte aussi le magasin de pilotes de Windows, le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis, et les réglages peuvent être gardés pour plus tard.
+- Installateur : l'interface s'extrait sous Program Files et non plus dans le dossier temporaire ; la fin de l'installation vérifie que le serveur et la console répondent ; une installation officielle de Kyber dont la commande de désinstallation a des arguments est bien retirée ; les comptes standard ne peuvent plus suspendre les services.
 
 ## 0.2.5
 

@@ -1,8 +1,13 @@
 //! `KyberNow-Setup.exe` : lanceur de l'installation.
 //!
 //! Il porte le contenu à installer (accolé à la fin du fichier), dépose
-//! l'interface et `WebView2Loader.dll` dans un dossier temporaire, puis lance
-//! l'interface. Avec `--uninstall`, il désinstalle KyberNow.
+//! l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup`,
+//! puis lance l'interface. Avec `--uninstall`, il désinstalle KyberNow.
+//!
+//! Pas dans `%TEMP%` : l'interface y tournerait avec le jeton administrateur
+//! depuis un dossier où tout programme de l'utilisateur peut écrire, et
+//! charger une DLL déposée à côté d'elle (contournement de l'UAC). Sous
+//! Program Files, seuls les administrateurs écrivent.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -39,7 +44,11 @@ fn launch() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let tmp: PathBuf = std::env::temp_dir().join(format!("KyberNow-Setup-{}", std::process::id()));
+    let tmp: PathBuf = kybernow::sys::install_dir().join(".setup");
+    // Reste d'une installation interrompue : effacé, jamais réutilisé.
+    if std::fs::symlink_metadata(&tmp).is_ok() {
+        std::fs::remove_dir_all(&tmp).or_else(|_| std::fs::remove_file(&tmp))?;
+    }
     std::fs::create_dir_all(&tmp)?;
     let ui = tmp.join("kybernow-ui.exe");
     std::fs::write(&ui, UI_EXE)?;

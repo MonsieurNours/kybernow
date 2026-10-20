@@ -12,7 +12,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 
 (Launcher, tar.zst payload, 32-byte “KNPAYLD1” footer.)
 
-- **Launcher** (`src/bin/setup.rs`): without WebView2, administrator rights. It drops the interface and `WebView2Loader.dll` into `%TEMP%`, then launches the interface. With `--uninstall`, it uninstalls (it is also `uninstall.exe` once installed).
+- **Launcher** (`src/bin/setup.rs`): without WebView2, administrator rights. It drops the interface and `WebView2Loader.dll` into `C:\Program Files\KyberNow\.setup` (deleted afterwards), then launches the interface. Not into `%TEMP%`: the interface would run there as administrator next to files any of the user's programs can drop (a DLL loaded in its place, a UAC bypass). With `--uninstall`, it uninstalls (it is also `uninstall.exe` once installed).
 - **Interface** (`src/bin/ui.rs` + `ui/`): borderless window (tao + wry/WebView2) that serves the Svelte app through the `kn://` protocol. JSON messages: `window.ipc.postMessage` one way, `window.__knReceive` the other (`src/events.rs`). v2 identity (“server” symbol, Archivo and Martian Mono embedded), four steps in the left column, whose seam fills up as you go: **Welcome** (the computer is already being analysed alongside, ports can be changed; nothing changes before “Install”), **Your account**, **Options** (virtual display, gamepads, sound, start with the computer, performance), **Installation** then “Done” (address, the console's QR code, `/ecran` in a browser, restart for the gamepads). Version shown: the one in `Cargo.toml`.
 - **Core** (`src/`): `checks` (diagnosis; graphics card and encoder, see below), `ports` (random draw, reserved ranges, TCP + UDP), `install` (tasks), `uninstall`, `payload` (payload format).
 
@@ -29,6 +29,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 8. bis. Remote sound (option): Steam's virtual speakers (`SteamStreamingSpeakers.inf` through `pnputil /add-driver /install`) if Steam is installed. The console switches Windows output to them during sessions: the sound leaves the computer's speakers and goes out with the right number of channels.
 9. `kyber-admin` service (console, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), shortcuts to the console and the icon in the Start menu.
 10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with Windows” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
+11. Checked start: the installer waits for the `kyber` service to be running (`sc query`, state 4) and then for the server and the console to accept a connection on their ports; otherwise a “ATTENTION” line says so in the log.
 
 ## Reinstalling over KyberNow
 
@@ -82,7 +83,7 @@ The “Graphics driver” check shows the driver version of that card (for NVIDI
 
 “Open the console”: `https://localhost:<port>`, port read from `C:\Program Files\KyberNow\kybernow.json` (`console_port`, written by the installer; the console does not change port outside an installation). A second launch (Start menu) opens the console.
 
-- **Service permissions.** The installer applies the `SERVICE_SDDL` SDDL (`src/install.rs`) to both services: Windows' default, plus `RP` (start), `WP` (stop) and `DT` (pause) for `IU` (interactive users). Changing the configuration (`DC`) stays reserved for administrators: granting `DC` would allow changing the executable of a service that runs as SYSTEM.
+- **Service permissions.** The installer applies the `SERVICE_SDDL` SDDL (`src/install.rs`) to both services: Windows' default, plus `RP` (start) and `WP` (stop) for `IU` (interactive users). `DT` (pause) is useless and no longer granted (0.2.6). Same string in `update.ps1`. Changing the configuration (`DC`) stays reserved for administrators: granting `DC` would allow changing the executable of a service that runs as SYSTEM.
 - **Start with the computer.** The box follows the start type of the `kyber` service. Toggling it changes that of both services (automatic or manual) and the user's Run value. Changing the start type requires elevation: the icon then relaunches itself as administrator (`--start-with-computer on|off`), with a one-off UAC prompt.
 - **Current session.** The console answers `GET /api/local/state` and `POST /api/local/end` without authentication, but only from the computer itself (`127.0.0.1`): state of the `kyber` service, a device's session (virtual display or sound opened by the app), Kyber identifier, connected device and its latency, last session, the computer's name and address.
 - **Uninstall.** The process is stopped and the Run value removed (for the user who uninstalls).

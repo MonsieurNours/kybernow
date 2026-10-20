@@ -403,15 +403,39 @@ pub fn existing_kyber() -> (Option<String>, bool) {
         text.lines()
             .find(|l| l.contains("UninstallString"))
             .and_then(|l| l.split("REG_SZ").nth(1))
-            .map(|s| s.trim().trim_matches('"').to_string())
+            .and_then(uninstaller_path)
     });
     let service = crate::sys::run("sc", &["query", "kyber"]).is_ok_and(|o| o.status.success());
     (uninstaller, service)
 }
 
+/// Chemin du programme dans une ligne de commande de désinstallation :
+/// `"C:\…\uninstall.exe" /arg` ou `C:\…\uninstall.exe /arg` (les arguments
+/// sont ajoutés par `remove_official_kyber`).
+pub fn uninstaller_path(command: &str) -> Option<String> {
+    let command = command.trim();
+    let path = if let Some(rest) = command.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        let end = command.to_ascii_lowercase().find(".exe").map(|i| i + 4).unwrap_or(command.len());
+        &command[..end]
+    };
+    let path = path.trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uninstall_string_with_arguments() {
+        assert_eq!(uninstaller_path(r#""C:\Program Files\Kyber\uninstall.exe" /currentuser"#).as_deref(), Some(r"C:\Program Files\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path(r"C:\Program Files\Kyber\Uninstall.EXE /S").as_deref(), Some(r"C:\Program Files\Kyber\Uninstall.EXE"));
+        assert_eq!(uninstaller_path(r#"  "C:\Kyber\uninstall.exe"  "#).as_deref(), Some(r"C:\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path(r"C:\Kyber\uninstall.exe").as_deref(), Some(r"C:\Kyber\uninstall.exe"));
+        assert_eq!(uninstaller_path("  "), None);
+    }
 
     const HYBRID: &str = r#"[
         {"Name":"Intel(R) UHD Graphics","PNPDeviceID":"PCI\\VEN_8086&DEV_9A60&SUBSYS_0A6D1028&REV_01\\3&11583659&0&10","DriverVersion":"31.0.101.5186","ConfigManagerErrorCode":0,"InfFilename":"oem42.inf"},
