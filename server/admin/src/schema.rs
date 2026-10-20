@@ -202,6 +202,21 @@ pub fn fields() -> Vec<Field> {
             unit: None,
         },
         Field {
+            id: "network.datagram_send_queue", group: "network",
+            table: &["kycontroller"], key: "datagram_send_queue",
+            kind: Kind::Enum { options: &[
+                Choice { value: "deep", label: "Profonde", hint: "8 Mo par appareil : une grosse image n'est jamais coupée sur l'ordinateur, mais sur un Wi-Fi saturé, jusqu'à deux secondes d'images en retard peuvent attendre leur tour." },
+                Choice { value: "short", label: "Courte", hint: "3 Mo par appareil, environ trois grosses images 4K : sur un réseau saturé, les plus anciennes sont jetées et une image complète est redemandée. L'image reste à l'heure, au prix d'un bref accroc." },
+            ]},
+            default: json!("deep"),
+            label: "File d'envoi de l'image",
+            help: "Combien d'images peuvent attendre leur tour quand le réseau ne suit plus.",
+            details: "L'image part en petits paquets. Quand le réseau est plus lent que l'image (Wi-Fi saturé, micro-ondes, autre appareil qui télécharge), ces paquets s'accumulent sur l'ordinateur. Une file profonde les garde tous : rien n'est perdu, mais ce qui s'affiche a du retard. Une file courte jette les plus anciens : l'image reste récente, avec un accroc le temps de recevoir une image complète. Réglage de KyberNow (correctif 0007), sans effet sur un Kyber d'origine.",
+            advice: "Gardez Profonde. Essayez Courte si l'image prend du retard en Wi-Fi chargé.",
+            caution: None,
+            unit: None,
+        },
+        Field {
             id: "network.multi_client", group: "network",
             table: &["kycontroller"], key: "multi_client",
             kind: Kind::Bool,

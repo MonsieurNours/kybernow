@@ -1,0 +1,110 @@
+From f0b65403bb8dd60e727e01eddea667da963b9fe4 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:24:58 +0200
+Subject: [PATCH 1/2] kyavservice/avconv: announce the audio frame size to
+ clients
+
+The kymux sink of the libavconv engine sent its codec packet with
+frame_size: 0. The unreliable audio protocols (Unreliable,
+UnreliableFec) count lost samples with the frame size and assert that
+it is not zero, so a client asking for unreliable audio stopped on that
+assertion as soon as the audio stream started. The txproto engine
+already sends it.
+
+Read the frame size from the encoder's codec parameters (960 samples for
+20 ms of Opus at 48 kHz) and send it with the codec packet. It stays 0
+for video.
+---
+ kyavservice/src/avconv/kymux_sink.rs | 30 +++++++++++++++++++++++-----
+ libavconv-rs/src/mux.rs              |  7 +++++++
+ 2 files changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/kyavservice/src/avconv/kymux_sink.rs b/kyavservice/src/avconv/kymux_sink.rs
+index 4115d07..143929c 100644
+--- a/kyavservice/src/avconv/kymux_sink.rs
++++ b/kyavservice/src/avconv/kymux_sink.rs
+@@ -69,8 +69,13 @@ pub(crate) enum StreamKind {
+ 
+ /// Messages forwarded from the (synchronous) muxer hooks to the async task.
+ enum SinkMsg {
+-    /// Stream parameters: codec id plus (optional) extradata.
+-    Config { codec: u32, extradata: Vec<u8> },
++    /// Stream parameters: codec id, samples per audio frame, plus (optional)
++    /// extradata.
++    Config {
++        codec: u32,
++        frame_size: u16,
++        extradata: Vec<u8>,
++    },
+     /// Encoded packet payload.
+     Packet {
+         pts_raw: i64,
+@@ -129,13 +134,17 @@ async fn forward_task(
+     let mut packets_sent: u64 = 0;
+     while let Some(msg) = rx.recv().await {
+         match msg {
+-            SinkMsg::Config { codec, extradata } => {
++            SinkMsg::Config {
++                codec,
++                frame_size,
++                extradata,
++            } => {
+                 let ed_size = extradata.len() as u32;
+                 send.send(AVPacket::Codec(CodecPacket {
+                     header: CodecPacketHeader {
+                         codec,
+                         rotation: 0,
+-                        frame_size: 0,
++                        frame_size,
+                     },
+                 }))
+                 .await?;
+@@ -200,13 +209,24 @@ fn send_config(
+         return Err(AVERROR_EINVAL);
+     };
+ 
++    // Samples per audio frame: the unreliable audio protocols count lost
++    // samples with it, and assert it is not zero. 0 for video.
++    let frame_size = u16::try_from(params.frame_size()).unwrap_or(0);
++    if frame_size == 0 && codec == KYMUX_CODEC_OPUS {
++        warn!("kymux_sink: Opus stream without a frame size");
++    }
++
+     // Extradata may be zero length for AV1/OPUS that embed config in-band.
+     let extradata = params.extradata().to_vec();
+ 
+     // blocking_send back-presses the draining thread instead of dropping; it
+     // only errors if the async task has gone away (connection failed/closed).
+     if tx
+-        .blocking_send(SinkMsg::Config { codec, extradata })
++        .blocking_send(SinkMsg::Config {
++            codec,
++            frame_size,
++            extradata,
++        })
+         .is_err()
+     {
+         error!("kymux_sink: config enqueue failed (forward task gone)");
+diff --git a/libavconv-rs/src/mux.rs b/libavconv-rs/src/mux.rs
+index 6648a70..9acd984 100644
+--- a/libavconv-rs/src/mux.rs
++++ b/libavconv-rs/src/mux.rs
+@@ -218,6 +218,13 @@ impl<'a> CodecParams<'a> {
+         unsafe { (*self.raw.codec_par).codec_id }
+     }
+ 
++    /// Samples per channel in each audio frame (960 for 20 ms of Opus at
++    /// 48 kHz). 0 for video, or when the encoder does not set it.
++    pub fn frame_size(&self) -> i32 {
++        // SAFETY: as in `codec_id`.
++        unsafe { (*self.raw.codec_par).frame_size }
++    }
++
+     /// Out-of-band extradata (SPS/PPS, ...). Empty when none is set or the
+     /// codec embeds its config in-band (AV1 / Opus).
+     pub fn extradata(&self) -> &'a [u8] {
+
+base-commit: b0efdfa251a19274ff1d9bf6324deb6bee10c026
+-- 
+2.54.0 (Apple Git-157)
+

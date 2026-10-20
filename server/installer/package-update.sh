@@ -13,7 +13,8 @@ trap 'rm -rf "$STAGE"' EXIT
 
 [ -d "$ROOT/third_party/payload/kyber-overlay" ] || { echo "Surcouche Kyber absente : lancez server/kyber-patches/build.sh" >&2; exit 1; }
 mkdir -p "$STAGE"/{kyber,admin,tray} "$DIST"
-cp "$ROOT/third_party/payload/kyber-overlay/"* "$STAGE/kyber/"
+# -R : la surcouche a des sous-dossiers (webclient/, moteur du client web).
+cp -R "$ROOT/third_party/payload/kyber-overlay/." "$STAGE/kyber/"
 cp "$ROOT/server/dist/kyber-admin.exe" "$STAGE/admin/"
 cp "$ROOT/server/tray/target/x86_64-pc-windows-gnu/release/kybernow-tray.exe" "$STAGE/tray/"
 cp "$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)" "$STAGE/tray/"

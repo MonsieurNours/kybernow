@@ -1,6 +1,137 @@
+diff --git a/kyavservice/src/avconv/audio.rs b/kyavservice/src/avconv/audio.rs
+index 0948ddd..30c10ab 100644
+--- a/kyavservice/src/avconv/audio.rs
++++ b/kyavservice/src/avconv/audio.rs
+@@ -29,7 +29,7 @@ use libavconv_rs::{
+ 
+ use super::Result;
+ use super::clock;
+-use crate::config::{AudioBitrate, ClockType, opus_bitrate};
++use crate::config::{AudioBitrate, AudioLayout, ClockType, opus_bitrate};
+ 
+ const SAMPLE_RATE: i32 = 48_000;
+ 
+@@ -74,11 +74,26 @@ fn pick_loopback_source<'a>(
+     first_loopback.or_else(|| sources.iter().next())
+ }
+ 
+-/// Set up the audio capture source.  Returns `(capture, output_handle)`.
++/// KyberNow: what the stream carries, from the capture's channel count. With
++/// `AudioLayout::Native`, 5.1 and 7.1 stay as they are, anything else is mixed
++/// down to stereo. The layouts are the ones libopus takes for channel mapping
++/// family 1 (Vorbis order), spelled out: FFmpeg's "5.1" meant 5.1(side) before
++/// FFmpeg 8, which libopus refuses. aresample maps side channels to back ones.
++/// Returns (aresample layout, channels, mask).
++fn output_layout(captured: i32, layout: AudioLayout) -> (&'static str, i32, u64) {
++    match (layout, captured) {
++        (AudioLayout::Native, 6) => ("FL+FR+FC+LFE+BL+BR", 6, 0x3F),
++        (AudioLayout::Native, 8) => ("FL+FR+FC+LFE+BL+BR+SL+SR", 8, 0x63F),
++        _ => ("stereo", 2, 0x3),
++    }
++}
++
++/// Set up the audio capture source.  Returns `(capture, output_handle,
++/// captured channel count)`.
+ fn create_grab_source(
+     ctx: Arc<AvconvContext>,
+     clock_type: &ClockType,
+-) -> Result<(GrabCapture, Handle)> {
++) -> Result<(GrabCapture, Handle, i32)> {
+     let provider = libavconv_rs::provider_by_name(audio_provider_name()).ok_or(
+         libavconv_rs::Error::NotFound {
+             name: "audio grab provider",
+@@ -96,7 +111,8 @@ fn create_grab_source(
+     let src = pick_loopback_source(&sources).ok_or(libavconv_rs::Error::NoSource)?;
+ 
+     let name = src.name().unwrap_or_else(|| "<unnamed>".to_string());
+-    info!("Selected audio loopback: {name}");
++    let channels = src.nb_channels();
++    info!("Selected audio loopback: {name} ({channels} channels)");
+ 
+     let mut capture = GrabCaptureBuilder::new(src)?;
+     // Match the video epoch so audio and video PTS share a clock domain
+@@ -105,20 +121,27 @@ fn create_grab_source(
+     let capture = capture.build(ctx.clone())?;
+ 
+     let handle = capture.stream_handle(0);
+-    Ok((capture, handle))
++    Ok((capture, handle, channels))
+ }
+ 
+-/// Configure the Opus encoder for a stereo 48 kHz stream.
+-fn configure_opus_encoder(enc: &EncoderBuilder, bitrate: i64) -> Result<()> {
++/// Configure the Opus encoder for a 48 kHz stream with `layout`.
++fn configure_opus_encoder(
++    enc: &EncoderBuilder,
++    bitrate: i64,
++    layout: sys::AVChannelLayout,
++) -> Result<()> {
+     enc.set_bit_rate(bitrate);
+     enc.set_sample_rate(SAMPLE_RATE);
+     enc.set_sample_fmt(sys::AVSampleFormat_AV_SAMPLE_FMT_FLT);
+     enc.enable_global_header();
+ 
+-    enc.set_channel_layout(libavconv_rs::ChannelLayout::stereo());
++    enc.set_channel_layout(layout);
+ 
+-    enc.set_option("application", "audio")?;
+-    enc.set_option("frame_duration", "20")?;
++    // KyberNow: CELT only, without the SILK look-ahead, and 10 ms frames
++    // instead of 20: the encoder delay goes from 26.5 ms to 12.5 ms (same as
++    // txproto 0004).
++    enc.set_option("application", "lowdelay")?;
++    enc.set_option("frame_duration", "10")?;
+     enc.set_option("vbr", "on")?;
+ 
+     Ok(())
+@@ -132,16 +155,15 @@ pub(crate) fn configure(
+     output_hdl: Handle,
+     clock_type: &ClockType,
+     audio_bitrate: AudioBitrate,
++    audio_layout: AudioLayout,
+ ) -> Result<AudioPipeline> {
+     info!("Start audio grab (loopback), encoder libopus");
+ 
+-    let (capture, capture_handle) = create_grab_source(Arc::clone(&ctx), clock_type)?;
++    let (capture, capture_handle, captured) = create_grab_source(Arc::clone(&ctx), clock_type)?;
++    let (layout_name, channels, mask) = output_layout(captured, audio_layout);
+ 
+-    let mut fg = FilterGraphBuilder::new(
+-        Arc::clone(&ctx),
+-        "aresample=osr=48000:ochl=stereo:osf=flt",
+-        None,
+-    )?;
++    let filter = format!("aresample=osr=48000:ochl={layout_name}:osf=flt");
++    let mut fg = FilterGraphBuilder::new(Arc::clone(&ctx), &filter, None)?;
+ 
+     let codec = libavconv_rs::Codec::find_encoder_by_name("libopus").ok_or(
+         libavconv_rs::Error::NotFound {
+@@ -150,12 +172,15 @@ pub(crate) fn configure(
+     )?;
+ 
+     let enc = EncoderBuilder::new(Arc::clone(&ctx), codec)?;
+-    // This backend always downmixes to stereo (see the filter graph above).
+-    let bitrate = opus_bitrate(2, audio_bitrate);
+-    info!("Audio: Opus, 2 channels, {} kbit/s", bitrate / 1000);
+-    configure_opus_encoder(&enc, bitrate)?;
++    let bitrate = opus_bitrate(channels, audio_bitrate);
++    info!("Audio: Opus, {channels} channels, {} kbit/s", bitrate / 1000);
++    configure_opus_encoder(
++        &enc,
++        bitrate,
++        libavconv_rs::ChannelLayout::native(channels, mask),
++    )?;
+ 
+-    // Opus has a fixed frame size (960 samples for 20 ms @ 48 kHz). libavconv
++    // Opus has a fixed frame size (480 samples for 10 ms @ 48 kHz). libavconv
+     // requires a pre-encoding sync queue for every encoder whose on_open hook
+     // reports a frame size without it the scheduler asserts on
+     // `enc->sq_idx[0] >= 0`.
+diff --git a/kyavservice/src/avconv/cursor.rs b/kyavservice/src/avconv/cursor.rs
+index 0ca927f..ab8cebe 100644
 --- a/kyavservice/src/avconv/cursor.rs
 +++ b/kyavservice/src/avconv/cursor.rs
-@@ -24,7 +24,7 @@
+@@ -24,7 +24,7 @@ use std::sync::Arc;
  use std::sync::atomic::{AtomicBool, Ordering};
  use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
  use std::thread::{self, JoinHandle};
@@ -9,7 +140,7 @@
  
  use log::{info, warn};
  
-@@ -36,8 +36,29 @@
+@@ -36,34 +36,59 @@ const CHANNEL_CAP: usize = 8;
  
  const RECONNECT_BACKOFF: Duration = Duration::from_millis(500);
  
@@ -18,17 +149,14 @@
 +/// which made clients blink and switch mouse modes (same as txproto 0002).
 +const HIDE_DELAY: Duration = Duration::from_millis(250);
 +
-+/// KyberNow: pointer moves with an unchanged shape are forwarded too
-+/// (position only, empty bitmap), at most this often (same as txproto 0006).
-+const MOVE_INTERVAL: Duration = Duration::from_micros(16_666);
 +
 +/// A packet for the input server. At most one packet waits in the worker: a
 +/// later `Move` or `At` replaces it, a `Now` cancels it.
 +enum Msg {
 +    /// Sent right away.
 +    Now(Vec<u8>),
-+    /// KyberNow: a position-only move, sent once `MOVE_INTERVAL` has passed
-+    /// since the last packet actually written to the pipe.
++    /// KyberNow: a position-only move, sent once the move interval has
++    /// passed since the last packet actually written to the pipe.
 +    Move(Vec<u8>),
 +    /// KyberNow: sent at the given time (a delayed hide).
 +    At(Vec<u8>, Instant),
@@ -37,19 +165,37 @@
  pub(crate) struct CursorSink {
 -    tx: SyncSender<Vec<u8>>,
 +    tx: SyncSender<Msg>,
++    /// KyberNow: pointer moves with an unchanged shape are forwarded too
++    /// (position only, empty bitmap), at most this often (same as txproto
++    /// 0006); `None` forwards shape and visibility changes only.
++    move_interval: Option<Duration>,
      stop: Arc<AtomicBool>,
      connected: Arc<AtomicBool>,
      worker: Option<JoinHandle<()>>,
-@@ -45,7 +66,7 @@
+ }
  
  impl CursorSink {
-     pub(crate) fn new(display_id: u32) -> Arc<Self> {
+-    pub(crate) fn new(display_id: u32) -> Arc<Self> {
 -        let (tx, rx) = sync_channel::<Vec<u8>>(CHANNEL_CAP);
++    /// `move_rate`: pointer moves forwarded per second, 0 for none.
++    pub(crate) fn new(display_id: u32, move_rate: u32) -> Arc<Self> {
++        let move_interval = (move_rate > 0).then(|| Duration::from_secs(1) / move_rate);
 +        let (tx, rx) = sync_channel::<Msg>(CHANNEL_CAP);
          let stop = Arc::new(AtomicBool::new(false));
          let connected = Arc::new(AtomicBool::new(false));
          let stop_thread = Arc::clone(&stop);
-@@ -62,8 +83,8 @@
+         let connected_thread = Arc::clone(&connected);
+         let worker = thread::Builder::new()
+             .name(format!("cursor-pipe-{display_id}"))
+-            .spawn(move || run_worker(rx, stop_thread, connected_thread))
++            .spawn(move || run_worker(rx, stop_thread, connected_thread, move_interval))
+             .ok();
+         Arc::new(Self {
+             tx,
++            move_interval,
+             stop,
+             connected,
+             worker,
          })
      }
  
@@ -60,7 +206,7 @@
              Ok(()) => true,
              Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => false,
          }
-@@ -77,22 +98,34 @@
+@@ -77,22 +102,34 @@ impl CursorSink {
          self.connected.store(false, Ordering::Release);
      }
  
@@ -101,12 +247,17 @@
          let _ = std::mem::replace(&mut self.tx, closed_tx);
          if let Some(h) = self.worker.take() {
              let _ = h.join();
-@@ -104,8 +137,13 @@
+@@ -104,8 +141,18 @@ fn try_open_pipe() -> Option<File> {
      OpenOptions::new().write(true).open(PIPE_NAME).ok()
  }
  
 -fn run_worker(rx: Receiver<Vec<u8>>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
-+fn run_worker(rx: Receiver<Msg>, stop: Arc<AtomicBool>, connected: Arc<AtomicBool>) {
++fn run_worker(
++    rx: Receiver<Msg>,
++    stop: Arc<AtomicBool>,
++    connected: Arc<AtomicBool>,
++    move_interval: Option<Duration>,
++) {
      let mut pipe: Option<File> = None;
 +    // KyberNow: the packet waiting for its time, and when a packet was last
 +    // written. Moves are spaced from actual writes, so a deadline already set
@@ -116,7 +267,7 @@
  
      while !stop.load(Ordering::Relaxed) {
          if pipe.is_none() {
-@@ -121,15 +159,42 @@
+@@ -121,15 +168,42 @@ fn run_worker(rx: Receiver<Vec<u8>>, stop: Arc<AtomicBool>, connected: Arc<Atomi
              }
          }
  
@@ -126,13 +277,13 @@
 +        let received = match &pending {
 +            Some((_, at)) => rx.recv_timeout(at.saturating_duration_since(Instant::now())),
 +            None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
-         };
++        };
 +        let bytes = match received {
 +            Ok(Msg::Now(b)) => {
 +                pending = None;
 +                b
 +            }
-+            Ok(Msg::Move(b)) => match last_write.map(|t| t + MOVE_INTERVAL) {
++            Ok(Msg::Move(b)) => match last_write.zip(move_interval).map(|(t, i)| t + i) {
 +                Some(due) if due > Instant::now() => {
 +                    pending = Some((b, due));
 +                    continue;
@@ -151,7 +302,7 @@
 +                None => continue,
 +            },
 +            Err(RecvTimeoutError::Disconnected) => return,
-+        };
+         };
  
          let f = pipe.as_mut().unwrap();
          if f.write_all(&bytes).is_err() {
@@ -162,7 +313,7 @@
          }
      }
  }
-@@ -144,10 +209,10 @@
+@@ -144,10 +218,14 @@ pub(crate) fn cursor_hook(
  
      move |stream_idx, frame, flags_in, flags_out| {
          if *stream_idx == cursor_capture_idx {
@@ -171,12 +322,16 @@
  
 -            if let Some(bytes) = state.update(display_id, frame) {
 -                sink.try_send(bytes);
-+            if let Some(msg) = state.update(display_id, frame) {
-+                sink.try_send(msg);
++            match state.update(display_id, frame) {
++                Some(Msg::Move(_)) if sink.move_interval.is_none() => {}
++                Some(msg) => {
++                    sink.try_send(msg);
++                }
++                None => {}
              }
              -libc::EAGAIN
          } else {
-@@ -160,53 +225,98 @@
+@@ -160,53 +238,101 @@ pub(crate) fn cursor_hook(
  struct CursorState {
      started: bool,
      visible: bool,
@@ -246,8 +401,11 @@
              return None;
          }
 +        if !self.visible {
++            // KyberNow: shown again with its shape. The input server would
++            // put back the last shape it got, which may come from another
++            // display.
 +            self.show();
-+            return Some(Msg::Now(self.show_packet(display_id, false)));
++            return Some(Msg::Now(self.show_packet(display_id, true)));
 +        }
 +        // KyberNow: same shape, new position: position only, paced by the
 +        // worker.
@@ -258,14 +416,14 @@
          self.visible = true;
 -        Some(self.show_packet(display_id, None))
 +        self.hide_at = None;
-     }
- 
--    fn show_packet(&self, display_id: u32, pixels: Option<side_data::RgbaRows<'_>>) -> Vec<u8> {
++    }
++
 +    /// When a hide that is not in effect yet will be.
 +    fn pending_hide(&self, now: Instant) -> Option<Instant> {
 +        self.hide_at.filter(|at| *at > now)
-+    }
-+
+     }
+ 
+-    fn show_packet(&self, display_id: u32, pixels: Option<side_data::RgbaRows<'_>>) -> Vec<u8> {
 +    /// The pointer as clients should see it at `now`, shape included: a hide
 +    /// still within `HIDE_DELAY` is not in effect yet. `None` before the
 +    /// first cursor frame.
@@ -292,7 +450,7 @@
          out.extend_from_slice(&display_id.to_be_bytes());
          out.push(1);
          out.extend_from_slice(&(x.saturating_add(xhot) as u32).to_be_bytes());
-@@ -215,23 +325,10 @@
+@@ -215,23 +341,10 @@ impl CursorState {
          out.extend_from_slice(&yhot.to_be_bytes());
          out.extend_from_slice(&width.to_be_bytes());
          out.extend_from_slice(&height.to_be_bytes());
@@ -319,6 +477,8 @@
  
          out
      }
+diff --git a/kyavservice/src/avconv/displays.rs b/kyavservice/src/avconv/displays.rs
+index c25b69f..d6d6248 100644
 --- a/kyavservice/src/avconv/displays.rs
 +++ b/kyavservice/src/avconv/displays.rs
 @@ -21,9 +21,6 @@
@@ -331,7 +491,7 @@
  use super::Result;
  #[cfg(target_os = "linux")]
  use crate::config::GstreamerVideoSource;
-@@ -40,18 +37,43 @@
+@@ -40,18 +37,43 @@ pub(crate) fn build_provider_ctx(backend: Option<GrabBackend>) -> Result<GrabPro
              name: "grab provider",
          })?;
  
@@ -382,7 +542,7 @@
  /// Query the screen-source set from `provider`.
  pub(crate) fn fetch_screen_sources(provider: &GrabProviderCtx) -> Result<GrabSourceSet> {
      let payloads: u32 = 1 << sys::AVConvHandlePayload_AVCONV_HANDLE_PAYLOAD_FRAME;
-@@ -59,15 +81,14 @@
+@@ -59,15 +81,14 @@ pub(crate) fn fetch_screen_sources(provider: &GrabProviderCtx) -> Result<GrabSou
      Ok(provider.sources(payloads, src_types)?)
  }
  
@@ -401,161 +561,11 @@
              name: src.name().unwrap_or_else(|| format!("Display {idx}")),
              width: src.width(),
              height: src.height(),
---- a/kyavservice/src/avconv/video.rs
-+++ b/kyavservice/src/avconv/video.rs
-@@ -213,10 +213,20 @@
- 
-     let sources = grab_ctx.sources(payloads, src_types)?;
- 
--    // Select by display index, fall back to first available.
-+    // KyberNow: select by display ID (see displays::display_id), then by
-+    // index (IDs of sources without a name), then the first available.
-     let src = sources
-         .iter()
--        .nth(video_config.display_id as usize)
-+        .enumerate()
-+        .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
-+        .map(|(_, s)| s)
-+        .or_else(|| {
-+            warn!(
-+                "Display {} not found on the capture adapter, using another one",
-+                video_config.display_id
-+            );
-+            sources.iter().nth(video_config.display_id as usize)
-+        })
-         .or_else(|| sources.iter().next())
-         .ok_or(libavconv_rs::Error::NoSource)?;
- 
---- a/kyavservice/src/avconv/audio.rs
-+++ b/kyavservice/src/avconv/audio.rs
-@@ -29,7 +29,7 @@
- 
- use super::Result;
- use super::clock;
--use crate::config::{AudioBitrate, ClockType, opus_bitrate};
-+use crate::config::{AudioBitrate, AudioLayout, ClockType, opus_bitrate};
- 
- const SAMPLE_RATE: i32 = 48_000;
- 
-@@ -74,11 +74,26 @@
-     first_loopback.or_else(|| sources.iter().next())
- }
- 
--/// Set up the audio capture source.  Returns `(capture, output_handle)`.
-+/// KyberNow: what the stream carries, from the capture's channel count. With
-+/// `AudioLayout::Native`, 5.1 and 7.1 stay as they are, anything else is mixed
-+/// down to stereo. The layouts are the ones libopus takes for channel mapping
-+/// family 1 (Vorbis order), spelled out: FFmpeg's "5.1" meant 5.1(side) before
-+/// FFmpeg 8, which libopus refuses. aresample maps side channels to back ones.
-+/// Returns (aresample layout, channels, mask).
-+fn output_layout(captured: i32, layout: AudioLayout) -> (&'static str, i32, u64) {
-+    match (layout, captured) {
-+        (AudioLayout::Native, 6) => ("FL+FR+FC+LFE+BL+BR", 6, 0x3F),
-+        (AudioLayout::Native, 8) => ("FL+FR+FC+LFE+BL+BR+SL+SR", 8, 0x63F),
-+        _ => ("stereo", 2, 0x3),
-+    }
-+}
-+
-+/// Set up the audio capture source.  Returns `(capture, output_handle,
-+/// captured channel count)`.
- fn create_grab_source(
-     ctx: Arc<AvconvContext>,
-     clock_type: &ClockType,
--) -> Result<(GrabCapture, Handle)> {
-+) -> Result<(GrabCapture, Handle, i32)> {
-     let provider = libavconv_rs::provider_by_name(audio_provider_name()).ok_or(
-         libavconv_rs::Error::NotFound {
-             name: "audio grab provider",
-@@ -96,7 +111,8 @@
-     let src = pick_loopback_source(&sources).ok_or(libavconv_rs::Error::NoSource)?;
- 
-     let name = src.name().unwrap_or_else(|| "<unnamed>".to_string());
--    info!("Selected audio loopback: {name}");
-+    let channels = src.nb_channels();
-+    info!("Selected audio loopback: {name} ({channels} channels)");
- 
-     let mut capture = GrabCaptureBuilder::new(src)?;
-     // Match the video epoch so audio and video PTS share a clock domain
-@@ -105,20 +121,27 @@
-     let capture = capture.build(ctx.clone())?;
- 
-     let handle = capture.stream_handle(0);
--    Ok((capture, handle))
-+    Ok((capture, handle, channels))
- }
- 
--/// Configure the Opus encoder for a stereo 48 kHz stream.
--fn configure_opus_encoder(enc: &EncoderBuilder, bitrate: i64) -> Result<()> {
-+/// Configure the Opus encoder for a 48 kHz stream with `layout`.
-+fn configure_opus_encoder(
-+    enc: &EncoderBuilder,
-+    bitrate: i64,
-+    layout: sys::AVChannelLayout,
-+) -> Result<()> {
-     enc.set_bit_rate(bitrate);
-     enc.set_sample_rate(SAMPLE_RATE);
-     enc.set_sample_fmt(sys::AVSampleFormat_AV_SAMPLE_FMT_FLT);
-     enc.enable_global_header();
- 
--    enc.set_channel_layout(libavconv_rs::ChannelLayout::stereo());
-+    enc.set_channel_layout(layout);
- 
--    enc.set_option("application", "audio")?;
--    enc.set_option("frame_duration", "20")?;
-+    // KyberNow: CELT only, without the SILK look-ahead, and 10 ms frames
-+    // instead of 20: the encoder delay goes from 26.5 ms to 12.5 ms (same as
-+    // txproto 0004).
-+    enc.set_option("application", "lowdelay")?;
-+    enc.set_option("frame_duration", "10")?;
-     enc.set_option("vbr", "on")?;
- 
-     Ok(())
-@@ -132,16 +155,15 @@
-     output_hdl: Handle,
-     clock_type: &ClockType,
-     audio_bitrate: AudioBitrate,
-+    audio_layout: AudioLayout,
- ) -> Result<AudioPipeline> {
-     info!("Start audio grab (loopback), encoder libopus");
- 
--    let (capture, capture_handle) = create_grab_source(Arc::clone(&ctx), clock_type)?;
-+    let (capture, capture_handle, captured) = create_grab_source(Arc::clone(&ctx), clock_type)?;
-+    let (layout_name, channels, mask) = output_layout(captured, audio_layout);
- 
--    let mut fg = FilterGraphBuilder::new(
--        Arc::clone(&ctx),
--        "aresample=osr=48000:ochl=stereo:osf=flt",
--        None,
--    )?;
-+    let filter = format!("aresample=osr=48000:ochl={layout_name}:osf=flt");
-+    let mut fg = FilterGraphBuilder::new(Arc::clone(&ctx), &filter, None)?;
- 
-     let codec = libavconv_rs::Codec::find_encoder_by_name("libopus").ok_or(
-         libavconv_rs::Error::NotFound {
-@@ -150,12 +172,15 @@
-     )?;
- 
-     let enc = EncoderBuilder::new(Arc::clone(&ctx), codec)?;
--    // This backend always downmixes to stereo (see the filter graph above).
--    let bitrate = opus_bitrate(2, audio_bitrate);
--    info!("Audio: Opus, 2 channels, {} kbit/s", bitrate / 1000);
--    configure_opus_encoder(&enc, bitrate)?;
-+    let bitrate = opus_bitrate(channels, audio_bitrate);
-+    info!("Audio: Opus, {channels} channels, {} kbit/s", bitrate / 1000);
-+    configure_opus_encoder(
-+        &enc,
-+        bitrate,
-+        libavconv_rs::ChannelLayout::native(channels, mask),
-+    )?;
- 
--    // Opus has a fixed frame size (960 samples for 20 ms @ 48 kHz). libavconv
-+    // Opus has a fixed frame size (480 samples for 10 ms @ 48 kHz). libavconv
-     // requires a pre-encoding sync queue for every encoder whose on_open hook
-     // reports a frame size without it the scheduler asserts on
-     // `enc->sq_idx[0] >= 0`.
+diff --git a/kyavservice/src/avconv/kymux.rs b/kyavservice/src/avconv/kymux.rs
+index a5b4d60..3f3e739 100644
 --- a/kyavservice/src/avconv/kymux.rs
 +++ b/kyavservice/src/avconv/kymux.rs
-@@ -33,7 +33,7 @@
+@@ -33,7 +33,7 @@ use super::{
      AvconvAudioContext, AvconvVideoContext, Context, PipelineOutput, Result, VideoConfig, audio,
      video,
  };
@@ -564,7 +574,7 @@
  
  pub(crate) fn start_video(
      video_config: VideoConfig,
-@@ -98,6 +98,7 @@
+@@ -98,6 +98,7 @@ pub(crate) fn start_audio(
      uri: &str,
      clock_type: ClockType,
      audio_bitrate: AudioBitrate,
@@ -572,7 +582,7 @@
      sender: EventSender<IpcApi>,
  ) -> Result<Context> {
      info!("Start kymux audio (avconv)");
-@@ -110,7 +111,13 @@
+@@ -110,7 +111,13 @@ pub(crate) fn start_audio(
      )?);
      let on_item = kymux_sink::connect(uri, StreamKind::Audio, None)?;
  
@@ -587,9 +597,11 @@
      info!("Audio pipeline configured, starting context");
  
      ctx.start()?;
+diff --git a/kyavservice/src/avconv/kymux_sink.rs b/kyavservice/src/avconv/kymux_sink.rs
+index 4115d07..98c72ac 100644
 --- a/kyavservice/src/avconv/kymux_sink.rs
 +++ b/kyavservice/src/avconv/kymux_sink.rs
-@@ -69,8 +69,13 @@
+@@ -69,8 +69,13 @@ pub(crate) enum StreamKind {
  
  /// Messages forwarded from the (synchronous) muxer hooks to the async task.
  enum SinkMsg {
@@ -605,7 +617,7 @@
      /// Encoded packet payload.
      Packet {
          pts_raw: i64,
-@@ -129,13 +134,17 @@
+@@ -129,13 +134,17 @@ async fn forward_task(
      let mut packets_sent: u64 = 0;
      while let Some(msg) = rx.recv().await {
          match msg {
@@ -625,7 +637,7 @@
                      },
                  }))
                  .await?;
-@@ -200,13 +209,24 @@
+@@ -200,13 +209,24 @@ fn send_config(
          return Err(AVERROR_EINVAL);
      };
  
@@ -651,9 +663,19 @@
          .is_err()
      {
          error!("kymux_sink: config enqueue failed (forward task gone)");
+diff --git a/kyavservice/src/avconv/mod.rs b/kyavservice/src/avconv/mod.rs
+index a37c406..4fbd011 100644
 --- a/kyavservice/src/avconv/mod.rs
 +++ b/kyavservice/src/avconv/mod.rs
-@@ -354,7 +354,14 @@
+@@ -229,6 +229,7 @@ fn video_config(
+         intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+         encoder_config: config.video_encoder_config.clone(),
+         clock_type: config.clock_type(),
++        cursor_move_rate: config.cursor_move_rate(),
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+@@ -354,7 +355,14 @@ async fn handle_command(
          Command::RtpStartAudio { ip, port } => {
              info!("Start RTP Audio: {ip}:{port}");
  
@@ -669,7 +691,7 @@
              match ret {
                  Ok(c) => set_ctx(ctx, c),
                  Err(err) => forward_init_error(sender, err, PipelineType::Audio),
-@@ -391,7 +398,13 @@
+@@ -391,7 +399,13 @@ async fn handle_command(
          Command::KymuxStartAudio { uri } => {
              info!("Start Kymux Audio: URI {uri:?}");
  
@@ -684,9 +706,11 @@
              match ret {
                  Ok(c) => set_ctx(ctx, c),
                  Err(err) => forward_init_error(sender, err, PipelineType::Audio),
+diff --git a/kyavservice/src/avconv/rtp.rs b/kyavservice/src/avconv/rtp.rs
+index dcf2047..5d01282 100644
 --- a/kyavservice/src/avconv/rtp.rs
 +++ b/kyavservice/src/avconv/rtp.rs
-@@ -36,7 +36,7 @@
+@@ -36,7 +36,7 @@ use super::video::VideoConfig;
  use super::{
      AvconvAudioContext, AvconvVideoContext, Context, Error, PipelineOutput, Result, audio, video,
  };
@@ -695,7 +719,7 @@
  
  const SDP_PROBE_PORT: u16 = 30_000;
  const SDP_POLL_INTERVAL: Duration = Duration::from_millis(50);
-@@ -266,6 +266,7 @@
+@@ -266,6 +266,7 @@ pub(crate) fn start_audio(
      port: u16,
      clock_type: ClockType,
      audio_bitrate: AudioBitrate,
@@ -703,7 +727,7 @@
      sender: EventSender<IpcApi>,
  ) -> Result<Context> {
      info!("Start RTP audio (avconv), target {ip}:{port}");
-@@ -279,7 +280,13 @@
+@@ -279,7 +280,13 @@ pub(crate) fn start_audio(
          sys::AVMediaType_AVMEDIA_TYPE_AUDIO,
      )?;
  
@@ -718,30 +742,114 @@
  
      ctx.start()?;
      info!("RTP audio context started");
+diff --git a/kyavservice/src/avconv/video.rs b/kyavservice/src/avconv/video.rs
+index 088f463..8220eb3 100644
+--- a/kyavservice/src/avconv/video.rs
++++ b/kyavservice/src/avconv/video.rs
+@@ -57,6 +57,8 @@ pub(crate) struct VideoConfig {
+     pub(crate) intra_refresh: bool,
+     pub(crate) encoder_config: Option<config::EncoderConfig>,
+     pub(crate) clock_type: config::ClockType,
++    /// Pointer moves forwarded per second (`[kyavserver] cursor_move_rate`).
++    pub(crate) cursor_move_rate: u32,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -213,10 +215,20 @@ fn create_grab_source(
+ 
+     let sources = grab_ctx.sources(payloads, src_types)?;
+ 
+-    // Select by display index, fall back to first available.
++    // KyberNow: select by display ID (see displays::display_id), then by
++    // index (IDs of sources without a name), then the first available.
+     let src = sources
+         .iter()
+-        .nth(video_config.display_id as usize)
++        .enumerate()
++        .find(|(idx, s)| super::displays::source_id(s, *idx) == video_config.display_id)
++        .map(|(_, s)| s)
++        .or_else(|| {
++            warn!(
++                "Display {} not found on the capture adapter, using another one",
++                video_config.display_id
++            );
++            sources.iter().nth(video_config.display_id as usize)
++        })
+         .or_else(|| sources.iter().next())
+         .ok_or(libavconv_rs::Error::NoSource)?;
+ 
+@@ -255,6 +267,7 @@ fn create_grab_source(
+             &mut capture,
+             video_config.display_id,
+             cursor_capture_idx,
++            video_config.cursor_move_rate,
+             video_hook,
+         );
+     }
+@@ -263,6 +276,7 @@ fn create_grab_source(
+         &mut capture,
+         video_config.display_id,
+         cursor_capture_idx,
++        video_config.cursor_move_rate,
+         video_hook,
+     );
+ 
+@@ -323,11 +337,12 @@ fn install_capture_hook(
+     capture: &mut GrabCaptureBuilder,
+     display_id: u32,
+     cursor_capture_idx: Option<u32>,
++    cursor_move_rate: u32,
+     video_hook: VideoHook,
+ ) {
+     match cursor_capture_idx {
+         Some(idx) => {
+-            let sink = cursor::CursorSink::new(display_id);
++            let sink = cursor::CursorSink::new(display_id, cursor_move_rate);
+             capture.on_frame(cursor::cursor_hook(sink, display_id, idx, video_hook));
+         }
+         None => {
+@@ -341,6 +356,7 @@ fn install_capture_hook(
+     capture: &mut GrabCaptureBuilder,
+     _display_id: u32,
+     _cursor_capture_idx: Option<u32>,
++    _cursor_move_rate: u32,
+     video_hook: VideoHook,
+ ) {
+     capture.on_frame(video_hook);
+@@ -856,6 +872,7 @@ mod tests {
+             intra_refresh: true,
+             encoder_config: None,
+             clock_type: config::ClockType::ZeroedOrigin,
++            cursor_move_rate: config::DEFAULT_CURSOR_MOVE_RATE,
+             #[cfg(feature = "watermark")]
+             watermark: None,
+             #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index 2b4c37e..dd2b544 100644
 --- a/kyavservice/src/config.rs
 +++ b/kyavservice/src/config.rs
-@@ -240,6 +240,7 @@
+@@ -245,6 +245,7 @@ pub struct Config {
      minimum_bitrate: Option<u32>,
      audio_quality: Option<AudioQuality>,
      audio_bitrate: Option<u32>,
 +    audio_layout: Option<AudioLayout>,
      pub(crate) video_encoder_config: Option<EncoderConfig>,
      clock_type: Option<ClockType>,
-     #[cfg(feature = "watermark")]
-@@ -282,6 +283,12 @@
-             quality: self.audio_quality.unwrap_or_default(),
-             bitrate: self.audio_bitrate,
+     cursor_move_rate: Option<u32>,
+@@ -299,6 +300,12 @@ impl Config {
          }
-+    }
-+
+     }
+ 
 +    /// Channel layout of the libavconv audio stream, from `[kyavserver]
 +    /// audio_layout`.
 +    pub(crate) fn audio_layout(&self) -> AudioLayout {
 +        self.audio_layout.unwrap_or_default()
-     }
- 
++    }
++
      #[cfg(target_os = "linux")]
-@@ -877,3 +884,17 @@
+     pub(crate) fn grab_backend(&self) -> GrabBackend {
+         self.grab_backend.unwrap_or_default()
+@@ -892,3 +899,17 @@ pub(crate) fn opus_bitrate(channels: i32, audio: AudioBitrate) -> i64 {
      };
      audio.bitrate.map_or(preset, i64::from).clamp(6_000, max)
  }
@@ -759,9 +867,11 @@
 +    /// play stereo (the web client) need it when the host outputs 5.1 or 7.1.
 +    Stereo,
 +}
+diff --git a/libavconv-rs/src/enc.rs b/libavconv-rs/src/enc.rs
+index 3211d25..30429b1 100644
 --- a/libavconv-rs/src/enc.rs
 +++ b/libavconv-rs/src/enc.rs
-@@ -43,6 +43,17 @@
+@@ -43,6 +43,17 @@ impl ChannelLayout {
          layout.u.mask = 0x3; // AV_CH_FRONT_LEFT | AV_CH_FRONT_RIGHT
          layout
      }
@@ -779,24 +889,28 @@
  }
  
  /// Set a string option on an `AVCodecContext` from inside an encoder hook
+diff --git a/libavconv-rs/src/grab.rs b/libavconv-rs/src/grab.rs
+index a8d4b37..8a1c637 100644
 --- a/libavconv-rs/src/grab.rs
 +++ b/libavconv-rs/src/grab.rs
-@@ -278,6 +278,12 @@
-     /// Object y position in pixels (video sources).
-     pub fn y(&self) -> i32 {
+@@ -280,6 +280,12 @@ impl<'a> GrabSource<'a> {
          unsafe { (*self.ptr).y }
-+    }
-+
+     }
+ 
 +    /// KyberNow: channel count of the native format (audio sources), 0 if
 +    /// the provider does not know it.
 +    pub fn nb_channels(&self) -> i32 {
 +        unsafe { (*self.ptr).nb_channels }
-     }
- 
++    }
++
      /// Object width in pixels (video sources).
+     pub fn width(&self) -> i32 {
+         unsafe { (*self.ptr).width }
+diff --git a/libavconv-rs/src/mux.rs b/libavconv-rs/src/mux.rs
+index 6648a70..35847d8 100644
 --- a/libavconv-rs/src/mux.rs
 +++ b/libavconv-rs/src/mux.rs
-@@ -218,6 +218,13 @@
+@@ -218,6 +218,13 @@ impl<'a> CodecParams<'a> {
          unsafe { (*self.raw.codec_par).codec_id }
      }
  

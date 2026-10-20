@@ -1,0 +1,117 @@
+From 005bd9fc5cf10e0b8115ac13126afb142fdc5f21 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:25:25 +0200
+Subject: [PATCH 2/2] kyavservice/txproto: add a cursor_hide_delay_ms setting
+
+Windows hides the pointer for a few frames on many occasions: at each
+key press while "Hide pointer while typing" is on, when the shape
+changes, or all the time when no mouse is plugged in. Each flip reaches
+the clients, which blink their pointer and, when they switch to
+relative mouse mode while the host cursor is hidden, toggle the mouse
+mode back and forth.
+
+Add [kyavserver] cursor_hide_delay_ms (0 by default, at most 10 s) and
+pass it to the DXGI capture as its "cursor_hide_delay" option: a hide is
+only forwarded once the pointer has stayed hidden that long. About
+250 ms removes the blinking without a visible delay when a game really
+hides the pointer. Requires txproto's "dxgi: add a cursor_hide_delay
+option"; an older txproto ignores the option.
+---
+ kyavservice/src/config.rs        | 10 ++++++++++
+ kyavservice/src/txproto/rtp.rs   |  1 +
+ kyavservice/src/txproto/run.rs   |  2 ++
+ kyavservice/src/txproto/video.rs | 11 ++++++++++-
+ 4 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/kyavservice/src/config.rs b/kyavservice/src/config.rs
+index fb1485d..8525995 100644
+--- a/kyavservice/src/config.rs
++++ b/kyavservice/src/config.rs
+@@ -240,6 +240,7 @@ pub struct Config {
+     minimum_bitrate: Option<u32>,
+     pub(crate) video_encoder_config: Option<EncoderConfig>,
+     clock_type: Option<ClockType>,
++    cursor_hide_delay_ms: Option<u32>,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -269,6 +270,15 @@ impl Config {
+         *self.clock_type.as_ref().unwrap_or(&ClockType::ZeroedOrigin)
+     }
+ 
++    /// Milliseconds the host cursor must stay hidden before clients are told,
++    /// from `[kyavserver] cursor_hide_delay_ms` (txproto on Windows). Windows
++    /// hides it for a few frames at each key press or shape change; a delay
++    /// of about 250 ms keeps clients from blinking and switching mouse modes.
++    /// 0 (default) forwards hides right away.
++    pub(crate) fn cursor_hide_delay_ms(&self) -> u32 {
++        self.cursor_hide_delay_ms.unwrap_or(0).min(10_000)
++    }
++
+     pub(crate) fn minimum_bitrate(&self) -> u32 {
+         self.minimum_bitrate.unwrap_or(5_000_000)
+     }
+diff --git a/kyavservice/src/txproto/rtp.rs b/kyavservice/src/txproto/rtp.rs
+index b52c8b2..83cbb3d 100644
+--- a/kyavservice/src/txproto/rtp.rs
++++ b/kyavservice/src/txproto/rtp.rs
+@@ -96,6 +96,7 @@ pub(crate) async fn generate_sdp(
+         intra_refresh,
+         encoder_config: encoder_config.clone(),
+         clock_type: config::ClockType::ZeroedOrigin,
++        cursor_hide_delay_ms: 0,
+         #[cfg(feature = "watermark")]
+         watermark: None,
+         #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/run.rs b/kyavservice/src/txproto/run.rs
+index a0f1989..e3b8e1d 100644
+--- a/kyavservice/src/txproto/run.rs
++++ b/kyavservice/src/txproto/run.rs
+@@ -184,6 +184,7 @@ async fn handle_command(
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
++                cursor_hide_delay_ms: config.cursor_hide_delay_ms(),
+                 #[cfg(feature = "watermark")]
+                 watermark: None,
+                 #[cfg(target_os = "linux")]
+@@ -229,6 +230,7 @@ async fn handle_command(
+                 intra_refresh: intra_refresh.unwrap_or(config.intra_refresh()),
+                 encoder_config: config.video_encoder_config.clone(),
+                 clock_type: config.clock_type(),
++                cursor_hide_delay_ms: config.cursor_hide_delay_ms(),
+                 #[cfg(feature = "watermark")]
+                 watermark: config.watermark.clone(),
+                 #[cfg(target_os = "linux")]
+diff --git a/kyavservice/src/txproto/video.rs b/kyavservice/src/txproto/video.rs
+index ad0605c..541e932 100644
+--- a/kyavservice/src/txproto/video.rs
++++ b/kyavservice/src/txproto/video.rs
+@@ -39,6 +39,8 @@ pub(crate) struct VideoConfig {
+     pub(crate) intra_refresh: bool,
+     pub(crate) encoder_config: Option<config::EncoderConfig>,
+     pub(crate) clock_type: config::ClockType,
++    /// See [`config::Config::cursor_hide_delay_ms`].
++    pub(crate) cursor_hide_delay_ms: u32,
+     #[cfg(feature = "watermark")]
+     pub(crate) watermark: Option<config::WatermarkConfig>,
+     #[cfg(target_os = "linux")]
+@@ -604,7 +606,14 @@ pub(crate) fn configure(
+     #[cfg(target_os = "linux")]
+     let grab_options = Some(grab_backend_to_dict(video_config.grab_backend)?);
+ 
+-    #[cfg(not(target_os = "linux"))]
++    #[cfg(target_os = "windows")]
++    let grab_options = Some(Dictionary::from_entries(&[(
++        "cursor_hide_delay",
++        i64::from(video_config.cursor_hide_delay_ms),
++    )
++        .into()])?);
++
++    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+     let grab_options = None;
+ 
+     let video_source = ctx.create_io(video_config.display_id, grab_options)?;
+-- 
+2.54.0 (Apple Git-157)
+

@@ -13,6 +13,8 @@ Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac e
 | cargo-c (`cargo cinstall`) | 0.10.15 | clients macOS et Apple TV |
 | mingw-w64 (Homebrew) | 14.0.0, GCC 16.2.0, UCRT | serveur Windows |
 | meson | 1.11.2 | serveur Windows (dépendances, txproto) |
+| wasm-bindgen-cli | 0.2.100 (celle du `Cargo.lock` de kyber-web) | moteur du client web |
+| binaryen (`wasm-opt`) | 133 | moteur du client web |
 
 Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par défaut de rustup qui compile.
 
@@ -21,7 +23,7 @@ Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par 
 `server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh` et `apps/tvos/scripts/build-kyber-tvos.sh` s'arrêtent à la première erreur et ne remplacent alors rien (surcouche, `Vendor/`) :
 
 - **cargo** : sa sortie est filtrée (lignes de progression retirées) sans que le filtre décide du code de retour (`set -o pipefail`). Avant, `| grep … || true` masquait une compilation ratée et l'ancien binaire partait dans la surcouche.
-- **Binaire périmé** : `build.sh` refuse `kyavserver.exe`, `libtxproto-0.dll` et `kycontroller.exe` s'ils sont plus anciens que son lancement (il remet les sources à l'origine à chaque fois, donc ils sont toujours recompilés). `cargo cinstall` garde la date de la bibliothèque déjà compilée : les scripts client retirent plutôt la bibliothèque installée par un build précédent avant de compiler, et la copie échoue si ce build ne l'a pas réinstallée.
+- **Binaire périmé** : `build.sh` refuse `kyavserver.exe`, `libtxproto-0.dll`, `kycontroller.exe`, `kynput.dll`, `kynputserver.exe` et `kyclient_wasm.wasm` s'ils sont plus anciens que son lancement (il remet les sources à l'origine à chaque fois, donc ils sont toujours recompilés). `cargo cinstall` garde la date de la bibliothèque déjà compilée : les scripts client (et `build.sh` pour `kynput.dll`) retirent plutôt la bibliothèque installée par un build précédent avant de compiler, et la copie échoue si ce build ne l'a pas réinstallée.
 - **Correctif inapplicable** : le hunk refusé est affiché (`patch -r -` côté serveur, `git apply --check` côté client).
 - **Correctif qui ajoute un fichier** : `build.sh` remet à l'origine chaque fichier des correctifs serveur, un par un ; un fichier absent de l'origine est supprimé au lieu d'être restauré. Pas de `git checkout -- .` : `kysdk/kyctl` et `kysdk/kymux` portent aussi les correctifs des apps.
 - **Worktree** : `third_party/` (hors git) peut y être un lien vers celui du dépôt principal. Les scripts en prennent le chemin réel (`pwd -P`) : meson et cargo enregistrent les chemins absolus des sources, et un autre chemin les fait tout reconfigurer et tout recompiler.
@@ -79,4 +81,21 @@ Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (We
 - **bison** : celui de macOS (2.3) est trop ancien pour VLC ; utiliser `/opt/homebrew/opt/bison/bin`.
 - **pkg-config** : meson attend `x86_64-w64-mingw32-pkg-config` ; un simple relais vers `pkg-config` suffit (le rootfs est imposé par le fichier croisé).
 - **bindgen** : `BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-pc-windows-gnu --sysroot=<mingw> -I<mingw>/include"`, sinon `errno.h` est introuvable.
-- **Runtime** : MinGW Homebrew produit des binaires UCRT, Kyber officiel est en msvcrt. On remplace donc toute la chaîne de kyavserver (voir la surcouche), jamais une DLL isolée.
+- **Runtime** : MinGW Homebrew produit des binaires UCRT, Kyber officiel est en msvcrt. On remplace donc toute la chaîne de kyavserver (voir la surcouche), jamais une DLL isolée. Exception sûre : `kynput.dll`, voir plus bas.
+
+## Serveur d'entrées de Kyber 0.29 pour Windows (kynput), depuis macOS
+
+`server/kyber-patches/build.sh` recompile aussi `kynput.dll` (`cargo cinstall`, fonctionnalité `sdl2` comme la version officielle, installée dans `third_party/rootfs-win64-kynput`) et `kynputserver.exe` (`win32-hide-console`), pour les correctifs `*-kynput-*`.
+
+- **SDL2** : `kynput.dll` se lie à la `SDL2.dll` de Kyber 0.29 (`third_party/payload/kyber-0.29.0`), qu'on ne recompile pas. `sdl2-sys` la cherche par pkg-config : le script écrit un `sdl2.pc` minimal (`third_party/toolchain-bin/pkgconfig-sdl2`) qui pointe ce dossier, et l'éditeur de liens de MinGW lie la DLL directement, sans bibliothèque d'import.
+- **build.rs de kynputserver** : il testait `cfg!(target_os = "macos")`, c'est-à-dire la machine qui compile ; depuis un Mac, il assemblait le code macOS avec MinGW et échouait. Corrigé par 0012 (test de `CARGO_CFG_TARGET_OS`).
+- **Runtime** : comme le reste de la surcouche, `kynput.dll` et `kynputserver.exe` sont en UCRT, à côté de `kyclient.dll` et `kyclient.exe` officiels (msvcrt) qui chargent la même `kynput.dll`. Sans risque ici : l'API C de kynput libère toujours elle-même ce qu'elle alloue (`kynput_*_unref`, `kynput_free_string`). Elle exporte les fonctions de la version officielle, plus celles du presse-papiers si le correctif client 0002 est appliqué dans `third_party` au moment du build.
+
+## Moteur du client web (kyclient_wasm), depuis macOS
+
+Le moteur que charge le client web vient du dépôt `kyber/apps/kyber-web` de Kyber (crate `kyclient-wasm`, l'API JS), pas de kyber-desktop. `server/kyber-patches/build.sh` le recompile avec les correctifs 0013 à 0015 et pose `kyclient_wasm.js` et `kyclient_wasm_bg.wasm` dans `webclient/` de la surcouche.
+
+- **Sources** : `git clone --depth 1 --branch 0.29.0 https://gitlab.com/kyber/apps/kyber-web.git third_party/kyber-web`. Son sous-module `kysdk` est le même commit que celui de kyber-desktop 0.29 (`ebca32a`) : il n'est pas cloné, le script le remplace par un lien.
+- **Outils** : `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.100 --locked` (la version doit être celle de la crate `wasm-bindgen` du `Cargo.lock` de kyber-web, sinon wasm-bindgen refuse le module), `brew install binaryen` (`wasm-opt`). Le reste du `build-wasm.sh` de kyber-web (pnpm, interface de Kyber) n'est pas nécessaire : l'interface ne change pas.
+- **kyctl d'origine** : le `kysdk/kyctl` de `third_party` porte aussi les correctifs des apps, qui changent l'API de kyclient (le champ `packet_sink` de `AudioSessionConfig` casse la compilation de kyber-web). Le script compose donc `third_party/kyber-web-kysdk/` : `kyctl` extrait de git (`git archive HEAD`) plus les correctifs `*-kywebplayer-*`, et des liens vers `kymedia`, `kymux`, `kynput` et `kyutil` de `third_party`, correctifs serveur appliqués. `third_party/kyber-web/kysdk` pointe vers ce dossier.
+- **Étapes** : `cargo build --target wasm32-unknown-unknown -p kyclient-wasm --release` (avec `RUSTFLAGS=--cfg=web_sys_unstable_apis`), `wasm-bindgen --target web --no-typescript`, puis `wasm-opt -Os -g`, comme le script de Kyber. Le résultat garde exactement l'API JS du moteur de Kyber 0.29 (mêmes classes, fonctions et méthodes) : la page `/ecran` n'a rien à changer.

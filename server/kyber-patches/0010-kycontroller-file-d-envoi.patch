@@ -1,0 +1,126 @@
+diff --git a/kycontroller/src/config.rs b/kycontroller/src/config.rs
+index 80910c4..48991e4 100644
+--- a/kycontroller/src/config.rs
++++ b/kycontroller/src/config.rs
+@@ -39,6 +39,37 @@ pub(crate) enum ListenMode {
+     DualStack,
+ }
+ 
++/// How each connection queues the datagrams it sends (video, and audio over an
++/// unreliable protocol), selected by `datagram_send_queue`.
++///
++/// quinn drops the oldest queued datagrams once the queue is full. A deep
++/// queue rides out large frames (keyframes, 4K) while pacing spreads them out,
++/// but when the path is congested it can hold seconds of stale frames. A short
++/// queue bounds that delay: under congestion the oldest frames are dropped
++/// instead, and the client asks for a keyframe.
++#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub(crate) enum DatagramSendQueue {
++    /// 8 MiB: about a second of 4K video at 60 Mbit/s.
++    #[default]
++    Deep,
++    /// 3 MiB: about three of the largest 4K frames (a keyframe with its FEC
++    /// repair symbols is up to about 1 MiB).
++    Short,
++}
++
++impl DatagramSendQueue {
++    pub(crate) const fn default_size(self) -> usize {
++        match self {
++            Self::Deep => 8 << 20,
++            Self::Short => 3 << 20,
++        }
++    }
++}
++
++/// Smallest accepted `datagram_send_queue_size`: one full-size datagram must fit.
++const MIN_DATAGRAM_SEND_QUEUE_SIZE: usize = 64 << 10;
++
+ /// Concurrency model selected by the `multi_client` config flag.
+ ///
+ /// `Multi` (default, `multi_client = true`): many concurrent clients share
+@@ -69,6 +100,9 @@ pub(crate) struct Config {
+     security: crate::security::Config,
+     watchdog: Option<bool>,
+     multi_client: Option<bool>,
++    datagram_send_queue: Option<DatagramSendQueue>,
++    /// Overrides the size of the `datagram_send_queue` policy, in bytes.
++    datagram_send_queue_size: Option<usize>,
+     webclient: Option<String>,
+     /// Read from the top-level [kyhub] section by `from_table`.
+     #[cfg(feature = "kyhub")]
+@@ -124,6 +158,16 @@ impl Config {
+         }
+     }
+ 
++    /// Outgoing datagram queue policy and its size in bytes.
++    pub(crate) fn datagram_send_queue(&self) -> (DatagramSendQueue, usize) {
++        let policy = self.datagram_send_queue.unwrap_or_default();
++        let size = self
++            .datagram_send_queue_size
++            .map(|size| size.max(MIN_DATAGRAM_SEND_QUEUE_SIZE))
++            .unwrap_or(policy.default_size());
++        (policy, size)
++    }
++
+     pub(crate) fn webclient(&self) -> Option<&str> {
+         self.webclient.as_deref()
+     }
+diff --git a/kycontroller/src/kymux_controller/mod.rs b/kycontroller/src/kymux_controller/mod.rs
+index 0b6357c..a2be8f7 100644
+--- a/kycontroller/src/kymux_controller/mod.rs
++++ b/kycontroller/src/kymux_controller/mod.rs
+@@ -38,7 +38,7 @@ use kyctl_common::kymux::{KymuxConfig, VideoProtocol};
+ 
+ pub(crate) use server::{IncomingConnectionRouter, KymuxServer};
+ 
+-use crate::config::{ListenMode, SessionMode};
++use crate::config::{DatagramSendQueue, ListenMode, SessionMode};
+ use crate::error::{Error, Result};
+ use crate::inputservice;
+ use crate::utils::{Task, TypeConvert};
+@@ -52,6 +52,11 @@ const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(5);
+ // get killed between pings.
+ const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+ 
++/// Incoming datagram queue of each connection, and UDP socket buffers: room
++/// for a whole 4K frame burst (the Windows socket defaults are small).
++const DATAGRAM_RECEIVE_BUFFER: usize = 8 << 20;
++const SOCKET_BUFFER: usize = 8 << 20;
++
+ enum KyTransport {
+     KyProto(kyproto::Connection),
+     KyWebSocket,
+@@ -76,6 +81,7 @@ pub(crate) struct KymuxInfraConfig {
+     pub(crate) listen_mode: ListenMode,
+     pub(crate) listening_port: u16,
+     pub(crate) webtransport_gen_certificate: bool,
++    pub(crate) datagram_send_queue: (DatagramSendQueue, usize),
+     pub(crate) cert_chain: Vec<rustls::pki_types::CertificateDer<'static>>,
+     pub(crate) private_key: rustls::pki_types::PrivateKeyDer<'static>,
+ }
+@@ -121,9 +127,15 @@ impl SharedKymuxInfra {
+             (config.cert_chain, config.private_key, None)
+         };
+ 
++        let (send_queue, send_queue_size) = config.datagram_send_queue;
++        info!("Datagram send queue: {send_queue:?}, {send_queue_size} bytes per connection");
++
+         let options = kynet::common::CommonServerOptions {
+             keep_alive_interval: Some(KEEP_ALIVE_INTERVAL),
+             max_idle_timeout: Some(MAX_IDLE_TIMEOUT),
++            datagram_send_buffer_size: Some(send_queue_size),
++            datagram_receive_buffer_size: Some(DATAGRAM_RECEIVE_BUFFER),
++            socket_buffer_size: Some(SOCKET_BUFFER),
+         };
+ 
+         let server = kynet::Connection::start_server_on_addr(
+@@ -255,6 +267,7 @@ async fn start_kymux(
+         listen_mode: ctrl.config.listen_mode(),
+         listening_port,
+         webtransport_gen_certificate: ctrl.config.webtransport_gen_certificate(),
++        datagram_send_queue: ctrl.config.datagram_send_queue(),
+         cert_chain: ctrl.tls_config.cert_chain.clone(),
+         private_key: ctrl.tls_config.private_key.clone_key(),
+     };

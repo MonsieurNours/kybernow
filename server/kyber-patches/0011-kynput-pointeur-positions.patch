@@ -1,0 +1,257 @@
+diff --git a/kynput/src/windows/host_cursor.rs b/kynput/src/windows/host_cursor.rs
+index 91e01d3..13d82ba 100644
+--- a/kynput/src/windows/host_cursor.rs
++++ b/kynput/src/windows/host_cursor.rs
+@@ -162,10 +162,27 @@ impl Drop for ListeningPipe {
+     }
+ }
+ 
++/// Pointer state shared by every connected pipe (one per captured display).
++#[derive(Default)]
++struct SharedCursor {
++    /// Last shape received, from any display.
++    last_shape: Option<Cursor>,
++    /// Display on which clients were last sent a visible pointer with a
++    /// visible shape: further moves on that display need no shape.
++    shown_on: Option<u32>,
++}
++
++/// A shape whose pixels are all zero: the cursor filter turns it into a
++/// hidden pointer for clients, so a later position-only update would show a
++/// pointer they never saw.
++fn is_transparent(cursor: &Cursor) -> bool {
++    matches!(&cursor.data, CursorData::Raw(data) if data.iter().all(|&px| px == 0))
++}
++
+ struct ConnectedPipe {
+     consumer: Weak<dyn InputConsumer>,
+     stop: Arc<AtomicBool>,
+-    last_visible_cursor: Arc<Mutex<Option<Cursor>>>,
++    shared: Arc<Mutex<SharedCursor>>,
+     handle: HANDLE,
+     completion_event: Event,
+ }
+@@ -174,7 +191,7 @@ impl ConnectedPipe {
+     fn new(
+         consumer: Weak<dyn InputConsumer>,
+         stop: Arc<AtomicBool>,
+-        last_visible_cursor: Arc<Mutex<Option<Cursor>>>,
++        shared: Arc<Mutex<SharedCursor>>,
+         handle: HANDLE,
+     ) -> Result<Box<Self>> {
+         let completion_event = Event::new()?;
+@@ -182,7 +199,7 @@ impl ConnectedPipe {
+         Ok(Box::new(Self {
+             consumer,
+             stop,
+-            last_visible_cursor,
++            shared,
+             handle,
+             completion_event,
+         }))
+@@ -283,13 +300,15 @@ impl ConnectedPipe {
+ 
+             // Read shape
+             //
+-            // On multiscreen setups, it is possible to have an
+-            // !visible => visible transition without any shape. This
+-            // means that the previous shape must be restored.
++            // A producer sends no shape when only the position changed, and
++            // on multiscreen setups, it is possible to have an
++            // !visible => visible transition without any shape.
+             //
+-            // However the previous shape can have been received from another
+-            // display, so we keep the last valid one, and we inject its shape
+-            // when required.
++            // Clients keep the last shape they got, so a position-only update
++            // is forwarded without one (`CursorData::None`) while that shape
++            // is still the one shown on this display. Otherwise (pointer shown
++            // again, other display, transparent shape), the last valid shape,
++            // possibly received from another display, is injected.
+ 
+             if pixmap_size > 0 {
+                 let mut pixmap: Vec<u32> = vec![0; pixmap_size as usize];
+@@ -318,29 +337,46 @@ impl ConnectedPipe {
+                 };
+ 
+                 {
+-                    let mut last_visible_cursor = self.last_visible_cursor.lock()?;
+-                    *last_visible_cursor = Some(cursor.clone());
++                    let mut shared = self.shared.lock()?;
++                    shared.shown_on = (!is_transparent(&cursor)).then_some(display_id);
++                    shared.last_shape = Some(cursor.clone());
+                 }
+ 
+                 cursor
+             } else {
+-                let Some(last_visible_cursor) = &*self.last_visible_cursor.lock()? else {
++                let mut shared = self.shared.lock()?;
++                let Some(shape) = &shared.last_shape else {
+                     return Ok(());
+                 };
+ 
+-                Cursor {
++                let position_only = shared.shown_on == Some(display_id);
++                let cursor = Cursor {
+                     display_id,
+                     visible: true,
+                     x: x as i32,
+                     y: y as i32,
+-                    xhot: last_visible_cursor.xhot,
+-                    yhot: last_visible_cursor.yhot,
+-                    width: last_visible_cursor.width,
+-                    height: last_visible_cursor.height,
+-                    data: last_visible_cursor.data.clone(),
++                    xhot: shape.xhot,
++                    yhot: shape.yhot,
++                    width: shape.width,
++                    height: shape.height,
++                    data: if position_only {
++                        CursorData::None
++                    } else {
++                        shape.data.clone()
++                    },
++                };
++                if !is_transparent(shape) {
++                    shared.shown_on = Some(display_id);
+                 }
++
++                cursor
+             }
+         } else {
++            let mut shared = self.shared.lock()?;
++            if shared.shown_on == Some(display_id) {
++                shared.shown_on = None;
++            }
++
+             Cursor {
+                 display_id,
+                 visible: false,
+@@ -396,12 +432,12 @@ impl ConnectedPipePool {
+     fn register_connected_pipe(
+         &mut self,
+         handle: HANDLE,
+-        last_visible_cursor: Arc<Mutex<Option<Cursor>>>,
++        shared: Arc<Mutex<SharedCursor>>,
+     ) -> Result<()> {
+         let pipe = ConnectedPipe::new(
+             self.consumer.clone(),
+             self.stop.clone(),
+-            last_visible_cursor,
++            shared,
+             handle,
+         )?;
+ 
+@@ -475,7 +511,7 @@ struct Handler {
+     stop: Arc<AtomicBool>,
+     pipe_path: Vec<u16>,
+     connected_pipes: ConnectedPipePool,
+-    last_visible_cursor: Arc<Mutex<Option<Cursor>>>,
++    shared_cursor: Arc<Mutex<SharedCursor>>,
+ }
+ 
+ impl Handler {
+@@ -493,7 +529,7 @@ impl Handler {
+             stop,
+             pipe_path,
+             connected_pipes,
+-            last_visible_cursor: Arc::new(Mutex::new(None)),
++            shared_cursor: Arc::new(Mutex::new(SharedCursor::default())),
+         })
+     }
+ 
+@@ -510,7 +546,7 @@ impl Handler {
+                 }
+                 PipeState::Connected => {
+                     self.connected_pipes
+-                        .register_connected_pipe(pipe.handle, self.last_visible_cursor.clone())?;
++                        .register_connected_pipe(pipe.handle, self.shared_cursor.clone())?;
+                 }
+             }
+         };
+@@ -538,7 +574,7 @@ impl Handler {
+                 WAIT_OBJECT_1 => {
+                     let handle = Pin::into_inner(listening_pipe).into_inner();
+                     self.connected_pipes
+-                        .register_connected_pipe(handle, self.last_visible_cursor.clone())?;
++                        .register_connected_pipe(handle, self.shared_cursor.clone())?;
+                     listening_pipe = self.create_listening_pipe()?;
+                 }
+                 WAIT_TIMEOUT => {
+diff --git a/kynputservice/src/pipeline_state.rs b/kynputservice/src/pipeline_state.rs
+index 90c1663..ec0db34 100644
+--- a/kynputservice/src/pipeline_state.rs
++++ b/kynputservice/src/pipeline_state.rs
+@@ -83,6 +83,29 @@ impl State {
+     }
+ 
+     fn on_cursor(&mut self, cursor: kynput_rs::Cursor, pkt: &kynput_rs::Packet) {
++        // A visible pointer without a shape is a move: clients that already
++        // had the shape keep it. A client connecting later still needs it, so
++        // the cached packet keeps the last shape at the new position.
++        if cursor.visible && cursor.data == kynput_rs::CursorData::None {
++            let cached = self
++                .cursors
++                .get(&cursor.display_id)
++                .and_then(kynput_rs::Cursor::from_packet)
++                .filter(|cached| cached.visible && cached.data != kynput_rs::CursorData::None);
++            if let Some(cached) = cached {
++                let moved = kynput_rs::Cursor {
++                    x: cursor.x,
++                    y: cursor.y,
++                    ..cached
++                };
++                self.cursors.insert(
++                    cursor.display_id,
++                    moved.to_packet(kynput_rs::InputTarget::Client),
++                );
++                return;
++            }
++        }
++
+         self.cursors.insert(cursor.display_id, pkt.clone());
+     }
+ 
+@@ -404,4 +427,42 @@ mod tests {
+         let ret = state.on_control_event(&ControlEvent::ClientConnected);
+         assert_eq!(ret.generated_events, Some(vec![pkt]));
+     }
++
++    #[test]
++    fn cursor_sync_keeps_shape_on_move() {
++        let state = ServerPipelineState::new();
++
++        let shape = Cursor {
++            display_id: 43,
++            visible: true,
++            x: 1,
++            y: 2,
++            xhot: 3,
++            yhot: 4,
++            width: 5,
++            height: 6,
++            data: CursorData::Raw(vec![7, 8, 9, 10]),
++        };
++        state.on_packet(&shape.clone().to_packet(InputTarget::Client));
++
++        // Position only: the shape stays in the state sent to new clients.
++        let moved = Cursor {
++            x: 100,
++            y: 200,
++            data: CursorData::None,
++            ..shape.clone()
++        };
++        state.on_packet(&moved.to_packet(InputTarget::Client));
++
++        let expected = Cursor {
++            x: 100,
++            y: 200,
++            ..shape
++        };
++        let ret = state.on_control_event(&ControlEvent::ClientConnected);
++        assert_eq!(
++            ret.generated_events,
++            Some(vec![expected.to_packet(InputTarget::Client)])
++        );
++    }
+ }

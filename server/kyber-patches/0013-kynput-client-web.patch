@@ -1,0 +1,463 @@
+diff --git a/kynput/Cargo.toml b/kynput/Cargo.toml
+index 6d36df3..32d05e0 100644
+--- a/kynput/Cargo.toml
++++ b/kynput/Cargo.toml
+@@ -93,6 +93,7 @@ features = [
+     "BlobPropertyBag",
+     "Clipboard",
+     "ClipboardItem",
++    "CompositionEvent",
+     "CssStyleDeclaration",
+     "Document",
+     "DomRect",
+@@ -101,11 +102,16 @@ features = [
+     "Gamepad",
+     "GamepadButton",
+     "GamepadEvent",
++    "GamepadMappingType",
+     "HtmlCanvasElement",
++    "HtmlInputElement",
++    "HtmlTextAreaElement",
++    "InputEvent",
+     "KeyboardEvent",
+     "MouseEvent",
+     "Navigator",
+     "PointerEvent",
++    "VisibilityState",
+     "WheelEvent",
+     "Window",
+ ]
+diff --git a/kynput/src/wasm/client_gamepad.rs b/kynput/src/wasm/client_gamepad.rs
+index 17d4b03..9fcb18d 100644
+--- a/kynput/src/wasm/client_gamepad.rs
++++ b/kynput/src/wasm/client_gamepad.rs
+@@ -29,7 +29,7 @@ use std::time::Duration;
+ use log::{error, info, warn};
+ use regex::Regex;
+ use wasm_bindgen::prelude::*;
+-use web_sys::{GamepadEvent, Window};
++use web_sys::{Event, FocusEvent, GamepadEvent, GamepadMappingType, Window};
+ 
+ use super::dom;
+ use crate::{
+@@ -159,6 +159,8 @@ struct GamepadState {
+ struct Closures {
+     gamepadconnected: Closure<dyn FnMut(GamepadEvent)>,
+     gamepaddisconnected: Closure<dyn FnMut(GamepadEvent)>,
++    blur: Closure<dyn FnMut(FocusEvent)>,
++    visibilitychange: Closure<dyn FnMut(Event)>,
+ }
+ 
+ /// Represents a gamepad identifier or a blocklist pattern.
+@@ -191,6 +193,8 @@ pub struct GamepadProducer {
+     blocked_gamepads: Mutex<HashSet<u32>>,
+     closures: Mutex<Option<Closures>>,
+     rumble_supported: AtomicBool,
++    /// Whether the `requestAnimationFrame` polling loop must go on.
++    polling: Arc<AtomicBool>,
+     notification_sink: Option<Box<dyn GamepadNotificationsSink>>,
+     blocklist: Option<Vec<GamepadInfo>>,
+ }
+@@ -214,6 +218,7 @@ impl GamepadProducer {
+             blocked_gamepads: Default::default(),
+             closures: Default::default(),
+             rumble_supported: AtomicBool::new(true),
++            polling: Arc::new(AtomicBool::new(false)),
+             notification_sink,
+             blocklist,
+         }))
+@@ -225,12 +230,22 @@ impl GamepadProducer {
+         let animation_cb_clone = animation_cb.clone();
+ 
+         let this = Arc::downgrade(self);
++        let polling = self.polling.clone();
+         let animation_js_cb = Closure::<dyn FnMut()>::new(move || {
++            // Stopped or dropped: end the loop. Dropping the closure here also
++            // breaks the cycle it forms with `animation_cb` (wasm-bindgen
++            // frees it once this call returns).
++            let this = this.upgrade();
++            if this.is_none() || !polling.load(Ordering::Relaxed) {
++                animation_cb_clone.borrow_mut().take();
++                return;
++            }
++
+             let Ok(window) = dom::window() else {
+                 return;
+             };
+ 
+-            if let Some(this) = this.upgrade() {
++            if let Some(this) = this {
+                 let ret = this.process();
+                 if let Err(err) = ret {
+                     warn!("process() failed: {err:?}");
+@@ -376,6 +391,25 @@ impl GamepadProducer {
+         // if XInput STANDARD GAMEPAD => None or Unknown format
+         None
+     }
++    /// Only gamepads with the standard layout can be read with the mapping
++    /// tables: on another one, button and axis numbers mean anything.
++    fn has_standard_mapping(gamepad: &web_sys::Gamepad) -> bool {
++        gamepad.mapping() == GamepadMappingType::Standard
++    }
++
++    /// The page lost the input focus: the host releases every gamepad (see
++    /// the keyboard producer). Forget the last state sent, so that buttons and
++    /// sticks still held are sent again at the next poll.
++    fn forget_states(&self) -> Result<()> {
++        let mut gamepads = self.gamepads.lock()?;
++        for state in gamepads.values_mut() {
++            state.buttons = Default::default();
++            state.axis = Default::default();
++        }
++
++        Ok(())
++    }
++
+     fn on_connected(self: &Arc<Self>, event: web_sys::GamepadEvent) -> Result<()> {
+         let Some(gamepad) = event.gamepad() else {
+             info!("Got connected with None gamepad");
+@@ -386,6 +420,13 @@ impl GamepadProducer {
+         let id = gamepad.id();
+         let gamepad_info = Self::get_vendor_product_id(&id);
+ 
++        if !Self::has_standard_mapping(&gamepad) {
++            info!("Device '{id}' ignored: no standard mapping");
++            let mut blocked = self.blocked_gamepads.lock()?;
++            blocked.insert(index);
++            return Ok(());
++        }
++
+         if self.gamepad_is_blocked(&gamepad_info) {
+             info!("Device '{id}' ignored");
+             // Mark this gamepad as blocked
+@@ -560,6 +601,14 @@ impl GamepadProducer {
+                     let gamepad_js_id = js_gamepad.id();
+                     let gamepad_info = Self::get_vendor_product_id(&gamepad_js_id);
+ 
++                    if !Self::has_standard_mapping(&js_gamepad) {
++                        info!("Device '{gamepad_js_id}' ignored: no standard mapping");
++                        drop(gamepads);
++                        let mut blocked = self.blocked_gamepads.lock()?;
++                        blocked.insert(gamepad_index);
++                        continue;
++                    }
++
+                     if self.gamepad_is_blocked(&gamepad_info) {
+                         info!("Device '{gamepad_js_id}' ignored");
+                         // Mark this gamepad as blocked so we don't log it again
+@@ -774,16 +823,35 @@ impl InputHandler for GamepadProducer {
+                 self_clone.on_disconnected(event)
+             })?;
+ 
++        // Input focus lost: see forget_states()
++        let self_clone = self.clone();
++        let blur = dom::window_register_event_listener(&window, "blur", move |_: FocusEvent| {
++            self_clone.forget_states()
++        })?;
++
++        let self_clone = self.clone();
++        let visibilitychange = dom::document_register_event_listener(
++            &dom::document()?,
++            "visibilitychange",
++            move |_: Event| match dom::document()?.visibility_state() {
++                web_sys::VisibilityState::Hidden => self_clone.forget_states(),
++                _ => Ok(()),
++            },
++        )?;
++
+         // Store closures
+         {
+             let mut closures = self.closures.lock()?;
+             *closures = Some(Closures {
+                 gamepadconnected,
+                 gamepaddisconnected,
++                blur,
++                visibilitychange,
+             });
+         }
+ 
+         // requestAnimationFrame
++        self.polling.store(true, Ordering::Relaxed);
+         self.plug_request_animation_frame(&window);
+ 
+         Ok(())
+@@ -803,6 +871,14 @@ impl InputHandler for GamepadProducer {
+             "gamepaddisconnected",
+             closures.gamepaddisconnected.as_ref().unchecked_ref(),
+         )?;
++        window.remove_event_listener_with_callback("blur", closures.blur.as_ref().unchecked_ref())?;
++        dom::document()?.remove_event_listener_with_callback(
++            "visibilitychange",
++            closures.visibilitychange.as_ref().unchecked_ref(),
++        )?;
++
++        // The polling loop ends at its next frame.
++        self.polling.store(false, Ordering::Relaxed);
+ 
+         Ok(())
+     }
+diff --git a/kynput/src/wasm/client_keyboard.rs b/kynput/src/wasm/client_keyboard.rs
+index 5b95123..349a92a 100644
+--- a/kynput/src/wasm/client_keyboard.rs
++++ b/kynput/src/wasm/client_keyboard.rs
+@@ -23,17 +23,31 @@ use std::sync::{Arc, Mutex, Weak};
+ use keycode::{KeyMap, KeyMappingCode};
+ use log::warn;
+ use wasm_bindgen::prelude::*;
+-use web_sys::KeyboardEvent;
++use web_sys::{CompositionEvent, Event, FocusEvent, InputEvent, KeyboardEvent};
+ 
+ use super::dom;
+ use crate::{
+-    InputConsumer, InputConsumerHandle, InputHandler, InputPacket, InputTarget, InputType,
+-    KeyboardKey, Payload, Result,
++    ControlEvent, InputConsumer, InputConsumerHandle, InputHandler, InputPacket, InputTarget,
++    InputType, KeyboardKey, Payload, Result, UnicodeInput,
+ };
+ 
++/// Attribute marking an editable element (for example a hidden text area that
++/// opens the on-screen keyboard of a phone or tablet) whose text is sent as
++/// Unicode packets: right whatever the host keyboard layout, with dead keys,
++/// composition (IME, dictation) and on-screen keyboards that give no key code.
++pub const TEXT_INPUT_ATTRIBUTE: &str = "data-kynput-text";
++
++/// `keyCode` of keys handled by an input method (IME) or an on-screen keyboard.
++const IME_KEY_CODE: u32 = 229;
++
+ struct Closures {
+     keydown: Closure<dyn FnMut(KeyboardEvent)>,
+     keyup: Closure<dyn FnMut(KeyboardEvent)>,
++    beforeinput: Closure<dyn FnMut(InputEvent)>,
++    compositionend: Closure<dyn FnMut(CompositionEvent)>,
++    blur: Closure<dyn FnMut(FocusEvent)>,
++    visibilitychange: Closure<dyn FnMut(Event)>,
++    pointerlockchange: Closure<dyn FnMut(Event)>,
+ }
+ 
+ pub struct KeyboardProducer {
+@@ -77,6 +91,11 @@ impl KeyboardProducer {
+             return Ok(());
+         }
+ 
++        // Keys used by an input method: the text comes with `compositionend`.
++        if event.is_composing() || event.key_code() == IME_KEY_CODE {
++            return Ok(());
++        }
++
+         let webcode = event.code();
+         let Ok(code) = webcode.as_str().parse::<KeyMappingCode>() else {
+             warn!("Unknown Keyboard code {webcode}");
+@@ -96,10 +115,115 @@ impl KeyboardProducer {
+ 
+         Ok(())
+     }
++
++    /// Text typed into an element marked with [`TEXT_INPUT_ATTRIBUTE`]. Keys
++    /// with a code are already sent by `on_key`, which prevents their text.
++    /// Events another listener already handled (default prevented) are left
++    /// alone.
++    fn on_beforeinput(self: &Arc<Self>, event: InputEvent) -> Result<()> {
++        if event.default_prevented() || !is_text_input(event.target()) {
++            return Ok(());
++        }
++
++        match event.input_type().as_str() {
++            "insertText" | "insertReplacementText" | "insertFromPaste" | "insertFromDrop" => {
++                // Text being composed is read once, at `compositionend`.
++                if event.is_composing() {
++                    return Ok(());
++                }
++                event.prevent_default();
++                if let Some(text) = event.data() {
++                    self.send_text(&text)?;
++                }
++            }
++            "insertLineBreak" | "insertParagraph" => {
++                event.prevent_default();
++                self.send_text("\r")?;
++            }
++            "deleteContentBackward" if !event.is_composing() => {
++                event.prevent_default();
++                self.send_text("\u{8}")?;
++            }
++            "deleteContentForward" if !event.is_composing() => {
++                event.prevent_default();
++                let delete = KeyMap::from(KeyMappingCode::Delete).win;
++                for pressed in [true, false] {
++                    self.forward_packet(InputPacket::new(
++                        InputTarget::Host,
++                        Payload::Keyboard(KeyboardKey::new(delete, pressed)),
++                    ))?;
++                }
++            }
++            // Composition updates: read at `compositionend`.
++            _ => {}
++        }
++
++        Ok(())
++    }
++
++    fn on_compositionend(self: &Arc<Self>, event: CompositionEvent) -> Result<()> {
++        let target = event.target();
++        if !is_text_input(target.clone()) {
++            return Ok(());
++        }
++
++        if let Some(text) = event.data() {
++            self.send_text(&text)?;
++        }
++
++        // The browser commits the composition into the field after this
++        // event: empty it on the next turn of the event loop.
++        if let Some(target) = target {
++            let clear = Closure::once_into_js(move || clear_text_input(&target));
++            dom::window()?
++                .set_timeout_with_callback_and_timeout_and_arguments_0(clear.unchecked_ref(), 0)?;
++        }
++
++        Ok(())
++    }
++
++    /// One Unicode packet per character. The host types `\r`, space, tab,
++    /// escape and backspace as their keys.
++    fn send_text(&self, text: &str) -> Result<()> {
++        let text = text.replace("\r\n", "\r").replace('\n', "\r");
++        for character in text.chars() {
++            self.forward_packet(InputPacket::new(
++                InputTarget::Host,
++                Payload::Unicode(UnicodeInput::new(character)),
++            ))?;
++        }
++
++        Ok(())
++    }
++
++    /// The page no longer gets key and button releases (other window, hidden
++    /// tab, pointer lock left with Escape): the host releases everything it
++    /// holds for this client, keys, mouse buttons and gamepads.
++    fn release_all(&self) -> Result<()> {
++        self.forward_packet(InputPacket::new(
++            InputTarget::Host,
++            Payload::ControlEvent(ControlEvent::FlushKeys),
++        ))
++    }
++}
++
++fn is_text_input(target: Option<web_sys::EventTarget>) -> bool {
++    target
++        .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
++        .is_some_and(|element| element.has_attribute(TEXT_INPUT_ATTRIBUTE))
++}
++
++fn clear_text_input(target: &web_sys::EventTarget) {
++    if let Some(input) = target.dyn_ref::<web_sys::HtmlTextAreaElement>() {
++        input.set_value("");
++    } else if let Some(input) = target.dyn_ref::<web_sys::HtmlInputElement>() {
++        input.set_value("");
++    }
+ }
+ 
+ impl InputHandler for KeyboardProducer {
+     fn start(self: Arc<Self>) -> Result<()> {
++        let window = dom::window()?;
+         let document = dom::document()?;
+ 
+         // keydown
+@@ -118,10 +242,59 @@ impl InputHandler for KeyboardProducer {
+             move |event: KeyboardEvent| self_clone.on_key(event, false),
+         )?;
+ 
++        // Text of marked fields
++        let self_clone = self.clone();
++        let beforeinput = dom::document_register_event_listener(
++            &document,
++            "beforeinput",
++            move |event: InputEvent| self_clone.on_beforeinput(event),
++        )?;
++
++        let self_clone = self.clone();
++        let compositionend = dom::document_register_event_listener(
++            &document,
++            "compositionend",
++            move |event: CompositionEvent| self_clone.on_compositionend(event),
++        )?;
++
++        // Release everything when the page loses the keyboard and the mouse
++        let self_clone = self.clone();
++        let blur = dom::window_register_event_listener(&window, "blur", move |_: FocusEvent| {
++            self_clone.release_all()
++        })?;
++
++        let self_clone = self.clone();
++        let visibilitychange = dom::document_register_event_listener(
++            &document,
++            "visibilitychange",
++            move |_: Event| match dom::document()?.visibility_state() {
++                web_sys::VisibilityState::Hidden => self_clone.release_all(),
++                _ => Ok(()),
++            },
++        )?;
++
++        let self_clone = self.clone();
++        let pointerlockchange = dom::document_register_event_listener(
++            &document,
++            "pointerlockchange",
++            move |_: Event| match dom::document()?.pointer_lock_element() {
++                None => self_clone.release_all(),
++                Some(_) => Ok(()),
++            },
++        )?;
++
+         // Store closures
+         {
+             let mut closures = self.closures.lock()?;
+-            *closures = Some(Closures { keydown, keyup });
++            *closures = Some(Closures {
++                keydown,
++                keyup,
++                beforeinput,
++                compositionend,
++                blur,
++                visibilitychange,
++                pointerlockchange,
++            });
+         }
+ 
+         Ok(())
+@@ -131,22 +304,27 @@ impl InputHandler for KeyboardProducer {
+         let mut closures = self.closures.lock()?;
+         let closures = closures.take().ok_or(crate::Error::Rejected)?;
+ 
++        let window = dom::window()?;
+         let document = dom::document()?;
+ 
+-        document.remove_event_listener_with_callback(
+-            "keydown",
+-            closures.keydown.as_ref().unchecked_ref(),
+-        )?;
+-        document.remove_event_listener_with_callback(
+-            "keyup",
+-            closures.keyup.as_ref().unchecked_ref(),
+-        )?;
++        let document_listeners: [(&str, &JsValue); 6] = [
++            ("keydown", closures.keydown.as_ref()),
++            ("keyup", closures.keyup.as_ref()),
++            ("beforeinput", closures.beforeinput.as_ref()),
++            ("compositionend", closures.compositionend.as_ref()),
++            ("visibilitychange", closures.visibilitychange.as_ref()),
++            ("pointerlockchange", closures.pointerlockchange.as_ref()),
++        ];
++        for (type_, listener) in document_listeners {
++            document.remove_event_listener_with_callback(type_, listener.unchecked_ref())?;
++        }
++        window.remove_event_listener_with_callback("blur", closures.blur.as_ref().unchecked_ref())?;
+ 
+         Ok(())
+     }
+ 
+     fn produced_types(self: Arc<Self>) -> Option<Vec<InputType>> {
+-        Some(vec![InputType::Keyboard])
++        Some(vec![InputType::Keyboard, InputType::Unicode])
+     }
+ 
+     fn to_consumer(self: Arc<Self>) -> Option<InputConsumerHandle> {

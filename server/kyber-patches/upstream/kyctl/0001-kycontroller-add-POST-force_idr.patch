@@ -1,0 +1,156 @@
+From fc1c77144b94eb5648c4bc05702f7b38952e7e10 Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:26:57 +0200
+Subject: [PATCH] kycontroller: add POST /force_idr
+
+A client whose decoder lost a reference picture (packets lost beyond
+what the FEC repairs) has no way to recover quickly: with intra refresh,
+the default, the encoder never sends a keyframe on its own. Some
+decoders (VLC) go on with a damaged picture that heals itself over the
+refresh period; others (VideoToolbox) reject every following frame and
+the picture stays frozen.
+
+Add POST /force_idr, with the same authentication and scope as
+/set_bitrate: it forces a keyframe on the video streams of the session
+that asks, with the mechanism already used when a relay lags behind.
+Requests are rate-limited per session: within 150 ms of the last forced
+keyframe, a request is ignored (still answered 200, the keyframe is on
+its way) and logged at debug level. Without the limit, a client losing
+packets continuously would get a keyframe per round trip, and every
+client of a shared stream would pay for them.
+---
+ kycontroller/src/controller.rs |  3 ++
+ kycontroller/src/main.rs       | 73 +++++++++++++++++++++++++++++++++-
+ 2 files changed, 74 insertions(+), 2 deletions(-)
+
+diff --git a/kycontroller/src/controller.rs b/kycontroller/src/controller.rs
+index ccf490e..906defa 100644
+--- a/kycontroller/src/controller.rs
++++ b/kycontroller/src/controller.rs
+@@ -104,6 +104,8 @@ pub(crate) struct ClientSession {
+ 
+     pub session: Option<StreamingSession>,
+     pub services: Arc<AsyncMutex<StreamingServices>>,
++    /// When this session last forced a keyframe (`POST /force_idr`).
++    pub(crate) last_force_idr: Option<std::time::Instant>,
+ }
+ 
+ impl ClientSession {
+@@ -140,6 +142,7 @@ impl ClientSession {
+             auth_tokens: ClientAuthTokens::generate(),
+             session: None,
+             services: Default::default(),
++            last_force_idr: None,
+         }
+     }
+ }
+diff --git a/kycontroller/src/main.rs b/kycontroller/src/main.rs
+index 9a65dad..a46a3ca 100644
+--- a/kycontroller/src/main.rs
++++ b/kycontroller/src/main.rs
+@@ -24,6 +24,7 @@ use std::net::SocketAddr;
+ use std::path::PathBuf;
+ use std::process::ExitCode;
+ use std::sync::Arc;
++use std::time::{Duration, Instant};
+ 
+ use actix_session::SessionMiddleware;
+ use actix_session::storage::CookieSessionStore;
+@@ -31,7 +32,7 @@ use actix_web::{
+     App, HttpMessage, HttpRequest, HttpResponse, HttpServer, cookie, get, middleware, post, web,
+ };
+ use clap::Parser;
+-use log::{error, info, warn};
++use log::{debug, error, info, warn};
+ use log4ky::notice;
+ use serde::Deserialize;
+ use session::identity::Identity;
+@@ -581,6 +582,73 @@ pub(crate) async fn set_bitrate(
+     HttpResponse::Ok().finish()
+ }
+ 
++/// Shortest time between two keyframes forced for one session. A
++/// client that keeps losing packets would otherwise get an IDR per round trip,
++/// and on a shared stream every other client would pay for them too.
++const FORCE_IDR_MIN_INTERVAL: Duration = Duration::from_millis(150);
++
++/// The client's decoder lost a reference picture (packets lost
++/// beyond FEC). Under intra-refresh (the default) the encoder never sends a
++/// keyframe on its own, so the client asks for one. Same scoping as
++/// `set_bitrate`: only this session's video streams; the dispatcher collapses
++/// concurrent requests. A request within `FORCE_IDR_MIN_INTERVAL` of the last
++/// forced keyframe is ignored (still 200: the keyframe is on its way).
++#[post("/force_idr")]
++pub(crate) async fn force_idr(ctrl: web::Data<Controller>, user: Identity) -> HttpResponse {
++    let Ok(uid) = user.uid() else {
++        return HttpResponse::Unauthorized().finish();
++    };
++
++    // Checked and recorded under the sessions lock: of two concurrent
++    // requests, only one gets through.
++    let now = Instant::now();
++    let services = ctrl.with_session(&uid, |s| {
++        let recent = s
++            .last_force_idr
++            .is_some_and(|last| now.saturating_duration_since(last) < FORCE_IDR_MIN_INTERVAL);
++        if !recent {
++            s.last_force_idr = Some(now);
++        }
++        Ok((!recent).then(|| s.services.clone()))
++    });
++    let services = match services {
++        Ok(Some(s)) => s,
++        Ok(None) => {
++            debug!(
++                "Keyframe request ignored: one was forced less than {FORCE_IDR_MIN_INTERVAL:?} ago"
++            );
++            return HttpResponse::Ok().finish();
++        }
++        Err(err) => {
++            warn!("Session not found: {err}");
++            return HttpResponse::Forbidden().finish();
++        }
++    };
++
++    let mut services = services.lock().await;
++    debug!("Keyframe requested by the client");
++
++    if !services.video_subscriptions.is_empty() {
++        let av_services_manager = ctrl.av_services_manager.lock().await;
++        for sub in &services.video_subscriptions {
++            let Some(stream) = av_services_manager.video_streams.get(sub.key()) else {
++                continue;
++            };
++            if let Err(err) = stream.avservice.video_force_idr() {
++                warn!("Failed to force IDR: {err:?}");
++            }
++        }
++    } else {
++        for avserver in &mut services.video {
++            if let Err(err) = avserver.video_force_idr().await {
++                warn!("Failed to force IDR: {err:?}");
++            }
++        }
++    }
++
++    HttpResponse::Ok().finish()
++}
++
+ fn create_listening_socket(config: &config::Config) -> std::io::Result<std::net::TcpListener> {
+     use socket2::{Domain, Protocol, Socket, Type};
+     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+@@ -773,7 +841,8 @@ async fn real_main(config: config::Config) -> Result<()> {
+                 .service(websocket_service)
+                 .service(enumerate_displays)
+                 .service(stop_streaming)
+-                .service(set_bitrate);
++                .service(set_bitrate)
++                .service(force_idr);
+ 
+             if let Some(webclient_root) = &webclient_root {
+                 app.service(web::redirect("/webclient", "/webclient/"))
+
+base-commit: 92c632f9e889917a34aaa7697fb88b4991054b1c
+-- 
+2.54.0 (Apple Git-157)
+

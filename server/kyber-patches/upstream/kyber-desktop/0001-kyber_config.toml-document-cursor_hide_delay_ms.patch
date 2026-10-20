@@ -1,0 +1,37 @@
+From a344b5b65ecb8bf9be749040ad52d3a50e98313c Mon Sep 17 00:00:00 2001
+From: Matthieu Requenna | MonsieurNours <matthieu.requenna@live.fr>
+Date: Wed, 21 Oct 2026 00:27:08 +0200
+Subject: [PATCH] kyber_config.toml: document cursor_hide_delay_ms
+
+Document the [kyavserver] cursor_hide_delay_ms setting added by
+"kyavservice/txproto: add a cursor_hide_delay_ms setting".
+---
+ kyber_config.toml | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/kyber_config.toml b/kyber_config.toml
+index 53b2d77..e6f895c 100644
+--- a/kyber_config.toml
++++ b/kyber_config.toml
+@@ -125,6 +125,16 @@
+ # Default: 5 mbps
+ #minimum_bitrate = 5000000
+ 
++# Delay before telling clients that the host cursor is hidden, in ms
++#
++# Windows hides the cursor for a few frames at each key press ("Hide pointer
++# while typing") or shape change: clients blink their pointer and may switch
++# to relative mouse mode and back. About 250 ms avoids it.
++# Only supported with the txproto backend on Windows.
++#
++# Default: 0 (hides are sent right away)
++#cursor_hide_delay_ms = 0
++
+ #[kyavserver.watermark]
+ # Configure the watermark overlay
+ #
+
+base-commit: 0cf0d039e6899befe5aefbe016224f6a183d4740
+-- 
+2.54.0 (Apple Git-157)
+

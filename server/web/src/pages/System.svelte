@@ -490,6 +490,7 @@
       {@const backend = field('video.backend')}
       {@const intra = field('video.intra_refresh')}
       {@const listen = field('network.listen_mode')}
+      {@const sendQueue = field('network.datagram_send_queue')}
       {#if encoder?.kind.type === 'enum'}
         <div class="set">
           <div><label class="title" for="enc">Encodeur</label><p>{choiceHint('video.encoder')}</p></div>
@@ -528,6 +529,12 @@
         <div class="set">
           <div><h3>{listen.label}</h3><p>{choiceHint('network.listen_mode')}</p></div>
           <Segmented label={listen.label} options={listen.kind.options} value={value<string>('network.listen_mode')} onchange={(v) => setValues({ 'network.listen_mode': v })} />
+        </div>
+      {/if}
+      {#if sendQueue?.kind.type === 'enum'}
+        <div class="set">
+          <div><h3>{sendQueue.label}</h3><p>{choiceHint('network.datagram_send_queue')}</p></div>
+          <Segmented label={sendQueue.label} options={sendQueue.kind.options} value={value<string>('network.datagram_send_queue')} onchange={(v) => setValues({ 'network.datagram_send_queue': v })} />
         </div>
       {/if}
       {#each ['auth.basic_enabled', 'auth.jwt_enabled'] as id (id)}
