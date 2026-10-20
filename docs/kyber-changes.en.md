@@ -25,7 +25,9 @@ KyberNow is built on Kyber 0.29 (AGPL-3.0, sources in `third_party/kyber-desktop
 - **macOS client**: `apps/macos/scripts/build-kyclient.sh` applies each patch to the repository named by its file (`*-kyclient-*`: `kysdk/kyctl`, `*-kynput-*`: `kysdk/kynput`, `*-kynet-*`: `kysdk/kymux`), rebuilds libkynput and libkyclient (`cargo cinstall`) and replaces them in `apps/macos/Vendor/`.
 - **Apple TV client**: `apps/tvos/scripts/build-kyber-tvos.sh` applies the same patches, builds libkynput (without SDL: gamepads go through GameController), libkyclient and libopus as static libraries for Apple TV and its simulator (Rust nightly, `-Zbuild-std`), adds empty functions for the libvlc calls (never reached: image and sound go to the app) and puts everything into `apps/tvos/Vendor/KyberSDK.xcframework`.
 
-Adding a patch: change the sources in `third_party/kyber-desktop`, then save the difference here. For the server, a `NNNN-sujet.patch` file in `diff -u` format (paths `a/…` and `b/…` relative to `kysdk/kymedia`). For the client, `git -C kysdk/kyctl diff -- kyclient` or `git -C kysdk/kynput diff -- kynput`, in a file named after the repository (`NNNN-kyclient-…`, `NNNN-kynput-…`). Then complete the table above, in both languages.
+The three scripts stop at the first error (patch that does not apply, failed build) without replacing anything, and report a toolchain different from the checked one: see [build-notes.en.md](build-notes.en.md#build-scripts-real-failure).
+
+Adding a patch: change the sources in `third_party/kyber-desktop`, then save the difference here. For the server, a `NNNN-sujet.patch` file in `diff -u` format (paths `a/…` and `b/…` relative to the target repository: `kysdk/kymedia`, `kysdk/kyctl` for `*-kycontroller-*`, `kysdk/kymux` for `*-kynet-*`), made against the original plus the earlier patches, since several of them touch the same files. For the client, `git -C kysdk/kyctl diff -- kyclient` or `git -C kysdk/kynput diff -- kynput`, in a file named after the repository (`NNNN-kyclient-…`, `NNNN-kynput-…`). Then complete the table above, in both languages.
 
 ## Handled without changing Kyber's code
 

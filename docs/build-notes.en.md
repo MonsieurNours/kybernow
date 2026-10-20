@@ -2,6 +2,31 @@
 
 English · [Français](build-notes.md)
 
+## Tool versions
+
+KyberNow's Kyber binaries (server overlay, Mac and Apple TV app libraries) are built and checked with these versions. They are written in `scripts/kyber-toolchain.sh`, read by the three build scripts: a different version stops nothing, it is reported at the start ("Attention : rustc 1.90.0, versions vérifiées : 1.89.0"). After a checked update, change both places.
+
+| Tool | Version | For |
+|---|---|---|
+| Rust stable (`rustc`) | 1.89.0, target `x86_64-pc-windows-gnu` | Windows server, macOS client |
+| Rust nightly | of 2026-10-19 (1.101.0), `rust-src` component | Apple TV client (`-Zbuild-std`) |
+| cargo-c (`cargo cinstall`) | 0.10.15 | macOS and Apple TV clients |
+| mingw-w64 (Homebrew) | 14.0.0, GCC 16.2.0, UCRT | Windows server |
+| meson | 1.11.2 | Windows server (dependencies, txproto) |
+
+Kyber's repositories have no `rust-toolchain.toml`: rustup's default toolchain does the build.
+
+## Build scripts: real failure
+
+`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh` and `apps/tvos/scripts/build-kyber-tvos.sh` stop at the first error and then replace nothing (overlay, `Vendor/`):
+
+- **cargo**: its output is filtered (progress lines removed) without the filter deciding the exit code (`set -o pipefail`). Before, `| grep … || true` hid a failed build and the old binary went into the overlay.
+- **Stale binary**: `build.sh` refuses `kyavserver.exe`, `libtxproto-0.dll` and `kycontroller.exe` if they are older than its start (it resets the sources every time, so they are always rebuilt). `cargo cinstall` keeps the date of the library already built: the client scripts instead remove the library installed by a previous build before compiling, and the copy fails if this build did not install it again.
+- **Patch that does not apply**: the rejected hunk is shown (`patch -r -` for the server, `git apply --check` for the clients).
+- **Patch that adds a file**: `build.sh` resets each file of the server patches to the original, one by one; a file missing from the original is deleted instead of restored. No `git checkout -- .`: `kysdk/kyctl` and `kysdk/kymux` also carry the app patches.
+- **Worktree**: `third_party/` (outside git) can be a link there to the main checkout's. The scripts use its real path (`pwd -P`): meson and cargo record the sources' absolute paths, and another path makes them reconfigure and rebuild everything.
+- **App open**: `build-kyclient.sh` refuses to run while KyberNow is open (`pgrep -x KyberNow`), at the start and right before copying into `Vendor/` (see "Embedding the libraries in the app without crashing it" below).
+
 ## Kyber 0.29 macOS client (kyber-desktop) with Xcode 27
 
 **Symptom**: the final link of `kyclient` fails:
@@ -49,7 +74,7 @@ The Kyber web client works in Chrome. In Safari, the screen stays black (WebKit 
 
 ## Kyber 0.29 server for Windows (kyavserver), from macOS
 
-`server/kyber-patches/build.sh` runs everything in sequence. Pitfalls met with Homebrew's MinGW toolchain:
+`server/kyber-patches/build.sh` runs everything in sequence (versions: see above). Pitfalls met with Homebrew's MinGW toolchain:
 
 - **luac**: txproto compiles its Lua scripts during the build and wanted to run `luac.exe`. You need a native `luac` 5.4 in the PATH (`brew install lua@5.4`); the bytecode is the same (64-bit, little-endian).
 - **Jinja**: the libplacebo archive does not include its submodules. Copy `jinja2` and `markupsafe` (pip wheels) into `subprojects/libplacebo-*/3rdparty/{jinja,markupsafe}/src`.

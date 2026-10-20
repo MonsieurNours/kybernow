@@ -16,16 +16,23 @@
 #
 # Sortie : Vendor/include (en-têtes, module.modulemap) et
 # Vendor/KyberSDK.xcframework (une bibliothèque statique par plateforme).
+# S'arrête à la première erreur (correctif inapplicable, compilation ratée)
+# sans toucher à Vendor/. Versions vérifiées : scripts/kyber-toolchain.sh (une
+# autre est signalée).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-KYBER="$ROOT/third_party/kyber-desktop"
+# Chemin réel de third_party/ (un lien dans un worktree) : meson et cargo
+# gardent ainsi leurs dossiers de build, liés au chemin absolu des sources.
+THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_party/ introuvable (docs/build-notes.md)" >&2; exit 1; }
+KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
 OPUS_SRC="$KYSDK/kymedia/subprojects/opus-1.6.1"
 OUT="$HERE/Vendor"
 WORK="$HERE/build/sdk"
 DEPLOYMENT=18.0
+. "$ROOT/scripts/kyber-toolchain.sh"
 
 [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 [ -d "$OPUS_SRC" ] || { echo "Sources d'Opus introuvables : $OPUS_SRC" >&2; exit 1; }
@@ -34,6 +41,13 @@ export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 rustup run nightly rustc --version >/dev/null 2>&1 || {
     echo "Rust nightly manquant : rustup toolchain install nightly --profile minimal --component rust-src" >&2
     exit 1
+}
+kyber_toolchain_check nightly cargo-c
+
+# Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
+# retour reste celui de cargo.
+cargo_quiet() {
+    "$@" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; }
 }
 
 # Mêmes correctifs que l'app Mac (image et son vers l'app, presse-papiers,
@@ -48,7 +62,9 @@ for patch in "$ROOT"/apps/macos/kyber-patches/*.patch; do
     if git -C "$repo" apply --check "$patch" 2>/dev/null; then
         git -C "$repo" apply "$patch" && echo "==> $(basename "$patch") appliqué"
     elif ! git -C "$repo" apply --reverse --check "$patch" 2>/dev/null; then
-        echo "Correctif $(basename "$patch") inapplicable" >&2; exit 1
+        echo "Correctif $(basename "$patch") inapplicable :" >&2
+        git -C "$repo" apply --check "$patch" >&2 || true
+        exit 1
     fi
 done
 
@@ -64,12 +80,16 @@ build_platform() {
     mkdir -p "$prefix"
     export PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig"
 
+    # cargo cinstall garde la date de la bibliothèque déjà compilée : on retire
+    # celles d'un build précédent pour ne lier que ce que ce build a installé.
+    rm -f "$prefix/lib/libkyclient.a" "$prefix/lib/libkynput.a"
+
     echo "==> libkynput ($target)"
-    (cd "$KYSDK/kynput" && cargo +nightly cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
-        --release --library-type=staticlib --prefix="$prefix" 2>&1 | grep -E "^error|Finished" || true)
+    (cd "$KYSDK/kynput" && cargo_quiet cargo +nightly cinstall -p kynput --target="$target" -Zbuild-std=std,panic_abort \
+        --release --library-type=staticlib --prefix="$prefix")
     echo "==> libkyclient ($target)"
-    (cd "$KYSDK/kyctl" && cargo +nightly cinstall -p kyclient --target="$target" -Zbuild-std=std,panic_abort \
-        --release --library-type=staticlib --prefix="$prefix" --features=kymux,rtp 2>&1 | grep -E "^error|Finished" || true)
+    (cd "$KYSDK/kyctl" && cargo_quiet cargo +nightly cinstall -p kyclient --target="$target" -Zbuild-std=std,panic_abort \
+        --release --library-type=staticlib --prefix="$prefix" --features=kymux,rtp)
     [ -f "$prefix/lib/libkyclient.a" ] && [ -f "$prefix/lib/libkynput.a" ] || { echo "Échec de la compilation Rust ($target)" >&2; exit 1; }
 
     echo "==> libopus ($target)"
