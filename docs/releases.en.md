@@ -26,6 +26,7 @@ One version number for all of KyberNow: the console, the icon, the installer and
 - It then restarts the services. The new console relaunches the icon in the user's session, with their account (file `update\relaunch-tray`). The page updates by itself.
 - Duration: about one minute. A streaming session in progress is cut. Log: `C:\ProgramData\KyberNow\update\<version>\update.log`.
 - The console watches the installation's PowerShell. If it stops while the console is still running (a step failed), the console says so: Updates page, end of the log, and "Install" can be used again. Before 0.2.2, the console stayed on "an installation is already in progress" until it restarted.
+- PowerShell runs `update\<version>\lancement.ps1` (written by the console) with a hidden console; its output goes to `lancement.log`, to read when `update.log` does not exist. The 0.2.0 console launched it with no console and no output: it could stop before writing its log (only the zip was left in the folder). In that case, update by hand with `update.ps1`.
 
 **The computer, by hand** (administrator PowerShell):
 

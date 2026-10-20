@@ -7,7 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.2
 
-- Console : une mise à jour qui s'arrête en route ne bloque plus le bouton « Installer » (« une installation est déjà en cours ») ; la page Mises à jour montre la fin du journal de l'installation. Décompression et téléchargement de la mise à jour plus rapides (PowerShell sans barre de progression).
+- Console : une mise à jour qui s'arrête en route ne bloque plus le bouton « Installer » (« une installation est déjà en cours ») ; la page Mises à jour montre la fin du journal de l'installation. Décompression et téléchargement de la mise à jour plus rapides (PowerShell sans barre de progression). Depuis la 0.2.0, la mise à jour lancée par la console pouvait ne jamais démarrer : PowerShell est maintenant lancé avec une console cachée, et sa sortie est gardée.
 
 ## 0.2.1
 

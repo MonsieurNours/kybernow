@@ -6,7 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.2
 
-- Console: an update that stops partway no longer blocks the "Install" button ("an installation is already in progress"); the Updates page shows the end of the installation log. Faster unpacking and download of the update (PowerShell without a progress bar).
+- Console: an update that stops partway no longer blocks the "Install" button ("an installation is already in progress"); the Updates page shows the end of the installation log. Faster unpacking and download of the update (PowerShell without a progress bar). Since 0.2.0, an update started from the console could never start: PowerShell is now launched with a hidden console, and its output is kept.
 
 ## 0.2.1
 

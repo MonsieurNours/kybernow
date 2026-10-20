@@ -95,10 +95,15 @@ impl Updater {
         let Ok(Some(exit)) = child.try_wait() else { return };
         let version = s.installing.take().unwrap_or_default();
         s.child = None;
-        let log = self.dir.join(&version).join("update.log");
+        let dir = self.dir.join(&version);
+        let log = dir.join("update.log");
+        // Sans journal, la sortie de PowerShell dit pourquoi il n'a pas démarré.
+        let log = if log.exists() { log } else { dir.join("lancement.log") };
         let tail = std::fs::read_to_string(&log)
             .map(|t| t.lines().rev().filter(|l| !l.trim().is_empty()).take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
-            .unwrap_or_else(|_| "journal absent : PowerShell n'a pas démarré".into());
+            .ok()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| "aucune sortie : PowerShell s'est arrêté avant d'écrire".into());
         tracing::error!("mise à jour {version} interrompue ({exit}) :\n{tail}");
         s.install_error = Some(format!("L'installation de {version} s'est arrêtée ({exit}). Journal : {}\n{tail}", log.display()));
     }
@@ -242,33 +247,59 @@ fn fetch_latest() -> Result<Release> {
 
 /// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
 /// exécute le `update.ps1` du paquet.
+///
+/// Le script est écrit dans `lancement.ps1` (aucun guillemet à faire passer
+/// par la ligne de commande). PowerShell reçoit une console cachée et une
+/// sortie dans `lancement.log` : lancé depuis un service sans console ni
+/// sortie valide (DETACHED_PROCESS, console 0.2.0), il pouvait quitter avant
+/// d'écrire la moindre ligne.
 #[cfg(windows)]
 fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    use std::process::Stdio;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let out = dir.join("contenu");
     let log = dir.join("update.log");
+    let launcher = dir.join("lancement.ps1");
+    // Sans barre de progression : Expand-Archive de PowerShell 5 en est
+    // plusieurs fois plus lent. Toute erreur finit dans le journal.
     let script = format!(
-        // Sans barre de progression : Expand-Archive de PowerShell 5 en est
-        // plusieurs fois plus lent. Toute erreur finit dans le journal.
-        "$ProgressPreference = 'SilentlyContinue'; Start-Transcript -Path '{log}' -Force; try {{ Expand-Archive -Path '{zip}' -DestinationPath '{out}' -Force; & '{out}\\update.ps1' -Source '{out}' }} catch {{ Write-Output \"ERREUR : $($_.Exception.Message)\"; Write-Output $_.ScriptStackTrace; exit 1 }} finally {{ Stop-Transcript }}",
+        "$ProgressPreference = 'SilentlyContinue'\r\n\
+         Start-Transcript -Path '{log}' -Force\r\n\
+         try {{\r\n\
+         \x20   Expand-Archive -Path '{zip}' -DestinationPath '{out}' -Force\r\n\
+         \x20   & '{out}\\update.ps1' -Source '{out}'\r\n\
+         }} catch {{\r\n\
+         \x20   Write-Output \"ERREUR : $($_.Exception.Message)\"\r\n\
+         \x20   Write-Output $_.ScriptStackTrace\r\n\
+         \x20   exit 1\r\n\
+         }} finally {{\r\n\
+         \x20   Stop-Transcript\r\n\
+         }}\r\n",
         log = log.display(),
         zip = zip.display(),
         out = out.display(),
     );
-    let mut cmd = std::process::Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
-    // Hors du « job » du service s'il y en a un : sinon l'arrêt de la console l'emporterait.
-    match cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB).spawn() {
-        Ok(child) => Ok(child),
-        Err(_) => std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
-            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+    std::fs::write(&launcher, script).context("écriture de lancement.ps1")?;
+    let output = std::fs::File::create(dir.join("lancement.log")).context("création de lancement.log")?;
+    let spawn = |flags: u32| -> std::io::Result<std::process::Child> {
+        std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&launcher)
+            .stdin(Stdio::null())
+            .stdout(output.try_clone()?)
+            .stderr(output.try_clone()?)
+            .creation_flags(flags)
             .spawn()
-            .context("lancement de PowerShell"),
-    }
+    };
+    // Hors du « job » du service s'il y en a un : sinon l'arrêt de la console l'emporterait.
+    let child = spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
+        .or_else(|_| spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP))
+        .context("lancement de PowerShell")?;
+    tracing::info!("mise à jour : PowerShell lancé (processus {})", child.id());
+    Ok(child)
 }
 
 #[cfg(not(windows))]
