@@ -58,13 +58,24 @@ fn main() -> wry::Result<()> {
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
-    let window = WindowBuilder::new()
+    let builder = WindowBuilder::new()
         .with_title("Installation de KyberNow")
         .with_inner_size(LogicalSize::new(1100.0, 700.0))
         .with_resizable(false)
-        .with_decorations(false)
-        .build(&event_loop)
-        .expect("création de la fenêtre");
+        .with_decorations(false);
+    // L'ombre de tao réserve autour de la fenêtre une bande de cadre que
+    // Windows peint en clair : on la fait nous-mêmes, sans bande (frame).
+    #[cfg(windows)]
+    let builder = {
+        use tao::platform::windows::WindowBuilderExtWindows;
+        builder.with_undecorated_shadow(false)
+    };
+    let window = builder.build(&event_loop).expect("création de la fenêtre");
+    #[cfg(windows)]
+    {
+        use tao::platform::windows::WindowExtWindows;
+        frame(window.hwnd() as _);
+    }
 
     let (tx, rx) = mpsc::channel::<String>();
     spawn_backend(rx, proxy.clone(), payload);
@@ -76,7 +87,7 @@ fn main() -> wry::Result<()> {
         .with_ipc_handler(move |req: Request<String>| {
             let _ = tx.send(req.body().clone());
         })
-        .with_background_color((13, 17, 23, 255))
+        .with_background_color((5, 7, 10, 255))
         .with_devtools(cfg!(debug_assertions))
         .with_url(url)
         .build(&window)?;
@@ -184,4 +195,23 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
             }
         }
     });
+}
+
+/// Habillage de Windows 11 sans cadre : coins arrondis, liseré sombre, et
+/// l'ombre de la fenêtre (une marge d'un pixel étendue dans la zone cliente,
+/// recouverte par la vue web).
+#[cfg(windows)]
+fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
+    use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
+    use windows_sys::Win32::UI::Controls::MARGINS;
+    let corner: u32 = 2; // DWMWCP_ROUND
+    let border: u32 = 0x0042_372B; // #2B3742 (COLORREF : 0x00BBGGRR)
+    let dark: u32 = 1;
+    let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1 };
+    unsafe {
+        DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, (&dark as *const u32).cast(), 4);
+        DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, (&corner as *const u32).cast(), 4);
+        DwmSetWindowAttribute(hwnd, 34 /* DWMWA_BORDER_COLOR */, (&border as *const u32).cast(), 4);
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
+    }
 }

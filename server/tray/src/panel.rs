@@ -14,7 +14,8 @@ use tao::event_loop::{EventLoopProxy, EventLoopWindowTarget};
 use tao::platform::windows::{WindowBuilderExtWindows, WindowExtWindows};
 use tao::window::{Window, WindowBuilder, WindowId};
 use windows_sys::Win32::Foundation::{POINT, RECT};
-use windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute;
+use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute};
+use windows_sys::Win32::UI::Controls::MARGINS;
 use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint};
 use wry::http::{Request, Response, header::CONTENT_TYPE};
 use wry::{WebContext, WebView, WebViewBuilder};
@@ -61,15 +62,13 @@ impl Panel {
             .with_decorations(false)
             .with_always_on_top(true)
             .with_skip_taskbar(true)
-            .with_undecorated_shadow(true)
+            // L'ombre de tao réserve autour de la fenêtre une bande de cadre
+            // que Windows peint en clair : on la fait nous-mêmes, sans bande.
+            .with_undecorated_shadow(false)
             .with_visible(false)
             .build(target)
             .context("fenêtre du panneau")?;
-        // Coins arrondis de Windows 11 (sans effet sur Windows 10).
-        let corner: u32 = 2; // DWMWCP_ROUND
-        unsafe {
-            DwmSetWindowAttribute(window.hwnd() as _, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, (&corner as *const u32).cast(), 4);
-        }
+        frame(window.hwnd() as _);
 
         let data = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)
@@ -130,6 +129,10 @@ impl Panel {
         }
         self.height = height;
         self.window.set_inner_size(LogicalSize::new(WIDTH, height));
+        let _ = self.webview.set_bounds(wry::Rect {
+            position: tao::dpi::LogicalPosition::new(0.0, 0.0).into(),
+            size: LogicalSize::new(WIDTH, height).into(),
+        });
         if self.window.is_visible() {
             self.place();
         }
@@ -173,5 +176,21 @@ fn work_area(x: i32, y: i32) -> RECT {
         info.cbSize = size_of::<MONITORINFO>() as u32;
         GetMonitorInfoW(monitor, &mut info);
         info.rcWork
+    }
+}
+
+/// Habillage de Windows 11 sans cadre : coins arrondis, liseré sombre, et
+/// l'ombre de la fenêtre (une marge d'un pixel étendue dans la zone cliente,
+/// recouverte par la vue web). Sans effet visible sur Windows 10, hors l'ombre.
+pub fn frame(hwnd: windows_sys::Win32::Foundation::HWND) {
+    let corner: u32 = 2; // DWMWCP_ROUND
+    let border: u32 = 0x0042_372B; // #2B3742 (COLORREF : 0x00BBGGRR)
+    let dark: u32 = 1;
+    let margins = MARGINS { cxLeftWidth: 0, cxRightWidth: 0, cyTopHeight: 0, cyBottomHeight: 1 };
+    unsafe {
+        DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, (&dark as *const u32).cast(), 4);
+        DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, (&corner as *const u32).cast(), 4);
+        DwmSetWindowAttribute(hwnd, 34 /* DWMWA_BORDER_COLOR */, (&border as *const u32).cast(), 4);
+        DwmExtendFrameIntoClientArea(hwnd, &margins);
     }
 }
