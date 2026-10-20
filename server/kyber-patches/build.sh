@@ -12,6 +12,8 @@
 #   0005  image clé à la demande : POST /force_idr sur kycontroller (le client
 #         la demande quand il a perdu une référence)
 #   0006  pointeur : ses déplacements aussi (position seule, 60 par seconde au plus)
+#   0007  envoi de l'image : files de datagrammes QUIC et mémoires UDP de 8 Mo
+#         (quinn jetait les plus anciens morceaux d'une grosse image)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans
@@ -25,6 +27,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 KYMEDIA="$ROOT/third_party/kyber-desktop/kysdk/kymedia"
 KYCTL="$ROOT/third_party/kyber-desktop/kysdk/kyctl"
+KYMUX="$ROOT/third_party/kyber-desktop/kysdk/kymux"
 ROOTFS="$ROOT/third_party/rootfs-win64"
 OVERLAY="$ROOT/third_party/payload/kyber-overlay"
 MINGW=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/x86_64-w64-mingw32
@@ -44,8 +47,9 @@ export BINDGEN_EXTRA_CLANG_ARGS="--target=x86_64-pc-windows-gnu --sysroot=$MINGW
 echo "==> Correctifs"
 # Les correctifs se suivent et touchent parfois les mêmes fichiers : on part
 # toujours des sources d'origine, puis on les applique tous, dans l'ordre.
-# Ceux nommés *-kycontroller-* visent kysdk/kyctl, les autres kysdk/kymedia.
-repo_of() { case "$(basename "$1")" in *-kycontroller-*) echo "$KYCTL" ;; *) echo "$KYMEDIA" ;; esac; }
+# Ceux nommés *-kycontroller-* visent kysdk/kyctl, *-kynet-* kysdk/kymux,
+# les autres kysdk/kymedia.
+repo_of() { case "$(basename "$1")" in *-kycontroller-*) echo "$KYCTL" ;; *-kynet-*) echo "$KYMUX" ;; *) echo "$KYMEDIA" ;; esac; }
 for p in "$HERE"/*.patch; do
     repo=$(repo_of "$p")
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do

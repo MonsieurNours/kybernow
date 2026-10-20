@@ -1,8 +1,17 @@
 diff --git a/kynet/src/driver/quinn.rs b/kynet/src/driver/quinn.rs
-index 14ed2dd..82b82e6 100644
+index 14ed2dd..9d3085c 100644
 --- a/kynet/src/driver/quinn.rs
 +++ b/kynet/src/driver/quinn.rs
-@@ -110,12 +110,36 @@ impl QuinnConnectionDriver {
+@@ -102,6 +102,8 @@ impl QuinnConnectionDriver {
+                 .map_err(|_| ConnectionError("Invalid max_idle_timeout".to_string()))?,
+         );
+         transport_config.keep_alive_interval(options.keep_alive_interval);
++        // Room for a whole 4K frame burst before quinn drops datagrams.
++        transport_config.datagram_receive_buffer_size(Some(8 << 20));
+         config.transport_config(Arc::new(transport_config));
+ 
+         let bind_ip_addr = match &addr {
+@@ -110,12 +112,36 @@ impl QuinnConnectionDriver {
          };
  
          let bind_addr = SocketAddr::new(bind_ip_addr, 0);
