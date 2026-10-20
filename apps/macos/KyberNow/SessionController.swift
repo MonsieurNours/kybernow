@@ -441,6 +441,11 @@ final class SessionController: NSObject, ObservableObject {
                 // Kyber a redémarré sur l'ordinateur : l'écran virtuel a pu
                 // partir avec lui. On le redemande à la console avant l'image.
                 restoreScreen()
+            } else if streaming == nil {
+                // Image arrêtée par l'app juste avant la coupure (relance après
+                // une image clé perdue) : Kyber ne la relance pas, l'app si.
+                KyberLog.app.notice("reconnecté sans image : relance")
+                chooseDisplay()
             } else if streamingFallback != fallback {
                 // Repli décidé pendant la coupure : Kyber a relancé l'ancien flux.
                 restartStreaming()

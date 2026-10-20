@@ -5,6 +5,7 @@
 #
 # 0001-kyclient : les paquets audio et vidéo vont à l'app au lieu de VLC.
 # 0002-kynput   : paquets de presse-papiers lisibles et fabriqués depuis l'app.
+# 0003-kynet    : grande mémoire de réception UDP (rafales d'une image 4K).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,6 +21,7 @@ for patch in "$HERE"/kyber-patches/*.patch; do
     case "$(basename "$patch")" in
         *-kyclient-*) repo="$KYSDK/kyctl" ;;
         *-kynput-*) repo="$KYSDK/kynput" ;;
+        *-kynet-*) repo="$KYSDK/kymux" ;;
         *) echo "Dépôt inconnu pour $(basename "$patch")" >&2; exit 1 ;;
     esac
     if git -C "$repo" apply --check "$patch" 2>/dev/null; then

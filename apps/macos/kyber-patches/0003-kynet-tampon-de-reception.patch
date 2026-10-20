@@ -1,0 +1,42 @@
+diff --git a/kynet/src/driver/quinn.rs b/kynet/src/driver/quinn.rs
+index 14ed2dd..82b82e6 100644
+--- a/kynet/src/driver/quinn.rs
++++ b/kynet/src/driver/quinn.rs
+@@ -110,12 +110,36 @@ impl QuinnConnectionDriver {
+         };
+ 
+         let bind_addr = SocketAddr::new(bind_ip_addr, 0);
+-        let endpoint = quinn::Endpoint::client(bind_addr)?;
++        let endpoint = client_endpoint(bind_addr)?;
+         let conn = endpoint.connect_with(config, addr, server_name)?.await?;
+         Ok(conn.into())
+     }
+ }
+ 
++/// Client socket with a large receive buffer. A 4K frame arrives as one burst,
++/// faster than the socket is read; the default macOS buffer (768 KB) overflows
++/// and packets are dropped before reaching QUIC.
++fn client_endpoint(bind_addr: SocketAddr) -> std::io::Result<quinn::Endpoint> {
++    use socket2::{Domain, Protocol, Socket, Type};
++    let socket = Socket::new(Domain::for_address(bind_addr), Type::DGRAM, Some(Protocol::UDP))?;
++    if bind_addr.is_ipv6() {
++        let _ = socket.set_only_v6(false);
++    }
++    for size in [8 << 20, 6 << 20, 4 << 20, 2 << 20] {
++        if socket.set_recv_buffer_size(size).is_ok() {
++            break;
++        }
++    }
++    log::info!("UDP receive buffer: {:?} bytes", socket.recv_buffer_size());
++    socket.bind(&bind_addr.into())?;
++    quinn::Endpoint::new(
++        quinn::EndpointConfig::default(),
++        None,
++        socket.into(),
++        Arc::new(quinn::TokioRuntime),
++    )
++}
++
+ #[async_trait]
+ impl ConnectionDriver for QuinnConnectionDriver {
+     async fn open_uni(&self) -> Result<SendStream, ConnectionError> {
