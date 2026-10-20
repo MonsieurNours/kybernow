@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Mac and Apple TV apps: a release refused by the input send queue (64 packets) is no longer lost silently: it is retried for up to 200 ms, and refusals are counted in the log. On the Apple TV, a stick only sends the axis that moved, in 4 ms slices: a DualSense over Bluetooth sent up to 1,500 packets per second.
 - Apple TV app: when the app goes to the background (TV button, another app, sleep), nothing stays pressed on the computer any more; on return, the gamepads pick up their real state.
 - Mac and Apple TV apps: when the bar or the menu opens, the gamepad is reset on the computer (buttons released, sticks and triggers at rest). A held trigger no longer stays pressed in the game while the menu is open; on the Apple TV, the gamepad as mouse also releases its clicks and keys, and a stick still held when the menu closes picks up right away.
 - Mac and Apple TV apps: pressing L1 + R1 + Start + Select during a reconnection or before the first frame no longer leaves the gamepad silent until the next combination. The gamepad is only taken when the bar (Mac) or the menu (Apple TV) really opens, and a picture restart no longer hands it back to the game while the menu is open.

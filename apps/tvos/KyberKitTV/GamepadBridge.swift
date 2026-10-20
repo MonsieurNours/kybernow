@@ -86,6 +86,10 @@ public final class GamepadBridge: ObservableObject {
         var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
+        /// Dernière valeur partie de chaque axe, et celles qui attendent la
+        /// prochaine tranche de 4 ms.
+        var lastAxis: [PadAxis: Int16] = [:]
+        var pendingAxes: [PadAxis: Int16] = [:]
         /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
         var comboSeen = false
         init(controller: GCController, id: UInt32, player: Int) {
@@ -358,10 +362,39 @@ public final class GamepadBridge: ObservableObject {
         input.gamepadButton(id: slot.id, button, pressed: pressed)
     }
 
+    /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
+    /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
+    /// d'un stick même si un seul a changé, et une DualSense en Bluetooth
+    /// produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
+    /// d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
+    /// relâchements. Les touches partent tout de suite, elles.
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         liveDirty = true
-        guard let input, !captured, !padMouse else { return }
-        input.gamepadAxis(id: slot.id, axis, value: value)
+        guard input != nil, !captured, !padMouse else { return }
+        guard GamepadGate.moved(from: slot.lastAxis[axis], to: value) else { return }
+        slot.lastAxis[axis] = value
+        slot.pendingAxes[axis] = value
+        scheduleAxisFlush()
+    }
+
+    private var axisFlushScheduled = false
+
+    private func scheduleAxisFlush() {
+        guard !axisFlushScheduled else { return }
+        axisFlushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.flushAxes() }
+    }
+
+    private func flushAxes() {
+        axisFlushScheduled = false
+        guard let input, !captured, !padMouse else {
+            for slot in slots.values { slot.pendingAxes.removeAll() }
+            return
+        }
+        for slot in slots.values where !slot.pendingAxes.isEmpty {
+            for (axis, value) in slot.pendingAxes { input.gamepadAxis(id: slot.id, axis, value: value) }
+            slot.pendingAxes.removeAll()
+        }
     }
 
     // MARK: - Manette en souris
@@ -527,7 +560,9 @@ public final class GamepadBridge: ObservableObject {
 
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
+        slot.pendingAxes.removeAll()
         for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {
+            slot.lastAxis[a] = 0
             input.gamepadAxis(id: slot.id, a, value: 0)
         }
     }

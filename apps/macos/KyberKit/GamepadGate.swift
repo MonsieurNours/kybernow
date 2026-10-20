@@ -36,6 +36,11 @@ final class GamepadGate: @unchecked Sendable {
     /// laisser passer, une fois chacun, pendant que l'app a la manette.
     private var allowed: [UInt32: Set<UInt32>] = [:]
     private var allowedAxes: [UInt32: Set<UInt32>] = [:]
+    /// Dernière valeur partie de chaque axe : un axe qui n'a pas bougé (au
+    /// 1/512 de la course) ne repart pas. Une manette Bluetooth bavarde
+    /// remplirait sinon la file d'envoi de kynput (64 paquets, jetés sans
+    /// retour), et avec elle les relâchements.
+    private var lastAxis: [UInt32: [UInt32: Int16]] = [:]
 
     private static let axes: [kynput_GamepadAxis] = [
         KYNPUT_GAMEPAD_AXIS_LEFT_X, KYNPUT_GAMEPAD_AXIS_LEFT_Y, KYNPUT_GAMEPAD_AXIS_RIGHT_X,
@@ -98,6 +103,7 @@ final class GamepadGate: @unchecked Sendable {
                 pressed[unplug.id] = nil
                 allowed[unplug.id] = nil
                 allowedAxes[unplug.id] = nil
+                lastAxis[unplug.id] = nil
             }
             return true
         }
@@ -109,9 +115,16 @@ final class GamepadGate: @unchecked Sendable {
             var a = kynput_GamepadEventAxis()
             guard kynput_gamepad_axis_from_packet(packet, &a) else { return !captured }
             known.insert(a.id)
+            let axis = a.type_.rawValue
             // Manette prise : seuls nos axes au repos passent, une fois chacun
             // (un vrai retour au repos arrivé avant le nôtre fait aussi bien).
-            if captured { return a.value == 0 && allowedAxes[a.id]?.remove(a.type_.rawValue) != nil }
+            if captured {
+                guard a.value == 0, allowedAxes[a.id]?.remove(axis) != nil else { return false }
+                lastAxis[a.id, default: [:]][axis] = 0
+                return true
+            }
+            guard Self.moved(from: lastAxis[a.id]?[axis], to: a.value) else { return false }
+            lastAxis[a.id, default: [:]][axis] = a.value
             return true
         }
         guard event == KYNPUT_GAMEPAD_EVENT_ID_BUTTON else { return !captured }
@@ -135,6 +148,13 @@ final class GamepadGate: @unchecked Sendable {
             DispatchQueue.main.async { [weak self] in self?.onNavigate?(key) }
         }
         return false
+    }
+
+    /// Changement au 1/512 de la course ; un retour exact au repos passe toujours.
+    static func moved(from last: Int16?, to value: Int16) -> Bool {
+        guard let last else { return true }
+        if value == 0 { return last != 0 }
+        return last >> 7 != value >> 7
     }
 
     private static func key(_ button: UInt32) -> PadKey? {
