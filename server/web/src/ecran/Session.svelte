@@ -387,14 +387,26 @@
     }
     window.addEventListener('keydown', shortcut, true)
     let prev = { ...diag }
+    // Quinze secondes d'historique : on reproduit, puis on capture après coup.
+    const hist: { souris: number; relayee: number; entrees: number; flux: number }[] = []
     const diagTimer = diagEnabled
       ? setInterval(() => {
           const c = document.getElementById('kn-canvas')
           const r = c?.getBoundingClientRect()
+          hist.push({
+            souris: diag.trusted - prev.trusted,
+            relayee: diag.relayed - prev.relayed,
+            entrees: diag.wsInputs - prev.wsInputs,
+            flux: diag.streamWrites - prev.streamWrites,
+          })
+          if (hist.length > 15) hist.shift()
+          const row = (k: 'souris' | 'relayee' | 'entrees' | 'flux') => hist.map((h) => String(h[k]).padStart(3)).join('')
           diagText = [
-            `souris ${diag.trusted - prev.trusted}/s · relayée ${diag.relayed - prev.relayed}/s · sorties ${diag.outside}`,
-            `entrées WebSocket ${diag.wsInputs - prev.wsInputs}/s (${diag.wsInputBytes - prev.wsInputBytes} o) · écritures flux ${diag.streamWrites - prev.streamWrites}/s`,
-            `dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
+            `souris  ${row('souris')}`,
+            `relayée ${row('relayee')}`,
+            `entrées ${row('entrees')}`,
+            `flux    ${row('flux')}`,
+            `sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
             `capture ${document.pointerLockElement ? 'oui' : 'non'} · curseur ${c?.style.cursor.slice(0, 24) || '—'} · transport ${plan?.protocol ?? '—'}`,
           ].join('\n')
           prev = { ...diag }
