@@ -13,14 +13,18 @@
 #         la demande quand il a perdu une référence), une par session toutes
 #         les 150 ms au plus
 #   0006  pointeur : ses déplacements aussi (position seule, 60 par seconde au plus)
-#   0007  envoi de l'image : files de datagrammes QUIC et mémoires UDP de 8 Mo
-#         (quinn jetait les plus anciens morceaux d'une grosse image)
+#   0007  envoi de l'image (kynet) : tailles des files de datagrammes QUIC et
+#         des mémoires UDP en options (quinn jetait les plus anciens morceaux
+#         d'une grosse image)
 #   0008  moteur libavconv (kyavservice) : écrans relus sans carte imposée et
 #         identifiants stables comme txproto, déplacements et délai de masquage
 #         du pointeur, son 5.1/7.1 (ou stéréo : audio_layout) en paquets Opus de
 #         10 ms « lowdelay »
 #   0009  moteur libavconv (libavgrab) : son horodaté au fil des échantillons,
 #         silences à zéro, nombre de voies des sorties audio
+#   0010  politique d'envoi (kycontroller) : [kycontroller] datagram_send_queue
+#         = "deep" (8 Mo, par défaut) ou "short" (3 Mo) ; file de réception et
+#         mémoires UDP à 8 Mo
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4,
 # rustup target x86_64-pc-windows-gnu, et les sources Kyber dans

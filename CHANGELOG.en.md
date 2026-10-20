@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Server: the image send queue becomes a setting, `[kycontroller] datagram_send_queue` (console: System › Advanced › Image send queue). "Deep" (8 MB, the default) keeps the current behaviour; "Short" (3 MB) drops late frames when the network saturates instead of sending them up to two seconds late. To be compared on a busy Wi-Fi.
 - Console: a second device that connects takes over with notice. The first one is told at its next heartbeat and disconnects cleanly, then the virtual display is recreated at the second one's size; before, the two devices kept stealing the display from each other and the first one's disconnection cut the second one's display and sound. The session is now recognised by the device rather than by the account.
 - Console: five wrong passwords from the same address make it wait 30 s, then twice as long at each attempt; password checks now run at most two at a time.
 - Console: when the service stops (update, shutdown), the displays and the sound are given back to the computer right away; an unreadable setting no longer prevents the console from starting; a display or sound that could not be given back is retried at the next start; a display agent that does not answer is stopped; two simultaneous changes to `kyber_config.toml` no longer overwrite each other.

@@ -1,44 +1,56 @@
 diff --git a/kynet/src/driver/common.rs b/kynet/src/driver/common.rs
-index a391857..c133a65 100644
+index a391857..df679b0 100644
 --- a/kynet/src/driver/common.rs
 +++ b/kynet/src/driver/common.rs
-@@ -31,6 +31,11 @@ use socket2::{Domain, Protocol, Socket, Type};
- 
- use super::quinn::KYMUX_ALPN;
- 
-+/// Datagram queues of a connection: about a second of 4K video.
-+const DATAGRAM_BUFFER: usize = 8 << 20;
-+/// UDP socket buffers of the server.
-+const SOCKET_BUFFER: usize = 8 << 20;
-+
- #[derive(Default)]
+@@ -35,6 +35,18 @@ use super::quinn::KYMUX_ALPN;
  pub struct CommonServerOptions {
      pub max_idle_timeout: Option<Duration>,
-@@ -79,6 +84,12 @@ impl CommonServer {
+     pub keep_alive_interval: Option<Duration>,
++    /// Outgoing datagram queue of each connection, in bytes (quinn default,
++    /// 1 MiB, if `None`). Once it is full, quinn drops the oldest queued
++    /// datagrams to make room: a larger queue loses less of a large frame
++    /// while pacing spreads it out, but holds more stale data when the path
++    /// is congested.
++    pub datagram_send_buffer_size: Option<usize>,
++    /// Incoming datagram queue of each connection, in bytes (quinn default if
++    /// `None`).
++    pub datagram_receive_buffer_size: Option<usize>,
++    /// Send and receive buffers of the UDP socket, in bytes (system default if
++    /// `None`).
++    pub socket_buffer_size: Option<usize>,
+ }
+ 
+ /// Common server that accepts both QUIC (Kymux) and WebTransport connections
+@@ -79,6 +91,12 @@ impl CommonServer {
                  .map_err(|_| ConnectionError("Invalid max_idle_timeout".to_string()))?,
          );
          transport_config.keep_alive_interval(options.keep_alive_interval);
-+        // Video goes out as datagrams, and quinn drops the oldest queued ones
-+        // once its send queue is full (1 MiB by default). A 4K frame plus FEC,
-+        // or a keyframe, can exceed that while pacing spreads it out: frames
-+        // were cut on the server, then keyframes requested again, and so on.
-+        transport_config.datagram_send_buffer_size(DATAGRAM_BUFFER);
-+        transport_config.datagram_receive_buffer_size(Some(DATAGRAM_BUFFER));
++        if let Some(size) = options.datagram_send_buffer_size {
++            transport_config.datagram_send_buffer_size(size);
++        }
++        if let Some(size) = options.datagram_receive_buffer_size {
++            transport_config.datagram_receive_buffer_size(Some(size));
++        }
          server_config.transport_config(Arc::new(transport_config));
  
          // Create UDP socket with dual-stack support when binding to IPv6.
-@@ -95,6 +106,15 @@ impl CommonServer {
+@@ -95,6 +113,20 @@ impl CommonServer {
              log::debug!("Unable to make socket dual-stack: {e}");
          }
  
-+        // Room for a whole frame burst in the socket too (Windows defaults are small).
-+        let _ = socket.set_send_buffer_size(SOCKET_BUFFER);
-+        let _ = socket.set_recv_buffer_size(SOCKET_BUFFER);
-+        log::info!(
-+            "UDP buffers: send {:?}, receive {:?} bytes",
-+            socket.send_buffer_size(),
-+            socket.recv_buffer_size()
-+        );
++        if let Some(size) = options.socket_buffer_size {
++            if let Err(e) = socket.set_send_buffer_size(size) {
++                log::warn!("Unable to set UDP send buffer to {size} bytes: {e}");
++            }
++            if let Err(e) = socket.set_recv_buffer_size(size) {
++                log::warn!("Unable to set UDP receive buffer to {size} bytes: {e}");
++            }
++            log::info!(
++                "UDP buffers: send {:?}, receive {:?} bytes",
++                socket.send_buffer_size(),
++                socket.recv_buffer_size()
++            );
++        }
 +
          socket
              .bind(&addr.into())
