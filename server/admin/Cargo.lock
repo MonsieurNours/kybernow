@@ -749,7 +749,7 @@ checksum = "a0370574b86f7eca156b9f298392b5e69a23f8c86f3f865add60bbc2e79467a6"
 
 [[package]]
 name = "kyber-admin"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "argon2",
