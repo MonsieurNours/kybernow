@@ -46,17 +46,24 @@ export function watchInputSocket() {
 }
 
 /** Écran visé, à défaut d'une position déjà envoyée par le moteur : le
- * premier de la liste de Kyber (`display_index` 0). */
-export async function learnDisplayId() {
-  if (displayId !== null) return
+ * premier de la liste de Kyber (`display_index` 0). Rend la liste lue. */
+export async function learnDisplayId(): Promise<any[] | null> {
   try {
     const res = await fetch('/enumerate_displays', { credentials: 'same-origin' })
-    const list = await res.json()
-    const first = Array.isArray(list) ? list[0] : (list?.displays?.[0] ?? null)
+    const body = await res.json()
+    const list: any[] | null = Array.isArray(body) ? body : Array.isArray(body?.displays) ? body.displays : null
+    const first = list?.[0]
     if (first && typeof first.id === 'number') displayId ??= first.id
+    return list
   } catch {
     // Sans liste, on attend une position du moteur.
+    return null
   }
+}
+
+/** Écran de l'ordinateur que suit l'image (et que visent les positions). */
+export function currentDisplayId(): number | null {
+  return displayId
 }
 
 /** La connexion WebSocket des entrées est-elle ouverte ? */
@@ -104,6 +111,9 @@ export function sendText(text: string): boolean {
   return true
 }
 
+/** Fin de session ou relance de l'image : la connexion des entrées et l'écran
+ * visé sont à réapprendre (l'écran suivi peut avoir changé). */
 export function forgetInputSocket() {
   socket = null
+  displayId = null
 }

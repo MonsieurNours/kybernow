@@ -28,16 +28,41 @@ export interface Latency {
   client: number
 }
 
+/** Un écran de l'ordinateur, tel que Kyber le décrit. */
+export interface DisplayInfo {
+  id: number
+  name: string
+  width: number
+  height: number
+}
+
+function displayList(raw: any): DisplayInfo[] | null {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.displays) ? raw.displays : null
+  if (!list) return null
+  return list
+    .filter((d: any) => d && typeof d.id === 'number')
+    .map((d: any) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
+}
+
 export type EngineEvent =
   | { type: 'connecting' }
   /** Plan de contrôle connecté : Kyber a accepté la session, l'image n'a pas encore commencé. */
   | { type: 'connected' }
   | { type: 'reconnecting'; attempt: number; max: number }
   | { type: 'auth-required' }
+  /** Reconnecté sans avoir à relancer l'image. */
+  | { type: 'reconnected' }
   /** Kyber a démarré l'image (`streaming_started`) : les données doivent arriver. */
   | { type: 'streaming' }
   | { type: 'first-image' }
   | { type: 'resized'; width: number; height: number }
+  /** L'image s'est arrêtée pour une relance : la page pose une toile neuve. */
+  | { type: 'video-stopped' }
+  /** Liste des écrans de l'ordinateur (au départ, puis à chaque changement). */
+  | { type: 'displays'; displays: DisplayInfo[] }
+  /** Étape de la chaîne de l'ordinateur (capture, encodage) arrêtée ou en erreur. */
+  | { type: 'pipeline'; kind: string; stage: string; event: string }
+  | { type: 'gamepad'; plugged: boolean; index: number; name: string }
   | { type: 'stopped'; reason: string }
   | { type: 'error'; message: string }
 
@@ -135,6 +160,8 @@ export class Engine {
   private stoppedNow: (() => void) | null = null
   private stopped = new Promise<void>((r) => (this.stoppedNow = r))
   private gotImage = false
+  /** Relance de l'image demandée (`stop_streaming`), en attente de `streaming_stopped`. */
+  private restartWatch: ReturnType<typeof setTimeout> | null = null
   readonly latency = new LatencyWindow()
   /** Médianes de toute la session (pour la console, à la fin). */
   private sessionTotals: number[] = []
@@ -199,8 +226,10 @@ export class Engine {
     // Un moteur qu'on arrête ne parle plus (bascule de transport, fin).
     if (this.stopping) return
     switch (name) {
-      case 'controlplane_connected':
+      case 'controlplane_connected': {
         this.onEvent({ type: 'connected' })
+        const displays = displayList(event?.displays)
+        if (displays) this.onEvent({ type: 'displays', displays })
         try {
           await this.client.start_streaming(this.canvasId, this.config.clone())
           // `streaming_started` le dit aussi ; la page n'en tient compte qu'une fois.
@@ -209,6 +238,7 @@ export class Engine {
           if (!this.stopping) this.onEvent({ type: 'error', message: `start_streaming: ${e}` })
         }
         break
+      }
       case 'streaming_started':
         this.onEvent({ type: 'streaming' })
         break
@@ -226,7 +256,8 @@ export class Engine {
         this.onEvent({ type: 'auth-required' })
         break
       case 'reconnected':
-        if (event.shouldRestartStreaming) this.onEvent({ type: 'stopped', reason: 'restart' })
+        if (event?.shouldRestartStreaming) this.onEvent({ type: 'stopped', reason: 'restart' })
+        else this.onEvent({ type: 'reconnected' })
         break
       case 'canvas_resized':
         this.onEvent({ type: 'resized', width: event.width, height: event.height })
@@ -242,7 +273,34 @@ export class Engine {
         }
         break
       case 'streaming_stopped':
-        if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'streaming_stopped' })
+        // Kyber ne l'émet qu'à la demande du client (`stop_streaming`) : c'est
+        // une relance de l'image, jamais une fin décidée par l'ordinateur.
+        if (this.restartWatch) clearTimeout(this.restartWatch)
+        this.restartWatch = null
+        this.gotImage = false
+        this.onEvent({ type: 'video-stopped' })
+        try {
+          await this.client.start_streaming(this.canvasId, this.config.clone())
+        } catch (e) {
+          if (!this.stopping) this.onEvent({ type: 'error', message: `start_streaming: ${e}` })
+        }
+        break
+      case 'display_list_updated': {
+        const displays = displayList(event?.displays)
+        if (displays) this.onEvent({ type: 'displays', displays })
+        break
+      }
+      case 'streamer_pipeline_event':
+        this.onEvent({
+          type: 'pipeline',
+          kind: String(event?.type ?? event?.type_ ?? '').toLowerCase(),
+          stage: String(event?.stage ?? '').toLowerCase(),
+          event: String(event?.event ?? '').toLowerCase(),
+        })
+        break
+      case 'gamepad_plugged':
+      case 'gamepad_unplugged':
+        this.onEvent({ type: 'gamepad', plugged: name === 'gamepad_plugged', index: Number(event?.index ?? 0), name: String(event?.name ?? '') })
         break
       case 'stopped': {
         const reason = typeof event?.reason === 'function' ? event.reason() : String(event ?? '')
@@ -264,6 +322,24 @@ export class Engine {
     if (!this.sessionTotals.length) return null
     const v = [...this.sessionTotals].sort((a, b) => a - b)
     return v[Math.floor(v.length / 2)]
+  }
+
+  /** Relance l'image sans se déconnecter (écran changé, erreur de capture) :
+   * `stop_streaming`, puis à `streaming_stopped` une toile neuve et
+   * `start_streaming`. Kyber relance aussi les entrées (1 à 2 s). Sans
+   * réponse en 5 s, la page recommence la session entière. */
+  restartVideo() {
+    const c = this.client
+    if (!c || this.restartWatch) return
+    this.restartWatch = setTimeout(() => {
+      this.restartWatch = null
+      if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'restart' })
+    }, 5000)
+    c.stop_streaming().catch(() => {
+      if (this.restartWatch) clearTimeout(this.restartWatch)
+      this.restartWatch = null
+      if (!this.stopping) this.onEvent({ type: 'stopped', reason: 'restart' })
+    })
   }
 
   /** Nouveau jeton (la console en signe pour 12 h) : servira aux reconnexions.
@@ -317,6 +393,8 @@ export class Engine {
   stop(timeout = 3000): Promise<void> {
     if (!this.stopping) {
       this.stopping = true
+      if (this.restartWatch) clearTimeout(this.restartWatch)
+      this.restartWatch = null
       const c = this.client
       this.client = null
       if (c) {

@@ -14,6 +14,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web : la page ne bascule plus à tort de WebTransport vers WebSocket pendant la préparation de l'écran, et ferme l'ancienne connexion avant d'ouvrir la nouvelle (plus d'entrées en double). « Kyber ne répond pas » et « l'image n'arrive pas » ne sont plus confondus.
 - Client web : la molette marche sous Firefox, et le défilement à deux doigts en tactile avance par crans entiers. Sous Firefox, l'image passe par WebSocket, en H.264 par défaut.
 - Client web : quand le navigateur bloque le son (Safari, iPhone), une puce « Toucher pour le son » le rétablit, au lieu d'une session muette.
+- Client web : quand l'écran de l'ordinateur change (taille, écran retiré) ou que sa capture tombe en erreur, l'image reprend toute seule, sans recharger la page (trois essais pour une erreur). La barre montre les manettes branchées, et les messages de fin disent ce qui s'est vraiment passé.
 
 ## 0.2.5
 

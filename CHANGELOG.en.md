@@ -13,6 +13,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Web client: the page no longer wrongly switches from WebTransport to WebSocket while the display is being prepared, and closes the old connection before opening the new one (no more doubled inputs). “Kyber is not responding” and “the image does not arrive” are no longer confused.
 - Web client: the mouse wheel works in Firefox, and two-finger scrolling on touch devices moves in whole notches. In Firefox the image goes through WebSocket, in H.264 by default.
 - Web client: when the browser blocks the sound (Safari, iPhone), a “Tap for sound” chip brings it back, instead of a silent session.
+- Web client: when the computer's display changes (size, display removed) or its capture fails, the image comes back by itself, without reloading the page (three attempts for an error). The bar shows connected gamepads, and end messages say what actually happened.
 
 ## 0.2.5
 

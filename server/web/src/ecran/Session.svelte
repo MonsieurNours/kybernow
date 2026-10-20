@@ -8,12 +8,12 @@
   import { backend, endBody, heartbeatBody } from './backend'
   import { Heartbeat } from './heartbeat'
   import { ApiError } from '../lib/api'
-  import { Engine, allStopped, retire, supportedCodecs, type Latency } from './engine'
+  import { Engine, allStopped, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
-  import { forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
+  import { currentDisplayId, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, removeInputGuard } from './guard'
   import { SPECIAL_KEYS, TouchInput, TypedText, sendKey } from './touch'
   import { errorText } from '../lib/store.svelte'
@@ -47,6 +47,12 @@
   let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
   /** Le navigateur attend un geste pour jouer le son. */
   let soundBlocked = $state(false)
+  /** Information passagère (écran changé, image relancée). */
+  let notice = $state('')
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null
+  /** Manettes vues par le moteur (et transmises à l'ordinateur). */
+  let gamepads = $state<{ index: number; name: string }[]>([])
+  const gamepadText = $derived(gamepads.length === 1 ? '1 manette' : `${gamepads.length} manettes`)
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -73,6 +79,12 @@
    * `await` au lieu de créer un moteur ou de préparer un écran pour rien. */
   let generation = 0
   const stale = (gen: number) => gen !== generation || ended
+  /** Dernière liste des écrans de l'ordinateur. */
+  let displays: DisplayInfo[] | null = null
+  /** Relances de l'image après une erreur de capture ou d'encodage. */
+  let pipelineRestarts = 0
+  let stableTimer: ReturnType<typeof setTimeout> | null = null
+  const MAX_PIPELINE_RESTARTS = 3
   let gameInForeground = false
   /** La console a préparé l'écran : il faudra le lui rendre. */
   let prepared = false
@@ -284,6 +296,54 @@
     }
   }
 
+  function showNotice(text: string) {
+    notice = text
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => (notice = ''), 5000)
+  }
+
+  /** Relance de l'image sans recharger la page ni se déconnecter. */
+  function restartVideo(text: string) {
+    if (!engine || phase !== 'live') return
+    showNotice(text)
+    engine.restartVideo()
+  }
+
+  /** Écran suivi disparu ou à une autre taille : on relance l'image (Kyber
+   * reprend alors l'écran à jour, ou le premier de la liste). */
+  function onDisplays(list: DisplayInfo[]) {
+    const before = displays
+    displays = list
+    const id = currentDisplayId()
+    if (phase !== 'live' || id === null) return
+    const now = list.find((d) => d.id === id)
+    const was = before?.find((d) => d.id === id)
+    if (!now || (was && (was.width !== now.width || was.height !== now.height))) {
+      console.warn('KyberNow : écran suivi', id, now ? `passé en ${now.width} × ${now.height}` : 'disparu')
+      restartVideo('L’écran de l’ordinateur a changé : l’image reprend…')
+    }
+  }
+
+  /** Erreur de la chaîne d'image de l'ordinateur : relance bornée. */
+  function onPipeline(kind: string, stage: string, event: string) {
+    console.warn('KyberNow : chaîne de l’ordinateur', kind, stage, event)
+    if (event !== 'error' || phase !== 'live') return
+    if (kind === 'audio') {
+      showNotice('Le son de l’ordinateur s’est interrompu.')
+      return
+    }
+    if (kind !== 'video') return
+    if (stableTimer) clearTimeout(stableTimer)
+    stableTimer = null
+    if (pipelineRestarts >= MAX_PIPELINE_RESTARTS) {
+      fail(`L'image de ${hostname} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré ${MAX_PIPELINE_RESTARTS} relances. Se reconnecter la redémarre.`)
+      return
+    }
+    pipelineRestarts++
+    const n = pipelineRestarts
+    setTimeout(() => restartVideo(`L’image s’est interrompue sur l’ordinateur : relance (${n} sur ${MAX_PIPELINE_RESTARTS})…`), 1000)
+  }
+
   function connectError(message: string): string {
     if (message === 'unauthorized') return `Kyber sur ${hostname} refuse le jeton de la console. Rechargez la page ; si cela continue, vérifiez Kyber dans la console.`
     if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return `Kyber sur ${hostname} n'a pas pu démarrer l'image. Réessayez dans un instant.`
@@ -307,6 +367,9 @@
       case 'auth-required':
         refreshTicket(true)
         break
+      case 'reconnected':
+        reconnecting = ''
+        break
       case 'streaming':
         reconnecting = ''
         watchImage(src, protocol, 'streaming')
@@ -315,17 +378,43 @@
         canvasSize = { width: e.width, height: e.height }
         fit()
         break
-      case 'first-image':
+      case 'video-stopped':
+        // Relance de l'image : l'ancienne toile appartient au moteur, il en
+        // faut une neuve ; l'écran visé et la connexion des entrées changent.
+        forgetInputSocket()
+        freshCanvas()
+        break
+      case 'displays':
+        onDisplays(e.displays)
+        break
+      case 'pipeline':
+        onPipeline(e.kind, e.stage, e.event)
+        break
+      case 'gamepad':
+        gamepads = e.plugged ? [...gamepads.filter((g) => g.index !== e.index), { index: e.index, name: e.name }] : gamepads.filter((g) => g.index !== e.index)
+        break
+      case 'first-image': {
+        // Aussi après une relance de l'image : la session est déjà en cours.
+        const first = phase !== 'live'
         clearWatches()
         phase = 'live'
         reconnecting = ''
         if (!heartbeat.running) heartbeat.start(heartbeatBody(null, profileLabel, extra()))
-        learnDisplayId()
+        learnDisplayId().then((list) => {
+          if (list && !displays) displays = list.map((d) => ({ id: d.id, name: String(d.name ?? ''), width: Number(d.width) || 0, height: Number(d.height) || 0 }))
+        })
         probeAudio(src)
-        document.getElementById('kn-canvas')?.focus()
-        scheduleBarHide()
-        setTimeout(() => (hintOn = false), 7000)
+        // Une image tenue 30 s remet le compte des relances à zéro.
+        if (stableTimer) clearTimeout(stableTimer)
+        stableTimer = setTimeout(() => (pipelineRestarts = 0), 30_000)
+        if (first) {
+          // Pas après une relance : le clavier de l'appareil se fermerait.
+          document.getElementById('kn-canvas')?.focus()
+          scheduleBarHide()
+          setTimeout(() => (hintOn = false), 7000)
+        }
         break
+      }
       case 'error':
         console.warn('KyberNow : connexion impossible', e.message)
         fail(connectError(e.message))
@@ -337,8 +426,11 @@
           restart()
         } else if (e.reason === 'decode_error') {
           fail("Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Avancé.")
-        } else if (e.reason === 'requested' || e.reason === 'streaming_stopped') {
-          fail(`${hostname} a mis fin à la session.`)
+        } else if (e.reason === 'controlplane_closed') {
+          fail(`Kyber sur ${hostname} a fermé la connexion.`)
+        } else if (e.reason === 'requested') {
+          // Arrêt demandé par ce client, sans que la page l'ait voulu.
+          fail('La session s’est arrêtée.')
         } else {
           fail(`La connexion à ${hostname} s'est interrompue.`)
         }
@@ -357,6 +449,8 @@
   function fail(message: string) {
     generation++
     clearWatches()
+    gamepads = []
+    soundBlocked = false
     error = message
     phase = 'ended'
     barVisible = true
@@ -653,6 +747,8 @@
       cursorWatch?.disconnect()
       document.removeEventListener('pointerlockchange', cursorFix)
       clearWatches()
+      if (noticeTimer) clearTimeout(noticeTimer)
+      if (stableTimer) clearTimeout(stableTimer)
       window.removeEventListener('keydown', shortcut, true)
       releasePointer()
       removePointerGate()
@@ -714,8 +810,8 @@
     </div>
   {/if}
 
-  {#if phase === 'live' && reconnecting}
-    <div class="toast glass" role="status">{reconnecting}</div>
+  {#if phase === 'live' && (reconnecting || notice)}
+    <div class="toast glass" role="status">{reconnecting || notice}</div>
   {/if}
 
   {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
@@ -748,6 +844,12 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
         <span class="label">{mouseLabel}</span>
       </button>
+      {#if gamepads.length}
+        <span class="chip static" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
+          <span class="label">{gamepadText}</span>
+        </span>
+      {/if}
       {#if prefs.audio}
         <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? 'Remettre le son' : 'Couper le son'} onclick={toggleMute}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
@@ -826,6 +928,12 @@
       <div class="tbar glass" role="toolbar" tabindex="-1" aria-label="Session" onpointerdown={(e) => e.preventDefault()}>
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
+        {#if gamepads.length}
+          <span class="tpad" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
+            {#if gamepads.length > 1}<span class="mono">{gamepads.length}</span>{/if}
+          </span>
+        {/if}
         <span class="sep" aria-hidden="true"></span>
         <div class="tmodes" role="radiogroup" aria-label="Toucher">
           <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>Pavé tactile</button>
@@ -1401,6 +1509,15 @@
     color: var(--signal-light);
     margin: 0 8px;
     min-width: 46px;
+  }
+
+  .tpad {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 6px;
+    font-size: 11px;
+    color: var(--signal-light);
   }
 
   .tmodes {
