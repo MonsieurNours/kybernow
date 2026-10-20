@@ -4,6 +4,7 @@ export type Profile = 'bureau' | 'jeu'
 export type Transport = 'auto' | 'fiable' | 'rapide'
 export type Codec = 'auto' | 'h264' | 'hevc'
 export type TouchMode = 'trackpad' | 'direct'
+export type MouseMode = 'auto' | 'bureau' | 'jeu'
 
 export interface Prefs {
   profile: Profile
@@ -17,6 +18,8 @@ export interface Prefs {
   transport: Transport
   codec: Codec
   touch: TouchMode
+  /** Souris : capturée en mode jeu (déplacements bruts), libre en mode bureau. */
+  mouse: MouseMode
   /** Fiche des gestes déjà vue. */
   touchGuideSeen: boolean
 }
@@ -34,6 +37,7 @@ export const defaults: Prefs = {
   transport: 'auto',
   codec: 'auto',
   touch: 'trackpad',
+  mouse: 'auto',
   touchGuideSeen: false,
 }
 

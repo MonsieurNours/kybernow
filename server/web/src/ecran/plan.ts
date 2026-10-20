@@ -21,7 +21,7 @@ export interface Plan extends StreamSettings {
   lost444: boolean
 }
 
-export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[]): Plan {
+export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: 'kymux' | 'websocket' = 'kymux'): Plan {
   const hevc = codecs.find((c) => c.codec === 'hevc')
   const h264 = codecs.find((c) => c.codec === 'h264')
   let codec: 'h264' | 'hevc' = p.codec === 'h264' ? 'h264' : p.codec === 'hevc' ? 'hevc' : hevc?.hardware ? 'hevc' : 'h264'
@@ -40,6 +40,7 @@ export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[]): Plan {
 
   const reliable = p.transport === 'fiable' || (p.transport === 'auto' && p.profile === 'bureau')
   return {
+    protocol,
     codec,
     yuv444,
     bitrate: mbps * 1_000_000,

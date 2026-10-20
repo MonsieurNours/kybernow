@@ -8,8 +8,9 @@
   import { backend } from './backend'
   import { Engine, supportedCodecs, type Latency } from './engine'
   import { choose, type Plan } from './plan'
-  import { deviceId, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, screenMode, type Mode } from './device'
+  import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
+  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
+  import { installPointerGate, releasePointer, removePointerGate } from './pointer'
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
@@ -38,6 +39,7 @@
   let guide = $state(isTouch && !untrack(() => prefs.touchGuideSeen))
   let cursor = $state<{ x: number; y: number } | null>(null)
   let mods = $state(new Set<string>())
+  let mouseMode = $state<MouseMode>(untrack(() => prefs.mouse))
 
   let stage: HTMLElement
   let canvasBox: HTMLElement
@@ -48,6 +50,11 @@
   let touch: TouchInput | null = null
   let barTimer: ReturnType<typeof setTimeout> | null = null
   let ended = false
+  let ticketToken = ''
+  let codecList: import('./engine').CodecSupport[] = []
+  /** Sans première image à temps, on essaie l'autre transport. */
+  let imageWatch: ReturnType<typeof setTimeout> | null = null
+  let gameInForeground = false
   /** La console a préparé l'écran : il faudra le lui rendre. */
   let prepared = false
 
@@ -108,7 +115,8 @@
     try {
       const [refresh, codecs, ticket] = await Promise.all([measureRefresh(), supportedCodecs(), backend.ticket()])
       mode = screenMode(refresh)
-      plan = choose(prefs, mode, codecs)
+      codecList = codecs
+      ticketToken = ticket.token
       const device = deviceName()
       await backend.prepare({
         mode,
@@ -118,13 +126,36 @@
         device: { id: deviceId(), name: device.name, kind: deviceKind(), os: device.os, app: device.app },
       })
       prepared = true
-      phase = 'connecting'
-      await tick()
-      freshCanvas()
-      engine = new Engine('kn-canvas', onEngine)
-      await engine.connect(streamHost(), location.port || '443', ticket.token, plan)
+      await connect(preferredProtocol)
     } catch (e) {
       fail(errorText(e))
+    }
+  }
+
+  async function connect(protocol: 'kymux' | 'websocket') {
+    if (!mode) return
+    phase = 'connecting'
+    plan = choose(prefs, mode, codecList, protocol)
+    await tick()
+    freshCanvas()
+    const e = new Engine('kn-canvas', onEngine)
+    engine = e
+    if (imageWatch) clearTimeout(imageWatch)
+    imageWatch = setTimeout(() => noImage(e, protocol), protocol === 'kymux' ? 12000 : 20000)
+    await e.connect(streamHost(), location.port || '443', ticketToken, plan)
+  }
+
+  /** L'image n'est pas venue : WebTransport bloqué (réseau, navigateur), on passe par WebSocket. */
+  async function noImage(e: Engine, protocol: 'kymux' | 'websocket') {
+    if (engine !== e || phase === 'live' || ended) return
+    if (protocol === 'kymux') {
+      console.warn('KyberNow : pas d’image en WebTransport, essai par WebSocket')
+      reconnecting = 'Autre chemin pour l’image (WebSocket)…'
+      engine = null
+      await e.stop()
+      if (!ended) connect('websocket')
+    } else {
+      fail(`L'image de ${hostname} n'arrive pas dans ce navigateur. Essayez Chrome ou Edge, ou le format H.264 dans Réglages › Avancé.`)
     }
   }
 
@@ -141,6 +172,8 @@
         fit()
         break
       case 'first-image':
+        if (imageWatch) clearTimeout(imageWatch)
+        imageWatch = null
         phase = 'live'
         reconnecting = ''
         document.getElementById('kn-canvas')?.focus()
@@ -174,6 +207,8 @@
   }
 
   function fail(message: string) {
+    if (imageWatch) clearTimeout(imageWatch)
+    imageWatch = null
     error = message
     phase = 'ended'
     barVisible = true
@@ -190,13 +225,39 @@
   async function quit() {
     if (ended) return
     ended = true
+    if (imageWatch) clearTimeout(imageWatch)
     const median = engine?.sessionMedian() ?? null
-    await engine?.stop()
+    const e = engine
     engine = null
-    if (prepared) await backend.end(median).catch(() => {})
+    // On rend la main tout de suite ; le moteur et la console finissent derrière.
+    const wasPrepared = prepared
     prepared = false
-    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+    releasePointer()
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
     onEnd()
+    await e?.stop()
+    if (wasPrepared) backend.end(median).catch(() => {})
+  }
+
+  function setMouseMode(m: MouseMode) {
+    mouseMode = m
+    prefs.mouse = m
+    if (!pointerAllowed()) releasePointer()
+  }
+
+  function pointerAllowed(): boolean {
+    return mouseMode === 'jeu' || (mouseMode === 'auto' && gameInForeground)
+  }
+
+  function cycleMouse() {
+    setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : 'auto')
+  }
+
+  const mouseLabel = $derived(mouseMode === 'auto' ? 'Souris auto' : mouseMode === 'jeu' ? 'Souris jeu' : 'Souris bureau')
+
+  function showBar() {
+    barVisible = true
+    scheduleBarHide()
   }
 
   function scheduleBarHide() {
@@ -207,10 +268,7 @@
 
   function onPointerMove(e: PointerEvent) {
     if (isTouch || e.pointerType === 'touch') return
-    if (e.clientY < 12) {
-      barVisible = true
-      scheduleBarHide()
-    }
+    if (e.clientY < 24 && !document.pointerLockElement) showBar()
   }
 
   async function toggleFullscreen() {
@@ -291,7 +349,26 @@
   }
 
   onMount(() => {
+    installPointerGate(pointerAllowed)
     start()
+    // Ctrl + Alt + Maj : la barre, et la souris rendue.
+    const shortcut = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.shiftKey && ['Control', 'Alt', 'Shift'].includes(e.key)) {
+        releasePointer()
+        if (barVisible) barVisible = false
+        else showBar()
+      }
+    }
+    window.addEventListener('keydown', shortcut, true)
+    const foreground = setInterval(async () => {
+      if (phase !== 'live' || mouseMode !== 'auto') return
+      const f = await backend.foreground().catch(() => null)
+      const game = !!f?.game
+      if (game !== gameInForeground) {
+        gameInForeground = game
+        if (!game) releasePointer()
+      }
+    }, 1000)
     const resize = () => fit()
     const unlockAudio = () => engine?.resumeAudio()
     const leave = () => {
@@ -327,6 +404,11 @@
     return () => {
       clearInterval(metrics)
       clearInterval(heartbeat)
+      clearInterval(foreground)
+      if (imageWatch) clearTimeout(imageWatch)
+      window.removeEventListener('keydown', shortcut, true)
+      releasePointer()
+      removePointerGate()
       if (barTimer) clearTimeout(barTimer)
       touch?.destroy()
       window.removeEventListener('resize', resize)
@@ -384,7 +466,9 @@
 
   <!-- Barre de session (souris et clavier) -->
   {#if !isTouch && phase === 'live'}
-    <div class="edge" aria-hidden="true"></div>
+    {#if !barVisible}
+      <button type="button" class="edge" aria-label="Afficher la barre de session" onclick={showBar}><span></span></button>
+    {/if}
     <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" onpointerenter={() => barTimer && clearTimeout(barTimer)} onpointerleave={scheduleBarHide}>
       <Mark size={22} state="now" lit breathe />
       <span class="host">{hostname}</span>
@@ -399,6 +483,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
         <span class="label">{profileLabel}</span>
       </span>
+      <button type="button" class="chip" aria-label={mouseLabel} title="Auto : capturée seulement quand un jeu est en plein écran sur l'ordinateur" onclick={cycleMouse}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
+        <span class="label">{mouseLabel}</span>
+      </button>
       {#if prefs.audio}
         <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? 'Remettre le son' : 'Couper le son'} onclick={toggleMute}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
@@ -458,11 +546,9 @@
     {#if hintOn}
       <div class="hint glass" role="status">
         {#if keyboardLocked}
-          Toutes les touches vont à {hostname}. Pour sortir du plein écran, maintenez <kbd class="mono">Échap</kbd>
-        {:else if fullscreen}
-          <kbd class="mono">Échap</kbd> quitte le plein écran. Les raccourcis système sont dans le menu Touches.
+          Toutes les touches vont à {hostname}. La barre : en haut de l'écran, ou <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">Maj</kbd>
         {:else}
-          Les commandes sont en haut de l'écran, au survol.
+          La barre : en haut de l'écran, ou <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">Maj</kbd>. Les raccourcis système sont dans le menu Touches.
         {/if}
       </div>
     {/if}
@@ -665,16 +751,33 @@
     color: var(--ok);
   }
 
+  /* Languette du haut : la barre au clic, sans viser le bord de l'écran. */
   .edge {
     position: absolute;
     left: 50%;
     top: 0;
     width: 220px;
-    height: 3px;
+    height: 18px;
     translate: -50% 0;
-    border-radius: 0 0 3px 3px;
+    padding: 0;
+    border: 0;
+    background: none;
+    display: flex;
+    justify-content: center;
+    z-index: 4;
+  }
+
+  .edge span {
+    width: 100%;
+    height: 4px;
+    border-radius: 0 0 4px 4px;
     background: rgb(255 255 255 / 0.3);
-    pointer-events: none;
+    transition: height 0.2s, background-color 0.2s;
+  }
+
+  .edge:hover span {
+    height: 8px;
+    background: rgb(154 140 255 / 0.7);
   }
 
   .bar {

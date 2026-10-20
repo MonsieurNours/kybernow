@@ -10,6 +10,8 @@ export interface CodecSupport {
 }
 
 export interface StreamSettings {
+  /** kymux : WebTransport (QUIC) ; websocket : par la console, quand WebTransport ne marche pas. */
+  protocol: 'kymux' | 'websocket'
   codec: 'h264' | 'hevc'
   yuv444: boolean
   bitrate: number
@@ -117,9 +119,11 @@ export class Engine {
   async connect(host: string, port: string, token: string, s: StreamSettings) {
     const m = await loadEngine()
     const b = new m.StreamingConfigBuilder()
-    b.protocol = 'kymux'
-    b.kymux_video = s.reliable ? 'reliable' : 'unreliable_fec'
-    b.kymux_audio = 'reliable'
+    b.protocol = s.protocol
+    if (s.protocol === 'kymux') {
+      b.kymux_video = s.reliable ? 'reliable' : 'unreliable_fec'
+      b.kymux_audio = 'reliable'
+    }
     b.bitrate = s.bitrate
     b.codec = s.codec
     b.yuv444 = s.yuv444
@@ -149,6 +153,8 @@ export class Engine {
   }
 
   private async handle(name: string, event: any) {
+    // Un moteur qu'on arrête ne parle plus (bascule de transport, fin).
+    if (this.stopping) return
     switch (name) {
       case 'controlplane_connected':
         try {
@@ -222,14 +228,19 @@ export class Engine {
     const c = this.client
     this.client = null
     if (!c) return
-    try {
-      await c.disconnect_and_stop(true)
-    } catch {
+    // Un moteur bloqué (connexion qui n'aboutit pas) ne répond plus : on
+    // n'attend pas plus d'une seconde et demie.
+    const done = (async () => {
       try {
-        await c.stop()
+        await c.disconnect_and_stop(true)
       } catch {
-        // Déjà arrêté.
+        try {
+          await c.stop()
+        } catch {
+          // Déjà arrêté.
+        }
       }
-    }
+    })()
+    await Promise.race([done, new Promise((r) => setTimeout(r, 1500))])
   }
 }

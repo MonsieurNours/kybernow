@@ -80,5 +80,6 @@ export const backend = {
     }),
   heartbeat: (latency: number | null, profile: string) =>
     call<{ active: boolean; end: boolean }>('POST', '/api/stream/heartbeat', { latency_ms: latency, profile }),
+  foreground: () => call<{ known: boolean; fullscreen: boolean; game: boolean }>('GET', '/api/stream/foreground'),
   end: (latency: number | null) => call('POST', '/api/stream/end', { latency_ms: latency }),
 }

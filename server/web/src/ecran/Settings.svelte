@@ -7,7 +7,7 @@
   import { isTouch } from './device'
   import type { Plan } from './plan'
   import { MAX_MBPS, MIN_MBPS } from './plan'
-  import type { Codec, Prefs, Profile, TouchMode, Transport } from './prefs'
+  import type { Codec, MouseMode, Prefs, Profile, TouchMode, Transport } from './prefs'
 
   let {
     prefs = $bindable(),
@@ -114,6 +114,29 @@
         <Switch checked={prefs.clipboard} label="Presse-papiers partagé" onchange={(v) => (prefs.clipboard = v)} />
       </div>
     </section>
+
+    {#if !isTouch}
+      <section>
+        <span class="lbl">Souris</span>
+        <Segmented
+          label="Souris"
+          options={[
+            { value: 'auto', label: 'Auto' },
+            { value: 'bureau', label: 'Bureau' },
+            { value: 'jeu', label: 'Jeu' },
+          ]}
+          value={prefs.mouse}
+          onchange={(v: MouseMode) => (prefs.mouse = v)}
+        />
+        <p class="sub">
+          {prefs.mouse === 'auto'
+            ? 'Capturée seulement quand un jeu est en plein écran sur l’ordinateur. Ctrl + Alt + Maj la rend.'
+            : prefs.mouse === 'jeu'
+              ? 'Capturée : déplacements bruts, pour viser. Ctrl + Alt + Maj la rend.'
+              : 'Toujours libre : le pointeur se pose où vous le placez.'}
+        </p>
+      </section>
+    {/if}
 
     {#if isTouch}
       <section>

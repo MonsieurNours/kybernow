@@ -16,7 +16,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Icône près de l'horloge : un panneau au clic gauche (état, session en cours, mise à jour, serveur), « Réinitialiser le mot de passe de la console », nouveau symbole.
 - Installateur : nouvelle identité, quatre étapes au lieu de six (l'analyse de l'ordinateur tourne pendant la bienvenue).
 - App Mac : elle se présente à la console (nom, système, latence) et se déconnecte quand la console met fin à la session.
-- Nouveau client web : l'ordinateur s'ouvre depuis un navigateur (Chrome, Edge, Firefox), sans rien installer, à l'adresse de la console suivie de `/ecran` ou par « Ouvrir dans le navigateur » sur la Vue d'ensemble. Même mot de passe que la console ; accueil sur l'aperçu de l'écran, profils Bureau et Jeu, barre de session avec latence, mesures et Ctrl+Alt+Suppr ; pavé tactile, toucher direct et touches spéciales sur tablette et téléphone. L'ancien client de Kyber reste disponible pour le dépannage.
+- Nouveau client web : l'ordinateur s'ouvre depuis un navigateur (Chrome, Edge, Firefox), sans rien installer, à l'adresse de la console suivie de `/ecran` ou par « Ouvrir dans le navigateur » sur la Vue d'ensemble. Même mot de passe que la console ; accueil sur l'aperçu de l'écran, profils Bureau et Jeu, barre de session avec latence, mesures et Ctrl+Alt+Suppr ; pavé tactile, toucher direct et touches spéciales sur tablette et téléphone ; souris Auto, Bureau ou Jeu comme dans l'app ; Safari, iPhone et iPad passent par WebSocket. L'ancien client de Kyber reste disponible pour le dépannage.
 
 ## 0.2.0
 

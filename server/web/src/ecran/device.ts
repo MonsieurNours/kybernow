@@ -9,6 +9,13 @@ export interface Mode {
 export const isTouch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches
 
 export const hasWebTransport = typeof (globalThis as any).WebTransport === 'function'
+
+/** Safari et tous les navigateurs d'iPhone et d'iPad : leur WebTransport ne
+ * vérifie pas un certificat par son empreinte, l'image passe par WebSocket. */
+export const isWebKit = /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\/|OPR\//.test(navigator.userAgent)
+
+/** Transport de l'image dans ce navigateur. */
+export const preferredProtocol: 'kymux' | 'websocket' = hasWebTransport && !isWebKit ? 'kymux' : 'websocket'
 export const isIsolated = (globalThis as any).crossOriginIsolated === true
 export const hasKeyboardLock = typeof (navigator as any).keyboard?.lock === 'function'
 export const canFullscreen = typeof document.documentElement.requestFullscreen === 'function'

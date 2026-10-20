@@ -11,7 +11,7 @@
     canFullscreen,
     deviceKind,
     hasKeyboardLock,
-    hasWebTransport,
+    preferredProtocol,
     isIsolated,
     isStandalone,
     isTouch,
@@ -43,7 +43,7 @@
   const mode = $derived(screenMode(refresh))
   const plan = $derived(codecs ? choose(prefs, mode, codecs) : null)
   const hardware = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.hardware)
-  const blocked = $derived(!hasWebTransport ? 'transport' : !isIsolated ? 'isolation' : codecError ? 'engine' : null)
+  const blocked = $derived(!isIsolated ? 'isolation' : codecError ? 'engine' : null)
 
   const profiles: { value: Profile; label: string; icon: string }[] = [
     { value: 'bureau', label: 'Bureau', icon: 'desk' },
@@ -170,9 +170,7 @@
 
     {#if blocked}
       <p class="blocked" role="alert">
-        {#if blocked === 'transport'}
-          Ce navigateur ne sait pas recevoir l'image (il lui manque WebTransport). Ouvrez cette page dans Chrome, Edge ou Firefox.
-        {:else if blocked === 'isolation'}
+        {#if blocked === 'isolation'}
           La page n'a pas pu s'isoler, ce dont l'image a besoin. Rechargez-la ; si cela persiste, mettez à jour KyberNow Server.
         {:else}
           Le moteur d'image de l'ordinateur n'a pas pu se charger. Le serveur Kyber est-il en marche ?
@@ -204,6 +202,9 @@
           <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? 'Image décodée par la carte graphique' : 'Image décodée par le processeur'}</li>
         {/if}
         <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? "Écran de l'ordinateur à la taille du vôtre" : "Écrans de l'ordinateur tels quels"}</li>
+        {#if preferredProtocol === 'websocket'}
+          <li class="off"><Icon name="info" size={14} stroke={2.4} />Image par WebSocket : un peu plus de latence que dans Chrome ou Edge</li>
+        {/if}
         <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? 'Toutes les touches en plein écran' : 'Raccourcis système par le menu Touches'}</li>
         {#if prefs.profile === 'bureau' && plan}
           <li class:off={!plan.yuv444}><Icon name={plan.yuv444 ? 'check' : 'info'} size={14} stroke={2.4} />{plan.yuv444 ? 'Texte net (4:4:4)' : 'Texte net (4:4:4) : pas dans ce navigateur'}</li>
