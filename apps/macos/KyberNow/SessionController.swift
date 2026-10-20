@@ -49,6 +49,7 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
     /// Jeu en plein écran sur l'ordinateur (nom de l'exécutable), d'après la console.
     @Published private(set) var pcGame: String?
     private var foregroundPoll: Task<Void, Never>?
+    private var lastForeground: String?
     private var lastStallRestart = Date.distantPast
     @Published private(set) var audioStats: AudioStats?
     /// Rappel affiché quelques secondes après l'apparition.
@@ -509,6 +510,14 @@ final class SessionController: NSObject, ObservableObject, NSWindowDelegate {
                 guard let self, let console = self.console else { return }
                 let state = await console.foreground()
                 let game = state?.game == true ? (state?.exe ?? "jeu") : nil
+                // Journal : veille muette, ou plein écran qui n'est pas un jeu.
+                let seen = state == nil ? "veille du plein écran sans réponse"
+                    : state!.fullscreen ? "plein écran : \(state!.exe ?? "?")\(state!.game ? "" : " (pas un jeu)")"
+                    : "pas de plein écran (premier plan : \(state!.exe ?? "?"))"
+                if seen != self.lastForeground {
+                    self.lastForeground = seen
+                    KyberLog.app.notice("ordinateur : \(seen, privacy: .public)")
+                }
                 if game != self.pcGame {
                     KyberLog.app.notice("ordinateur : \(game.map { "jeu en plein écran (\($0))" } ?? "pas de jeu en plein écran", privacy: .public)")
                     self.pcGame = game
