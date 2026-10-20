@@ -176,6 +176,8 @@ public final class KyberClient {
                     DispatchQueue.main.async { me.input?.networkConnected() }
                 }
                 if let e = KyberClient.unpack(event) {
+                    // Nouveau flux (démarrage, reconnexion) : les pts repartent de zéro.
+                    if case .streamingStarted = e { me.latency.reset() }
                     DispatchQueue.main.async { me.onEvent?(e) }
                 }
             },

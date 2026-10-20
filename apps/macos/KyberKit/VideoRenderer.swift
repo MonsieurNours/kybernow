@@ -51,6 +51,11 @@ public struct VideoStats: Sendable {
     public var rttMs: Double?
     /// Débit reçu pour l'image, en mégabits par seconde.
     public var mbps: Double = 0
+    /// Images avec une latence mesurée sur les images montrées (0 à 1) :
+    /// la médiane n'est fiable que si ce rapport est proche de 1.
+    public var measuredRatio: Double = 0
+    /// Images montrées sans mesure du serveur (arrivée trop tard, jamais) ou valeur absurde.
+    public var rejectedSamples = 0
 
     public init() {}
 }
@@ -381,6 +386,8 @@ final class VideoRenderer {
         current.lostPackets = second.lostPackets
         current.rttMs = second.rttMs
         current.mbps = Double(second.bytes) * 8 / elapsed / 1_000_000
+        current.measuredRatio = second.displayed > 0 ? Double(second.measured) / Double(second.displayed) : 0
+        current.rejectedSamples = second.rejected
         onStats?(current)
         window = (now, 0, 0, 0, 0)
         reportPresentation()
