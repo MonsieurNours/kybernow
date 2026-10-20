@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.6
+
+- Moteur de capture libavconv : le pointeur suit de nouveau la souris sur les écrans à plus de 60 Hz (il restait figé tant qu'elle bougeait), et garde sa forme quand le service d'entrées de Kyber redémarre.
+
 ## 0.2.5
 
 - App Apple TV : les manettes répondent enfin sur l'ordinateur. Elles s'annonçaient avant que les entrées soient reliées, et l'ordinateur ignorait ensuite leurs boutons ; la télécommande et la manette en souris marchaient, elles.

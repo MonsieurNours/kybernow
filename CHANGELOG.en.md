@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.6
+
+- libavconv capture engine: the pointer follows the mouse again on displays above 60 Hz (it stayed frozen while the mouse moved), and keeps its shape when Kyber's input service restarts.
+
 ## 0.2.5
 
 - Apple TV app: gamepads finally respond on the computer. They announced themselves before the inputs were connected, and the computer then ignored their buttons; the remote and the gamepad as a mouse did work.
