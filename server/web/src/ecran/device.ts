@@ -8,6 +8,10 @@ export interface Mode {
 
 export const isTouch = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches && !matchMedia('(pointer: fine)').matches
 
+/** Un écran tactile, même à côté d'une souris ou d'un pavé (iPad avec Magic
+ * Keyboard, portable tactile) : la couche tactile traduit les doigts. */
+export const hasTouchScreen = isTouch || (typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches)
+
 export const hasWebTransport = typeof (globalThis as any).WebTransport === 'function'
 
 /** Safari et tous les navigateurs d'iPhone et d'iPad : leur WebTransport ne

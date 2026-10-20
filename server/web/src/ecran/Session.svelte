@@ -11,7 +11,7 @@
   import { Engine, allStopped, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
-  import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, screenMode, type Mode } from './device'
+  import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
   import { currentDisplayId, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, removeInputGuard } from './guard'
@@ -143,6 +143,23 @@
     return `${v.toFixed(1).replace('.', ',')} ms`
   }
 
+  /** Clavier de l'appareil ouvert : la zone visible (`visualViewport`, que le
+   * clavier réduit sur iPhone et iPad sans toucher à la page) donne la place
+   * de l'image et celle de la rangée de touches, juste au-dessus du clavier. */
+  function trackViewport() {
+    const vv = window.visualViewport
+    const el = stage?.parentElement
+    if (!el) return
+    if (vv && keyboardOpen) {
+      el.style.setProperty('--vv-top', `${vv.offsetTop}px`)
+      el.style.setProperty('--vv-h', `${vv.height}px`)
+    } else {
+      el.style.removeProperty('--vv-top')
+      el.style.removeProperty('--vv-h')
+    }
+    fit()
+  }
+
   function fit() {
     const canvas = document.getElementById('kn-canvas') as HTMLCanvasElement | null
     if (!canvas || !canvasSize.width || !stage) return
@@ -166,6 +183,9 @@
       if (c === 'none') setRemoteCursorHidden(true)
       else if (c && c !== 'default') setRemoteCursorHidden(false)
       if (c === 'none' && !document.pointerLockElement) canvas.style.cursor = 'default'
+      // La couche tactile recouvre la toile : le pointeur d'une souris ou d'un
+      // pavé (iPad avec clavier) y prend celui de l'ordinateur.
+      if (touchLayer) touchLayer.style.cursor = canvas.style.cursor
     }
     cursorWatch = new MutationObserver(fix)
     cursorWatch.observe(canvas, { attributes: true, attributeFilter: ['style'] })
@@ -600,11 +620,19 @@
     touchBar = false
     await tick()
     textInput.focus()
+    trackViewport()
   }
 
   function closeKeyboard() {
     keyboardOpen = false
     textInput?.blur()
+    tick().then(trackViewport)
+  }
+
+  /** Clavier fermé par l'appareil (bouton du clavier, autre app) : la rangée
+   * de touches part avec lui. Les touches de la rangée gardent le focus. */
+  function onTextBlur() {
+    if (keyboardOpen) closeKeyboard()
   }
 
   function setTouchMode(m: TouchMode) {
@@ -695,6 +723,16 @@
       }
     }, 1000)
     const resize = () => fit()
+    const viewport = () => keyboardOpen && trackViewport()
+    window.visualViewport?.addEventListener('resize', viewport)
+    window.visualViewport?.addEventListener('scroll', viewport)
+    // Ctrl+W, ⌘W, ⌘Q en pleine session : le navigateur demande confirmation.
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      if (phase !== 'live' || ended) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
     // Tout clic ou toute touche est un geste : le son peut y reprendre.
     const unlockAudio = async () => {
       if (engine && (await engine.audioState()) === 'running') soundBlocked = false
@@ -732,9 +770,12 @@
 
     // Safari : pas de correction automatique (elle remplacerait un mot déjà parti).
     textInput.setAttribute('autocorrect', 'off')
-    if (isTouch) {
-      touch = new TouchInput(touchLayer, canvas, touchMode, (p) => (cursor = touchMode === 'trackpad' ? p : null))
-      if (touchMode === 'trackpad') cursor = touch.cursor
+    // Écran tactile, même avec une souris ou un pavé à côté (iPad avec
+    // clavier) : les doigts passent par la couche tactile. Avec un pointeur
+    // précis à côté, le doigt touche directement (le pointeur reste la souris).
+    if (hasTouchScreen) {
+      touch = new TouchInput(touchLayer, canvas, isTouch ? touchMode : 'direct', (p) => (cursor = isTouch && touchMode === 'trackpad' ? p : null))
+      if (isTouch && touchMode === 'trackpad') cursor = touch.cursor
     }
 
     return () => {
@@ -759,6 +800,9 @@
       if (barTimer) clearTimeout(barTimer)
       touch?.destroy()
       window.removeEventListener('resize', resize)
+      window.visualViewport?.removeEventListener('resize', viewport)
+      window.visualViewport?.removeEventListener('scroll', viewport)
+      window.removeEventListener('beforeunload', beforeUnload)
       document.removeEventListener('fullscreenchange', onFullscreenChange)
       window.removeEventListener('pointerdown', unlockAudio)
       window.removeEventListener('keydown', unlockAudio)
@@ -775,7 +819,7 @@
 <div class="session" class:touch={isTouch} onpointermove={onPointerMove} role="application" aria-label="Session sur {hostname}">
   <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
     <div class="canvas-box" bind:this={canvasBox}></div>
-    <div class="touch-layer" class:active={isTouch && phase === 'live'} bind:this={touchLayer}></div>
+    <div class="touch-layer" class:active={hasTouchScreen && phase === 'live'} bind:this={touchLayer}></div>
     {#if cursor && phase === 'live'}
       <div class="tcursor" style="left: {cursor.x}px; top: {cursor.y}px" aria-hidden="true"></div>
     {/if}
@@ -998,6 +1042,7 @@
     oncompositionstart={typed.compositionstart}
     oncompositionend={typed.compositionend}
     oninput={typed.input}
+    onblur={onTextBlur}
     autocapitalize="off"
     autocomplete="off"
     spellcheck="false"
@@ -1007,6 +1052,8 @@
 
 <style>
   .session {
+    /* Hauteur de la rangée de touches au-dessus du clavier de l'appareil. */
+    --keys-h: 52px;
     position: fixed;
     inset: 0;
     background: #000;
@@ -1023,8 +1070,12 @@
     place-items: center;
   }
 
+  /* Clavier ouvert : l'image au-dessus de la rangée de touches, elle-même
+     juste au-dessus du clavier (variables posées par trackViewport). */
   .stage.kb {
-    bottom: 50%;
+    top: var(--vv-top, 0px);
+    bottom: auto;
+    height: calc(var(--vv-h, 100%) - var(--keys-h));
   }
 
   .canvas-box {
@@ -1583,8 +1634,9 @@
     position: absolute;
     left: 0;
     right: 0;
-    top: 50%;
-    min-height: 50px;
+    top: calc(var(--vv-top, 0px) + var(--vv-h, 100%) - var(--keys-h));
+    height: var(--keys-h);
+    box-sizing: border-box;
     padding: 6px max(12px, env(safe-area-inset-left));
     background: var(--ink-2);
     border-top: 1px solid #1e2832;

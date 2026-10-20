@@ -15,6 +15,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Client web : la molette marche sous Firefox, et le défilement à deux doigts en tactile avance par crans entiers. Sous Firefox, l'image passe par WebSocket, en H.264 par défaut.
 - Client web : quand le navigateur bloque le son (Safari, iPhone), une puce « Toucher pour le son » le rétablit, au lieu d'une session muette.
 - Client web : quand l'écran de l'ordinateur change (taille, écran retiré) ou que sa capture tombe en erreur, l'image reprend toute seule, sans recharger la page (trois essais pour une erreur). La barre montre les manettes branchées, et les messages de fin disent ce qui s'est vraiment passé.
+- Client web en tactile : clavier ouvert, l'image garde toute la hauteur au-dessus de la rangée de touches (elle tombait au quart de l'écran), et sur un iPad avec clavier les doigts marchent aussi. Fermer l'onglet en pleine session demande confirmation.
 
 ## 0.2.5
 
