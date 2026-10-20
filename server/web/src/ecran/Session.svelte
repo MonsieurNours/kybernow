@@ -10,7 +10,8 @@
   import { choose, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, isTouch, measureRefresh, preferredProtocol, screenMode, type Mode } from './device'
-  import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setRemoteCursorHidden } from './pointer'
+  import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
+  import { forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { SPECIAL_KEYS, TouchInput, sendKey, sendText } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
@@ -205,6 +206,7 @@
         imageWatch = null
         phase = 'live'
         reconnecting = ''
+        learnDisplayId()
         document.getElementById('kn-canvas')?.focus()
         scheduleBarHide()
         setTimeout(() => (hintOn = false), 7000)
@@ -381,6 +383,19 @@
     installDiag()
     installPointerGate(pointerAllowed)
     installAbsoluteMouse()
+    watchInputSocket()
+    // La toile a les proportions de l'image : un point de la toile donne une
+    // position sur l'écran de l'ordinateur (taille de l'image reçue).
+    setPositionMapper((cx, cy) => {
+      const c = document.getElementById('kn-canvas')
+      if (!c || !canvasSize.width) return null
+      const r = c.getBoundingClientRect()
+      if (cx < r.left || cy < r.top || cx >= r.right || cy >= r.bottom) return null
+      return {
+        x: Math.min(canvasSize.width - 1, ((cx - r.left) * canvasSize.width) / r.width),
+        y: Math.min(canvasSize.height - 1, ((cy - r.top) * canvasSize.height) / r.height),
+      }
+    })
     start()
     // Ctrl + Alt + Maj : la barre, et la souris rendue.
     const shortcut = (e: KeyboardEvent) => {
@@ -414,7 +429,7 @@
             `entrées ${row('entrees')}`,
             `flux    ${row('flux')}`,
             `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
-            `sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
+            `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
             `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'}`,
           ].join('\n')
           prev = { ...diag }
@@ -473,6 +488,8 @@
       releasePointer()
       removePointerGate()
       removeAbsoluteMouse()
+      setPositionMapper(() => null)
+      forgetInputSocket()
       if (barTimer) clearTimeout(barTimer)
       touch?.destroy()
       window.removeEventListener('resize', resize)

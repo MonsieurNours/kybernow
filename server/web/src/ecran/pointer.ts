@@ -36,6 +36,15 @@ export function isRemoteCursorHidden() {
   return remoteHidden
 }
 
+import { sendPosition } from './inputs'
+
+/** Position sur l'écran de l'ordinateur d'un point de la page, ou null hors de l'image. */
+let toHost: (clientX: number, clientY: number) => { x: number; y: number } | null = () => null
+
+export function setPositionMapper(fn: typeof toHost) {
+  toHost = fn
+}
+
 /** Pointeur de l'ordinateur visible, hors capture : le moteur envoie à chaque
  * mouvement un déplacement relatif puis la position absolue, et l'ordinateur
  * applique les deux. Le relatif passe par l'accélération de Windows et se perd
@@ -44,7 +53,14 @@ export function isRemoteCursorHidden() {
  * Pointeur masqué (Windows le cache à la moindre frappe) : le déplacement
  * passe, Windows réaffiche son pointeur, le moteur revient aux positions. */
 function absoluteOnly(e: MouseEvent) {
-  if (!e.isTrusted || remoteHidden || document.pointerLockElement || (!e.movementX && !e.movementY)) return
+  if (!e.isTrusted || document.pointerLockElement || (!e.movementX && !e.movementY)) return
+  if (remoteHidden) {
+    // Le moteur n'enverra que le déplacement, et Windows ne réaffiche son
+    // pointeur que sur une position absolue : on l'envoie nous-mêmes (en
+    // WebSocket seulement). Sinon, le déplacement passe tel quel.
+    const p = toHost(e.clientX, e.clientY)
+    if (!p || !sendPosition(p.x, p.y)) return
+  }
   e.stopImmediatePropagation()
   ;(e.target ?? window).dispatchEvent(
     new MouseEvent('mousemove', {
