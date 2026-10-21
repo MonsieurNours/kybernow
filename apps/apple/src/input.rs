@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use kybernow_core::input::keymap;
 use kybernow_core::input::{
-    Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, MouseMode, MouseModeRules, Options, PadAxis, PadButton, PadId, PadKey, Pasteboard,
+    Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, MouseMode, MouseModeRules, Options, PadAxis, PadButton, PadCombo, PadId, PadKey, Pasteboard,
     PointerLayer,
 };
 use kybernow_core::kynput_rs::MouseButtonType;
@@ -572,4 +572,155 @@ pub unsafe extern "C" fn kn_input_gamepad_axes_rest(i: *const KnInput, pad: u32)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_combo_enabled(i: *const KnInput, enabled: bool) {
     with(i, |p| p.combo().set_enabled(enabled));
+}
+
+// MARK: - Combinaison seule (Apple TV, iOS)
+
+/// La combinaison L1 + R1 + Start + Select d'un pont de manettes qui la
+/// suit lui-même avant d'envoyer quoi que ce soit (GameController : barre ou
+/// menu, souris à la manette, appui long) : la même règle que la chaîne
+/// d'entrées (250 ms tenues), avec son propre fil pour l'échéance.
+pub struct KnCombo {
+    combo: Arc<PadCombo>,
+    driver: Arc<ComboDriver>,
+}
+
+struct ComboDriver {
+    /// (réveillé, arrêt demandé)
+    woken: std::sync::Mutex<(bool, bool)>,
+    cvar: std::sync::Condvar,
+}
+
+impl ComboDriver {
+    fn wake(&self, stop: bool) {
+        let mut w = self.woken.lock().unwrap();
+        w.0 = true;
+        w.1 |= stop;
+        self.cvar.notify_one();
+    }
+}
+
+#[repr(C)]
+pub struct KnComboCallbacks {
+    pub userdata: *mut c_void,
+    /// Combinaison formée pour cette manette (fil de la combinaison).
+    pub on_formed: Option<unsafe extern "C" fn(userdata: *mut c_void, pad: u32)>,
+}
+
+unsafe impl Send for KnComboCallbacks {}
+unsafe impl Sync for KnComboCallbacks {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_combo_new(callbacks: KnComboCallbacks) -> *mut KnCombo {
+    let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
+    let combo = Arc::new(PadCombo::new(clock.clone()));
+    let callbacks = Arc::new(callbacks);
+    combo.set_on_formed(move |pad| {
+        if let Some(f) = callbacks.on_formed {
+            unsafe { f(callbacks.userdata, pad) };
+        }
+    });
+    let driver = Arc::new(ComboDriver {
+        woken: std::sync::Mutex::new((false, false)),
+        cvar: std::sync::Condvar::new(),
+    });
+    let (c, d) = (Arc::downgrade(&combo), driver.clone());
+    let spawned = std::thread::Builder::new().name("kybernow-combinaison".into()).spawn(move || {
+        loop {
+            let Some(combo) = c.upgrade() else { break };
+            combo.poll();
+            let wait = combo.next_deadline().map(|at| at.saturating_sub(clock.now()));
+            drop(combo);
+            let mut w = d.woken.lock().unwrap();
+            if !w.0 {
+                w = match wait {
+                    Some(t) => d.cvar.wait_timeout(w, t).unwrap().0,
+                    None => d.cvar.wait(w).unwrap(),
+                };
+            }
+            if w.1 {
+                break;
+            }
+            w.0 = false;
+        }
+    });
+    if let Err(e) = spawned {
+        log::error!("combinaison : fil impossible ({e})");
+    }
+    Box::into_raw(Box::new(KnCombo { combo, driver }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_free(c: *mut KnCombo) {
+    if !c.is_null() {
+        let c = unsafe { Box::from_raw(c) };
+        c.driver.wake(true);
+    }
+}
+
+fn combo<'a>(c: *const KnCombo) -> Option<&'a KnCombo> {
+    unsafe { c.as_ref() }
+}
+
+/// Réglage « la combinaison ouvre le menu » ; `false` : rien n'est armé.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_set_enabled(c: *const KnCombo, enabled: bool) {
+    if let Some(c) = combo(c) {
+        c.combo.set_enabled(enabled);
+    }
+}
+
+/// Touche d'une manette (`button` : valeur kynput).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_button(c: *const KnCombo, pad: u32, button: u32, pressed: bool) {
+    let (Some(c), Some(b)) = (combo(c), PadButton::from_u32(button)) else { return };
+    c.combo.button(pad, b, pressed);
+    if c.combo.next_deadline().is_some() {
+        c.driver.wake(false);
+    }
+}
+
+/// Touches tenues de cette manette (valeurs kynput), au plus `cap` dans `out`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_pressed(c: *const KnCombo, pad: u32, out: *mut u32, cap: usize) -> usize {
+    let Some(c) = combo(c) else { return 0 };
+    let mut n = 0;
+    for b in c.combo.pressed(pad) {
+        if n == cap || out.is_null() {
+            break;
+        }
+        unsafe { *out.add(n) = b.to_u32() };
+        n += 1;
+    }
+    n
+}
+
+/// Les touches tenues d'une manette, d'après son état réel (resynchronisation).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_set_pressed(c: *const KnCombo, pad: u32, buttons: *const u32, count: usize) {
+    let Some(c) = combo(c) else { return };
+    let list = if buttons.is_null() || count == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(buttons, count) } };
+    c.combo.set_pressed(pad, list.iter().filter_map(|b| PadButton::from_u32(*b)).collect());
+}
+
+/// La combinaison s'est formée et ses touches ne sont pas toutes relâchées.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_formed(c: *const KnCombo, pad: u32) -> bool {
+    combo(c).is_some_and(|c| c.combo.formed(pad))
+}
+
+/// Manette débranchée.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_combo_forget(c: *const KnCombo, pad: u32) {
+    if let Some(c) = combo(c) {
+        c.combo.forget(pad);
+    }
+}
+
+/// Position tenue renvoyée à l'ordinateur (entrées reliées de nouveau).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pointer_resend_held(p: *const KnPointer) {
+    if let Some(p) = unsafe { p.as_ref() } {
+        p.layer.resend_held();
+    }
 }

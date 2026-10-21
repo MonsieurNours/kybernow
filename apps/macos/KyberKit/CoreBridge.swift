@@ -1,7 +1,6 @@
 // Le cœur Rust (apps/core, par le pont C apps/apple) vu de Swift : journal,
 // langue, et les petits outils communs à la console et au moteur de session.
-// Mac seulement pour l'instant (docs/coeur-apple.md) ; l'Apple TV compile
-// encore KyberClient.swift, ConsoleClient.swift et LatencyTracker.swift.
+// Mac et Apple TV (docs/coeur-apple.md).
 
 import Foundation
 import os
@@ -15,6 +14,7 @@ public enum Core {
     }
 
     private static let installed: Void = {
+        KyberLog.install()
         kn_set_log_callback { level, target, message in
             let text = "\(target.map { String(cString: $0) } ?? ""): \(message.map { String(cString: $0) } ?? "")"
             switch level {

@@ -1,20 +1,27 @@
-// Les entrées du Mac sur le cœur Rust (jalon 2 de docs/coeur-apple.md) :
-// chaîne kynput, file de secours, clavier, combinaison et prise des
-// manettes SDL, tout relâcher, pointeur de l'ordinateur, presse-papiers
-// sont dans `kybernow_core::input`, par l'API C de apps/apple. Ce fichier
-// garde les noms qu'utilisaient StreamView et SessionEngine (InputPipeline,
-// PointerLayer, Keymap, MouseModeRules) ; Swift ne fait plus que capter les
-// événements d'AppKit, dessiner le pointeur et traduire kVK → HID
-// (KeymapMac.swift).
-//
-// Mac seulement : l'Apple TV compile encore les versions Swift (Keymap,
-// PadCombo, PointerLayer, ReleaseAll, ClipboardBridge, PacketQueue,
-// InputPipeline, GamepadGate) jusqu'au jalon 4.
+// Les entrées des apps Apple sur le cœur Rust (jalons 2 et 4 de
+// docs/coeur-apple.md) : chaîne kynput, file de secours, clavier,
+// combinaison et prise des manettes, tout relâcher, pointeur de
+// l'ordinateur, presse-papiers sont dans `kybernow_core::input`, par l'API C
+// de apps/apple. Ce fichier garde les noms qu'utilisaient les vues et les
+// ponts de manettes (InputPipeline, PointerLayer, PadCombo, Keymap,
+// MouseModeRules) ; chaque plateforme ne fait plus que capter ses événements
+// (AppKit sur Mac, GameController sur Apple TV), dessiner le pointeur et,
+// sur Mac, traduire kVK → HID (KeymapMac.swift).
 
+#if os(macOS)
 import AppKit
+#endif
 import CoreGraphics
 import Foundation
+@_implementationOnly import CKyber
 @_implementationOnly import CKyberNow
+
+/// File série unique des entrées de l'appareil hors du fil principal
+/// (GameController sur Apple TV et iOS : manettes, télécommande, clavier et
+/// souris Bluetooth).
+public enum InputQueue {
+    public static let device = DispatchQueue(label: "fr.leslignesclaires.kybernow.manettes", qos: .userInteractive)
+}
 
 /// Bureau : souris absolue, pointeur de l'appareil toujours là. Jeu : souris
 /// relative (déplacements bruts). Auto : jeu quand un jeu est en plein écran
@@ -24,6 +31,122 @@ public enum MouseMode: Sendable { case auto, desktop, game }
 /// Touche de navigation pendant que la manette pilote l'app.
 public enum PadKey: Sendable {
     case left, right, up, down, accept, back
+}
+
+/// Touche de manette, dans le vocabulaire de kynput.
+public enum PadButton: Sendable, CaseIterable, Hashable {
+    case a, b, x, y, back, guide, start, leftStick, rightStick, leftShoulder, rightShoulder
+    case dpadUp, dpadDown, dpadLeft, dpadRight
+
+    var core: UInt32 {
+        switch self {
+        case .a: return KYNPUT_GAMEPAD_BUTTON_A.rawValue
+        case .b: return KYNPUT_GAMEPAD_BUTTON_B.rawValue
+        case .x: return KYNPUT_GAMEPAD_BUTTON_X.rawValue
+        case .y: return KYNPUT_GAMEPAD_BUTTON_Y.rawValue
+        case .back: return KYNPUT_GAMEPAD_BUTTON_BACK.rawValue
+        case .guide: return KYNPUT_GAMEPAD_BUTTON_GUIDE.rawValue
+        case .start: return KYNPUT_GAMEPAD_BUTTON_START.rawValue
+        case .leftStick: return KYNPUT_GAMEPAD_BUTTON_LEFT_STICK.rawValue
+        case .rightStick: return KYNPUT_GAMEPAD_BUTTON_RIGHT_STICK.rawValue
+        case .leftShoulder: return KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER.rawValue
+        case .rightShoulder: return KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER.rawValue
+        case .dpadUp: return KYNPUT_GAMEPAD_BUTTON_D_PAD_UP.rawValue
+        case .dpadDown: return KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN.rawValue
+        case .dpadLeft: return KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT.rawValue
+        case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT.rawValue
+        }
+    }
+
+    init?(core: UInt32) {
+        guard let button = Self.allCases.first(where: { $0.core == core }) else { return nil }
+        self = button
+    }
+}
+
+/// Axe de manette, dans le vocabulaire de kynput.
+public enum PadAxis: Sendable, CaseIterable, Hashable {
+    case leftX, leftY, rightX, rightY, leftTrigger, rightTrigger
+
+    var core: UInt32 {
+        switch self {
+        case .leftX: return KYNPUT_GAMEPAD_AXIS_LEFT_X.rawValue
+        case .leftY: return KYNPUT_GAMEPAD_AXIS_LEFT_Y.rawValue
+        case .rightX: return KYNPUT_GAMEPAD_AXIS_RIGHT_X.rawValue
+        case .rightY: return KYNPUT_GAMEPAD_AXIS_RIGHT_Y.rawValue
+        case .leftTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT.rawValue
+        case .rightTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT.rawValue
+        }
+    }
+}
+
+/// Vibration demandée par le jeu pour une manette (moteurs de 0 à 65535,
+/// durée en millisecondes, -1 : jusqu'à nouvel ordre).
+public struct GamepadRumble: Sendable {
+    public let id: UInt32
+    public let largeMotor: UInt16
+    public let smallMotor: UInt16
+    public let durationMs: Int
+}
+
+/// Combinaison L1 + R1 + Start + Select (250 ms tenues) et touches tenues de
+/// chaque manette, tenues par le cœur : pour un pont de manettes qui la suit
+/// lui-même avant d'envoyer (GameController sur Apple TV et iOS).
+final class PadCombo: @unchecked Sendable {
+    static let buttons: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
+    /// Les six axes à remettre au repos à la capture.
+    static let axes: [PadAxis] = PadAxis.allCases
+
+    /// Combinaison formée pour cette manette, sur la file donnée.
+    var onFormed: ((UInt32) -> Void)?
+    /// Réglage « la combinaison ouvre le menu » ; `false` : rien n'est armé.
+    var enabled = true { didSet { kn_combo_set_enabled(core, enabled) } }
+
+    private let queue: DispatchQueue
+    private var core: OpaquePointer!
+
+    init(on queue: DispatchQueue) {
+        self.queue = queue
+        let callbacks = KnComboCallbacks(userdata: Unmanaged.passUnretained(self).toOpaque(), on_formed: { ud, pad in
+            guard let ud else { return }
+            let me = Unmanaged<PadCombo>.fromOpaque(ud).takeUnretainedValue()
+            me.queue.async { me.onFormed?(pad) }
+        })
+        core = kn_combo_new(callbacks)
+    }
+
+    deinit { kn_combo_free(core) }
+
+    func pressed(_ id: UInt32) -> Set<PadButton> {
+        var out = [UInt32](repeating: 0, count: 16)
+        let n = out.withUnsafeMutableBufferPointer { kn_combo_pressed(core, id, $0.baseAddress, UInt(16)) }
+        return Set(out.prefix(Int(n)).compactMap { PadButton(core: $0) })
+    }
+
+    func formed(_ id: UInt32) -> Bool { kn_combo_formed(core, id) }
+    func forget(_ id: UInt32) { kn_combo_forget(core, id) }
+
+    /// Les touches tenues d'une manette, d'après son état réel.
+    func set(pressed buttons: Set<PadButton>, for id: UInt32) {
+        let list = buttons.map(\.core)
+        list.withUnsafeBufferPointer { kn_combo_set_pressed(core, id, $0.baseAddress, UInt($0.count)) }
+    }
+
+    func button(_ id: UInt32, _ button: PadButton, pressed down: Bool) {
+        kn_combo_button(core, id, button.core, down)
+    }
+
+    static func navigationKey(_ button: PadButton) -> PadKey? {
+        switch button {
+        case .dpadLeft: return .left
+        case .dpadRight: return .right
+        case .dpadUp: return .up
+        case .dpadDown: return .down
+        case .a: return .accept
+        case .b: return .back
+        default: return nil
+        }
+    }
 }
 
 /// Règles Auto / Bureau / Jeu (le cœur), avec la veille du plein écran.
@@ -49,6 +172,19 @@ struct MouseModeRules {
 /// disposition du clavier sont dans KeymapMac.swift.
 public enum Keymap {
     static func isLock(_ usage: UInt16) -> Bool { kn_keymap_is_lock(usage) }
+    static func isModifier(_ usage: UInt16) -> Bool { (0xE0...0xE7).contains(usage) }
+
+    /// Apple TV et iOS : le réglage « Clavier Apple ISO » s'applique aux
+    /// claviers dont le fabricant est Apple, ou inconnu.
+    static func appleKeyboard(vendorName: String?) -> Bool {
+        kn_keymap_apple_keyboard(vendorName)
+    }
+
+    /// Scancode d'un usage HID tel quel (sans échange ni « ⌘ envoyée comme Ctrl »).
+    static func scancode(usage: UInt16) -> UInt16? {
+        let code = kn_keymap_scancode(usage, false, false)
+        return code >= 0 ? UInt16(code) : nil
+    }
 
     /// Scancode à envoyer pour une touche donnée en usage HID ; `iso` n'est
     /// évalué que pour les deux touches concernées (il interroge le système).
@@ -72,7 +208,8 @@ final class PointerLayer: @unchecked Sendable {
     }
 
     struct State {
-        /// Position annoncée par l'ordinateur (pixels de son écran).
+        /// Position du pointeur, en pixels de l'écran de l'ordinateur : celle
+        /// tenue par l'appareil (Apple TV), sinon celle annoncée par l'ordinateur.
         var remotePosition: CGPoint?
         /// L'ordinateur cache son pointeur.
         var remoteHidden = false
@@ -148,6 +285,17 @@ final class PointerLayer: @unchecked Sendable {
     /// L'écran de l'ordinateur a changé de taille en cours de session.
     func setHostSize(_ size: CGSize) {
         kn_pointer_set_host_size(core, size.width, size.height)
+    }
+
+    /// Position tenue par l'appareil déplacée (Apple TV : télécommande,
+    /// manette, souris en positions absolues) ; l'ordinateur la reçoit.
+    func move(dx: Double, dy: Double) {
+        kn_pointer_move_by(core, dx, dy)
+    }
+
+    /// Position tenue renvoyée (entrées reliées de nouveau).
+    func resendHeld() {
+        kn_pointer_resend_held(core)
     }
 
     /// Fin de session.
@@ -233,11 +381,35 @@ final class InputPipeline: @unchecked Sendable {
     /// fil des minuteries peut encore appeler pendant qu'elle se défait).
     private let box: Callbacks
 
+    /// Vibrations des manettes (Apple TV : kynput ne les joue pas lui-même) ; fil de kynput.
+    var onRumble: ((GamepadRumble) -> Void)? {
+        get { box.lock.withLock { box.rumble } }
+        set { box.lock.withLock { box.rumble = newValue } }
+    }
+
+    /// Les entrées rejoignent l'ordinateur (début de session, reconnexion).
+    var onConnected: (() -> Void)? {
+        get { box.lock.withLock { box.connected } }
+        set { box.lock.withLock { box.connected = newValue } }
+    }
+
     /// Ce que le cœur rappelle (fils du cœur) : le fil principal pour l'interface.
     private final class Callbacks {
         weak var gamepads: Gamepads?
+        let lock = NSLock()
+        var rumble: ((GamepadRumble) -> Void)?
+        var connected: (() -> Void)?
+        #if os(macOS)
         let pasteboard = NSPasteboard.general
+        #endif
     }
+
+    /// Manettes produites par l'app (GameController) ; sur Mac, kynput les lit via SDL.
+    #if os(macOS)
+    private static let gamepadsFromApp = false
+    #else
+    private static let gamepadsFromApp = true
+    #endif
 
     /// `pointer` : la couche de pointeur de la vue de session.
     init(displayID: UInt32, hostSize: CGSize, pointer: PointerLayer, clipboard: Bool) {
@@ -250,7 +422,7 @@ final class InputPipeline: @unchecked Sendable {
             host_width: UInt32(max(0, hostSize.width)),
             host_height: UInt32(max(0, hostSize.height)),
             clipboard: clipboard,
-            gamepads_from_app: false
+            gamepads_from_app: Self.gamepadsFromApp
         )
         let ud = Unmanaged.passRetained(box).toOpaque()
         let callbacks = KnInputCallbacks(
@@ -275,29 +447,50 @@ final class InputPipeline: @unchecked Sendable {
                 }
                 DispatchQueue.main.async { box.gamepads?.onNavigate?(k) }
             },
-            on_connected: nil,
-            on_rumble: nil,
-            pasteboard_change_count: { ud in
-                guard let ud else { return 0 }
+            on_connected: { ud in
+                guard let ud else { return }
                 let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-                return UInt64(max(0, box.pasteboard.changeCount))
+                box.lock.withLock { box.connected }?()
             },
-            pasteboard_text: { ud in
-                guard let ud else { return nil }
+            on_rumble: { ud, pad, large, small, duration in
+                guard let ud else { return }
                 let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-                guard let text = box.pasteboard.string(forType: .string) else { return nil }
-                return strdup(text)
+                box.lock.withLock { box.rumble }?(GamepadRumble(id: pad, largeMotor: large, smallMotor: small, durationMs: Int(duration)))
             },
-            pasteboard_set_text: { ud, text in
-                guard let ud, let text else { return }
-                let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-                box.pasteboard.clearContents()
-                box.pasteboard.setString(String(cString: text), forType: .string)
-            }
+            pasteboard_change_count: Self.pasteboardChangeCount,
+            pasteboard_text: Self.pasteboardText,
+            pasteboard_set_text: Self.pasteboardSetText
         )
         core = kn_input_new(options, pointer.core, callbacks)
         gamepad.owner = self
+        // Apple TV : la combinaison est suivie par le pont de manettes (PadCombo), avant l'envoi.
+        if Self.gamepadsFromApp { kn_input_set_combo_enabled(core, false) }
     }
+
+    #if os(macOS)
+    private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = { ud in
+        guard let ud else { return 0 }
+        let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
+        return UInt64(max(0, box.pasteboard.changeCount))
+    }
+    private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = { ud in
+        guard let ud else { return nil }
+        let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
+        guard let text = box.pasteboard.string(forType: .string) else { return nil }
+        return strdup(text)
+    }
+    private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = { ud, text in
+        guard let ud, let text else { return }
+        let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
+        box.pasteboard.clearContents()
+        box.pasteboard.setString(String(cString: text), forType: .string)
+    }
+    #else
+    // Pas de presse-papiers sur l'Apple TV (iOS : UIPasteboard, à brancher avec l'app).
+    private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = nil
+    private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = nil
+    private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = nil
+    #endif
 
     deinit {
         kn_input_free(core)
@@ -359,4 +552,27 @@ final class InputPipeline: @unchecked Sendable {
     func stop() { kn_input_stop(core) }
     /// Arrête les gestionnaires de kynput (manettes SDL).
     func shutdown() { kn_input_shutdown(core) }
+
+    // MARK: Texte et manettes produites par l'app (Apple TV, iOS)
+
+    /// Texte tapé au clavier de l'écran ou de l'iPhone.
+    func type(_ text: String) { kn_input_type_text(core, text) }
+
+    func gamepadPlug(id: UInt32, vendor: UInt16?, product: UInt16?) {
+        kn_input_gamepad_plug(core, id, vendor.map(Int32.init) ?? -1, product.map(Int32.init) ?? -1)
+    }
+
+    func gamepadUnplug(id: UInt32) { kn_input_gamepad_unplug(core, id) }
+
+    func gamepadButton(id: UInt32, _ button: PadButton, pressed: Bool) {
+        kn_input_gamepad_button(core, id, button.core, pressed)
+    }
+
+    /// Axe filtré (1/512 de la course) et regroupé par 4 ms ; retour au repos réessayé.
+    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) {
+        kn_input_gamepad_axis(core, id, axis.core, value)
+    }
+
+    /// Les six axes au repos, tout de suite et sûrement.
+    func gamepadAxesRest(id: UInt32) { kn_input_gamepad_axes_rest(core, id) }
 }

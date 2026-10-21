@@ -1,6 +1,7 @@
 # Projet Xcode de l'app KyberNow pour l'Apple TV (généré par XcodeGen :
 # `xcodegen generate`). Avant le premier build : scripts/build-kyber-tvos.sh
-# (SDK client de Kyber compilé pour tvOS, dans Vendor/).
+# (SDK client de Kyber compilé pour tvOS, dans Vendor/), puis
+# ../apple/scripts/build-apple-mobile.sh tvos (le cœur Rust, KyberNow.xcframework).
 #
 # KyberKit est le même module que sur Mac : ses fichiers communs viennent
 # d'apps/macos/KyberKit (dont le module d'entrées partagé : InputPipeline,
@@ -40,18 +41,15 @@ targets:
         excludes:
           - KeymapMac.swift
           - MetalSurface.swift
-          - PasteboardMac.swift
           - RelativeMouse.swift
           - StreamView.swift
-          # Le cœur Rust (docs/coeur-apple.md) : Mac seulement jusqu'au jalon 4 ;
-          # l'Apple TV garde KyberClient, ConsoleClient et LatencyTracker.
-          - AudioPlayerCore.swift
-          - CoreBridge.swift
-          - ConsoleClientCore.swift
-          - InputCore.swift
-          - SessionEngine.swift
       - path: KyberKitTV
     dependencies:
+      # Le cœur Rust et son pont C (apps/apple/scripts/build-apple-mobile.sh tvos).
+      - framework: Vendor/KyberNow.xcframework
+        embed: false
+      # libkynput (API C de la chaîne d'entrées), libopus et les fonctions
+      # vides de VLC (apps/tvos/scripts/build-kyber-tvos.sh).
       - framework: Vendor/KyberSDK.xcframework
         embed: false
       - sdk: Security.framework
@@ -61,9 +59,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
         GENERATE_INFOPLIST_FILE: YES
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include
         SKIP_INSTALL: YES
-        # Les deux bibliothèques Rust embarquent chacune leur bibliothèque standard.
+        # Les bibliothèques Rust embarquent chacune leur bibliothèque standard.
         OTHER_LDFLAGS: -Wl,-dead_strip
   KyberNowTV:
     type: application

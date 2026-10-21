@@ -21,7 +21,6 @@ final class KeyboardMouse {
     private weak var input: InputPipeline?
     /// Touches et modificateurs (usages HID) tenus : resynchronisation des
     /// modificateurs quand les entrées sont reliées de nouveau (ReleaseAll).
-    private let held = ReleaseAll()
     private var iso = false
     private var activitySent = false
     private var observers: [NSObjectProtocol] = []
@@ -73,7 +72,6 @@ final class KeyboardMouse {
             input?.flushKeys()
             input = nil
             pointer = nil
-            held.forget()
         }
     }
 
@@ -86,10 +84,9 @@ final class KeyboardMouse {
         let down = modifiers.filter { keys?.button(forKeyCode: $0)?.isPressed == true }.map { UInt16(truncatingIfNeeded: $0.rawValue) }
         queue.async {
             guard let input = self.input else { return }
-            self.held.forgetModifiers()
-            self.held.resyncModifiers(held: down) { usage in
-                guard let scancode = Keymap.scancode(usage: usage) else { return }
-                self.held.key(scancode: scancode, pressed: true)
+            input.forgetModifiers()
+            for usage in input.resyncModifiers(held: down) {
+                guard let scancode = Keymap.scancode(usage: usage) else { continue }
                 input.key(scancode: scancode, pressed: true)
             }
         }
@@ -102,8 +99,7 @@ final class KeyboardMouse {
             guard let self, let input = self.input else { return }
             let usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
             guard let scancode = Keymap.scancode(hid: usage, iso: apple && self.iso) else { return }
-            if Keymap.isModifier(usage) { self.held.modifier(usage, pressed: pressed) }
-            self.held.key(scancode: scancode, pressed: pressed)
+            if Keymap.isModifier(usage) { input.modifier(usage, pressed: pressed) }
             input.key(scancode: scancode, pressed: pressed)
         }
     }

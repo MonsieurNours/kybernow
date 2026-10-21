@@ -54,7 +54,7 @@ KyberNow's streaming client: you get your computer (Kyber 0.29 server + KyberNow
 
 Kyber normally draws the image and plays the sound with VLC. KyberNow decodes them itself (H.264, HEVC, AV1, Opus) for latency and sync: `kyber-patches/0001` adds to libkyclient an output of the packets to the app (see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)).
 
-**End-to-end latency and the path of a frame** (the Rust core, `apps/core/src/latency.rs`, through `SessionEngine`; `LatencyTracker` on Apple TV)
+**End-to-end latency and the path of a frame** (the Rust core, `apps/core/src/latency.rs`, through `SessionEngine`, Mac and Apple TV)
 - Kyber's metrics turned on: the server timestamps each frame at each step (capture, start and end of encoding, sending), and Kyber's pings give the clock offset (median of the last 15).
 - The renderer reports the moment each frame is received, decoded and shown, brought onto Kyber's `CLOCK_MONOTONIC` clock.
 - Latency = display − (capture − offset), median of each second, in the bar. The session's median goes on the home screen.
@@ -96,28 +96,18 @@ Live measurements (session bar): end-to-end latency and its curve, resolution an
 ```
 apps/macos/
 ├── project.yml            # projet XcodeGen (cibles KyberKit et KyberNow)
-├── KyberKit/              # framework : le cœur Rust vu de Swift, image, son, entrées
+├── KyberKit/              # framework, Mac et Apple TV : le cœur Rust vu de Swift, image, son, entrées
 │   ├── SessionEngine      # la session du cœur Rust (docs/coeur-apple.md) : états, avis, paquets, mesures
 │   ├── ConsoleClientCore  # console hors session par le cœur (info, aperçu, empreinte, appairage)
 │   ├── CoreBridge         # journal et langue du cœur (CKyberNow = Vendor/KyberNow/include)
 │   ├── KyberTypes         # écran de l'ordinateur, format, réglages d'un flux (partagé)
-│   ├── LatencyReporting   # ce que le rendu dit au suivi de latence (cœur sur Mac, LatencyTracker sur Apple TV)
-│   ├── KyberClient / ConsoleClient / LatencyTracker   # Apple TV seulement (jusqu'au jalon 4)
+│   ├── LatencyReporting   # ce que le rendu dit au suivi de latence du cœur
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AudioPlayerCore    # sortie Core Audio ; Opus, tampon adaptatif, dérive et mixage dans le cœur (jalon 3)
 │   ├── InputCore          # entrées par le cœur : chaîne d'entrées, pointeur, règles de souris, clavier (jalon 2)
-│   ├── AudioPlayer        # son en Swift, Apple TV seulement (jusqu'au jalon 4)
 │   ├── StreamView         # vue de session : événements AppKit, dessin du pointeur, souris relative
-│   ├── PointerLayer       # pointeur de l'ordinateur, règles Auto / Bureau / Jeu, file des entrées (partagé)
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
-│   ├── ClipboardBridge    # presse-papiers partagé, sur le presse-papiers de la plateforme (partagé)
-│   ├── InputPipeline      # entrées via libkynput : paquets, filtrage et regroupement des axes (partagé)
-│   ├── PacketQueue        # file d'envoi vers kynput et file de secours des paquets qui ne se rattrapent pas (partagé)
-│   ├── ReleaseAll         # ce que l'appareil tient enfoncé, politique « tout relâcher », resynchronisation des modificateurs (partagé)
-│   ├── PadCombo           # combinaison L1 + R1 + Start + Select et touches tenues par manette (partagé)
-│   ├── GamepadGate        # manettes SDL du Mac : hook kynput, prise de la manette par la barre
-│   ├── Keymap             # clavier : usages HID → scancodes, échange ISO, verrouillages (partagé)
 │   ├── KeymapMac          # table kVK → HID, disposition du clavier, modificateurs AppKit (Mac seulement)
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
@@ -128,11 +118,11 @@ apps/macos/
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
 ├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh
-├── tests/                 # tests hors ligne (vidéo, son, écran, presse-papiers, entrées)
+├── tests/                 # tests hors ligne (vidéo, écran)
 └── Vendor/                # SDK Kyber compilé, et le cœur Rust (libkybernow, CKyberNow) ; ignoré par git
 ```
 
-In English: `project.yml` is the XcodeGen project (KyberKit and KyberNow targets). `KyberKit/` is the framework: the Rust core as seen from Swift, image, sound and inputs. `SessionEngine` (the Rust core's session, see docs/coeur-apple.en.md: states, notices, packets, measurements), `ConsoleClientCore` (console outside a session, through the core: info, preview, fingerprint, pairing), `CoreBridge` (the core's log and language; `CKyberNow` is `Vendor/KyberNow/include`), `KyberTypes` (the computer's display, codec, stream options; shared), `LatencyReporting` (what the renderer tells the latency tracker: the core on Mac, `LatencyTracker` on Apple TV), `KyberClient` / `ConsoleClient` / `LatencyTracker` (Apple TV only, until milestone 4), the video classes, `AudioPlayer`, `StreamView` (session view: AppKit events, pointer drawing, relative mouse), `PointerLayer` (the computer's pointer, Auto / Desktop / Game rules, input queue; shared), `MetalSurface` (view that holds the renderer's Metal layer), `RelativeMouse` (games mouse, GCMouse), `ClipboardBridge` (shared clipboard, on the platform's pasteboard; shared), `PasteboardMac` (NSPasteboard; Mac only, iOS: UIPasteboard, tvOS: none), `InputPipeline` (inputs through libkynput: packets, axis filtering and batching), `PacketQueue` (send queue to kynput and retry backlog for packets that do not catch up), `ReleaseAll` (what the device holds down, the “release everything” policy, modifier resync; shared), `PadCombo` (L1 + R1 + Start + Select combination and held buttons per gamepad; shared), `GamepadGate` (the Mac's SDL gamepads: kynput hook, gamepad taken by the bar), `Keymap` (keyboard: HID usages → scancodes, Apple ISO swap, lock keys; shared), `KeymapMac` (kVK → HID table, keyboard layout, AppKit modifiers; Mac only) and `KyberLog` (logs to the unified log). `KyberNow/` is the SwiftUI + AppKit app (`Model`: computers, settings, Keychain). `kyber-patches/` holds the KyberNow patches to libkyclient and libkynput, `tests/` the offline tests (video, sound, screen, clipboard, inputs), and `Vendor/` the built Kyber SDK and the Rust core (`libkybernow`, `CKyberNow`; ignored by git).
+In English: `project.yml` is the XcodeGen project (KyberKit and KyberNow targets). `KyberKit/` is the framework: the Rust core as seen from Swift, image, sound and inputs. `SessionEngine` (the Rust core's session, see docs/coeur-apple.en.md: states, notices, packets, measurements), `ConsoleClientCore` (console outside a session, through the core: info, preview, fingerprint, pairing), `CoreBridge` (the core's log and language; `CKyberNow` is `Vendor/KyberNow/include`), `KyberTypes` (the computer's display, codec, stream options; shared), `LatencyReporting` (what the renderer tells the core's latency tracker), `InputCore` (inputs through the core: input chain, pointer, mouse rules, keyboard, gamepad combination), `AudioPlayerCore` (Core Audio output pulling samples from the core's sound engine), the video classes, `StreamView` (session view: AppKit events, pointer drawing, relative mouse), `MetalSurface` (view that holds the renderer's Metal layer), `RelativeMouse` (games mouse, GCMouse), `KeymapMac` (kVK → HID table, keyboard layout, AppKit modifiers; Mac only) and `KyberLog` (logs to the unified log). `KyberNow/` is the SwiftUI + AppKit app (`Model`: computers, settings, Keychain). `kyber-patches/` holds the KyberNow patches to libkyclient and libkynput, `tests/` the offline tests (video, screen), and `Vendor/` the built Kyber SDK and the Rust core (`libkybernow`, `CKyberNow`; ignored by git).
 
 Flow of a session: it lives in the Rust core (`apps/core/src/session.rs`, see [docs/coeur-apple.en.md](../../docs/coeur-apple.en.md)), driven by `SessionEngine` through the C API of `apps/apple`: preparation by the console (virtual display at this Mac's size, sound with the right number of channels) → connection to Kyber → wait for the display list to settle → image → heartbeat every few seconds → end (the computer gets its displays and its audio output back; report in the `ended` state). The core relaunches the image (lost keyframe, error on the computer, display gone), asks for the virtual display again after a reconnection, lightens the stream when no image comes within 4 s (bitrate, then 4:2:0), follows the size of the computer's display and offers “Put back”. `SessionController` keeps only the interface: window, transition, bar, gamepad, capsules, measurements. Swift gives the core the view, one decoder and renderer per stream (`VideoPipeline`), the sound output (`AudioPlayer`, which pulls samples from the core's sound engine), the input capture (into the core's input chain, `InputCore`) and tells it about every frame shown (latency on Kyber's clock).
 
@@ -140,19 +130,6 @@ Flow of a session: it lives in the Rust core (`apps/core/src/session.rs`, see [d
 ### Inputs on the core (milestone 2)
 
 On Mac, inputs go through the Rust core's input module (`apps/core/src/input`, see [apps/core/README.en.md](../core/README.en.md)), through the C API of `apps/apple` (`kn_input_*`, `kn_pointer_*`, `kn_keymap_*`): kynput chain and retry backlog, keyboard (scancodes, “⌘ sent as Ctrl”, ISO swap, lock keys), release all and held modifiers, the computer's pointer and the Auto / Desktop / Game rules, clipboard, and the SDL gamepads (combination held 250 ms and capture by the bar, through a kynput router hook: `gamepad_gate.rs`). `InputCore.swift` keeps the names `StreamView` and `SessionEngine` use (`InputPipeline`, `PointerLayer`, `Keymap`, `MouseModeRules`). The Mac provides the AppKit capture, the pointer drawing, the kVK → HID table and the ISO layout (`KeymapMac`), and `NSPasteboard` through callbacks. Gamepad capture: presses and moving axes stay with the app, releases and axes at rest always go through to the computer (no more permissions to re-arm on every retry, as in `GamepadGate.swift`).
-
-### Swift input module (Apple TV, until milestone 4)
-
-The files marked “partagé” (shared) above import neither AppKit nor UIKit: the Apple TV compiles them as they are (`apps/tvos/project.yml`); the Mac no longer compiles them since milestone 2. What they hold, once:
-
-- `InputPipeline` and `PacketQueue`: the kynput chain (keyboard, mouse, app-produced gamepad, text and FlushKeys packets), counted refusals and the retry backlog for packets that do not catch up (3 ms, 200 ms, order kept), gamepad axis filtering (at 1/512 of the travel, batched per 4 ms, returns to rest retried), reception of the computer's pointer and of rumble.
-- `Keymap`: HID usages → scancodes, “⌘ sent as Ctrl”, swap of the Apple ISO keyboard keys, lock keys (toggles: press + release, never resynced).
-- `PadCombo`: L1 + R1 + Start + Select combination and held buttons of each gamepad; the six axes to put back to rest at capture.
-- `PointerLayer`, `MouseMode`, `MouseModeRules`, `InputQueue`: position, shape, hot spot and visibility of the computer's pointer, position held by the device, Auto / Desktop / Game rules with the full-screen watch (0.6 s of pointer shown again, recheck at 0.7 s), drawing scale and frame, serial queue of the device's inputs.
-- `ReleaseAll`: what the device holds down and the “release everything” policy (keyboard lost, background, end of session), resync of the modifiers actually held on return.
-- `ClipboardBridge` and `PlatformPasteboard`: shared clipboard, the computer's packets handled outside the lock of kynput's router.
-
-What a platform provides: **event capture** (AppKit in `StreamView` on the Mac; GameController in `GamepadBridge` and `KeyboardMouse` on the Apple TV), **drawing** the pointer on the main thread from `PointerLayer.onChanged` (`NSCursor` and a layer in game mode on the Mac, an always-visible layer on the Apple TV), the **pasteboard** (`Pasteboard.general`: `NSPasteboard` in `PasteboardMac`, none on tvOS), the keyboard's **ISO layout** (`KBGetLayoutType` in `KeymapMac`; “Apple ISO keyboard” setting and Apple heuristic on tvOS), the pointer layer's **queue** (main thread on the Mac, `InputQueue.device` on the Apple TV) and the combination timer's **queue** (250 ms held everywhere; `InputQueue.device` on both, under the hook's lock on the Mac). The Mac's gamepads are still read by kynput through SDL: `GamepadGate` filters their packets in the router hook.
 
 ## Building
 
@@ -188,15 +165,12 @@ Xcode puts the profile in the app (`Contents/embedded.provisionprofile`) and add
 
 ```bash
 apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
-apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
-apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
-apps/macos/tests/inputs/run.sh  # module d'entrées partagé : table du clavier (ISO ou non, Verr. maj.), combinaison de manette (brève, tenue, relâchée), file de secours, filtrage des axes
 apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
 ```
 
-The `audio`, `clipboard` and `inputs` tests check the Swift versions, which only the Apple TV still compiles; the core's versions, which the Mac uses, are checked by `cargo test -p kybernow-core` ([apps/core/README.en.md](../core/README.en.md)).
+Sound, clipboard and inputs are checked in the core (`cargo test -p kybernow-core`, [apps/core/README.en.md](../core/README.en.md)): their Swift tests went away with the Swift versions (milestone 4).
 
-(Video: HEVC, H.264 and AV1 streams generated by ffmpeg, checking decoding, timing, rendered colours and recovery after a loss. Audio: stereo and 5.1 Opus at real-time pace, with jitter and losses, checking the buffer and gaps. Clipboard: private clipboard, announcements, requests, answers, 60 KB. Screen: two 2.5 s passes in a window, checking that the session surface really shows the frames, `presentedTime`, and comparing the commit → screen delay with and without the “one frame in flight” guard.)
+(Video: HEVC, H.264 and AV1 streams generated by ffmpeg, checking decoding, timing, rendered colours and recovery after a loss. Screen: two 2.5 s passes in a window, checking that the session surface really shows the frames, `presentedTime`, and comparing the commit → screen delay with and without the “one frame in flight” guard.)
 
 Measured on an M4 Max: 1 to 2 ms decoding at 2560 × 1440 (4:2:0), 1.6 to 2.7 ms in 4:4:4 (the test submits frames without spacing them: with asynchronous decoding, the time shown includes the wait in VideoToolbox's queue, 3 to 6 ms), colours within ±4 levels; sound: 17 to 24 ms of buffer with 20 ms packets, 15 to 20 ms with 10 ms packets (server with 0004), with ± 8 ms of simulated jitter (the smooth catch-up leaves the buffer a little higher than the old hard cut).
 
@@ -228,13 +202,6 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Towards iOS and Apple TV
 
-The Apple TV is done (`apps/tvos`). For iOS and iPadOS, KyberKit is taken as it is: connection, decoding, Metal rendering, sound, latency, console, and the whole shared input module (`InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `PointerLayer`, `ReleaseAll`, `ClipboardBridge`). What iOS has to write, and only that:
-
-1. `Pasteboard.swift`: `enum Pasteboard { static var general: PlatformPasteboard? }` on `UIPasteboard.general` (`changeCount`, `string`), after `PasteboardMac`.
-2. A UIKit `StreamView`, from the Apple TV's (`apps/tvos/KyberKitTV/StreamView.swift`, with its `MetalSurface`): a `PointerLayer(queue: InputQueue.device, holdsPosition: true)`; pointer drawing on the main thread from `onChanged`; identical `attach`, `inputConnected`, `setHostSize` and `detach`; `MouseModeRules(needsHiddenPointer: false)` like the Apple TV, or the Mac's Auto / Desktop / Game setting.
-3. Touch → pointer events: a dragging finger → `pointer.move(dx:dy:)` on `InputQueue.device` (or an absolute position through `kynput_video_layout_local_to_host` and `InputPipeline.mouse` when the finger points at a spot of the image); a tap → `InputPipeline.mouseButton(.left, pressed:)` recorded in a `ReleaseAll`; two fingers → `wheel`; in game mode, raw `mouseMove`.
-4. Hardware keyboard and gamepads: the Apple TV's `KeyboardMouse.swift` and `GamepadBridge.swift` (GameController, UIKit, Core Haptics; only the Siri Remote is tvOS-specific there), or directly `Keymap.scancode(hid:iso:)` with the ISO setting and `Keymap.appleKeyboard`, `PadCombo(on: InputQueue.device)` and `ReleaseAll`; the on-screen keyboard → `InputPipeline.type`.
-5. Background: `ReleaseAll.release(into:)` then `InputPipeline.flushKeys` on `willResignActive` (what `GamepadBridge` does), modifiers resynced when the inputs are connected again.
-6. Building libkyclient, libkynput and libopus for iOS (`apps/tvos/scripts/build-kyber-tvos.sh` is the model).
+The Apple TV (`apps/tvos`) compiles the same KyberKit, core included, since milestone 4: its own files (`apps/tvos/KyberKitTV`) are only the UIKit session view, the Metal surface and the GameController capture (`GamepadBridge`, `KeyboardMouse`). iOS and iPadOS do the same (milestone 5, [docs/coeur-apple.en.md](../../docs/coeur-apple.en.md)): a touch session view, capture of touch, keyboard, trackpad and gamepads, the clipboard through `UIPasteboard` (the bridge's `pasteboard_*` callbacks), and the core built for iOS (`apps/apple/scripts/build-apple-mobile.sh ios`).
 
 There is neither VRR nor turning off sync on Apple TV.

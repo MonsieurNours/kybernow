@@ -7,8 +7,7 @@
 // (`kn_audio_fill`), suivie quand elle change (AirPods branchés : voies,
 // tampon et latence relus, unité recréée).
 //
-// Mac seulement pour l'instant : l'Apple TV compile encore AudioPlayer.swift
-// jusqu'au jalon 4 ; la sortie RemoteIO d'iOS et tvOS est déjà prévue ici.
+// Mac et Apple TV ; la sortie RemoteIO sert aussi à iOS.
 
 import AudioToolbox
 import Foundation

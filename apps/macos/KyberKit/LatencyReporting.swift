@@ -1,6 +1,6 @@
 // Ce que le rendu dit au suivi de latence, et ce qu'il en reçoit chaque
-// seconde. Deux suivis l'implémentent : `LatencyTracker` (Swift, Apple TV)
-// et le cœur Rust par `SessionEngine` (Mac, docs/coeur-apple.md).
+// seconde : le cœur Rust, par `SessionEngine` (docs/coeur-apple.md) ; les
+// tests du rendu s'en passent.
 
 import Foundation
 

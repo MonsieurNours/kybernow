@@ -25,37 +25,6 @@ final class VideoPipeline {
         }
     }
 
-    /// Rappel C donné à Kyber (`userdata` : ce pipeline, retenu par
-    /// `PacketSinkLease` jusqu'au dernier appel, `CLOSED`).
-    static let callback: kyclient_MediaPacketCb = { packet, userdata in
-        guard let packet, let userdata else { return }
-        let me = Unmanaged<VideoPipeline>.fromOpaque(userdata).takeUnretainedValue()
-        if packet.pointee.kind == KYCLIENT_MEDIA_PACKET_KIND_CLOSED {
-            // Plus aucun paquet ne viendra : le pipeline peut être libéré.
-            me.stop()
-            PacketSinkLease.release(VideoPipeline.self, userdata)
-            return
-        }
-        me.handle(packet.pointee)
-    }
-
-    private func handle(_ p: kyclient_MediaPacket) {
-        switch p.kind {
-        case KYCLIENT_MEDIA_PACKET_KIND_CODEC:
-            decoder.setCodec(p.codec)
-        case KYCLIENT_MEDIA_PACKET_KIND_MEDIA:
-            guard let data = p.data, p.len > 0 else { return }
-            renderer.latency?.received(bytes: Int(p.len))
-            decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
-        case KYCLIENT_MEDIA_PACKET_KIND_HOLE:
-            // Données perdues : l'image suivante n'a plus sa référence.
-            renderer.latency?.hole()
-            decoder.dataLost()
-        default:
-            break
-        }
-    }
-
     func stop() {
         decoder.invalidate()
     }

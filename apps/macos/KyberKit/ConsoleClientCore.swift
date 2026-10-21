@@ -1,11 +1,13 @@
 // Dialogue avec la console KyberNow de l'ordinateur, hors session : info,
 // aperçu de l'écran, empreinte, appairage par code. Le cœur Rust fait les
 // appels (certificat épinglé, `Accept-Language`) ; ici la même façade
-// qu'avant (`ConsoleClient.swift`, que l'Apple TV compile encore), en Swift
-// asynchrone. La préparation, le signal de vie et la fin de session sont
+// qu'avant le cœur, en Swift asynchrone. La préparation, le signal de vie et la fin de session sont
 // dans le cœur, avec la session (SessionEngine).
 
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
 @_implementationOnly import CKyberNow
 
 /// Ce que la console dit de l'ordinateur.

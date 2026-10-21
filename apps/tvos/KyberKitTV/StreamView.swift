@@ -12,12 +12,12 @@
 // Bluetooth dans un jeu en plein écran envoie des déplacements bruts.
 //
 // L'état du pointeur (position tenue, forme, position de l'ordinateur) est
-// dans PointerLayer, partagé avec le Mac, tenu sur la file des entrées de
-// GameController (`InputQueue.device`) : manettes, télécommande et souris
-// Bluetooth le déplacent depuis cette file, sans passer par le fil principal ;
-// seul le dessin y remonte. La vue ne fait plus que dessiner.
+// dans le cœur Rust (PointerLayer, InputCore.swift), comme sur Mac :
+// manettes, télécommande et souris Bluetooth le déplacent depuis la file des
+// entrées de GameController (`InputQueue.device`), sans passer par le fil
+// principal ; seul le dessin y remonte. La vue ne fait plus que dessiner.
 //
-// Même rôle que StreamView sur Mac (apps/macos/KyberKit) ; KyberClient
+// Même rôle que StreamView sur Mac (apps/macos/KyberKit) ; SessionEngine
 // l'utilise de la même façon.
 
 @_implementationOnly import CKyber
@@ -124,7 +124,7 @@ public final class StreamView: UIView {
     // MARK: - Session
 
     /// Rappelé à chaque redémarrage de l'image sans `detach` entre les deux
-    /// (KyberClient arrête la chaîne précédente puis en crée une neuve) : ce
+    /// (le cœur arrête la chaîne précédente, SessionEngine en crée une neuve) : ce
     /// qui tenait à l'ancienne chaîne est défait d'abord, le pointeur et le
     /// menu restent en place.
     func attach(input: InputPipeline, hostSize: CGSize) {
@@ -134,11 +134,8 @@ public final class StreamView: UIView {
         self.input = input
         self.hostSize = hostSize
         rebuildLayout()
-        // La couche de pointeur envoie ses positions par la chaîne neuve ; la
-        // position tenue reste.
-        pointer.queue.sync {
-            pointer.attach(hostSize: hostSize) { [weak input] x, y in input?.mouse(x: x, y: y) }
-        }
+        // La couche de pointeur envoie ses positions par la chaîne neuve (le
+        // cœur l'y a branchée en la créant) ; la position tenue reste.
         GamepadBridge.shared.setPointer(pointer)
         GamepadBridge.shared.attach(input)
         keyboardMouse.attach(input, pointer: pointer)
@@ -156,7 +153,7 @@ public final class StreamView: UIView {
         updateRelative()
         keyboardMouse.inputConnected()
         if remoteMouse || padMouse || mouseSeen {
-            pointer.queue.async { [pointer] in pointer.resendHeld() }
+            pointer.resendHeld()
         }
     }
 
@@ -166,7 +163,7 @@ public final class StreamView: UIView {
         hostSize = size
         // Le pointeur garde sa place relative (le centre reste au centre), et
         // l'ordinateur l'apprend tout de suite (PointerLayer).
-        pointer.queue.sync { pointer.setHostSize(size) }
+        pointer.setHostSize(size)
         rebuildLayout()
         updatePointerLayer()
     }
@@ -175,7 +172,7 @@ public final class StreamView: UIView {
         GamepadBridge.shared.setPointer(nil)
         GamepadBridge.shared.detach()
         keyboardMouse.detach()
-        pointer.queue.sync { pointer.reset() }
+        pointer.reset()
         input?.flushKeys()
         input = nil
         mouseSeen = false
@@ -250,7 +247,7 @@ public final class StreamView: UIView {
     /// Lisible à 3 mètres : case de 48 points, jusqu'à deux fois la forme.
     private func updatePointerLayer() {
         let mouseOn = remoteMouse || padMouse || (mouseSeen && !pcGameFullscreen)
-        guard mouseOn, let host = pointerState.position, let layout else {
+        guard mouseOn, let host = pointerState.remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
         }

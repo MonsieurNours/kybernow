@@ -10,6 +10,8 @@ struct KyberNowTVApp: App {
 
     init() {
         Theme.registerFonts()
+        // Le cœur Rust : son journal dans le journal unifié, la langue de l'app.
+        Core.install()
         _ = GamepadBridge.shared
         // Décodeurs sondés et pipeline Metal compilé hors du fil principal, avant le premier flux.
         DispatchQueue.global(qos: .userInitiated).async { DecoderCapabilities.prepare() }

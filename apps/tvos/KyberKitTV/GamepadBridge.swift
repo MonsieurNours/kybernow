@@ -709,9 +709,9 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Manette en souris
 
-    /// Clics et touches tenus par la manette en souris et la télécommande
-    /// (politique « tout relâcher » partagée : menu, arrière-plan, fin de session).
-    private let held = ReleaseAll()
+    // Clics et touches tenus par la manette en souris et la télécommande :
+    // tenus par la chaîne d'entrées du cœur (« tout relâcher » : menu,
+    // arrière-plan, fin de session).
     private var altHeld = false
     private var altRelease: DispatchWorkItem?
     private var mouseTimer: DispatchSourceTimer?
@@ -740,7 +740,6 @@ public final class GamepadBridge: ObservableObject {
 
     private func key(_ usage: UInt16, _ pressed: Bool, input: InputPipeline) {
         guard let scancode = Keymap.scancode(usage: usage) else { return }
-        held.key(scancode: scancode, pressed: pressed)
         input.key(scancode: scancode, pressed: pressed)
     }
 
@@ -754,7 +753,6 @@ public final class GamepadBridge: ObservableObject {
     /// déplacements partent de cette même file (PointerLayer) : un clic reste
     /// derrière le déplacement qui le précède.
     private func click(_ b: InputPipeline.MouseButton, _ pressed: Bool, input: InputPipeline) {
-        held.mouseButton(b, pressed: pressed)
         input.mouseButton(b, pressed: pressed)
     }
 
@@ -820,7 +818,7 @@ public final class GamepadBridge: ObservableObject {
     private func releaseMouse(_ input: InputPipeline) {
         altRelease?.cancel()
         altHeld = false
-        held.release(into: input)
+        input.releaseAll()
     }
 
     private func updateMouseTimer() {

@@ -1,6 +1,5 @@
 // Types communs aux apps Apple : l'écran de l'ordinateur, le format, les
-// réglages d'un flux, et la rétention des objets donnés à Kyber. Compilé par
-// le Mac (cœur Rust, SessionEngine) et par l'Apple TV (KyberClient).
+// réglages d'un flux.
 
 import CoreGraphics
 import Foundation
@@ -47,36 +46,3 @@ public struct StreamOptions: Sendable {
 
     public init() {}
 }
-
-/// Objets passés à Kyber comme `userdata` des sorties de paquets (pipeline
-/// vidéo, lecteur audio). Ils sont **retenus** le temps que Kyber puisse les
-/// appeler : la tâche qui livre les paquets ne s'arrête qu'avec le message
-/// d'arrêt de la session, derrière d'autres messages, et une libération à
-/// délai fixe pouvait tomber trop tôt (plantage sur un pointeur libéré).
-/// Kyber (correctif KyberNow) signale son dernier appel par `CLOSED` : c'est
-/// là que l'objet est rendu. Au cas où la bibliothèque n'enverrait pas ce
-/// signal, `releaseLater` rend l'objet 30 s après l'arrêt ; le premier des
-/// deux gagne, l'autre ne fait rien.
-enum PacketSinkLease {
-    private static let lock = NSLock()
-    private static var live = Set<UnsafeMutableRawPointer>()
-
-    /// Retient `object` et rend le pointeur à donner à Kyber.
-    static func lease<T: AnyObject>(_ object: T) -> UnsafeMutableRawPointer {
-        let pointer = Unmanaged.passRetained(object).toOpaque()
-        lock.withLock { _ = live.insert(pointer) }
-        return pointer
-    }
-
-    /// Rend l'objet si c'est le premier à le demander.
-    static func release<T: AnyObject>(_: T.Type, _ pointer: UnsafeMutableRawPointer) {
-        let leased = lock.withLock { live.remove(pointer) != nil }
-        if leased { Unmanaged<T>.fromOpaque(pointer).release() }
-    }
-
-    static func releaseLater<T: AnyObject>(_ type: T.Type, _ object: T, after seconds: TimeInterval = 30) {
-        let pointer = Unmanaged.passUnretained(object).toOpaque()
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { release(type, pointer) }
-    }
-}
-

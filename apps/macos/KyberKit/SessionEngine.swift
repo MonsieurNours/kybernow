@@ -2,14 +2,17 @@
 // connecte, choisit l'écran, relance l'image, reconnecte, finit ; Swift
 // fournit ce qui dépend de l'appareil : la vue, le décodeur et le rendu
 // Metal, le son, la chaîne d'entrées kynput, et reçoit états, mesures et
-// avis. Remplace `KyberClient` sur Mac ; l'Apple TV compile encore
-// KyberClient.swift jusqu'à son propre passage sur le cœur.
+// avis. Mac et Apple TV : la vue (StreamView) est celle de chaque plateforme.
 //
 // Les rappels du cœur arrivent sur ses fils (fil de session, fil réseau de
 // Kyber pour les paquets) : ce qui touche l'interface remonte sur le fil
 // principal, les paquets vont droit au décodeur.
 
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import Foundation
 @_implementationOnly import CKyber
 @_implementationOnly import CKyberNow

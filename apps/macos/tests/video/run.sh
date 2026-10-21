@@ -47,7 +47,7 @@ for c in 3366CC 202020; do
         -c:v libsvtav1 -preset 10 -crf 1 -svtav1-params "$AV1P" -f obu "c_${c}.obu"
 done
 
-SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyTracker.swift")
+SOURCES=("$HERE/common.swift" "$KIT/AV1.swift" "$KIT/VideoDecoder.swift" "$KIT/DecoderCapabilities.swift" "$KIT/VideoRenderer.swift" "$KIT/LatencyReporting.swift")
 LINK=(-I "$KIT/../Vendor/include" -L "$KIT/../Vendor/Frameworks" -lkyclient.0.1 -Xlinker -rpath -Xlinker "$KIT/../Vendor/Frameworks")
 swiftc -O -o decode "$HERE/decode/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true
 swiftc -O -o color "$HERE/color/main.swift" "${SOURCES[@]}" "${LINK[@]}" 2>&1 | grep error || true

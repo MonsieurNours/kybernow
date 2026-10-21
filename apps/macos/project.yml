@@ -47,25 +47,9 @@ targets:
     type: framework
     platform: macOS
     sources:
+      # La session, la console, la latence, les entrées et le son sont dans
+      # le cœur Rust (apps/core, pont apps/apple : docs/coeur-apple.md).
       - path: KyberKit
-        # La session, la console, la latence, les entrées et le son sont dans
-        # le cœur Rust (apps/core, pont apps/apple : docs/coeur-apple.md) ;
-        # ces fichiers Swift ne servent plus qu'à l'Apple TV.
-        excludes:
-          - KyberClient.swift
-          - ConsoleClient.swift
-          - LatencyTracker.swift
-          # Entrées et son dans le cœur (jalons 2 et 3) : InputCore.swift et
-          # AudioPlayerCore.swift les remplacent ; versions Swift pour l'Apple TV.
-          - AudioPlayer.swift
-          - ClipboardBridge.swift
-          - GamepadGate.swift
-          - InputPipeline.swift
-          - Keymap.swift
-          - PacketQueue.swift
-          - PadCombo.swift
-          - PointerLayer.swift
-          - ReleaseAll.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
