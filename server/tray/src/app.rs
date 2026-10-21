@@ -179,6 +179,7 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Va
         "version": env!("CARGO_PKG_VERSION"),
         "console": s.console.as_ref().map(|c| json!({
             "pairRequests": c.pair_requests,
+            "pendingAccess": c.pending_access,
             "session": c.session,
             "user": c.user,
             "update": c.update,

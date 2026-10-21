@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import { api, setUnauthorizedHandler } from './lib/api'
-  import { app, refreshStatus, notify, errorText } from './lib/store.svelte'
+  import { app, refreshStatus, notify, errorText, accessReason } from './lib/store.svelte'
   import Login from './pages/Login.svelte'
   import Overview from './pages/Overview.svelte'
   import ImageSound from './pages/ImageSound.svelte'
@@ -93,11 +93,11 @@
     return () => clearInterval(timer)
   })
 
-  async function restartKyber() {
+  async function restartKyber(done = 'Le serveur a redémarré avec les nouveaux réglages.') {
     restarting = true
     try {
       await api.service('restart')
-      notify('ok', 'Le serveur a redémarré avec les nouveaux réglages.')
+      notify('ok', done)
       await refreshStatus()
     } catch (e) {
       notify('error', errorText(e))
@@ -154,11 +154,29 @@
     </header>
 
     <main>
+      {#if status?.pending_access?.length}
+        <div class="restart notice warn" role="status">
+          <Icon name="restart" size={18} />
+          <span>
+            Redémarrage du serveur en attente pour {accessReason(status.pending_access)} : il se fera tout seul dès la fin de
+            la session en cours, sans couper personne. Pour ne pas attendre, redémarrez maintenant (l'appareil connecté sera
+            déconnecté quelques secondes).
+          </span>
+          <button
+            type="button"
+            class="ghost small"
+            disabled={restarting}
+            onclick={() => restartKyber('Le serveur a redémarré : les accès sont à jour.')}
+          >
+            {restarting ? 'Redémarrage…' : 'Redémarrer maintenant'}
+          </button>
+        </div>
+      {/if}
       {#if status?.restart_pending}
         <div class="restart notice warn" role="status">
           <Icon name="restart" size={18} />
           <span>Réglages modifiés : redémarrez le serveur pour les appliquer. Un appareil connecté sera déconnecté quelques secondes.</span>
-          <button type="button" class="ghost small" disabled={restarting} onclick={restartKyber}>
+          <button type="button" class="ghost small" disabled={restarting} onclick={() => restartKyber()}>
             {restarting ? 'Redémarrage…' : 'Redémarrer le serveur'}
           </button>
         </div>

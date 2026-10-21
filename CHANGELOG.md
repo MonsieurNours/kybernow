@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.9
+
+- Console, appairage par code : un appareil accepté pendant la session d'un autre recevait son compte, mais Kyber le refusait (« User … is not authorized ») jusqu'à un redémarrage manuel du serveur, car Kyber ne lit ses comptes qu'au démarrage. La console note désormais ces accès en attente et redémarre Kyber d'elle-même dès qu'il ne sert plus personne (fin de session, plus de signal de vie ni d'encodage), avec un événement dans le fil. Si l'appareil se connecte avant, et que personne d'autre n'est en session, Kyber redémarre pendant la préparation de la session et l'appareil passe du premier coup ; si un autre appareil est en session, il n'est ni coupé ni remplacé, et l'app affiche « le serveur redémarrera dès la fin de la session de … ». La console et le panneau de l'icône affichent « Redémarrage en attente pour donner l'accès à … » (aussi pour un accès retiré). Touche l'Apple TV et le client Windows.
+
 ## 0.2.8
 
 - Apps Mac et Apple TV, console : après une réinstallation de l'ordinateur, les apps refusaient de se connecter (« connexion impossible ») parce que le certificat de Kyber avait changé et qu'elles avaient retenu l'ancien au premier contact. La console donne désormais l'empreinte du certificat de Kyber à la préparation de la session (`kyber_fingerprint`), et les apps l'exigent au lieu de retenir le premier certificat ; avec une console plus ancienne, l'ancien fonctionnement reste.
