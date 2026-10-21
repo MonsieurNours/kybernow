@@ -11,19 +11,34 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::http;
+
 fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(fallback))
 }
 
-/// Port de la console : `console_port` dans `C:\Program Files\KyberNow\kybernow.json`,
-/// écrit par l'installateur, sans secret et lisible par tous. L'icône ne lit
-/// rien dans `C:\ProgramData\KyberNow` : ce dossier (où `kyber-admin.toml`
-/// garde l'empreinte du mot de passe) est réservé à SYSTEM et aux
-/// administrateurs. Relu à chaque fois : une réinstallation peut changer le port.
-pub fn port() -> Option<u16> {
+/// `C:\Program Files\KyberNow\kybernow.json`, écrit par l'installateur et
+/// complété par la console, sans secret et lisible par tous (modifiable par
+/// les administrateurs seulement). L'icône ne lit rien dans
+/// `C:\ProgramData\KyberNow` : ce dossier (où `kyber-admin.toml` garde
+/// l'empreinte du mot de passe) est réservé à SYSTEM et aux administrateurs.
+/// Relu à chaque fois : une réinstallation peut changer le port ou le certificat.
+fn record() -> Option<Value> {
     let json = env_dir("ProgramFiles", r"C:\Program Files").join(r"KyberNow\kybernow.json");
-    let record: Value = serde_json::from_slice(&std::fs::read(json).ok()?).ok()?;
-    record["console_port"].as_u64().and_then(|p| u16::try_from(p).ok())
+    serde_json::from_slice(&std::fs::read(json).ok()?).ok()
+}
+
+/// Port de la console (`console_port`).
+pub fn port() -> Option<u16> {
+    record()?["console_port"].as_u64().and_then(|p| u16::try_from(p).ok())
+}
+
+/// Empreinte du certificat de la console (`console_fingerprint`, « sha256:… »),
+/// écrite par `kyber-admin init` et par la console à chaque démarrage. Sans
+/// elle (installation d'avant 0.2.6 dont la console n'a pas encore redémarré),
+/// l'icône ne parle pas à la console.
+pub fn fingerprint() -> Option<String> {
+    record()?["console_fingerprint"].as_str().map(str::to_owned).filter(|f| !f.is_empty())
 }
 
 pub fn url(port: u16) -> String {
@@ -63,30 +78,53 @@ pub struct LocalState {
     pub pair_requests: Vec<Value>,
 }
 
-pub struct Client(ureq::Agent);
+/// Client épinglé sur le certificat de la console. Sans empreinte connue,
+/// aucun appel n'aboutit.
+pub struct Client {
+    /// Empreinte sur laquelle le client est construit (relue par `watch`).
+    pub fingerprint: Option<String>,
+    http: Option<http::Client>,
+}
 
 impl Client {
     pub fn new() -> Self {
-        // La console a un certificat auto-signé ; on ne parle qu'à l'ordinateur lui-même.
-        let tls = ureq::tls::TlsConfig::builder().disable_verification(true).build();
-        let config = ureq::Agent::config_builder()
-            .tls_config(tls)
-            .timeout_global(Some(Duration::from_secs(3)))
-            .http_status_as_error(true)
-            .build();
-        Client(config.new_agent())
+        let fingerprint = fingerprint();
+        let http = fingerprint.as_deref().and_then(|fp| match http::Client::pinned(fp) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                eprintln!("certificat de la console : {e:#}");
+                None
+            }
+        });
+        Client { fingerprint, http }
+    }
+
+    fn get(&self, port: u16, path: &str, headers: &[(&str, &str)]) -> Option<http::Reply> {
+        self.http.as_ref()?.call("GET", port, path, headers, Duration::from_secs(3)).ok()
+    }
+
+    fn post(&self, port: u16, path: &str, timeout: Duration) -> anyhow::Result<http::Reply> {
+        let Some(http) = self.http.as_ref() else {
+            anyhow::bail!("Le certificat de la console n'est pas encore connu de l'icône (kybernow.json) : réessayez dans quelques secondes.");
+        };
+        let token = local_token();
+        http.call("POST", port, path, &[("x-kyber-admin", "1"), (LOCAL_HEADER, &token)], timeout)
     }
 
     /// La console a-t-elle un mot de passe ? (`GET /api/session`, sans compte)
     pub fn configured(&self, port: u16) -> Option<bool> {
-        let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/session")).call().ok()?;
-        let body: Value = response.body_mut().read_json().ok()?;
+        let reply = self.get(port, "/api/session", &[])?;
+        let body: Value = serde_json::from_slice(&reply.body).ok()?;
         body["configured"].as_bool()
     }
 
     pub fn local_state(&self, port: u16) -> Option<LocalState> {
-        let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/local/state")).header(LOCAL_HEADER, &local_token()).call().ok()?;
-        let body: Value = response.body_mut().read_json().ok()?;
+        let token = local_token();
+        let reply = self.get(port, "/api/local/state", &[(LOCAL_HEADER, &token)])?;
+        if reply.status != 200 {
+            return None;
+        }
+        let body: Value = serde_json::from_slice(&reply.body).ok()?;
         let text = |key: &str| body[key].as_str().map(str::to_owned);
         let some = |v: &Value| (!v.is_null()).then(|| v.clone());
         Some(LocalState {
@@ -104,33 +142,31 @@ impl Client {
 
     /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).
     pub fn end_session(&self, port: u16) -> anyhow::Result<()> {
-        self.0
-            .post(&format!("https://127.0.0.1:{port}/api/local/end"))
-            .header("x-kyber-admin", "1")
-            .header(LOCAL_HEADER, &local_token())
-            .send_empty()
-            .map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e})."))?;
+        let reply = self.post(port, "/api/local/end", Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e:#})."))?;
+        if reply.status >= 400 {
+            anyhow::bail!("La console n'a pas pu mettre fin à la session ({}).", describe(&reply));
+        }
         Ok(())
     }
-}
 
-impl Client {
     /// Accepte ou refuse une demande d'accès par code (route réservée à l'ordinateur lui-même).
     pub fn pair_answer(&self, port: u16, id: &str, accept: bool) -> anyhow::Result<()> {
         let action = if accept { "accept" } else { "refuse" };
-        self.0
-            .post(&format!("https://127.0.0.1:{port}/api/local/pair/{id}/{action}"))
-            .header("x-kyber-admin", "1")
-            .header(LOCAL_HEADER, &local_token())
-            .config()
-            .timeout_global(Some(Duration::from_secs(15)))
-            .build()
-            .send_empty()
-            .map_err(|e| match e {
-                ureq::Error::StatusCode(410) => anyhow::anyhow!("Cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code."),
-                e => anyhow::anyhow!("La console n'a pas pu répondre à la demande ({e})."),
-            })?;
-        Ok(())
+        let reply = self.post(port, &format!("/api/local/pair/{id}/{action}"), Duration::from_secs(15)).map_err(|e| anyhow::anyhow!("La console n'a pas pu répondre à la demande ({e:#})."))?;
+        match reply.status {
+            s if s < 400 => Ok(()),
+            410 => anyhow::bail!("Cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code."),
+            _ => anyhow::bail!("La console n'a pas pu répondre à la demande ({}).", describe(&reply)),
+        }
+    }
+}
+
+/// « 403 : jeton local absent ou périmé », d'après le JSON d'erreur de la console.
+fn describe(reply: &http::Reply) -> String {
+    let message = serde_json::from_slice::<Value>(&reply.body).ok().and_then(|v| v["error"].as_str().map(str::to_owned));
+    match message {
+        Some(m) => format!("{} : {m}", reply.status),
+        None => reply.status.to_string(),
     }
 }
 

@@ -375,6 +375,12 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
     let mut s = Settings::load(data_dir)?;
     s.admin_password_hash = Some(auth::hash_password(&password)?);
     s.install_account = Some(user.to_string());
+    // Le certificat de la console existe dès l'installation : l'icône
+    // l'épingle par l'empreinte notée dans kybernow.json.
+    let (cert, _) = tls::ensure_certificate(data_dir)?;
+    if let Some(fp) = tls::fingerprint(&cert) {
+        tls::publish_fingerprint(&fp, &kyber_dir);
+    }
     s.kyber_dir = Some(kyber_dir);
     if let Some(listen) = &args.listen {
         listen.parse::<SocketAddr>().context("adresse d'écoute invalide")?;
@@ -486,6 +492,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // Certificat (créé au premier lancement) et annonce sur le réseau local.
     let (cert, key) = tls::ensure_certificate(&data_dir)?;
     let tls_fingerprint = tls::fingerprint(&cert);
+    if let Some(fp) = &tls_fingerprint {
+        tls::publish_fingerprint(fp, &kyber_dir);
+    }
     // Les apps n'affichent que les consoles qui ont un serveur Kyber derrière.
     let kyber_ready = discovery::kyber_ready(args.announce_kyber, config_path.exists(), service.as_ref());
     if !kyber_ready {

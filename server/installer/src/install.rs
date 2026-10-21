@@ -51,6 +51,12 @@ pub struct InstallRecord {
     pub virtual_display: bool,
     pub gamepads: bool,
     pub sudovda_thumbprint: Option<String>,
+    /// Empreinte du certificat de la console (« sha256:aa:bb:… »), écrite par
+    /// `kyber-admin init` puis par la console à chaque démarrage : l'icône
+    /// n'accepte que ce certificat. Gardée telle quelle quand l'installateur
+    /// réécrit le fichier.
+    #[serde(default)]
+    pub console_fingerprint: Option<String>,
     /// Ce que la désinstallation remet comme avant KyberNow.
     #[serde(default)]
     pub restore: Restore,
@@ -614,7 +620,8 @@ fn cert_thumbprint(cer: &Path) -> Result<String> {
 /// (port de la console) et une réinstallation.
 fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<String>) -> Result<()> {
     // Empreinte déjà notée (étape vdd) : gardée quand on réécrit sans elle.
-    let sudovda_thumbprint = sudovda_thumbprint.or_else(|| read_record(&ctx.dir).and_then(|r| r.sudovda_thumbprint).filter(|_| req.virtual_display));
+    let previous = read_record(&ctx.dir);
+    let sudovda_thumbprint = sudovda_thumbprint.or_else(|| previous.as_ref().and_then(|r| r.sudovda_thumbprint.clone()).filter(|_| req.virtual_display));
     let record = InstallRecord {
         version: crate::VERSION.into(),
         kyber_version: crate::KYBER_VERSION.into(),
@@ -623,6 +630,7 @@ fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<Stri
         virtual_display: req.virtual_display,
         gamepads: req.gamepads,
         sudovda_thumbprint,
+        console_fingerprint: previous.and_then(|r| r.console_fingerprint),
         restore: ctx.restore.lock().unwrap().clone(),
     };
     std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;
