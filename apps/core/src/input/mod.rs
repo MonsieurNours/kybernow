@@ -19,6 +19,7 @@
 //! un fil qui le fait. Les tests avancent une horloge simulée et appellent
 //! `poll()` eux-mêmes.
 
+pub mod clipboard;
 pub mod clock;
 pub mod keymap;
 pub mod packet;
@@ -27,6 +28,7 @@ pub mod pad_combo;
 pub mod pointer_layer;
 pub mod release_all;
 
+pub use clipboard::{ClipboardBridge, Pasteboard};
 pub use clock::{Clock, ManualClock, MonotonicClock};
 pub use packet::{OwnedPacket, PacketSink};
 pub use packet_queue::PacketQueue;
