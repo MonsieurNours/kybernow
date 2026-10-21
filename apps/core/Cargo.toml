@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-core"
-description = "Cœur des clients KyberNow : console, session Kyber, profils, latence"
+description = "Cœur des clients KyberNow : console, session Kyber, profils, latence, entrées, son"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,7 @@ kyclient = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient", feat
 kyclient-common = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyclient-common" }
 kyvlcplayer = { path = "../../third_party/kyber-desktop/kysdk/kyctl/kyvlcplayer" }
 kynput-rs = "0.1.0"
+kynput-sys = "0.1.0"
 base64 = "0.22"
 log = "0.4"
 rustls = { version = "0.23.31", default-features = false, features = ["logging", "ring", "std", "tls12"] }

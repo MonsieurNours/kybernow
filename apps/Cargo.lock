@@ -2216,6 +2216,7 @@ dependencies = [
  "kyclient",
  "kyclient-common",
  "kynput-rs",
+ "kynput-sys",
  "kyvlcplayer",
  "log",
  "minisign-verify",

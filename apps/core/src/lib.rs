@@ -5,6 +5,7 @@
 
 pub mod console;
 pub mod i18n;
+pub mod input;
 pub mod latency;
 pub mod media;
 pub mod profile;
