@@ -8,19 +8,32 @@
 //! même origine, et la console relaie ces appels à kycontroller sur cette
 //! machine. Les fichiers du moteur viennent du `/webclient/` installé avec
 //! Kyber : toujours de la même version que le serveur.
+//!
+//! Le relais n'est pas une porte ouverte sur kycontroller : il exige la
+//! session de la console (le moteur, en même origine, envoie le cookie sur
+//! `fetch` et WebSocket ; le cookie est retiré avant Kyber), n'accepte une
+//! origine que si c'est celle de la console elle-même, ne relaie que des
+//! chemins connus (rien qui remonte), épingle l'empreinte du certificat de
+//! kycontroller, borne les WebSockets relayés et le temps d'attente de Kyber,
+//! et réutilise ses connexions HTTP.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, Version, header};
 use axum::response::{IntoResponse, Response};
+use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use sha2::{Digest, Sha256};
 use tokio::net::TcpStream;
+use tokio::sync::Semaphore;
 
 use crate::AppState;
 
@@ -31,9 +44,45 @@ const ENGINE_FILES: &[&str] = &["kyclient_wasm.js", "kyclient_wasm_bg.wasm", "au
 /// Adresse de kycontroller, pour le développement sur un autre ordinateur
 /// (`KYBERNOW_KYBER_ADDR=192.168.1.100:30241`).
 const ADDR_ENV: &str = "KYBERNOW_KYBER_ADDR";
+/// Empreinte du certificat de kycontroller quand il n'est pas sur ce
+/// disque (`KYBERNOW_KYBER_FINGERPRINT=sha256:aa:bb:…`, celle qu'affiche
+/// Kyber ou `openssl x509 -fingerprint -sha256`).
+const FINGERPRINT_ENV: &str = "KYBERNOW_KYBER_FINGERPRINT";
 
-/// Chemins de kycontroller utilisés par le moteur web.
+/// Temps laissé à kycontroller pour accepter la connexion et répondre
+/// (en-têtes) ; le corps d'une réponse et un WebSocket ouvert n'ont pas de limite.
+const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(15);
+/// WebSockets relayés en même temps (une session du client web en ouvre
+/// deux ou trois : contrôle, image en WebSocket, entrées).
+const MAX_WEBSOCKETS: usize = 8;
+/// Connexions HTTP gardées ouvertes vers kycontroller entre deux requêtes.
+const POOL_MAX: usize = 4;
+
+static WEBSOCKETS: Semaphore = Semaphore::const_new(MAX_WEBSOCKETS);
+static POOL: Mutex<Vec<Idle>> = Mutex::new(Vec::new());
+static PIN: Mutex<Option<Pin>> = Mutex::new(None);
+
+/// Connexion HTTP/1.1 vers kycontroller, prête ou en train de finir sa réponse.
+struct Idle {
+    addr: String,
+    sender: SendRequest<Body>,
+}
+
+/// Empreinte épinglée et connecteur TLS construit pour elle.
+struct Pin {
+    /// Chemin et date du certificat lu (relu s'il change), ou l'environnement.
+    source: (String, Option<SystemTime>),
+    fingerprint: [u8; 32],
+    connector: tokio_rustls::TlsConnector,
+}
+
+/// Chemins de kycontroller utilisés par le moteur web. Rien d'autre, et
+/// rien qui puisse remonter (`..`, `%2e`, `\`) : un chemin n'est relayé que
+/// s'il est l'un des chemins connus ou un nom simple sous `/websocket/`.
 pub fn is_kyber_path(path: &str) -> bool {
+    if !safe_path(path) {
+        return false;
+    }
     matches!(
         path,
         "/session/login"
@@ -47,7 +96,15 @@ pub fn is_kyber_path(path: &str) -> bool {
             | "/stop_streaming"
             | "/set_bitrate"
             | "/force_idr"
-    ) || path.starts_with("/websocket/")
+    ) || path
+        .strip_prefix("/websocket/")
+        .is_some_and(|name| !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+}
+
+/// Ni `..`, ni `%2e` (point encodé), ni barre oblique inverse, ni segment vide.
+fn safe_path(path: &str) -> bool {
+    let lower = path.to_ascii_lowercase();
+    path.starts_with('/') && !lower.contains("..") && !lower.contains("%2e") && !lower.contains('\\') && !lower.contains("//")
 }
 
 /// Fichier du moteur demandé par la page (`/ecran/kyclient_wasm.js`).
@@ -78,15 +135,42 @@ fn error(status: StatusCode, text: &str) -> Response {
 
 /// Relaie une requête du moteur web vers kycontroller.
 pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
+    // La session de la console, comme pour /api : le moteur tourne dans la
+    // page, en même origine, et le navigateur joint le cookie.
+    if !crate::auth::session_token(req.headers()).is_some_and(|t| s.auth.session_valid(&t)) {
+        return error(StatusCode::UNAUTHORIZED, "session de la console requise");
+    }
+    // Une origine, si le navigateur en donne une, ne peut être que la
+    // console elle-même : un autre site n'ouvre pas de WebSocket vers Kyber
+    // par ici, même avec le cookie.
+    if !origin_is_own(req.headers()) {
+        return error(StatusCode::FORBIDDEN, "origine refusée");
+    }
     let Some(addr) = target(&s) else {
         return error(StatusCode::SERVICE_UNAVAILABLE, "port de Kyber inconnu");
+    };
+    let connector = match pinned_connector(&s) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("relais vers Kyber : {e:#}");
+            return error(StatusCode::SERVICE_UNAVAILABLE, "certificat de Kyber introuvable : relais fermé");
+        }
     };
     let path = req.uri().path().to_string();
     let upstream_path = match engine_file(&path) {
         Some(file) => format!("/webclient/{file}"),
         None => req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or(path.clone()),
     };
-    match forward(&s, &addr, req, &upstream_path).await {
+    // Une poignée par WebSocket relayé, rendue quand la copie s'arrête.
+    let permit = if req.headers().contains_key(header::UPGRADE) {
+        match WEBSOCKETS.try_acquire() {
+            Ok(p) => Some(p),
+            Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "trop de connexions WebSocket relayées"),
+        }
+    } else {
+        None
+    };
+    match forward(&s, &addr, connector, req, &upstream_path, permit).await {
         Ok(mut res) => {
             if engine_file(&path).is_some() {
                 isolate(res.headers_mut());
@@ -101,13 +185,21 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     }
 }
 
-async fn forward(s: &AppState, addr: &str, mut req: Request, upstream_path: &str) -> anyhow::Result<Response> {
-    let upgrade = req.headers().contains_key(header::UPGRADE);
-    let client_upgrade = upgrade.then(|| hyper::upgrade::on(&mut req));
-    let (parts, body) = req.into_parts();
+/// Sans `Origin`, ou avec l'origine de la console (même hôte et port que
+/// `Host`, quel que soit le schéma).
+fn origin_is_own(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else { return true };
+    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else { return false };
+    let authority = origin.trim().split_once("://").map(|(_, rest)| rest).unwrap_or(origin.trim());
+    !authority.is_empty() && authority.eq_ignore_ascii_case(host.trim())
+}
 
-    let mut headers = HeaderMap::new();
-    for (name, value) in &parts.headers {
+/// En-têtes transmis à kycontroller : sans ceux de la connexion (sauf
+/// `Connection` et `Upgrade` d'un WebSocket), sans `Host` (remplacé par
+/// l'adresse de Kyber) et sans le cookie de la console.
+fn upstream_headers(headers: &HeaderMap, upgrade: bool, addr: &str) -> HeaderMap {
+    let mut out = HeaderMap::new();
+    for (name, value) in headers {
         if is_hop_by_hop(name) && !(upgrade && (name == header::CONNECTION || name == header::UPGRADE)) {
             continue;
         }
@@ -117,13 +209,30 @@ async fn forward(s: &AppState, addr: &str, mut req: Request, upstream_path: &str
         if name == header::COOKIE {
             // La session de la console reste à la console.
             if let Some(v) = strip_console_cookie(value) {
-                headers.append(header::COOKIE, v);
+                out.append(header::COOKIE, v);
             }
             continue;
         }
-        headers.append(name.clone(), value.clone());
+        out.append(name.clone(), value.clone());
     }
-    headers.insert(header::HOST, HeaderValue::from_str(addr)?);
+    if let Ok(host) = HeaderValue::from_str(addr) {
+        out.insert(header::HOST, host);
+    }
+    out
+}
+
+async fn forward(
+    s: &AppState,
+    addr: &str,
+    connector: tokio_rustls::TlsConnector,
+    mut req: Request,
+    upstream_path: &str,
+    permit: Option<tokio::sync::SemaphorePermit<'static>>,
+) -> anyhow::Result<Response> {
+    let upgrade = req.headers().contains_key(header::UPGRADE);
+    let client_upgrade = upgrade.then(|| hyper::upgrade::on(&mut req));
+    let (parts, body) = req.into_parts();
+    let mut headers = upstream_headers(&parts.headers, upgrade, addr);
 
     // Le moteur annonce le port qu'il a joint (celui de la console) comme port
     // de l'image : on le remplace par celui de Kyber.
@@ -147,23 +256,22 @@ async fn forward(s: &AppState, addr: &str, mut req: Request, upstream_path: &str
         .body(body)?;
     *upstream.headers_mut() = headers;
 
-    let tcp = TcpStream::connect(addr).await?;
-    tcp.set_nodelay(true)?;
-    let tls = connector().connect(ServerName::try_from("localhost")?, tcp).await?;
-    let (mut sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await?;
-    tokio::spawn(async move {
-        if let Err(e) = conn.with_upgrades().await {
-            tracing::debug!("connexion au serveur Kyber : {e}");
-        }
-    });
-
-    let mut res = sender.send_request(upstream).await?;
+    // Une connexion gardée d'une requête précédente, sinon une neuve ; Kyber
+    // a 15 s pour accepter la connexion et répondre.
+    let mut sender = match (!upgrade).then(|| take_idle(addr)).flatten() {
+        Some(sender) => sender,
+        None => tokio::time::timeout(UPSTREAM_TIMEOUT, connect(addr, connector)).await.map_err(|_| anyhow::anyhow!("Kyber ne répond pas en {} s", UPSTREAM_TIMEOUT.as_secs()))??,
+    };
+    let mut res = tokio::time::timeout(UPSTREAM_TIMEOUT, sender.send_request(upstream))
+        .await
+        .map_err(|_| anyhow::anyhow!("Kyber ne répond pas en {} s", UPSTREAM_TIMEOUT.as_secs()))??;
 
     if res.status() == StatusCode::SWITCHING_PROTOCOLS
         && let Some(client_upgrade) = client_upgrade
     {
         let server_upgrade = hyper::upgrade::on(&mut res);
         tokio::spawn(async move {
+            let _permit = permit;
             match tokio::try_join!(client_upgrade, server_upgrade) {
                 Ok((client, server)) => {
                     let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(client), &mut TokioIo::new(server)).await;
@@ -174,6 +282,10 @@ async fn forward(s: &AppState, addr: &str, mut req: Request, upstream_path: &str
         let (parts, _) = res.into_parts();
         return Ok(Response::from_parts(parts, Body::empty()));
     }
+    drop(permit);
+    if !upgrade {
+        give_back(addr, sender);
+    }
 
     let (mut parts, body) = res.into_parts();
     let names: Vec<HeaderName> = parts.headers.keys().filter(|n| is_hop_by_hop(n)).cloned().collect();
@@ -181,6 +293,36 @@ async fn forward(s: &AppState, addr: &str, mut req: Request, upstream_path: &str
         parts.headers.remove(name);
     }
     Ok(Response::from_parts(parts, Body::new(body)))
+}
+
+/// Nouvelle connexion TCP + TLS (empreinte vérifiée) + HTTP/1.1 vers kycontroller.
+async fn connect(addr: &str, connector: tokio_rustls::TlsConnector) -> anyhow::Result<SendRequest<Body>> {
+    let tcp = TcpStream::connect(addr).await?;
+    tcp.set_nodelay(true)?;
+    let tls = connector.connect(ServerName::try_from("localhost")?, tcp).await?;
+    let (sender, conn) = hyper::client::conn::http1::handshake(TokioIo::new(tls)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = conn.with_upgrades().await {
+            tracing::debug!("connexion au serveur Kyber : {e}");
+        }
+    });
+    Ok(sender)
+}
+
+/// Une connexion gardée, prête (sa réponse précédente entièrement lue).
+fn take_idle(addr: &str) -> Option<SendRequest<Body>> {
+    let mut pool = POOL.lock().unwrap();
+    pool.retain(|i| !i.sender.is_closed());
+    let pos = pool.iter().position(|i| i.addr == addr && i.sender.is_ready())?;
+    Some(pool.remove(pos).sender)
+}
+
+fn give_back(addr: &str, sender: SendRequest<Body>) {
+    let mut pool = POOL.lock().unwrap();
+    pool.retain(|i| !i.sender.is_closed());
+    if !sender.is_closed() && pool.len() < POOL_MAX {
+        pool.push(Idle { addr: addr.to_string(), sender });
+    }
 }
 
 fn is_hop_by_hop(name: &HeaderName) -> bool {
@@ -200,37 +342,81 @@ fn strip_console_cookie(value: &HeaderValue) -> Option<HeaderValue> {
     if kept.is_empty() { None } else { HeaderValue::from_str(&kept.join("; ")).ok() }
 }
 
-fn connector() -> tokio_rustls::TlsConnector {
-    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
-    let config = CONFIG.get_or_init(|| {
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let mut config = rustls::ClientConfig::builder_with_provider(provider.clone())
-            .with_safe_default_protocol_versions()
-            .expect("versions TLS")
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(AnyCertificate(provider)))
-            .with_no_client_auth();
-        config.alpn_protocols = vec![b"http/1.1".to_vec()];
-        Arc::new(config)
-    });
-    tokio_rustls::TlsConnector::from(config.clone())
+/// Connecteur TLS qui n'accepte que le certificat de kycontroller : celui de
+/// `kyber\` (`[kycontroller] tls_cert`, sinon `kybertest_cert.pem`, relu s'il
+/// change : réinstallation), ou l'empreinte donnée par l'environnement pour
+/// un Kyber sur un autre ordinateur.
+fn pinned_connector(s: &AppState) -> anyhow::Result<tokio_rustls::TlsConnector> {
+    let (source, fingerprint) = match std::env::var(FINGERPRINT_ENV).ok().filter(|v| !v.is_empty()) {
+        Some(text) => ((format!("env:{text}"), None), parse_fingerprint(&text).ok_or_else(|| anyhow::anyhow!("{FINGERPRINT_ENV} illisible"))?),
+        None => {
+            let path = s.kyber.tls_cert_path();
+            let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+            let source = (path.display().to_string(), modified);
+            let mut pin = PIN.lock().unwrap();
+            if let Some(p) = pin.as_ref().filter(|p| p.source == source) {
+                return Ok(p.connector.clone());
+            }
+            let der = CertificateDer::from_pem_file(&path).map_err(|e| anyhow::anyhow!("certificat de Kyber {} : {e}", path.display()))?;
+            let fingerprint: [u8; 32] = Sha256::digest(der.as_ref()).into();
+            let connector = make_connector(fingerprint);
+            *pin = Some(Pin { source, fingerprint, connector: connector.clone() });
+            tracing::info!("certificat de Kyber épinglé : sha256:{}", hex::encode(fingerprint));
+            return Ok(connector);
+        }
+    };
+    let mut pin = PIN.lock().unwrap();
+    if let Some(p) = pin.as_ref().filter(|p| p.source == source && p.fingerprint == fingerprint) {
+        return Ok(p.connector.clone());
+    }
+    let connector = make_connector(fingerprint);
+    *pin = Some(Pin { source, fingerprint, connector: connector.clone() });
+    tracing::info!("certificat de Kyber épinglé ({FINGERPRINT_ENV}) : sha256:{}", hex::encode(fingerprint));
+    Ok(connector)
 }
 
-/// kycontroller présente un certificat auto-signé, sur cette machine : on
-/// vérifie la signature de la poignée de main, pas la chaîne.
-#[derive(Debug)]
-struct AnyCertificate(Arc<CryptoProvider>);
+/// « sha256:aa:bb:… », « aa:bb:… » ou 64 caractères hexadécimaux.
+fn parse_fingerprint(text: &str) -> Option<[u8; 32]> {
+    let hex: String = text.trim().trim_start_matches("sha256:").chars().filter(|c| *c != ':').collect();
+    let bytes = hex::decode(hex).ok()?;
+    bytes.try_into().ok()
+}
 
-impl ServerCertVerifier for AnyCertificate {
+fn make_connector(fingerprint: [u8; 32]) -> tokio_rustls::TlsConnector {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut config = rustls::ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .expect("versions TLS")
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(PinnedCertificate { fingerprint, provider }))
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    tokio_rustls::TlsConnector::from(Arc::new(config))
+}
+
+/// kycontroller présente un certificat auto-signé : on n'en accepte qu'un, par
+/// son empreinte SHA-256, et on vérifie la signature de la poignée de main.
+#[derive(Debug)]
+struct PinnedCertificate {
+    fingerprint: [u8; 32],
+    provider: Arc<CryptoProvider>,
+}
+
+impl ServerCertVerifier for PinnedCertificate {
     fn verify_server_cert(
         &self,
-        _end_entity: &CertificateDer<'_>,
+        end_entity: &CertificateDer<'_>,
         _intermediates: &[CertificateDer<'_>],
         _server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
+        let seen: [u8; 32] = Sha256::digest(end_entity.as_ref()).into();
+        if seen == self.fingerprint {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General(format!("certificat de Kyber inattendu (sha256:{})", hex::encode(seen))))
+        }
     }
 
     fn verify_tls12_signature(
@@ -239,7 +425,7 @@ impl ServerCertVerifier for AnyCertificate {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls12_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls12_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
     fn verify_tls13_signature(
@@ -248,11 +434,11 @@ impl ServerCertVerifier for AnyCertificate {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        verify_tls13_signature(message, cert, dss, &self.0.signature_verification_algorithms)
+        verify_tls13_signature(message, cert, dss, &self.provider.signature_verification_algorithms)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.0.signature_verification_algorithms.supported_schemes()
+        self.provider.signature_verification_algorithms.supported_schemes()
     }
 }
 
@@ -267,7 +453,6 @@ pub fn jwt(secret: &str, subject: &str, lifetime_secs: i64) -> String {
 }
 
 fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    use sha2::{Digest, Sha256};
     let mut block = [0u8; 64];
     if key.len() > 64 {
         block[..32].copy_from_slice(&Sha256::digest(key));
@@ -327,9 +512,92 @@ mod tests {
     fn known_paths() {
         assert!(is_kyber_path("/session/login"));
         assert!(is_kyber_path("/websocket/video"));
+        assert!(is_kyber_path("/websocket/inputs_2"));
         assert!(!is_kyber_path("/api/status"));
         assert!(!is_kyber_path("/webclient/"));
+        assert!(!is_kyber_path("/session/"));
+        assert!(!is_kyber_path("/session/login/../../webclient/index.html"));
+        assert!(!is_kyber_path("/websocket/"));
+        assert!(!is_kyber_path("/websocket/../session/login"));
+        assert!(!is_kyber_path("/websocket/%2e%2e/x"));
+        assert!(!is_kyber_path("/websocket/a/b"));
+        assert!(!is_kyber_path("/websocket/a%2Eb"));
+        assert!(!is_kyber_path("/websocket/a\\b"));
+        assert!(!is_kyber_path("/websocket//video"));
         assert_eq!(engine_file("/ecran/kyclient_wasm.js"), Some("kyclient_wasm.js"));
         assert_eq!(engine_file("/ecran/../secret"), None);
+        assert_eq!(engine_file("/ecran/kyclient_wasm.js/.."), None);
+    }
+
+    #[test]
+    fn headers_sent_to_kyber() {
+        let mut h = HeaderMap::new();
+        h.insert(header::HOST, "console.local:9443".parse().unwrap());
+        h.insert(header::COOKIE, format!("a=1; {}=secret; b=2", crate::auth::COOKIE).parse().unwrap());
+        h.insert(header::CONNECTION, "keep-alive".parse().unwrap());
+        h.insert(header::UPGRADE, "websocket".parse().unwrap());
+        h.insert(header::ORIGIN, "https://console.local:9443".parse().unwrap());
+        h.insert(header::AUTHORIZATION, "Bearer x".parse().unwrap());
+
+        let plain = upstream_headers(&h, false, "127.0.0.1:30241");
+        assert_eq!(plain.get(header::HOST).unwrap(), "127.0.0.1:30241");
+        assert_eq!(plain.get(header::COOKIE).unwrap(), "a=1; b=2");
+        assert!(plain.get(header::CONNECTION).is_none());
+        assert!(plain.get(header::UPGRADE).is_none());
+        assert_eq!(plain.get(header::ORIGIN).unwrap(), "https://console.local:9443");
+        assert_eq!(plain.get(header::AUTHORIZATION).unwrap(), "Bearer x");
+
+        let ws = upstream_headers(&h, true, "127.0.0.1:30241");
+        assert_eq!(ws.get(header::CONNECTION).unwrap(), "keep-alive");
+        assert_eq!(ws.get(header::UPGRADE).unwrap(), "websocket");
+
+        // Seul le cookie de la console : plus de Cookie du tout.
+        let mut only = HeaderMap::new();
+        only.insert(header::COOKIE, format!("{}=secret", crate::auth::COOKIE).parse().unwrap());
+        assert!(upstream_headers(&only, false, "127.0.0.1:1").get(header::COOKIE).is_none());
+    }
+
+    #[test]
+    fn origin_must_be_the_console() {
+        let mut h = HeaderMap::new();
+        assert!(origin_is_own(&h), "sans Origin (hors navigateur)");
+        h.insert(header::HOST, "console.local:9443".parse().unwrap());
+        h.insert(header::ORIGIN, "https://console.local:9443".parse().unwrap());
+        assert!(origin_is_own(&h));
+        h.insert(header::ORIGIN, "https://CONSOLE.local:9443".parse().unwrap());
+        assert!(origin_is_own(&h));
+        h.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
+        assert!(!origin_is_own(&h));
+        h.insert(header::ORIGIN, "https://console.local:9444".parse().unwrap());
+        assert!(!origin_is_own(&h));
+        h.insert(header::ORIGIN, "null".parse().unwrap());
+        assert!(!origin_is_own(&h));
+        let mut no_host = HeaderMap::new();
+        no_host.insert(header::ORIGIN, "https://console.local:9443".parse().unwrap());
+        assert!(!origin_is_own(&no_host));
+    }
+
+    #[test]
+    fn fingerprint_formats() {
+        let hex = "0a".repeat(32);
+        assert_eq!(parse_fingerprint(&hex), Some([0x0a; 32]));
+        let colons = (0..32).map(|_| "0a").collect::<Vec<_>>().join(":");
+        assert_eq!(parse_fingerprint(&format!("sha256:{colons}")), Some([0x0a; 32]));
+        assert_eq!(parse_fingerprint(&format!(" {colons} ")), Some([0x0a; 32]));
+        assert_eq!(parse_fingerprint("sha256:0a"), None);
+        assert_eq!(parse_fingerprint("zz".repeat(32).as_str()), None);
+    }
+
+    #[test]
+    fn only_the_pinned_certificate_is_accepted() {
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+        let der = cert.cert.der().clone();
+        let fingerprint: [u8; 32] = Sha256::digest(der.as_ref()).into();
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let good = PinnedCertificate { fingerprint, provider: provider.clone() };
+        let bad = PinnedCertificate { fingerprint: [0; 32], provider };
+        let name = ServerName::try_from("localhost").unwrap();
+        assert!(good.verify_server_cert(&der, &[], &name, &[], UnixTime::now()).is_ok());
+        assert!(bad.verify_server_cert(&der, &[], &name, &[], UnixTime::now()).is_err());
     }
 }

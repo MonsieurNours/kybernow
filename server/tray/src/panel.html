@@ -168,12 +168,12 @@ function render() {
   const code = s.setupCode
     ? `<div class="code"><span>Code d'initialisation de la console : saisissez-le à l'ouverture de la console pour choisir un nouveau mot de passe.</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">Copier le code</button></div>`
     : ''
-  // Appareils qui demandent l'accès par code (Apple TV) : à accepter ici ou dans la console.
+  // Appareils qui demandent l'accès par code (Apple TV) : le code ne passe
+  // pas par l'icône, il se compare dans la console (Accès), qui accepte.
   const pair = ((s.console && s.console.pairRequests) || []).map((r) => `<div class="pair" role="group" aria-label="${esc(r.name)} demande l'accès">
       <span class="lbl">${esc(r.name)} demande l'accès</span>
-      <strong aria-label="Code ${esc(String(r.code).split('').join(' '))}">${esc(String(r.code).slice(0, 3))} ${esc(String(r.code).slice(3))}</strong>
-      <span class="hint">Acceptez seulement si c'est le code affiché sur l'appareil.</span>
-      <div class="row"><button class="accept" data-cmd="pairAnswer" data-id="${esc(r.id)}" data-accept="1" ${idle ? '' : 'disabled'}>Accepter</button><button data-cmd="pairAnswer" data-id="${esc(r.id)}" ${idle ? '' : 'disabled'}>Refuser</button></div>
+      <span class="hint">Comparez le code affiché sur l'appareil avec celui de la console avant d'accepter.</span>
+      <div class="row"><button class="accept" data-cmd="openPairing">Vérifier dans la console</button><button data-cmd="pairAnswer" data-id="${esc(r.id)}" ${idle ? '' : 'disabled'}>Refuser</button></div>
     </div>`).join('')
   const version = (s.console && s.console.version) || s.version || ''
   const address = (s.console && s.console.address) || ''

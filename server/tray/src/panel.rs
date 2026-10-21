@@ -2,6 +2,10 @@
 //! vue web (WebView2) qui affiche `panel.html`, posée contre l'icône. Elle se
 //! ferme dès qu'elle perd le focus, comme les panneaux de Windows.
 //!
+//! La vue web (60 à 100 Mo par utilisateur, et un processus WebView2) n'est
+//! créée qu'au premier clic, et détruite après 2 minutes sans ouverture : la
+//! fenêtre, vide et cachée, reste. Panneau fermé, rien n'est évalué dedans.
+//!
 //! L'icône pousse son état au panneau (`window.__knState`) ; le panneau envoie
 //! ses actions par `window.ipc.postMessage`.
 
@@ -30,10 +34,14 @@ const MARTIAN: &[u8] = include_bytes!("../../../brand/v2/fonts/web/MartianMono-w
 const WIDTH: f64 = 340.0;
 /// Écart avec la barre des tâches et les bords de l'écran, en points.
 const MARGIN: f64 = 12.0;
+/// Fermé depuis ce temps, le panneau rend sa vue web.
+const KEEP_ALIVE: Duration = Duration::from_secs(120);
 
 pub struct Panel {
     window: Window,
-    webview: WebView,
+    /// Créée au premier clic, rendue après `KEEP_ALIVE` sans ouverture.
+    webview: Option<WebView>,
+    proxy: EventLoopProxy<UserEvent>,
     height: f64,
     /// Fermé à l'instant par une perte de focus : le clic sur l'icône qui l'a
     /// provoquée ne doit pas le rouvrir aussitôt.
@@ -41,7 +49,7 @@ pub struct Panel {
     /// Dernier emplacement de l'icône, pour replacer le panneau quand sa hauteur change.
     anchor: Option<(PhysicalPosition<f64>, (u32, u32))>,
     // La vue web garde son dossier de données tant qu'elle vit.
-    _context: WebContext,
+    context: WebContext,
 }
 
 fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
@@ -55,6 +63,8 @@ fn serve(request: Request<Vec<u8>>) -> Response<Cow<'static, [u8]>> {
 
 impl Panel {
     pub fn new(target: &EventLoopWindowTarget<UserEvent>, proxy: EventLoopProxy<UserEvent>) -> Result<Self> {
+        // Sans WebView2, pas de panneau : le menu sert au clic gauche.
+        wry::webview_version().context("WebView2 introuvable")?;
         let window = WindowBuilder::new()
             .with_title("KyberNow")
             .with_inner_size(LogicalSize::new(WIDTH, 440.0))
@@ -74,19 +84,40 @@ impl Panel {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(std::env::temp_dir)
             .join(r"KyberNow\tray-webview");
-        let mut context = WebContext::new(Some(data));
-        let proxy = std::sync::Mutex::new(proxy);
-        let webview = WebViewBuilder::new_with_web_context(&mut context)
+        let context = WebContext::new(Some(data));
+        Ok(Panel { window, webview: None, proxy, height: 440.0, hidden_at: Instant::now() - Duration::from_secs(1), anchor: None, context })
+    }
+
+    /// La vue web, créée si elle ne l'est pas (premier clic, ou après `KEEP_ALIVE`).
+    fn ensure_webview(&mut self) -> Result<()> {
+        if self.webview.is_some() {
+            return Ok(());
+        }
+        let proxy = std::sync::Mutex::new(self.proxy.clone());
+        let webview = WebViewBuilder::new_with_web_context(&mut self.context)
             .with_custom_protocol("kn".into(), |_id, request| serve(request))
             .with_ipc_handler(move |req: Request<String>| {
                 let _ = proxy.lock().unwrap().send_event(UserEvent::Panel(req.body().clone()));
             })
             .with_background_color((12, 16, 22, 255))
             .with_devtools(cfg!(debug_assertions))
+            .with_bounds(wry::Rect {
+                position: tao::dpi::LogicalPosition::new(0.0, 0.0).into(),
+                size: LogicalSize::new(WIDTH, self.height).into(),
+            })
             .with_url("http://kn.localhost/")
-            .build(&window)
+            .build(&self.window)
             .context("vue web du panneau (WebView2)")?;
-        Ok(Panel { window, webview, height: 440.0, hidden_at: Instant::now() - Duration::from_secs(1), anchor: None, _context: context })
+        self.webview = Some(webview);
+        Ok(())
+    }
+
+    /// Fermé depuis plus de `KEEP_ALIVE` : la vue web est rendue (appelé
+    /// deux fois par seconde par l'icône).
+    pub fn tick(&mut self) {
+        if self.webview.is_some() && !self.is_visible() && self.hidden_at.elapsed() > KEEP_ALIVE {
+            self.webview = None;
+        }
     }
 
     pub fn id(&self) -> WindowId {
@@ -106,11 +137,18 @@ impl Panel {
         if self.hidden_at.elapsed() < Duration::from_millis(300) {
             return false;
         }
+        if let Err(e) = self.ensure_webview() {
+            crate::app::alert(&format!("Le panneau n'a pas pu s'ouvrir : {e:#}"));
+            return false;
+        }
         self.anchor = Some((icon, icon_size));
         self.place();
         self.window.set_visible(true);
         self.window.set_focus();
-        let _ = self.webview.evaluate_script("window.__knShown && window.__knShown()");
+        // Vue toute neuve : la page enverra « ready », et l'icône lui poussera l'état.
+        if let Some(webview) = &self.webview {
+            let _ = webview.evaluate_script("window.__knShown && window.__knShown()");
+        }
         true
     }
 
@@ -129,17 +167,27 @@ impl Panel {
         }
         self.height = height;
         self.window.set_inner_size(LogicalSize::new(WIDTH, height));
-        let _ = self.webview.set_bounds(wry::Rect {
-            position: tao::dpi::LogicalPosition::new(0.0, 0.0).into(),
-            size: LogicalSize::new(WIDTH, height).into(),
-        });
+        if let Some(webview) = &self.webview {
+            let _ = webview.set_bounds(wry::Rect {
+                position: tao::dpi::LogicalPosition::new(0.0, 0.0).into(),
+                size: LogicalSize::new(WIDTH, height).into(),
+            });
+        }
         if self.window.is_visible() {
             self.place();
         }
     }
 
+    /// L'état, pour un panneau ouvert seulement : fermé, rien n'est évalué
+    /// (la page le redemande par « ready » à sa création, et l'icône le
+    /// repousse à chaque ouverture).
     pub fn push(&self, state_json: &str) {
-        let _ = self.webview.evaluate_script(&format!("window.__knState && window.__knState({state_json})"));
+        if !self.is_visible() {
+            return;
+        }
+        if let Some(webview) = &self.webview {
+            let _ = webview.evaluate_script(&format!("window.__knState && window.__knState({state_json})"));
+        }
     }
 
     /// Contre l'icône, du côté de la barre des tâches, dans la zone de travail de l'écran.

@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use windows_service::service::{
     ServiceAccess, ServiceControl, ServiceControlAccept, ServiceErrorControl, ServiceExitCode,
-    ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType,
+    ServiceInfo, ServiceStartType, ServiceState, ServiceStatus, ServiceType, SessionChangeReason,
 };
 use windows_service::service_control_handler::{self, ServiceControlHandlerResult};
 use windows_service::service_manager::{ServiceManager, ServiceManagerAccess};
@@ -130,12 +130,20 @@ fn run_service() -> Result<()> {
             ServiceControlHandlerResult::NoError
         }
         ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
+        // Une session s'ouvre ou reprend l'écran : le jeton des routes locales
+        // est renouvelé et copié dans cette session (voir `local_token`).
+        ServiceControl::SessionChange(change) => {
+            if matches!(change.reason, SessionChangeReason::SessionLogon | SessionChangeReason::ConsoleConnect) {
+                crate::local_token::session_changed();
+            }
+            ServiceControlHandlerResult::NoError
+        }
         _ => ServiceControlHandlerResult::NotImplemented,
     };
     let status = service_control_handler::register(SERVICE_NAME, handler)?;
     *status_for_stop.lock().unwrap() = Some(status);
     let set = |state, accept| status.set_service_status(service_status(state, accept, Duration::default()));
-    set(ServiceState::Running, ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN)?;
+    set(ServiceState::Running, ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN | ServiceControlAccept::SESSION_CHANGE)?;
 
     let runtime = tokio::runtime::Runtime::new()?;
     let result = runtime.block_on(crate::run(crate::RunArgs::default(), async {

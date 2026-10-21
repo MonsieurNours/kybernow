@@ -43,6 +43,34 @@ pub fn fingerprint(cert: &Path) -> Option<String> {
     Some(format!("sha256:{}", hex.join(":")))
 }
 
+/// Empreinte du certificat de la console notée dans `kybernow.json`
+/// (`C:\Program Files\KyberNow`, à côté de `kyber\`, lisible par tous, sans
+/// secret) sous `console_fingerprint` : l'icône de la zone de notification
+/// n'accepte que ce certificat quand elle parle à la console (tout compte
+/// interactif peut arrêter le service et servir autre chose sur son port).
+/// Posée par `init` et à chaque démarrage ; rien n'est créé si le fichier
+/// n'existe pas (Mac de développement).
+pub fn publish_fingerprint(fingerprint: &str, kyber_dir: &Path) {
+    let Some(record) = kyber_dir.parent().map(|d| d.join("kybernow.json")).filter(|p| p.is_file()) else { return };
+    let Ok(mut json) = fs::read(&record).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<serde_json::Value>(&b)?)) else {
+        tracing::warn!("{} illisible : empreinte de la console non notée", record.display());
+        return;
+    };
+    if json["console_fingerprint"].as_str() == Some(fingerprint) {
+        return;
+    }
+    json["console_fingerprint"] = serde_json::Value::from(fingerprint);
+    let tmp = record.with_extension("json.tmp");
+    let written = serde_json::to_vec_pretty(&json)
+        .map_err(anyhow::Error::from)
+        .and_then(|b| Ok(fs::write(&tmp, b)?))
+        .and_then(|_| Ok(fs::rename(&tmp, &record)?));
+    match written {
+        Ok(()) => tracing::info!("empreinte de la console notée dans {}", record.display()),
+        Err(e) => tracing::warn!("empreinte de la console non notée dans {} : {e:#}", record.display()),
+    }
+}
+
 /// Adresse IP locale utilisée pour sortir vers le réseau (aucun paquet n'est envoyé).
 pub fn lan_ip() -> Option<String> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;

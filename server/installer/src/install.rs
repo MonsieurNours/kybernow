@@ -52,6 +52,12 @@ pub struct InstallRecord {
     pub virtual_display: bool,
     pub gamepads: bool,
     pub sudovda_thumbprint: Option<String>,
+    /// Empreinte du certificat de la console (« sha256:aa:bb:… »), écrite par
+    /// `kyber-admin init` puis par la console à chaque démarrage : l'icône
+    /// n'accepte que ce certificat. Gardée telle quelle quand l'installateur
+    /// réécrit le fichier.
+    #[serde(default)]
+    pub console_fingerprint: Option<String>,
     /// Ce que la désinstallation remet comme avant KyberNow.
     #[serde(default)]
     pub restore: Restore,
@@ -172,6 +178,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         }
         let out = run_ok(&kyber.join("cert-gen.exe").display().to_string(), &["--output", &kyber.display().to_string()], &[0])?;
         ctx.log(format!("Certificat TLS généré. {}", sys::text(&out).trim()));
+        secure_kyber_secrets(ctx);
         ctx.progress(44.0);
         Ok(())
     })?;
@@ -185,6 +192,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         } else {
             init_settings(ctx, req, info)?;
         }
+        secure_kyber_secrets(ctx);
         create_kyber_service(ctx, req)?;
         ctx.progress(52.0);
         Ok(())
@@ -433,8 +441,32 @@ fn secure_data_dir(ctx: &Ctx) {
     }
 }
 
-/// `kyber-admin init` : port, encodeur, compte unique, secret JWT, mot de
-/// passe de la console (installation neuve, ou « Repartir de zéro »).
+/// Ce que Kyber garde sous `kyber\` et que les autres comptes ne doivent pas
+/// lire : `kyber_config.toml` (empreintes des mots de passe des comptes), le
+/// certificat et la clé de kycontroller, `avant-maj\` s'il existe. Réservés à
+/// SYSTEM et aux Administrateurs (Kyber tourne en SYSTEM), tout de suite
+/// après leur création ; la console repose ces droits à chaque démarrage.
+fn secure_kyber_secrets(ctx: &Ctx) {
+    let kyber = ctx.kyber();
+    let mut files = vec![ctx.dir.join(KYBER_CONFIG)];
+    files.extend(KYBER_CERT.iter().map(|f| kyber.join(f)));
+    for file in files.into_iter().filter(|f| f.is_file()) {
+        if let Err(e) = crate::acl::secure_file(&file) {
+            ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; la console réessaiera à son démarrage", file.display()));
+        }
+    }
+    let previous = kyber.join("avant-maj");
+    if previous.is_dir()
+        && let Err(e) = crate::acl::secure_dir(&previous)
+    {
+        ctx.log(format!("ATTENTION : droits de {} non posés ({e:#})", previous.display()));
+    }
+    ctx.log("Réglages, certificat et clé de Kyber réservés à SYSTEM et aux Administrateurs");
+}
+
+/// `kyber-admin init` : port, encodeur, compte unique, secret JWT (dans
+/// `C:\ProgramData\KyberNow\kyber-jwt.key`), mot de passe de la console
+/// (installation neuve, ou « Repartir de zéro »).
 fn init_settings(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo) -> Result<()> {
     let admin = ctx.path(r"admin\kyber-admin.exe");
     let mut cmd = std::process::Command::new(&admin);
@@ -589,7 +621,8 @@ fn cert_thumbprint(cer: &Path) -> Result<String> {
 /// (port de la console) et une réinstallation.
 fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<String>) -> Result<()> {
     // Empreinte déjà notée (étape vdd) : gardée quand on réécrit sans elle.
-    let sudovda_thumbprint = sudovda_thumbprint.or_else(|| read_record(&ctx.dir).and_then(|r| r.sudovda_thumbprint).filter(|_| req.virtual_display));
+    let previous = read_record(&ctx.dir);
+    let sudovda_thumbprint = sudovda_thumbprint.or_else(|| previous.as_ref().and_then(|r| r.sudovda_thumbprint.clone()).filter(|_| req.virtual_display));
     let record = InstallRecord {
         version: crate::VERSION.into(),
         kyber_version: crate::KYBER_VERSION.into(),
@@ -598,6 +631,7 @@ fn write_record(ctx: &Ctx, req: &InstallRequest, sudovda_thumbprint: Option<Stri
         virtual_display: req.virtual_display,
         gamepads: req.gamepads,
         sudovda_thumbprint,
+        console_fingerprint: previous.and_then(|r| r.console_fingerprint),
         restore: ctx.restore.lock().unwrap().clone(),
     };
     std::fs::write(ctx.dir.join("kybernow.json"), serde_json::to_vec_pretty(&record)?)?;

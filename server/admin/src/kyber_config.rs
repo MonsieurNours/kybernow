@@ -19,6 +19,9 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Table};
 use crate::schema::{self, Field};
 
 const MAX_BACKUPS: usize = 30;
+/// Clé HS256 des jetons du client web, dans le dossier de données (voir
+/// `set_jwt_secret_file`).
+pub const JWT_KEY_FILE: &str = "kyber-jwt.key";
 /// Identifiant et empreinte présents dans le modèle Kyber (« Default password »).
 const DEFAULT_USER: &str = "Default user";
 const DEFAULT_PASSWORD_HASH: &str =
@@ -139,7 +142,10 @@ impl KyberConfig {
             .and_then(|p| u16::try_from(p).ok())
     }
 
-    /// Clé HS256 des jetons JWT acceptés par Kyber, posée par `init`.
+    /// Clé HS256 des jetons JWT acceptés par Kyber, posée par `init` : dans
+    /// le fichier `key = { file = … }` (depuis 0.2.6), ou en clair
+    /// (`key = { plain = … }`, installations précédentes, déplacée au
+    /// démarrage suivant de la console).
     pub fn jwt_secret(&self) -> Option<String> {
         let doc = self.load().ok()?;
         let jwt = table(&doc, &["kycontroller", "auth", "jwt"])?;
@@ -149,9 +155,99 @@ impl KyberConfig {
         if jwt.get("algorithm").and_then(|v| v.as_str()).is_some_and(|a| a != "HS256") {
             return None;
         }
-        let key = jwt.get("key")?;
-        let plain = key.as_table_like()?.get("plain")?;
-        plain.as_str().map(str::to_string).filter(|s| !s.is_empty())
+        let key = jwt.get("key")?.as_table_like()?;
+        if let Some(file) = key.get("file").and_then(|v| v.as_str()) {
+            // Kyber lit le fichier tel quel, blancs de début et de fin retirés.
+            return fs::read_to_string(file).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        }
+        key.get("plain")?.as_str().map(str::to_string).filter(|s| !s.is_empty())
+    }
+
+    /// Clé HS256 écrite dans `file` (dans le dossier de données, réservé à
+    /// SYSTEM et aux Administrateurs, que Kyber lit puisqu'il tourne en
+    /// SYSTEM) et désignée par `key = { file = … }` : `kyber_config.toml`,
+    /// sous Program Files, ne contient plus la clé.
+    pub fn set_jwt_secret_file(&self, file: &Path, secret: &str) -> Result<()> {
+        if let Some(dir) = file.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        let tmp = file.with_extension("key.tmp");
+        fs::write(&tmp, secret).with_context(|| format!("écriture de {}", tmp.display()))?;
+        fs::rename(&tmp, file).with_context(|| format!("remplacement de {}", file.display()))?;
+        let _write = self.write.lock().unwrap();
+        let mut doc = self.load()?;
+        write_jwt_key(&mut doc, "file", &file.display().to_string())?;
+        self.save(&doc.to_string())
+    }
+
+    /// Installation d'avant 0.2.6 : la clé en clair dans `kyber_config.toml`
+    /// part dans `file`, même valeur (Kyber, déjà lancé, la garde en mémoire
+    /// jusqu'à son redémarrage, où il la relira dans le fichier). Vrai si la
+    /// clé a été déplacée.
+    pub fn move_jwt_secret_to_file(&self, file: &Path) -> Result<bool> {
+        let doc = self.load()?;
+        let Some(plain) = table(&doc, &["kycontroller", "auth", "jwt"])
+            .and_then(|jwt| jwt.get("key")?.as_table_like()?.get("plain")?.as_str().map(str::to_string))
+            .filter(|s| !s.is_empty())
+        else {
+            return Ok(false);
+        };
+        drop(doc);
+        self.set_jwt_secret_file(file, &plain)?;
+        Ok(true)
+    }
+
+    /// Certificat TLS de kycontroller (`[kycontroller] tls_cert`, sinon
+    /// `kybertest_cert.pem` à côté de `kyber_config.toml`, ce que `cert-gen.exe`
+    /// produit à l'installation).
+    pub fn tls_cert_path(&self) -> PathBuf {
+        self.kyber_path("tls_cert", "kybertest_cert.pem")
+    }
+
+    /// Clé privée du certificat de kycontroller.
+    pub fn tls_key_path(&self) -> PathBuf {
+        self.kyber_path("tls_key", "kybertest_key.pem")
+    }
+
+    fn kyber_path(&self, key: &str, default: &str) -> PathBuf {
+        let dir = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let configured = self.load().ok().and_then(|doc| {
+            table(&doc, &["kycontroller"])?.get(key)?.as_str().map(PathBuf::from)
+        });
+        match configured {
+            Some(p) if p.is_absolute() => p,
+            Some(p) => dir.join(p),
+            None => dir.join(default),
+        }
+    }
+
+    /// Réserve à SYSTEM et aux Administrateurs ce que Kyber garde sous
+    /// Program Files et qui ne doit pas être lu par les autres comptes :
+    /// `kyber_config.toml` (empreintes des mots de passe des comptes), le
+    /// certificat et la clé de kycontroller, et `avant-maj\` (copie d'une
+    /// version précédente) s'il existe. Kyber tourne en SYSTEM : rien ne
+    /// change pour lui. Une mise à jour remplace ces fichiers (ils reprennent
+    /// alors les droits de Program Files) : la console repose les droits à
+    /// chaque démarrage, et à chaque écriture de `kyber_config.toml`.
+    pub fn secure_secrets(&self) {
+        if !cfg!(windows) {
+            return; // rien à poser hors Windows (développement)
+        }
+        for file in [self.path.clone(), self.tls_cert_path(), self.tls_key_path()] {
+            if !file.exists() {
+                continue;
+            }
+            match crate::update::acl::secure_file(&file) {
+                Ok(()) => tracing::info!("droits de {} : SYSTEM et Administrateurs seulement", file.display()),
+                Err(e) => tracing::warn!("droits de {} non posés : {e:#}", file.display()),
+            }
+        }
+        if let Some(previous) = self.path.parent().map(|d| d.join("avant-maj")).filter(|d| d.is_dir()) {
+            match crate::update::acl::secure_dir(&previous) {
+                Ok(_) => tracing::info!("droits de {} : SYSTEM et Administrateurs seulement", previous.display()),
+                Err(e) => tracing::warn!("droits de {} non posés : {e:#}", previous.display()),
+            }
+        }
     }
 
     /// Vérifie un identifiant et un mot de passe Kyber (connexion Basic).
@@ -195,15 +291,13 @@ impl KyberConfig {
         self.save(&doc.to_string())
     }
 
-    /// Remplace la clé de développement JWT de Kyber par un secret aléatoire.
+    /// Clé JWT en clair dans `kyber_config.toml` (tests ; les installations
+    /// passent par `set_jwt_secret_file`).
+    #[cfg(test)]
     pub fn set_jwt_secret(&self, secret: &str) -> Result<()> {
         let _write = self.write.lock().unwrap();
         let mut doc = self.load()?;
-        let mut key = InlineTable::new();
-        key.insert("plain", secret.into());
-        let table = table_mut(&mut doc, &["kycontroller", "auth", "jwt"])?;
-        table.insert("algorithm", toml_edit::value("HS256"));
-        table.insert("key", toml_edit::value(key));
+        write_jwt_key(&mut doc, "plain", secret)?;
         self.save(&doc.to_string())
     }
 
@@ -232,6 +326,11 @@ impl KyberConfig {
         self.backup()?;
         let tmp = self.path.with_extension("toml.kyber-admin-tmp");
         fs::write(&tmp, text).with_context(|| format!("écriture de {}", tmp.display()))?;
+        // Le fichier neuf hérite des droits de Program Files (lisible par tous) :
+        // réservé à SYSTEM et aux Administrateurs avant de prendre la place.
+        if let Err(e) = crate::update::acl::secure_file(&tmp) {
+            tracing::warn!("droits de {} non posés : {e:#}", tmp.display());
+        }
         fs::rename(&tmp, &self.path)
             .with_context(|| format!("remplacement de {}", self.path.display()))?;
         tracing::info!("kyber_config.toml mis à jour");
@@ -324,6 +423,16 @@ fn remove_field(doc: &mut DocumentMut, field: &Field) {
     if let Ok(table) = table_mut(doc, field.table) {
         table.remove(field.key);
     }
+}
+
+/// `[kycontroller.auth.jwt]` : `algorithm = "HS256"`, `key = { <kind> = value }`.
+fn write_jwt_key(doc: &mut DocumentMut, kind: &str, value: &str) -> Result<()> {
+    let mut key = InlineTable::new();
+    key.insert(kind, value.into());
+    let table = table_mut(doc, &["kycontroller", "auth", "jwt"])?;
+    table.insert("algorithm", toml_edit::value("HS256"));
+    table.insert("key", toml_edit::value(key));
+    Ok(())
 }
 
 const LOGINS_PATH: &[&str] = &["kycontroller", "auth", "basic"];
@@ -491,6 +600,37 @@ logins = [
         assert!(text.parse::<DocumentMut>().is_ok());
         // Le client web signe ses jetons avec cette clé.
         assert_eq!(cfg.jwt_secret().as_deref(), Some("secret-de-test"));
+    }
+
+    #[test]
+    fn jwt_secret_lives_in_a_file() {
+        let (d, cfg) = setup();
+        let file = d.0.join("data").join("kyber-jwt.key");
+        cfg.set_jwt_secret_file(&file, "clef-dans-un-fichier").unwrap();
+        let text = cfg.read_raw().unwrap();
+        assert!(!text.contains("clef-dans-un-fichier"), "{text}");
+        assert!(text.contains("key = { file = "), "{text}");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "clef-dans-un-fichier");
+        assert_eq!(cfg.jwt_secret().as_deref(), Some("clef-dans-un-fichier"));
+        // Déjà dans un fichier : rien à déplacer.
+        assert!(!cfg.move_jwt_secret_to_file(&file).unwrap());
+
+        // Installation précédente : clé en clair, déplacée au démarrage.
+        cfg.set_jwt_secret("en-clair").unwrap();
+        assert!(cfg.move_jwt_secret_to_file(&file).unwrap());
+        assert!(!cfg.read_raw().unwrap().contains("en-clair"));
+        assert_eq!(fs::read_to_string(&file).unwrap(), "en-clair");
+        assert_eq!(cfg.jwt_secret().as_deref(), Some("en-clair"));
+    }
+
+    #[test]
+    fn kyber_certificate_paths() {
+        let (d, cfg) = setup();
+        assert_eq!(cfg.tls_cert_path(), d.0.join("kybertest_cert.pem"));
+        assert_eq!(cfg.tls_key_path(), d.0.join("kybertest_key.pem"));
+        cfg.write_raw(&SAMPLE.replace("#port = 8080", "#port = 8080\ntls_cert = \"certs/mine.pem\"\ntls_key = \"/abs/key.pem\"")).unwrap();
+        assert_eq!(cfg.tls_cert_path(), d.0.join("certs").join("mine.pem"));
+        assert_eq!(cfg.tls_key_path(), PathBuf::from("/abs/key.pem"));
     }
 
     /// Petit répertoire temporaire, sans dépendance supplémentaire.

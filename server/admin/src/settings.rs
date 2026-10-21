@@ -20,6 +20,11 @@ pub struct Settings {
     pub kyber_dir: Option<PathBuf>,
     /// Empreinte argon2 du mot de passe administrateur.
     pub admin_password_hash: Option<String>,
+    /// Compte Kyber créé à l'installation (`init`) : celui sous lequel le
+    /// client web se connecte. Absent (installation d'avant 0.2.6) : le
+    /// premier compte de la liste, mémorisé au démarrage suivant.
+    #[serde(default)]
+    pub install_account: Option<String>,
     /// Écran virtuel (déclenchement et mode par défaut).
     #[serde(default)]
     pub virtual_display: crate::display::VdSettings,

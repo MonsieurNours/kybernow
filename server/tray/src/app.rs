@@ -97,8 +97,12 @@ struct Shared {
 type SharedState = Arc<Mutex<Shared>>;
 
 fn watch(shared: SharedState, wake: Receiver<()>) {
-    let client = Client::new();
+    let mut client = Client::new();
     loop {
+        // Certificat de la console régénéré ou noté depuis (kybernow.json) : client refait.
+        if console::fingerprint() != client.fingerprint {
+            client = Client::new();
+        }
         let snapshot = poll(&client);
         // Le mot de passe a été choisi : le code ne sert plus.
         let showing_code = shared.lock().unwrap().setup_code.is_some();
@@ -341,6 +345,9 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        if let Some(p) = self.panel.as_mut() {
+            p.tick();
+        }
         let (Some(snap), busy, code) = self.snapshot() else { return };
         if self.shown.as_ref().is_some_and(|(s, b, c)| *s == snap && *b == busy && *c == code) {
             return;
@@ -477,6 +484,13 @@ impl App {
             "openUpdates" => {
                 self.hide_panel();
                 self.open_updates();
+            }
+            // Le code d'appairage ne passe plus par l'icône : il se compare dans la console.
+            "openPairing" => {
+                self.hide_panel();
+                if let Err(e) = open_console_at("acces") {
+                    alert(&format!("{e:#}"));
+                }
             }
             "endSession" => self.end_session(),
             "pairAnswer" => {

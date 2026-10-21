@@ -10,6 +10,8 @@ mod app;
 #[cfg(windows)]
 mod console;
 #[cfg(windows)]
+mod http;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod panel;

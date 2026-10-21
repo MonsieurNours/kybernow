@@ -11,6 +11,7 @@ mod foreground;
 mod gpu;
 mod kyber_config;
 mod kyber_proxy;
+mod local_token;
 mod logs;
 mod migrate;
 mod pairing;
@@ -176,6 +177,13 @@ enum AgentAction {
         #[arg(long)]
         dir: PathBuf,
     },
+    /// Copie le jeton des routes locales dans le profil de l'utilisateur de la session.
+    LocalToken {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Aperçu de l'écran principal en JPEG, `width` pixels de large.
     Preview {
         #[arg(long)]
@@ -246,6 +254,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, r)
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
+        AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
@@ -254,7 +263,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }
-        | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        | AgentAction::AudioRestore { out, .. }
+        | AgentAction::LocalToken { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
@@ -279,6 +289,8 @@ pub struct Inner {
     pub activity: Arc<activity::Activity>,
     /// Demandes d'appairage par code (app Apple TV), en mémoire.
     pub pairing: pairing::Pairing,
+    /// Jeton des routes locales (icône de la zone de notification).
+    pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
@@ -372,10 +384,18 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
     config.apply(&changes)?;
     config.reset_users(user, &password)?;
     let secret: [u8; 32] = rand::random();
-    config.set_jwt_secret(&hex::encode(secret))?;
+    config.set_jwt_secret_file(&data_dir.join(kyber_config::JWT_KEY_FILE), &hex::encode(secret))?;
+    config.secure_secrets();
 
     let mut s = Settings::load(data_dir)?;
     s.admin_password_hash = Some(auth::hash_password(&password)?);
+    s.install_account = Some(user.to_string());
+    // Le certificat de la console existe dès l'installation : l'icône
+    // l'épingle par l'empreinte notée dans kybernow.json.
+    let (cert, _) = tls::ensure_certificate(data_dir)?;
+    if let Some(fp) = tls::fingerprint(&cert) {
+        tls::publish_fingerprint(&fp, &kyber_dir);
+    }
     s.kyber_dir = Some(kyber_dir);
     if let Some(listen) = &args.listen {
         listen.parse::<SocketAddr>().context("adresse d'écoute invalide")?;
@@ -386,11 +406,39 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
     Ok(())
 }
 
+/// Au démarrage : les secrets de Kyber réservés à SYSTEM et aux Administrateurs
+/// (une mise à jour les a remplacés par des fichiers aux droits de Program
+/// Files), la clé JWT déplacée de `kyber_config.toml` vers le dossier de
+/// données, et le compte d'installation mémorisé s'il ne l'est pas encore
+/// (installation d'avant 0.2.6 : le premier compte de la liste).
+fn kyber_secrets_at_start(kyber: &KyberConfig, mut settings: Settings, data_dir: &std::path::Path) -> Settings {
+    if !kyber.path().exists() {
+        return settings;
+    }
+    match kyber.move_jwt_secret_to_file(&data_dir.join(kyber_config::JWT_KEY_FILE)) {
+        Ok(true) => tracing::info!("clé JWT de Kyber déplacée dans {}", kyber_config::JWT_KEY_FILE),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("clé JWT de Kyber non déplacée : {e:#}"),
+    }
+    kyber.secure_secrets();
+    if settings.install_account.is_none()
+        && let Some(first) = kyber.users().ok().and_then(|u| u.into_iter().next())
+    {
+        settings.install_account = Some(first.username.clone());
+        match settings.save(data_dir) {
+            Ok(()) => tracing::info!("compte d'installation mémorisé : {}", first.username),
+            Err(e) => tracing::warn!("compte d'installation non mémorisé : {e:#}"),
+        }
+    }
+    settings
+}
+
 pub fn init_logging(file: Option<PathBuf>) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    match file.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()) {
+    // Journal tourné à 5 Mo, cinq fichiers gardés (voir `logs::RotatingFile`).
+    match file.and_then(|p| logs::RotatingFile::open(p).ok()) {
         Some(f) => builder.with_ansi(false).with_writer(Mutex::new(f)).init(),
         None => builder.init(),
     }
@@ -424,6 +472,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     if !config_path.exists() {
         tracing::warn!("{} introuvable : Kyber est-il installé ?", config_path.display());
     }
+    let kyber = KyberConfig::new(config_path.clone(), data_dir.join("backups"));
+    let settings = kyber_secrets_at_start(&kyber, settings, &data_dir);
     let listen: SocketAddr = args
         .listen
         .or_else(|| settings.listen.clone())
@@ -458,6 +508,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     // Certificat (créé au premier lancement) et annonce sur le réseau local.
     let (cert, key) = tls::ensure_certificate(&data_dir)?;
     let tls_fingerprint = tls::fingerprint(&cert);
+    if let Some(fp) = &tls_fingerprint {
+        tls::publish_fingerprint(fp, &kyber_dir);
+    }
     // Les apps n'affichent que les consoles qui ont un serveur Kyber derrière.
     let kyber_ready = discovery::kyber_ready(args.announce_kyber, config_path.exists(), service.as_ref());
     if !kyber_ready {
@@ -470,6 +523,14 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     updater.clone().supervise();
     update::relaunch_tray_if_asked(&data_dir);
 
+    // Jeton des routes locales : tiré maintenant, puis à chaque ouverture de session.
+    let local_token = local_token::LocalToken::new(&data_dir);
+    {
+        let t = local_token.clone();
+        tokio::task::spawn_blocking(move || t.renew()).await?;
+    }
+    local_token.clone().supervise();
+
     // Fil des événements : l'écran virtuel y annonce ce que la veille voit.
     let activity = Arc::new(activity::Activity::new(&data_dir));
     {
@@ -479,13 +540,14 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
-        kyber: KyberConfig::new(config_path, data_dir.join("backups")),
+        kyber,
         display,
         audio,
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
         activity,
         pairing: pairing::Pairing::new(),
+        local_token,
         updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),
