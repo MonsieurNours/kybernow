@@ -230,6 +230,9 @@ impl KyberConfig {
     /// alors les droits de Program Files) : la console repose les droits à
     /// chaque démarrage, et à chaque écriture de `kyber_config.toml`.
     pub fn secure_secrets(&self) {
+        if !cfg!(windows) {
+            return; // rien à poser hors Windows (développement)
+        }
         for file in [self.path.clone(), self.tls_cert_path(), self.tls_key_path()] {
             if !file.exists() {
                 continue;
