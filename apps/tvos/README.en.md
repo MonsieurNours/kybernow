@@ -36,7 +36,16 @@ Apple TV 4K 2nd generation (A12) and later, tvOS 18 or later. Hardware HEVC and 
 
 ## Code shared with the Mac
 
-KyberKit is the same module as on the Mac. The project takes everything in `apps/macos/KyberKit` that does not depend on AppKit (connection, VideoToolbox decoding, Metal rendering, sound, latency, console) and adds `KyberKitTV/`: UIKit session view (`StreamView`, `MetalSurface`), gamepads and remote (`GamepadBridge`), keyboard and mouse (`KeyboardMouse`). The few differences are behind `#if os(...)` in the shared files (no clipboard on tvOS, gamepads produced by the app, frames presented at the next refresh). The model (`Model.swift`: computers, settings, profiles) and discovery (`Discovery.swift`) come from the Mac app.
+KyberKit is the same module as on the Mac. The project (`project.yml`) takes everything in `apps/macos/KyberKit` that does not depend on AppKit and excludes only the Mac's files (`StreamView`, `MetalSurface`, `RelativeMouse`, `KeymapMac`, `PasteboardMac`). Shared, then: connection, VideoToolbox decoding, Metal rendering, sound, latency, console, and the input module:
+
+- `InputPipeline` and `PacketQueue`: the kynput chain, the retry backlog for refused packets (3 ms, 200 ms, order kept), gamepad axis filtering (at 1/512 of the travel, batched per 4 ms, returns to rest retried); `GamepadBridge` no longer keeps a copy.
+- `Keymap`: HID usages → scancodes, swap of the Apple ISO keyboard keys, lock keys.
+- `PadCombo`: L1 + R1 + Start + Select combination and held buttons of each gamepad.
+- `PointerLayer`: the computer's pointer (shape, position, visibility), position held by the Apple TV, mouse-mode rule, drawing scale.
+- `ReleaseAll`: “release everything” policy (clicks and keys of the gamepad-as-mouse at the menu, in the background and at the end of the session; Bluetooth keyboard modifiers sent again when the inputs are connected again).
+- `ClipboardBridge`: compiled but never created, `KyberKitTV/Pasteboard.swift` says tvOS has no pasteboard.
+
+What `KyberKitTV/` provides: capture of GameController's events (`GamepadBridge`: gamepads and remote; `KeyboardMouse`: Bluetooth keyboard and mouse), all on the serial input queue `InputQueue.device`, where the pointer layer is held too: remote, gamepad and mouse move the pointer without going through the main thread; drawing in `StreamView` (UIKit, always-visible layer, 48-point box) and `MetalSurface`; the “Apple ISO keyboard” setting (Apple or unknown-vendor keyboards, where the Mac reads the layout from the system); the combination timer's queue (250 ms held, like the Mac since 0.2.7). The few remaining differences are behind `#if os(...)` in the shared files (gamepads produced by the app, frames presented at the next refresh). The model (`Model.swift`: computers, settings, profiles) and discovery (`Discovery.swift`) come from the Mac app.
 
 ## Building
 

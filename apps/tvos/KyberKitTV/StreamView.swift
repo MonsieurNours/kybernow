@@ -11,6 +11,12 @@
 // toujours visible, avec la forme de celui de l'ordinateur. Seule une souris
 // Bluetooth dans un jeu en plein écran envoie des déplacements bruts.
 //
+// L'état du pointeur (position tenue, forme, position de l'ordinateur) est
+// dans PointerLayer, partagé avec le Mac, tenu sur la file des entrées de
+// GameController (`InputQueue.device`) : manettes, télécommande et souris
+// Bluetooth le déplacent depuis cette file, sans passer par le fil principal ;
+// seul le dessin y remonte. La vue ne fait plus que dessiner.
+//
 // Même rôle que StreamView sur Mac (apps/macos/KyberKit) ; KyberClient
 // l'utilise de la même façon.
 
@@ -23,8 +29,10 @@ public final class StreamView: UIView {
     public let videoView = UIView()
     let surface = MetalSurface()
 
-    /// Modes de souris de l'app Mac (réglages partagés).
-    public enum MouseMode { case auto, desktop, game }
+    /// Modes de souris de l'app Mac (réglages partagés). L'Apple TV applique
+    /// Auto sans réglage : le plein écran d'un jeu suffit (`MouseModeRules`).
+    public typealias MouseMode = KyberKit.MouseMode
+    private static let rules = MouseModeRules(needsHiddenPointer: false)
 
     /// Un jeu est en plein écran sur l'ordinateur (d'après la console) : la
     /// souris Bluetooth envoie des déplacements bruts, sans pointeur dessiné.
@@ -64,12 +72,10 @@ public final class StreamView: UIView {
     private var input: InputPipeline?
     private var layout: OpaquePointer?
     private var hostSize = CGSize(width: 1920, height: 1080)
-    private var remoteHidden = false
-    private var remoteShape: (image: CGImage, hotSpot: CGPoint)?
-    private var remotePosition: CGPoint?
-    /// Position du pointeur tenue par l'app, en pixels de l'écran de l'ordinateur.
-    private var pointer: CGPoint?
-    private var lastLocalMove = 0.0
+    /// Pointeur de l'ordinateur et position tenue par l'app, sur la file des entrées.
+    let pointer = PointerLayer(queue: InputQueue.device, holdsPosition: true)
+    /// Dernier état de la couche de pointeur, recopié sur le fil principal pour le dessin.
+    private var pointerState = PointerLayer.State()
 
     private let pointerLayer: CALayer = {
         let layer = CALayer()
@@ -90,6 +96,13 @@ public final class StreamView: UIView {
             guard let self, !self.mouseSeen else { return }
             self.mouseSeen = true
             self.updatePointerLayer()
+        }
+        pointer.onChanged = { [weak self] state, _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.pointerState = state
+                self.updatePointerLayer()
+            }
         }
     }
 
@@ -117,21 +130,18 @@ public final class StreamView: UIView {
     func attach(input: InputPipeline, hostSize: CGSize) {
         if self.input != nil {
             keyboardMouse.detach()
-            GamepadBridge.shared.pointerMove = nil
         }
         self.input = input
         self.hostSize = hostSize
         rebuildLayout()
-        GamepadBridge.shared.pointerMove = { [weak self] dx, dy in self?.movePointer(dx: dx, dy: dy) }
-        GamepadBridge.shared.attach(input)
-        keyboardMouse.onMove = { [weak self] dx, dy in
-            guard let self else { return false }
-            // Jeu en plein écran : déplacements bruts, comme une souris de jeu.
-            if self.pcGameFullscreen { return false }
-            self.movePointer(dx: dx, dy: dy)
-            return true
+        // La couche de pointeur envoie ses positions par la chaîne neuve ; la
+        // position tenue reste.
+        pointer.queue.sync {
+            pointer.attach(hostSize: hostSize) { [weak input] x, y in input?.mouse(x: x, y: y) }
         }
-        keyboardMouse.attach(input)
+        GamepadBridge.shared.setPointer(pointer)
+        GamepadBridge.shared.attach(input)
+        keyboardMouse.attach(input, pointer: pointer)
         updateRelative()
     }
 
@@ -142,37 +152,30 @@ public final class StreamView: UIView {
     /// souris) est renvoyé à sa place. La manette en souris, elle, continue
     /// d'elle-même (GamepadBridge relance son minuteur à chaque chaîne neuve).
     func inputConnected() {
-        guard let input else { return }
+        guard input != nil else { return }
         updateRelative()
-        keyboardMouse.resendHeldModifiers()
-        if remoteMouse || padMouse || mouseSeen, let p = pointer {
-            input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
+        keyboardMouse.inputConnected()
+        if remoteMouse || padMouse || mouseSeen {
+            pointer.queue.async { [pointer] in pointer.resendHeld() }
         }
     }
 
     /// L'écran de l'ordinateur a changé de taille en cours de session : le
     /// pointeur tenu par l'app reste dans l'écran, les positions suivent.
     func setHostSize(_ size: CGSize) {
-        let old = hostSize
         hostSize = size
         // Le pointeur garde sa place relative (le centre reste au centre), et
-        // l'ordinateur l'apprend tout de suite.
-        if let p = pointer, old.width > 0, old.height > 0 {
-            let q = CGPoint(x: min(max(0, p.x * size.width / old.width), size.width - 1),
-                            y: min(max(0, p.y * size.height / old.height), size.height - 1))
-            pointer = q
-            input?.mouse(x: Int16(clamping: Int(q.x.rounded())), y: Int16(clamping: Int(q.y.rounded())))
-        }
+        // l'ordinateur l'apprend tout de suite (PointerLayer).
+        pointer.queue.sync { pointer.setHostSize(size) }
         rebuildLayout()
         updatePointerLayer()
     }
 
     public func detach() {
-        GamepadBridge.shared.pointerMove = nil
+        GamepadBridge.shared.setPointer(nil)
         GamepadBridge.shared.detach()
-        keyboardMouse.onMove = nil
         keyboardMouse.detach()
-        pointer = nil
+        pointer.queue.sync { pointer.reset() }
         input?.flushKeys()
         input = nil
         mouseSeen = false
@@ -187,20 +190,8 @@ public final class StreamView: UIView {
     /// Déplacements bruts seulement pour la souris Bluetooth dans un jeu en
     /// plein écran ; sinon, les positions absolues suffisent.
     private func updateRelative() {
-        input?.setRelative(pcGameFullscreen)
-    }
-
-    /// Déplace le pointeur tenu par l'app (en pixels de l'écran de l'ordinateur)
-    /// et envoie sa position.
-    func movePointer(dx: Double, dy: Double) {
-        guard let input, hostSize.width > 0, hostSize.height > 0 else { return }
-        var p = pointer ?? remotePosition ?? CGPoint(x: hostSize.width / 2, y: hostSize.height / 2)
-        p.x = min(max(0, p.x + dx), hostSize.width - 1)
-        p.y = min(max(0, p.y + dy), hostSize.height - 1)
-        pointer = p
-        lastLocalMove = CACurrentMediaTime()
-        input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
-        updatePointerLayer()
+        let relative = Self.rules.wantsRelative(mode: .auto, gameFullscreen: pcGameFullscreen, remoteHidden: false, visibleFor: 0, relativeActive: false)
+        input?.setRelative(relative)
     }
 
     private func rebuildLayout() {
@@ -254,44 +245,30 @@ public final class StreamView: UIView {
 
     // MARK: - Pointeur de l'ordinateur
 
-    func remoteCursorChanged(_ remote: RemoteCursor) {
-        remotePosition = remote.position
-        remoteHidden = !remote.visible
-        // L'ordinateur a déplacé son pointeur lui-même (au repos de nos
-        // entrées) : on repart de sa position.
-        if CACurrentMediaTime() - lastLocalMove > 0.4 { pointer = remote.position }
-        if let image = remote.image?.cgImage {
-            remoteShape = (image, remote.hotSpot)
-        }
-        updatePointerLayer()
-    }
-
     /// Dessiné quand une souris sert (à la manette, le jeu a son propre
     /// curseur), toujours visible : Windows masque le sien sans raison pour nous.
+    /// Lisible à 3 mètres : case de 48 points, jusqu'à deux fois la forme.
     private func updatePointerLayer() {
         let mouseOn = remoteMouse || padMouse || (mouseSeen && !pcGameFullscreen)
-        guard mouseOn, let host = pointer ?? remotePosition, let layout else {
+        guard mouseOn, let host = pointerState.position, let layout else {
             pointerLayer.isHidden = true
             return
         }
-        let shape = remoteShape ?? Self.arrow
-        // Lisible à 3 mètres : deux fois la taille d'un pointeur de bureau.
-        let pixels = CGSize(width: shape.image.width, height: shape.image.height)
-        let factor = min(2, 48 / max(pixels.width, pixels.height, 1))
+        let shape = pointerState.shape ?? Self.arrow
+        let factor = PointerLayer.scale(pixels: shape.pixels, box: 48, maxFactor: 2)
         var hostPos = kynput_Position(x: host.x, y: host.y)
         var local = kynput_Position(x: 0, y: 0)
         kynput_video_layout_host_to_local(layout, &hostPos, &local)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pointerLayer.contents = shape.image
-        pointerLayer.frame = CGRect(x: local.x - shape.hotSpot.x * factor, y: local.y - shape.hotSpot.y * factor,
-                                    width: pixels.width * factor, height: pixels.height * factor)
+        pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor)
         pointerLayer.isHidden = false
         CATransaction.commit()
     }
 
     /// Flèche de secours, tant que l'ordinateur n'a pas envoyé la forme du sien.
-    private static let arrow: (image: CGImage, hotSpot: CGPoint) = {
+    private static let arrow: PointerLayer.Shape = {
         let size = CGSize(width: 24, height: 32)
         let image = UIGraphicsImageRenderer(size: size, format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { ctx in
             let path = UIBezierPath()
@@ -310,6 +287,6 @@ public final class StreamView: UIView {
             path.stroke()
             _ = ctx
         }
-        return (image.cgImage!, CGPoint(x: 1, y: 1))
+        return PointerLayer.Shape(image: image.cgImage!, hotSpot: CGPoint(x: 1, y: 1))
     }()
 }

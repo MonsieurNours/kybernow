@@ -2,35 +2,33 @@
 //
 // GameController donne les touches en usages HID (page 7), que kynput
 // convertit en scancodes ; la souris donne des déplacements bruts : position
-// tenue par la vue de session (fil principal), ou envoyés bruts tels quels
-// depuis la file quand la souris est relative (jeu en plein écran).
+// tenue par la couche de pointeur partagée (PointerLayer, sur la même file),
+// ou envoyés bruts tels quels quand la souris est relative (jeu en plein écran).
 //
 // Comme les manettes, tout arrive sur la file des entrées de GamepadBridge
 // (`handlerQueue`), pas sur le fil principal ; `input` et les réglages n'y
 // sont lus que là.
 //
-// Clavier Apple ISO (européen) : la touche sous Échap (`@#` sur un AZERTY)
-// arrive comme usage 0x64 et celle près de ⇧ (`<>`) comme 0x35, à l'inverse
-// de ce qu'attend l'ordinateur (quirk hid-apple ; même échange que sur Mac,
-// où le système dit la disposition). tvOS ne la dit pas : réglage « Clavier
-// Apple ISO », appliqué aux claviers dont le fabricant est Apple, ou inconnu
-// (le clavier fusionné de GameController ne dit pas toujours le sien).
+// Clavier Apple ISO (européen) : même échange des usages 0x35 et 0x64 que sur
+// Mac (Keymap, partagé) ; tvOS ne dit pas la disposition : réglage « Clavier
+// Apple ISO », appliqué aux claviers Apple ou de fabricant inconnu.
 
-@_implementationOnly import CKyber
 import GameController
 
 final class KeyboardMouse {
     private var queue: DispatchQueue { GamepadBridge.queue }
     /// Sur la file seulement.
     private weak var input: InputPipeline?
+    /// Touches et modificateurs (usages HID) tenus : resynchronisation des
+    /// modificateurs quand les entrées sont reliées de nouveau (ReleaseAll).
+    private let held = ReleaseAll()
     private var iso = false
     private var activitySent = false
     private var observers: [NSObjectProtocol] = []
     /// Une souris bouge : le pointeur doit s'afficher (fil principal).
     var onMouseActivity: (() -> Void)?
-    /// Déplacement de la souris (pixels), fil principal : vrai si la vue de
-    /// session l'a pris en position absolue, faux pour l'envoyer brut.
-    var onMove: ((Double, Double) -> Bool)?
+    /// Pointeur tenu par l'app, déplacé en mode bureau. Sur la file seulement.
+    private var pointer: PointerLayer?
     /// Réglage « Clavier Apple ISO » : échange des usages 0x35 et 0x64 pour
     /// les claviers Apple.
     var appleISO = false {
@@ -40,10 +38,11 @@ final class KeyboardMouse {
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
     /// observateurs précédents sont retirés d'abord, sinon ils s'empilaient
     /// et chaque clavier branché était réglé autant de fois.
-    func attach(_ input: InputPipeline) {
+    func attach(_ input: InputPipeline, pointer: PointerLayer) {
         observers.forEach(NotificationCenter.default.removeObserver)
         queue.sync {
             self.input = input
+            self.pointer = pointer
             activitySent = false
         }
         if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
@@ -73,18 +72,24 @@ final class KeyboardMouse {
         queue.sync {
             input?.flushKeys()
             input = nil
+            pointer = nil
+            held.forget()
         }
     }
 
-    /// Service d'entrées relancé sur l'ordinateur : les modificateurs encore
-    /// tenus sur le clavier y repartent (les autres touches non : un jeu y
-    /// verrait un nouvel appui).
-    func resendHeldModifiers() {
-        guard let input, let keys = GCKeyboard.coalesced?.keyboardInput else { return }
+    /// Service d'entrées relancé sur l'ordinateur (il ne tient plus rien) :
+    /// les modificateurs encore tenus sur le clavier y repartent (les autres
+    /// touches non : un jeu y verrait un nouvel appui). Fil principal.
+    func inputConnected() {
+        let keys = GCKeyboard.coalesced?.keyboardInput
         let modifiers: [GCKeyCode] = [.leftShift, .rightShift, .leftControl, .rightControl, .leftAlt, .rightAlt, .leftGUI, .rightGUI]
-        for code in modifiers where keys.button(forKeyCode: code)?.isPressed == true {
-            var scancode: UInt16 = 0
-            if Self.scancode(UInt16(truncatingIfNeeded: code.rawValue), &scancode) {
+        let down = modifiers.filter { keys?.button(forKeyCode: $0)?.isPressed == true }.map { UInt16(truncatingIfNeeded: $0.rawValue) }
+        queue.async {
+            guard let input = self.input else { return }
+            self.held.forgetModifiers()
+            self.held.resyncModifiers(held: down) { usage in
+                guard let scancode = Keymap.scancode(usage: usage) else { return }
+                self.held.key(scancode: scancode, pressed: true)
                 input.key(scancode: scancode, pressed: true)
             }
         }
@@ -92,15 +97,13 @@ final class KeyboardMouse {
 
     private func setUp(_ keyboard: GCKeyboard) {
         keyboard.handlerQueue = queue
-        let apple = keyboard.vendorName.map { $0.localizedCaseInsensitiveContains("Apple") } ?? true
+        let apple = Keymap.appleKeyboard(vendorName: keyboard.vendorName)
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             guard let self, let input = self.input else { return }
-            var usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
-            if apple, self.iso, usage == 0x35 || usage == 0x64 {
-                usage = usage == 0x35 ? 0x64 : 0x35
-            }
-            var scancode: UInt16 = 0
-            guard Self.scancode(usage, &scancode) else { return }
+            let usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
+            guard let scancode = Keymap.scancode(hid: usage, iso: apple && self.iso) else { return }
+            if Keymap.isModifier(usage) { self.held.modifier(usage, pressed: pressed) }
+            self.held.key(scancode: scancode, pressed: pressed)
             input.key(scancode: scancode, pressed: pressed)
         }
     }
@@ -115,39 +118,23 @@ final class KeyboardMouse {
                 DispatchQueue.main.async { self.onMouseActivity?() }
             }
             // Jeu en plein écran (souris relative) : déplacements bruts, tout
-            // de suite. Sinon, la vue de session tient la position.
-            if input.isRelative {
-                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
+            // de suite. Sinon, la couche de pointeur tient la position et
+            // l'envoie en absolu, sur cette même file : clics et molette qui
+            // suivent restent derrière le déplacement.
+            if !input.isRelative, let pointer = self.pointer {
+                pointer.move(dx: Double(dx), dy: Double(-dy))
                 return
             }
-            DispatchQueue.main.async { [weak input] in
-                guard let input, self.onMove?(Double(dx), Double(-dy)) != true else { return }
-                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
-            }
+            input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
         }
-        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.left, pressed: pressed) } }
-        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.right, pressed: pressed) } }
-        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.middle, pressed: pressed) } }
+        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
+        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }
+        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.middle, pressed: pressed) }
         // Boutons 4 et 5 (côté du pouce) : précédent et suivant, X1 et X2 sous Windows.
         for (button, kind) in zip(m.auxiliaryButtons ?? [], [InputPipeline.MouseButton.side, .extra]) {
-            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(kind, pressed: pressed) } }
+            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(kind, pressed: pressed) }
         }
         m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
-    }
-
-    /// En position absolue, les déplacements passent par la vue de session
-    /// (fil principal) : clics et molette les suivent par le même chemin, sinon
-    /// un clic pourrait doubler le déplacement qui le précède. En relatif
-    /// (jeu en plein écran), tout part de la file.
-    private func afterMoves(_ send: @escaping (InputPipeline) -> Void) {
-        guard let input else { return }
-        if input.isRelative {
-            send(input)
-            return
-        }
-        DispatchQueue.main.async { [weak input] in
-            if let input { send(input) }
-        }
     }
 
     /// Molette de GameController : premier axe vertical (positif = vers le
@@ -176,22 +163,9 @@ final class KeyboardMouse {
             dx -= sx
             dy -= sy
         }
-        afterMoves { input in
-            for (sx, sy) in steps { input.wheel(dx: sx, dy: sy) }
-        }
+        guard let input else { return }
+        for (sx, sy) in steps { input.wheel(dx: sx, dy: sy) }
     }
 
     private var scrollLogged = 0
-
-    private static func scancode(_ usage: UInt16, _ out: inout UInt16) -> Bool {
-        Keymap.scancode(usage: usage).map { out = $0; return true } ?? false
-    }
-}
-
-/// Usages HID → scancodes (le reste de Keymap est propre au Mac).
-enum Keymap {
-    static func scancode(usage: UInt16) -> UInt16? {
-        var scancode: UInt16 = 0
-        return kynput_keycode_usb_to_kyber(usage, &scancode) ? scancode : nil
-    }
 }

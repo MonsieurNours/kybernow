@@ -26,7 +26,7 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
 - **Mises à jour** : Sparkle, vérification quotidienne et menu KyberNow › Rechercher des mises à jour… ; flux `appcast.xml` signé EdDSA, publié avec chaque version sur GitHub (voir [docs/releases.md](../../docs/releases.md)).
 - **Choix de l'écran** : avec l'écran virtuel, l'app attend au plus 6 s, une seule fois, que Kyber n'annonce plus que lui, puis prend l'écran à la taille demandée placé en (0, 0). Les sorties que Windows liste en 0 × 0 (éteintes) sont écartées ; s'il ne reste aucun écran utilisable, la session le dit au lieu de rester sur « Premières images ».
 - **Manettes** : celles que gère SDL (Xbox, DualSense, DualShock…). Réglage par ordinateur « Manette vue par l'ordinateur » : **Xbox 360** (par défaut), toutes deviennent des manettes Xbox 360 sur l'ordinateur, celles que tous les jeux reconnaissent ; ou **Fidèle**, une manette Sony reste une DualShock 4 (pavé tactile, barre lumineuse pour les jeux qui s'en servent), les autres restent des Xbox 360. Le choix part avec la session (`gamepad_force_xbox360`) et prime sur l'option « Toutes les manettes en Xbox 360 » de la console, qui ne reste qu'un défaut pour les autres clients.
-- **Combinaison de la manette** (L1 + R1 + Start + Select) : la barre s'ouvre et la manette la pilote (croix, A, B) ; même combinaison ou barre fermée, elle revient à l'ordinateur. C'est le contrôleur de session qui prend la manette, pas la couche qui lit les paquets (`GamepadGate`, qui ne fait que signaler la combinaison) : hors session (connexion, reconnexion, fin), la combinaison ne fait rien et la manette reste à l'ordinateur, au lieu de rester muette jusqu'à la combinaison suivante. À l'ouverture de la barre, tout est remis à zéro sur l'ordinateur : touches tenues relâchées (gâchette comprise) et les six axes au repos, pour chaque manette que la couche de paquets a vue passer ; ces relâchements sont les seuls paquets de manette qui partent tant que la barre a la manette. Quand l'image redémarre (changement de profil depuis la barre), la barre garde la manette.
+- **Combinaison de la manette** (L1 + R1 + Start + Select, tenue 250 ms ; un appui bref des quatre touches reste au jeu, comme sur l'Apple TV) : la barre s'ouvre et la manette la pilote (croix, A, B) ; même combinaison ou barre fermée, elle revient à l'ordinateur. C'est le contrôleur de session qui prend la manette, pas la couche qui lit les paquets (`GamepadGate`, qui ne fait que signaler la combinaison) : hors session (connexion, reconnexion, fin), la combinaison ne fait rien et la manette reste à l'ordinateur, au lieu de rester muette jusqu'à la combinaison suivante. À l'ouverture de la barre, tout est remis à zéro sur l'ordinateur : touches tenues relâchées (gâchette comprise) et les six axes au repos, pour chaque manette que la couche de paquets a vue passer ; ces relâchements sont les seuls paquets de manette qui partent tant que la barre a la manette. Quand l'image redémarre (changement de profil depuis la barre), la barre garde la manette.
 - **Reconnexion** : pendant une reconnexion de Kyber, l'app attend : c'est elle qui relance l'image quand Kyber est revenu. Si Kyber a redémarré sur l'ordinateur, l'écran virtuel a pu partir avec lui (il garde toujours le même numéro, mais la console le retire et rallume les écrans physiques). L'app le redemande donc à la console (`/api/stream/prepare`, sans effet s'il est toujours là), attend au plus 3 s que Kyber n'annonce plus que lui, puis relance l'image dessus. Si l'ordinateur refuse quand même l'image dans les 15 s, elle refait cette demande une fois au lieu de couper la session. Le signal de vie dit aussi si l'écran virtuel est en place (`active`) : s'il a disparu en cours de session, l'app le redemande (au plus une fois toutes les 30 s). Quand l'app relance elle-même l'image (pas d'image clé en 1,5 s), Kyber ferme la connexion des données et se reconnecte sans relancer l'image : l'app la relance alors elle-même, au lieu de rester sur une image figée.
 - **Continuité de l'image** (voir [docs/audit-2026-10-20.md](../../docs/audit-2026-10-20.md) §15) :
   - *Mode de l'ordinateur changé* (un jeu qui passe en 1080p, un réglage de Windows) : avec le moteur txproto, l'image continue à la nouvelle taille (encodeur recréé, décodeur reconstruit sur les nouveaux SPS/PPS, rendu recentré). Le repère des entrées se cale sur un changement de taille des images décodées (`KyberClient`, d'après les mesures du rendu, une fois par seconde ; la première image ne compte pas, elle peut être à l'échelle) ou de celle que la liste de Kyber donne au même écran (`displayResized`, comparée à la liste précédente) : le dernier changement l'emporte, et la liste corrige toujours une image mise à l'échelle (avec libavconv, l'image garde sa taille de départ et seule la liste dit la vraie). La barre, le débit et l'écran suivi prennent la nouvelle taille, et une capsule dit « L'ordinateur est passé en 1920 × 1080 ». L'app dit à la console que faire d'un changement de mode (`mode_policy` de `prepare`) : Jeu le laisse (`follow`), Bureau le fait remettre (`restore`), les autres profils s'en remettent au réglage de la console (`default`, dit explicitement pour défaire le choix d'un profil précédent). Si « Remettre » n'a rien changé au bout de 6 s, le bouton revient ; il n'est jamais envoyé après la fin de la session. En profil Bureau, la barre propose « Remettre 3840 × 2160 » (un `prepare` au mode du début, politique `restore`).
@@ -45,7 +45,7 @@ Client de streaming de KyberNow : on retrouve son ordinateur (serveur Kyber 0.29
 | ⌃⌥⌘M | Souris en mode jeu (déplacements bruts) ou en mode bureau |
 | ⌃⌥⌘S | Mesures détaillées (aussi : clic sur les mesures de la barre) |
 | ⌘ + touche | Ctrl + touche sur l'ordinateur (réglable) |
-| L1 + R1 + START + SELECT | La manette pilote la barre de l'app (croix, A, B) ; même combinaison ou barre fermée : elle revient à l'ordinateur |
+| L1 + R1 + START + SELECT tenus 250 ms | La manette pilote la barre de l'app (croix, A, B) ; même combinaison ou barre fermée : elle revient à l'ordinateur |
 
 ⌃⌥⌘ + lettre reste au Mac (menus de l'app) et ne part jamais vers l'ordinateur.
 
@@ -101,11 +101,19 @@ apps/macos/
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AudioPlayer
 │   ├── LatencyTracker     # latence de bout en bout (mesures de Kyber)
-│   ├── StreamView         # vue de session : clavier, souris, curseur
+│   ├── StreamView         # vue de session : événements AppKit, dessin du pointeur, souris relative
+│   ├── PointerLayer       # pointeur de l'ordinateur, règles Auto / Bureau / Jeu, file des entrées (partagé)
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
-│   ├── ClipboardBridge    # presse-papiers partagé
-│   ├── InputPipeline, Keymap, GamepadGate   # entrées via libkynput
+│   ├── ClipboardBridge    # presse-papiers partagé, sur le presse-papiers de la plateforme (partagé)
+│   ├── PasteboardMac      # NSPasteboard (Mac seulement ; iOS : UIPasteboard, tvOS : rien)
+│   ├── InputPipeline      # entrées via libkynput : paquets, filtrage et regroupement des axes (partagé)
+│   ├── PacketQueue        # file d'envoi vers kynput et file de secours des paquets qui ne se rattrapent pas (partagé)
+│   ├── ReleaseAll         # ce que l'appareil tient enfoncé, politique « tout relâcher », resynchronisation des modificateurs (partagé)
+│   ├── PadCombo           # combinaison L1 + R1 + Start + Select et touches tenues par manette (partagé)
+│   ├── GamepadGate        # manettes SDL du Mac : hook kynput, prise de la manette par la barre
+│   ├── Keymap             # clavier : usages HID → scancodes, échange ISO, verrouillages (partagé)
+│   ├── KeymapMac          # table kVK → HID, disposition du clavier, modificateurs AppKit (Mac seulement)
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
 │   ├── KyberNowApp, Model (ordinateurs, réglages, Trousseau)
@@ -115,11 +123,25 @@ apps/macos/
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
 ├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh
-├── tests/                 # tests hors ligne (vidéo, son)
+├── tests/                 # tests hors ligne (vidéo, son, écran, presse-papiers, entrées)
 └── Vendor/                # SDK Kyber compilé (ignoré par git)
 ```
 
 Déroulé d'une session : `ConsoleClient.prepare` (écran virtuel à la taille de ce Mac, son au bon nombre de voies) → `KyberClient.connect` → attente que la liste d'écrans se stabilise → `startStreaming` → signal de vie toutes les quelques secondes → `ConsoleClient.end` (l'ordinateur retrouve ses écrans et sa sortie audio).
+
+
+### Module d'entrées partagé
+
+Les fichiers marqués « partagé » ci-dessus n'importent ni AppKit ni UIKit : l'Apple TV les compile tels quels (`apps/tvos/project.yml`), iOS fera de même. Ce qu'ils tiennent, une seule fois :
+
+- `InputPipeline` et `PacketQueue` : la chaîne kynput (paquets clavier, souris, manettes produites par l'app, texte, FlushKeys), les refus comptés et la file de secours des paquets qui ne se rattrapent pas (3 ms, 200 ms, ordre gardé), le filtrage des axes de manette (au 1/512 de la course, regroupés par 4 ms, retours au repos réessayés), la réception du pointeur de l'ordinateur et des vibrations.
+- `Keymap` : usages HID → scancodes, « ⌘ envoyée comme Ctrl », échange des touches des claviers Apple ISO, touches de verrouillage (bascules : appui + relâchement, jamais resynchronisées).
+- `PadCombo` : combinaison L1 + R1 + Start + Select et touches tenues de chaque manette ; les six axes à remettre au repos à la capture.
+- `PointerLayer`, `MouseMode`, `MouseModeRules`, `InputQueue` : position, forme, point chaud et visibilité du pointeur de l'ordinateur, position tenue par l'appareil, règles Auto / Bureau / Jeu avec la veille du plein écran (0,6 s de pointeur remontré, recontrôle à 0,7 s), échelle et cadre du dessin, file série des entrées de l'appareil.
+- `ReleaseAll` : ce que l'appareil tient enfoncé et la politique « tout relâcher » (perte du clavier, arrière-plan, fin de session), resynchronisation des modificateurs réellement tenus au retour.
+- `ClipboardBridge` et `PlatformPasteboard` : presse-papiers partagé, les paquets de l'ordinateur traités hors du verrou du routeur kynput.
+
+Ce qu'une plateforme fournit : la **capture des événements** (AppKit dans `StreamView` sur Mac ; GameController dans `GamepadBridge` et `KeyboardMouse` sur Apple TV), le **dessin** du pointeur sur le fil principal à partir de `PointerLayer.onChanged` (`NSCursor` et couche en mode jeu sur Mac, couche toujours visible sur Apple TV), le **presse-papiers** (`Pasteboard.general` : `NSPasteboard` dans `PasteboardMac`, rien sur tvOS), la **disposition ISO** du clavier (`KBGetLayoutType` dans `KeymapMac` ; réglage « Clavier Apple ISO » et heuristique Apple sur tvOS), la **file** de la couche de pointeur (fil principal sur Mac, `InputQueue.device` sur Apple TV) et la **file de la minuterie** de la combinaison (250 ms tenues partout ; `InputQueue.device` sur les deux, sous le verrou du hook sur Mac). Les manettes du Mac restent lues par kynput via SDL : `GamepadGate` en filtre les paquets dans le hook du routeur.
 
 ## Construire
 
@@ -154,6 +176,7 @@ Xcode met le profil dans l'app (`Contents/embedded.provisionprofile`) et y ajout
 apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
 apps/macos/tests/audio/run.sh   # Opus stéréo et 5.1 au rythme réel, à-coups et pertes : tampon, trous
 apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes, réponses, 60 Ko
+apps/macos/tests/inputs/run.sh  # module d'entrées partagé : table du clavier (ISO ou non, Verr. maj.), combinaison de manette (brève, tenue, relâchée), file de secours, filtrage des axes
 apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
 ```
 
@@ -177,4 +200,13 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Vers iOS et Apple TV
 
-Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`. À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.
+L'Apple TV est faite (`apps/tvos`). Pour iOS et iPadOS, KyberKit est repris tel quel : connexion, décodage, rendu Metal, son, latence, console, et tout le module d'entrées partagé (`InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `PointerLayer`, `ReleaseAll`, `ClipboardBridge`). Ce qu'iOS a à écrire, et seulement cela :
+
+1. `Pasteboard.swift` : `enum Pasteboard { static var general: PlatformPasteboard? }` sur `UIPasteboard.general` (`changeCount`, `string`), sur le modèle de `PasteboardMac`.
+2. Une `StreamView` UIKit, à partir de celle de l'Apple TV (`apps/tvos/KyberKitTV/StreamView.swift`, avec sa `MetalSurface`) : une `PointerLayer(queue: InputQueue.device, holdsPosition: true)` ; le dessin du pointeur sur le fil principal depuis `onChanged` ; `attach`, `inputConnected`, `setHostSize` et `detach` identiques ; `MouseModeRules(needsHiddenPointer: false)` comme l'Apple TV, ou le réglage Auto / Bureau / Jeu du Mac.
+3. Le toucher → événements de pointeur : un doigt qui glisse → `pointer.move(dx:dy:)` sur `InputQueue.device` (ou une position absolue par `kynput_video_layout_local_to_host` et `InputPipeline.mouse` quand le doigt désigne un point de l'image) ; un toucher → `InputPipeline.mouseButton(.left, pressed:)` noté dans un `ReleaseAll` ; deux doigts → `wheel` ; en mode jeu, `mouseMove` brut.
+4. Clavier matériel et manettes : `KeyboardMouse.swift` et `GamepadBridge.swift` de l'Apple TV (GameController, UIKit, Core Haptics ; seule la Siri Remote y est propre à tvOS), ou directement `Keymap.scancode(hid:iso:)` avec le réglage ISO et `Keymap.appleKeyboard`, `PadCombo(on: InputQueue.device)` et `ReleaseAll` ; le clavier à l'écran → `InputPipeline.type`.
+5. L'arrière-plan : `ReleaseAll.release(into:)` puis `InputPipeline.flushKeys` sur `willResignActive` (ce que fait `GamepadBridge`), les modificateurs resynchronisés quand les entrées sont reliées de nouveau.
+6. La compilation de libkyclient, libkynput et libopus pour iOS (`apps/tvos/scripts/build-kyber-tvos.sh` sert de modèle).
+
+Il n'y a ni VRR ni synchro désactivable sur Apple TV.

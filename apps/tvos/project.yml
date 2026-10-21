@@ -3,9 +3,11 @@
 # (SDK client de Kyber compilé pour tvOS, dans Vendor/).
 #
 # KyberKit est le même module que sur Mac : ses fichiers communs viennent
-# d'apps/macos/KyberKit, la vue de session et les entrées propres à tvOS de
-# KyberKitTV. Le modèle (ordinateurs, réglages) et la découverte Bonjour
-# viennent aussi de l'app Mac.
+# d'apps/macos/KyberKit (dont le module d'entrées partagé : InputPipeline,
+# PacketQueue, Keymap, PadCombo, PointerLayer, ReleaseAll, ClipboardBridge ;
+# seuls les fichiers AppKit du Mac sont exclus ci-dessous), la vue de session
+# et les entrées propres à tvOS de KyberKitTV. Le modèle (ordinateurs,
+# réglages) et la découverte Bonjour viennent aussi de l'app Mac.
 name: KyberNowTV
 options:
   bundleIdPrefix: fr.leslignesclaires
@@ -31,9 +33,9 @@ targets:
     sources:
       - path: ../macos/KyberKit
         excludes:
-          - ClipboardBridge.swift
-          - Keymap.swift
+          - KeymapMac.swift
           - MetalSurface.swift
+          - PasteboardMac.swift
           - RelativeMouse.swift
           - StreamView.swift
       - path: KyberKitTV

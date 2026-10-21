@@ -1,5 +1,6 @@
-// Combinaison manette L1 + R1 + START + SELECT : elle ouvre la barre de
-// l'app, et la manette pilote alors KyberNow au lieu de l'ordinateur.
+// Manettes du Mac, lues par kynput via SDL : combinaison L1 + R1 + START +
+// SELECT (PadCombo, partagé avec l'Apple TV) et prise de la manette par
+// l'app (barre ouverte).
 //
 // Branché comme « hook » du routeur kynput : chaque paquet de manette y
 // passe avant de partir vers l'ordinateur. Le routeur appelle le hook sous
@@ -14,10 +15,6 @@
 import Foundation
 @_implementationOnly import CKyber
 
-public enum PadKey: Sendable {
-    case left, right, up, down, accept, back
-}
-
 final class GamepadGate: @unchecked Sendable {
     /// Combinaison détectée (fil principal).
     var onCombo: (() -> Void)?
@@ -27,10 +24,10 @@ final class GamepadGate: @unchecked Sendable {
     var release: ((_ buttons: [(UInt32, kynput_GamepadButton)], _ axes: [(UInt32, kynput_GamepadAxis)]) -> Void)?
 
     private let lock = NSLock()
-    /// Manettes vues passer (branchées, ou dont un paquet est passé) : à
-    /// remettre à zéro quand l'app prend la manette.
-    private var known = Set<UInt32>()
-    private var pressed: [UInt32: Set<UInt32>] = [:]
+    /// Combinaison et touches tenues de chaque manette vue passer. Sous le
+    /// verrou ; la minuterie des 250 ms tourne sur la file des entrées et
+    /// prend le verrou (`exclusive`).
+    private let combo = PadCombo(on: InputQueue.device)
     private var captured = false
     /// Relâchements et axes au repos que nous injectons nous-mêmes : à
     /// laisser passer, une fois chacun, pendant que l'app a la manette.
@@ -39,18 +36,23 @@ final class GamepadGate: @unchecked Sendable {
     /// Dernière valeur partie de chaque axe : un axe qui n'a pas bougé (au
     /// 1/512 de la course) ne repart pas. Une manette Bluetooth bavarde
     /// remplirait sinon la file d'envoi de kynput (64 paquets, jetés sans
-    /// retour), et avec elle les relâchements.
+    /// retour), et avec elle les relâchements. Les paquets SDL ne passent pas
+    /// par InputPipeline : seul le hook peut en réduire le débit.
     private var lastAxis: [UInt32: [UInt32: Int16]] = [:]
 
-    private static let axes: [kynput_GamepadAxis] = [
-        KYNPUT_GAMEPAD_AXIS_LEFT_X, KYNPUT_GAMEPAD_AXIS_LEFT_Y, KYNPUT_GAMEPAD_AXIS_RIGHT_X,
-        KYNPUT_GAMEPAD_AXIS_RIGHT_Y, KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT, KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT,
-    ]
-
-    private static let combo: Set<UInt32> = [
-        KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER.rawValue, KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER.rawValue,
-        KYNPUT_GAMEPAD_BUTTON_START.rawValue, KYNPUT_GAMEPAD_BUTTON_BACK.rawValue,
-    ]
+    init() {
+        combo.exclusive = { [lock] work in
+            lock.lock()
+            work()
+            lock.unlock()
+        }
+        combo.onFormed = { [weak self] _ in
+            // La suite est au contrôleur de session : prendre la manette (les
+            // quatre touches, parties au jeu, y sont alors relâchées), ou la rendre.
+            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
+            DispatchQueue.main.async { self?.onCombo?() }
+        }
+    }
 
     /// L'app prend la manette (barre ouverte) ou la rend (barre fermée).
     func setCaptured(_ value: Bool) {
@@ -72,9 +74,9 @@ final class GamepadGate: @unchecked Sendable {
         // InputPipeline, hors du verrou.
         var buttons: [(UInt32, kynput_GamepadButton)] = []
         var axes: [(UInt32, kynput_GamepadAxis)] = []
-        for id in known {
-            for b in pressed[id] ?? [] { buttons.append((id, kynput_GamepadButton(rawValue: b))) }
-            for a in Self.axes { axes.append((id, a)) }
+        for id in combo.pads {
+            for b in combo.pressed(id) { buttons.append((id, b.sdk)) }
+            for a in PadCombo.axes { axes.append((id, a.sdk)) }
         }
         lock.unlock()
         if !buttons.isEmpty || !axes.isEmpty {
@@ -109,10 +111,9 @@ final class GamepadGate: @unchecked Sendable {
             var plug = kynput_GamepadControlIdPlug()
             var unplug = kynput_GamepadControlIdUnplug()
             if control == KYNPUT_GAMEPAD_CONTROL_ID_PLUG, kynput_gamepad_plug_from_packet(packet, &plug) {
-                known.insert(plug.id)
+                combo.note(plug.id)
             } else if control == KYNPUT_GAMEPAD_CONTROL_ID_UNPLUG, kynput_gamepad_unplug_from_packet(packet, &unplug) {
-                known.remove(unplug.id)
-                pressed[unplug.id] = nil
+                combo.forget(unplug.id)
                 allowed[unplug.id] = nil
                 allowedAxes[unplug.id] = nil
                 lastAxis[unplug.id] = nil
@@ -126,7 +127,7 @@ final class GamepadGate: @unchecked Sendable {
         if event == KYNPUT_GAMEPAD_EVENT_ID_AXIS {
             var a = kynput_GamepadEventAxis()
             guard kynput_gamepad_axis_from_packet(packet, &a) else { return !captured }
-            known.insert(a.id)
+            combo.note(a.id)
             let axis = a.type_.rawValue
             // Manette prise : seuls nos axes au repos passent, une fois chacun
             // (un vrai retour au repos arrivé avant le nôtre fait aussi bien).
@@ -135,49 +136,23 @@ final class GamepadGate: @unchecked Sendable {
                 lastAxis[a.id, default: [:]][axis] = 0
                 return true
             }
-            guard Self.moved(from: lastAxis[a.id]?[axis], to: a.value) else { return false }
+            guard InputPipeline.axisMoved(from: lastAxis[a.id]?[axis], to: a.value) else { return false }
             lastAxis[a.id, default: [:]][axis] = a.value
             return true
         }
         guard event == KYNPUT_GAMEPAD_EVENT_ID_BUTTON else { return !captured }
         var b = kynput_GamepadEventButton()
-        guard kynput_gamepad_button_from_packet(packet, &b) else { return !captured }
-        known.insert(b.id)
-        let button = b.type_.rawValue
-        if !b.pressed, allowed[b.id]?.remove(button) != nil {
+        guard kynput_gamepad_button_from_packet(packet, &b), let button = PadButton(sdk: b.type_) else { return !captured }
+        if !b.pressed, allowed[b.id]?.remove(b.type_.rawValue) != nil {
             return true
         }
-        if b.pressed { pressed[b.id, default: []].insert(button) } else { pressed[b.id]?.remove(button) }
-
-        if b.pressed, Self.combo.contains(button), pressed[b.id, default: []].isSuperset(of: Self.combo) {
-            // La quatrième touche n'atteint pas l'ordinateur. La suite est au
-            // contrôleur de session : prendre la manette, ou la rendre.
-            DispatchQueue.main.async { [weak self] in self?.onCombo?() }
-            return false
-        }
+        // Les touches de la combinaison partent au jeu comme les autres ; elle
+        // se forme après 250 ms tenues (PadCombo).
+        combo.button(b.id, button, pressed: b.pressed)
         guard captured else { return true }
-        if b.pressed, let key = Self.key(button) {
+        if b.pressed, let key = PadCombo.navigationKey(button) {
             DispatchQueue.main.async { [weak self] in self?.onNavigate?(key) }
         }
         return false
-    }
-
-    /// Changement au 1/512 de la course ; un retour exact au repos passe toujours.
-    static func moved(from last: Int16?, to value: Int16) -> Bool {
-        guard let last else { return true }
-        if value == 0 { return last != 0 }
-        return last >> 7 != value >> 7
-    }
-
-    private static func key(_ button: UInt32) -> PadKey? {
-        switch button {
-        case KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT.rawValue: return .left
-        case KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT.rawValue: return .right
-        case KYNPUT_GAMEPAD_BUTTON_D_PAD_UP.rawValue: return .up
-        case KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN.rawValue: return .down
-        case KYNPUT_GAMEPAD_BUTTON_A.rawValue: return .accept
-        case KYNPUT_GAMEPAD_BUTTON_B.rawValue: return .back
-        default: return nil
-        }
     }
 }

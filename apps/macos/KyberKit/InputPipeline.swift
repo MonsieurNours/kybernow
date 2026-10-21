@@ -3,25 +3,22 @@
 // Le pipeline client de kynput produit déjà certaines entrées sur macOS
 // (manettes via SDL) ; on produit les autres depuis les événements AppKit,
 // comme le client Kyber. Les annonces de curseur du PC (forme, position,
-// visibilité) arrivent par un gestionnaire dédié.
+// visibilité) arrivent par un gestionnaire dédié et vont à la couche de
+// pointeur partagée (PointerLayer), sur sa file.
 //
 // Sur l'Apple TV, kynput ne produit rien lui-même : manettes, clavier et
 // souris viennent de GameController (apps/tvos/KyberKitTV), sans presse-papiers
-// (tvOS n'en a pas).
+// (tvOS n'en a pas : `Pasteboard.general` y est nil).
 
-#if os(macOS)
-import AppKit
-public typealias PlatformImage = NSImage
-#else
-import UIKit
-public typealias PlatformImage = UIImage
-#endif
+import CoreGraphics
+import Foundation
 @_implementationOnly import CKyber
 
-/// Curseur du PC, prêt à être affiché sur le Mac.
+/// Pointeur de l'ordinateur, tel qu'il l'annonce.
 public struct RemoteCursor {
     public let visible: Bool
-    public let image: PlatformImage?
+    /// Forme, en pixels de l'écran de l'ordinateur ; nil : inchangée ou vide.
+    public let image: CGImage?
     public let hotSpot: CGPoint
     /// Position sur l'écran de l'ordinateur, en pixels.
     public let position: CGPoint
@@ -54,47 +51,6 @@ public struct GamepadRumble: Sendable {
     public let durationMs: Int
 }
 
-/// Touches et axes de manette, dans le vocabulaire de kynput (celui de SDL).
-public enum PadButton: Sendable, CaseIterable {
-    case a, b, x, y, back, guide, start, leftStick, rightStick, leftShoulder, rightShoulder
-    case dpadUp, dpadDown, dpadLeft, dpadRight
-
-    var sdk: kynput_GamepadButton {
-        switch self {
-        case .a: return KYNPUT_GAMEPAD_BUTTON_A
-        case .b: return KYNPUT_GAMEPAD_BUTTON_B
-        case .x: return KYNPUT_GAMEPAD_BUTTON_X
-        case .y: return KYNPUT_GAMEPAD_BUTTON_Y
-        case .back: return KYNPUT_GAMEPAD_BUTTON_BACK
-        case .guide: return KYNPUT_GAMEPAD_BUTTON_GUIDE
-        case .start: return KYNPUT_GAMEPAD_BUTTON_START
-        case .leftStick: return KYNPUT_GAMEPAD_BUTTON_LEFT_STICK
-        case .rightStick: return KYNPUT_GAMEPAD_BUTTON_RIGHT_STICK
-        case .leftShoulder: return KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER
-        case .rightShoulder: return KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER
-        case .dpadUp: return KYNPUT_GAMEPAD_BUTTON_D_PAD_UP
-        case .dpadDown: return KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN
-        case .dpadLeft: return KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT
-        case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT
-        }
-    }
-}
-
-public enum PadAxis: Sendable {
-    case leftX, leftY, rightX, rightY, leftTrigger, rightTrigger
-
-    var sdk: kynput_GamepadAxis {
-        switch self {
-        case .leftX: return KYNPUT_GAMEPAD_AXIS_LEFT_X
-        case .leftY: return KYNPUT_GAMEPAD_AXIS_LEFT_Y
-        case .rightX: return KYNPUT_GAMEPAD_AXIS_RIGHT_X
-        case .rightY: return KYNPUT_GAMEPAD_AXIS_RIGHT_Y
-        case .leftTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT
-        case .rightTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT
-        }
-    }
-}
-
 /// Reçoit les vibrations envoyées par l'ordinateur. Appelé sur le fil de
 /// kynput (Apple TV : le pont des manettes repasse sur sa propre file, sans
 /// détour par le fil principal) ; le rappel est réglé du fil principal.
@@ -107,12 +63,22 @@ private final class RumbleSink {
     }
 }
 
+/// Presse-papiers partagé et la file où ses paquets sont traités.
+private final class ClipboardSink {
+    let bridge: ClipboardBridge
+    let queue: DispatchQueue
+    init(bridge: ClipboardBridge, queue: DispatchQueue) {
+        self.bridge = bridge
+        self.queue = queue
+    }
+}
+
 private final class CursorSink {
-    weak var view: StreamView?
+    weak var pointer: PointerLayer?
     /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
     /// la même image (kyber-patches serveur 0006), inutile de la refaire.
     var lastShape: Int?
-    init(view: StreamView) { self.view = view }
+    init(pointer: PointerLayer) { self.pointer = pointer }
 }
 
 final class InputPipeline {
@@ -124,10 +90,8 @@ final class InputPipeline {
     let hostSize: CGSize
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
-    #if os(macOS)
-    /// Presse-papiers partagé (nil : désactivé dans les réglages).
+    /// Presse-papiers partagé (nil : désactivé dans les réglages, ou plateforme sans presse-papiers).
     private(set) var clipboard: ClipboardBridge?
-    #endif
     /// Vibrations des manettes (Apple TV : kynput ne les gère pas lui-même).
     var onRumble: ((GamepadRumble) -> Void)? {
         get { rumble.onRumble }
@@ -135,14 +99,18 @@ final class InputPipeline {
     }
     private let rumble = RumbleSink()
 
-    init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
-        displayID = display.id
-        hostSize = CGSize(width: display.width, height: display.height)
+    /// `displayID`, `hostSize` : l'écran de l'ordinateur affiché (KyberDisplay) ;
+    /// `pointer` : la couche de pointeur de la vue de session, qui reçoit les
+    /// annonces de l'ordinateur sur sa file.
+    init(displayID: UInt32, hostSize: CGSize, pointer: PointerLayer, clipboard shareClipboard: Bool) {
+        self.displayID = displayID
+        self.hostSize = hostSize
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
+        packets = Self.makePackets(sink: sink, queue: queue)
 
-        // Curseur du PC.
-        let box = Unmanaged.passRetained(CursorSink(view: view)).toOpaque()
+        // Pointeur de l'ordinateur.
+        let box = Unmanaged.passRetained(CursorSink(pointer: pointer)).toOpaque()
         let cursor = kynput_handler_new(kynput_HandlerInterface(
             start: nil,
             stop: nil,
@@ -153,8 +121,8 @@ final class InputPipeline {
                 defer { kynput_cursor_unref(c) }
                 let box = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
                 let remote = InputPipeline.decode(c, lastShape: &box.lastShape)
-                let sink = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
-                DispatchQueue.main.async { sink.view?.remoteCursorChanged(remote) }
+                guard let pointer = box.pointer else { return }
+                pointer.queue.async { pointer.remoteCursorChanged(remote) }
             },
             produced_types: nil,
             produced_types_count: 0,
@@ -169,32 +137,39 @@ final class InputPipeline {
         kynput_pipeline_plug_handler(pipeline, cursor)
         kynput_handler_unref(cursor)
 
-        #if os(macOS)
         // Presse-papiers : reçoit les paquets de l'ordinateur, produit les nôtres.
-        if shareClipboard {
-            let bridge = ClipboardBridge()
+        // Le routeur appelle `consume` sous son verrou : le paquet est copié et
+        // traité sur notre file, d'où la réponse repart sans réentrer dans le
+        // routeur (ClipboardBridge.received → send → consume).
+        if shareClipboard, let board = Pasteboard.general {
+            let bridge = ClipboardBridge(board: board)
+            let sink = ClipboardSink(bridge: bridge, queue: queue)
             let handler = kynput_handler_new(kynput_HandlerInterface(
                 start: nil,
                 stop: nil,
                 handled_types: clipboardTypes,
                 handled_types_count: 1,
                 consume: { packet, userdata in
-                    guard let packet, let userdata else { return }
-                    Unmanaged<ClipboardBridge>.fromOpaque(userdata).takeUnretainedValue().received(packet)
+                    guard let packet, let userdata, let copy = kynput_packet_clone(packet) else { return }
+                    let sink = Unmanaged<ClipboardSink>.fromOpaque(userdata).takeUnretainedValue()
+                    sink.queue.async {
+                        sink.bridge.received(copy)
+                        kynput_packet_unref(copy)
+                    }
                 },
                 produced_types: clipboardTypes,
                 produced_types_count: 1,
                 query_type_metadata: nil,
                 destroy: { userdata in
-                    if let userdata { Unmanaged<ClipboardBridge>.fromOpaque(userdata).release() }
+                    if let userdata { Unmanaged<ClipboardSink>.fromOpaque(userdata).release() }
                 },
-                userdata: Unmanaged.passRetained(bridge).toOpaque()
+                userdata: Unmanaged.passRetained(sink).toOpaque()
             ))
             kynput_pipeline_plug_handler(pipeline, handler)
             kynput_handler_unref(handler)
             clipboard = bridge
         }
-        #else
+        #if !os(macOS)
         // Vibrations : l'ordinateur les envoie, GameController les joue.
         let rumbleHandler = kynput_handler_new(kynput_HandlerInterface(
             start: nil,
@@ -228,7 +203,7 @@ final class InputPipeline {
         wanted += [KYNPUT_INPUT_TYPE_GAMEPAD_CONTROL, KYNPUT_INPUT_TYPE_GAMEPAD_EVENT, KYNPUT_INPUT_TYPE_UNICODE]
         #endif
         let missing = wanted.filter { !kynput_pipeline_produces_type(pipeline, $0) }
-        KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(display.id))")
+        KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(displayID))")
         if !missing.isEmpty {
             // Le tableau doit vivre aussi longtemps que le gestionnaire : on le garde.
             let types = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: missing.count)
@@ -310,14 +285,11 @@ final class InputPipeline {
     }
 
     func stop() {
-        #if os(macOS)
         clipboard?.stop()
-        #endif
         lock.lock()
-        stopped = true
-        backlog.removeAll()
-        let dropped = droppedPackets
+        pendingAxes.removeAll()
         lock.unlock()
+        let dropped = packets.stop()
         if dropped > 0 {
             KyberLog.app.notice("entrées : \(dropped) paquets perdus pendant la session (file d'envoi pleine ou réseau absent)")
         }
@@ -331,131 +303,50 @@ final class InputPipeline {
 
     /// À appeler une fois le pipeline branché au réseau.
     func startClipboard() {
-        #if os(macOS)
         guard let clipboard else { return }
         clipboard.send = { [weak self] packet in self?.send(packet, "presse-papiers") }
         clipboard.start()
-        #endif
     }
 
     // MARK: - Envoi
 
-    // La file d'envoi de kynput tient 64 paquets et jette sans retour (le
-    // protocole est en deltas : un relâchement jeté = touche collée jusqu'à
-    // la fin de la session). kynput_consumer_consume rend -1 quand elle est
-    // pleine, ou tant que le réseau n'est pas relié : on compte les refus, et
-    // les paquets qui ne se rattrapent pas sont réessayés depuis une petite
-    // file de secours. Les manettes lues par SDL (Mac) n'y passent pas :
-    // kynput les envoie lui-même, GamepadGate en réduit seulement le débit.
+    // Tout ce que l'app produit passe par PacketQueue : envoi à kynput, refus
+    // comptés, file de secours pour les paquets qui ne se rattrapent pas. Les
+    // manettes lues par SDL (Mac) n'y passent pas : kynput les envoie
+    // lui-même, GamepadGate en réduit seulement le débit.
 
-    /// Paquets refusés par kynput, jamais arrivés (journal : premier refus,
-    /// puis tous les 100, puis le total à la fin de la session).
-    private(set) var droppedPackets = 0
-    private var logged = Set<String>()
+    /// Paquets refusés par kynput, jamais arrivés.
+    var droppedPackets: Int { packets.droppedPackets }
     private let lock = NSLock()
-    /// Paquet qui ne se rattrape pas, à réessayer : comment le refaire (kynput
-    /// garde le paquet même refusé), et jusqu'à quand.
-    private struct Pending {
-        let kind: String
-        let make: () -> OpaquePointer?
-        let deadline: TimeInterval
-    }
-    private var backlog: [Pending] = []
-    private var retryScheduled = false
-    private var stopped = false
-    private let retryQueue = DispatchQueue(label: "fr.leslignesclaires.kybernow.entrees")
-    private static let retryWindow: TimeInterval = 0.2
-    private static let retryStep: DispatchTimeInterval = .milliseconds(3)
+    /// File série des réessais, des axes regroupés et du presse-papiers.
+    /// `userInteractive` : les axes regroupés partaient de la file des
+    /// manettes de l'Apple TV, qui l'est aussi.
+    private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.entrees", qos: .userInteractive)
+    private let packets: PacketQueue
 
-    /// Paquet qui se rattrape tout seul au suivant (position, déplacement,
-    /// molette, axe en mouvement) : envoyé une fois, perdu s'il est refusé.
-    /// Derrière une file de secours non vide, il n'est pas envoyé non plus :
-    /// il doublerait ce qui attend (le retour au repos d'un axe, puis sa
-    /// nouvelle valeur). `false` : perdu. Appelé du fil principal, et du fil
-    /// de la souris relative.
+    private static func makePackets(sink: OpaquePointer, queue: DispatchQueue) -> PacketQueue {
+        let q = PacketQueue(queue: queue) { kynput_consumer_consume(sink, $0) }
+        q.onFirst = { kind, rc in KyberLog.app.notice("entrées : premier envoi \(kind, privacy: .public) (code \(rc))") }
+        q.onDropped = { kind, final, total in
+            if final {
+                KyberLog.app.error("entrées : \(kind, privacy: .public) perdu après 200 ms de réessais (\(total) perdus)")
+            } else {
+                KyberLog.app.notice("entrées : \(kind, privacy: .public) refusé par la file d'envoi (\(total) perdus)")
+            }
+        }
+        return q
+    }
+
+    /// Paquet qui se rattrape tout seul au suivant : envoyé une fois, perdu
+    /// s'il est refusé (voir PacketQueue). Appelable de tout fil.
     @discardableResult
     private func send(_ packet: OpaquePointer?, _ kind: String) -> Bool {
-        guard let packet else { return false }
-        lock.lock()
-        defer { lock.unlock() }
-        if stopped || !backlog.isEmpty {
-            kynput_packet_unref(packet)
-            if !stopped { dropped(kind) }
-            return false
-        }
-        let rc = kynput_consumer_consume(sink, packet)
-        logFirst(kind, rc)
-        if rc != 0 { dropped(kind) }
-        return rc == 0
+        packets.send(packet, kind)
     }
 
-    /// Paquet qui ne se rattrape pas (touche, clic, bouton, branchement, retour
-    /// au repos d'un axe, FlushKeys) : réessayé toutes les 3 ms, dans l'ordre,
-    /// jusqu'à succès ou 200 ms. Tant que la file de secours n'est pas vide,
-    /// tout y passe : un relâchement ne doit pas doubler son appui.
+    /// Paquet qui ne se rattrape pas : réessayé jusqu'à succès ou 200 ms (voir PacketQueue).
     private func sendReliably(_ kind: String, _ make: @escaping () -> OpaquePointer?) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !stopped else { return }
-        if backlog.isEmpty {
-            guard let packet = make() else { return }
-            let rc = kynput_consumer_consume(sink, packet)
-            logFirst(kind, rc)
-            if rc == 0 { return }
-        }
-        backlog.append(Pending(kind: kind, make: make, deadline: ProcessInfo.processInfo.systemUptime + Self.retryWindow))
-        scheduleRetry()
-    }
-
-    // Sous le verrou.
-    private func scheduleRetry() {
-        guard !retryScheduled else { return }
-        retryScheduled = true
-        retryQueue.asyncAfter(deadline: .now() + Self.retryStep) { [weak self] in self?.retry() }
-    }
-
-    private func retry() {
-        lock.lock()
-        defer { lock.unlock() }
-        retryScheduled = false
-        guard !stopped else {
-            backlog.removeAll()
-            return
-        }
-        while let next = backlog.first {
-            guard let packet = next.make() else {
-                backlog.removeFirst()
-                continue
-            }
-            if kynput_consumer_consume(sink, packet) == 0 {
-                backlog.removeFirst()
-                continue
-            }
-            if ProcessInfo.processInfo.systemUptime > next.deadline {
-                backlog.removeFirst()
-                dropped(next.kind, final: true)
-                continue
-            }
-            scheduleRetry()
-            return
-        }
-    }
-
-    // Sous le verrou.
-    private func logFirst(_ kind: String, _ rc: Int32) {
-        if logged.insert(kind).inserted {
-            KyberLog.app.notice("entrées : premier envoi \(kind, privacy: .public) (code \(rc))")
-        }
-    }
-
-    // Sous le verrou.
-    private func dropped(_ kind: String, final: Bool = false) {
-        droppedPackets += 1
-        if final {
-            KyberLog.app.error("entrées : \(kind, privacy: .public) perdu après 200 ms de réessais (\(self.droppedPackets) perdus)")
-        } else if droppedPackets == 1 || droppedPackets % 100 == 0 {
-            KyberLog.app.notice("entrées : \(kind, privacy: .public) refusé par la file d'envoi (\(self.droppedPackets) perdus)")
-        }
+        packets.sendReliably(kind, make)
     }
 
     func mouseMove(dx: Int16, dy: Int16) {
@@ -504,6 +395,10 @@ final class InputPipeline {
     }
 
     func gamepadUnplug(id: UInt32) {
+        lock.lock()
+        lastAxis[id] = nil
+        pendingAxes[id] = nil
+        lock.unlock()
         sendReliably("manette débranchée") { kynput_gamepad_unplug_to_packet(KYNPUT_INPUT_TARGET_HOST, id) }
     }
 
@@ -514,11 +409,73 @@ final class InputPipeline {
         }
     }
 
-    /// Un axe en mouvement se rattrape au suivant ; son retour au repos, non.
-    /// `false` : la valeur n'est pas partie (file pleine, ou un retour au repos
-    /// qui attend encore devant elle), à représenter.
+    // Axes : un axe ne part que s'il a bougé (au 1/512 de la course), et les
+    // axes d'une tranche de 4 ms partent ensemble : GameController signale X et
+    // Y d'un stick même si un seul a changé, et une DualSense en Bluetooth
+    // produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
+    // d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
+    // relâchements. Un axe en mouvement se rattrape au suivant ; son retour au
+    // repos, non : il part par la file de secours. Une valeur refusée (file
+    // pleine, ou un retour au repos qui attend encore devant elle) reste en
+    // attente de la tranche suivante. Les touches partent tout de suite, elles.
+
+    /// Dernière valeur acceptée et valeurs en attente, par manette et axe. Sous le verrou.
+    private var lastAxis: [UInt32: [PadAxis: Int16]] = [:]
+    private var pendingAxes: [UInt32: [PadAxis: Int16]] = [:]
+    private var axisFlushScheduled = false
+    private static let axisSlice: DispatchTimeInterval = .milliseconds(4)
+
+    /// Changement au 1/512 de la course ; un retour exact au repos passe toujours.
+    static func axisMoved(from last: Int16?, to value: Int16) -> Bool {
+        guard let last else { return true }
+        if value == 0 { return last != 0 }
+        return last >> 7 != value >> 7
+    }
+
+    /// Valeur d'un axe produit par l'app : filtrée, regroupée, envoyée (voir ci-dessus).
+    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard Self.axisMoved(from: lastAxis[id]?[axis], to: value) else { return }
+        lastAxis[id, default: [:]][axis] = value
+        pendingAxes[id, default: [:]][axis] = value
+        scheduleAxisFlush()
+    }
+
+    /// Les six axes d'une manette au repos, tout de suite et sûrement (l'app
+    /// prend la manette, arrière-plan, fin de session) ; ce qui attendait est oublié.
+    func gamepadAxesRest(id: UInt32) {
+        lock.lock()
+        pendingAxes[id] = nil
+        for axis in PadCombo.axes { lastAxis[id, default: [:]][axis] = 0 }
+        lock.unlock()
+        for axis in PadCombo.axes { sendAxis(id: id, axis, value: 0) }
+    }
+
+    // Sous le verrou.
+    private func scheduleAxisFlush() {
+        guard !axisFlushScheduled else { return }
+        axisFlushScheduled = true
+        queue.asyncAfter(deadline: .now() + Self.axisSlice) { [weak self] in self?.flushAxes() }
+    }
+
+    private func flushAxes() {
+        lock.lock()
+        defer { lock.unlock() }
+        axisFlushScheduled = false
+        var again = false
+        for (id, axes) in pendingAxes {
+            for (axis, value) in axes where sendAxis(id: id, axis, value: value) {
+                pendingAxes[id]?[axis] = nil
+            }
+            if pendingAxes[id]?.isEmpty == true { pendingAxes[id] = nil } else { again = true }
+        }
+        if again { scheduleAxisFlush() }
+    }
+
+    /// `false` : la valeur n'est pas partie (à représenter).
     @discardableResult
-    func gamepadAxis(id: UInt32, _ axis: PadAxis, value: Int16) -> Bool {
+    private func sendAxis(id: UInt32, _ axis: PadAxis, value: Int16) -> Bool {
         if value == 0 {
             sendReliably("axe de manette") {
                 var a = kynput_GamepadEventAxis(id: id, type_: axis.sdk, value: 0)
@@ -551,7 +508,7 @@ final class InputPipeline {
         }
     }
 
-    /// Forme ARGB (32 bits, non prémultipliée) → NSImage.
+    /// Forme ARGB (32 bits, non prémultipliée) → CGImage (prémultiplié, sRGB).
     private static func decode(_ c: OpaquePointer, lastShape: inout Int?) -> RemoteCursor {
         let visible = kynput_cursor_visible(c)
         let width = Int(kynput_cursor_width(c))
@@ -586,17 +543,13 @@ final class InputPipeline {
         // Forme entièrement transparente (lecteurs vidéo, certains jeux) :
         // le Mac garderait un pointeur invisible ; on garde la forme précédente.
         guard opaque else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
-        let image: PlatformImage? = pixels.withUnsafeMutableBytes { buffer in
+        let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let ctx = CGContext(
                 data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-            ), let cg = ctx.makeImage() else { return nil }
-            #if os(macOS)
-            return NSImage(cgImage: cg, size: NSSize(width: width, height: height))
-            #else
-            return UIImage(cgImage: cg)
-            #endif
+            ) else { return nil }
+            return ctx.makeImage()
         }
         return RemoteCursor(visible: visible, image: image, hotSpot: hot, position: position)
     }

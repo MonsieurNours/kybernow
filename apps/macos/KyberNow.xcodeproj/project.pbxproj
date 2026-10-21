@@ -8,14 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = D171932E28609169E868FDC5 /* DecoderCapabilities.swift */; };
+		08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */; };
 		09EDBBBAF52A03E69634CFFF /* Passage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E407651AF402DB27D895B5B2 /* Passage.swift */; };
 		0B449D2989DD2AE43549432F /* Keymap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79554466D1E04F2A3C807DA1 /* Keymap.swift */; };
 		10B79E68B216819332FE0096 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB6F1E3DF88493B2CF6D20F /* AV1.swift */; };
 		129D49D3A72F85061AFEF8C2 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B18D524B92EC557D60FED25 /* Discovery.swift */; };
+		1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 598C5C0D68903426673112FD /* PacketQueue.swift */; };
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
+		1BA4B2AB4CFECC0F494E0695 /* PointerLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FAC72D17DD338280371600 /* PointerLayer.swift */; };
 		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
+		377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */; };
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
@@ -34,6 +38,7 @@
 		881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */; };
 		8A35461AFBB86EA42CA41F69 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63D40A4F73C24372966564C8 /* Assets.xcassets */; };
 		9201B232977D7D58B017F714 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */; };
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
 		9E22CA206C86BC010E6685B1 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8731611A950718FECBB1AEFD /* OFL.txt */; };
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
@@ -46,6 +51,7 @@
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
 		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
+		FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E532750726326EB565F259 /* PadCombo.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
 
@@ -85,9 +91,12 @@
 		2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
 		323EA304E0762094819E42DC /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
 		44E79EB33EC59E27B02F415F /* InputPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputPipeline.swift; sourceTree = "<group>"; };
+		53FAC72D17DD338280371600 /* PointerLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PointerLayer.swift; sourceTree = "<group>"; };
 		5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionChrome.swift; sourceTree = "<group>"; };
+		598C5C0D68903426673112FD /* PacketQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketQueue.swift; sourceTree = "<group>"; };
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeymapMac.swift; sourceTree = "<group>"; };
 		6AD1367F24F0927922BB40DD /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
 		6CB6F1E3DF88493B2CF6D20F /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNow.entitlements; sourceTree = "<group>"; };
@@ -109,6 +118,9 @@
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
 		B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadGate.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7E532750726326EB565F259 /* PadCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadCombo.swift; sourceTree = "<group>"; };
+		CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseAll.swift; sourceTree = "<group>"; };
+		CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMac.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
@@ -186,11 +198,17 @@
 				B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */,
 				44E79EB33EC59E27B02F415F /* InputPipeline.swift */,
 				79554466D1E04F2A3C807DA1 /* Keymap.swift */,
+				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
 				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
 				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
+				598C5C0D68903426673112FD /* PacketQueue.swift */,
+				C7E532750726326EB565F259 /* PadCombo.swift */,
+				CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */,
+				53FAC72D17DD338280371600 /* PointerLayer.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
+				CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
 				83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */,
@@ -366,11 +384,17 @@
 				7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */,
 				776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */,
 				0B449D2989DD2AE43549432F /* Keymap.swift in Sources */,
+				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,
 				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
 				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
+				1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */,
+				FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */,
+				377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */,
+				1BA4B2AB4CFECC0F494E0695 /* PointerLayer.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
+				936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,
 				881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */,

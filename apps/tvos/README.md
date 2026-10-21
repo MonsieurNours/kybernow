@@ -36,7 +36,16 @@ Apple TV 4K de 2ᵉ génération (A12) et suivantes, tvOS 18 au moins. HEVC et H
 
 ## Code partagé avec le Mac
 
-KyberKit est le même module que sur Mac. Le projet prend dans `apps/macos/KyberKit` tout ce qui ne dépend pas d'AppKit (connexion, décodage VideoToolbox, rendu Metal, son, latence, console) et le complète par `KyberKitTV/` : vue de session UIKit (`StreamView`, `MetalSurface`), manettes et télécommande (`GamepadBridge`), clavier et souris (`KeyboardMouse`). Les rares différences sont sous `#if os(...)` dans les fichiers communs (pas de presse-papiers sur tvOS, manettes produites par l'app, présentation des images au rafraîchissement suivant). Le modèle (`Model.swift` : ordinateurs, réglages, profils) et la découverte (`Discovery.swift`) viennent de l'app Mac.
+KyberKit est le même module que sur Mac. Le projet (`project.yml`) prend dans `apps/macos/KyberKit` tout ce qui ne dépend pas d'AppKit et exclut seulement les fichiers du Mac (`StreamView`, `MetalSurface`, `RelativeMouse`, `KeymapMac`, `PasteboardMac`). Sont donc partagés : connexion, décodage VideoToolbox, rendu Metal, son, latence, console, et le module d'entrées :
+
+- `InputPipeline` et `PacketQueue` : la chaîne kynput, la file de secours des paquets refusés (3 ms, 200 ms, ordre gardé), le filtrage des axes de manette (au 1/512 de la course, regroupés par 4 ms, retours au repos réessayés) ; `GamepadBridge` n'en garde plus de copie.
+- `Keymap` : usages HID → scancodes, échange des touches des claviers Apple ISO, verrouillages.
+- `PadCombo` : combinaison L1 + R1 + Start + Select et touches tenues de chaque manette.
+- `PointerLayer` : pointeur de l'ordinateur (forme, position, visibilité), position tenue par l'Apple TV, règle du mode de souris, échelle du dessin.
+- `ReleaseAll` : politique « tout relâcher » (clics et touches de la manette en souris au menu, en arrière-plan et en fin de session ; modificateurs du clavier Bluetooth renvoyés quand les entrées sont reliées de nouveau).
+- `ClipboardBridge` : compilé mais jamais créé, `KyberKitTV/Pasteboard.swift` dit que tvOS n'a pas de presse-papiers.
+
+Ce que `KyberKitTV/` fournit : la capture des événements de GameController (`GamepadBridge` : manettes et télécommande ; `KeyboardMouse` : clavier et souris Bluetooth), tous sur la file série des entrées `InputQueue.device`, où est aussi tenue la couche de pointeur : télécommande, manette et souris déplacent le pointeur sans passer par le fil principal ; le dessin dans `StreamView` (UIKit, couche toujours visible, case de 48 points) et `MetalSurface` ; le réglage « Clavier Apple ISO » (claviers Apple ou de fabricant inconnu, là où le Mac lit la disposition dans le système) ; la file de la minuterie de la combinaison (250 ms tenues, comme sur Mac depuis la 0.2.7). Les rares différences restantes sont sous `#if os(...)` dans les fichiers communs (manettes produites par l'app, présentation des images au rafraîchissement suivant). Le modèle (`Model.swift` : ordinateurs, réglages, profils) et la découverte (`Discovery.swift`) viennent de l'app Mac.
 
 ## Compiler
 

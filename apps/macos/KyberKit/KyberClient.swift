@@ -229,7 +229,7 @@ public final class KyberClient {
             stopStreaming()
         }
         // Les gestionnaires d'entrées ne redémarrent pas : un pipeline neuf par session.
-        let input = InputPipeline(display: display, view: view, clipboard: options.clipboard)
+        let input = InputPipeline(displayID: display.id, hostSize: CGSize(width: display.width, height: display.height), pointer: view.pointer, clipboard: options.clipboard)
         input.gamepad.onCombo = { [weak self] in self?.onGamepadCombo?() }
         input.gamepad.onNavigate = { [weak self] key in self?.onGamepadNavigate?(key) }
         self.input = input
