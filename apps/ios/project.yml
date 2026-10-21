@@ -1,0 +1,136 @@
+# Projet Xcode de l'app KyberNow pour l'iPhone et l'iPad (généré par
+# XcodeGen : `xcodegen generate`). Avant le premier build :
+# ../core/scripts/build-apple.sh --target aarch64-apple-ios (et
+# --target aarch64-apple-ios-sim : libkynput pour iOS), puis
+# ../apple/scripts/build-apple-mobile.sh ios (le cœur Rust, libopus et
+# l'en-tête de kynput, dans Vendor/).
+#
+# KyberKit est le même module que sur Mac et Apple TV, cœur compris
+# (docs/coeur-apple.md, jalon 5) : ses fichiers communs viennent
+# d'apps/macos/KyberKit (seuls ceux d'AppKit sont exclus), la surface Metal,
+# le clavier et la souris Bluetooth et les manettes de l'Apple TV
+# (apps/tvos/KyberKitTV, GameController), la vue de session tactile de
+# KyberKitIOS. Le modèle (ordinateurs, réglages) et la découverte Bonjour
+# viennent de l'app Mac ; la synchro iCloud et les images d'ordinateur de
+# l'Apple TV.
+name: KyberNowIOS
+options:
+  bundleIdPrefix: fr.leslignesclaires
+  deploymentTarget:
+    iOS: "18.0"
+  # Anglais : langue de repli de toute langue non traduite (docs/i18n.md) ;
+  # les catalogues de chaînes (Localizable.xcstrings) ont le français pour source.
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "202610211838"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    DEVELOPMENT_TEAM: P6DB682S4K
+    CODE_SIGN_STYLE: Automatic
+    DEAD_CODE_STRIPPING: YES
+    # Le cœur n'est compilé que pour arm64 (iPhone, iPad et simulateur sur Mac Apple).
+    ARCHS: arm64
+    EXCLUDED_ARCHS[sdk=iphonesimulator*]: x86_64
+targets:
+  KyberKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: ../macos/KyberKit
+        excludes:
+          - KeymapMac.swift
+          - MetalSurface.swift
+          - RelativeMouse.swift
+          - StreamView.swift
+      - path: ../tvos/KyberKitTV/MetalSurface.swift
+      - path: ../tvos/KyberKitTV/KeyboardMouse.swift
+      - path: ../tvos/KyberKitTV/GamepadBridge.swift
+      - path: KyberKitIOS
+    dependencies:
+      # Le cœur Rust, son pont C, libkynput, libopus et les fonctions vides de VLC.
+      - framework: Vendor/KyberNow.xcframework
+        embed: false
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: libiconv.tbd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include
+        SKIP_INSTALL: YES
+        OTHER_LDFLAGS: -Wl,-dead_strip
+  KyberNowIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: KyberNowIOS
+      - path: ../macos/KyberNow/Model.swift
+      - path: ../macos/KyberNow/Discovery.swift
+      - path: ../tvos/KyberNowTV/CloudSync.swift
+      - path: ../tvos/KyberNowTV/Backdrops.swift
+      - path: ../macos/KyberNow/Fonts
+        buildPhase: resources
+      # Icône « A Tuile » (Icon Composer) : la même que le Mac, déclinée par iOS.
+      - path: ../macos/KyberNow/AppIcon.icon
+        type: file
+        buildPhase: resources
+    dependencies:
+      - target: KyberKit
+        embed: true
+    info:
+      path: KyberNowIOS/Info.plist
+      properties:
+        CFBundleDisplayName: KyberNow
+        # Les deux langues de l'app (docs/i18n.md) : les textes du système (Coller…) suivent.
+        CFBundleLocalizations: [fr, en]
+        CFBundleURLTypes:
+          - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
+            CFBundleURLSchemes: [kybernow]
+        NSBonjourServices: [_kybernow._tcp]
+        NSLocalNetworkUsageDescription: KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.
+        NSCameraUsageDescription: KyberNow lit le QR code affiché par la console de votre ordinateur.
+        UIUserInterfaceStyle: Dark
+        UIRequiredDeviceCapabilities: [arm64]
+        UILaunchScreen:
+          UIColorName: LaunchInk
+          UIImageName: LaunchMark
+          UIImageRespectsSafeAreaInsets: true
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        GCSupportsControllerUserInteraction: true
+        GCSupportedGameControllers:
+          - ProfileName: ExtendedGamepad
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: KyberNowIOS/KyberNowIOS.entitlements
+      properties:
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)fr.leslignesclaires.kybernow
+        keychain-access-groups: [$(AppIdentifierPrefix)fr.leslignesclaires.kybernow]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow
+        PRODUCT_NAME: KyberNow
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+schemes:
+  KyberNowIOS:
+    build:
+      targets:
+        KyberNowIOS: all
+    run:
+      config: Debug

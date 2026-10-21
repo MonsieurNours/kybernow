@@ -287,9 +287,9 @@ final class VideoRenderer {
 
         let received = frame.received, decoded = frame.decoded, pts = frame.pts
         let committed = CACurrentMediaTime()
-        #if os(tvOS)
-        // tvOS ne dit pas quand l'image est montrée : elle l'est au
-        // rafraîchissement qui suit la fin du rendu (60 Hz au plus).
+        #if os(tvOS) || (os(iOS) && targetEnvironment(simulator))
+        // tvOS (et le simulateur d'iOS) ne disent pas quand l'image est
+        // montrée : elle l'est au rafraîchissement qui suit la fin du rendu.
         commands.addCompletedHandler { [weak self] _ in
             self?.presented(at: CACurrentMediaTime() + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts)
         }

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 48 48">
+  <!-- Le symbole « Relais » éteint (brand/v2) : première image du lancement animé. -->
+  <path d="M7 0 H44 L45.17 0 L0 45.17 L0 44 V7 A7 7 0 0 1 7 0 Z" fill="#E3EDF0"/>
+  <path d="M48 2.83 V41 A7 7 0 0 1 41 48 H4 L2.83 48 Z" fill="#9A8CFF"/>
+</svg>

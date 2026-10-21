@@ -1,0 +1,745 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00BA5E4BEE7036BBEC9CE678 /* AddHostPanes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */; };
+		02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */; };
+		06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */; };
+		0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */; };
+		19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */; };
+		1AEF18F956012111B3CEACC4 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DF18C6379CA4387A4D910236 /* Security.framework */; };
+		1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A311A16A82D70847AAB768D2 /* CoreBridge.swift */; };
+		1C13DF9E94B8190A40F99521 /* SettingsControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66675E7942D7F082D80B96EB /* SettingsControls.swift */; };
+		1DD21AA9FE7A5C7271CEAB42 /* LaunchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */; };
+		1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2993F29818468CCDB59BBB /* LatencyReporting.swift */; };
+		2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1FF214827149C582C43E77 /* KyberNowApp.swift */; };
+		230B0162F458FF6EEE9F9D67 /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; };
+		2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B1FC1C1CB40956666D1104 /* Discovery.swift */; };
+		263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91FD6F412BECA15E4705994A /* AddHostScanner.swift */; };
+		2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = C924F6C6F8139DA17F956040 /* KyberLog.swift */; };
+		33EBC4B0D83EB9730FAEF3F8 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 9DA666EFDB697E3073C49AC0 /* AppIcon.icon */; };
+		3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3F54BF416D5315CDBC05036 /* SessionStats.swift */; };
+		420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */; };
+		4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C061F9A3683E8F0952178D5A /* SessionEngine.swift */; };
+		523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = FCC6D0F079A62951A979AFFB /* libiconv.tbd */; };
+		54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */; };
+		60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAFEE158257746E0783DAB51 /* VideoPipeline.swift */; };
+		644211D9653E7804B75A37CD /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D24E60CD6CB22677E5A6149 /* Theme.swift */; };
+		6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */; };
+		6F9B57AA87C6D3AAA36655B9 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C4F5C6D95599975901557ED5 /* Localizable.xcstrings */; };
+		6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDC3C4579F50D443D946774 /* Language.swift */; };
+		72295CC1D8DDBEE9C1401465 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 9E3B603CEA837A73C842BE69 /* MartianMono-wdth-wght.ttf */; };
+		728A75CFB137B4FC77F944B6 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */; };
+		7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */; };
+		812AD19263390D73ABB5265E /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D44B7B7CC32E4F400A995C /* Backdrops.swift */; };
+		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
+		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
+		8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6E1351863BB088A8938F59 /* Model.swift */; };
+		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
+		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
+		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
+		B18CE821A6BF0895849FDB99 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7769E5B65C16814E172611B0 /* AddHostView.swift */; };
+		B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5209938CBDB61B7A681C9DB /* Platform.swift */; };
+		B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383556364DF843C9D46F9B81 /* AppModel.swift */; };
+		B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */; };
+		C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2CC5531BE91A2E596139D8 /* CloudSync.swift */; };
+		CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096F84DF3830EBF98CCE6EF /* InputCore.swift */; };
+		D0970783026227DA84F25AEC /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDADC5155C777613D3C1002 /* SessionView.swift */; };
+		D260A6A7FC2F51F94B50C459 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ACCD81A8B16FC7E417CA554 /* StreamView.swift */; };
+		D70481EE69BF7971213BF5A4 /* KyberNow.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */; };
+		D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306546BE41AD345E7A328812 /* HomeView.swift */; };
+		E8263E68D4949ECF8EE3C104 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */; };
+		E8DE8C2727D5FF30241722F8 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0226C33E74431675895CF43B /* SystemConfiguration.framework */; };
+		F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 942EA9510C5B257877855EB8 /* SessionController.swift */; };
+		F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */; };
+		FB877C0A30DB14192EF203A4 /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D64DA3D036216DDE52A215AB /* VideoRenderer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4D1E206BBEB15E64B39295A5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3378FD8BA44906640F790CF1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E773F68E59177515C11D6A77;
+			remoteInfo = KyberKit;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B200868AFD87A9B345DEC420 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				728A75CFB137B4FC77F944B6 /* KyberKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0226C33E74431675895CF43B /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
+		14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberNow.xcframework; path = Vendor/KyberNow.xcframework; sourceTree = "<group>"; };
+		1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		25D44B7B7CC32E4F400A995C /* Backdrops.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Backdrops.swift; sourceTree = "<group>"; };
+		2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
+		2A6E1351863BB088A8938F59 /* Model.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Model.swift; sourceTree = "<group>"; };
+		2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		306546BE41AD345E7A328812 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
+		383556364DF843C9D46F9B81 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostPanes.swift; sourceTree = "<group>"; };
+		4D24E60CD6CB22677E5A6149 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		548DFE9274D455AF36E2F65B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
+		5C29930A44A76B2FE97E93EF /* KyberNowIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNowIOS.entitlements; sourceTree = "<group>"; };
+		5E2993F29818468CCDB59BBB /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
+		5FB00E053D5A34379CC5BAD0 /* KyberNowIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KyberNowIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
+		66675E7942D7F082D80B96EB /* SettingsControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsControls.swift; sourceTree = "<group>"; };
+		6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchView.swift; sourceTree = "<group>"; };
+		7769E5B65C16814E172611B0 /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
+		7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		7A1FF214827149C582C43E77 /* KyberNowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowApp.swift; sourceTree = "<group>"; };
+		7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
+		87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
+		8ACCD81A8B16FC7E417CA554 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
+		8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
+		91FD6F412BECA15E4705994A /* AddHostScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostScanner.swift; sourceTree = "<group>"; };
+		942EA9510C5B257877855EB8 /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
+		9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayerCore.swift; sourceTree = "<group>"; };
+		9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
+		9DA666EFDB697E3073C49AC0 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
+		9E3B603CEA837A73C842BE69 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
+		9F2CC5531BE91A2E596139D8 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
+		A2B1FC1C1CB40956666D1104 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
+		A311A16A82D70847AAB768D2 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
+		B3F54BF416D5315CDBC05036 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
+		BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		C061F9A3683E8F0952178D5A /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
+		C4F5C6D95599975901557ED5 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		C924F6C6F8139DA17F956040 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
+		CFDADC5155C777613D3C1002 /* SessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionView.swift; sourceTree = "<group>"; };
+		CFDC3C4579F50D443D946774 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
+		D096F84DF3830EBF98CCE6EF /* InputCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InputCore.swift; sourceTree = "<group>"; };
+		D64DA3D036216DDE52A215AB /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
+		DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeParts.swift; sourceTree = "<group>"; };
+		DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
+		DF18C6379CA4387A4D910236 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		EAFEE158257746E0783DAB51 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
+		ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
+		F0FC01552ACFFE060EB414DC /* OFL.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = OFL.txt; sourceTree = "<group>"; };
+		F5209938CBDB61B7A681C9DB /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
+		FCC6D0F079A62951A979AFFB /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		2E111F2D0D286177EF59F454 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D70481EE69BF7971213BF5A4 /* KyberNow.xcframework in Frameworks */,
+				1AEF18F956012111B3CEACC4 /* Security.framework in Frameworks */,
+				E8DE8C2727D5FF30241722F8 /* SystemConfiguration.framework in Frameworks */,
+				523DECF3B68F3B51B2E41970 /* libiconv.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		40CEFB112EE3D97F70AA98E1 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				230B0162F458FF6EEE9F9D67 /* KyberKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5AD28C426876BD101E7F88A1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */,
+				5FB00E053D5A34379CC5BAD0 /* KyberNowIOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		6EBEA8F4058725822887FE37 /* KyberNowTV */ = {
+			isa = PBXGroup;
+			children = (
+				25D44B7B7CC32E4F400A995C /* Backdrops.swift */,
+				9F2CC5531BE91A2E596139D8 /* CloudSync.swift */,
+			);
+			name = KyberNowTV;
+			path = ../tvos/KyberNowTV;
+			sourceTree = "<group>";
+		};
+		7617DED7C69AACF74C1ABBAE /* KyberKitIOS */ = {
+			isa = PBXGroup;
+			children = (
+				8ACCD81A8B16FC7E417CA554 /* StreamView.swift */,
+			);
+			path = KyberKitIOS;
+			sourceTree = "<group>";
+		};
+		8B5382BAC00E1221D59723CF /* KyberNowIOS */ = {
+			isa = PBXGroup;
+			children = (
+				410A9B3CA2E17E8B50C9D9E4 /* AddHostPanes.swift */,
+				91FD6F412BECA15E4705994A /* AddHostScanner.swift */,
+				7769E5B65C16814E172611B0 /* AddHostView.swift */,
+				383556364DF843C9D46F9B81 /* AppModel.swift */,
+				7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */,
+				BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */,
+				DC73DD292CBDBDF502F5FA6E /* HomeParts.swift */,
+				306546BE41AD345E7A328812 /* HomeView.swift */,
+				548DFE9274D455AF36E2F65B /* Info.plist */,
+				7850FA5612B72BECD1D05CFE /* InfoPlist.xcstrings */,
+				7A1FF214827149C582C43E77 /* KyberNowApp.swift */,
+				5C29930A44A76B2FE97E93EF /* KyberNowIOS.entitlements */,
+				6E0F15160A4C2DD171D75AF1 /* LaunchView.swift */,
+				1E301E824B7C8F017CF646A4 /* Localizable.xcstrings */,
+				F5209938CBDB61B7A681C9DB /* Platform.swift */,
+				942EA9510C5B257877855EB8 /* SessionController.swift */,
+				B3F54BF416D5315CDBC05036 /* SessionStats.swift */,
+				CFDADC5155C777613D3C1002 /* SessionView.swift */,
+				66675E7942D7F082D80B96EB /* SettingsControls.swift */,
+				2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */,
+				4D24E60CD6CB22677E5A6149 /* Theme.swift */,
+			);
+			path = KyberNowIOS;
+			sourceTree = "<group>";
+		};
+		B04785408F07B563126513B4 /* KyberKitTV */ = {
+			isa = PBXGroup;
+			children = (
+				87E8B27E96302CC1E18EB72E /* GamepadBridge.swift */,
+				62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */,
+				90C6C805EDA4B6095D33A5AD /* MetalSurface.swift */,
+			);
+			name = KyberKitTV;
+			path = ../tvos/KyberKitTV;
+			sourceTree = "<group>";
+		};
+		B5473B075DC8B35A85302AC1 = {
+			isa = PBXGroup;
+			children = (
+				F0704879E9D0DD812B439BF9 /* Fonts */,
+				FB7607A047F4462BDA1A9DED /* KyberKit */,
+				7617DED7C69AACF74C1ABBAE /* KyberKitIOS */,
+				B04785408F07B563126513B4 /* KyberKitTV */,
+				DF0EFC5C7A79F3D817D93FDB /* KyberNow */,
+				8B5382BAC00E1221D59723CF /* KyberNowIOS */,
+				6EBEA8F4058725822887FE37 /* KyberNowTV */,
+				DD110D8757AAEA985C5BDBB1 /* Frameworks */,
+				5AD28C426876BD101E7F88A1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DD110D8757AAEA985C5BDBB1 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				14EDFA8B001CCA8A8F0BE2E1 /* KyberNow.xcframework */,
+				FCC6D0F079A62951A979AFFB /* libiconv.tbd */,
+				DF18C6379CA4387A4D910236 /* Security.framework */,
+				0226C33E74431675895CF43B /* SystemConfiguration.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		DF0EFC5C7A79F3D817D93FDB /* KyberNow */ = {
+			isa = PBXGroup;
+			children = (
+				9DA666EFDB697E3073C49AC0 /* AppIcon.icon */,
+				A2B1FC1C1CB40956666D1104 /* Discovery.swift */,
+				2A6E1351863BB088A8938F59 /* Model.swift */,
+			);
+			name = KyberNow;
+			path = ../macos/KyberNow;
+			sourceTree = "<group>";
+		};
+		F0704879E9D0DD812B439BF9 /* Fonts */ = {
+			isa = PBXGroup;
+			children = (
+				2818F78F98BB9411EFA6DCC9 /* Archivo-wdth-wght.ttf */,
+				9E3B603CEA837A73C842BE69 /* MartianMono-wdth-wght.ttf */,
+				F0FC01552ACFFE060EB414DC /* OFL.txt */,
+			);
+			name = Fonts;
+			path = ../macos/KyberNow/Fonts;
+			sourceTree = "<group>";
+		};
+		FB7607A047F4462BDA1A9DED /* KyberKit */ = {
+			isa = PBXGroup;
+			children = (
+				9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */,
+				ED5BA9A9A9B2AF57C3FEBB54 /* AV1.swift */,
+				9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */,
+				A311A16A82D70847AAB768D2 /* CoreBridge.swift */,
+				3456E0200C841E3D3F7A55FB /* DecoderCapabilities.swift */,
+				D096F84DF3830EBF98CCE6EF /* InputCore.swift */,
+				C924F6C6F8139DA17F956040 /* KyberLog.swift */,
+				5B5D7314C1E329CB9A046BCD /* KyberTypes.swift */,
+				CFDC3C4579F50D443D946774 /* Language.swift */,
+				5E2993F29818468CCDB59BBB /* LatencyReporting.swift */,
+				C4F5C6D95599975901557ED5 /* Localizable.xcstrings */,
+				C061F9A3683E8F0952178D5A /* SessionEngine.swift */,
+				DDC3D5B8E4E8636948D8DA1D /* VideoDecoder.swift */,
+				EAFEE158257746E0783DAB51 /* VideoPipeline.swift */,
+				D64DA3D036216DDE52A215AB /* VideoRenderer.swift */,
+			);
+			name = KyberKit;
+			path = ../macos/KyberKit;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		01D6A351251F0D33210900DB /* KyberNowIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F98994DC75F61F49773B9926 /* Build configuration list for PBXNativeTarget "KyberNowIOS" */;
+			buildPhases = (
+				2A9C96CE9CCA75DB65763284 /* Sources */,
+				A8F0DD81BCA67ED20C5E0A88 /* Resources */,
+				40CEFB112EE3D97F70AA98E1 /* Frameworks */,
+				B200868AFD87A9B345DEC420 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C259BD6CCFF25454E9F8A8AF /* PBXTargetDependency */,
+			);
+			name = KyberNowIOS;
+			packageProductDependencies = (
+			);
+			productName = KyberNowIOS;
+			productReference = 5FB00E053D5A34379CC5BAD0 /* KyberNowIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E773F68E59177515C11D6A77 /* KyberKit */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 686A86AA4BC6BAC8AFB2559F /* Build configuration list for PBXNativeTarget "KyberKit" */;
+			buildPhases = (
+				ED8F9416E2BD7C5F64A6B5C8 /* Sources */,
+				F7F34276F942BCB297934EFA /* Resources */,
+				2E111F2D0D286177EF59F454 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = KyberKit;
+			packageProductDependencies = (
+			);
+			productName = KyberKit;
+			productReference = 8F6A8F0E33DCD5B6CE030AD3 /* KyberKit.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3378FD8BA44906640F790CF1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					01D6A351251F0D33210900DB = {
+						DevelopmentTeam = P6DB682S4K;
+						ProvisioningStyle = Automatic;
+					};
+					E773F68E59177515C11D6A77 = {
+						DevelopmentTeam = P6DB682S4K;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 711AC388A89F083582D6BF2C /* Build configuration list for PBXProject "KyberNowIOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				fr,
+			);
+			mainGroup = B5473B075DC8B35A85302AC1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5AD28C426876BD101E7F88A1 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E773F68E59177515C11D6A77 /* KyberKit */,
+				01D6A351251F0D33210900DB /* KyberNowIOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A8F0DD81BCA67ED20C5E0A88 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				33EBC4B0D83EB9730FAEF3F8 /* AppIcon.icon in Resources */,
+				F948F3A6F51E9DAF681F542B /* Archivo-wdth-wght.ttf in Resources */,
+				9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */,
+				E8263E68D4949ECF8EE3C104 /* InfoPlist.xcstrings in Resources */,
+				0E7898AA1D72BAD6801ED2FF /* Localizable.xcstrings in Resources */,
+				72295CC1D8DDBEE9C1401465 /* MartianMono-wdth-wght.ttf in Resources */,
+				86468B92C625C587213360F0 /* OFL.txt in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7F34276F942BCB297934EFA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6F9B57AA87C6D3AAA36655B9 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2A9C96CE9CCA75DB65763284 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				00BA5E4BEE7036BBEC9CE678 /* AddHostPanes.swift in Sources */,
+				263D92DB45AF33815A440596 /* AddHostScanner.swift in Sources */,
+				B18CE821A6BF0895849FDB99 /* AddHostView.swift in Sources */,
+				B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */,
+				A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */,
+				812AD19263390D73ABB5265E /* Backdrops.swift in Sources */,
+				C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */,
+				2638F094374303FC6BBF7ABE /* Discovery.swift in Sources */,
+				54DD1243C7F803D6F6294386 /* HomeParts.swift in Sources */,
+				D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */,
+				2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */,
+				1DD21AA9FE7A5C7271CEAB42 /* LaunchView.swift in Sources */,
+				8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */,
+				B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */,
+				F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */,
+				3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */,
+				D0970783026227DA84F25AEC /* SessionView.swift in Sources */,
+				1C13DF9E94B8190A40F99521 /* SettingsControls.swift in Sources */,
+				753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */,
+				644211D9653E7804B75A37CD /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		ED8F9416E2BD7C5F64A6B5C8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6EDDE77B6928268EBF954CF4 /* AV1.swift in Sources */,
+				B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */,
+				86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */,
+				1B9D29A442EE30FB0C81B6CE /* CoreBridge.swift in Sources */,
+				7755C218AEA12E38263D5253 /* DecoderCapabilities.swift in Sources */,
+				420B9C9DFB363B4B19E275D8 /* GamepadBridge.swift in Sources */,
+				CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */,
+				AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */,
+				2B10A24B0E02FA1FFC9F8DCE /* KyberLog.swift in Sources */,
+				06785FC2BC19C1A9C896BAFC /* KyberTypes.swift in Sources */,
+				6FE37D5BF61E9EC6F2E05395 /* Language.swift in Sources */,
+				1F6C9796230EE919A0E92F16 /* LatencyReporting.swift in Sources */,
+				19E6B33FA39328971210BB37 /* MetalSurface.swift in Sources */,
+				4A243449E9012A83F5B25EBA /* SessionEngine.swift in Sources */,
+				D260A6A7FC2F51F94B50C459 /* StreamView.swift in Sources */,
+				02594DD6D18BFE82BCB4798A /* VideoDecoder.swift in Sources */,
+				60A82D0A011624FC38C9BADE /* VideoPipeline.swift in Sources */,
+				FB877C0A30DB14192EF203A4 /* VideoRenderer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		C259BD6CCFF25454E9F8A8AF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E773F68E59177515C11D6A77 /* KyberKit */;
+			targetProxy = 4D1E206BBEB15E64B39295A5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		28BBC0FE38A00CDA2E37EE32 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "-Wl,-dead_strip";
+				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Debug;
+		};
+		54D599C1C53AE255F2977FFB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 202610211838;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = P6DB682S4K;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 0.3.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		62E32B243C7C759C01A335E7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ARCHS = arm64;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 202610211838;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = P6DB682S4K;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				"EXCLUDED_ARCHS[sdk=iphonesimulator*]" = x86_64;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 0.3.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		6E0679E47A27256DA2FBA9B5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KyberNowIOS/KyberNowIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = KyberNowIOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
+				PRODUCT_NAME = KyberNow;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D054CF57C7C66F9C4E979A9D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = KyberNowIOS/KyberNowIOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = KyberNowIOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
+				PRODUCT_NAME = KyberNow;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DE752B558B889DADA3714B77 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				OTHER_LDFLAGS = "-Wl,-dead_strip";
+				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VERSIONING_SYSTEM = "apple-generic";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		686A86AA4BC6BAC8AFB2559F /* Build configuration list for PBXNativeTarget "KyberKit" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				28BBC0FE38A00CDA2E37EE32 /* Debug */,
+				DE752B558B889DADA3714B77 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		711AC388A89F083582D6BF2C /* Build configuration list for PBXProject "KyberNowIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				54D599C1C53AE255F2977FFB /* Debug */,
+				62E32B243C7C759C01A335E7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F98994DC75F61F49773B9926 /* Build configuration list for PBXNativeTarget "KyberNowIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6E0679E47A27256DA2FBA9B5 /* Debug */,
+				D054CF57C7C66F9C4E979A9D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3378FD8BA44906640F790CF1 /* Project object */;
+}

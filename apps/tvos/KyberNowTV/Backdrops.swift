@@ -38,7 +38,7 @@ struct HostBackdrop: View {
             HostPicture(host: host, online: online)
                 .scaleEffect(drift ? 1.05 : 1, anchor: UnitPoint(x: 0.65, y: 0.6))
                 .offset(x: drift ? -14 : 0, y: drift ? -8 : 0)
-                .frame(width: 1920, height: 1080)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
             LinearGradient(stops: [.init(color: Theme.background.opacity(0.9), location: 0),
                                    .init(color: Theme.background.opacity(0.55), location: 0.4),
@@ -52,7 +52,8 @@ struct HostBackdrop: View {
                 .frame(height: 180)
                 .frame(maxHeight: .infinity, alignment: .top)
         }
-        .frame(width: 1920, height: 1080)
+        // Toute la place donnée : l'écran du téléviseur, de l'iPhone ou de l'iPad.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 40).repeatForever(autoreverses: true)) { drift = true }
@@ -120,18 +121,25 @@ struct AmbientBackground: View {
             Theme.background
             RadialGradient(colors: [Theme.rgb(0x2A2266), .clear], center: UnitPoint(x: 0.78, y: 0.3), startRadius: 0, endRadius: 1100)
             RadialGradient(colors: [Theme.rgb(0x1A1640), .clear], center: UnitPoint(x: 0.15, y: 0.9), startRadius: 0, endRadius: 900)
-            Path { p in
-                p.move(to: CGPoint(x: 1980, y: -60))
-                p.addLine(to: CGPoint(x: 860, y: 1140))
+            // La couture, à la même place quelle que soit la taille de l'écran
+            // (de (1980, -60) à (860, 1140) sur un téléviseur de 1920 × 1080).
+            GeometryReader { g in
+                let a = CGPoint(x: g.size.width * 1980 / 1920, y: g.size.height * -60 / 1080)
+                let b = CGPoint(x: g.size.width * 860 / 1920, y: g.size.height * 1140 / 1080)
+                let k = g.size.width / 1920
+                Path { p in
+                    p.move(to: a)
+                    p.addLine(to: b)
+                }
+                .stroke(Theme.accentFill.opacity(0.07 * 0.5), lineWidth: 160 * k)
+                Path { p in
+                    p.move(to: a)
+                    p.addLine(to: b)
+                }
+                .stroke(Theme.accent.opacity(0.28 * 0.5), lineWidth: max(1, 2 * k))
             }
-            .stroke(Theme.accentFill.opacity(0.07 * 0.5), lineWidth: 160)
-            Path { p in
-                p.move(to: CGPoint(x: 1980, y: -60))
-                p.addLine(to: CGPoint(x: 860, y: 1140))
-            }
-            .stroke(Theme.accent.opacity(0.28 * 0.5), lineWidth: 2)
         }
-        .frame(width: 1920, height: 1080)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }

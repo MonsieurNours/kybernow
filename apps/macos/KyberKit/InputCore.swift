@@ -10,6 +10,8 @@
 
 #if os(macOS)
 import AppKit
+#elseif os(iOS)
+import UIKit
 #endif
 import CoreGraphics
 import Foundation
@@ -485,8 +487,23 @@ final class InputPipeline: @unchecked Sendable {
         box.pasteboard.clearContents()
         box.pasteboard.setString(String(cString: text), forType: .string)
     }
+    #elseif os(iOS)
+    // UIPasteboard : le compteur se lit librement ; lire le texte fait
+    // demander à iOS l'accord de coller (une fois par changement, à la copie
+    // d'un texte dans une autre app pendant la session).
+    private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = { _ in
+        UInt64(max(0, UIPasteboard.general.changeCount))
+    }
+    private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = { _ in
+        guard UIPasteboard.general.hasStrings, let text = UIPasteboard.general.string else { return nil }
+        return strdup(text)
+    }
+    private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = { _, text in
+        guard let text else { return }
+        UIPasteboard.general.string = String(cString: text)
+    }
     #else
-    // Pas de presse-papiers sur l'Apple TV (iOS : UIPasteboard, à brancher avec l'app).
+    // Pas de presse-papiers sur l'Apple TV.
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = nil
     private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = nil
     private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = nil

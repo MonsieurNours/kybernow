@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Catalogues de chaînes des apps Mac et Apple TV (docs/i18n.md).
+"""Catalogues de chaînes des apps Mac, Apple TV, iPhone et iPad (docs/i18n.md).
 
 Le français est la langue source (les clés sont le texte français) et
 l'anglais la langue de développement (CFBundleDevelopmentRegion = en, repli
@@ -25,6 +25,8 @@ CATALOGS = [
     "tvos/KyberNowTV/Localizable.xcstrings",
     "tvos/KyberNowTV/InfoPlist.xcstrings",
     "tvos/TopShelf/Localizable.xcstrings",
+    "ios/KyberNowIOS/Localizable.xcstrings",
+    "ios/KyberNowIOS/InfoPlist.xcstrings",
 ]
 SPEC = re.compile(r"%(\d+\$)?[-+ #0]*\d*(?:\.\d+)?(?:lld|llu|ld|lu|d|u|i|@|lf|f|e|g|s|c)")
 

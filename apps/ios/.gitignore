@@ -1,0 +1,4 @@
+Vendor/
+build/
+build-*/
+xcuserdata/
