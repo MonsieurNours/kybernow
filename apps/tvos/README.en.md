@@ -64,6 +64,5 @@ Team P6DB682S4K, automatic signing. Identifier `fr.leslignesclaires.kybernow` (s
 
 ## To do
 
-- Validate an end-to-end session on an Apple TV (image, multichannel sound, gamepads, rumble).
 - Check on a real Apple TV that the iCloud Keychain does bring the passwords published by the Mac.
 - Distribution (TestFlight or ad hoc).

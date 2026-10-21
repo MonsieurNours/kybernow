@@ -64,6 +64,5 @@ En Debug dans le simulateur : `-demo YES` ajoute trois ordinateurs de démonstra
 
 ## Reste à faire
 
-- Valider une session de bout en bout sur une Apple TV (image, son multicanal, manettes, vibrations).
 - Vérifier sur une vraie Apple TV que le Trousseau iCloud y apporte bien les mots de passe publiés par le Mac.
 - Distribution (TestFlight ou ad hoc).
