@@ -20,6 +20,7 @@
 //! `poll()` eux-mêmes.
 
 pub mod clock;
+pub mod keymap;
 pub mod packet;
 pub mod packet_queue;
 
