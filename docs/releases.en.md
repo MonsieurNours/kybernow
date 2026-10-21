@@ -58,6 +58,7 @@ To try a package served from the Mac before publishing it: `$env:KYBERNOW_UPDATE
 
 **The Mac app.**
 - Sparkle checks every day, and on request (KyberNow menu › Check for Updates…). The app downloads the archive, verifies its EdDSA signature with the app's public key (`SUPublicEDKey`), replaces itself and relaunches.
+- The app reads the website's cumulative feed, `https://www.kybernow.app/updates/appcast.xml`, which lists every release. It only offers stable releases, unless "Receive beta versions" is ticked in KyberNow › Settings…: see "Mac app update feed".
 - The private key is in this Mac's Keychain (item created by Sparkle's `generate_keys`). Back it up, and never put it in the repository:
 
 ```bash
@@ -135,14 +136,14 @@ scripts/release.sh X.Y.Z             # release
 2. version alignment (console, tray icon, installer, Mac and Apple TV apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
 3. build from that commit: installer, update package, Developer ID-signed Mac app, Kyber SDK for the Apple TV and Apple TV app; if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
 4. notarisation of the Mac app, stapling of the ticket, Gatekeeper check;
-5. signed Sparkle feed, `SHA256SUMS`, signed manifest `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign);
+5. signed Sparkle feed, `SHA256SUMS`, signed manifest `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign); the website's cumulative feed (`site/updates/appcast.xml`) gets this release and is committed on top of the version commit ("Flux des mises à jour : KyberNow X.Y.Z");
 6. GitHub release created **as a draft** with all the files;
-7. tag `vX.Y.Z` on the version commit; 8. push of `main` and the tag, at once (`--atomic`);
+7. tag `vX.Y.Z` on the version commit; 8. push of `main` (version commit and feed commit) and the tag, at once (`--atomic`): the Pages workflow publishes the feed;
 9. publication of the draft.
 
 The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
 
-**Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused.
+**Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused. If the failure came after step 5, the feed commit is at the head with the version commit right below it: it is recognised, the app is rebuilt and the feed redone (the archive changed, and so did its signature); its commit is replaced if it has not been pushed yet, followed by a new one otherwise.
 
 **Checked before publishing**:
 
@@ -155,15 +156,32 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.
 | No `vX.Y.Z` tag other than on the version commit, no `vX.Y.Z` release already published | `git tag -d vX.Y.Z` if left over from a rehearsal |
 | `gh` logged in, `notarytool` profile "kybernow" readable (Mac unlocked) | `gh auth login`, see below |
 | `scripts/sign-manifest.sh` present | without a signed manifest, the console refuses the update |
-| Tools: xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip | Homebrew |
+| Cumulative feed `site/updates/appcast.xml` present | `scripts/rebuild-appcast.sh`, once, then commit |
+| Tools: xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip, python3, xmllint | Homebrew (python3 and xmllint: Xcode tools) |
 
-**Channels.** A stable release is GitHub's "latest release" (`releases/latest`), the one the console and the Mac app see. `--beta` publishes a *prerelease*, never marked "latest": its manifest has `"channel": "beta"` and its Sparkle feed `<sparkle:channel>beta</sparkle:channel>`. The number stays `X.Y.Z` (the console refuses any other format): a beta takes the next number, and the stable release that follows it a higher one. Current limit of the Mac app: it reads `releases/latest/download/appcast.xml`, which GitHub resolves to the latest **stable** release; to offer it betas, a feed combining both channels (on the website, for example) and `allowedChannels` in the app will be needed.
+**Channels.** A stable release is GitHub's "latest release" (`releases/latest`), the one the console and the Mac app see. `--beta` publishes a *prerelease*, never marked "latest": its manifest has `"channel": "beta"` and its Sparkle feed `<sparkle:channel>beta</sparkle:channel>`. The number stays `X.Y.Z` (the console refuses any other format): a beta takes the next number, and the stable release that follows it a higher one. The Mac app reads the website's cumulative feed, which combines both channels: it only offers a beta if the user asked for them ("Mac app update feed", below).
 
-**Rehearsal (`--dry-run`).** Does everything except the commit, notarisation, release, tag and push, which it prints (`[essai, non lancé] …`). It aligns the versions to build like the release, then puts the version files back as it found them. It does not rebuild the Apple TV SDK (`build-kyber-tvos.sh` applies the patches in `third_party/`, shared with the other checkouts) and reuses `apps/tvos/Vendor`. Failed checks are listed at the beginning and at the end; the rehearsal goes on to show the rest and exits with an error. `--check` stops after the checks and prints the plan.
+**Rehearsal (`--dry-run`).** Does everything except the commit, notarisation, release, tag and push, which it prints (`[essai, non lancé] …`). It aligns the versions to build like the release, then puts the version files back as it found them. It writes the cumulative feed to `dist/vX.Y.Z/appcast-site.xml` and shows what would change in `site/updates/appcast.xml`, without touching the latter. It does not rebuild the Apple TV SDK (`build-kyber-tvos.sh` applies the patches in `third_party/`, shared with the other checkouts) and reuses `apps/tvos/Vendor`. Failed checks are listed at the beginning and at the end; the rehearsal goes on to show the rest and exits with an error. `--check` stops after the checks and prints the plan.
 
 **Requirements of an update.** `--min-installer A.B.C` (installed KyberNow version below which the package is refused, 0.2.0 by default) and `--requires-setup` (the update needs the installer) are passed to `package-update.sh`, which keeps a copy in the package (`requirements.json`), and to `scripts/sign-manifest.sh`, whose signed manifest is authoritative. When to use them: "Settings migrations", below.
 
 **What the author sets up once**: `gh auth login` with a token limited to the `MonsieurNours/kybernow` repository (*fine-grained* token, Contents permission read and write: releases, tags and push of `main`; plus Workflows if `main` pushes a change to `.github/workflows/`), the notarisation profile and the Developer ID certificate ("Signing and notarising the Mac app"), the Sparkle key (above) and the minisign key (header of `scripts/sign-manifest.sh`).
+
+## Mac app update feed
+
+The Mac app (from 0.2.7 on) reads `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` in `apps/macos/project.yml`): the repository's `site/updates/appcast.xml` file, published by the Pages workflow on every push to `main` that touches `site/`.
+
+- **Every published release**, stable and beta, newest first. Each entry is the one from the `appcast.xml` attached to its release, copied as is by `scripts/merge-appcast.py`: download link to `releases/download/vX.Y.Z/KyberNow-macOS.zip`, length, EdDSA signature, notes. Nothing is re-signed: the app still verifies the archive with `SUPublicEDKey`.
+- **Channels.** A beta's entries carry `<sparkle:channel>beta</sparkle:channel>`, stable ones no channel. The app (Sparkle delegate in `KyberNowApp.swift`) asks for the `beta` channel when "Receive beta versions" is ticked in KyberNow › Settings… (`UserDefaults`, key `receiveBetaUpdates`), for none otherwise. Sparkle offers the newest allowed entry: a stable release newer than an installed beta is offered normally, even with the box ticked; unticking the box does not go back to the previous stable release, the app waits for the next one.
+- **Older apps keep working.** Versions up to 0.2.6 read `releases/latest/download/appcast.xml`, which GitHub resolves to the latest stable release: every release keeps its `appcast.xml`, so they receive 0.2.7 that way, then read the website's feed.
+- **Delay.** GitHub Pages caches for about 10 minutes, and the feed goes online a minute or two after the push, whereas the release is published a few seconds after it: in practice the app never sees an entry whose archive is still a draft (unless something fails between the push and the publication: re-running the same command publishes the draft).
+- **Rebuilding the feed** from the existing releases (bootstrap, or damaged feed): `scripts/rebuild-appcast.sh` lists the published releases (`gh release list`, drafts excluded), takes each one's `appcast.xml`, marks prereleases as `beta`, and runs `generate_appcast` (Sparkle key from the Keychain) for a release that would have the Mac app without a feed. It writes `site/updates/appcast.xml` (or `-o file`) and checks it with `xmllint`; it commits nothing. Committing the file to `main` publishes it.
+
+```bash
+scripts/rebuild-appcast.sh
+xmllint --noout site/updates/appcast.xml
+git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reconstruit"
+```
 
 ## Continuous integration
 

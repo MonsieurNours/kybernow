@@ -5,8 +5,36 @@ import SwiftUI
 
 struct AppSettingsView: View {
     @ObservedObject var cloud: CloudPublisher
+    /// Bêtas proposées par Sparkle (voir `UpdateChannels`).
+    @AppStorage(UpdateChannels.betaKey) private var betaUpdates = false
 
     var body: some View {
+        VStack(spacing: 16) {
+            iCloudCard
+            updatesCard
+        }
+        .padding(20)
+        .frame(width: 480)
+        .background(Theme.background)
+        .preferredColorScheme(.dark)
+    }
+
+    private var updatesCard: some View {
+        SettingsCard(icon: "arrows-clockwise", title: "Mises à jour") {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recevoir les versions bêta").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante.")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Switch(isOn: $betaUpdates, label: "Recevoir les versions bêta")
+            }
+        }
+    }
+
+    private var iCloudCard: some View {
         SettingsCard(icon: "cloud", title: "iCloud") {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -25,10 +53,6 @@ struct AppSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(20)
-        .frame(width: 480)
-        .background(Theme.background)
-        .preferredColorScheme(.dark)
     }
 
     private var status: (text: String, warning: Bool)? {

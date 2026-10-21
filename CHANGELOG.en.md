@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.7
+
+- Mac app, updates: the app reads the website's cumulative feed (`www.kybernow.app/updates/appcast.xml`, every release, stable and beta) instead of the latest stable release's feed; new "Receive beta versions" setting in KyberNow › Settings…, a newer stable release always being offered. Earlier apps receive this version through the old feed, still published with each release. `scripts/release.sh` updates and commits the website's feed on each release; `scripts/rebuild-appcast.sh` rebuilds it from the GitHub releases.
+
 ## 0.2.6
 
 - Console, updates: the applicator also stops the icon relaunched by the new console before putting the old version back, suspends Kyber's automatic restart during the switch, reaches the console at the address of its listen setting, refuses Windows' reserved file names, and a rollback that does not succeed is shown instead of hidden.

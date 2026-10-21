@@ -58,6 +58,7 @@ Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_
 
 **L'app Mac.**
 - Sparkle vérifie chaque jour, et à la demande (menu KyberNow › Rechercher des mises à jour…). L'app télécharge l'archive, vérifie sa signature EdDSA avec la clé publique de l'app (`SUPublicEDKey`), la remplace et se relance.
+- L'app lit le flux cumulatif du site, `https://www.kybernow.app/updates/appcast.xml`, qui liste toutes les versions. Elle ne propose que les stables, sauf si « Recevoir les versions bêta » est coché dans KyberNow › Réglages… : voir « Flux des mises à jour de l'app Mac ».
 - La clé privée est dans le Trousseau de ce Mac (élément créé par `generate_keys` de Sparkle). Sauvegardez-la, sans jamais la mettre dans le dépôt :
 
 ```bash
@@ -135,14 +136,14 @@ scripts/release.sh X.Y.Z             # publication
 2. alignement des versions (console, icône, installateur, apps Mac et Apple TV, `Cargo.lock` et projets Xcode compris) et commit « KyberNow X.Y.Z » ; un commit refusé arrête tout ;
 3. construction depuis ce commit : installateur, paquet de mise à jour, app Mac signée Developer ID, SDK de Kyber pour l'Apple TV et app Apple TV ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
 4. notarisation de l'app Mac, agrafage du ticket, vérification Gatekeeper ;
-5. flux Sparkle signé, `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ;
+5. flux Sparkle signé, `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ; flux cumulatif du site (`site/updates/appcast.xml`) complété par cette version et commité par-dessus le commit de version (« Flux des mises à jour : KyberNow X.Y.Z ») ;
 6. release GitHub créée **en brouillon** avec tous les fichiers ;
-7. tag `vX.Y.Z` sur le commit de version ; 8. push de `main` et du tag, en une fois (`--atomic`) ;
+7. tag `vX.Y.Z` sur le commit de version ; 8. push de `main` (commit de version et commit du flux) et du tag, en une fois (`--atomic`) : le workflow Pages publie le flux ;
 9. publication du brouillon.
 
 Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `KyberNow-Setup.exe`, `kybernow-ui.exe` et `kybernow-tray.exe` (Propriétés › Détails, manifestes) suit celle de `Cargo.toml` : leurs `build.rs` produisent les ressources depuis les gabarits `resources/*.rc.in` et `*.manifest.in`.
 
-**Relancer après un échec** : la même commande. Le commit « KyberNow X.Y.Z » déjà en tête est réutilisé (pas de second commit), un brouillon existant reçoit les nouveaux fichiers (`--clobber`), le tag est posé s'il manque. Seule une version déjà publiée est refusée.
+**Relancer après un échec** : la même commande. Le commit « KyberNow X.Y.Z » déjà en tête est réutilisé (pas de second commit), un brouillon existant reçoit les nouveaux fichiers (`--clobber`), le tag est posé s'il manque. Seule une version déjà publiée est refusée. Si l'échec est venu après l'étape 5, le commit du flux est en tête et le commit de version juste dessous : il est reconnu, l'app reconstruite, et le flux refait (l'archive a changé, donc sa signature) ; son commit est remplacé s'il n'a pas encore été poussé, complété par un nouveau sinon.
 
 **Vérifié avant de publier** :
 
@@ -155,15 +156,32 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 | Ni tag `vX.Y.Z` ailleurs que sur le commit de version, ni release `vX.Y.Z` déjà publiée | `git tag -d vX.Y.Z` s'il reste d'un essai |
 | `gh` connecté, profil `notarytool` « kybernow » lisible (Mac déverrouillé) | `gh auth login`, voir plus bas |
 | `scripts/sign-manifest.sh` présent | sans manifeste signé, la console refuse la mise à jour |
-| Outils : xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip | Homebrew |
+| Flux cumulatif `site/updates/appcast.xml` présent | `scripts/rebuild-appcast.sh`, une fois, puis commiter |
+| Outils : xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip, python3, xmllint | Homebrew (python3 et xmllint : outils de Xcode) |
 
-**Canaux.** Une version stable est la « dernière version » de GitHub (`releases/latest`), celle que voient la console et l'app Mac. `--beta` publie une *prerelease*, jamais marquée « dernière » : son manifeste porte `"channel": "beta"` et son flux Sparkle `<sparkle:channel>beta</sparkle:channel>`. Le numéro reste `X.Y.Z` (la console refuse tout autre format) : une bêta prend le numéro suivant, et la stable qui la suit un numéro plus haut. Limite actuelle de l'app Mac : elle lit `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière **stable** ; pour lui proposer les bêtas, il faudra un flux qui réunit les deux canaux (par exemple sur le site) et `allowedChannels` dans l'app.
+**Canaux.** Une version stable est la « dernière version » de GitHub (`releases/latest`), celle que voient la console et l'app Mac. `--beta` publie une *prerelease*, jamais marquée « dernière » : son manifeste porte `"channel": "beta"` et son flux Sparkle `<sparkle:channel>beta</sparkle:channel>`. Le numéro reste `X.Y.Z` (la console refuse tout autre format) : une bêta prend le numéro suivant, et la stable qui la suit un numéro plus haut. L'app Mac lit le flux cumulatif du site, qui réunit les deux canaux : elle ne propose une bêta que si l'utilisateur les a demandées (« Flux des mises à jour de l'app Mac », plus bas).
 
-**Essai (`--dry-run`).** Fait tout sauf le commit, la notarisation, la release, le tag et le push, qu'il affiche (`[essai, non lancé] …`). Il aligne les versions pour construire comme la publication, puis remet les fichiers de version tels qu'il les a trouvés. Il ne recompile pas le SDK de l'Apple TV (`build-kyber-tvos.sh` applique les correctifs dans `third_party/`, partagé avec les autres copies) et reprend `apps/tvos/Vendor`. Les vérifications en échec sont listées au début et à la fin, l'essai continue pour montrer la suite et sort en erreur. `--check` s'arrête après les vérifications et affiche le plan.
+**Essai (`--dry-run`).** Fait tout sauf le commit, la notarisation, la release, le tag et le push, qu'il affiche (`[essai, non lancé] …`). Il aligne les versions pour construire comme la publication, puis remet les fichiers de version tels qu'il les a trouvés. Il écrit le flux cumulatif dans `dist/vX.Y.Z/appcast-site.xml` et montre ce qui changerait dans `site/updates/appcast.xml`, sans toucher à ce dernier. Il ne recompile pas le SDK de l'Apple TV (`build-kyber-tvos.sh` applique les correctifs dans `third_party/`, partagé avec les autres copies) et reprend `apps/tvos/Vendor`. Les vérifications en échec sont listées au début et à la fin, l'essai continue pour montrer la suite et sort en erreur. `--check` s'arrête après les vérifications et affiche le plan.
 
 **Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé, 0.2.0 par défaut) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh`, qui en garde une copie dans le paquet (`requirements.json`), et à `scripts/sign-manifest.sh`, dont le manifeste signé fait foi. Quand s'en servir : « Migrations des réglages », plus bas.
 
 **Ce que l'auteur prépare une fois** : `gh auth login` avec un jeton limité au dépôt `MonsieurNours/kybernow` (jeton *fine-grained*, permission Contents en lecture et écriture : releases, tags et push de `main` ; plus Workflows si `main` pousse un changement de `.github/workflows/`), le profil de notarisation et le certificat Developer ID (« Signature et notarisation de l'app Mac »), la clé Sparkle (plus haut) et la clé minisign (en-tête de `scripts/sign-manifest.sh`).
+
+## Flux des mises à jour de l'app Mac
+
+L'app Mac (depuis la 0.2.7) lit `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` dans `apps/macos/project.yml`) : le fichier `site/updates/appcast.xml` du dépôt, publié par le workflow Pages à chaque push sur `main` qui touche `site/`.
+
+- **Toutes les versions publiées**, stables et bêtas, la plus récente en premier. Chaque entrée est celle du `appcast.xml` joint à sa release, recopiée telle quelle par `scripts/merge-appcast.py` : lien de téléchargement vers `releases/download/vX.Y.Z/KyberNow-macOS.zip`, longueur, signature EdDSA, notes. Rien n'est re-signé : l'app vérifie toujours l'archive avec `SUPublicEDKey`.
+- **Canaux.** Les entrées d'une bêta portent `<sparkle:channel>beta</sparkle:channel>`, les stables aucun canal. L'app (délégué Sparkle dans `KyberNowApp.swift`) demande le canal `beta` quand « Recevoir les versions bêta » est coché dans KyberNow › Réglages… (`UserDefaults`, clé `receiveBetaUpdates`), aucun sinon. Sparkle propose la plus récente des entrées permises : une stable plus récente qu'une bêta installée est proposée normalement, même case cochée ; décocher la case ne fait pas revenir à la stable précédente, l'app attend la stable suivante.
+- **Les anciennes apps continuent de marcher.** Les versions jusqu'à la 0.2.6 lisent `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière stable : chaque release garde son `appcast.xml`, elles reçoivent donc la 0.2.7 par là, puis lisent le flux du site.
+- **Délai.** GitHub Pages met en cache environ 10 minutes, et le flux arrive en ligne une minute ou deux après le push, alors que la release est publiée quelques secondes après : l'app ne voit en pratique jamais une entrée dont l'archive est encore en brouillon (sauf échec entre le push et la publication : relancer la même commande publie le brouillon).
+- **Reconstruire le flux** à partir des releases existantes (amorçage, ou flux abîmé) : `scripts/rebuild-appcast.sh` liste les releases publiées (`gh release list`, brouillons exclus), reprend l'`appcast.xml` de chacune, marque `beta` celles qui sont des prereleases, et repasse par `generate_appcast` (clé Sparkle du Trousseau) une release qui aurait l'app Mac sans flux. Il écrit `site/updates/appcast.xml` (ou `-o fichier`) et le vérifie avec `xmllint` ; il ne commite rien. Commiter le fichier sur `main` le publie.
+
+```bash
+scripts/rebuild-appcast.sh
+xmllint --noout site/updates/appcast.xml
+git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reconstruit"
+```
 
 ## Intégration continue
 

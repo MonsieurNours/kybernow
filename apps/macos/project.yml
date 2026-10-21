@@ -32,7 +32,7 @@ settings:
       # Pas d'autorisation de débogage (get-task-allow) : refusée par la notarisation.
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 packages:
-  # Mises à jour de l'app : flux appcast.xml publié avec chaque version sur GitHub.
+  # Mises à jour de l'app : flux cumulatif du site, archives publiées avec chaque version sur GitHub.
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     exactVersion: 2.9.6
@@ -67,8 +67,9 @@ targets:
           - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
             CFBundleURLSchemes: [kybernow]
         NSBonjourServices: [_kybernow._tcp]
-        # Sparkle : dernière version publiée, signature EdDSA vérifiée avec cette clé.
-        SUFeedURL: https://github.com/MonsieurNours/kybernow/releases/latest/download/appcast.xml
+        # Sparkle : flux cumulatif du site (site/updates/appcast.xml, stables et
+        # bêtas, voir docs/releases.md) ; archives vérifiées avec cette clé.
+        SUFeedURL: https://www.kybernow.app/updates/appcast.xml
         SUPublicEDKey: BRT7PuVvNR6zfm4Rpn9QWxgLUUn8mE8aaDLDXBg1Po4=
         SUEnableAutomaticChecks: true
         SUScheduledCheckInterval: 86400

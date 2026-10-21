@@ -51,6 +51,7 @@ KyberNow Discord server, permanent invitation: https://discord.gg/sVy2mu5WdT (op
 | `assets/img/` | Logo and symbols (copies from `brand/v2/`) |
 | `fonts/` | Archivo and Martian Mono (OFL) |
 | `vendor/three/` | Three.js r170 (MIT): `three.module.min.js` and the few example modules used (bloom, SVGLoader, RoomEnvironment) |
+| `updates/appcast.xml` | Update feed of the Mac app (see "Updating") |
 
 Nothing is loaded from a CDN. The only external request: the GitHub API, to show the latest release and the file sizes (the static text stays if it fails).
 
@@ -67,4 +68,5 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 
 - Path figures: `docs/prototype-A-results.md` (`#trajet` section of `index.html`, total in `TOTAL` in `main.js`).
 - Download links: `releases/latest/download/<fichier>` on GitHub, nothing to change for each release.
+- `updates/appcast.xml`: update feed of the Mac app (Sparkle), every release, betas included. Written and committed by `scripts/release.sh` on each release, rebuilt if needed by `scripts/rebuild-appcast.sh`; do not edit it by hand (see [docs/releases.en.md](../docs/releases.en.md), "Mac app update feed"). Its address is compiled into the app: do not move it.
 - Three.js: replace the files in `vendor/three/` with those of the same version on unpkg (`three@<version>/build/three.module.min.js`, `examples/jsm/...`).

@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.7
+
+- App Mac, mises à jour : l'app lit le flux cumulatif du site (`www.kybernow.app/updates/appcast.xml`, toutes les versions, stables et bêtas) au lieu du flux de la dernière stable ; nouveau réglage « Recevoir les versions bêta » dans KyberNow › Réglages…, une stable plus récente restant toujours proposée. Les apps précédentes reçoivent cette version par l'ancien flux, toujours publié avec chaque version. `scripts/release.sh` complète et commite le flux du site à chaque publication ; `scripts/rebuild-appcast.sh` le reconstruit à partir des releases GitHub.
+
 ## 0.2.6
 
 - Console, mises à jour : l'applicateur arrête aussi l'icône relancée par la nouvelle console avant de remettre l'ancienne version, suspend la relance automatique de Kyber pendant la bascule, joint la console à l'adresse de son réglage d'écoute, refuse les noms de fichiers réservés de Windows, et un retour arrière qui n'aboutit pas est affiché au lieu d'être masqué.
