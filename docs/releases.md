@@ -137,7 +137,7 @@ scripts/release.sh X.Y.Z             # publication
 **Ordre.** Les binaires publiés doivent être ceux du commit étiqueté (l'AGPL oblige à publier le code exact des binaires) :
 1. vérifications préalables, toutes affichées d'un coup ; une seule en échec et rien n'est modifié ;
 2. alignement des versions (console, icône, installateur, apps Mac et Apple TV, `Cargo.lock` et projets Xcode compris) et commit « KyberNow X.Y.Z » ; un commit refusé arrête tout ;
-3. construction depuis ce commit : installateur, paquet de mise à jour, app Mac signée Developer ID, SDK de Kyber pour l'Apple TV et app Apple TV ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
+3. construction depuis ce commit : installateur, paquet de mise à jour, cœur Rust des apps Apple (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, aucune KyberNow ouverte), app Mac signée Developer ID, SDK de Kyber pour l'Apple TV (cœur compris dans `KyberSDK-tvOS.zip`) et app Apple TV ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
 4. notarisation de l'app Mac, agrafage du ticket, vérification Gatekeeper ;
 5. flux Sparkle signé, `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ; flux cumulatif du site (`site/updates/appcast.xml`) complété par cette version et commité par-dessus le commit de version (« Flux des mises à jour : KyberNow X.Y.Z ») ;
 6. release GitHub créée **en brouillon** avec tous les fichiers ;
@@ -199,7 +199,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 
 Ce qu'elle ne couvre pas :
 - **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part. Pour la compiler en CI, il faudrait joindre à chaque release un `KyberSDK-macOS.zip` (le contenu de `apps/macos/Vendor`), comme `KyberSDK-tvOS.zip` pour l'Apple TV.
-- **L'app Apple TV quand les correctifs client ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante. C'est le cas jusqu'à la 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
+- **L'app Apple TV quand les correctifs client ou le cœur Rust ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante. C'est le cas jusqu'à la 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
 - **Les binaires Windows liés et Kyber** : la CI vérifie le code, elle ne produit ni `KyberNow-Server-Setup.exe` ni la surcouche (correctifs de Kyber, `third_party/` absent), et ne lance rien sous Windows.
 - **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign). Une CI qui construit les binaires Windows serait l'étape suivante, pour les faire signer Authenticode par SignPath (programme gratuit pour les projets libres, qui exige une construction en CI).
 

@@ -165,6 +165,7 @@ build_target() {
     esac
 
     local cargo=(cargo "$COMMAND" -p kybernow-core --release --target "$target")
+    # shellcheck disable=SC2054  # la virgule est celle de -Zbuild-std=std,panic_abort
     needs_nightly "$target" && cargo=(cargo +nightly "$COMMAND" -p kybernow-core --release --target "$target" -Zbuild-std=std,panic_abort)
     echo "==> cargo $COMMAND ($target)"
     started=$(date +%s)

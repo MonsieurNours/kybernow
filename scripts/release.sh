@@ -86,6 +86,7 @@ ASSETS=(KyberNow-Server-Setup.exe KyberNow-Setup.exe kybernow-update.zip update.
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
     server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj
     apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj
+    apps/ios/project.yml apps/ios/KyberNowIOS.xcodeproj
     apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json
     apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock)
 
@@ -244,9 +245,10 @@ if [ -x scripts/sign-manifest.sh ]; then
 else
     problem "scripts/sign-manifest.sh absent : sans manifeste signé, la console refuse la mise à jour (phase 2 « signature et updater » à fusionner)"
 fi
-# L'app compilée ici (Release) ne doit pas tourner : ses bibliothèques sont
-# réécrites. Une autre copie ouverte (Debug, Applications) ne gêne pas.
-if pgrep -f "$ROOT/$APP/" > /dev/null; then problem "quittez la KyberNow compilée en Release (⌘Q)"; fi
+# Aucune KyberNow ne doit tourner : le cœur Rust de l'app Mac
+# (apps/macos/Vendor/Frameworks/libkybernow.dylib) et les bibliothèques de
+# l'app Release sont réécrits (docs/build-notes.md, « App ouverte »).
+if pgrep -x KyberNow > /dev/null; then problem "quittez KyberNow (⌘Q) : le cœur Rust de l'app Mac est recompilé"; fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     echo >&2
@@ -299,7 +301,7 @@ else
     sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" apps/Cargo.toml
     sed -i '' -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" apps/windows/tauri.conf.json
     (cd apps && cargo update --workspace --offline --quiet)
-    for d in apps/macos apps/tvos; do
+    for d in apps/macos apps/tvos apps/ios; do
         sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$d/project.yml"
         (cd "$d" && xcodegen generate --quiet)
     done
@@ -327,6 +329,11 @@ server/installer/build.sh 2>&1 > /dev/null \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
 server/installer/package-update.sh ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
 
+step "Cœur Rust de l'app Mac (apps/core, apps/apple)"
+# libkybernow.dylib et son en-tête dans apps/macos/Vendor (docs/coeur-apple.md).
+apps/apple/scripts/build-apple.sh 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+
 step "App Mac"
 (cd apps/macos && xcodegen generate --quiet && xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Release \
     -derivedDataPath build build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
@@ -340,6 +347,10 @@ if [ "$MODE" = release ]; then
 else
     echo "    [essai] SDK repris de apps/tvos/Vendor (build-kyber-tvos.sh non lancé)"
 fi
+# Le cœur Rust pour tvOS (apps/tvos/Vendor/KyberNow.xcframework), publié avec
+# le SDK dans KyberSDK-tvOS.zip : la CI et le sideload le reprennent.
+apps/apple/scripts/build-apple-mobile.sh tvos 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
 (cd apps/tvos && xcodegen generate --quiet && xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Release \
     -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 (cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")

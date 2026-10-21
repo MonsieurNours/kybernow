@@ -12,6 +12,7 @@ KYBER_CARGO_C=0.10.15         # cargo-c (cargo cinstall)
 KYBER_MINGW=14.0.0            # mingw-w64 (Homebrew), en-têtes et UCRT
 KYBER_MINGW_GCC=16.2.0        # x86_64-w64-mingw32-gcc
 KYBER_MESON=1.11.2
+# shellcheck disable=SC2034  # lu par scripts/release.sh et apps/windows/scripts/build.sh
 KYBER_LLVM_MINGW=20261006     # llvm-mingw (ucrt, macOS) : client Windows ARM64, dans third_party/toolchains
 KYBER_WASM_BINDGEN=0.2.100    # wasm-bindgen-cli : celle du Cargo.lock de kyber-web
 KYBER_BINARYEN=133            # wasm-opt (Homebrew binaryen) : moteur web
