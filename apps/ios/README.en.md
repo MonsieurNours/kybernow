@@ -46,7 +46,16 @@ In Debug in the simulator: `-demo YES` adds three demo computers; `-skipLaunch Y
 
 ## Signing
 
-Team P6DB682S4K, automatic signing, identifier `fr.leslignesclaires.kybernow`. Capabilities: iCloud (key-value store), Keychain sharing. Distribution: TestFlight, internal testers.
+Team P6DB682S4K, identifier `fr.leslignesclaires.kybernow`. Capabilities: iCloud (key-value store), Keychain sharing. Distribution: TestFlight, internal testers.
+
+In Debug, manual signing with the “iOS App Development” profile `ios.fr.leslignesclaires.kybernow` (created on 2026-10-21, devices registered in the account), Apple Development certificate. For Xcode to find it, copy the downloaded file to `~/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.mobileprovision`; a new device has to be added to the profile, which is then downloaded again. Installing on a connected device:
+
+```sh
+xcodebuild -scheme KyberNowIOS -configuration Debug -derivedDataPath build -destination 'generic/platform=iOS' build
+xcrun devicectl device install app --device <UDID> build/Build/Products/Debug-iphoneos/KyberNow.app
+```
+
+Release stays on automatic signing; uploading to TestFlight will need an App Store profile.
 
 ## To do
 

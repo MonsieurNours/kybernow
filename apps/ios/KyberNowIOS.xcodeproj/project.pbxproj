@@ -359,7 +359,6 @@
 				TargetAttributes = {
 					01D6A351251F0D33210900DB = {
 						DevelopmentTeam = P6DB682S4K;
-						ProvisioningStyle = Automatic;
 					};
 					E773F68E59177515C11D6A77 = {
 						DevelopmentTeam = P6DB682S4K;
@@ -651,7 +650,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = KyberNowIOS/KyberNowIOS.entitlements;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
 				INFOPLIST_FILE = KyberNowIOS/Info.plist;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -660,6 +660,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
 				PRODUCT_NAME = KyberNow;
+				PROVISIONING_PROFILE_SPECIFIER = ios.fr.leslignesclaires.kybernow;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
