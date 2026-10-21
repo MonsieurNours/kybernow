@@ -118,3 +118,22 @@ xcrun notarytool store-credentials kybernow --apple-id <votre identifiant Apple>
 The saved password can only be read while the Mac is unlocked: `release.sh` checks it before building and keeps the display on until the end, so that it does not lock along the way.
 
 The first notarisation for an account can take several hours (Apple's checks); after that, a few minutes. To find a submission: `xcrun notarytool history --keychain-profile kybernow`.
+
+## Settings migrations
+
+The console's settings (`C:\ProgramData\KyberNow\kyber-admin.toml`) carry the version of their format: `schema = 1` since 0.2.6 (missing = 0). At each start, and before `init` or `reset-password`, the console brings the file to the format it knows (`server/admin/src/migrate.rs`):
+
+- one migration per version (from N to N+1), in order, each idempotent: running it again changes nothing more;
+- before writing, the original is copied to `backups\kyber-admin.toml.schema-<N>-<timestamp>`; each change is written to the log (`kyber-admin.log`); the file's comments are kept;
+- a file from a **newer** console (after an update rollback) is left as it is, and the settings this console does not know are kept when it rewrites the file;
+- a migration that cannot be done (unreadable file) does not prevent the console from starting: the file is then set aside as before (`kyber-admin.toml.invalide-…`).
+
+By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-admin.exe migrate` does it.
+
+| Schema | Since | Change |
+|---|---|---|
+| 1 | 0.2.6 | `listen` becomes a valid `IP:port` address: port 9443 added to a bare address (`"0.0.0.0"`, which prevented the console from starting), `"0.0.0.0:<port>"` for a bare port (`listen = 9443`, which made the whole file unreadable: it was set aside, password included), spaces removed; an unusable value is removed (default address). |
+
+Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
+
+**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`); the signed manifest is authoritative.

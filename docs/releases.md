@@ -118,3 +118,22 @@ xcrun notarytool store-credentials kybernow --apple-id <votre identifiant Apple>
 Le mot de passe enregistré n'est lisible que Mac déverrouillé : `release.sh` le vérifie avant de compiler et garde l'écran allumé jusqu'à la fin, pour qu'il ne se verrouille pas en route.
 
 La première notarisation d'un compte peut prendre plusieurs heures (vérifications d'Apple) ; ensuite, quelques minutes. Pour retrouver un envoi : `xcrun notarytool history --keychain-profile kybernow`.
+
+## Migrations des réglages
+
+Les réglages de la console (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent la version de leur format : `schema = 1` depuis la 0.2.6 (absent = 0). À chaque démarrage, et avant `init` ou `reset-password`, la console amène le fichier au format qu'elle connaît (`server/admin/src/migrate.rs`) :
+
+- une migration par version (de N à N+1), dans l'ordre, chacune idempotente : la rejouer ne change plus rien ;
+- avant d'écrire, l'original est copié dans `backups\kyber-admin.toml.schema-<N>-<horodatage>` ; chaque changement est écrit dans le journal (`kyber-admin.log`) ; les commentaires du fichier sont gardés ;
+- un fichier d'une console **plus récente** (après un retour arrière de la mise à jour) est laissé tel quel, et les réglages que cette console ne connaît pas sont gardés quand elle réécrit le fichier ;
+- une migration impossible (fichier illisible) n'empêche pas la console de démarrer : le fichier est alors mis de côté comme avant (`kyber-admin.toml.invalide-…`).
+
+À la main : `kyber-admin.exe migrate --dry-run` affiche ce qui serait changé, `kyber-admin.exe migrate` le fait.
+
+| Schéma | Depuis | Changement |
+|---|---|---|
+| 1 | 0.2.6 | `listen` devient une adresse `IP:port` valide : port 9443 ajouté à une adresse seule (`"0.0.0.0"`, qui empêchait la console de démarrer), `"0.0.0.0:<port>"` pour un port seul (`listen = 9443`, qui rendait tout le fichier illisible : il était mis de côté, mot de passe compris), espaces retirés ; une valeur inutilisable est retirée (adresse par défaut). |
+
+Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGRATIONS`, `CURRENT` passé à N, un test sur un fichier de la version N-1, et une ligne dans ce tableau.
+
+**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et la console refuse alors « Installer » en renvoyant vers `KyberNow-Setup.exe`. De même, `--min-installer A.B.C` refuse le paquet sur un ordinateur installé avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`), le manifeste signé fait foi.

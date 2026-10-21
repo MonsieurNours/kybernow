@@ -79,9 +79,9 @@ Le dossier `C:\ProgramData\KyberNow` est réservé à SYSTEM et aux Administrate
 
 | Emplacement | Contenu |
 |---|---|
-| `C:\ProgramData\KyberNow\kyber-admin.toml` | réglages : `listen`, dossier de Kyber, empreinte du mot de passe, écran virtuel, son |
+| `C:\ProgramData\KyberNow\kyber-admin.toml` | réglages : version du format (`schema`), `listen`, dossier de Kyber, empreinte du mot de passe, écran virtuel, son |
 | `C:\ProgramData\KyberNow\tls\` | certificat de la console |
-| `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml` |
+| `C:\ProgramData\KyberNow\backups\` | versions précédentes de `kyber_config.toml`, et de `kyber-admin.toml` avant chaque migration (`kyber-admin.toml.schema-<N>-<horodatage>`) |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | ce qu'il faut restaurer en fin de session, même après un plantage |
 | `C:\ProgramData\KyberNow\update\<version>\` | paquet téléchargé, contenu, journal `update.log` (les deux dernières versions) |
 | `C:\ProgramData\KyberNow\update\resultat.json` | échec de la dernière mise à jour (écrit par `update.ps1`, lu par la console à son démarrage) |
@@ -91,7 +91,7 @@ Le dossier `C:\ProgramData\KyberNow` est réservé à SYSTEM et aux Administrate
 | `C:\ProgramData\KyberNow\foreground\` | veille du plein écran pendant une session (`run` : signal de vie, `state.json` : dernier état) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | journal du service |
 
-Commandes : `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (puis redémarrer le service), `kyber-admin.exe init …` (utilisée par l'installateur), `kyber-admin.exe` seul pour lancer en console (diagnostic).
+Commandes : `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (puis redémarrer le service), `kyber-admin.exe migrate [--dry-run]` (met `kyber-admin.toml` au format de cette version, fait aussi à chaque démarrage ; voir [docs/releases.md](../docs/releases.md#migrations-des-réglages)), `kyber-admin.exe init …` (utilisée par l'installateur), `kyber-admin.exe` seul pour lancer en console (diagnostic).
 
 ## Développer sur le Mac
 

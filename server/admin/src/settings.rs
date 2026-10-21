@@ -11,6 +11,9 @@ pub const DEFAULT_LISTEN: &str = "0.0.0.0:9443";
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    /// Version du format du fichier (absent = 0), voir migrate.rs.
+    #[serde(default)]
+    pub schema: i64,
     /// Adresse d'écoute de l'interface (ex. « 0.0.0.0:9443 »).
     pub listen: Option<String>,
     /// Dossier d'installation de Kyber (contient kyber_config.toml et log/).
@@ -23,6 +26,10 @@ pub struct Settings {
     /// Sortie audio virtuelle (déclenchement et nombre de canaux).
     #[serde(default)]
     pub virtual_audio: crate::audio::AudioSettings,
+    /// Réglages inconnus de cette version (écrits par une console plus
+    /// récente, avant un retour arrière) : gardés à la réécriture.
+    #[serde(flatten)]
+    pub extra: toml::Table,
 }
 
 impl Settings {
@@ -30,6 +37,7 @@ impl Settings {
     /// édition à la main) est mis de côté à côté de l'original et la console
     /// repart des valeurs par défaut, plutôt que de ne plus démarrer du tout.
     pub fn load(data_dir: &Path) -> Result<Self> {
+        crate::migrate::before_load(data_dir);
         let path = data_dir.join(FILE_NAME);
         match fs::read_to_string(&path) {
             Ok(text) => match toml::from_str(&text) {
@@ -45,12 +53,17 @@ impl Settings {
                         aside.display()
                     );
                     let _ = fs::rename(&path, &aside);
-                    Ok(Self::default())
+                    Ok(Self::fresh())
                 }
             },
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::fresh()),
             Err(e) => Err(e).with_context(|| format!("lecture de {}", path.display())),
         }
+    }
+
+    /// Réglages neufs, au format de cette console.
+    fn fresh() -> Self {
+        Self { schema: crate::migrate::CURRENT, ..Self::default() }
     }
 
     /// Écrit les réglages d'un bloc : fichier temporaire puis renommage, pour

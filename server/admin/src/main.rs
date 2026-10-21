@@ -12,6 +12,7 @@ mod gpu;
 mod kyber_config;
 mod kyber_proxy;
 mod logs;
+mod migrate;
 mod pairing;
 mod preview;
 mod schema;
@@ -81,6 +82,12 @@ enum Command {
         /// Encodeur vidéo (nvenc, x264, amf, qsv)
         #[arg(long)]
         encoder: Option<String>,
+    },
+    /// Amène kyber-admin.toml au format de cette version (fait aussi à chaque démarrage)
+    Migrate {
+        /// Affiche ce qui serait changé sans rien écrire
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Efface le mot de passe administrateur (un nouveau code d'initialisation sera émis)
     ResetPassword,
@@ -318,6 +325,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Command::Init { user, kyber_port, encoder }) => init(&cli.run, &data_dir, &user, kyber_port, encoder),
         Some(Command::DisplayAgent { action }) => display_agent(action),
+        Some(Command::Migrate { dry_run }) => migrate::command(&data_dir, dry_run),
         Some(Command::ResetPassword) => {
             let mut s = Settings::load(&data_dir)?;
             s.admin_password_hash = None;
