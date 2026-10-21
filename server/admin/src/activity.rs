@@ -18,6 +18,13 @@ use serde_json::{Value, json};
 
 use crate::display::now_secs;
 
+/// Sans signal de vie d'une app pendant ce temps (il part toutes les 5 s),
+/// la console tient sa session pour interrompue : le fil d'événements la
+/// note, l'écran virtuel de l'app est rendu et la veille du plein écran
+/// s'arrête. Même délai partout (`activity`, `display`, `foreground`) : un
+/// appareil n'est jamais encore « en session » pour l'un et plus pour l'autre.
+pub const HEARTBEAT_GRACE: std::time::Duration = std::time::Duration::from_secs(20);
+
 const DEVICES_FILE: &str = "devices.json";
 const EVENTS_FILE: &str = "events.json";
 const MAX_EVENTS: usize = 300;
@@ -370,9 +377,9 @@ impl Activity {
         self.state.lock().unwrap().live.clone()
     }
 
-    /// Plus de signal de vie depuis 30 s : l'app est partie sans prévenir.
+    /// Plus de signal de vie depuis `HEARTBEAT_GRACE` : l'app est partie sans prévenir.
     fn expire(&self) {
-        let stale = self.state.lock().unwrap().live.as_ref().is_some_and(|l| now_secs().saturating_sub(l.last_beat) > 30);
+        let stale = self.state.lock().unwrap().live.as_ref().is_some_and(|l| now_secs().saturating_sub(l.last_beat) > HEARTBEAT_GRACE.as_secs());
         if stale {
             self.drop_live("plus de signal de l'appareil");
         }

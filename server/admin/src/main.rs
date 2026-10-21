@@ -422,7 +422,8 @@ pub fn init_logging(file: Option<PathBuf>) {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    match file.and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok()) {
+    // Journal tourné à 5 Mo, cinq fichiers gardés (voir `logs::RotatingFile`).
+    match file.and_then(|p| logs::RotatingFile::open(p).ok()) {
         Some(f) => builder.with_ansi(false).with_writer(Mutex::new(f)).init(),
         None => builder.init(),
     }

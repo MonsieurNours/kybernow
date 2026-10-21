@@ -744,7 +744,7 @@ impl Manager {
                         Some(s) => (
                             true,
                             s.until.is_some_and(|u| Instant::now() > u),
-                            s.last_seen.elapsed() > Duration::from_secs(20),
+                            s.last_seen.elapsed() > crate::activity::HEARTBEAT_GRACE,
                             Some(s.origin),
                         ),
                         None => (false, false, false, None),

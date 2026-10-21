@@ -13,8 +13,9 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{Value, json};
 
-/// Sans signal de vie depuis ce délai, l'agent s'arrête.
-pub const STALE: Duration = Duration::from_secs(20);
+/// Sans signal de vie depuis ce délai, l'agent s'arrête (le même que pour la
+/// session de l'app et son écran virtuel).
+pub const STALE: Duration = crate::activity::HEARTBEAT_GRACE;
 
 pub struct Watcher {
     dir: PathBuf,
@@ -29,12 +30,13 @@ impl Watcher {
         self.dir.join("run")
     }
 
-    /// Début de session : lance l'agent (une seule fois).
+    /// Début de session : lance l'agent (une seule fois). `run` n'est écrit
+    /// que si un agent tourne : sinon `active()` dirait « en session » pendant
+    /// 20 s sans personne pour écrire l'état.
     pub fn start(&self, data_dir: &Path) {
         let _ = std::fs::create_dir_all(&self.dir);
-        let fresh = self.active();
-        let _ = std::fs::write(self.run_file(), b"");
-        if fresh {
+        if self.active() {
+            let _ = std::fs::write(self.run_file(), b"");
             return; // un agent tourne déjà
         }
         let args = vec!["foreground".to_string(), "--dir".to_string(), self.dir.display().to_string()];
@@ -48,8 +50,11 @@ impl Watcher {
                 .map(|_| ())
                 .map_err(Into::into)
         };
-        if let Err(e) = launched {
-            tracing::warn!("veille du plein écran : {e:#}");
+        match launched {
+            Ok(()) => {
+                let _ = std::fs::write(self.run_file(), b"");
+            }
+            Err(e) => tracing::warn!("veille du plein écran : {e:#}"),
         }
     }
 
