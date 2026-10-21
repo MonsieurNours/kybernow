@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-client-setup"
-version = "0.2.9"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Installateur de l'app KyberNow pour Windows (x64 et ARM64), par utilisateur"

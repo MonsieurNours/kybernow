@@ -2209,7 +2209,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-core"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
@@ -2228,7 +2228,7 @@ dependencies = [
 
 [[package]]
 name = "kybernow-windows"
-version = "0.2.9"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "bindgen",
