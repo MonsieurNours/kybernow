@@ -83,6 +83,7 @@ enum Msg {
     Stop,
     Fail(String),
     KeyframeNeeded,
+    NoImage,
 }
 
 struct Events(Mutex<Sender<Msg>>);
@@ -119,6 +120,7 @@ impl Session {
             wait_until: None,
             start_at: None,
             retries: 0,
+            no_image: 0,
             last_retry: None,
             reconnected_at: None,
             restored_after_reconnect: false,
@@ -157,6 +159,13 @@ impl Session {
         let _ = self.tx.lock().unwrap().send(Msg::KeyframeNeeded);
     }
 
+    /// Aucune image depuis le démarrage du flux : il est relancé (ce qui
+    /// relance aussi le service vidéo de Kyber sur l'ordinateur), trois fois
+    /// au plus, puis la session s'arrête avec la raison. Comme l'app Mac.
+    pub fn no_image(&self) {
+        let _ = self.tx.lock().unwrap().send(Msg::NoImage);
+    }
+
     pub fn latency(&self) -> Arc<LatencyTracker> {
         self.latency.clone()
     }
@@ -186,6 +195,8 @@ struct Worker {
     /// Démarrage de l'image prévu (relance).
     start_at: Option<Instant>,
     retries: u32,
+    /// Relances faute d'image (jamais remis à zéro dans la session).
+    no_image: u32,
     last_retry: Option<Instant>,
     reconnected_at: Option<Instant>,
     restored_after_reconnect: bool,
@@ -354,6 +365,19 @@ impl Worker {
                 Ok(Msg::KeyframeNeeded) => {
                     if let Some(c) = &self.client {
                         let _ = c.request_keyframe();
+                    }
+                }
+                Ok(Msg::NoImage) => {
+                    if self.streaming.is_some() && self.start_at.is_none() {
+                        self.no_image += 1;
+                        if self.no_image > 3 {
+                            return Some(
+                                "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir le journal de sa console, Système › Journaux)".into(),
+                            );
+                        }
+                        warn!("aucune image : flux relancé ({}/3)", self.no_image);
+                        self.stop_streaming();
+                        self.start_at = Some(Instant::now() + Duration::from_millis(500));
                     }
                 }
                 Ok(Msg::Event(e)) => {

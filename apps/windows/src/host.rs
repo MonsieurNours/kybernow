@@ -119,6 +119,12 @@ impl Platform for WinPlatform {
         if let Status::Ended { error: Some(e) } = status {
             *self.app.error.lock().unwrap() = Some(e.clone());
         }
+        // Surveillance de la première image, à chaque (re)démarrage du flux.
+        match status {
+            Status::Streaming => self.app.shared.arm_watch(),
+            Status::Reconnecting { .. } | Status::Ending | Status::Ended { .. } => self.app.shared.disarm_watch(),
+            _ => {}
+        }
         *self.app.status.lock().unwrap() = Some(status.clone());
         self.app.post(WM_APP_STATUS);
         self.events.status(status);

@@ -41,6 +41,9 @@ pub struct Shared {
     pub frames: AtomicU64,
     pub first_image: AtomicBool,
     pub decoder: Mutex<String>,
+    /// Flux démarré (heure, images montrées à ce moment) : sans nouvelle
+    /// image en 4 s, il est relancé.
+    pub watch: Mutex<Option<(Instant, u64)>>,
 }
 
 impl Shared {
@@ -51,6 +54,35 @@ impl Shared {
     pub fn client_size(&self) -> (u32, u32) {
         let v = self.client_size.load(Ordering::Relaxed);
         ((v >> 32) as u32, v as u32)
+    }
+
+    /// À appeler au démarrage (ou à la relance) du flux.
+    pub fn arm_watch(&self) {
+        *self.watch.lock().unwrap() = Some((Instant::now(), self.frames.load(Ordering::Relaxed)));
+    }
+
+    pub fn disarm_watch(&self) {
+        *self.watch.lock().unwrap() = None;
+    }
+
+    /// Le flux tourne depuis 4 s sans une image : on le relance (une fois par démarrage).
+    fn check_watch(&self) {
+        let fire = {
+            let mut w = self.watch.lock().unwrap();
+            match *w {
+                Some((at, frames)) if at.elapsed() >= Duration::from_secs(4) => {
+                    *w = None;
+                    self.frames.load(Ordering::Relaxed) == frames
+                }
+                _ => false,
+            }
+        };
+        if fire {
+            log::warn!("image : rien en 4 s depuis le démarrage du flux");
+            if let Some(s) = self.session.get().and_then(Weak::upgrade) {
+                s.no_image();
+            }
+        }
     }
 
     fn request_keyframe(&self) {
@@ -207,10 +239,14 @@ fn run(
 
     loop {
         renderer.resize(shared.client_size());
+        shared.check_watch();
         let msg = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(m) => m,
             Err(RecvTimeoutError::Timeout) => {
-                if waiting_key {
+                // Comme sur Mac : une image clé se demande après une perte,
+                // pas avant les premières données (l'encodeur commence par
+                // une image clé ; le harceler pendant qu'il démarre le bloque).
+                if waiting_key && seen_frame {
                     keyframe(&shared, false);
                 }
                 continue;
