@@ -417,11 +417,14 @@
     font-weight: 500;
   }
 
+  /* Libellé et choix sur une ligne quand il y a la place, sinon le choix
+     passe dessous (fenêtre étroite). */
   .line {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: 8px 12px;
     padding: 12px 0;
     border-bottom: 1px solid var(--ink-3);
     font-size: 14px;
@@ -439,9 +442,10 @@
 
   .lr {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: 8px 12px;
   }
 
   .lr span:first-child {
@@ -467,7 +471,7 @@
 
   .custom-mode {
     display: grid;
-    grid-template-columns: 1fr auto 1fr 0.7fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 0.7fr);
     align-items: end;
     gap: 8px;
   }
@@ -479,6 +483,7 @@
   }
 
   .custom-mode .field {
+    min-width: 0;
     height: 38px;
     font-size: 13px;
   }
@@ -595,13 +600,27 @@
     font-weight: 600;
   }
 
-  @media (max-width: 1180px) {
+  @media (max-width: 1280px) {
     .cols {
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
 
     .pc {
       grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 1040px) {
+    main {
+      padding: 20px 32px 32px;
+    }
+
+    .cols {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .profiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 </style>

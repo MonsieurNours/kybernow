@@ -86,6 +86,8 @@
     <div class="shade"></div>
   </div>
 
+  <div class="layout">
+  <div class="top">
   <section class="hero">
     {#if selected}
       <div class="eyebrow status {status?.tone}"><span class="dot"></span>{status?.text}</div>
@@ -148,6 +150,7 @@
       {/if}
     </aside>
   {/if}
+  </div>
 
   <section class="row">
     <div class="eyebrow">Vos ordinateurs</div>
@@ -176,6 +179,7 @@
       </button>
     </div>
   </section>
+  </div>
 </main>
 
 <style>
@@ -245,15 +249,35 @@
       linear-gradient(90deg, rgb(5 7 10 / 0.55) 0%, transparent 60%);
   }
 
-  .hero {
+  /* Mise en page qui suit la fenêtre (960 × 600 au plus petit) : le haut
+     (ordinateur et dernière session) prend la place, la rangée des
+     ordinateurs reste en bas ; trop petit, la page défile. */
+  .layout {
     position: absolute;
-    left: 72px;
-    top: 112px;
-    width: min(760px, calc(100% - 460px));
-    min-width: 480px;
+    inset: 40px 0 0 0;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 28px;
+    padding: clamp(24px, 7vh, 72px) clamp(32px, 5vw, 72px) clamp(24px, 4vh, 40px);
+    overflow-y: auto;
+  }
+
+  .top {
+    flex: 1 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 28px 40px;
+  }
+
+  .hero {
+    flex: 1 1 520px;
+    max-width: 760px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(12px, 2.2vh, 18px);
   }
 
   .status {
@@ -288,7 +312,7 @@
   h1 {
     margin: 0;
     font-family: var(--display);
-    font-size: clamp(48px, 6vw, 84px);
+    font-size: clamp(44px, min(6vw, 9vh), 84px);
     line-height: 0.95;
     font-weight: 640;
     font-stretch: 125%;
@@ -384,10 +408,7 @@
   }
 
   .last {
-    position: absolute;
-    right: 72px;
-    top: 128px;
-    width: 300px;
+    flex: 0 0 300px;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -465,10 +486,7 @@
   }
 
   .row {
-    position: absolute;
-    left: 72px;
-    right: 72px;
-    bottom: 40px;
+    flex: none;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -485,7 +503,7 @@
 
   .card {
     position: relative;
-    height: 132px;
+    height: clamp(104px, 15vh, 132px);
     padding: 0;
     border: 1px solid var(--line);
     border-radius: 16px;
