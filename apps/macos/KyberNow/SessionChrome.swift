@@ -16,6 +16,11 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
         if session.chromeCapturesAll { return super.hitTest(point) }
         let local = convert(point, from: superview)
         let fromTop = isFlipped ? local.y : bounds.height - local.y
+        // La proposition « adapter à cet écran » prend les clics, le reste passe.
+        if session.screenOfferShown, !session.barVisible,
+           session.screenOfferRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
+            return super.hitTest(point)
+        }
         // Le panneau des mesures laisse tout passer, sauf son bouton de fermeture.
         if session.statsPanel, session.statsCloseRect.insetBy(dx: -4, dy: -4).contains(CGPoint(x: local.x, y: fromTop)) {
             return super.hitTest(point)
@@ -40,11 +45,22 @@ struct SessionChrome: View {
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
-            if let hint = session.hint, !session.barVisible {
-                HintToast(hint: hint)
-                    .padding(.top, 22)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .allowsHitTesting(false)
+            if !session.barVisible {
+                VStack(spacing: 10) {
+                    if let hint = session.hint {
+                        HintToast(hint: hint)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .allowsHitTesting(false)
+                    }
+                    if streaming, session.screenOfferShown, let offer = session.screenOffer {
+                        ScreenOfferToast(offer: offer, adapt: session.adaptToScreen, later: session.dismissScreenOffer)
+                            .background(GeometryReader { g in
+                                Color.clear.preference(key: ScreenOfferRectKey.self, value: g.frame(in: .named(Self.space)))
+                            })
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .padding(.top, 22)
             }
             if session.barVisible {
                 SessionBar(session: session)
@@ -68,6 +84,8 @@ struct SessionChrome: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .coordinateSpace(name: Self.space)
         .onPreferenceChange(StatsCloseRectKey.self) { rect in session.statsCloseRect = rect }
+        .onPreferenceChange(ScreenOfferRectKey.self) { rect in session.screenOfferRect = rect }
+        .animation(Theme.easeOut, value: session.screenOfferShown)
         .animation(Theme.easeOut, value: session.barVisible)
         .animation(Theme.easeOut, value: session.statsPanel)
         .preferredColorScheme(.dark)
@@ -202,6 +220,57 @@ struct LitNumber: View {
             .shadow(color: Theme.accent.opacity(0.9), radius: 5)
             .shadow(color: Theme.accentFill.opacity(0.7), radius: 12)
             .contentTransition(.numericText())
+    }
+}
+
+// MARK: - Écran de ce Mac changé
+
+/// Capsule « L'écran a changé », dans l'espace « chrome » de la session.
+private struct ScreenOfferRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// « L'écran a changé : adapter l'image à 2560 × 1440 ? » [Adapter] [×]
+private struct ScreenOfferToast: View {
+    let offer: SessionController.ScreenMode
+    let adapt: () -> Void
+    let later: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Icon("monitor", size: 14, bold: true).foregroundStyle(Theme.accent)
+            Text("L'écran a changé : adapter l'image à \(offer.width) × \(offer.height) ?")
+            Button(action: adapt) {
+                Text("Adapter")
+                    .font(Theme.sans(12.5, .semibold))
+                    .foregroundStyle(Theme.text)
+                    .padding(.horizontal, 10)
+                    .frame(height: 26)
+                    .background(Theme.accentSoft, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Refaire l'écran de l'ordinateur à la définition et à la fréquence de cet écran (\(offer.refresh) Hz), puis relancer l'image")
+            Button(action: later) {
+                Icon("x", size: 12, bold: true)
+                    .foregroundStyle(Theme.faint)
+                    .frame(width: 24, height: 26)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Plus tard : la proposition reste dans la barre")
+            .accessibilityLabel("Plus tard")
+        }
+        .font(Theme.sans(12.5))
+        .foregroundStyle(Theme.text2)
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
+        .frame(height: 38)
+        .glass(10, tint: 0.55)
     }
 }
 
@@ -342,6 +411,13 @@ private struct SessionBar: View {
                     }) {
                         chip(icon: "monitor", text: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)", caret: true)
                     }
+                }
+                if let offer = session.screenOffer {
+                    Button { session.adaptToScreen() } label: {
+                        chip(icon: "monitor", text: "Adapter à \(offer.width) × \(offer.height)", tint: Theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image")
                 }
                 if let offer = session.modeRestoreOffer {
                     Button { session.restoreMode() } label: {

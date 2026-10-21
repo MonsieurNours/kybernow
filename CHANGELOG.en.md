@@ -7,6 +7,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 ## 0.2.7
 
 - Mac app, updates: the app reads the website's cumulative feed (`www.kybernow.app/updates/appcast.xml`, every release, stable and beta) instead of the latest stable release's feed; new "Receive beta versions" setting in KyberNow › Settings…, a newer stable release always being offered. Earlier apps receive this version through the old feed, still published with each release. `scripts/release.sh` updates and commits the website's feed on each release; `scripts/rebuild-appcast.sh` rebuilds it from the GitHub releases.
+- Mac app: a display plugged in, unplugged or changed in resolution during a session is noticed. With “like this display”, a capsule offers to fit the image to the new mode ("The screen changed: fit the image to 2560 × 1440?"), also in the bar; a click recreates the computer's virtual display and restarts the image, nothing changes without it. In full screen on an unplugged display, the session goes back to full screen on the remaining screen.
 
 ## 0.2.6
 
