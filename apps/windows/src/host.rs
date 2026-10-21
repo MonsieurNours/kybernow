@@ -119,7 +119,7 @@ impl Platform for WinPlatform {
         self.app.input.pipeline()
     }
     fn on_status(&self, status: &Status) {
-        if let Status::Ended { error: Some(e) } = status {
+        if let Status::Ended { error: Some(e), .. } = status {
             *self.app.error.lock().unwrap() = Some(e.clone());
         }
         // Surveillance de la première image, à chaque (re)démarrage du flux.

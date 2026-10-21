@@ -43,6 +43,11 @@ targets:
           - PasteboardMac.swift
           - RelativeMouse.swift
           - StreamView.swift
+          # Le cœur Rust (docs/coeur-apple.md) : Mac seulement jusqu'au jalon 4 ;
+          # l'Apple TV garde KyberClient, ConsoleClient et LatencyTracker.
+          - CoreBridge.swift
+          - ConsoleClientCore.swift
+          - SessionEngine.swift
       - path: KyberKitTV
     dependencies:
       - framework: Vendor/KyberSDK.xcframework

@@ -1,0 +1,16 @@
+# En-tête C du pont des apps Apple (produit par cargo cinstall).
+include_guard = "KYBERNOW_H"
+no_includes = true
+sys_includes = ["stdbool.h", "stddef.h", "stdint.h"]
+tab_width = 4
+style = "both"
+language = "C"
+cpp_compat = true
+autogen_warning = "/* Produit par cbindgen depuis apps/apple/src/lib.rs : ne pas modifier à la main. */"
+
+[export]
+item_types = ["constants", "enums", "structs", "typedefs", "opaque", "functions"]
+
+[enum]
+rename_variants = "ScreamingSnakeCase"
+prefix_with_name = true

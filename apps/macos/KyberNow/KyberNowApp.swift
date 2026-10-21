@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
     let cloud = CloudPublisher()
 
     init() {
+        // Le cœur Rust : son journal dans le journal unifié, la langue de l'app.
+        Core.install()
         store.didSave = { [cloud] in cloud.publish($0) }
         cloud.publish(store.hosts)
     }

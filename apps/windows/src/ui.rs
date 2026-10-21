@@ -652,7 +652,7 @@ impl HostEvents for UiEvents {
             Status::Streaming => ("streaming", None),
             Status::Reconnecting { attempt, max } => ("reconnecting", Some(format!("{attempt}/{max}"))),
             Status::Ending => ("ending", None),
-            Status::Ended { error } => ("ended", error.clone()),
+            Status::Ended { error, .. } => ("ended", error.clone()),
         };
         let _ = self.app.emit("session-status", Phase { id: self.id.clone(), phase, detail });
     }
@@ -835,6 +835,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         auto_reconnect: true,
         gamepad_xbox360: s.gamepad != "fidele",
         clipboard: s.clipboard,
+        recovery: Default::default(),
     };
     let mouse = match s.mouse.as_str() {
         "jeu" => Some(true),

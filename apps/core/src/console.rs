@@ -133,6 +133,8 @@ pub struct Info {
     pub admin_version: Option<String>,
     #[serde(default)]
     pub virtual_display: VirtualDisplayInfo,
+    #[serde(default)]
+    pub audio: AudioInfo,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -141,8 +143,16 @@ pub struct VirtualDisplayInfo {
     pub available: bool,
 }
 
+/// Son de l'ordinateur, vu par la console.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct AudioInfo {
+    /// Haut-parleurs virtuels (ceux de Steam) en place.
+    #[serde(default)]
+    pub speakers: bool,
+}
+
 /// L'appareil qui se présente à la console.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub id: String,
     pub name: String,

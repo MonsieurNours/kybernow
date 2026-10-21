@@ -21,6 +21,7 @@
 		2E4327F1FDBDB0EF09529956 /* AddHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */; };
 		335F4328B4ABA7B8BA98500B /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */; };
 		3AB9751C598BA8DCC23C14EF /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 36C379C44CA1F146A47FEBB2 /* MartianMono-wdth-wght.ttf */; };
+		3CD791B99CD93807066C5E54 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */; };
 		49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */ = {isa = PBXBuildFile; fileRef = F939135052A5C51A4CDFEDB0 /* Backdrops.swift */; };
 		4FD64EDD33FC0E2DCF3F112E /* ReleaseAll.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6058E3C29E88CAE3D797EEC5 /* ReleaseAll.swift */; };
 		52771D6BEBD682855A334064 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */; };
@@ -44,6 +45,7 @@
 		81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E5FAAE774C0DD788031289 /* KyberLog.swift */; };
 		87F2964ED239257EDAD128ED /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D2CB1819AEAB327E349B2FDD /* Archivo-wdth-wght.ttf */; };
 		8AF781DAF0DEE25B5F632089 /* PacketQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 561343BEE4679A09FC535760 /* PacketQueue.swift */; };
+		9704175EEB845367EC3549E0 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19F4EA9662B59217966495B /* LatencyReporting.swift */; };
 		9C523DE6379DDBD45F586330 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E07925F1A4DDD2868AC6E46 /* Language.swift */; };
 		9DDACBC5030D4B3D6219E1B7 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4533B3F463014C650D6D7C3C /* Platform.swift */; };
 		9F9EA4BB5B137A5F4AF8485D /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = E21C4D60AA32188AAD952FAB /* Model.swift */; };
@@ -139,6 +141,7 @@
 		5680458539B0010845C420CE /* KyberNowTopShelf.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = KyberNowTopShelf.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E369E1FBF4FF8FCE29CC030 /* GamepadGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadGate.swift; sourceTree = "<group>"; };
 		5E3AABE821E9E90CC86A47BD /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
+		5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		6058E3C29E88CAE3D797EEC5 /* ReleaseAll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseAll.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		62FE3E9D1E34B31C3A9DD531 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -156,6 +159,7 @@
 		99A7F2997495AE8E0846FCF2 /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
 		9DDE02C40BEA58821FAA5E25 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
+		A19F4EA9662B59217966495B /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 		A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AC93031B0998E7980CE9060D /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfStore.swift; sourceTree = "<group>"; };
@@ -325,7 +329,9 @@
 				5E3AABE821E9E90CC86A47BD /* Keymap.swift */,
 				4A6A5701AECE3DAA9B83327B /* KyberClient.swift */,
 				68E5FAAE774C0DD788031289 /* KyberLog.swift */,
+				5F22A9A1742A4CB4D03CD55A /* KyberTypes.swift */,
 				4E07925F1A4DDD2868AC6E46 /* Language.swift */,
+				A19F4EA9662B59217966495B /* LatencyReporting.swift */,
 				C923979E9305471ABFD9F333 /* LatencyTracker.swift */,
 				F065E6E2F15BE6A4F620DA44 /* Localizable.xcstrings */,
 				561343BEE4679A09FC535760 /* PacketQueue.swift */,
@@ -580,7 +586,9 @@
 				F5242106B30B5A4446E0B33B /* Keymap.swift in Sources */,
 				EC84AD0272975FFB9EDD178A /* KyberClient.swift in Sources */,
 				81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */,
+				3CD791B99CD93807066C5E54 /* KyberTypes.swift in Sources */,
 				9C523DE6379DDBD45F586330 /* Language.swift in Sources */,
+				9704175EEB845367EC3549E0 /* LatencyReporting.swift in Sources */,
 				D095A206CE4DA906F9E6D031 /* LatencyTracker.swift in Sources */,
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
 				8AF781DAF0DEE25B5F632089 /* PacketQueue.swift in Sources */,

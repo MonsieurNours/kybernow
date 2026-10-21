@@ -1,0 +1,32 @@
+[package]
+name = "kybernow-apple"
+description = "Pont C du cœur KyberNow pour les apps Apple (macOS, iOS, tvOS)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kybernow-core = { path = "../core" }
+kynput-sys = "0.1.0"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# cargo cinstall (cargo-c) : en-tête kybernow.h par cbindgen, libkybernow.dylib, kybernow.pc.
+# La feature `capi` est celle que cargo-c active pour construire la bibliothèque C.
+[features]
+capi = []
+
+[package.metadata.capi.library]
+name = "kybernow"
+versioning = false
+
+[package.metadata.capi.header]
+name = "kybernow"
+subdirectory = "kybernow"
+
+[package.metadata.capi.pkg_config]
+name = "kybernow"
+filename = "kybernow"
+description = "Cœur client KyberNow, API C"

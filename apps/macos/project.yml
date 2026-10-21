@@ -1,6 +1,7 @@
 # Projet Xcode de l'app KyberNow pour macOS (généré par XcodeGen :
-# `xcodegen generate`). Avant le premier build : scripts/vendor-kyber.sh puis
-# scripts/build-kyclient.sh (libkyclient avec les correctifs KyberNow).
+# `xcodegen generate`). Avant le premier build : scripts/vendor-kyber.sh,
+# scripts/build-kyclient.sh (libkyclient avec les correctifs KyberNow), puis
+# ../apple/scripts/build-apple.sh (le cœur Rust, libkybernow).
 name: KyberNow
 options:
   bundleIdPrefix: fr.leslignesclaires
@@ -47,11 +48,19 @@ targets:
     platform: macOS
     sources:
       - path: KyberKit
+        # La session, la console et la latence sont dans le cœur Rust
+        # (apps/core, pont apps/apple : docs/coeur-apple.md) ; ces trois
+        # fichiers Swift ne servent plus qu'à l'Apple TV.
+        excludes:
+          - KyberClient.swift
+          - ConsoleClient.swift
+          - LatencyTracker.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.KyberKit
         GENERATE_INFOPLIST_FILE: YES
-        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include
+        # Vendor/KyberNow : en-tête du cœur (CKyberNow), produit par apps/apple/scripts/build-apple.sh.
+        SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/Frameworks
         LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks @loader_path/../../.."
         SKIP_INSTALL: YES

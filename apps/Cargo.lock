@@ -2208,6 +2208,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-apple"
+version = "0.3.0"
+dependencies = [
+ "kybernow-core",
+ "kynput-sys",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kybernow-core"
 version = "0.3.0"
 dependencies = [

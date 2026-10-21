@@ -69,6 +69,16 @@ s=$(otool -l rootfs-arm64-macos/lib/libkyclient.0.1.0.dylib | awk '/stroff/{prin
 - **Après `build-kyclient.sh`** : les bibliothèques changent réellement. Il faut quitter l'app avant de recompiler, puis la relancer.
 - **Hors d'un paquet `.app`** (programme de test lancé à côté de `Vendor/Frameworks`) : VLC cherche aussi ses modules dans le dossier où il a été compilé (`rootfs-arm64-macos/lib/vlc/plugins`), avec le même plantage. Dans l'app, il ne prend que `Contents/Frameworks/plugins`.
 
+### Le cœur Rust des apps Apple (apps/apple)
+
+`apps/apple/scripts/build-apple.sh` compile la crate `kybernow-apple` (API C écrite à la main sur `kybernow-core`, voir [coeur-apple.md](coeur-apple.md)) avec `cargo cinstall` pour `aarch64-apple-darwin`, pose `libkybernow.dylib` dans `apps/macos/Vendor/Frameworks` (embarquée par `embed-kyber.sh` comme les autres), l'en-tête `kybernow.h` produit par cbindgen et un module Clang `CKyberNow` dans `apps/macos/Vendor/KyberNow/include` (`SWIFT_INCLUDE_PATHS` du `project.yml`).
+
+- **`capi`** : cargo-c exige une feature de ce nom dans la crate, même vide (`[features] capi = []`), sinon « package does not contain this feature: capi ».
+- **Constantes** : `item_types` de `cbindgen.toml` doit nommer `constants`, sans quoi les `KN_*` manquent à l'en-tête. Ce sont des `#define`, que Swift importe en `Int32` : comparer avec `Int32(kind)`, pas avec le `uint32_t` de la structure.
+- **Chemins** : cargo-c inscrit un `install_name` absolu ; le script le ramène à `@rpath/libkybernow.dylib`, et ses dépendances (`libvlc`, `libkynput.0.1`) à `@rpath`.
+- **App ouverte** : le script refuse de tourner si KyberNow est lancée (voir ci-dessus) ; `KYBERNOW_IGNORE_RUNNING=1` passe outre quand le `Vendor/` visé n'est pas celui de l'app qui tourne (un autre worktree).
+- **Deux copies de kyclient** : `libkybernow` embarque le code de la crate Rust `kyclient` ; `libkyclient.dylib` reste chargée par le module `CKyber`, pour `libkynput` (chaîne d'entrées Swift, jusqu'au jalon 2). Elles ne se parlent pas.
+
 ## Navigateurs
 
 Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (WebKit n'est pas pris en charge, comme l'indique la doc Kyber).

@@ -12,6 +12,7 @@
 		09EDBBBAF52A03E69634CFFF /* Passage.swift in Sources */ = {isa = PBXBuildFile; fileRef = E407651AF402DB27D895B5B2 /* Passage.swift */; };
 		0B449D2989DD2AE43549432F /* Keymap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79554466D1E04F2A3C807DA1 /* Keymap.swift */; };
 		10B79E68B216819332FE0096 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CB6F1E3DF88493B2CF6D20F /* AV1.swift */; };
+		126AE5ED1331AD168D8FDA6E /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E65F421E347662BB777AEE6 /* SessionEngine.swift */; };
 		129D49D3A72F85061AFEF8C2 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B18D524B92EC557D60FED25 /* Discovery.swift */; };
 		1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 598C5C0D68903426673112FD /* PacketQueue.swift */; };
 		16C0354618A9B5E7CD26DE58 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */; };
@@ -20,9 +21,9 @@
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
 		30928C6DAF79737906ED3BFA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D90BE156020D93559B9D19DD /* Localizable.xcstrings */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
+		356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */; };
 		377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */; };
 		3C1112D1427766C796C08621 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */; };
-		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
 		5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */; };
@@ -30,8 +31,8 @@
 		651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132FE7F8A22F4F68C254657 /* Theme.swift */; };
 		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
 		65AB3D77F652B8FF228125D6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = B26BF360224E6C12792A4710 /* AppIcon.icon */; };
+		66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */; };
 		73369CA48A1A5A22C82DFFCD /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C0DDB25384557B8B551045E /* Model.swift */; };
-		74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6AD1367F24F0927922BB40DD /* LatencyTracker.swift */; };
 		776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E79EB33EC59E27B02F415F /* InputPipeline.swift */; };
 		7AA850595946987F20CFDF29 /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 17779E9C5B8C46FF87EE36A8 /* Archivo-wdth-wght.ttf */; };
 		7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */; };
@@ -40,6 +41,7 @@
 		83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */; };
 		881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */; };
 		8A35461AFBB86EA42CA41F69 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 63D40A4F73C24372966564C8 /* Assets.xcassets */; };
+		8DDD546D33BAEA2180996AE9 /* LatencyReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */; };
 		9201B232977D7D58B017F714 /* KyberKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */; };
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
@@ -52,9 +54,9 @@
 		BEE11A3ED9A65F98B7828090 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6C27264097C061402863DD /* SettingsView.swift */; };
 		C1B3C4BCD7D8194F9A0CEB59 /* MartianMono-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 2F30B29F401DF269013F5B54 /* MartianMono-wdth-wght.ttf */; };
 		D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */; };
+		DA276E7D52B66821093E4641 /* KyberTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01C32CCA3D27566E365281AC /* KyberTypes.swift */; };
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
-		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
 		FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E532750726326EB565F259 /* PadCombo.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
@@ -84,8 +86,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		01C32CCA3D27566E365281AC /* KyberTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberTypes.swift; sourceTree = "<group>"; };
 		045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
-		08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClient.swift; sourceTree = "<group>"; };
 		09097EF9FD0A52E596CF313E /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		17779E9C5B8C46FF87EE36A8 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostImagery.swift; sourceTree = "<group>"; };
@@ -103,9 +105,9 @@
 		5DF4EB6B53960D68B69DE19D /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		63D40A4F73C24372966564C8 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeymapMac.swift; sourceTree = "<group>"; };
-		6AD1367F24F0927922BB40DD /* LatencyTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyTracker.swift; sourceTree = "<group>"; };
 		6CB6F1E3DF88493B2CF6D20F /* AV1.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AV1.swift; sourceTree = "<group>"; };
 		7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNow.entitlements; sourceTree = "<group>"; };
+		74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
 		79554466D1E04F2A3C807DA1 /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		80362106CECC77FF3DAFF939 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
@@ -116,9 +118,9 @@
 		94C101B09449F09428C0AF60 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		99198F43007755A8AA639EA3 /* CloudPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPublisher.swift; sourceTree = "<group>"; };
 		9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
+		9E65F421E347662BB777AEE6 /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		9E6C27264097C061402863DD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
-		A78F7EAA3D887DF32857AA27 /* KyberClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberClient.swift; sourceTree = "<group>"; };
 		A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KyberNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B26BF360224E6C12792A4710 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
@@ -129,12 +131,14 @@
 		CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseAll.swift; sourceTree = "<group>"; };
 		CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMac.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
+		D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClientCore.swift; sourceTree = "<group>"; };
 		D90BE156020D93559B9D19DD /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
 		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
 		F085E5BE7C0D2D4AA3DFA3FF /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 		F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostFlow.swift; sourceTree = "<group>"; };
+		F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatencyReporting.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -203,16 +207,17 @@
 				2105139B92C07E1555E99C60 /* AudioPlayer.swift */,
 				6CB6F1E3DF88493B2CF6D20F /* AV1.swift */,
 				A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */,
-				08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */,
+				D3ABCA23CDAEC61857280E88 /* ConsoleClientCore.swift */,
+				74255F1BC5BB27370AF84AD9 /* CoreBridge.swift */,
 				D171932E28609169E868FDC5 /* DecoderCapabilities.swift */,
 				B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */,
 				44E79EB33EC59E27B02F415F /* InputPipeline.swift */,
 				79554466D1E04F2A3C807DA1 /* Keymap.swift */,
 				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
-				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
+				01C32CCA3D27566E365281AC /* KyberTypes.swift */,
 				09097EF9FD0A52E596CF313E /* Language.swift */,
-				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
+				F7D0FAABB1D481B0A0B691B9 /* LatencyReporting.swift */,
 				D90BE156020D93559B9D19DD /* Localizable.xcstrings */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				598C5C0D68903426673112FD /* PacketQueue.swift */,
@@ -221,6 +226,7 @@
 				53FAC72D17DD338280371600 /* PointerLayer.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */,
+				9E65F421E347662BB777AEE6 /* SessionEngine.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
 				83841ADFE3E6392BEA27AD93 /* VideoPipeline.swift */,
@@ -403,16 +409,17 @@
 				10B79E68B216819332FE0096 /* AV1.swift in Sources */,
 				7D95C9AD0F9729DD7F844918 /* AudioPlayer.swift in Sources */,
 				D6F6742A25911BEDC2DE121C /* ClipboardBridge.swift in Sources */,
-				EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */,
+				356000E9C32767C3AED87652 /* ConsoleClientCore.swift in Sources */,
+				66D0265DCF4DC01F8E7FF6A3 /* CoreBridge.swift in Sources */,
 				0814A1462DCB51B0DE485086 /* DecoderCapabilities.swift in Sources */,
 				7AD3A894E1026E3958F88A3F /* GamepadGate.swift in Sources */,
 				776E4C411E3F434ACE5E2918 /* InputPipeline.swift in Sources */,
 				0B449D2989DD2AE43549432F /* Keymap.swift in Sources */,
 				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,
-				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
+				DA276E7D52B66821093E4641 /* KyberTypes.swift in Sources */,
 				56ADD2F99CFE6C7BA14A69EA /* Language.swift in Sources */,
-				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
+				8DDD546D33BAEA2180996AE9 /* LatencyReporting.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */,
 				FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */,
@@ -420,6 +427,7 @@
 				1BA4B2AB4CFECC0F494E0695 /* PointerLayer.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */,
+				126AE5ED1331AD168D8FDA6E /* SessionEngine.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,
 				881145A1789565EA44E79632 /* VideoPipeline.swift in Sources */,
@@ -455,7 +463,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
@@ -477,7 +485,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.KyberKit;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
-				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include $(SRCROOT)/Vendor/KyberNow/include";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Debug;

@@ -84,7 +84,7 @@ final class VideoRenderer {
     var onUnsupportedFormat: ((OSType) -> Void)?
     var onStats: ((VideoStats) -> Void)?
     /// Latence de bout en bout (mesures de Kyber), si elles sont actives.
-    var latency: LatencyTracker?
+    var latency: (any LatencyReporting)?
 
     /// Synchro verticale (macOS). Sans elle, l'image part dès qu'elle est prête.
     var vsync = true {
@@ -230,7 +230,7 @@ final class VideoRenderer {
         if presentedTime > 0, let latency {
             // presentedTime et les instants mach sont sur l'horloge de
             // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
-            let now = CACurrentMediaTime(), micros = LatencyTracker.nowMicros()
+            let now = CACurrentMediaTime(), micros = monotonicMicros()
             func monotonic(_ t: Double) -> Int64 { micros - Int64((now - t) * 1_000_000) }
             latency.displayed(pts: pts, received: monotonic(Self.seconds(received)), decoded: monotonic(Self.seconds(decoded)),
                               at: monotonic(presentedTime))
@@ -424,7 +424,7 @@ final class VideoRenderer {
         current.width = width
         current.height = height
         current.format = layout.label
-        let second = latency?.drain() ?? LatencyTracker.Second()
+        let second = latency?.drain() ?? LatencySecond()
         current.latencyMs = second.latencyMs
         current.chain = second.chain
         current.lostFrames = second.lostFrames

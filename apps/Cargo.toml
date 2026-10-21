@@ -1,5 +1,5 @@
-# Clients KyberNow écrits en Rust : le cœur partagé (core) et l'app Windows.
-# Les apps Apple restent en Swift (apps/macos, apps/tvos).
+# Clients KyberNow écrits en Rust : le cœur partagé (core), l'app Windows et
+# le pont C des apps Apple (apple, voir docs/coeur-apple.md).
 #
 # Les briques de Kyber 0.29 viennent de third_party/kyber-desktop/kysdk, avec
 # les correctifs KyberNow des apps (apps/macos/kyber-patches) : voir
@@ -7,7 +7,7 @@
 
 [workspace]
 resolver = "3"
-members = ["core", "windows"]
+members = ["core", "windows", "apple"]
 
 [workspace.package]
 version = "0.3.0"

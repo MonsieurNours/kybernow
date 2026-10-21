@@ -5,6 +5,11 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.3.1
+
+- **App Mac : la session passe sur le cœur Rust.** Le déroulé d'une session (préparation par la console, connexion à Kyber, choix de l'écran, relances de l'image, reconnexions, repli sans image, signal de vie, fin vérifiée, latence de bout en bout) est désormais celui du cœur client en Rust (`apps/core`), le même que l'app Windows, par un pont C (`apps/apple`, `libkybernow`). L'app ne garde en Swift que l'affichage (VideoToolbox, Metal), le son, les entrées et l'interface. Mêmes réglages, mêmes capsules, mêmes mesures qu'en 0.3.0. Premier jalon du passage des apps Apple sur le cœur ([docs/coeur-apple.md](docs/coeur-apple.md)) ; l'app Apple TV ne change pas encore. Le lecteur VLC de secours (AV1 sur un Mac sans décodeur AV1) n'est plus embarqué dans la session : l'app ne proposait déjà l'AV1 qu'aux Mac qui le décodent.
+- Cœur client (apps Mac et Windows) : il sait maintenant ce que l'app Mac savait seule : suivre la taille de l'écran de l'ordinateur et recaler les entrées, dire à la console que faire d'un changement de mode et proposer « Remettre 3840 × 2160 » en profil Bureau, adapter l'écran virtuel à l'écran de l'appareil, afficher un autre écran de l'ordinateur sans écran virtuel, plafonner le débit (fenêtre occultée), rendre le bilan de fin de session (écrans et son rétablis), et veiller sur l'image : image clé redemandée après une perte, débit ramené à 250 Mb/s puis 4:2:0 quand aucune image ne vient en 4 s. L'app Windows ne s'en sert pas encore.
+
 ## 0.3.0
 
 - **KyberNow parle anglais.** Les installateurs de l'ordinateur et de l'app Windows, la console, l'icône, le client web et les apps Windows, Mac et Apple TV existent en français et en anglais. Ils suivent la langue du système (celle du navigateur pour la console et le client web) : français si c'est du français, anglais pour toute autre langue. Un réglage « Langue » (Auto, Français, English) dans chaque app et dans la console permet de choisir. Les messages de la console aux apps (refus, appairage, mises à jour) et son fil des événements arrivent dans la langue de qui les lit ; les notes de version sont publiées dans les deux langues.

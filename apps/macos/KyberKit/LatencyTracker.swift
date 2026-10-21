@@ -23,26 +23,7 @@
 import Foundation
 @_implementationOnly import CKyber
 
-/// Temps de chaque étape d'une image, en millisecondes (médianes de la seconde).
-public struct ChainTimes: Sendable, Equatable {
-    /// Capture → début de l'encodage (attente sur l'ordinateur).
-    public var capture: Double = 0
-    public var encode: Double = 0
-    /// Fin de l'encodage → envoi (mise en paquets, cadence).
-    public var send: Double = 0
-    /// Envoi → image complète reçue par le Mac.
-    public var network: Double = 0
-    public var decode: Double = 0
-    /// Décodée → montrée à l'écran (rendu, attente de la synchro).
-    public var display: Double = 0
-
-    public init() {}
-
-    public var all: [Double] { [capture, encode, send, network, decode, display] }
-    public var sum: Double { all.reduce(0, +) }
-}
-
-final class LatencyTracker {
+final class LatencyTracker: LatencyReporting {
     private struct Sent {
         var acquired: Int64?
         var encoding: Int64?
@@ -60,26 +41,7 @@ final class LatencyTracker {
         let seen: Int64
     }
 
-    /// Mesures de la seconde écoulée.
-    struct Second {
-        var latencyMs: Double?
-        var chain: ChainTimes?
-        /// Images montrées, images avec une latence mesurée, images montrées
-        /// sans mesure (du serveur) ou avec une valeur absurde.
-        var displayed = 0
-        var measured = 0
-        var rejected = 0
-        /// Images envoyées par l'ordinateur jamais montrées.
-        var lostFrames = 0
-        /// Trous dans le flux (paquets perdus au-delà de la correction d'erreurs).
-        var holes = 0
-        var keyframeRequests = 0
-        /// Paquets perdus d'après Kyber, depuis la mesure précédente.
-        var lostPackets = 0
-        /// Aller-retour réseau (dernière mesure), en millisecondes.
-        var rttMs: Double?
-        var bytes = 0
-    }
+    typealias Second = LatencySecond
 
     private let lock = NSLock()
     /// pts → étapes sur l'ordinateur (µs, son horloge).
@@ -351,7 +313,5 @@ final class LatencyTracker {
     }
 
     /// Maintenant, sur l'horloge des mesures de Kyber (µs).
-    static func nowMicros() -> Int64 {
-        Int64(clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1000)
-    }
+    static func nowMicros() -> Int64 { monotonicMicros() }
 }

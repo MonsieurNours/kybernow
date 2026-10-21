@@ -293,6 +293,7 @@ pub fn main() -> i32 {
         auto_reconnect: true,
         gamepad_xbox360: true,
         clipboard: true,
+        recovery: Default::default(),
     };
     let (tx, rx) = mpsc::channel();
     let _host = SessionHost::start(

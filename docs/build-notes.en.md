@@ -71,6 +71,16 @@ To report to Kyber, and to keep in mind for the KyberKit build (macOS/tvOS xcfra
 - **After `build-kyclient.sh`**: the libraries really change. Quit the app before rebuilding, then relaunch it.
 - **Outside a `.app` bundle** (test program launched next to `Vendor/Frameworks`): VLC also looks for its modules in the folder where it was built (`rootfs-arm64-macos/lib/vlc/plugins`), with the same crash. In the app, it only takes `Contents/Frameworks/plugins`.
 
+### The Rust core of the Apple apps (apps/apple)
+
+`apps/apple/scripts/build-apple.sh` builds the `kybernow-apple` crate (a hand-written C API over `kybernow-core`, see [coeur-apple.en.md](coeur-apple.en.md)) with `cargo cinstall` for `aarch64-apple-darwin`, places `libkybernow.dylib` in `apps/macos/Vendor/Frameworks` (embedded by `embed-kyber.sh` like the others), the `kybernow.h` header produced by cbindgen and a `CKyberNow` Clang module in `apps/macos/Vendor/KyberNow/include` (`SWIFT_INCLUDE_PATHS` in `project.yml`).
+
+- **`capi`**: cargo-c requires a feature of that name in the crate, even empty (`[features] capi = []`), otherwise “package does not contain this feature: capi”.
+- **Constants**: `item_types` in `cbindgen.toml` must name `constants`, or the `KN_*` are missing from the header. They are `#define`s, which Swift imports as `Int32`: compare with `Int32(kind)`, not with the struct's `uint32_t`.
+- **Paths**: cargo-c writes an absolute `install_name`; the script brings it back to `@rpath/libkybernow.dylib`, and its dependencies (`libvlc`, `libkynput.0.1`) to `@rpath`.
+- **App open**: the script refuses to run while KyberNow is open (see above); `KYBERNOW_IGNORE_RUNNING=1` overrides it when the target `Vendor/` is not the running app's (another worktree).
+- **Two copies of kyclient**: `libkybernow` embeds the code of the `kyclient` Rust crate; `libkyclient.dylib` stays loaded through the `CKyber` module, for `libkynput` (Swift input chain, until milestone 2). They do not talk to each other.
+
 ## Browsers
 
 The Kyber web client works in Chrome. In Safari, the screen stays black (WebKit is not supported, as Kyber's docs state).
