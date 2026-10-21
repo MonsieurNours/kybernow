@@ -288,6 +288,7 @@
           <h3>Vos appareils</h3>
           <ul class="ticks ticks-on">
             <li>Un Mac à puce Apple sous macOS 14 ou plus récent, pour l'app</li>
+            <li>Un PC sous Windows 10 22H2 ou Windows 11, x64 ou ARM64 (Snapdragon, sous Windows 11), pour l'app</li>
             <li>Une Apple TV 4K de 2021 ou plus récente sous tvOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
             <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
@@ -342,6 +343,22 @@
         <li><p>Entrez le compte créé à l'installation. Il est gardé dans le Trousseau du Mac. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
       </ol>
 
+      <h3 id="windows" class="sub">Avec l'app Windows</h3>
+      <p>Pour un PC portable ou un ordinateur modeste qui se connecte à un plus puissant. L'image est décodée par la carte graphique (H.264, HEVC, et AV1 quand elle le sait), affichée en Direct3D&nbsp;11&#8239;: environ 10&nbsp;ms de latence mesurées sur un réseau domestique.</p>
+      <ol class="steps-doc">
+        <li><p>Téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Client-Setup.exe">KyberNow-Client-Setup.exe</a> et ouvrez-le. Un seul installateur pour les PC x64 et ARM64&#8239;: il pose de lui-même la version qui convient. L'app s'installe pour vous seul, sans droits d'administrateur.</p></li>
+        <li><p>Ouvrez KyberNow puis choisissez «&#8239;Ajouter un ordinateur&#8239;»&#8239;:</p>
+          <ul class="ticks">
+            <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul.</li>
+            <li><b>Avec le lien</b>&#8239;: dans la console, page <b>Accès</b>, «&#8239;Ajouter un appareil&#8239;». Le lien <code>kybernow://</code> ouvre l'app avec l'ordinateur et son empreinte déjà vérifiés.</li>
+            <li><b>Par adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN. Comparez les quatre premiers groupes de l'empreinte avec ceux de la console.</li>
+          </ul>
+        </li>
+        <li><p>Pour y avoir accès, acceptez le <b>code à six chiffres</b> affiché par l'app dans la console, page <b>Accès</b>, rubrique Appareils&#8239;: rien à taper. Ou entrez le compte créé à l'installation, gardé dans le gestionnaire d'identifiants de Windows. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
+      </ol>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>Pendant la bêta, l'app n'est pas encore signée avec Authenticode&#8239;: au premier lancement, Windows SmartScreen affiche un avertissement. Cliquez sur «&#8239;Informations complémentaires&#8239;», puis sur «&#8239;Exécuter quand même&#8239;».</span></p>
+      <p class="muted">Vos ordinateurs apparaissent aussi au clic droit sur l'icône de KyberNow dans la barre des tâches&#8239;: un clic lance la session.</p>
+
       <h3 id="apple-tv" class="sub">Sur l'Apple TV</h3>
       <p>En attendant sa publication sur l'App Store, l'app s'installe depuis un Mac, signée avec votre propre compte Apple. Comptez dix minutes la première fois, une minute ensuite. Il faut une Apple TV 4K de 2021 ou plus récente, à jour, et un Mac sur le même réseau avec Xcode (gratuit sur l'App Store du Mac&#8239;; ouvrez-le une fois pour qu'il finisse de s'installer).</p>
       <ol class="steps-doc">
@@ -391,6 +408,13 @@ cd kybernow</code></pre></li>
         <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>La manette pilote la barre de session</span></div>
       </div>
       <p class="muted">Les raccourcis <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> restent sur le Mac et ne partent jamais vers l'ordinateur. <kbd>⌘</kbd> + touche est envoyé comme <kbd>Ctrl</kbd> + touche.</p>
+      <h3 class="sub">Raccourcis de l'app Windows</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>F</kbd></span><span>Plein écran ou fenêtre</span></div>
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
+      </div>
+      <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, les raccourcis de Windows, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris, partent vers l'ordinateur&#8239;; le menu Touches envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons réservées. Une session s'affiche sur un seul écran pour l'instant.</p>
       <h3 class="sub">Sur l'Apple TV</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session&#8239;: santé du flux, manettes, son, télécommande en souris, saisie de texte, déconnexion</span></div>
@@ -415,6 +439,7 @@ cd kybernow</code></pre></li>
       <h2>Mettre à jour</h2>
       <p><b>L'ordinateur</b>&#8239;: la console vérifie les nouvelles versions toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» télécharge le paquet, vérifie son empreinte et l'applique en une minute environ (une session en cours est coupée). L'icône de la zone de notification le propose aussi.</p>
       <p><b>L'app Mac</b>&#8239;: elle se met à jour toute seule, ou par <b>KyberNow › Rechercher des mises à jour…</b></p>
+      <p><b>L'app Windows</b>&#8239;: elle se met à jour toute seule, avec des mises à jour signées. Ses réglages (la roue de la barre de titre) proposent aussi les versions bêta.</p>
       <p><b>L'app Apple TV</b>&#8239;: dans le dossier <code>kybernow</code>, faites <code>git pull</code> puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
       <p class="muted">Sans la console, depuis PowerShell en administrateur&#8239;:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
@@ -424,6 +449,7 @@ cd kybernow</code></pre></li>
       <h2>Désinstaller</h2>
       <p><b>L'ordinateur</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow › Désinstaller. Services, console, écran virtuel et son certificat, règles de pare-feu et réglages sont retirés. Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels s'en servent.</p>
       <p><b>Le Mac</b>&#8239;: glissez KyberNow d'Applications à la corbeille.</p>
+      <p><b>Le PC Windows</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow › Désinstaller. L'app propose d'effacer aussi vos ordinateurs, réglages et mots de passe.</p>
       <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app.</p>
     </section>
 

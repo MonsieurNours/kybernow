@@ -2,13 +2,13 @@
 
 English · [Français](README.md)
 
-Ready-to-install Windows streaming server and macOS / tvOS clients, built on [Kyber](https://kyber.tech). Developed by [Les Lignes Claires](https://www.leslignesclaires.fr).
+Ready-to-install Windows streaming server and macOS, Windows and tvOS clients, built on [Kyber](https://kyber.tech). Developed by [Les Lignes Claires](https://www.leslignesclaires.fr).
 
 | Folder | Contents |
 |---|---|
 | `PROJECT.md` | Scope and decisions (in English: [PROJECT.en.md](PROJECT.en.md)) |
 | `apps/macos/` | macOS app (SwiftUI, VideoToolbox, Metal, Core Audio), see [its README](apps/macos/README.en.md) |
-| `apps/core/`, `apps/windows/` | Rust client core and Windows app (Direct3D 11, FFmpeg, WASAPI), see [its README](apps/windows/README.en.md) |
+| `apps/core/`, `apps/windows/` | Rust client core and Windows app (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
 | `server/` | Everything that runs on the shared computer, see [its README](server/README.en.md) |
 | `server/admin/`, `server/web/` | Administration console (Windows service, Rust) and its interface (Svelte) |
 | `server/tray/` | Notification area icon |

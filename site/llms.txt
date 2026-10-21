@@ -7,20 +7,20 @@ Key facts:
 - **What it is**: self-hosted "your own cloud" streaming. Unlike cloud gaming services, nothing is rented and no third-party server sits between the computer and your devices. Reach it at home, or from afar through a VPN (Tailscale, WireGuard).
 - **Latency**: 9.4 ms median from capture to display, measured on 19 October 2026 (RTX 3080 Ti at 3840 × 2160, 160 Hz, to a MacBook Pro M4 Max, local network, H.264).
 - **Server**: Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor. One installer sets up the Kyber engine, a web console, a virtual display and virtual speakers per session, gamepad drivers and the firewall.
-- **Clients**: your computer on all your devices. A web client served by the computer itself works on any computer, tablet or phone with a modern browser; native apps (today for Mac and Apple TV) decode the image in hardware for the lowest latency.
+- **Clients**: your computer on all your devices. A web client served by the computer itself works on any computer, tablet or phone with a modern browser; native apps (today for Mac, Windows and Apple TV) decode the image in hardware for the lowest latency.
 - **Versus Sunshine + Moonlight**: QUIC (RFC 9000) instead of GameStream; image always encrypted (TLS 1.3); a single port; virtual display at the device's resolution built in; pairing through Bonjour, QR code or an on-screen code instead of a PIN; Opus sound up to 7.1; browser client. Not yet: HDR.
 - **Price**: free, no account, no subscription, no ads. Community, non-commercial project by Les Lignes Claires. Not affiliated with or endorsed by the Kyber team.
 
 ## Pages
 
 - [Home (English)](https://www.kybernow.app/en/): presentation, path of an image, QUIC, comparison with Sunshine + Moonlight, downloads
-- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing the server, connecting a Mac, an Apple TV or a browser, sessions, VPN, updates, uninstalling, frequently asked questions
+- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing the server, connecting a Mac, a Windows PC, an Apple TV or a browser, sessions, VPN, updates, uninstalling, frequently asked questions
 - [Accueil (français)](https://www.kybernow.app/): the same presentation in French
 - [Guide et FAQ (français)](https://www.kybernow.app/guide/): the same guide in French
 
 ## Downloads and code
 
-- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Server-Setup.exe (Windows server), KyberNow-macOS.zip (Mac app), release notes and SHA-256 checksums
+- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Server-Setup.exe (Windows server), KyberNow-Client-Setup.exe (Windows app, x64 and ARM64), KyberNow-macOS.zip (Mac app), release notes and SHA-256 checksums
 - [Installing the Apple TV app](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
 - [Source code](https://github.com/MonsieurNours/kybernow)
 - [Changes made to the Kyber engine](https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md)
