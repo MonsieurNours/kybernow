@@ -101,7 +101,8 @@ apps/macos/
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
 │   ├── AudioPlayer
 │   ├── LatencyTracker     # latence de bout en bout (mesures de Kyber)
-│   ├── StreamView         # vue de session : clavier, souris, curseur
+│   ├── StreamView         # vue de session : événements AppKit, dessin du pointeur, souris relative
+│   ├── PointerLayer       # pointeur de l'ordinateur, règles Auto / Bureau / Jeu, file des entrées (partagé)
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé
@@ -181,4 +182,4 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Vers iOS et Apple TV
 
-Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `PadCombo` (la plateforme lui donne chaque touche de manette et choisit quand la combinaison se forme : à la quatrième touche sur Mac, après 250 ms tenues sur Apple TV ; GameController sur iOS fera comme l'Apple TV), `Keymap` (la plateforme fournit l'usage HID de la touche, GameController le donne directement, et dit si le clavier est ISO : sur iOS, le réglage et l'heuristique Apple de l'Apple TV). À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.
+Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `PointerLayer` (état du pointeur de l'ordinateur et règles de la souris ; la plateforme dessine, lui envoie les déplacements de l'appareil sur sa file, iOS y branchera le toucher), `PadCombo` (la plateforme lui donne chaque touche de manette et choisit quand la combinaison se forme : à la quatrième touche sur Mac, après 250 ms tenues sur Apple TV ; GameController sur iOS fera comme l'Apple TV), `Keymap` (la plateforme fournit l'usage HID de la touche, GameController le donne directement, et dit si le clavier est ISO : sur iOS, le réglage et l'heuristique Apple de l'Apple TV). À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.

@@ -14,13 +14,14 @@
 // reconnexion), rien n'est pris et la manette reste au jeu.
 //
 // Fils : tout GameController (manettes, télécommande, clavier et souris
-// Bluetooth) arrive sur une seule file série `userInteractive` (`queue`),
-// jamais sur le fil principal, où une animation SwiftUI retardait une touche
-// de plusieurs millisecondes (pics au-delà de 16 ms). L'état interne (places,
-// menu pris, manette en souris, axes en attente, moteurs) n'est touché que sur
-// cette file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, et les
-// rappels vers l'interface (`onMenuRequest`, `pointerMove`) remontent sur le
-// fil principal. Les réglages venus de l'interface sont recopiés sur la file.
+// Bluetooth) arrive sur une seule file série `userInteractive`
+// (`InputQueue.device`, partagée avec la couche de pointeur), jamais sur le
+// fil principal, où une animation SwiftUI retardait une touche de plusieurs
+// millisecondes (pics au-delà de 16 ms). L'état interne (places, menu pris,
+// manette en souris, axes en attente, moteurs) n'est touché que sur cette
+// file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, et le rappel
+// vers l'interface (`onMenuRequest`) remontent sur le fil principal. Les
+// réglages venus de l'interface sont recopiés sur la file.
 
 import Combine
 import CoreHaptics
@@ -62,8 +63,9 @@ public final class GamepadBridge: ObservableObject {
     }
 
     /// File unique des entrées de GameController (manettes, télécommande,
-    /// clavier et souris Bluetooth) : série, `userInteractive`.
-    static let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.manettes", qos: .userInteractive)
+    /// clavier et souris Bluetooth) et de la couche de pointeur : série,
+    /// `userInteractive` (`InputQueue.device`, KyberKit).
+    static let queue = InputQueue.device
     private var queue: DispatchQueue { Self.queue }
 
     // Publié sur le fil principal.
@@ -132,11 +134,14 @@ public final class GamepadBridge: ObservableObject {
     public var padMouseSpeed: Double = 1 {
         didSet { let v = padMouseSpeed; configure { $0.padMouseSpeed = v } }
     }
-    /// Le pointeur se déplace (pixels de l'écran de l'ordinateur) : la vue de
-    /// session tient sa position et l'envoie en absolu. Appelé sur le fil principal.
-    var pointerMove: ((Double, Double) -> Void)? {
-        didSet { let on = pointerMove != nil; configure { $0.pointer = on } }
+    /// Couche de pointeur de la vue de session (fil principal) : en mode
+    /// bureau, elle tient la position du pointeur et l'envoie en absolu, sur
+    /// cette même file ; nil : déplacements relatifs.
+    func setPointer(_ layer: PointerLayer?) {
+        queue.sync { pointer = layer }
     }
+    /// Sur la file seulement.
+    private var pointer: PointerLayer?
 
     /// Copie des réglages, lue sur la file seulement.
     private struct Config {
@@ -148,7 +153,6 @@ public final class GamepadBridge: ObservableObject {
         var fixedOrder = false
         var padMouse = false
         var padMouseSpeed = 1.0
-        var pointer = false
         var guideMode = GuideMode.game
     }
     private var config = Config()
@@ -782,24 +786,12 @@ public final class GamepadBridge: ObservableObject {
     }
 
     /// Clic de la manette en souris ou de la télécommande (suivi, pour être
-    /// relâché au menu, en arrière-plan ou en fin de session).
+    /// relâché au menu, en arrière-plan ou en fin de session). Les
+    /// déplacements partent de cette même file (PointerLayer) : un clic reste
+    /// derrière le déplacement qui le précède.
     private func click(_ b: InputPipeline.MouseButton, _ pressed: Bool, input: InputPipeline) {
         if pressed { heldMouse.insert(b) } else { heldMouse.remove(b) }
-        afterMoves(input) { $0.mouseButton(b, pressed: pressed) }
-    }
-
-    /// Quand la vue de session tient le pointeur, ses déplacements passent
-    /// par le fil principal ; clics et molette les suivent par le même
-    /// chemin, sinon un clic pourrait doubler le déplacement qui le précède
-    /// et tomber à côté.
-    private func afterMoves(_ input: InputPipeline, _ send: @escaping (InputPipeline) -> Void) {
-        guard config.pointer else {
-            send(input)
-            return
-        }
-        DispatchQueue.main.async { [weak input] in
-            if let input { send(input) }
-        }
+        input.mouseButton(b, pressed: pressed)
     }
 
     private func mouseButton(_ slot: Slot, _ button: PadButton, pressed: Bool, input: InputPipeline) {
@@ -843,12 +835,11 @@ public final class GamepadBridge: ObservableObject {
         queue.asyncAfter(deadline: .now() + 0.9, execute: release)
     }
 
-    /// Position absolue par la vue de session ; à défaut, déplacement relatif
-    /// (sous-pixels gardés d'un appel à l'autre).
+    /// Position absolue par la couche de pointeur ; à défaut, déplacement
+    /// relatif (sous-pixels gardés d'un appel à l'autre).
     private func move(dx: Double, dy: Double, input: InputPipeline) {
-        if config.pointer {
-            // La vue de session tient le pointeur et le dessine : fil principal.
-            DispatchQueue.main.async { self.pointerMove?(dx, dy) }
+        if let pointer {
+            pointer.move(dx: dx, dy: dy)
             return
         }
         moveRest.x += dx
@@ -861,7 +852,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func releaseMouse(_ input: InputPipeline) {
-        for b in heldMouse { afterMoves(input) { $0.mouseButton(b, pressed: false) } }
+        for b in heldMouse { input.mouseButton(b, pressed: false) }
         heldMouse.removeAll()
         altRelease?.cancel()
         altHeld = false
@@ -918,8 +909,7 @@ public final class GamepadBridge: ObservableObject {
         wheelRest.x += wx
         wheelRest.y += wy
         if abs(wheelRest.y) >= 0.25 || abs(wheelRest.x) >= 0.25 {
-            let (wx, wy) = (Float(wheelRest.x), Float(wheelRest.y))
-            afterMoves(input) { $0.wheel(dx: wx, dy: wy) }
+            input.wheel(dx: Float(wheelRest.x), dy: Float(wheelRest.y))
             wheelRest = (0, 0)
         }
     }

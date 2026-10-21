@@ -3,25 +3,22 @@
 // Le pipeline client de kynput produit déjà certaines entrées sur macOS
 // (manettes via SDL) ; on produit les autres depuis les événements AppKit,
 // comme le client Kyber. Les annonces de curseur du PC (forme, position,
-// visibilité) arrivent par un gestionnaire dédié.
+// visibilité) arrivent par un gestionnaire dédié et vont à la couche de
+// pointeur partagée (PointerLayer), sur sa file.
 //
 // Sur l'Apple TV, kynput ne produit rien lui-même : manettes, clavier et
 // souris viennent de GameController (apps/tvos/KyberKitTV), sans presse-papiers
 // (tvOS n'en a pas).
 
-#if os(macOS)
-import AppKit
-public typealias PlatformImage = NSImage
-#else
-import UIKit
-public typealias PlatformImage = UIImage
-#endif
+import CoreGraphics
+import Foundation
 @_implementationOnly import CKyber
 
-/// Curseur du PC, prêt à être affiché sur le Mac.
+/// Pointeur de l'ordinateur, tel qu'il l'annonce.
 public struct RemoteCursor {
     public let visible: Bool
-    public let image: PlatformImage?
+    /// Forme, en pixels de l'écran de l'ordinateur ; nil : inchangée ou vide.
+    public let image: CGImage?
     public let hotSpot: CGPoint
     /// Position sur l'écran de l'ordinateur, en pixels.
     public let position: CGPoint
@@ -114,11 +111,11 @@ private final class RumbleSink {
 }
 
 private final class CursorSink {
-    weak var view: StreamView?
+    weak var pointer: PointerLayer?
     /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
     /// la même image (kyber-patches serveur 0006), inutile de la refaire.
     var lastShape: Int?
-    init(view: StreamView) { self.view = view }
+    init(pointer: PointerLayer) { self.pointer = pointer }
 }
 
 final class InputPipeline {
@@ -141,14 +138,16 @@ final class InputPipeline {
     }
     private let rumble = RumbleSink()
 
-    init(display: KyberDisplay, view: StreamView, clipboard shareClipboard: Bool) {
+    /// `pointer` : la couche de pointeur de la vue de session, qui reçoit les
+    /// annonces de l'ordinateur sur sa file.
+    init(display: KyberDisplay, pointer: PointerLayer, clipboard shareClipboard: Bool) {
         displayID = display.id
         hostSize = CGSize(width: display.width, height: display.height)
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
 
-        // Curseur du PC.
-        let box = Unmanaged.passRetained(CursorSink(view: view)).toOpaque()
+        // Pointeur de l'ordinateur.
+        let box = Unmanaged.passRetained(CursorSink(pointer: pointer)).toOpaque()
         let cursor = kynput_handler_new(kynput_HandlerInterface(
             start: nil,
             stop: nil,
@@ -159,8 +158,8 @@ final class InputPipeline {
                 defer { kynput_cursor_unref(c) }
                 let box = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
                 let remote = InputPipeline.decode(c, lastShape: &box.lastShape)
-                let sink = Unmanaged<CursorSink>.fromOpaque(userdata).takeUnretainedValue()
-                DispatchQueue.main.async { sink.view?.remoteCursorChanged(remote) }
+                guard let pointer = box.pointer else { return }
+                pointer.queue.async { pointer.remoteCursorChanged(remote) }
             },
             produced_types: nil,
             produced_types_count: 0,
@@ -557,7 +556,7 @@ final class InputPipeline {
         }
     }
 
-    /// Forme ARGB (32 bits, non prémultipliée) → NSImage.
+    /// Forme ARGB (32 bits, non prémultipliée) → CGImage (prémultiplié, sRGB).
     private static func decode(_ c: OpaquePointer, lastShape: inout Int?) -> RemoteCursor {
         let visible = kynput_cursor_visible(c)
         let width = Int(kynput_cursor_width(c))
@@ -592,17 +591,13 @@ final class InputPipeline {
         // Forme entièrement transparente (lecteurs vidéo, certains jeux) :
         // le Mac garderait un pointeur invisible ; on garde la forme précédente.
         guard opaque else { return RemoteCursor(visible: visible, image: nil, hotSpot: hot, position: position) }
-        let image: PlatformImage? = pixels.withUnsafeMutableBytes { buffer in
+        let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
             guard let ctx = CGContext(
                 data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-            ), let cg = ctx.makeImage() else { return nil }
-            #if os(macOS)
-            return NSImage(cgImage: cg, size: NSSize(width: width, height: height))
-            #else
-            return UIImage(cgImage: cg)
-            #endif
+            ) else { return nil }
+            return ctx.makeImage()
         }
         return RemoteCursor(visible: visible, image: image, hotSpot: hot, position: position)
     }

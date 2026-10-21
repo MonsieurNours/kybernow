@@ -2,8 +2,8 @@
 //
 // GameController donne les touches en usages HID (page 7), que kynput
 // convertit en scancodes ; la souris donne des déplacements bruts : position
-// tenue par la vue de session (fil principal), ou envoyés bruts tels quels
-// depuis la file quand la souris est relative (jeu en plein écran).
+// tenue par la couche de pointeur partagée (PointerLayer, sur la même file),
+// ou envoyés bruts tels quels quand la souris est relative (jeu en plein écran).
 //
 // Comme les manettes, tout arrive sur la file des entrées de GamepadBridge
 // (`handlerQueue`), pas sur le fil principal ; `input` et les réglages n'y
@@ -24,9 +24,8 @@ final class KeyboardMouse {
     private var observers: [NSObjectProtocol] = []
     /// Une souris bouge : le pointeur doit s'afficher (fil principal).
     var onMouseActivity: (() -> Void)?
-    /// Déplacement de la souris (pixels), fil principal : vrai si la vue de
-    /// session l'a pris en position absolue, faux pour l'envoyer brut.
-    var onMove: ((Double, Double) -> Bool)?
+    /// Pointeur tenu par l'app, déplacé en mode bureau. Sur la file seulement.
+    private var pointer: PointerLayer?
     /// Réglage « Clavier Apple ISO » : échange des usages 0x35 et 0x64 pour
     /// les claviers Apple.
     var appleISO = false {
@@ -36,10 +35,11 @@ final class KeyboardMouse {
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
     /// observateurs précédents sont retirés d'abord, sinon ils s'empilaient
     /// et chaque clavier branché était réglé autant de fois.
-    func attach(_ input: InputPipeline) {
+    func attach(_ input: InputPipeline, pointer: PointerLayer) {
         observers.forEach(NotificationCenter.default.removeObserver)
         queue.sync {
             self.input = input
+            self.pointer = pointer
             activitySent = false
         }
         if let keyboard = GCKeyboard.coalesced { setUp(keyboard) }
@@ -69,6 +69,7 @@ final class KeyboardMouse {
         queue.sync {
             input?.flushKeys()
             input = nil
+            pointer = nil
         }
     }
 
@@ -106,39 +107,23 @@ final class KeyboardMouse {
                 DispatchQueue.main.async { self.onMouseActivity?() }
             }
             // Jeu en plein écran (souris relative) : déplacements bruts, tout
-            // de suite. Sinon, la vue de session tient la position.
-            if input.isRelative {
-                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
+            // de suite. Sinon, la couche de pointeur tient la position et
+            // l'envoie en absolu, sur cette même file : clics et molette qui
+            // suivent restent derrière le déplacement.
+            if !input.isRelative, let pointer = self.pointer {
+                pointer.move(dx: Double(dx), dy: Double(-dy))
                 return
             }
-            DispatchQueue.main.async { [weak input] in
-                guard let input, self.onMove?(Double(dx), Double(-dy)) != true else { return }
-                input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
-            }
+            input.mouseMove(dx: Int16(clamping: Int(dx.rounded())), dy: Int16(clamping: Int((-dy).rounded())))
         }
-        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.left, pressed: pressed) } }
-        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.right, pressed: pressed) } }
-        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(.middle, pressed: pressed) } }
+        m.leftButton.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.left, pressed: pressed) }
+        m.rightButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.right, pressed: pressed) }
+        m.middleButton?.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(.middle, pressed: pressed) }
         // Boutons 4 et 5 (côté du pouce) : précédent et suivant, X1 et X2 sous Windows.
         for (button, kind) in zip(m.auxiliaryButtons ?? [], [InputPipeline.MouseButton.side, .extra]) {
-            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.afterMoves { $0.mouseButton(kind, pressed: pressed) } }
+            button.pressedChangedHandler = { [weak self] _, _, pressed in self?.input?.mouseButton(kind, pressed: pressed) }
         }
         m.scroll.valueChangedHandler = { [weak self] _, x, y in self?.scrolled(first: x, second: y) }
-    }
-
-    /// En position absolue, les déplacements passent par la vue de session
-    /// (fil principal) : clics et molette les suivent par le même chemin, sinon
-    /// un clic pourrait doubler le déplacement qui le précède. En relatif
-    /// (jeu en plein écran), tout part de la file.
-    private func afterMoves(_ send: @escaping (InputPipeline) -> Void) {
-        guard let input else { return }
-        if input.isRelative {
-            send(input)
-            return
-        }
-        DispatchQueue.main.async { [weak input] in
-            if let input { send(input) }
-        }
     }
 
     /// Molette de GameController : premier axe vertical (positif = vers le
@@ -167,9 +152,8 @@ final class KeyboardMouse {
             dx -= sx
             dy -= sy
         }
-        afterMoves { input in
-            for (sx, sy) in steps { input.wheel(dx: sx, dy: sy) }
-        }
+        guard let input else { return }
+        for (sx, sy) in steps { input.wheel(dx: sx, dy: sy) }
     }
 
     private var scrollLogged = 0
