@@ -62,15 +62,17 @@ Le cœur ne dépend d'aucun système : une autre plateforme fournit sa fenêtre,
 
 ## Construire
 
-Tout se compile depuis le Mac, pour Windows x64 (`x86_64-pc-windows-gnu`, MinGW de Homebrew, comme le serveur) :
+Tout se compile depuis le Mac :
 
 ```bash
-apps/windows/scripts/build.sh
+apps/windows/scripts/build.sh                # x64 (x86_64-pc-windows-gnu, MinGW de Homebrew, comme le serveur)
+apps/windows/scripts/build.sh --arch arm64   # ARM64, PC Snapdragon (aarch64-pc-windows-gnullvm, llvm-mingw)
 ```
 
-Le dossier à copier sur le PC est `apps/windows/dist/x64/` : `kybernow.exe`, `kynput.dll` et `SDL2.dll` (manettes). Le reste vient de Windows 10 et 11 (runtime C universel, Direct3D 11, `d3dcompiler_47.dll`).
+Le dossier à copier sur le PC est `apps/windows/dist/x64/` (ou `arm64/`), aussi en archive `dist/KyberNow-<version>-windows-<arch>.zip` : `kybernow.exe`, `kynput.dll` et `SDL2.dll` (manettes), plus `libunwind.dll` en ARM64. Le reste vient de Windows 10 et 11 (runtime C universel, Direct3D 11, `d3dcompiler_47.dll`).
 
-- **Prérequis** : `third_party/` en place, et `server/kyber-patches/build.sh` passé une fois (il produit `third_party/rootfs-win64`, avec FFmpeg et libopus, et `third_party/rootfs-win64-kynput`, avec `kynput.dll`). Versions des outils : [docs/build-notes.md](../../docs/build-notes.md).
+- **Prérequis x64** : `third_party/` en place, et `server/kyber-patches/build.sh` passé une fois (il produit `third_party/rootfs-win64`, avec FFmpeg et libopus, et `third_party/rootfs-win64-kynput`, avec `kynput.dll`).
+- **Prérequis ARM64** : llvm-mingw dans `third_party/toolchains`, la cible Rust `aarch64-pc-windows-gnullvm`, puis `apps/windows/scripts/build-arm64-deps.sh` une fois : libopus, un FFmpeg réduit au décodage (H.264, HEVC, AV1, D3D11VA), SDL2 (sources vérifiées de kynput) et `kynput.dll`, dans `third_party/rootfs-winarm64`. Versions des outils : [docs/build-notes.md](../../docs/build-notes.md).
 - **Correctifs de Kyber** : les mêmes que pour les apps Apple (`apps/macos/kyber-patches`), appliqués par le script s'ils ne le sont pas.
 - **VLC** : kyclient le lie toujours sous Windows, mais l'app décode elle-même : le script remplace chaque fonction de `libvlc.dll` par une fonction vide (comme sur l'Apple TV) et refuse un exécutable qui dépendrait encore de `libvlc.dll`.
 - `--debug` : sans optimisation.
@@ -82,7 +84,7 @@ cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/
 
 ## Tester
 
-Copier `dist/x64` sur le PC, puis dans un terminal :
+Copier `dist/x64` sur le PC (ou `dist/arm64` sur un PC Snapdragon, ou dans Windows 11 ARM en machine virtuelle sur le Mac : elle dit si l'app démarre et se connecte, pas la latence ni le décodage par la carte graphique), puis dans un terminal :
 
 ```
 kybernow.exe --probe
@@ -101,7 +103,6 @@ Au premier contact, l'empreinte de la console s'affiche : la comparer à celle d
 
 ## Pas encore
 
-- **Jalon 1** : la version ARM64 (PC Snapdragon), qui demande une chaîne de compilation de plus (llvm-mingw) et FFmpeg, libopus et kynput pour ARM64.
 - **Jalon 2** : l'app (accueil, ajout par le réseau, code, lien ou adresse, réglages et carte « Ce PC », passage, barre de session), mots de passe dans le gestionnaire d'identifiants de Windows.
 - **Jalon 3** : intégration à Windows (ordinateurs au clic droit de la barre des tâches, notifications, lien `kybernow://`), installateur par utilisateur, mises à jour.
 - **Jalon 4** : raccourcis de Windows envoyés à l'ordinateur, réglage sur batterie, menu Touches, pointeur dessiné en mode jeu, file de secours des paquets refusés par kynput, mise à l'échelle du pointeur.

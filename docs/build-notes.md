@@ -13,6 +13,7 @@ Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac e
 | cargo-c (`cargo cinstall`) | 0.10.15 | clients macOS et Apple TV |
 | mingw-w64 (Homebrew) | 14.0.0, GCC 16.2.0, UCRT | serveur Windows |
 | meson | 1.11.2 | serveur Windows (dépendances, txproto) |
+| llvm-mingw | 20261006 (UCRT, macOS), clang 23.1.3 | client Windows ARM64, dans `third_party/toolchains` |
 | wasm-bindgen-cli | 0.2.100 (celle du `Cargo.lock` de kyber-web) | moteur du client web |
 | binaryen (`wasm-opt`) | 133 | moteur du client web |
 
@@ -100,6 +101,8 @@ Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (We
 - **libavcodec** : son décodeur Opus appelle libswresample, à lier aussi.
 - **Liaisons de FFmpeg** : générées par bindgen au build (`apps/windows/build.rs`) depuis les en-têtes du rootfs, avec les mêmes `BINDGEN_EXTRA_CLANG_ARGS` que kynput. `AVD3D11VADeviceContext` est recopiée à la main (des pointeurs) pour ne pas faire lire les en-têtes COM de Direct3D à bindgen.
 - **Taille** : l'exécutable embarque les encodeurs de la libavcodec du serveur (x264, VPL) ; la copie de `dist/` est sans informations de débogage (36 Mo).
+- **ARM64** (`--arch arm64`) : cible Rust `aarch64-pc-windows-gnullvm` (`rustup target add`) et chaîne [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (version UCRT pour macOS, décompressée dans `third_party/toolchains`) : MinGW de Homebrew ne vise pas ARM64. `apps/windows/scripts/build-arm64-deps.sh` compile dans `third_party/rootfs-winarm64` ce que le serveur ne fournit pas pour ARM64 : libopus (`--disable-rtcd` : la détection du processeur n'existe pas pour Windows ARM, NEON est toujours là), un FFmpeg réduit au décodage (H.264, HEVC, AV1, accélération D3D11VA, sans x264 ni VPL : 16 Mo au lieu de 170), SDL2 2.32.8 (l'archive téléchargée et vérifiée par le script de kynput) et `kynput.dll` (`cargo cinstall --dlltool llvm-dlltool`). L'exécutable demande `libunwind.dll` de llvm-mingw, copiée dans `dist/arm64`.
+- **set -e** : dans `make && make install`, un échec de `make` n'arrête pas le script (seule la dernière commande d'une liste `&&` compte) ; libopus avait échoué sans bruit. Les deux sont sur deux lignes, et le script vérifie les bibliothèques produites.
 - **Tests du cœur sur le Mac** : `cargo test -p kybernow-core` avec `PKG_CONFIG_PATH` vers `third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig` (libvlc et kynput du client macOS de Kyber).
 
 ## Moteur du client web (kyclient_wasm), depuis macOS

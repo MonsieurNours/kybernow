@@ -20,15 +20,21 @@ fn main() {
     // fonctions vides de VLC.
     let libdir = env::var("KYBERNOW_NATIVE_LIB").expect("KYBERNOW_NATIVE_LIB : lancer apps/windows/scripts/build.sh");
     println!("cargo:rustc-link-search=native={libdir}");
-    // Statiques, dans l'ordre des dépendances (libavcodec.pc, libavutil.pc).
+    // Statiques, dans l'ordre des dépendances (libavcodec.pc, libavutil.pc) ;
+    // x264, VPL et zlib n'existent que dans la libavcodec du serveur (x64).
+    let present = |lib: &str| std::path::Path::new(&libdir).join(format!("lib{lib}.a")).exists();
     for lib in ["avcodec", "swresample", "avutil", "opus", "x264", "vpl", "z"] {
-        println!("cargo:rustc-link-lib=static={lib}");
+        if present(lib) {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
     }
     for lib in ["mfuuid", "ole32", "strmiids", "user32", "gdi32", "uuid", "bcrypt"] {
         println!("cargo:rustc-link-lib=dylib={lib}");
     }
-    // libvpl est en C++ : runtime C++ de MinGW lié en statique.
-    println!("cargo:rustc-link-lib=static=stdc++");
+    if present("vpl") {
+        // libvpl est en C++ : runtime C++ de MinGW lié en statique.
+        println!("cargo:rustc-link-lib=static=stdc++");
+    }
 
     let bindings = bindgen::Builder::default()
         .header_contents(

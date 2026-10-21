@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::HWND;
 
 use kybernow_core::latency::{LatencyTracker, now_micros};
-use kybernow_core::media::{Packet, PacketHandler};
+use kybernow_core::media::{FOURCC_AV1, Packet, PacketHandler};
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, Probe, codec_name, is_corrupt};
@@ -195,7 +195,9 @@ fn run(
                 shared.first_image.store(false, Ordering::Relaxed);
             }
             VideoMsg::Config(d) => {
-                config = d;
+                // AV1 : un `av1C` (4 octets de résumé, puis les OBU) n'entre
+                // pas tel quel dans un flux d'OBU.
+                config = if fourcc == FOURCC_AV1 && d.len() > 4 && d[0] == 0x81 { d[4..].to_vec() } else { d };
                 send_config = true;
             }
             VideoMsg::Frame { data, pts, key } => {

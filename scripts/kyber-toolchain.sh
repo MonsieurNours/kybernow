@@ -1,7 +1,7 @@
 # Versions des outils avec lesquelles les binaires Kyber de KyberNow sont
 # compilés et vérifiés (voir docs/build-notes.md). Lu par
-# server/kyber-patches/build.sh, apps/macos/scripts/build-kyclient.sh et
-# apps/tvos/scripts/build-kyber-tvos.sh : une version différente n'arrête pas
+# server/kyber-patches/build.sh, apps/macos/scripts/build-kyclient.sh,
+# apps/tvos/scripts/build-kyber-tvos.sh et apps/windows/scripts/*.sh : une version différente n'arrête pas
 # la compilation, elle est signalée. Après une mise à jour vérifiée, changer la
 # valeur ici et dans docs/build-notes.md.
 
@@ -11,6 +11,7 @@ KYBER_CARGO_C=0.10.15         # cargo-c (cargo cinstall)
 KYBER_MINGW=14.0.0            # mingw-w64 (Homebrew), en-têtes et UCRT
 KYBER_MINGW_GCC=16.2.0        # x86_64-w64-mingw32-gcc
 KYBER_MESON=1.11.2
+KYBER_LLVM_MINGW=20261006     # llvm-mingw (ucrt, macOS) : client Windows ARM64, dans third_party/toolchains
 KYBER_WASM_BINDGEN=0.2.100    # wasm-bindgen-cli : celle du Cargo.lock de kyber-web
 KYBER_BINARYEN=133            # wasm-opt (Homebrew binaryen) : moteur web
 

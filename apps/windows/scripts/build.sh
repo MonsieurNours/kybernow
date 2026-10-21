@@ -2,14 +2,17 @@
 # Compile l'app Windows de KyberNow depuis macOS et assemble le dossier à
 # copier sur le PC : apps/windows/dist/<arch>/ (kybernow.exe et ses DLL).
 #
-#   apps/windows/scripts/build.sh            x64 (x86_64-pc-windows-gnu)
-#   apps/windows/scripts/build.sh --debug    sans optimisation
+#   apps/windows/scripts/build.sh                 x64 (x86_64-pc-windows-gnu)
+#   apps/windows/scripts/build.sh --arch arm64    ARM64 (aarch64-pc-windows-gnullvm)
+#   apps/windows/scripts/build.sh --debug         sans optimisation
 #
 # Prérequis (docs/build-notes.md) : third_party/ en place, les correctifs
-# client appliqués par ce script, et third_party/rootfs-win64 (FFmpeg, libopus)
-# et third_party/rootfs-win64-kynput (kynput.dll) produits par
-# server/kyber-patches/build.sh. VLC n'est pas lié : l'app décode elle-même,
-# ses fonctions sont remplacées par des fonctions vides (comme sur l'Apple TV).
+# client appliqués par ce script ; pour x64, third_party/rootfs-win64 (FFmpeg,
+# libopus) et third_party/rootfs-win64-kynput (kynput.dll) produits par
+# server/kyber-patches/build.sh ; pour ARM64, third_party/rootfs-winarm64
+# produit par scripts/build-arm64-deps.sh (llvm-mingw). VLC n'est pas lié :
+# l'app décode elle-même, ses fonctions sont remplacées par des fonctions vides
+# (comme sur l'Apple TV).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -20,29 +23,56 @@ KYSDK="$THIRD_PARTY/kyber-desktop/kysdk"
 . "$ROOT/scripts/kyber-toolchain.sh"
 
 PROFILE=release
-for arg in "$@"; do
-    case "$arg" in
+ARCH=x64
+while [ $# -gt 0 ]; do
+    case "$1" in
         --debug) PROFILE=debug ;;
-        *) echo "Option inconnue : $arg" >&2; exit 1 ;;
+        --arch) ARCH="${2:-}"; shift ;;
+        *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
+    shift
 done
 
-ARCH=x64
-TARGET=x86_64-pc-windows-gnu
-TRIPLE=x86_64-w64-mingw32
-MINGW=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/$TRIPLE
-ROOTFS="$THIRD_PARTY/rootfs-win64"
-KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
-KYBER_PAYLOAD="$THIRD_PARTY/payload/kyber-0.29.0"
+# Symboles de libvlc.dll (les mêmes pour toutes les architectures).
+VLC_IMPORT="$THIRD_PARTY/rootfs-win64/lib/libvlc.dll.a"
+case "$ARCH" in
+    x64)
+        TARGET=x86_64-pc-windows-gnu
+        TRIPLE=x86_64-w64-mingw32
+        MINGW=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/$TRIPLE
+        ROOTFS="$THIRD_PARTY/rootfs-win64"
+        KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
+        SDL2_DLL="$THIRD_PARTY/payload/kyber-0.29.0/SDL2.dll"
+        CC="$TRIPLE-gcc"; AR="$TRIPLE-ar"; NM="$TRIPLE-nm"; OBJDUMP="$TRIPLE-objdump"; STRIP="$TRIPLE-strip"
+        RUNTIME_DIRS=("$MINGW/bin" "/opt/homebrew/opt/mingw-w64/toolchain-x86_64/lib/gcc/$TRIPLE/$KYBER_MINGW_GCC" "$MINGW/lib")
+        DEPS_HINT="server/kyber-patches/build.sh"
+        export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+        ;;
+    arm64)
+        TARGET=aarch64-pc-windows-gnullvm
+        TRIPLE=aarch64-w64-mingw32
+        LLVM_MINGW="$THIRD_PARTY/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"
+        MINGW="$LLVM_MINGW/$TRIPLE"
+        ROOTFS="$THIRD_PARTY/rootfs-winarm64"
+        KYNPUT_ROOTFS="$ROOTFS"
+        SDL2_DLL="$ROOTFS/bin/SDL2.dll"
+        CC="$TRIPLE-clang"; AR=llvm-ar; NM=llvm-nm; OBJDUMP=llvm-objdump; STRIP=llvm-strip
+        RUNTIME_DIRS=("$MINGW/bin")
+        DEPS_HINT="apps/windows/scripts/build-arm64-deps.sh"
+        [ -x "$LLVM_MINGW/bin/$CC" ] || { echo "llvm-mingw $KYBER_LLVM_MINGW absent de third_party/toolchains (docs/build-notes.md)" >&2; exit 1; }
+        export PATH="$LLVM_MINGW/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+        ;;
+    *) echo "Architecture inconnue : $ARCH (x64 ou arm64)" >&2; exit 1 ;;
+esac
 STUBS="$THIRD_PARTY/windows-client-$ARCH"
 DIST="$HERE/dist/$ARCH"
 
-for f in "$ROOTFS/lib/libavcodec.a" "$ROOTFS/lib/libopus.a" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYBER_PAYLOAD/SDL2.dll"; do
-    [ -f "$f" ] || { echo "$f introuvable : lancez d'abord server/kyber-patches/build.sh" >&2; exit 1; }
+for f in "$ROOTFS/lib/libavcodec.a" "$ROOTFS/lib/libopus.a" "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$VLC_IMPORT"; do
+    [ -f "$f" ] || { echo "$f introuvable : lancez d'abord $DEPS_HINT" >&2; exit 1; }
 done
 
-export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
-kyber_toolchain_check rustc mingw
+kyber_toolchain_check rustc
+[ "$ARCH" = x64 ] && kyber_toolchain_check mingw
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
 # réception), les mêmes que pour les apps Apple.
@@ -65,12 +95,12 @@ done
 # VLC : une fonction vide par export de libvlc.dll (jamais appelée tant que
 # l'image et le son vont à l'app), et un libvlc.pc qui la désigne.
 mkdir -p "$STUBS/pkgconfig"
-if [ ! -f "$STUBS/libvlc.a" ] || [ "$ROOTFS/lib/libvlc.dll.a" -nt "$STUBS/libvlc.a" ]; then
+if [ ! -f "$STUBS/libvlc.a" ] || [ "$VLC_IMPORT" -nt "$STUBS/libvlc.a" ]; then
     echo "==> Fonctions vides de VLC"
-    "$TRIPLE-nm" "$ROOTFS/lib/libvlc.dll.a" | awk '$2 == "T" && $3 ~ /^libvlc_/ {print "void *" $3 "(void) { return 0; }"}' | sort -u > "$STUBS/vlc-stubs.c"
-    "$TRIPLE-gcc" -O2 -c "$STUBS/vlc-stubs.c" -o "$STUBS/vlc-stubs.o"
+    x86_64-w64-mingw32-nm "$VLC_IMPORT" | awk '$2 == "T" && $3 ~ /^libvlc_/ {print "void *" $3 "(void) { return 0; }"}' | sort -u > "$STUBS/vlc-stubs.c"
+    "$CC" -O2 -c "$STUBS/vlc-stubs.c" -o "$STUBS/vlc-stubs.o"
     rm -f "$STUBS/libvlc.a"
-    "$TRIPLE-ar" rcs "$STUBS/libvlc.a" "$STUBS/vlc-stubs.o"
+    "$AR" rcs "$STUBS/libvlc.a" "$STUBS/vlc-stubs.o"
 fi
 printf 'Name: libvlc\nDescription: fonctions vides (KyberNow)\nVersion: 3.0.0\nLibs: -L%s -lvlc\nCflags:\n' "$STUBS" > "$STUBS/pkgconfig/libvlc.pc"
 
@@ -78,16 +108,18 @@ export PKG_CONFIG_ALLOW_CROSS=1
 export PKG_CONFIG_LIBDIR="$STUBS/pkgconfig:$KYNPUT_ROOTFS/lib/pkgconfig"
 export LIBCLANG_PATH="${LIBCLANG_PATH:-/Library/Developer/CommandLineTools/usr/lib}"
 export BINDGEN_EXTRA_CLANG_ARGS="--target=$TARGET --sysroot=$MINGW -I$MINGW/include"
-export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER="$TRIPLE-gcc"
-export CC_x86_64_pc_windows_gnu="$TRIPLE-gcc"
-export AR_x86_64_pc_windows_gnu="$TRIPLE-ar"
+TARGET_ENV=$(echo "$TARGET" | tr 'a-z-' 'A-Z_')
+export "CARGO_TARGET_${TARGET_ENV}_LINKER=$CC"
+export "CC_${TARGET//-/_}=$CC"
+export "AR_${TARGET//-/_}=$AR"
 # FFmpeg et libopus statiques, lus par apps/windows/build.rs, dans un dossier
 # à part : celui du rootfs contient aussi libvlc.dll.a.
 NATIVE_LIB="$STUBS/native"
 rm -rf "$NATIVE_LIB"
 mkdir -p "$NATIVE_LIB"
+# x264, VPL et zlib : seulement dans la libavcodec du serveur (x64).
 for lib in avcodec swresample avutil opus x264 vpl z; do
-    ln -s "$ROOTFS/lib/lib$lib.a" "$NATIVE_LIB/lib$lib.a"
+    [ -f "$ROOTFS/lib/lib$lib.a" ] && ln -s "$ROOTFS/lib/lib$lib.a" "$NATIVE_LIB/lib$lib.a"
 done
 export KYBERNOW_NATIVE_PREFIX="$ROOTFS"
 export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
@@ -103,17 +135,23 @@ EXE="$APPS/target/$TARGET/$PROFILE/kybernow.exe"
 echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYBER_PAYLOAD/SDL2.dll" "$DIST/"
+cp "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
 # Sans les informations de débogage (gardées dans target/).
-"$TRIPLE-strip" -o "$DIST/kybernow.exe" "$EXE"
-if "$TRIPLE-objdump" -p "$DIST/kybernow.exe" | grep -qi "DLL Name: libvlc"; then
+"$STRIP" -o "$DIST/kybernow.exe" "$EXE"
+if "$OBJDUMP" -p "$DIST/kybernow.exe" | grep -qi "DLL Name: libvlc"; then
     echo "kybernow.exe dépend de libvlc.dll : les fonctions vides de VLC n'ont pas été liées" >&2
     exit 1
 fi
-# Runtime MinGW demandé par l'exécutable ou kynput.dll.
-for dll in $("$TRIPLE-objdump" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
-    for dir in "$MINGW/bin" "/opt/homebrew/opt/mingw-w64/toolchain-x86_64/lib/gcc/$TRIPLE/$KYBER_MINGW_GCC" "$MINGW/lib"; do
+# Runtime de la chaîne (MinGW, libunwind et libc++ de llvm-mingw) demandé par
+# l'exécutable ou les DLL.
+for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.dll" | awk '/DLL Name:/ {print $3}' | sort -u); do
+    for dir in "${RUNTIME_DIRS[@]}"; do
         if [ -f "$dir/$dll" ]; then cp "$dir/$dll" "$DIST/"; break; fi
     done
 done
+VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$APPS/Cargo.toml" | head -1)
+ZIP="$HERE/dist/KyberNow-$VERSION-windows-$ARCH.zip"
+rm -f "$ZIP"
+(cd "$HERE/dist" && zip -qr "$ZIP" "$ARCH")
 ls -la "$DIST"
+echo "==> $ZIP"

@@ -62,15 +62,17 @@ The core depends on no operating system: another platform provides its window, d
 
 ## Building
 
-Everything builds from the Mac, for Windows x64 (`x86_64-pc-windows-gnu`, Homebrew MinGW, like the server):
+Everything builds from the Mac:
 
 ```bash
-apps/windows/scripts/build.sh
+apps/windows/scripts/build.sh                # x64 (x86_64-pc-windows-gnu, Homebrew MinGW, like the server)
+apps/windows/scripts/build.sh --arch arm64   # ARM64, Snapdragon PCs (aarch64-pc-windows-gnullvm, llvm-mingw)
 ```
 
-The folder to copy to the PC is `apps/windows/dist/x64/`: `kybernow.exe`, `kynput.dll` and `SDL2.dll` (gamepads). The rest comes with Windows 10 and 11 (Universal C runtime, Direct3D 11, `d3dcompiler_47.dll`).
+The folder to copy to the PC is `apps/windows/dist/x64/` (or `arm64/`), also as an archive `dist/KyberNow-<version>-windows-<arch>.zip`: `kybernow.exe`, `kynput.dll` and `SDL2.dll` (gamepads), plus `libunwind.dll` on ARM64. The rest comes with Windows 10 and 11 (Universal C runtime, Direct3D 11, `d3dcompiler_47.dll`).
 
-- **Prerequisites**: `third_party/` in place, and `server/kyber-patches/build.sh` run once (it produces `third_party/rootfs-win64`, with FFmpeg and libopus, and `third_party/rootfs-win64-kynput`, with `kynput.dll`). Tool versions: [docs/build-notes.en.md](../../docs/build-notes.en.md).
+- **x64 prerequisites**: `third_party/` in place, and `server/kyber-patches/build.sh` run once (it produces `third_party/rootfs-win64`, with FFmpeg and libopus, and `third_party/rootfs-win64-kynput`, with `kynput.dll`).
+- **ARM64 prerequisites**: llvm-mingw in `third_party/toolchains`, the Rust target `aarch64-pc-windows-gnullvm`, then `apps/windows/scripts/build-arm64-deps.sh` once: libopus, an FFmpeg reduced to decoding (H.264, HEVC, AV1, D3D11VA), SDL2 (kynput's verified sources) and `kynput.dll`, in `third_party/rootfs-winarm64`. Tool versions: [docs/build-notes.en.md](../../docs/build-notes.en.md).
 - **Kyber patches**: the same as for the Apple apps (`apps/macos/kyber-patches`), applied by the script if they are not.
 - **VLC**: kyclient always links it on Windows, but the app decodes by itself: the script replaces each function of `libvlc.dll` with an empty one (as on the Apple TV) and refuses an executable that would still depend on `libvlc.dll`.
 - `--debug`: without optimisation.
@@ -82,7 +84,7 @@ cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/
 
 ## Testing
 
-Copy `dist/x64` to the PC, then in a terminal:
+Copy `dist/x64` to the PC (or `dist/arm64` to a Snapdragon PC, or into Windows 11 ARM in a virtual machine on the Mac: it tells whether the app starts and connects, not the latency nor graphics-card decoding), then in a terminal:
 
 ```
 kybernow.exe --probe
@@ -101,7 +103,6 @@ On first contact, the console's fingerprint is shown: compare it with the consol
 
 ## Not yet
 
-- **Milestone 1**: the ARM64 version (Snapdragon PCs), which needs one more toolchain (llvm-mingw) and FFmpeg, libopus and kynput for ARM64.
 - **Milestone 2**: the app (home, adding through the network, a code, a link or an address, settings and the “This PC” card, passage, session bar), passwords in the Windows Credential Manager.
 - **Milestone 3**: Windows integration (computers on a right-click of the taskbar icon, notifications, `kybernow://` link), per-user installer, updates.
 - **Milestone 4**: Windows shortcuts sent to the computer, on-battery setting, Keys menu, pointer drawn in game mode, fallback queue for packets refused by kynput, pointer scaling.
