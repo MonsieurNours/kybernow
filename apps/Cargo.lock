@@ -2220,6 +2220,7 @@ dependencies = [
  "kyvlcplayer",
  "log",
  "minisign-verify",
+ "pkg-config",
  "rustls",
  "serde",
  "serde_json",

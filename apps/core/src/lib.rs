@@ -3,6 +3,7 @@
 //! ici ne dépend d'un système : décodage, rendu, son et entrées sont fournis
 //! par l'app à travers [`session::Platform`].
 
+pub mod audio;
 pub mod console;
 pub mod i18n;
 pub mod input;
