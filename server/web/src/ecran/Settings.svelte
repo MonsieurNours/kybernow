@@ -24,17 +24,21 @@
 
   let advanced = $state(false)
 
-  /** Chemin de l'image dans ce navigateur, et pourquoi. */
-  const pathText =
-    websocketReason === 'touch'
+  /** Chemin de l'image dans ce navigateur, et pourquoi (relu quand le moteur
+   * est chargé : `plan` arrive avec lui). */
+  const pathText = $derived.by(() => {
+    void plan
+    const reason = websocketReason()
+    return reason === 'touch'
       ? 'WebSocket sur cet appareil tactile : c’est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).'
-      : websocketReason === 'webkit'
+      : reason === 'webkit'
         ? 'WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).'
-        : websocketReason === 'firefox'
+        : reason === 'firefox'
           ? 'WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).'
-          : websocketReason === 'unsupported'
+          : reason === 'unsupported'
             ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
             : 'WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.'
+  })
   let dialog: HTMLElement
 
   onMount(() => {

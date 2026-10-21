@@ -69,6 +69,30 @@ export type EngineEvent =
 type Wasm = any
 
 let modulePromise: Promise<Wasm> | null = null
+let fixed = false
+
+/** Moteur corrigé par la surcouche KyberNow (correctifs 0013 à 0015) : il lit
+ * le texte du champ marqué `data-kynput-text` et garde la position absolue
+ * hors capture. Il n'exporte rien de neuf ; on le reconnaît aux fonctions
+ * qu'il importe du navigateur : `InputEvent.inputType` et
+ * `Element.hasAttribute`, lues par son écouteur `beforeinput` (absentes du
+ * moteur d'origine). Moteur pas encore chargé, ou illisible : d'origine. */
+function detectFixed(m: Wasm): boolean {
+  try {
+    const mod = m.default?.__wbindgen_wasm_module
+    if (!(mod instanceof WebAssembly.Module)) return false
+    const names = WebAssembly.Module.imports(mod).map((i) => i.name)
+    const has = (prefix: string) => names.some((n) => n.startsWith(prefix))
+    return has('__wbg_inputType_') && has('__wbg_hasAttribute_')
+  } catch {
+    return false
+  }
+}
+
+/** Le moteur chargé est-il le moteur corrigé ? `false` tant qu'il n'est pas chargé. */
+export function isFixedEngine(): boolean {
+  return fixed
+}
 
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
 export function loadEngine(): Promise<Wasm> {
@@ -76,6 +100,7 @@ export function loadEngine(): Promise<Wasm> {
     const url = new URL('kyclient_wasm.js', new URL('/ecran/', location.origin)).href
     modulePromise = import(/* @vite-ignore */ url).then(async (m) => {
       await m.default()
+      fixed = detectFixed(m)
       return m
     })
     modulePromise.catch(() => (modulePromise = null))

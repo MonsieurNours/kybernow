@@ -3,7 +3,7 @@
 // champ caché ouvre le clavier de l'appareil.
 
 import type { TouchMode } from './prefs'
-import { sendText as sendUnicode } from './inputs'
+import { engineInputs, sendText as sendUnicode } from './inputs'
 import { isRemoteCursorHidden, sendHostPosition } from './pointer'
 import { diag, diagEnabled } from './diag'
 
@@ -72,11 +72,14 @@ export class TouchInput {
   /** Pointeur de l'ordinateur masqué (Windows le cache sans souris branchée) :
    * le moteur n'envoie plus que des déplacements, nuls pour nos événements.
    * La page envoie alors la position elle-même (WebSocket), ou à défaut un
-   * déplacement relatif, approximatif mais qui fait bouger le pointeur. */
+   * déplacement relatif, approximatif mais qui fait bouger le pointeur.
+   * Le moteur corrigé garde les positions tant que le pointeur n'est pas
+   * capturé : rien à faire. */
   private movement(p: Point): Partial<MouseEventInit> {
     const last = this.lastMove
     this.lastMove = p
-    if (!isRemoteCursorHidden() || sendHostPosition(p.x, p.y) || !last) return { movementX: 0, movementY: 0 }
+    const engineKeeps = engineInputs() && !document.pointerLockElement
+    if (!isRemoteCursorHidden() || engineKeeps || sendHostPosition(p.x, p.y) || !last) return { movementX: 0, movementY: 0 }
     return { movementX: Math.round(p.x - last.x), movementY: Math.round(p.y - last.y) }
   }
 
@@ -261,6 +264,10 @@ const DEVICE_KEYS: Record<string, string> = {
   PageDown: 'PageDown',
 }
 
+/** Attribut qui confie le texte d'un champ au moteur corrigé (paquets
+ * Unicode, aussi en WebTransport). La page ne le pose qu'avec ce moteur. */
+export const TEXT_ATTRIBUTE = 'data-kynput-text'
+
 /** Une frappe de vrai clavier suivie de son texte arrive dans ce délai. */
 const HARDWARE_TEXT_MS = 150
 
@@ -276,6 +283,12 @@ const HARDWARE_TEXT_MS = 150
  * Un vrai clavier (iPad avec clavier, clavier Bluetooth) donne un `code` à
  * ses frappes : le moteur les envoie déjà ; le texte qu'elles produisent
  * dans le champ ne repart pas.
+ *
+ * Champ marqué `data-kynput-text` (moteur corrigé) : le moteur tape le texte
+ * lui-même, sur `document`, après nous. La page ne l'envoie alors que pour un
+ * raccourci (Ctrl, Alt ou ⊞ collants, en touches), en l'empêchant
+ * (`preventDefault`, ou `stopPropagation` pour `compositionend`) pour qu'il
+ * ne parte pas deux fois. Les touches restent à la page dans les deux cas.
  */
 export class TypedText {
   private composing = false
@@ -290,6 +303,11 @@ export class TypedText {
 
   private fromHardware(): boolean {
     return performance.now() - this.hardwareAt < HARDWARE_TEXT_MS
+  }
+
+  /** Le moteur lit-il ce champ ? (il regarde l'attribut à chaque événement) */
+  private engineTypes(): boolean {
+    return !!this.field()?.hasAttribute(TEXT_ATTRIBUTE)
   }
 
   keydown = (e: KeyboardEvent) => {
@@ -310,14 +328,19 @@ export class TypedText {
   }
 
   beforeinput = (e: InputEvent) => {
-    if (diagEnabled) diag.lastInput = `${e.inputType}${this.fromHardware() ? ' (vrai clavier)' : ''}`
-    if (this.fromHardware()) return
+    const engine = this.engineTypes()
+    if (diagEnabled) diag.lastInput = `${e.inputType}${this.fromHardware() ? ' (vrai clavier)' : ''}${engine ? ' (moteur)' : ''}`
+    // Le moteur corrigé trie lui-même les frappes d'un vrai clavier.
+    if (!engine && this.fromHardware()) return
     switch (e.inputType) {
       case 'insertText':
       case 'insertReplacementText':
       case 'insertFromPaste':
       case 'insertFromDrop': {
         if (e.isComposing || this.composing) return
+        // Le moteur tape le texte, sauf un raccourci (en touches, par nous)
+        // et un collage sans `data` (texte dans `dataTransfer`, qu'il ne lit pas).
+        if (engine && !this.mods().size && e.data) return
         const text = e.data ?? e.dataTransfer?.getData('text/plain') ?? ''
         e.preventDefault()
         if (text) this.text(text)
@@ -349,7 +372,15 @@ export class TypedText {
 
   compositionend = (e: CompositionEvent) => {
     this.composing = false
-    if (e.data && !this.fromHardware()) this.text(e.data)
+    if (!e.data) {
+      // Rien à taper.
+    } else if (!this.engineTypes()) {
+      if (!this.fromHardware()) this.text(e.data)
+    } else if (this.mods().size) {
+      // Raccourci : en touches, et le moteur ne doit pas taper le texte aussi.
+      e.stopPropagation()
+      this.text(e.data)
+    }
     // Le navigateur termine la composition après cet événement : on vide ensuite.
     setTimeout(() => this.clear(), 0)
   }

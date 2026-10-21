@@ -110,6 +110,31 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var hint: Hint?
     private var mouseHintShown = false
 
+    /// Mode d'un écran : définition réelle et fréquence.
+    struct ScreenMode: Equatable {
+        let width: Int
+        let height: Int
+        let refresh: Int
+    }
+
+    /// « Comme cet écran », écran de ce Mac changé en session (écran externe
+    /// branché ou débranché, définition changée) : mode proposé pour l'écran
+    /// de l'ordinateur, jamais appliqué sans l'accord de l'utilisateur
+    /// (capsule, puis puce dans la barre).
+    @Published private(set) var screenOffer: ScreenMode?
+    /// Capsule de la proposition, en haut de l'image (quelques secondes).
+    @Published private(set) var screenOfferShown = false
+    /// Capsule de la proposition, dans l'espace « chrome » : seul endroit
+    /// cliquable hors de la barre.
+    var screenOfferRect: CGRect = .zero
+    private var screenObservers: [NSObjectProtocol] = []
+    private var screenCheck: Task<Void, Never>?
+    private var screenOfferHide: Task<Void, Never>?
+    /// Plein écran recalé sur l'écran restant, en cours.
+    private var refitting = false
+    /// Capsule à montrer au prochain démarrage de l'image.
+    private var pendingNotice: String?
+
     private let store: HostStore
     private let onFinish: (SessionController) -> Void
 
@@ -196,6 +221,15 @@ final class SessionController: NSObject, ObservableObject {
         occlusionObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.occlusionChanged() }
         }
+        // Écran branché, débranché, définition changée ; fenêtre passée sur un autre écran.
+        screenObservers = [
+            NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensChanged() }
+            },
+            NotificationCenter.default.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.screensChanged() }
+            },
+        ]
         windowDelegate.original = window.delegate
         windowDelegate.onClose = { [weak self] in
             guard let self, self.phase != .ended else { return }
@@ -219,7 +253,7 @@ final class SessionController: NSObject, ObservableObject {
     /// ouvert (son animation dure 1,1 s). Hors flux, tout revient.
     private func updateCompositing() {
         let streaming = phase == .streaming
-        let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || entering
+        let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || entering || screenOfferShown
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
         if streaming {
             guard sceneHide == nil, !scene.isHidden else { return }
@@ -485,7 +519,11 @@ final class SessionController: NSObject, ObservableObject {
                 chooseDisplay()
             }
         case .streamingStarted:
-            if pipelineRelaunched {
+            if let notice = pendingNotice {
+                pendingNotice = nil
+                pipelineRelaunched = false
+                showHint(.notice(notice), after: 0, for: 4)
+            } else if pipelineRelaunched {
                 pipelineRelaunched = false
                 showHint(.notice("L'image a été relancée."), after: 0, for: 4)
             }
@@ -627,6 +665,148 @@ final class SessionController: NSObject, ObservableObject {
     private var preparedSize: (width: Int, height: Int)? {
         guard let w = prepared?.width, let h = prepared?.height else { return nil }
         return (w, h)
+    }
+
+    // MARK: - Écran de ce Mac
+
+    /// Les écrans changent par rafales (branchement, réveil, plein écran qui
+    /// se recale) : on attend qu'ils se posent.
+    private func screensChanged() {
+        screenCheck?.cancel()
+        screenCheck = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(800))
+            guard let self, !Task.isCancelled else { return }
+            self.screenCheck = nil
+            self.refitWindowIfNeeded()
+            self.checkScreenMode()
+        }
+    }
+
+    /// Écran de la fenêtre débranché : macOS la passe sur un écran restant,
+    /// mais une fenêtre en plein écran peut y garder la taille et la place de
+    /// l'ancien. On sort du plein écran, on la pose sur l'écran principal et
+    /// on y revient en plein écran. Fenêtre restée hors de tout écran : recentrée.
+    private func refitWindowIfNeeded() {
+        // Avant l'image, la fenêtre peut être encore en train de passer en plein écran.
+        guard let window, !refitting, revealedAt != nil, phase != .ending, phase != .ended else { return }
+        let screens = NSScreen.screens
+        guard let main = NSScreen.main ?? screens.first else { return }
+        if window.styleMask.contains(.fullScreen) {
+            if let screen = window.screen, abs(window.frame.width - screen.frame.width) < 2,
+               screen.frame.insetBy(dx: -1, dy: -1).contains(window.frame) { return }
+            refitting = true
+            KyberLog.app.notice("plein écran sur un écran débranché : retour en plein écran sur l'écran restant")
+            windowDelegate.onExitFullScreen = { [weak self] in
+                guard let self else { return }
+                self.windowDelegate.onExitFullScreen = nil
+                let area = (NSScreen.main ?? main).visibleFrame
+                self.window?.setFrame(area.insetBy(dx: area.width * 0.1, dy: area.height * 0.1), display: true)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.refitting = false
+                    guard self.phase != .ending, self.phase != .ended else { return }
+                    if self.window?.styleMask.contains(.fullScreen) == false { self.window?.toggleFullScreen(nil) }
+                }
+            }
+            window.toggleFullScreen(nil)
+            // Sortie du plein écran refusée (transition en cours) : on n'attend pas sans fin.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                guard let self, self.refitting else { return }
+                self.refitting = false
+                self.windowDelegate.onExitFullScreen = nil
+            }
+        } else if !screens.contains(where: { $0.frame.intersects(window.frame) }) {
+            var frame = window.frame
+            frame.size.width = min(frame.width, main.visibleFrame.width)
+            frame.size.height = min(frame.height, main.visibleFrame.height)
+            frame.origin = CGPoint(x: main.visibleFrame.midX - frame.width / 2, y: main.visibleFrame.midY - frame.height / 2)
+            window.setFrame(frame, display: true)
+        }
+    }
+
+    /// « Comme cet écran » : si le mode de l'écran qui montre la session
+    /// (définition réelle, fréquence) n'est plus celui demandé à la console,
+    /// on propose d'adapter l'image ; revenu au mode demandé, la proposition part.
+    private func checkScreenMode() {
+        guard phase == .streaming, restoring == nil else { return }
+        guard host.settings.display == .match, prepared?.virtualDisplay == true, let r = requested,
+              let screen = window?.screen ?? NSScreen.main else {
+            clearScreenOffer()
+            return
+        }
+        let m = DisplayInfo.mode(for: screen, codec: host.settings.codec, limit4K: host.settings.limit4K)
+        let mode = ScreenMode(width: m.width, height: m.height, refresh: m.refresh)
+        guard mode != ScreenMode(width: r.width, height: r.height, refresh: r.refresh) else {
+            clearScreenOffer()
+            return
+        }
+        guard mode != screenOffer else { return }
+        KyberLog.app.notice("écran de ce Mac : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, l'ordinateur est en \(r.width)×\(r.height) à \(r.refresh) Hz : adaptation proposée")
+        screenOffer = mode
+        screenOfferHide?.cancel()
+        withAnimation(Theme.easeOut) { screenOfferShown = true }
+        // La capsule s'efface ; la puce reste dans la barre.
+        screenOfferHide = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            self?.dismissScreenOffer()
+        }
+    }
+
+    private func clearScreenOffer() {
+        screenOfferHide?.cancel()
+        screenOffer = nil
+        if screenOfferShown { withAnimation(.easeIn(duration: 0.25)) { screenOfferShown = false } }
+        screenOfferRect = .zero
+    }
+
+    /// « Plus tard » : la capsule part, la puce reste dans la barre.
+    func dismissScreenOffer() {
+        screenOfferHide?.cancel()
+        withAnimation(.easeIn(duration: 0.25)) { screenOfferShown = false }
+        screenOfferRect = .zero
+    }
+
+    /// « Adapter » : la console refait l'écran virtuel au mode de cet écran
+    /// (`prepare`), puis l'image repart dessus, comme après une reconnexion
+    /// (attente que Kyber l'annonce, choix de l'écran, démarrage du flux).
+    func adaptToScreen() {
+        guard let offer = screenOffer, let console, let previous = requested, restoring == nil, phase == .streaming else { return }
+        clearScreenOffer()
+        requested = (offer.width, offer.height, offer.refresh, previous.channels)
+        KyberLog.app.notice("adaptation à l'écran de ce Mac : écran virtuel redemandé en \(offer.width)×\(offer.height) à \(offer.refresh) Hz")
+        showHint(.notice("Adaptation de l'image à \(offer.width) × \(offer.height)…"), after: 0, for: 3)
+        kyber?.stopStreaming()
+        streaming = nil
+        lastRestore = Date()
+        restoring = Task { [weak self] in
+            guard let self else { return }
+            defer { self.restoring = nil }
+            do {
+                let result = try await console.prepare(width: offer.width, height: offer.height, refresh: offer.refresh, audioChannels: previous.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
+                self.prepared = result
+                let mode = (result.width ?? offer.width, result.height ?? offer.height, result.refresh ?? offer.refresh)
+                self.streamMode = mode
+                self.modeLabel = "\(mode.0) × \(mode.1) · \(mode.2) Hz"
+                self.pendingNotice = "Image adaptée à \(mode.0) × \(mode.1)."
+            } catch {
+                // L'ancien mode reste celui à redemander (reconnexion, écran virtuel perdu).
+                self.requested = previous
+                KyberLog.app.error("adaptation refusée : \(error.localizedDescription, privacy: .public)")
+                self.showHint(.fallback("L'écran de l'ordinateur n'a pas pu être adapté : \(error.localizedDescription)"), after: 0, for: 6)
+            }
+            // Kyber annonce l'écran recréé quelques instants après la console.
+            for _ in 0..<60 where !self.virtualDisplayAnnounced {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            guard !Task.isCancelled, self.kyber != nil, self.phase != .ending, self.phase != .ended else { return }
+            self.restoring = nil
+            self.settleUntil = nil
+            self.refreshModeOffer()
+            self.chooseDisplay()
+            // L'écran a pu changer encore pendant l'adaptation.
+            self.checkScreenMode()
+        }
     }
 
     // MARK: - Mode de l'écran de l'ordinateur
@@ -881,6 +1061,7 @@ final class SessionController: NSObject, ObservableObject {
         foregroundPoll?.cancel()
         pipelineRetry?.cancel()
         modeRestore?.cancel()
+        clearScreenOffer()
         streamView.detach()
         // Latence médiane de la session, montrée sur l'accueil.
         if let latency = kyber?.sessionLatencyMs {
@@ -986,6 +1167,10 @@ final class SessionController: NSObject, ObservableObject {
         chrome = nil
         if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
         occlusionObserver = nil
+        screenObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        screenObservers = []
+        screenCheck?.cancel()
+        screenOfferHide?.cancel()
         if let window {
             window.delegate = windowDelegate.original
             if let homeView { window.contentView = homeView }
@@ -1001,6 +1186,7 @@ final class SessionController: NSObject, ObservableObject {
         pipelineRetry?.cancel()
         modeRestore?.cancel()
         foregroundPoll?.cancel()
+        clearScreenOffer()
         kyber?.stop()
         kyber = nil
         stats = nil

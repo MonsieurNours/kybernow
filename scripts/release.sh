@@ -20,13 +20,16 @@
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
 #   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
 #      SHA256SUMS, manifeste signé (scripts/sign-manifest.sh, minisign) ;
+#      flux cumulatif du site (site/updates/appcast.xml, stables et bêtas,
+#      lu par l'app Mac) mis à jour et commité après le commit de version ;
 #   6. release GitHub en brouillon, avec tous les fichiers ;
-#   7. tag vX.Y.Z sur le commit, 8. push du commit et du tag (atomique),
-#   9. publication de la release.
+#   7. tag vX.Y.Z sur le commit de version, 8. push de main (commit de
+#      version et flux du site) et du tag (atomique), 9. publication.
 #
 # Relance après un échec : relancer la même commande. Le commit « KyberNow
-# X.Y.Z » déjà en tête est réutilisé (pas de second commit), le brouillon
-# existant reçoit les nouveaux fichiers, le tag est posé s'il manque.
+# X.Y.Z » déjà en tête (ou juste sous le commit du flux du site) est
+# réutilisé (pas de second commit), le brouillon existant reçoit les
+# nouveaux fichiers, le tag est posé s'il manque.
 #
 # Prérequis : third_party/ prêt (docs/build-notes.md), surcouche Kyber à jour
 # (server/kyber-patches/build.sh), SDK client de l'app Mac (apps/macos/Vendor,
@@ -70,6 +73,10 @@ CHANNEL=stable
 APP="apps/macos/build/Build/Products/Release/KyberNow.app"
 OVERLAY="$ROOT/third_party/payload/kyber-overlay"
 OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
+# Flux cumulatif des mises à jour de l'app Mac, publié par le site
+# (www.kybernow.app/updates/appcast.xml) : toutes les versions, bêtas comprises.
+SITE_FEED="site/updates/appcast.xml"
+FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 ASSETS=(KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
@@ -136,17 +143,22 @@ else
     problem "origin inaccessible (git fetch origin main)"
 fi
 
-# Relance : le commit de version est déjà en tête.
+# Relance : le commit de version est déjà en tête, ou juste sous celui du
+# flux du site (échec après l'étape 5).
 RELAUNCH=0
-if [ "$(git log -1 --format=%s)" = "KyberNow $VERSION" ]; then
+VERSION_REF=HEAD
+if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && [ "$(git log -1 --format=%s HEAD~1 2> /dev/null)" = "KyberNow $VERSION" ]; then
+    VERSION_REF=HEAD~1
+fi
+if [ "$(git log -1 --format=%s "$VERSION_REF")" = "KyberNow $VERSION" ]; then
     if grep -qxF "version = \"$VERSION\"" server/admin/Cargo.toml; then
-        RELAUNCH=1; ok "commit « KyberNow $VERSION » déjà en tête : relance, pas de nouveau commit"
+        RELAUNCH=1; ok "commit « KyberNow $VERSION » déjà fait$([ "$VERSION_REF" != HEAD ] && echo ", flux du site commité par-dessus") : relance, pas de nouveau commit"
     else
-        problem "la tête s'appelle « KyberNow $VERSION » mais server/admin/Cargo.toml n'a pas cette version"
+        problem "le commit « KyberNow $VERSION » est là mais server/admin/Cargo.toml n'a pas cette version"
     fi
 fi
 if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
-    if [ "$RELAUNCH" = 1 ] && [ "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse HEAD)" ]; then
+    if [ "$RELAUNCH" = 1 ] && [ "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse "$VERSION_REF")" ]; then
         ok "tag $TAG déjà posé sur le commit de version (relance)"
     else
         problem "le tag $TAG existe déjà sur $(git rev-list -n 1 "$TAG" | cut -c1-7) (version publiée, ou reste d'un essai raté : git tag -d $TAG)"
@@ -188,8 +200,12 @@ if [ "$MODE" != release ]; then
     else problem "apps/tvos/Vendor absent : l'essai ne le compile pas (apps/tvos/scripts/build-kyber-tvos.sh)"; fi
 fi
 
+# Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
+if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
+else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
+
 # Outils et comptes.
-for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto; do
+for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint; do
     command -v "$tool" > /dev/null || problem "$tool introuvable"
 done
 RELEASE_STATE=none
@@ -236,9 +252,10 @@ Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
   3. installateur, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac, app Apple TV et son SDK
   4. notarisation de l'app Mac
-  5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL)
+  5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
+     $SITE_FEED mis à jour, commit « $FEED_SUBJECT »
   6. release $TAG en brouillon$([ "$BETA" = 1 ] && echo ", prerelease")$([ "$RELEASE_STATE" = draft ] && echo " (existante, fichiers remplacés)")
-  7-9. tag $TAG, push de main et du tag, publication
+  7-9. tag $TAG sur le commit de version, push de main et du tag, publication
 EOF
     exit $((${#PROBLEMS[@]} > 0))
 fi
@@ -277,7 +294,9 @@ else
         act git commit -m "KyberNow $VERSION"
     fi
 fi
-COMMIT="$(git rev-parse HEAD)"
+# Commit étiqueté : celui de la version (le commit du flux du site, s'il est
+# déjà là, ne touche qu'à site/ : les binaires sont les mêmes).
+COMMIT="$(git rev-parse "$VERSION_REF")"
 # Tout ce qui est construit doit venir de ce commit : la construction ne doit
 # toucher à aucun fichier suivi.
 TREE_BEFORE="$(git status --porcelain)"
@@ -344,6 +363,33 @@ CHANNEL_FLAG=()
     ${CHANNEL_FLAG[@]+"${CHANNEL_FLAG[@]}"} --embed-release-notes -o "$OUT/appcast.xml" "$FEED"
 rm -rf "$FEED"
 
+step "Flux cumulatif du site ($SITE_FEED)"
+# Le flux de cette version rejoint ceux déjà publiés (même version : la
+# nouvelle entrée remplace l'ancienne, cas d'une relance). Les entrées
+# gardent leurs liens vers leur release et leurs signatures.
+BASE=()
+[ -f "$SITE_FEED" ] && BASE=(--base "$SITE_FEED")
+python3 scripts/merge-appcast.py -o "$OUT/appcast-site.xml" ${BASE[@]+"${BASE[@]}"} "--$CHANNEL" "$OUT/appcast.xml"
+xmllint --noout "$OUT/appcast-site.xml"
+if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED"; then
+    echo "    $SITE_FEED déjà à jour"
+elif [ "$MODE" = release ]; then
+    mkdir -p "$(dirname "$SITE_FEED")"
+    cp "$OUT/appcast-site.xml" "$SITE_FEED"
+    git add -- "$SITE_FEED"
+    # Relance : le commit du flux pas encore poussé est remplacé, pas doublé.
+    if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && ! git merge-base --is-ancestor HEAD origin/main; then
+        git commit -q --amend --no-edit
+    else
+        git commit -q -m "$FEED_SUBJECT"
+    fi
+    echo "    commit $(git rev-parse --short HEAD) « $FEED_SUBJECT » (publié par le workflow Pages au push)"
+else
+    echo "    [essai] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml :"
+    git --no-pager diff --no-index --stat -- "$SITE_FEED" "$OUT/appcast-site.xml" || true
+    act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED"
+fi
+
 step "Empreintes et manifeste signé"
 (cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
@@ -378,7 +424,8 @@ if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
 else
     act git tag -a "$TAG" -m "KyberNow $VERSION" "$COMMIT"
 fi
-act git push --atomic origin "$COMMIT:refs/heads/main" "refs/tags/$TAG"
+# main : le commit de version et, par-dessus, celui du flux du site.
+act git push --atomic origin "HEAD:refs/heads/main" "refs/tags/$TAG"
 
 step "Publication"
 LATEST=true

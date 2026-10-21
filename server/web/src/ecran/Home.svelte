@@ -41,6 +41,8 @@
   const kind = deviceKind()
   const mode = $derived(screenMode(refresh))
   const plan = $derived(codecs ? choose(prefs, mode, codecs) : null)
+  // Lu une fois le moteur chargé (avec les formats) : corrigé, il change le transport en tactile.
+  const protocol = $derived(codecs ? preferredProtocol() : null)
   const hardware = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.hardware)
   const blocked = $derived(!isIsolated ? 'isolation' : codecError ? 'engine' : null)
 
@@ -201,7 +203,7 @@
           <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? 'Image décodée par la carte graphique' : 'Image décodée par le processeur'}</li>
         {/if}
         <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? "Écran de l'ordinateur à la taille du vôtre" : "Écrans de l'ordinateur tels quels"}</li>
-        {#if preferredProtocol === 'websocket'}
+        {#if protocol === 'websocket'}
           <li class="off"><Icon name="info" size={14} stroke={2.4} />Image par WebSocket : un peu plus de latence qu'en WebTransport</li>
         {/if}
         <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? 'Toutes les touches en plein écran' : 'Raccourcis système par le menu Touches'}</li>

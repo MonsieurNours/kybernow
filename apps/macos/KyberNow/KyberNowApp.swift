@@ -83,6 +83,20 @@ final class AppModel: ObservableObject {
     }
 }
 
+/// Canaux des mises à jour : le flux du site liste toutes les versions, les
+/// bêtas marquées `sparkle:channel` beta. Elles ne sont proposées que si
+/// « Recevoir les versions bêta » est coché ; une stable plus récente l'est
+/// toujours (sans canal, elle est permise à tous).
+final class UpdateChannels: NSObject, SPUUpdaterDelegate {
+    static let shared = UpdateChannels()
+    /// Réglage de l'app (KyberNow › Réglages…), dans `UserDefaults`.
+    static let betaKey = "receiveBetaUpdates"
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        UserDefaults.standard.bool(forKey: Self.betaKey) ? ["beta"] : []
+    }
+}
+
 @main
 struct KyberNowApp: App {
     @ViewBuilder private var route: some View {
@@ -94,7 +108,9 @@ struct KyberNowApp: App {
 
     @StateObject private var app = AppModel()
     /// Mises à jour (Sparkle) : vérification quotidienne, et à la demande.
-    private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    /// Le délégué est gardé par `UpdateChannels.shared` (Sparkle n'en garde
+    /// qu'une référence faible).
+    private let updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: UpdateChannels.shared, userDriverDelegate: nil)
 
     init() {
         Theme.registerFonts()

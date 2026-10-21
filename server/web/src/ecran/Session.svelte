@@ -8,14 +8,14 @@
   import { backend, endBody, heartbeatBody } from './backend'
   import { Heartbeat } from './heartbeat'
   import { ApiError } from '../lib/api'
-  import { Engine, allStopped, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
+  import { Engine, allStopped, isFixedEngine, retire, supportedCodecs, type DisplayInfo, type Latency } from './engine'
   import { choose, preferredProtocol, type Plan } from './plan'
   import { deviceId, type MouseMode, type Prefs, type TouchMode } from './prefs'
   import { deviceKind, deviceName, hasKeyboardLock, hasTouchScreen, isTouch, measureRefresh, screenMode, type Mode } from './device'
   import { installAbsoluteMouse, installPointerGate, isRemoteCursorHidden, releasePointer, removeAbsoluteMouse, removePointerGate, setPositionMapper, setRemoteCursorHidden } from './pointer'
-  import { currentDisplayId, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
+  import { currentDisplayId, engineInputs, forgetInputSocket, injected, learnDisplayId, watchInputSocket } from './inputs'
   import { installInputGuard, removeInputGuard } from './guard'
-  import { SPECIAL_KEYS, TouchInput, TypedText, sendKey } from './touch'
+  import { SPECIAL_KEYS, TEXT_ATTRIBUTE, TouchInput, TypedText, sendKey } from './touch'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import { diag, diagEnabled, installDiag } from './diag'
@@ -226,6 +226,8 @@
       if (stale(gen)) return
       mode = screenMode(refresh)
       codecList = codecs
+      // Moteur chargé : corrigé, il lit lui-même le champ du clavier de l'appareil.
+      textInput?.toggleAttribute(TEXT_ATTRIBUTE, engineInputs())
       ticketToken = ticket.token
       const device = deviceName()
       await backend.prepare({
@@ -241,7 +243,7 @@
         return
       }
       prepared = true
-      await connect(preferredProtocol, gen)
+      await connect(preferredProtocol(), gen)
     } catch (e) {
       if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
     }
@@ -607,7 +609,7 @@
     sendKey(canvas(), last.key, last.code, new Set(keys.map((k) => k.key)))
   }
 
-  // Clavier de l'appareil : texte en Unicode, touches par leur code.
+  // Clavier de l'appareil : texte en Unicode (par le moteur s'il est corrigé), touches par leur code.
   const typed = new TypedText(
     () => textInput ?? null,
     canvas,
@@ -707,7 +709,7 @@
             `flux    ${row('flux')}`,
             `octets  ${hist.slice(-8).map((h) => h.tailles).join(" ")} (8 dernières s)`,
             `positions page ${injected.count} · sorties ${diag.outside} · dernière ${diag.lastX},${diag.lastY} · toile ${r ? `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}` : '—'}`,
-            `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'}`,
+            `capture ${document.pointerLockElement ? 'oui' : 'non'} · pointeur de l'ordinateur ${isRemoteCursorHidden() ? 'masqué' : 'visible'} · transport ${plan?.protocol ?? '—'} · moteur ${isFixedEngine() ? 'corrigé' : 'd’origine'}${engineInputs() ? ', entrées par le moteur' : ''}`,
             `clavier tactile : frappe ${diag.lastKey} · saisie ${diag.lastInput}`,
           ].join('\n')
           prev = { ...diag }
