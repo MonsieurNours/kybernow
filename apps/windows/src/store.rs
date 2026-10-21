@@ -220,6 +220,29 @@ pub fn password(id: &str) -> Option<String> {
     }
 }
 
+/// Efface tous les mots de passe de KyberNow (désinstallation).
+pub fn delete_all_passwords() -> usize {
+    use windows::Win32::Security::Credentials::{CRED_ENUMERATE_FLAGS, CredEnumerateW};
+    let mut count = 0u32;
+    let mut list: *mut *mut CREDENTIALW = std::ptr::null_mut();
+    let filter: Vec<u16> = "KyberNow:*".encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        if CredEnumerateW(PCWSTR(filter.as_ptr()), Some(CRED_ENUMERATE_FLAGS(0)), &mut count, &mut list).is_err() {
+            return 0;
+        }
+        let creds = std::slice::from_raw_parts(list, count as usize);
+        let targets: Vec<PCWSTR> = creds.iter().map(|c| PCWSTR((**c).TargetName.0)).collect();
+        let mut n = 0;
+        for t in targets {
+            if CredDeleteW(t, CRED_TYPE_GENERIC, None).is_ok() {
+                n += 1;
+            }
+        }
+        CredFree(list as *const _);
+        n
+    }
+}
+
 pub fn delete_password(id: &str) {
     let target = target(id);
     unsafe {

@@ -78,11 +78,13 @@ OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
 SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 ASSETS=(KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
+    KyberNow-Windows-x64.exe KyberNow-Windows-arm64.exe
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
     server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj
-    apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj)
+    apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj
+    apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json)
 
 # Exigences de la mise à jour, transmises à package-update.sh et au manifeste.
 UPDATE_FLAGS=()
@@ -200,12 +202,21 @@ if [ "$MODE" != release ]; then
     else problem "apps/tvos/Vendor absent : l'essai ne le compile pas (apps/tvos/scripts/build-kyber-tvos.sh)"; fi
 fi
 
+# App Windows : bibliothèques natives (hors git) des deux architectures.
+. scripts/kyber-toolchain.sh
+for f in third_party/rootfs-win64/lib/libavcodec.a third_party/rootfs-win64-kynput/bin/kynput.dll \
+    third_party/rootfs-winarm64/lib/libavcodec.a third_party/rootfs-winarm64/bin/kynput.dll \
+    "third_party/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal/bin/aarch64-w64-mingw32-clang"; do
+    if [ -e "$f" ]; then ok "app Windows : $f"
+    else problem "app Windows : $f absent (server/kyber-patches/build.sh, apps/windows/scripts/build-arm64-deps.sh, docs/build-notes.md)"; fi
+done
+
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
 else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
 
 # Outils et comptes.
-for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint; do
+for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint makensis; do
     command -v "$tool" > /dev/null || problem "$tool introuvable"
 done
 RELEASE_STATE=none
@@ -281,6 +292,10 @@ else
         (cd "$(dirname "$f")" && cargo update --workspace --offline --quiet)
     done
     BUILD=$(date +%Y%m%d%H%M)
+    # Clients en Rust (cœur et app Windows) : version de l'espace de travail.
+    sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" apps/Cargo.toml
+    sed -i '' -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" apps/windows/tauri.conf.json
+    (cd apps && cargo update --workspace --offline --quiet)
     for d in apps/macos apps/tvos; do
         sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$d/project.yml"
         (cd "$d" && xcodegen generate --quiet)
@@ -325,6 +340,16 @@ fi
 (cd apps/tvos && xcodegen generate --quiet && xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Release \
     -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 (cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")
+
+step "App Windows (x64 et ARM64) et ses installateurs"
+# Comme pour l'ordinateur : avec pipefail, un échec de build.sh arrête tout
+# (sinon l'exécutable d'un build précédent partirait dans la version).
+for arch in x64 arm64; do
+    apps/windows/scripts/build.sh --arch "$arch" 2>&1 > /dev/null \
+        | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+    apps/windows/scripts/build-installer.sh --arch "$arch" > /dev/null
+    cp "apps/windows/dist/KyberNow-Windows-$arch.exe" "$OUT/"
+done
 
 TREE_AFTER="$(git status --porcelain)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
@@ -391,7 +416,8 @@ else
 fi
 
 step "Empreintes et manifeste signé"
-(cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip > SHA256SUMS)
+(cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip \
+    KyberNow-Windows-x64.exe KyberNow-Windows-arm64.exe > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

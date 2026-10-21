@@ -8,6 +8,7 @@ pub mod latency;
 pub mod media;
 pub mod profile;
 pub mod session;
+pub mod update;
 
 pub use kyclient::Display;
 pub use kynput_rs;

@@ -163,7 +163,7 @@
           <span><span class="t">{w.title}</span><span class="s">{w.sub}</span></span>
         </button>
       {/each}
-      <p class="aside">Pas de caméra à viser : le QR code de la console porte le même lien. Copiez-le dans la console, espace Accès, et collez-le ici.</p>
+      <p class="aside">Pas de caméra à viser : le QR code de la console porte le même lien. Collez-le ici, ou cliquez-le sur ce PC : KyberNow s’ouvre directement sur l’ajout.</p>
     </nav>
 
     <div class="pane">

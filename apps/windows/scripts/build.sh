@@ -43,7 +43,7 @@ case "$ARCH" in
         ROOTFS="$THIRD_PARTY/rootfs-win64"
         KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
         SDL2_DLL="$THIRD_PARTY/payload/kyber-0.29.0/SDL2.dll"
-        CC="$TRIPLE-gcc"; AR="$TRIPLE-ar"; NM="$TRIPLE-nm"; OBJDUMP="$TRIPLE-objdump"; STRIP="$TRIPLE-strip"
+        CC="$TRIPLE-gcc"; AR="$TRIPLE-ar"; OBJDUMP="$TRIPLE-objdump"; STRIP="$TRIPLE-strip"
         RUNTIME_DIRS=("$MINGW/bin" "/opt/homebrew/opt/mingw-w64/toolchain-x86_64/lib/gcc/$TRIPLE/$KYBER_MINGW_GCC" "$MINGW/lib")
         DEPS_HINT="server/kyber-patches/build.sh"
         export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
@@ -56,7 +56,7 @@ case "$ARCH" in
         ROOTFS="$THIRD_PARTY/rootfs-winarm64"
         KYNPUT_ROOTFS="$ROOTFS"
         SDL2_DLL="$ROOTFS/bin/SDL2.dll"
-        CC="$TRIPLE-clang"; AR=llvm-ar; NM=llvm-nm; OBJDUMP=llvm-objdump; STRIP=llvm-strip
+        CC="$TRIPLE-clang"; AR=llvm-ar; OBJDUMP=llvm-objdump; STRIP=llvm-strip
         RUNTIME_DIRS=("$MINGW/bin")
         DEPS_HINT="apps/windows/scripts/build-arm64-deps.sh"
         [ -x "$LLVM_MINGW/bin/$CC" ] || { echo "llvm-mingw $KYBER_LLVM_MINGW absent de third_party/toolchains (docs/build-notes.md)" >&2; exit 1; }
@@ -124,6 +124,9 @@ done
 export KYBERNOW_NATIVE_PREFIX="$ROOTFS"
 export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
 
+# Rien d'un build précédent ne doit survivre à un échec de celui-ci.
+rm -rf "$DIST" "$HERE/dist/KyberNow-Windows-$ARCH.exe"
+
 # Interface (Svelte), embarquée dans l'exécutable par Tauri.
 echo "==> Interface (ui/)"
 (cd "$HERE/ui" && npm ci --silent && npm run build --silent)
@@ -140,6 +143,8 @@ echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
+# Icône des notifications de Windows (inscrite par l'app au lancement).
+cp "$HERE/resources/kybernow.png" "$DIST/"
 # Chargeur de WebView2 (l'interface), celui de la version de webview2-com-sys
 # du Cargo.lock.
 WV2_VERSION=$(awk '/^name = "webview2-com-sys"$/ {getline; gsub(/version = |"/, ""); print}' "$APPS/Cargo.lock")

@@ -22,11 +22,15 @@ mod host;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]
+mod instance;
+#[cfg(windows)]
 mod pc;
 #[cfg(windows)]
 mod plan;
 #[cfg(windows)]
 mod render;
+#[cfg(windows)]
+mod shell;
 #[cfg(windows)]
 mod store;
 #[cfg(windows)]
@@ -40,13 +44,26 @@ mod window;
 
 #[cfg(windows)]
 fn main() {
-    let probe = std::env::args().any(|a| a == "--probe-json");
-    system::init_logging(if probe { "kybernow-probe" } else { "kybernow" });
-    system::dpi_aware();
-    if std::env::args().len() > 1 {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // L'app : sans argument, ou ouverte par un lien, la barre des tâches, une
+    // notification ou l'installateur. Le reste : la ligne de commande.
+    let app = args.first().is_none_or(|a| a.starts_with("kybernow://") || ["--connect", "--add", "--updated"].contains(&a.as_str()));
+    if !app {
+        let probe = args.iter().any(|a| a == "--probe-json");
+        system::init_logging(if probe { "kybernow-probe" } else { "kybernow" });
+        system::dpi_aware();
         // Lancée depuis un terminal : on écrit dans le sien.
         system::attach_console();
         std::process::exit(cli::main());
     }
-    ui::run();
+    // Déjà ouverte : elle reçoit la demande, celle-ci s'arrête (sans toucher
+    // à son journal), même si la transmission échoue (jamais deux apps).
+    if !instance::claim() {
+        let _ = instance::forward(&args);
+        return;
+    }
+    instance::listen();
+    system::init_logging("kybernow");
+    system::dpi_aware();
+    ui::run(args);
 }

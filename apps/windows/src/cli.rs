@@ -59,6 +59,8 @@ struct Args {
     physical: bool,
     probe: bool,
     probe_json: bool,
+    forget_all: bool,
+    clear_shell: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -80,6 +82,8 @@ fn parse_args() -> Result<Args, String> {
         physical: false,
         probe: false,
         probe_json: false,
+        forget_all: false,
+        clear_shell: false,
     };
     let mut it = std::env::args().skip(1);
     let value = |name: &str, it: &mut dyn Iterator<Item = String>| {
@@ -117,6 +121,9 @@ fn parse_args() -> Result<Args, String> {
             "--probe" => a.probe = true,
             // Processus de sonde lancé par l'app (pc.rs).
             "--probe-json" => a.probe_json = true,
+            // Désinstallation : mots de passe et liste de la barre des tâches.
+            "--forget-all" => a.forget_all = true,
+            "--clear-shell" => a.clear_shell = true,
             s if s.starts_with('-') => return Err(format!("option inconnue : {s}")),
             s => {
                 let (h, p) = split_host(s);
@@ -125,7 +132,7 @@ fn parse_args() -> Result<Args, String> {
             }
         }
     }
-    if a.host.is_empty() && !a.probe && !a.probe_json {
+    if a.host.is_empty() && !a.probe && !a.probe_json && !a.forget_all && !a.clear_shell {
         return Err(String::new());
     }
     Ok(a)
@@ -178,6 +185,18 @@ pub fn main() -> i32 {
             return 2;
         }
     };
+
+    if args.clear_shell {
+        crate::shell::clear_jump_list();
+        log::info!("désinstallation : liste de la barre des tâches vidée");
+        return 0;
+    }
+
+    if args.forget_all {
+        let n = crate::store::delete_all_passwords();
+        log::info!("désinstallation : {n} mots de passe effacés");
+        return 0;
+    }
 
     if args.probe_json {
         let gpu = crate::pc::probe_gpu();

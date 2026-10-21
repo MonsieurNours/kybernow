@@ -4,7 +4,7 @@
   import Icon from './lib/Icon.svelte'
   import { currentWindow } from './lib/api'
 
-  let { title = 'KyberNow', onback }: { title?: string; onback?: () => void } = $props()
+  let { title = 'KyberNow', onback, onapp, badge = false }: { title?: string; onback?: () => void; onapp?: () => void; badge?: boolean } = $props()
 </script>
 
 <header data-tauri-drag-region>
@@ -16,6 +16,9 @@
     <span data-tauri-drag-region>{title}</span>
   </div>
   <div class="caption">
+    {#if onapp}
+      <button aria-label="Réglages de l'app" class="gear" onclick={onapp}><Icon name="gear" size={16} stroke={1.6} />{#if badge}<span class="badge"></span>{/if}</button>
+    {/if}
     <button aria-label="Réduire" onclick={() => currentWindow().minimize()}><Icon name="minimize" size={12} stroke={1.2} /></button>
     <button aria-label="Agrandir" onclick={() => currentWindow().toggleMaximize()}><Icon name="maximize" size={11} stroke={1.2} /></button>
     <button aria-label="Fermer" class="close" onclick={() => currentWindow().close()}><Icon name="x" size={12} stroke={1.2} /></button>
@@ -79,5 +82,22 @@
 
   .caption .close:hover {
     background: #c42b1c;
+  }
+
+  .gear {
+    position: relative;
+    color: var(--muted) !important;
+  }
+
+  /* Une mise à jour attend. */
+  .badge {
+    position: absolute;
+    top: 10px;
+    right: 13px;
+    width: 7px;
+    height: 7px;
+    border-radius: 4px;
+    background: var(--signal);
+    box-shadow: 0 0 8px var(--signal);
   }
 </style>

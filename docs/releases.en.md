@@ -15,6 +15,7 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 | `update.ps1` | Manual update, without the console |
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
+| `KyberNow-Windows-x64.exe`, `KyberNow-Windows-arm64.exe` | The Windows app: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
 | `KyberSDK-tvOS.zip` | Kyber SDK built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
 | `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from the console, whether a reinstallation is needed, SHA-256 checksum and size of each file above |
 | `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by the console before any installation |
@@ -55,6 +56,8 @@ To try a package served from the Mac before publishing it: `$env:KYBERNOW_UPDATE
 **Testing the verification and the applicator without Windows**: `cd server/admin && cargo test`. The tests cover the manifest (reading the published format, version comparison, channel, `min_installer_version`, `requires_setup`), the signature (test key generated in the test: valid signature, manifest changed by one byte, another key, trusted comment that does not match), a manifest actually produced by `scripts/sign-manifest.sh` and the `minisign` binary (`server/admin/src/update/testdata/`, throwaway test key of which only the public key is kept), extraction (`..`, absolute path, drive, links), the switch on a fake installation folder (success, failed health check then rollback, forged package that touches nothing, going back to the previous version and its failure) and the refusal during a session. Windows' services, processes and permissions go through a simulated trait: they are only checked on the PC. To regenerate `testdata/`: `KYBERNOW_MINISIGN_KEY=<temporary folder>/essai.key KYBERNOW_MINISIGN_ITEM=kybernow-minisign-essai scripts/sign-manifest.sh <folder> 0.2.7 beta --min-installer 0.2.6` on a 15-byte `kybernow-update.zip`, then delete the private key and the Keychain item.
 
 **Testing `update.ps1` without Windows**: `pwsh -NoProfile -File server/installer/tests/update-bench.ps1` (`brew install powershell`). The bench simulates the services and the console, and replays a successful update, a silent console (rollback), an incomplete package and a blocked rename.
+
+**The Windows app.** It checks at launch then every 6 hours for the latest version of its channel (app settings: stable, or betas too), verifies the signed manifest like the console and its architecture's installer against it (size, SHA-256), then runs it silently (`/S /UPDATE`): it waits for the app to close, replaces its files and relaunches it. A version without a Windows installer is not offered.
 
 **The Mac app.**
 - Sparkle checks every day, and on request (KyberNow menu › Check for Updates…). The app downloads the archive, verifies its EdDSA signature with the app's public key (`SUPublicEDKey`), replaces itself and relaunches.

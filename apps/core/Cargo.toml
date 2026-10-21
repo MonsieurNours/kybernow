@@ -19,3 +19,4 @@ serde_json = "1"
 sha2 = "0.10"
 ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 getrandom = "0.2"
+minisign-verify = "0.3"

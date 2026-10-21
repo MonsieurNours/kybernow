@@ -21,6 +21,20 @@ C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](..
 - **Pas sur lui-même** : se connecter à ce PC est refusé (l'écran virtuel éteindrait les écrans où l'app s'affiche).
 - **Compte d'appareil pas encore connu de Kyber** : la console crée le compte d'un appareil accepté par code, mais Kyber ne le lit qu'à son redémarrage, que la console reporte pendant une session ou un encodage. L'app le dit (« redémarrez le serveur dans la console ») au lieu d'un simple refus.
 
+### Intégration à Windows (jalon 3)
+
+- **Une seule app** : une deuxième ouverture (raccourci, lien, barre des tâches, notification) passe sa demande à l'app déjà ouverte, qui revient devant, puis se ferme (mutex `Local\KyberNow.App`, tube nommé local à l'utilisateur).
+- **Lien `kybernow://`** (lien et QR code de la console) : inscrit pour l'utilisateur (HKCU) par l'installateur et à chaque lancement ; il ouvre l'ajout avec l'ordinateur et son empreinte déjà vérifiés.
+- **Barre des tâches** : au clic droit de l'icône (et dans le menu Démarrer pour l'app épinglée), vos ordinateurs, un clic lance la session (`kybernow.exe --connect <id>`), et « Ajouter un ordinateur ». La liste suit les ajouts, retraits et changements de nom.
+- **Notifications de Windows**, seulement si l'app n'est pas au premier plan : session terminée (par un autre appareil, la console ou une erreur), avec « Reprendre la main » qui relance la session ; nouvelle version prête. Identité des notifications inscrite dans HKCU (`AppUserModelId\LesLignesClaires.KyberNow`, icône `kybernow.png`).
+- **Réglages de l'app** (roue de la barre de titre) : version, versions proposées (stables, ou aussi les bêtas), recherche et installation d'une mise à jour, ses nouveautés. Une pastille sur la roue et un bandeau dans la barre de titre disent qu'une version attend.
+
+### Installation et mises à jour
+
+- **Installateur par utilisateur**, sans droits d'administrateur : `KyberNow-Windows-x64.exe` ou `KyberNow-Windows-arm64.exe` (NSIS), dans `%LOCALAPPDATA%\Programs\KyberNow`, raccourci du menu Démarrer, « Applications installées », lien `kybernow://`. Si le moteur WebView2 d'Edge manque (certains Windows 10), il est installé pour l'utilisateur par l'installateur officiel de Microsoft. Pas de signature Authenticode pendant la bêta : Windows (SmartScreen) avertit au premier lancement.
+- **Désinstallation** (« Applications installées ») : propose d'effacer aussi les ordinateurs, réglages et mots de passe (`kybernow.exe --forget-all`).
+- **Mises à jour**, comme la console (`server/admin/src/update`) : l'app cherche au lancement puis toutes les 6 heures la dernière version publiée sur GitHub, sur son canal ; rien n'est proposé sans le manifeste signé de la version (`kybernow-release.json`, minisign, même clé que la console) qui doit annoncer la même version et donner l'installateur de cette architecture. L'installateur téléchargé doit avoir exactement la taille et l'empreinte SHA-256 du manifeste. « Installer et relancer » le lance en silence (`/S /UPDATE`) et ferme l'app ; il attend sa fermeture, remplace ses fichiers (pas les données) et la relance (`--updated`, « KyberNow X est installée »). Pas pendant une session.
+
 ### Session
 
 - **Session** (cœur, comme `SessionController.swift`) : préparation par la console (`POST /api/stream/prepare` : écran virtuel à la définition et à la fréquence de l'écran de ce PC, sortie son virtuelle au nombre de voies de la sortie de ce PC), connexion à Kyber avec le même compte, certificat de Kyber exigé tel que la console le donne (`kyber_fingerprint`), choix de l'écran (attend 6 s au plus que Kyber n'annonce plus que l'écran virtuel), signal de vie toutes les 5 s avec la latence (la console peut y demander la fin de la session), premier plan de l'ordinateur interrogé chaque seconde (souris Auto), fin propre (`POST /api/stream/end`, latence de la session). Reprise : reconnexion automatique de Kyber, écran redemandé à la console si Kyber a redémarré, image relancée (3 fois au plus) après une erreur de la chaîne d'image, image clé redemandée dès qu'une image de référence manque (toutes les 300 ms tant qu'elle n'est pas venue).
@@ -93,6 +107,8 @@ apps/windows/scripts/build.sh                # x64 (x86_64-pc-windows-gnu, MinGW
 apps/windows/scripts/build.sh --arch arm64   # ARM64, PC Snapdragon (aarch64-pc-windows-gnullvm, llvm-mingw)
 ```
 
+Puis l'installateur (NSIS de Homebrew, `brew install makensis`) : `apps/windows/scripts/build-installer.sh [--arch arm64]` écrit `apps/windows/dist/KyberNow-Windows-<arch>.exe`. `scripts/release.sh` construit les deux et les joint à chaque version.
+
 Le dossier à copier sur le PC est `apps/windows/dist/x64/` (ou `arm64/`), aussi en archive `dist/KyberNow-<version>-windows-<arch>.zip` : `kybernow.exe`, `kynput.dll` et `SDL2.dll` (manettes), plus `libunwind.dll` en ARM64. Le reste vient de Windows 10 et 11 (runtime C universel, Direct3D 11, `d3dcompiler_47.dll`).
 
 - **Prérequis x64** : `third_party/` en place, et `server/kyber-patches/build.sh` passé une fois (il produit `third_party/rootfs-win64`, avec FFmpeg et libopus, et `third_party/rootfs-win64-kynput`, avec `kynput.dll`).
@@ -134,5 +150,5 @@ Au premier contact, l'empreinte de la console s'affiche : la comparer à celle d
 ## Pas encore
 
 - **Jalon 2, reste** : image de la dernière session sur l'accueil (aujourd'hui l'aperçu de la console), changement de profil depuis la barre.
-- **Jalon 3** : intégration à Windows (ordinateurs au clic droit de la barre des tâches, notifications, lien `kybernow://`), installateur par utilisateur, mises à jour.
-- **Jalon 4** : raccourcis de Windows envoyés à l'ordinateur, réglage sur batterie, menu Touches, pointeur dessiné en mode jeu, mise à l'échelle du pointeur, écran redemandé quand le signal de vie le dit absent.
+- **Jalon 3, reste** : signature Authenticode (reportée, SignPath visé).
+- **Jalon 4** : raccourcis de Windows envoyés à l'ordinateur, menu Touches, pointeur dessiné en mode jeu, mise à l'échelle du pointeur, écran redemandé quand le signal de vie le dit absent.

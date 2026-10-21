@@ -111,6 +111,19 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   session_command: () => null,
   bar_hide: () => null,
+  take_action: () => null,
+  app_info: () => ({ version: '0.2.8', channel: 'stable', update: { version: '0.2.9', channel: 'stable', notes: '- Client Windows : première version.\n- Console : accès par code appliqué dès que Kyber est libre.', page: '', file: 'KyberNow-Windows-x64.exe', size: 1 }, arch: 'x64' }),
+  check_update: async () => {
+    await sleep(600)
+    return null
+  },
+  set_channel: async () => null,
+  install_update: async () => {
+    for (let p = 0; p <= 100; p += 10) {
+      emit('update-progress', p)
+      await sleep(150)
+    }
+  },
 }
 
 export function mockTauri() {

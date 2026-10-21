@@ -26,7 +26,8 @@ use crate::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
-use crate::{audio, system};
+use crate::{audio, instance, shell, system};
+use kybernow_core::update::{self, Available, Channel};
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -75,6 +76,61 @@ pub struct UiState {
     session: Mutex<Option<Running>>,
     /// Fermeture demandée pendant une session : quitter à sa fin.
     quitting: std::sync::atomic::AtomicBool,
+    /// Demande du lancement (lien, barre des tâches…), lue par l'interface.
+    action: Mutex<Option<Action>>,
+    prefs: Mutex<Prefs>,
+    update: Mutex<Option<Available>>,
+}
+
+/// Ce que l'ouverture demande à l'app.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Action {
+    Connect { id: String },
+    Add,
+    Link { link: String },
+    Updated,
+    Open,
+}
+
+fn parse_action(args: &[String]) -> Option<Action> {
+    let first = args.first()?;
+    if let Some(rest) = first.strip_prefix("kybernow://") {
+        // Actions des notifications : kybernow://connect?id=…, kybernow://open.
+        if let Some(q) = rest.strip_prefix("connect?id=") {
+            return Some(Action::Connect { id: q.chars().filter(|c| c.is_ascii_alphanumeric()).collect() });
+        }
+        if rest.trim_end_matches('/') == "open" {
+            return Some(Action::Open);
+        }
+        return Some(Action::Link { link: first.clone() });
+    }
+    match first.as_str() {
+        "--connect" => args.get(1).map(|id| Action::Connect { id: id.clone() }),
+        "--add" => Some(Action::Add),
+        "--updated" => Some(Action::Updated),
+        _ => None,
+    }
+}
+
+/// Réglages de l'app (`%APPDATA%\KyberNow\app.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Prefs {
+    pub channel: Channel,
+}
+
+fn prefs_path() -> std::path::PathBuf {
+    std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("app.json")
+}
+
+fn load_prefs() -> Prefs {
+    std::fs::read_to_string(prefs_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// Installateur de cette architecture dans une version publiée.
+fn installer_name() -> &'static str {
+    if cfg!(target_arch = "aarch64") { "KyberNow-Windows-arm64.exe" } else { "KyberNow-Windows-x64.exe" }
 }
 
 impl UiState {
@@ -107,7 +163,127 @@ pub struct Snapshot {
 
 fn emit_computers(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let _ = app.emit_to("main", "computers", state.views());
+    let views = state.views();
+    shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
+    let _ = app.emit_to("main", "computers", views);
+}
+
+/// Une autre ouverture : l'accueil revient devant et reçoit la demande
+/// (gardée aussi pour l'interface, si elle n'écoute pas encore).
+fn handle_args(app: &AppHandle, args: Vec<String>) {
+    let action = parse_action(&args).unwrap_or(Action::Open);
+    if !matches!(action, Action::Open) {
+        *app.state::<UiState>().action.lock().unwrap() = Some(action.clone());
+    }
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(w) = a.get_webview_window("main") {
+            let in_session = a.state::<UiState>().session.lock().unwrap().is_some();
+            if !in_session {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
+        // L'interface la reprend par take_action (une seule fois).
+        let _ = a.emit_to("main", "action-ready", ());
+        let _ = action;
+    });
+}
+
+#[tauri::command(async)]
+fn take_action(state: tauri::State<'_, UiState>) -> Option<Action> {
+    state.action.lock().unwrap().take()
+}
+
+#[derive(Serialize)]
+struct AppInfo {
+    version: &'static str,
+    channel: Channel,
+    update: Option<Available>,
+    arch: &'static str,
+}
+
+#[tauri::command(async)]
+fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        channel: state.prefs.lock().unwrap().channel,
+        update: state.update.lock().unwrap().clone(),
+        arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
+    }
+}
+
+/// Cherche une version plus récente sur le canal choisi.
+fn check_now(app: &AppHandle) -> Result<Option<Available>, String> {
+    let state = app.state::<UiState>();
+    let channel = state.prefs.lock().unwrap().channel;
+    let found = update::check(env!("CARGO_PKG_VERSION"), channel, installer_name())?;
+    let fresh = found.is_some() && state.update.lock().unwrap().as_ref().map(|u| &u.version) != found.as_ref().map(|u| &u.version);
+    *state.update.lock().unwrap() = found.clone();
+    let _ = app.emit_to("main", "update", &found);
+    if fresh && !shell::app_in_front() {
+        if let Some(u) = &found {
+            shell::notify(&format!("KyberNow {} est prête", u.version), "Elle s'installe en un clic depuis l'app.", None);
+        }
+    }
+    Ok(found)
+}
+
+#[tauri::command(async)]
+fn check_update(app: AppHandle) -> Result<Option<Available>, String> {
+    check_now(&app)
+}
+
+#[tauri::command(async)]
+fn set_channel(app: AppHandle, channel: Channel) -> Result<Option<Available>, String> {
+    let state = app.state::<UiState>();
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        p.channel = channel;
+        p.clone()
+    };
+    if let Some(dir) = prefs_path().parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(prefs_path(), serde_json::to_string_pretty(&prefs).unwrap_or_default());
+    check_now(&app)
+}
+
+/// Télécharge l'installateur vérifié, le lance en silence et quitte : il
+/// attend la fermeture de l'app, remplace ses fichiers et la relance.
+#[tauri::command(async)]
+fn install_update(app: AppHandle) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    let state = app.state::<UiState>();
+    if state.session.lock().unwrap().is_some() {
+        return Err("une session est ouverte : installez après".into());
+    }
+    let u = state.update.lock().unwrap().clone().ok_or("aucune mise à jour à installer")?;
+    let dir = std::env::temp_dir().join("KyberNow");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("KyberNow-{}-{}", u.version, u.file));
+    let size = u.size.max(1);
+    let a = app.clone();
+    let last = std::sync::atomic::AtomicU64::new(u64::MAX);
+    update::download(&u, &path, move |got| {
+        let pct = got * 100 / size;
+        if last.swap(pct, std::sync::atomic::Ordering::Relaxed) != pct {
+            let _ = a.emit_to("main", "update-progress", pct);
+        }
+    })?;
+    log::info!("mise à jour {} vérifiée, installation", u.version);
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    // Hors du « job » de l'app si on peut (un lanceur qui tue ses enfants à
+    // la fermeture emporterait l'installateur), sinon tel quel.
+    let spawn = |flags: u32| std::process::Command::new(&path).args(["/S", "/UPDATE"]).creation_flags(flags).spawn();
+    spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
+        .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
+        .map_err(|e| format!("lancement de l'installateur : {e}"))?;
+    app.exit(0);
+    Ok(())
 }
 
 fn console_for(c: &Computer) -> Console {
@@ -447,6 +623,18 @@ impl HostEvents for UiEvents {
             let _ = w.show();
             let _ = w.set_focus();
         }
+        // Personne ne regardait (autre app devant) : une notification.
+        if !shell::app_in_front() {
+            let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
+            match &s.error {
+                Some(e) => shell::notify(&format!("La session sur {name} s'est arrêtée"), e, Some(("Reprendre", &format!("kybernow://connect?id={}", self.id)))),
+                None => shell::notify(
+                    &format!("La session sur {name} est terminée"),
+                    "Un autre appareil a pris la main, ou la console y a mis fin.",
+                    Some(("Reprendre la main", &format!("kybernow://connect?id={}", self.id))),
+                ),
+            }
+        }
         #[derive(Serialize, Clone)]
         struct Ended<'a> {
             id: &'a str,
@@ -578,9 +766,12 @@ fn bar_hide(app: AppHandle) {
     }
 }
 
-pub fn run() {
+pub fn run(args: Vec<String>) {
+    let state = UiState::default();
+    *state.action.lock().unwrap() = parse_action(&args);
+    *state.prefs.lock().unwrap() = load_prefs();
     let app = tauri::Builder::default()
-        .manage(UiState::default())
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             snapshot,
             probe_address,
@@ -594,7 +785,12 @@ pub fn run() {
             remove_computer,
             connect,
             session_command,
-            bar_hide
+            bar_hide,
+            take_action,
+            app_info,
+            check_update,
+            set_channel,
+            install_update
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -619,6 +815,22 @@ pub fn run() {
                 .build()?;
 
             log::info!("app : fenêtres créées");
+            shell::register();
+            let h = handle.clone();
+            instance::set_sink(move |args| handle_args(&h, args));
+            let views = handle.state::<UiState>().views();
+            shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
+            // Mises à jour : 15 s après le lancement, puis toutes les 6 heures.
+            let h = handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                loop {
+                    if let Err(e) = check_now(&h) {
+                        log::warn!("mises à jour : {e}");
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+                }
+            });
             let h = handle.clone();
             std::thread::spawn(move || {
                 let pc = pc::this_pc();

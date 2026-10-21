@@ -75,6 +75,18 @@ export type ThisPc = {
   on_battery: boolean
 }
 
+export type Update = { version: string; channel: 'stable' | 'beta'; notes: string; page: string; file: string; size: number }
+
+export type AppInfo = { version: string; channel: 'stable' | 'beta'; update: Update | null; arch: string }
+
+/** Ce que l'ouverture demande (lien, barre des tâches, notification, installateur). */
+export type Action =
+  | { kind: 'connect'; id: string }
+  | { kind: 'add' }
+  | { kind: 'link'; link: string }
+  | { kind: 'updated' }
+  | { kind: 'open' }
+
 export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; session: string | null; version: string }
 
 export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_images' | 'streaming' | 'reconnecting' | 'ending' | 'ended'; detail: string | null }
