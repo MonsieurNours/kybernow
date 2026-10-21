@@ -4,7 +4,7 @@
 
 Client de streaming de KyberNow sur l'iPhone et l'iPad : on retrouve son ordinateur (serveur Kyber 0.29 + console KyberNow) en plein écran, au doigt, au clavier et au trackpad de l'iPad, ou à la manette. Identité v2 ([charte](../../brand/v2/README.md)) ; maquettes : [Claude Design](https://claude.ai/artifact/4ef5m4JSRnzuitJcuCFjMX) (accueil, ajout, passage, session iPhone et iPad, mesures, réglages, états d'exception, icône, lancement).
 
-iOS et iPadOS 18 au moins. Même identifiant que les apps Mac et Apple TV (`fr.leslignesclaires.kybernow` : Trousseau et iCloud partagés) ; distribution par TestFlight (interne). Première version de l'app (jalon 5 de [docs/coeur-apple.md](../../docs/coeur-apple.md)), écrite sur le cœur Rust dès le départ, à essayer sur un appareil.
+iOS et iPadOS 18 au moins. Même identifiant que les apps Mac et Apple TV (`fr.leslignesclaires.kybernow` : Trousseau et iCloud partagés) ; pas encore distribuée (TestFlight interne à venir). **Installer l'app sans TestFlight ni App Store** : [SIDELOAD.md](SIDELOAD.md). Première version de l'app (jalon 5 de [docs/coeur-apple.md](../../docs/coeur-apple.md)), écrite sur le cœur Rust dès le départ ; session validée sur un iPhone 15 Pro Max le 22/10/2026.
 
 ## Ce que fait l'app
 
@@ -23,7 +23,7 @@ iOS et iPadOS 18 au moins. Même identifiant que les apps Mac et Apple TV (`fr.l
 
 Le module KyberKit est celui du Mac et de l'Apple TV, cœur compris : la session (`SessionEngine`), la console (`ConsoleClientCore`), les entrées (`InputCore` : chaîne kynput, pointeur tenu par l'app, clavier, combinaison, presse-papiers par `UIPasteboard`), le son (`AudioPlayerCore`, sortie RemoteIO), la latence, le décodage VideoToolbox et le rendu Metal viennent d'`apps/macos/KyberKit` ; la surface Metal, le clavier et la souris Bluetooth (`KeyboardMouse`) et les manettes (`GamepadBridge`) de l'Apple TV (`apps/tvos/KyberKitTV`). Propre à iOS : `KyberKitIOS/StreamView.swift`, la vue de session tactile (gestes, clavier de l'écran en `UIKeyInput`, touches collantes, survol au trackpad), qui sait montrer l'image dans une `ImageHostView` posée sur un autre écran (`showImage(in:)`).
 
-L'app (`KyberNowIOS/`) : `AppModel`, `Platform` (écran, son, préférences, images des ordinateurs), `Theme` (jetons de l'Apple TV à l'échelle du pouce), `HomeView`, `LaunchView`, `AddHostView`, `SettingsView`, `AppSettingsView`, `SessionController` (la session vue de l'interface, sur `SessionEngine`), `SessionView` (passage, barre, rangée de touches, menu Touches, capsules, pupitre), `SessionStats`, `ExternalDisplay` (scène de l'écran externe, non interactive, déclarée par `AppDelegate`). Le modèle (`Model.swift`) et la découverte (`Discovery.swift`) viennent de l'app Mac ; la synchro iCloud (`CloudSync.swift`) et les images d'ordinateur (`Backdrops.swift`) de l'Apple TV.
+L'app (`KyberNowIOS/`) : `KyberNowApp` (avec `AppDelegate` : orientation, scène de l'écran externe), `AppModel`, `Platform` (écran, son, préférences, images des ordinateurs), `Theme` (jetons de l'Apple TV à l'échelle du pouce), `HomeView` et `HomeParts`, `LaunchView`, `AddHostView`, `AddHostPanes` et `AddHostScanner` (caméra), `SettingsView` et `SettingsControls`, `AppSettingsView`, `SessionController` (la session vue de l'interface, sur `SessionEngine`), `SessionView` (passage, barre, rangée de touches, menu Touches, capsules, pupitre), `SessionStats`, `ExternalDisplay` (scène de l'écran externe, non interactive, déclarée par `AppDelegate`). Le modèle (`Model.swift`) et la découverte (`Discovery.swift`) viennent de l'app Mac ; la synchro iCloud (`CloudSync.swift`) et les images d'ordinateur (`Backdrops.swift`) de l'Apple TV.
 
 ## Compiler
 
@@ -42,11 +42,15 @@ open KyberNowIOS.xcodeproj
 
 `build-apple-mobile.sh ios` compile `kybernow-core` et `kybernow-apple` en bibliothèques statiques (iPhone et simulateur), y ajoute libkynput, libopus (compilée par cmake) et les fonctions vides de VLC que kyclient référence sans jamais les appeler, et range le tout dans `Vendor/KyberNow.xcframework`, avec `kybernow.h` (module `CKyberNow`) et `kynput.h` (module `CKyber`, mise en page de la vue et constantes des manettes).
 
-En Debug dans le simulateur : `-demo YES` ajoute trois ordinateurs de démonstration ; `-skipLaunch YES` saute le lancement ; `-screen add|settings|session|bar` ouvre un écran (la session de démonstration montre une mire, sans ordinateur).
+En Debug dans le simulateur : `-demo YES` ajoute trois ordinateurs de démonstration ; `-skipLaunch YES` saute le lancement ; `-screen add|settings|appSettings|session|bar` ouvre un écran (la session de démonstration montre une mire, sans ordinateur).
+
+## Langues
+
+Français et anglais ([docs/i18n.md](../../docs/i18n.md)) : français si iOS est en français, anglais pour toute autre langue. Réglages de l'app › Langue : Auto, Français ou English, pris en compte à la relance. Textes dans les catalogues de chaînes (`KyberNowIOS/Localizable.xcstrings`, `InfoPlist.xcstrings`, et `apps/macos/KyberKit/Localizable.xcstrings` pour KyberKit). Après avoir ajouté des textes : `xcrun xcstringstool sync <catalogue> --stringsdata …` depuis les `.stringsdata` du build (`xcodebuild` ne remplit pas le catalogue lui-même), puis `python3 ../macos/scripts/check-strings.py --fix`.
 
 ## Signature
 
-Équipe P6DB682S4K, identifiant `fr.leslignesclaires.kybernow`. Capacités : iCloud (magasin clé-valeur), partage du Trousseau. Distribution : TestFlight, testeurs internes.
+Équipe P6DB682S4K, identifiant `fr.leslignesclaires.kybernow`. Capacités : iCloud (magasin clé-valeur), partage du Trousseau. Distribution prévue : TestFlight, testeurs internes (pas encore de profil App Store) ; en attendant, [SIDELOAD.md](SIDELOAD.md) (`scripts/sideload.sh`, signature avec son propre compte Apple, SDK `KyberSDK-iOS.zip` joint aux versions publiées à partir de la 0.3.2).
 
 En Debug, signature manuelle avec le profil « iOS App Development » `ios.fr.leslignesclaires.kybernow` (créé le 2026-10-21, appareils enregistrés dans le compte), certificat Apple Development. Pour qu'Xcode le trouve, copier le fichier téléchargé dans `~/Library/Developer/Xcode/UserData/Provisioning Profiles/<UUID>.mobileprovision` ; un nouvel appareil demande de l'ajouter au profil, puis de le retélécharger. Installer sur un appareil branché :
 
@@ -59,8 +63,8 @@ La Release reste en signature automatique ; l'envoi sur TestFlight demandera un 
 
 ## Reste à faire
 
-- Session réussie sur un iPhone 15 Pro Max (22/10/2026) ; à essayer sur un iPad (le simulateur ne fait qu'afficher une mire : pas de décodage matériel). Sur iOS, une couche Metal qui a présenté des images avant d'être dans une fenêtre reste hors écran pour toujours (toutes ses images écartées, `presentedTime` à 0, jusqu'à un passage en arrière-plan) : `MetalSurface` crée la sienne une fois dans la fenêtre et y branche le rendu à ce moment-là, et la refait si l'écran écarte tout pendant deux secondes (journal `affichage bloqué`). `KN_PRESENT_STATS=1` (variable d'environnement au lancement par `devicectl`) écrit chaque seconde les images rendues, montrées et écartées.
-- Écran externe et Stage Manager : écrits, mais le simulateur de ce Mac ne permet pas de brancher un écran ; à essayer sur un iPad et un iPhone (USB-C, AirPlay). Si iOS recopie l'écran au lieu d'ouvrir la scène externe, passer `UIApplicationSupportsMultipleScenes` à `true` dans `project.yml`.
+- Session réussie sur un iPhone 15 Pro Max (22/10/2026) ; pas encore essayée sur un iPad (aucun iPad dans le profil de provisionnement ; le simulateur ne fait qu'afficher une mire : pas de décodage matériel). Sur iOS, une couche Metal qui a présenté des images avant d'être dans une fenêtre reste hors écran pour toujours (toutes ses images écartées, `presentedTime` à 0, jusqu'à un passage en arrière-plan) : `MetalSurface` crée la sienne une fois dans la fenêtre et y branche le rendu à ce moment-là, et la refait si l'écran écarte tout pendant deux secondes (journal `affichage bloqué`). `KN_PRESENT_STATS=1` (variable d'environnement au lancement par `devicectl`) écrit chaque seconde les images rendues, montrées et écartées.
+- Écran externe et Stage Manager : écrits, mais le simulateur ne permet pas de les essayer (Xcode 27.1 sans Simulator.app ; `simctl io … screenConfig` branche un écran, mais iOS recopie l'écran sans donner la scène à l'app) ; à essayer sur un iPhone et un iPad (USB-C, AirPlay). Si iOS recopie l'écran au lieu d'ouvrir la scène externe, passer `UIApplicationSupportsMultipleScenes` à `true` dans `project.yml`.
 - Stage Manager : pas de bouton « plein écran » dans la barre (iPadOS ne laisse pas une app agrandir sa fenêtre).
 - Le presse-papiers de l'appareil n'est lu que quand l'ordinateur le demande (⌘V ou Ctrl+V là-bas) : le lire fait demander à iOS l'accord de coller, ce qui fait perdre le premier plan à l'app. Les changements sont annoncés sans lecture (`hasStrings`).
-- Envoi sur TestFlight (archive Release et `xcodebuild -exportArchive`), une fois l'app essayée.
+- Envoi sur TestFlight (profil App Store à créer, archive Release et `xcodebuild -exportArchive`).

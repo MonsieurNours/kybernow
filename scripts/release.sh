@@ -79,7 +79,7 @@ SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 # KyberNow-Setup.exe : ancien nom de KyberNow-Server-Setup.exe (même fichier),
 # publié encore quelques versions pour les liens existants (…/latest/download/).
-ASSETS=(KyberNow-Server-Setup.exe KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
+ASSETS=(KyberNow-Server-Setup.exe KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Client-Setup.exe
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
@@ -355,6 +355,19 @@ apps/apple/scripts/build-apple-mobile.sh tvos 2>&1 > /dev/null \
     -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 (cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")
 
+step "App iPhone et iPad (cœur Rust et SDK, compilation de vérification)"
+# libkynput pour iOS (rootfs par cible), puis le cœur, libopus et les en-têtes
+# dans apps/ios/Vendor, publiés dans KyberSDK-iOS.zip pour apps/ios/scripts/sideload.sh.
+for t in aarch64-apple-ios aarch64-apple-ios-sim; do
+    apps/core/scripts/build-apple.sh --target "$t" 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+done
+apps/apple/scripts/build-apple-mobile.sh ios 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+(cd apps/ios && xcodegen generate --quiet && xcodebuild -project KyberNowIOS.xcodeproj -scheme KyberNowIOS -configuration Release \
+    -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
+(cd apps/ios/Vendor && ditto -c -k . "$OUT/KyberSDK-iOS.zip")
+
 step "App Windows (x64 et ARM64) et son installateur"
 # Comme pour l'ordinateur : avec pipefail, un échec de build.sh arrête tout
 # (sinon l'exécutable d'un build précédent partirait dans la version).
@@ -447,7 +460,7 @@ else
 fi
 
 step "Empreintes et manifeste signé"
-(cd "$OUT" && shasum -a 256 KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip \
+(cd "$OUT" && shasum -a 256 KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Client-Setup.exe > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then

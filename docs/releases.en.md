@@ -4,7 +4,7 @@ English · [Français](releases.md)
 
 KyberNow releases are published on GitHub: https://github.com/MonsieurNours/kybernow/releases. The repository is public: updates download without a token, and the code stays available as the AGPL requires (with the patches to Kyber, see [kyber-changes.en.md](kyber-changes.en.md)).
 
-One version number for all of KyberNow: the console, the icon, the installer, the Mac app and the Apple TV app change together.
+One version number for all of KyberNow: the console, the icon, the installer, the Windows app, the Mac app, the Apple TV app and the iPhone/iPad app change together (the iPhone/iPad app is not distributed yet: `release.sh` publishes its SDK, not the app).
 
 ## What a release contains
 
@@ -16,7 +16,8 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
 | `KyberNow-Client-Setup.exe` | The Windows app, x64 and ARM64 in a single file: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
-| `KyberSDK-tvOS.zip` | Kyber SDK built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
+| `KyberSDK-tvOS.zip` | Kyber SDK and KyberNow core (`KyberNow.xcframework`) built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
+| `KyberSDK-iOS.zip` | KyberNow core, libkynput, libopus and their headers built for iPhone and iPad (`apps/ios/Vendor`, from 0.3.2 on), downloaded by `apps/ios/scripts/sideload.sh` to install the app without TestFlight or the App Store ([SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md)) |
 | `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from the console, whether a reinstallation is needed, SHA-256 checksum and size of each file above |
 | `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by the console before any installation |
 | `SHA256SUMS` | Checksums of all the files |
@@ -88,7 +89,7 @@ Each release publishes a manifest, `kybernow-release.json`, signed with an ed255
 }
 ```
 
-`files` lists those of the published files that are present (`KyberNow-Server-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
+`files` lists those of the published files that are present (`KyberNow-Server-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Client-Setup.exe`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
 
 The manifest is written and signed with:
 
@@ -136,8 +137,8 @@ scripts/release.sh X.Y.Z             # release
 
 **Order.** The published binaries must be those of the tagged commit (the AGPL requires publishing the exact source of the binaries):
 1. preliminary checks, all shown at once; if one fails, nothing is modified;
-2. version alignment (console, tray icon, installer, Mac and Apple TV apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
-3. build from that commit: installer, update package, the Rust core of the Apple apps (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, no KyberNow open), Developer ID-signed Mac app, Kyber SDK for the Apple TV (core included in `KyberSDK-tvOS.zip`) and Apple TV app; if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
+2. version alignment (console, tray icon, installer, Windows, Mac, Apple TV and iPhone/iPad apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
+3. build from that commit: installer, update package, the Rust core of the Apple apps (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, no KyberNow open), Developer ID-signed Mac app, Kyber SDK for the Apple TV (core included in `KyberSDK-tvOS.zip`) and Apple TV app, core and libraries of the iPhone/iPad app (`KyberSDK-iOS.zip`, the app itself built unsigned as a check); if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
 4. notarisation of the Mac app, stapling of the ticket, Gatekeeper check;
 5. signed Sparkle feed, `SHA256SUMS`, signed manifest `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign); the website's cumulative feed (`site/updates/appcast.xml`) gets this release and is committed on top of the version commit ("Flux des mises à jour : KyberNow X.Y.Z");
 6. GitHub release created **as a draft** with all the files;

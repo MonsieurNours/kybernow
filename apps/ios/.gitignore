@@ -2,3 +2,6 @@ Vendor/
 build/
 build-*/
 xcuserdata/
+# Projet produit par scripts/sideload.sh
+project.sideload.yml
+KyberNowIOSSideload.xcodeproj/

@@ -15,7 +15,7 @@ python3 -m http.server 5200 --directory site
 | French | English | Contents |
 |---|---|---|
 | `/` | `/en/` | Presentation and downloads |
-| `/guide/` | `/en/guide/` | Step-by-step guide (server, devices: Mac, Apple TV, browser; VPN, updates, uninstalling) and FAQ |
+| `/guide/` | `/en/guide/` | Step-by-step guide (server, devices: Mac, Windows, Apple TV, iPhone and iPad, browser; VPN, updates, uninstalling) and FAQ |
 | `/mentions-legales/` | `/en/legal/` | Publisher, hosting, intellectual property, privacy, credits |
 
 Each page declares its two versions (`<link rel="alternate" hreflang>`). `assets/lang.js`, loaded in `<head>`, sends a visitor whose browser is not in French to the English version (and the other way round), unless they have chosen a language with the selector: that choice is kept in `localStorage` (`kn-lang`). Robots are never redirected. The texts produced by `main.js` (path, simulation, profiles) follow `<html lang>`.
@@ -26,7 +26,7 @@ Both languages are written by hand: a text change is carried over to both files.
 
 Until KyberNow reaches 1.0, the site says so throughout: a “Beta” badge next to the logo on every page and at the top of the home page (`.beta` class), a “KyberNow is in beta” box in the Download section (`.notice-beta`, `flask` icon), a badge after the version number, and a “Why beta?” FAQ question. At 1.0, remove these elements in both languages.
 
-The Apple TV app has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). To be revisited once the app is on the App Store.
+The Apple TV app has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). Likewise for the iPhone and iPad app: card to “On iPhone and iPad” (`/en/guide/#iphone`), which sums up [apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md). To be revisited once the apps are on TestFlight or the App Store.
 
 ## Publishing
 

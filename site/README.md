@@ -15,7 +15,7 @@ python3 -m http.server 5200 --directory site
 | Français | Anglais | Contenu |
 |---|---|---|
 | `/` | `/en/` | Présentation et téléchargements |
-| `/guide/` | `/en/guide/` | Guide pas à pas (serveur, appareils : Mac, Apple TV, navigateur ; VPN, mises à jour, désinstallation) et FAQ |
+| `/guide/` | `/en/guide/` | Guide pas à pas (serveur, appareils : Mac, Windows, Apple TV, iPhone et iPad, navigateur ; VPN, mises à jour, désinstallation) et FAQ |
 | `/mentions-legales/` | `/en/legal/` | Éditeur, hébergement, propriété intellectuelle, confidentialité, crédits |
 
 Chaque page déclare ses deux versions (`<link rel="alternate" hreflang>`). `assets/lang.js`, chargé dans `<head>`, envoie un visiteur dont le navigateur n'est pas en français vers la version anglaise (et l'inverse), sauf s'il a choisi une langue avec le sélecteur : ce choix est gardé dans `localStorage` (`kn-lang`). Les robots ne sont jamais redirigés. Les textes produits par `main.js` (trajet, simulation, profils) suivent `<html lang>`.
@@ -26,7 +26,7 @@ Les deux langues sont écrites à la main : une modification de texte se reporte
 
 Tant que KyberNow n'est pas en 1.0, le site le dit partout : badge « Bêta » à côté du logo sur chaque page et en tête de l'accueil (classe `.beta`), encart « KyberNow est en bêta » dans la section Télécharger (`.notice-beta`, icône `flask`), badge après le numéro de version, question « Pourquoi bêta ? » de la FAQ. À la 1.0, retirer ces éléments dans les deux langues.
 
-L'app Apple TV n'a pas de fichier à télécharger : sa carte mène à la section « Sur l'Apple TV » du guide (`/guide/#apple-tv`), qui résume [apps/tvos/SIDELOAD.md](../apps/tvos/SIDELOAD.md) (installation depuis un Mac avec Xcode). À reprendre quand l'app sera sur l'App Store.
+L'app Apple TV n'a pas de fichier à télécharger : sa carte mène à la section « Sur l'Apple TV » du guide (`/guide/#apple-tv`), qui résume [apps/tvos/SIDELOAD.md](../apps/tvos/SIDELOAD.md) (installation depuis un Mac avec Xcode). De même pour l'app iPhone et iPad : carte vers « Sur l'iPhone et l'iPad » (`/guide/#iphone`), qui résume [apps/ios/SIDELOAD.md](../apps/ios/SIDELOAD.md). À reprendre quand les apps seront sur TestFlight ou l'App Store.
 
 ## Publication
 
