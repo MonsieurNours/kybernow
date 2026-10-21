@@ -42,17 +42,16 @@ cp "$HERE/update.ps1" "$STAGE/"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/server/admin/Cargo.toml" | head -1)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version de server/admin/Cargo.toml illisible : $VERSION" >&2; exit 1; }
 printf '%s\r\n' "$VERSION" > "$STAGE/version.txt"
-if [ -n "$MIN_INSTALLER" ]; then
-    [[ "$MIN_INSTALLER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--min-installer : version X.Y.Z attendue ($MIN_INSTALLER)" >&2; exit 1; }
-    num() { local a b c; IFS=. read -r a b c <<< "$1"; echo $((a * 1000000 + b * 1000 + c)); }
-    [ "$(num "$MIN_INSTALLER")" -le "$(num "$VERSION")" ] || { echo "--min-installer $MIN_INSTALLER est plus récent que le paquet $VERSION" >&2; exit 1; }
-    MIN_JSON="\"$MIN_INSTALLER\""
-else
-    MIN_JSON=null
-fi
-# Mêmes champs que kybernow-release.json (scripts/sign-manifest.sh).
-printf '{"version": "%s", "min_installer_version": %s, "requires_setup": %s}\r\n' \
-    "$VERSION" "$MIN_JSON" "$REQUIRES_SETUP" > "$STAGE/requirements.json"
+# Sans --min-installer : 0.2.0, première console qui se met à jour, même
+# défaut que scripts/sign-manifest.sh.
+MIN_INSTALLER="${MIN_INSTALLER:-0.2.0}"
+[[ "$MIN_INSTALLER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--min-installer : version X.Y.Z attendue ($MIN_INSTALLER)" >&2; exit 1; }
+num() { local a b c; IFS=. read -r a b c <<< "$1"; echo $((a * 1000000 + b * 1000 + c)); }
+[ "$(num "$MIN_INSTALLER")" -le "$(num "$VERSION")" ] || { echo "--min-installer $MIN_INSTALLER est plus récent que le paquet $VERSION" >&2; exit 1; }
+# Mêmes champs que kybernow-release.json (scripts/sign-manifest.sh), qui fait
+# foi ; cette copie sert au chemin à la main (update.ps1), sans manifeste.
+printf '{"version": "%s", "min_installer_version": "%s", "requires_setup": %s}\r\n' \
+    "$VERSION" "$MIN_INSTALLER" "$REQUIRES_SETUP" > "$STAGE/requirements.json"
 # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII.
 if LC_ALL=C grep -q '[^ -~[:space:]]' "$HERE/update.ps1"; then echo "update.ps1 contient des caractères non ASCII" >&2; exit 1; fi
 rm -f "$DIST/kybernow-update.zip"
@@ -60,4 +59,4 @@ rm -f "$DIST/kybernow-update.zip"
 cp "$HERE/update.ps1" "$DIST/update.ps1"
 (cd "$DIST" && shasum -a 256 kybernow-update.zip update.ps1 > SHA256SUMS)
 cp "$ROOT/server/dist/kyber-admin.exe" "$DIST/"
-echo "Paquet $VERSION : $DIST/kybernow-update.zip ($(du -h "$DIST/kybernow-update.zip" | cut -f1)), installateur minimal ${MIN_INSTALLER:-aucun}, installateur exigé : $REQUIRES_SETUP"
+echo "Paquet $VERSION : $DIST/kybernow-update.zip ($(du -h "$DIST/kybernow-update.zip" | cut -f1)), installateur minimal $MIN_INSTALLER, installateur exigé : $REQUIRES_SETUP"

@@ -70,6 +70,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Windows: the installer, its interface and the tray icon report their real version (Properties › Details, manifests), taken from `Cargo.toml` at build time; it stayed at 0.1.0.
 - Console: the settings (`kyber-admin.toml`) have a format version (`schema = 1`) and are migrated at start, the original saved in `backups\`; `kyber-admin migrate [--dry-run]` does it by hand. First migration: a listening address without a port no longer prevents the console from starting, a bare port no longer sets the whole file aside (password included). Settings from a newer version are kept after a rollback.
 - Repository: GitHub Actions continuous integration on each push and pull request to `main`: console and installer tests, Windows build check of the console, installer and tray icon, Svelte interfaces, scripts (shellcheck, `update.ps1` bench), Apple TV app for the simulator. The Mac app is not included (its Kyber SDK and VLC are not published).
+- Documentation: `docs/releases.en.md` describes releasing step by step (order, draft, re-run, channels, rehearsal, what is checked, what the author sets up once), the CI and what it does not cover, and the settings migrations.
 
 ## 0.2.5
 

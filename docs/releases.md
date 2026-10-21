@@ -56,6 +56,7 @@ Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la 
 
 ## Publier une version
 
+0. Vérifier que la CI est verte sur `main` (onglet Actions du dépôt, voir « Intégration continue ») : elle ne couvre pas l'app Mac, que `--dry-run` compile.
 1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié.
 2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh` (il écrit `third_party/payload/kyber-overlay.stamp`, l'empreinte des correctifs compilés, que le script compare à ceux du dépôt).
 3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis, depuis `main` :
@@ -97,7 +98,9 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 
 **Essai (`--dry-run`).** Fait tout sauf le commit, la notarisation, la release, le tag et le push, qu'il affiche (`[essai, non lancé] …`). Il aligne les versions pour construire comme la publication, puis remet les fichiers de version tels qu'il les a trouvés. Il ne recompile pas le SDK de l'Apple TV (`build-kyber-tvos.sh` applique les correctifs dans `third_party/`, partagé avec les autres copies) et reprend `apps/tvos/Vendor`. Les vérifications en échec sont listées au début et à la fin, l'essai continue pour montrer la suite et sort en erreur. `--check` s'arrête après les vérifications et affiche le plan.
 
-**Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh` et au manifeste signé.
+**Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé, 0.2.0 par défaut) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh`, qui en garde une copie dans le paquet (`requirements.json`), et à `scripts/sign-manifest.sh`, dont le manifeste signé fait foi. Quand s'en servir : « Migrations des réglages », plus bas.
+
+**Ce que l'auteur prépare une fois** : `gh auth login` avec un jeton limité au dépôt `MonsieurNours/kybernow` (jeton *fine-grained*, permission Contents en lecture et écriture : releases, tags et push de `main` ; plus Workflows si `main` pousse un changement de `.github/workflows/`), le profil de notarisation et le certificat Developer ID (« Signature et notarisation de l'app Mac »), la clé Sparkle (plus haut) et la clé minisign (en-tête de `scripts/sign-manifest.sh`).
 
 ## Intégration continue
 
@@ -153,4 +156,4 @@ Les réglages de la console (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent
 
 Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGRATIONS`, `CURRENT` passé à N, un test sur un fichier de la version N-1, et une ligne dans ce tableau.
 
-**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et la console refuse alors « Installer » en renvoyant vers `KyberNow-Setup.exe`. De même, `--min-installer A.B.C` refuse le paquet sur un ordinateur installé avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`), le manifeste signé fait foi.
+**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et la console refuse alors « Installer » en renvoyant vers `KyberNow-Setup.exe`. De même, `--min-installer A.B.C` refuse le paquet sur un ordinateur installé avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`, pour une future vérification par `update.ps1`, qui n'a pas de manifeste), le manifeste signé fait foi.

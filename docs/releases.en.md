@@ -56,6 +56,7 @@ Without it, no app update could be signed any more. To restore it on another Mac
 
 ## Publishing a release
 
+0. Check that the CI is green on `main` (the repository's Actions tab, see "Continuous integration"): it does not cover the Mac app, which `--dry-run` builds.
 1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree.
 2. If the Kyber patches have changed: `server/kyber-patches/build.sh` (it writes `third_party/payload/kyber-overlay.stamp`, the fingerprint of the compiled patches, which the script compares with the repository's).
 3. Quit the KyberNow built in Release if it is open (another copy does not matter), then, from `main`:
@@ -97,7 +98,9 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.
 
 **Rehearsal (`--dry-run`).** Does everything except the commit, notarisation, release, tag and push, which it prints (`[essai, non lancé] …`). It aligns the versions to build like the release, then puts the version files back as it found them. It does not rebuild the Apple TV SDK (`build-kyber-tvos.sh` applies the patches in `third_party/`, shared with the other checkouts) and reuses `apps/tvos/Vendor`. Failed checks are listed at the beginning and at the end; the rehearsal goes on to show the rest and exits with an error. `--check` stops after the checks and prints the plan.
 
-**Requirements of an update.** `--min-installer A.B.C` (installed KyberNow version below which the package is refused) and `--requires-setup` (the update needs the installer) are passed to `package-update.sh` and to the signed manifest.
+**Requirements of an update.** `--min-installer A.B.C` (installed KyberNow version below which the package is refused, 0.2.0 by default) and `--requires-setup` (the update needs the installer) are passed to `package-update.sh`, which keeps a copy in the package (`requirements.json`), and to `scripts/sign-manifest.sh`, whose signed manifest is authoritative. When to use them: "Settings migrations", below.
+
+**What the author sets up once**: `gh auth login` with a token limited to the `MonsieurNours/kybernow` repository (*fine-grained* token, Contents permission read and write: releases, tags and push of `main`; plus Workflows if `main` pushes a change to `.github/workflows/`), the notarisation profile and the Developer ID certificate ("Signing and notarising the Mac app"), the Sparkle key (above) and the minisign key (header of `scripts/sign-manifest.sh`).
 
 ## Continuous integration
 
@@ -153,4 +156,4 @@ By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-adm
 
 Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
 
-**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`); the signed manifest is authoritative.
+**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.

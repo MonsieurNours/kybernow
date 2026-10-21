@@ -71,6 +71,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Windows : l'installateur, son interface et l'icône annoncent leur vraie version (Propriétés › Détails, manifestes), tirée de `Cargo.toml` à la compilation ; elle restait à 0.1.0.
 - Console : les réglages (`kyber-admin.toml`) ont une version de format (`schema = 1`) et sont migrés au démarrage, original sauvegardé dans `backups\` ; `kyber-admin migrate [--dry-run]` le fait à la main. Première migration : une adresse d'écoute sans port n'empêche plus la console de démarrer, un port seul ne fait plus mettre de côté tout le fichier (mot de passe compris). Les réglages d'une version plus récente sont gardés après un retour arrière.
 - Dépôt : intégration continue GitHub Actions sur chaque push et pull request vers `main` : tests de la console et de l'installateur, compilation pour Windows de la console, de l'installateur et de l'icône, interfaces Svelte, scripts (shellcheck, banc de `update.ps1`), app Apple TV pour le simulateur. L'app Mac n'y est pas (son SDK de Kyber et VLC ne sont pas publiés).
+- Documentation : `docs/releases.md` décrit la publication pas à pas (ordre, brouillon, relance, canaux, essai, ce qui est vérifié, ce que l'auteur prépare une fois), la CI et ce qu'elle ne couvre pas, et les migrations des réglages.
 
 ## 0.2.5
 

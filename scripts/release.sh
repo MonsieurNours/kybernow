@@ -149,7 +149,7 @@ if git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
     if [ "$RELAUNCH" = 1 ] && [ "$(git rev-list -n 1 "$TAG")" = "$(git rev-parse HEAD)" ]; then
         ok "tag $TAG déjà posé sur le commit de version (relance)"
     else
-        problem "le tag $TAG existe déjà sur $(git rev-list -n 1 "$TAG" | cut -c1-7) ; reste d'un essai raté ? git tag -d $TAG"
+        problem "le tag $TAG existe déjà sur $(git rev-list -n 1 "$TAG" | cut -c1-7) (version publiée, ou reste d'un essai raté : git tag -d $TAG)"
     fi
 fi
 
