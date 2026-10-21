@@ -8,7 +8,7 @@ Serveur de streaming Windows clé en main et clients macOS, Windows et tvOS, con
 |---|---|
 | `PROJECT.md` | Cadrage et décisions |
 | `apps/macos/` | App macOS (SwiftUI, VideoToolbox, Metal, Core Audio), voir [son README](apps/macos/README.md) |
-| `apps/core/`, `apps/windows/` | Cœur client en Rust et app Windows (Direct3D 11, FFmpeg, WASAPI), avec son installateur `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 et ARM64), voir [son README](apps/windows/README.md) |
+| `apps/core/`, `apps/windows/` | Cœur client en Rust (session, console, profils, latence, mises à jour, entrées et son partagés, voir [son README](apps/core/README.md)) et app Windows (Direct3D 11, FFmpeg, WASAPI), avec son installateur `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 et ARM64), voir [son README](apps/windows/README.md) |
 | `server/` | Tout ce qui tourne sur l'ordinateur partagé, voir [son README](server/README.md) |
 | `server/admin/`, `server/web/` | Console d'administration (service Windows, Rust) et son interface (Svelte) |
 | `server/tray/` | Icône de la zone de notification |
