@@ -229,16 +229,39 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     })))
 }
 
-/// État résumé pour l'icône de la zone de notification, réservé à l'ordinateur
-/// lui-même : serveur en marche ou non, session d'un appareil en cours ou non.
-async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> ApiResult<Json<Value>> {
-    if !peer.ip().is_loopback() {
+/// Les routes `/api/local/*` : depuis l'ordinateur lui-même (loopback, aussi
+/// en IPv4 projeté en IPv6) **et** avec le jeton local de la session de
+/// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
+fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
+    if !peer.ip().to_canonical().is_loopback() {
         return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
     }
+    if !s.local_token.accepts(headers) {
+        return Err(ApiError(StatusCode::FORBIDDEN, "jeton local absent ou périmé".into()));
+    }
+    Ok(())
+}
+
+/// État résumé pour l'icône de la zone de notification, réservé à l'ordinateur
+/// lui-même : serveur en marche ou non, session d'un appareil en cours ou non.
+/// Les demandes d'appairage y sont sans leur code : l'icône renvoie à la
+/// console pour le comparer à celui de l'appareil.
+async fn local_state(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    local_only(&s, peer, &headers)?;
     let service_state = s.service.state().unwrap_or(service::ServiceState::Unknown);
     let (d, a) = (s.display.clone(), s.audio.clone());
     let (display, audio) = blocking(move || Ok((d.status()["session"].clone(), a.status()["session"].clone()))).await?;
     let user = display["user"].as_str().map(str::to_owned);
+    let requests: Vec<Value> = s
+        .pairing
+        .pending()
+        .into_iter()
+        .map(|r| json!({ "id": r.id, "name": r.name, "kind": r.kind, "expires_at": r.expires_at }))
+        .collect();
     Ok(Json(json!({
         "service": service_state,
         "session": !display.is_null() || !audio.is_null(),
@@ -250,16 +273,19 @@ async fn local_state(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<S
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
         "update_available": s.updater.available(),
         "version": crate::update::current(),
-        "pair_requests": s.pairing.pending(),
+        "pair_requests_count": requests.len(),
+        "pair_requests": requests,
     })))
 }
 
 /// Fin de la session en cours, depuis l'icône de la zone de notification
 /// (réservé à l'ordinateur lui-même : la personne devant l'écran).
-async fn local_end(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<SocketAddr>) -> ApiResult<Json<Value>> {
-    if !peer.ip().is_loopback() {
-        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
-    }
+async fn local_end(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    local_only(&s, peer, &headers)?;
     end_session(State(s)).await
 }
 
@@ -268,11 +294,10 @@ async fn local_end(State(s): State<AppState>, ConnectInfo(peer): ConnectInfo<Soc
 async fn local_pair_answer(
     State(s): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path((id, action)): Path<(String, String)>,
 ) -> ApiResult<Json<Value>> {
-    if !peer.ip().is_loopback() {
-        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
-    }
+    local_only(&s, peer, &headers)?;
     match action.as_str() {
         "accept" => pair_accept(State(s), Path(id)).await,
         "refuse" => pair_refuse(State(s), Path(id)).await,

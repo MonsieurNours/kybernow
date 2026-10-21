@@ -478,6 +478,13 @@ impl App {
                 self.hide_panel();
                 self.open_updates();
             }
+            // Le code d'appairage ne passe plus par l'icône : il se compare dans la console.
+            "openPairing" => {
+                self.hide_panel();
+                if let Err(e) = open_console_at("acces") {
+                    alert(&format!("{e:#}"));
+                }
+            }
             "endSession" => self.end_session(),
             "pairAnswer" => {
                 if let Some(id) = message["id"].as_str() {

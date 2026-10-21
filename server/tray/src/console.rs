@@ -1,5 +1,10 @@
 //! Console d'administration : son adresse, et l'état qu'elle donne à l'ordinateur
 //! local (`GET /api/local/state` : serveur, session en cours, demandes d'accès).
+//!
+//! Les routes `/api/local/*` exigent, en plus de l'adresse locale, le jeton
+//! que la console tire à son démarrage et à chaque ouverture de session, et
+//! qu'un agent copie dans le profil du compte (`%LOCALAPPDATA%\KyberNow\local-token`,
+//! lisible par ce compte seulement) : l'icône l'envoie dans `x-kyber-local`.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -25,6 +30,20 @@ pub fn url(port: u16) -> String {
     format!("https://localhost:{port}/")
 }
 
+/// En-tête du jeton des routes locales.
+const LOCAL_HEADER: &str = "x-kyber-local";
+
+/// Jeton des routes locales, copié par la console dans le profil du compte.
+pub fn local_token_path() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|dir| PathBuf::from(dir).join(r"KyberNow\local-token"))
+}
+
+/// Relu à chaque appel : la console le renouvelle à chaque ouverture de
+/// session et à chaque démarrage (un 403 veut dire qu'il a changé).
+fn local_token() -> String {
+    local_token_path().and_then(|p| std::fs::read_to_string(p).ok()).map(|t| t.trim().to_string()).unwrap_or_default()
+}
+
 /// Ce que la console dit de la session en cours.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LocalState {
@@ -39,7 +58,8 @@ pub struct LocalState {
     pub live: Option<Value>,
     /// Dernière session terminée.
     pub last: Option<Value>,
-    /// Appareils qui demandent l'accès par code (id, code, nom, type…).
+    /// Appareils qui demandent l'accès par code (id, nom, type ; jamais le
+    /// code, qui se compare dans la console).
     pub pair_requests: Vec<Value>,
 }
 
@@ -65,7 +85,7 @@ impl Client {
     }
 
     pub fn local_state(&self, port: u16) -> Option<LocalState> {
-        let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/local/state")).call().ok()?;
+        let mut response = self.0.get(&format!("https://127.0.0.1:{port}/api/local/state")).header(LOCAL_HEADER, &local_token()).call().ok()?;
         let body: Value = response.body_mut().read_json().ok()?;
         let text = |key: &str| body[key].as_str().map(str::to_owned);
         let some = |v: &Value| (!v.is_null()).then(|| v.clone());
@@ -87,6 +107,7 @@ impl Client {
         self.0
             .post(&format!("https://127.0.0.1:{port}/api/local/end"))
             .header("x-kyber-admin", "1")
+            .header(LOCAL_HEADER, &local_token())
             .send_empty()
             .map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e})."))?;
         Ok(())
@@ -100,6 +121,7 @@ impl Client {
         self.0
             .post(&format!("https://127.0.0.1:{port}/api/local/pair/{id}/{action}"))
             .header("x-kyber-admin", "1")
+            .header(LOCAL_HEADER, &local_token())
             .config()
             .timeout_global(Some(Duration::from_secs(15)))
             .build()

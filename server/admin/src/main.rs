@@ -11,6 +11,7 @@ mod foreground;
 mod gpu;
 mod kyber_config;
 mod kyber_proxy;
+mod local_token;
 mod logs;
 mod pairing;
 mod preview;
@@ -163,6 +164,13 @@ enum AgentAction {
         #[arg(long)]
         dir: PathBuf,
     },
+    /// Copie le jeton des routes locales dans le profil de l'utilisateur de la session.
+    LocalToken {
+        #[arg(long)]
+        dir: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Aperçu de l'écran principal en JPEG, `width` pixels de large.
     Preview {
         #[arg(long)]
@@ -233,6 +241,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, r)
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
+        AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
@@ -241,7 +250,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }
-        | AgentAction::AudioRestore { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
+        | AgentAction::AudioRestore { out, .. }
+        | AgentAction::LocalToken { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
@@ -266,6 +276,8 @@ pub struct Inner {
     pub activity: Arc<activity::Activity>,
     /// Demandes d'appairage par code (app Apple TV), en mémoire.
     pub pairing: pairing::Pairing,
+    /// Jeton des routes locales (icône de la zone de notification).
+    pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
     pub service: Box<dyn service::ServiceControl>,
@@ -486,6 +498,14 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     updater.clone().supervise();
     update::relaunch_tray_if_asked(&data_dir);
 
+    // Jeton des routes locales : tiré maintenant, puis à chaque ouverture de session.
+    let local_token = local_token::LocalToken::new(&data_dir);
+    {
+        let t = local_token.clone();
+        tokio::task::spawn_blocking(move || t.renew()).await?;
+    }
+    local_token.clone().supervise();
+
     // Fil des événements : l'écran virtuel y annonce ce que la veille voit.
     let activity = Arc::new(activity::Activity::new(&data_dir));
     {
@@ -502,6 +522,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         preview: preview::Preview::new(&data_dir),
         activity,
         pairing: pairing::Pairing::new(),
+        local_token,
         updater: updater.clone(),
         service,
         data_dir: data_dir.clone(),
