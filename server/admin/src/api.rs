@@ -748,7 +748,10 @@ async fn stream_prepare(
     let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
     if trigger == Trigger::Off || body.virtual_display == Some(false) {
         s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
-        return Ok(Json(json!({ "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })));
+        return Ok(Json(json!({
+            "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
+            "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
+        })));
     }
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let d = s.display.clone();
@@ -757,7 +760,10 @@ async fn stream_prepare(
     // La session n'est ouverte qu'une fois l'écran en place : un échec ne
     // laisse pas un appareil « connecté » dans la vue d'ensemble.
     s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
-    Ok(Json(json!({ "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5 })))
+    Ok(Json(json!({
+        "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
+        "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
+    })))
 }
 
 /// Temps laissé à l'appareil en session pour rendre la main (signal de vie

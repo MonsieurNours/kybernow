@@ -164,7 +164,10 @@ public final class KyberClient {
         KyberLog.install()
     }()
 
-    public init(host: String, port: UInt16, username: String, password: String, autoReconnect: Bool = true) throws {
+    /// `fingerprint` : celle du certificat de Kyber donnée par la console
+    /// (`PrepareResult.kyberFingerprint`) ; sans elle, le certificat est
+    /// retenu au premier contact.
+    public init(host: String, port: UInt16, username: String, password: String, autoReconnect: Bool = true, fingerprint: String? = nil) throws {
         _ = Self.setup
         self.host = host
         let creds = kyclient_auth_credentials_new_basic(username, password)
@@ -173,9 +176,16 @@ public final class KyberClient {
         defer { kyclient_connect_config_unref(config) }
         kyclient_connect_config_set_streamer_port(config, port)
         kyclient_connect_config_set_auto_reconnection(config, autoReconnect)
-        // Premier contact : on retient le certificat (TOFU). La console a déjà
-        // été vérifiée par empreinte ; une invite dédiée viendra ensuite.
-        try check(kyclient_connect_config_enable_tofu_auto_accept(config), "vérification du certificat")
+        if let fingerprint {
+            // La console, vérifiée par empreinte, dit celle du certificat de
+            // Kyber : on l'exige, sans mémoire du premier contact. Réinstaller
+            // l'ordinateur change ce certificat ; retenu, il bloquait l'app
+            // (« connexion impossible ») jusqu'à effacer `known_hosts` à la main.
+            try check(kyclient_connect_config_set_tls_fingerprint(config, fingerprint), "vérification du certificat")
+        } else {
+            // Console d'avant 0.2.8 : on retient le certificat au premier contact (TOFU).
+            try check(kyclient_connect_config_enable_tofu_auto_accept(config), "vérification du certificat")
+        }
         // Mesures actives : horodatages des images côté ordinateur et recalage d'horloge.
         guard let c = kyclient_client_new(config, true) else {
             throw KyberError.sdk("création du client", -1)

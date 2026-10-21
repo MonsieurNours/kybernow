@@ -378,6 +378,17 @@ fn pinned_connector(s: &AppState) -> anyhow::Result<tokio_rustls::TlsConnector> 
 }
 
 /// « sha256:aa:bb:… », « aa:bb:… » ou 64 caractères hexadécimaux.
+/// Empreinte du certificat de kycontroller au format de kyclient
+/// (`sha256:aa:bb:…`), donnée aux apps par `prepare` : elles l'exigent au
+/// lieu de retenir le certificat au premier contact. Réinstaller
+/// l'ordinateur change ce certificat, et une app qui avait retenu l'ancien
+/// refusait de se connecter (« connexion impossible »), sans recours.
+pub fn kyber_fingerprint(s: &AppState) -> Option<String> {
+    pinned_connector(s).ok()?;
+    let fingerprint = PIN.lock().unwrap().as_ref()?.fingerprint;
+    Some(format!("sha256:{}", fingerprint.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")))
+}
+
 fn parse_fingerprint(text: &str) -> Option<[u8; 32]> {
     let hex: String = text.trim().trim_start_matches("sha256:").chars().filter(|c| *c != ':').collect();
     let bytes = hex::decode(hex).ok()?;

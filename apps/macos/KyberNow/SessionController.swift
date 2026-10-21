@@ -454,7 +454,7 @@ final class SessionController: NSObject, ObservableObject {
             throw ConsoleError.http(0, "port du flux inconnu")
         }
         phase = .connecting
-        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect)
+        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect, fingerprint: prepared?.kyberFingerprint)
         kyber.onEvent = { [weak self] in self?.handle($0) }
         kyber.onGamepadCombo = { [weak self] in self?.gamepadCombo() }
         kyber.onGamepadNavigate = { [weak self] in self?.gamepadNavigate($0) }

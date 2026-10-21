@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.8
+
+- Mac and Apple TV apps, console: after reinstalling the computer, the apps refused to connect ("connection impossible") because Kyber's certificate had changed and they had kept the old one from the first contact. The console now gives Kyber's certificate fingerprint when the session is prepared (`kyber_fingerprint`), and the apps require it instead of keeping the first certificate; with an older console, the previous behaviour remains.
+
 ## 0.2.7
 
 - Installer: the installation window opened on "Microsoft Edge can't read and write to its data directory" (0.2.6): WebView2's data folder goes back to `%TEMP%`, the interface and its DLL stay under Program Files.

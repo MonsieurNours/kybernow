@@ -188,7 +188,7 @@ final class SessionController: ObservableObject {
             throw ConsoleError.http(0, "port du flux inconnu")
         }
         phase = .connecting
-        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect)
+        let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect, fingerprint: prepared?.kyberFingerprint)
         kyber.onEvent = { [weak self] in self?.handle($0) }
         kyber.onVideoStats = { [weak self] stats in
             guard let self else { return }

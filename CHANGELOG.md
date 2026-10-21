@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.8
+
+- Apps Mac et Apple TV, console : après une réinstallation de l'ordinateur, les apps refusaient de se connecter (« connexion impossible ») parce que le certificat de Kyber avait changé et qu'elles avaient retenu l'ancien au premier contact. La console donne désormais l'empreinte du certificat de Kyber à la préparation de la session (`kyber_fingerprint`), et les apps l'exigent au lieu de retenir le premier certificat ; avec une console plus ancienne, l'ancien fonctionnement reste.
+
 ## 0.2.7
 
 - Installateur : la fenêtre d'installation s'ouvrait sur « Microsoft Edge ne peut pas lire ni écrire dans son répertoire de données » (0.2.6) : le dossier de données de WebView2 revient dans `%TEMP%`, l'interface et sa DLL restent sous Program Files.

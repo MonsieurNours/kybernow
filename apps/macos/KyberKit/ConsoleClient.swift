@@ -16,6 +16,10 @@ public struct PrepareResult: Sendable {
     public let refresh: Int?
     public let heartbeatSeconds: Int
     public let audioChannels: Int?
+    /// Empreinte du certificat de Kyber (`sha256:aa:bb:…`), que la console
+    /// (elle-même vérifiée par empreinte) a lue sur l'ordinateur ; absente
+    /// avec une console d'avant 0.2.8.
+    public let kyberFingerprint: String?
 }
 
 /// Ce que la console dit de l'ordinateur.
@@ -171,7 +175,8 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
             height: applied?["height"] as? Int,
             refresh: applied?["refresh"] as? Int,
             heartbeatSeconds: json["heartbeat_seconds"] as? Int ?? 5,
-            audioChannels: (audio?["routed"] as? Bool ?? false) ? audio?["channels"] as? Int : nil
+            audioChannels: (audio?["routed"] as? Bool ?? false) ? audio?["channels"] as? Int : nil,
+            kyberFingerprint: json["kyber_fingerprint"] as? String
         )
     }
 
