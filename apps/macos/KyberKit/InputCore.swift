@@ -461,7 +461,9 @@ final class InputPipeline: @unchecked Sendable {
             },
             pasteboard_change_count: Self.pasteboardChangeCount,
             pasteboard_text: Self.pasteboardText,
-            pasteboard_set_text: Self.pasteboardSetText
+            pasteboard_set_text: Self.pasteboardSetText,
+            pasteboard_has_text: Self.pasteboardHasText,
+            pasteboard_reading_asks_user: Self.pasteboardReadingAsksUser
         )
         core = kn_input_new(options, pointer.core, callbacks)
         gamepad.owner = self
@@ -487,6 +489,8 @@ final class InputPipeline: @unchecked Sendable {
         box.pasteboard.clearContents()
         box.pasteboard.setString(String(cString: text), forType: .string)
     }
+    private static let pasteboardHasText: (@convention(c) (UnsafeMutableRawPointer?) -> Bool)? = nil
+    private static let pasteboardReadingAsksUser = false
     #elseif os(iOS)
     // UIPasteboard : le compteur se lit librement ; lire le texte fait
     // demander à iOS l'accord de coller (une fois par changement, à la copie
@@ -502,11 +506,20 @@ final class InputPipeline: @unchecked Sendable {
         guard let text else { return }
         UIPasteboard.general.string = String(cString: text)
     }
+    // `hasStrings` ne demande rien ; le texte n'est lu que quand l'ordinateur
+    // le demande (« Autoriser à coller ? » ferait perdre le premier plan et
+    // figerait l'image).
+    private static let pasteboardHasText: (@convention(c) (UnsafeMutableRawPointer?) -> Bool)? = { _ in
+        UIPasteboard.general.hasStrings
+    }
+    private static let pasteboardReadingAsksUser = true
     #else
     // Pas de presse-papiers sur l'Apple TV.
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = nil
     private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = nil
     private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = nil
+    private static let pasteboardHasText: (@convention(c) (UnsafeMutableRawPointer?) -> Bool)? = nil
+    private static let pasteboardReadingAsksUser = false
     #endif
 
     deinit {

@@ -59,8 +59,8 @@ Release stays on automatic signing; uploading to TestFlight will need an App Sto
 
 ## To do
 
-- Try a session on a real iPhone and iPad (the simulator only shows a test pattern: no hardware decoding).
+- Session successful on an iPhone 15 Pro Max (22/10/2026); to be tried on an iPad (the simulator only shows a test pattern: no hardware decoding). On iOS, a Metal layer that presented frames before being in a window stays off screen forever (all its frames discarded, `presentedTime` 0, until the app goes to the background): `MetalSurface` creates its own once in the window and attaches the rendering at that point, and remakes it if the display discards everything for two seconds (log `affichage bloqué`). `KN_PRESENT_STATS=1` (environment variable at launch through `devicectl`) writes every second the frames rendered, shown and discarded.
 - External display and Stage Manager: written, but this Mac's simulator cannot connect a display; to be tried on an iPad and an iPhone (USB-C, AirPlay). If iOS mirrors the screen instead of opening the external scene, set `UIApplicationSupportsMultipleScenes` to `true` in `project.yml`.
 - Stage Manager: no “full screen” button in the bar (iPadOS does not let an app enlarge its window).
-- Reading the clipboard makes iOS ask for permission to paste, for each new text copied during the session.
+- The device's clipboard is only read when the computer asks for it (⌘V or Ctrl+V over there): reading it makes iOS ask for permission to paste, which takes the foreground away from the app. Changes are announced without reading (`hasStrings`).
 - Uploading to TestFlight (Release archive and `xcodebuild -exportArchive`), once the app has been tried.

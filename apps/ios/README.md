@@ -59,8 +59,8 @@ La Release reste en signature automatique ; l'envoi sur TestFlight demandera un 
 
 ## Reste à faire
 
-- Essayer une session sur un iPhone et un iPad réels (le simulateur ne fait qu'afficher une mire : pas de décodage matériel).
+- Session réussie sur un iPhone 15 Pro Max (22/10/2026) ; à essayer sur un iPad (le simulateur ne fait qu'afficher une mire : pas de décodage matériel). Sur iOS, une couche Metal qui a présenté des images avant d'être dans une fenêtre reste hors écran pour toujours (toutes ses images écartées, `presentedTime` à 0, jusqu'à un passage en arrière-plan) : `MetalSurface` crée la sienne une fois dans la fenêtre et y branche le rendu à ce moment-là, et la refait si l'écran écarte tout pendant deux secondes (journal `affichage bloqué`). `KN_PRESENT_STATS=1` (variable d'environnement au lancement par `devicectl`) écrit chaque seconde les images rendues, montrées et écartées.
 - Écran externe et Stage Manager : écrits, mais le simulateur de ce Mac ne permet pas de brancher un écran ; à essayer sur un iPad et un iPhone (USB-C, AirPlay). Si iOS recopie l'écran au lieu d'ouvrir la scène externe, passer `UIApplicationSupportsMultipleScenes` à `true` dans `project.yml`.
 - Stage Manager : pas de bouton « plein écran » dans la barre (iPadOS ne laisse pas une app agrandir sa fenêtre).
-- Lire le presse-papiers fait demander à iOS l'accord de coller, à chaque nouveau texte copié pendant la session.
+- Le presse-papiers de l'appareil n'est lu que quand l'ordinateur le demande (⌘V ou Ctrl+V là-bas) : le lire fait demander à iOS l'accord de coller, ce qui fait perdre le premier plan à l'app. Les changements sont annoncés sans lecture (`hasStrings`).
 - Envoi sur TestFlight (archive Release et `xcodebuild -exportArchive`), une fois l'app essayée.

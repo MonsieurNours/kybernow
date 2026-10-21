@@ -235,7 +235,10 @@ public final class SessionEngine: @unchecked Sendable {
         }
         lock.lock()
         session = s
+        let hidden = occluded
         lock.unlock()
+        // Fenêtre déjà cachée au départ : la veille d'image du cœur attend.
+        if hidden { kn_session_set_hidden(s, true) }
     }
 
     private static func from(_ ud: UnsafeMutableRawPointer?) -> SessionEngine {
@@ -310,8 +313,11 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         self.occluded = occluded
         let renderers = videos.values.map(\.renderer)
+        let s = session
         lock.unlock()
         renderers.forEach { $0.paused = occluded }
+        // Image figée exprès : pas une panne pour le cœur.
+        if let s { kn_session_set_hidden(s, occluded) }
     }
 
     public func setVolume(_ volume: Float) {
@@ -497,6 +503,11 @@ public final class SessionEngine: @unchecked Sendable {
         pipeline.renderer.paused = occluded
         pipeline.renderer.latency = self
         pipeline.renderer.onStats = { [weak self] stats in self?.videoStats(stats) }
+        #if !os(macOS)
+        pipeline.renderer.onStuck = { [weak self] in
+            DispatchQueue.main.async { self?.view.surface.heal() }
+        }
+        #endif
         pipeline.decoder.onLostReference = { [weak self] in
             if let s = self?.live { kn_session_keyframe_lost(s) }
         }

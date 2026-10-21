@@ -400,6 +400,7 @@ public final class GamepadBridge: ObservableObject {
     private func appBack() {
         guard inBackground else { return }
         inBackground = false
+        KyberLog.app.notice("app au premier plan")
         resync()
     }
 

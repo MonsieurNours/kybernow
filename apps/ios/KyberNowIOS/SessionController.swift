@@ -223,6 +223,7 @@ final class SessionController: ObservableObject {
             center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, self.isSessionScene(note.object), self.phase == .streaming else { return }
+                    KyberLog.app.notice("fenêtre de la session inactive : image figée")
                     self.streamView.releaseAll()
                     self.engine?.setBitrateCap(Self.backgroundBitrate)
                     // Sur l'écran externe, l'image reste vivante : on la regarde encore.
@@ -233,6 +234,7 @@ final class SessionController: ObservableObject {
             center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
                     guard let self, self.isSessionScene(note.object) else { return }
+                    KyberLog.app.notice("fenêtre de la session active : image reprise")
                     self.engine?.setOccluded(false)
                     self.engine?.setBitrateCap(nil)
                 }

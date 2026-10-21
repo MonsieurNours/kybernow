@@ -181,6 +181,7 @@ pub struct Session {
     tx: Mutex<Sender<Msg>>,
     latency: Arc<LatencyTracker>,
     has_image: Arc<AtomicBool>,
+    hidden: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -189,6 +190,7 @@ impl Session {
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));
+        let hidden = Arc::new(AtomicBool::new(false));
         let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
         let worker = Worker {
             requested: params.mode,
@@ -199,6 +201,7 @@ impl Session {
             rx,
             latency: latency.clone(),
             has_image: has_image.clone(),
+            hidden: hidden.clone(),
             console: None,
             client: None,
             prepared: None,
@@ -255,6 +258,7 @@ impl Session {
             tx: Mutex::new(tx),
             latency,
             has_image,
+            hidden,
             thread: Mutex::new(Some(thread)),
         })
     }
@@ -300,6 +304,13 @@ impl Session {
     /// Plafond de débit le temps que la fenêtre est occultée ; `None` le retire.
     pub fn set_bitrate_cap(&self, cap: Option<u32>) {
         self.send(Msg::BitrateCap(cap));
+    }
+
+    /// L'app a figé l'image (arrière-plan, fenêtre cachée) : aucune image
+    /// n'est montrée, et ce n'est pas une panne. La veille « aucune image en
+    /// 4 s » attend le retour au lieu de relancer le flux puis de couper.
+    pub fn set_hidden(&self, hidden: bool) {
+        self.hidden.store(hidden, Ordering::Relaxed);
     }
 
     /// Taille des images décodées par l'app : un changement en cours de flux
@@ -350,6 +361,8 @@ struct Worker {
     rx: Receiver<Msg>,
     latency: Arc<LatencyTracker>,
     has_image: Arc<AtomicBool>,
+    /// Image figée par l'app ([`Session::set_hidden`]).
+    hidden: Arc<AtomicBool>,
     console: Option<Arc<Console>>,
     client: Option<Arc<Client>>,
     prepared: Option<Prepared>,
@@ -756,6 +769,10 @@ impl Worker {
     /// Veilles du cœur (`watch_image`) : première image en 4 s, image clé en
     /// 1,5 s (redemandée toutes les 300 ms).
     fn watch_image(&mut self, now: Instant) -> Option<String> {
+        if self.hidden.load(Ordering::Relaxed) && self.image_deadline.is_some() {
+            // Rien n'est montré tant que l'app a figé l'image : 4 s de nouveau au retour.
+            self.image_deadline = Some(now + Duration::from_secs(4));
+        }
         if self.has_image.load(Ordering::Relaxed) {
             self.image_deadline = None;
         } else if let Some(deadline) = self.image_deadline {

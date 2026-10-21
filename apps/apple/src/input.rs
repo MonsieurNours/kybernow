@@ -243,6 +243,11 @@ pub struct KnInputCallbacks {
     pub pasteboard_change_count: Option<unsafe extern "C" fn(userdata: *mut c_void) -> u64>,
     pub pasteboard_text: Option<unsafe extern "C" fn(userdata: *mut c_void) -> *mut c_char>,
     pub pasteboard_set_text: Option<unsafe extern "C" fn(userdata: *mut c_void, text: *const c_char)>,
+    /// Du texte est là, sans le lire (facultatif : sinon `pasteboard_text`).
+    pub pasteboard_has_text: Option<unsafe extern "C" fn(userdata: *mut c_void) -> bool>,
+    /// Lire le texte demande l'accord de l'utilisateur (iOS) : il n'est lu
+    /// que quand l'ordinateur le demande.
+    pub pasteboard_reading_asks_user: bool,
 }
 
 unsafe impl Send for KnInputCallbacks {}
@@ -320,6 +325,17 @@ impl Pasteboard for Board {
         let Some(f) = self.0 .0.pasteboard_set_text else { return };
         let Ok(c) = std::ffi::CString::new(text.replace('\0', " ")) else { return };
         unsafe { f(self.0 .0.userdata, c.as_ptr()) };
+    }
+
+    fn has_text(&self) -> bool {
+        match self.0 .0.pasteboard_has_text {
+            Some(f) => unsafe { f(self.0 .0.userdata) },
+            None => self.text().is_some(),
+        }
+    }
+
+    fn reading_asks_user(&self) -> bool {
+        self.0 .0.pasteboard_reading_asks_user
     }
 }
 

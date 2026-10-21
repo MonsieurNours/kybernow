@@ -918,6 +918,13 @@ pub unsafe extern "C" fn kn_session_set_bitrate_cap(s: *const KnSession, cap: u3
     with(s, |s| s.set_bitrate_cap((cap > 0).then_some(cap)));
 }
 
+/// L'app fige l'image (arrière-plan, fenêtre cachée) ou la reprend : la
+/// veille « aucune image » attend le retour.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_hidden(s: *const KnSession, hidden: bool) {
+    with(s, |s| s.set_hidden(hidden));
+}
+
 /// Taille des images décodées par l'app (à chaque changement).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_decoded_size(s: *const KnSession, width: u32, height: u32) {

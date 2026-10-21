@@ -287,6 +287,11 @@ final class VideoRenderer {
 
         let received = frame.received, decoded = frame.decoded, pts = frame.pts
         let committed = CACurrentMediaTime()
+        commands.addCompletedHandler { [weak self] cb in
+            guard let self, let error = cb.error, self.gpuErrors < 3 else { return }
+            self.gpuErrors += 1
+            KyberLog.video.error("commande Metal en erreur : \(error.localizedDescription, privacy: .public)")
+        }
         #if os(tvOS) || (os(iOS) && targetEnvironment(simulator))
         // tvOS (et le simulateur d'iOS) ne disent pas quand l'image est
         // montrée : elle l'est au rafraîchissement qui suit la fin du rendu.
@@ -319,6 +324,9 @@ final class VideoRenderer {
         let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
         let now = CACurrentMediaTime()
         if let c = colorCache, c.format == format, c.width == width, c.height == height, now - c.read < 1 { return c.value }
+        if colorCache?.format != format || colorCache?.width != width || colorCache?.height != height {
+            KyberLog.video.notice("images \(Self.fourcc(format), privacy: .public) \(width)×\(height), \(layout.label, privacy: .public)\(CVPixelBufferGetIOSurface(buffer) == nil ? ", sans IOSurface" : "", privacy: .public)")
+        }
         let value = Self.color(buffer, fullRange: layout.full, deep: layout.deep)
         colorCache = (format, width, height, now, value)
         return value
@@ -457,6 +465,53 @@ final class VideoRenderer {
             KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées, \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
         }
         onPresentStats?(stats)
+        guard stats.rendered > 0 else { return }
+        if stats.presented > 0 {
+            stuckSeconds = 0
+            return
+        }
+        if logPresentStats, unseenReports < 3 {
+            unseenReports += 1
+            describeUnseenLayer()
+        }
+        stuckSeconds += 1
+        if stuckSeconds >= 2, heals < 3 {
+            stuckSeconds = 0
+            heals += 1
+            KyberLog.video.error("rien de montré en 2 s : \(stats.rendered) images rendues, toutes écartées par l'écran")
+            onStuck?()
+        }
+    }
+
+    /// Erreurs GPU déjà écrites au journal (trois au plus).
+    private var gpuErrors = 0
+
+    /// L'écran écarte toutes les images rendues depuis deux secondes : la
+    /// couche Metal est à refaire (fil de rendu). Voir MetalSurface (UIKit).
+    var onStuck: (() -> Void)?
+    private var stuckSeconds = 0
+    private var heals = 0
+
+    /// Rapports « rien de montré » déjà écrits (trois au plus par rendu).
+    private var unseenReports = 0
+
+    /// Rien de montré dans la seconde alors que des images ont été rendues :
+    /// où est la couche Metal (cadre, chaîne de couches jusqu'à la racine) ?
+    private func describeUnseenLayer() {
+        DispatchQueue.main.async { [layer] in
+            var chain: [String] = []
+            var hidden = false
+            var root: CALayer = layer
+            var l: CALayer? = layer
+            while let c = l {
+                if c.isHidden || c.opacity == 0 { hidden = true }
+                chain.append("\(type(of: c.delegate.map { $0 as AnyObject } ?? c))\(c.isHidden ? " cachée" : "")\(c.opacity < 1 ? " opacité \(c.opacity)" : "") \(Int(c.bounds.width))×\(Int(c.bounds.height))")
+                root = c
+                l = c.superlayer
+            }
+            let onRoot = layer.convert(layer.bounds, to: root)
+            KyberLog.video.notice("rien de montré : couche \(Int(onRoot.minX)),\(Int(onRoot.minY)) \(Int(onRoot.width))×\(Int(onRoot.height)) dans la racine \(Int(root.bounds.width))×\(Int(root.bounds.height)), tampon \(Int(layer.drawableSize.width))×\(Int(layer.drawableSize.height)), \(hidden ? "cachée" : "visible", privacy: .public) ; \(chain.joined(separator: " ← "), privacy: .public)")
+        }
     }
 
     // MARK: - Formats et couleurs
