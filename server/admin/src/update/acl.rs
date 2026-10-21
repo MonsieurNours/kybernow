@@ -36,6 +36,11 @@ const CHILD_DIR_SDDL: &str = "O:BAD:AI(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)";
 /// Un fichier : les mêmes droits, hérités.
 #[cfg_attr(not(windows), allow(dead_code))]
 const CHILD_FILE_SDDL: &str = "O:BAD:AI(A;ID;FA;;;SY)(A;ID;FA;;;BA)";
+/// Un fichier seul, hors du dossier de données (secrets de Kyber sous Program
+/// Files) : liste protégée (rien d'hérité de Program Files, où tout compte
+/// peut lire), SYSTEM et Administrateurs seulement.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const SECRET_FILE_SDDL: &str = "O:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)";
 
 /// Pose les droits sur `dir` et tout ce qu'il contient (le crée s'il manque).
 /// Renvoie le nombre de liens retirés.
@@ -62,6 +67,31 @@ pub fn secure_dir(dir: &Path) -> Result<usize> {
 pub fn secure_dir(dir: &Path) -> Result<usize> {
     std::fs::create_dir_all(dir)?;
     Ok(0)
+}
+
+/// Réserve un fichier seul à SYSTEM et aux Administrateurs (`kyber_config.toml`,
+/// certificat et clé de Kyber sous Program Files, lisibles par tous sinon). Un
+/// lien à sa place est refusé, jamais suivi.
+#[cfg(windows)]
+pub fn secure_file(path: &Path) -> Result<()> {
+    use anyhow::{Context, bail};
+
+    let _privileges = imp::Privileges::enable(&["SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege"]);
+    let meta = std::fs::symlink_metadata(path).with_context(|| format!("lecture de {}", path.display()))?;
+    if imp::is_reparse_point(&meta) {
+        bail!("{} est un lien : droits non posés", path.display());
+    }
+    if !meta.is_file() {
+        bail!("{} n'est pas un fichier", path.display());
+    }
+    imp::apply(path, &imp::Descriptor::parse(SECRET_FILE_SDDL)?)
+}
+
+/// Hors Windows : rien à faire (simulation, développement).
+#[cfg(not(windows))]
+pub fn secure_file(path: &Path) -> Result<()> {
+    let _ = path;
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -96,7 +126,7 @@ mod imp {
     pub struct Descriptor(PSECURITY_DESCRIPTOR);
 
     impl Descriptor {
-        fn parse(sddl: &str) -> Result<Self> {
+        pub fn parse(sddl: &str) -> Result<Self> {
             let wide: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
             let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
             if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(wide.as_ptr(), 1, &mut sd, std::ptr::null_mut()) } == 0 {

@@ -19,7 +19,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 1. Arrête et retire une version précédente ou Kyber officiel (désinstalleur NSIS lancé avec `_?=` pour l'attendre).
 2. Extrait le contenu dans `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). Dans `kyber\`, les fichiers de Kyber 0.29 recouverts par la surcouche corrigée (`kyavserver.exe`, txproto et leur runtime, `kycontroller.exe`, voir [docs/kyber-changes.md](../../docs/kyber-changes.md)). Aussitôt après : `kybernow.json`, `uninstall.exe` et l'inscription dans « Applications installées », pour qu'une installation interrompue plus loin se désinstalle normalement.
 3. Génère le certificat TLS de Kyber (`cert-gen.exe`).
-4. `kyber-admin init` : port, encodeur (voir « Choix de l'encodeur »), compte unique (Kyber Basic + console), secret JWT aléatoire à la place de la clé de développement de Kyber.
+4. `kyber-admin init` : port, encodeur (voir « Choix de l'encodeur »), compte unique (Kyber Basic + console, mémorisé comme compte d'installation), secret JWT aléatoire à la place de la clé de développement de Kyber, écrit dans `C:\ProgramData\KyberNow\kyber-jwt.key` (`kyber_config.toml` n'en porte que le chemin). Juste avant, et de nouveau après : `kyber\kyber_config.toml`, le certificat et la clé de Kyber (`kybertest_cert.pem`, `kybertest_key.pem`) sont réservés à SYSTEM et aux Administrateurs (`src/acl.rs`, `secure_file`, descripteur `O:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)`), aussi avec « Conserver mes réglages » : Program Files est lisible par tous et ces fichiers contiennent les empreintes des mots de passe des comptes. La console repose ces droits à chaque démarrage.
 5. Crée le service `kyber` (chemin entre guillemets, redémarrage automatique en cas d'échec) et ouvre son démarrage et son arrêt aux utilisateurs interactifs (`sc sdset`, voir plus bas).
 6. Pare-feu : ports du stream (TCP/UDP) et de la console (TCP), annonce Bonjour de la console (UDP 5353, pour que les apps trouvent l'ordinateur), sur les profils privé et domaine ; réseau « Public » passé en « Privé ».
 7. SudoVDA : certificat dans Racine + Éditeurs approuvés, nœud de périphérique et pilote via `nefconc`.
@@ -51,7 +51,7 @@ Par défaut, ProgramData laisse tout compte y créer des dossiers et en devenir 
 - Un échec est écrit dans `install.log` ou dans `kyber-admin.log` sans bloquer l'installation ni la console.
 - L'icône, qui tourne avec les droits de l'utilisateur, ne lit plus rien dans ce dossier : le port de la console vient de `C:\Program Files\KyberNow\kybernow.json` (lisible par tous, sans secret), et le code d'initialisation lui est transmis par sa partie élevée (voir « Réinitialiser le mot de passe de la console »).
 
-Vérifier sur l'ordinateur : `icacls C:\ProgramData\KyberNow` doit lister `NT AUTHORITY\SYSTEM:(OI)(CI)(F)` et `BUILTIN\Administrateurs:(OI)(CI)(F)`, rien d'autre.
+Vérifier sur l'ordinateur : `icacls C:\ProgramData\KyberNow` doit lister `NT AUTHORITY\SYSTEM:(OI)(CI)(F)` et `BUILTIN\Administrateurs:(OI)(CI)(F)`, rien d'autre ; `icacls "C:\Program Files\KyberNow\kyber\kyber_config.toml"` (et les deux `kybertest_*.pem`) doit lister SYSTEM et Administrateurs en `(F)`, sans `BUILTIN\Utilisateurs`, et `type` depuis un compte standard doit être refusé.
 
 ## Désinstaller
 

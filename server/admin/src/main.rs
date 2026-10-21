@@ -357,10 +357,12 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
     config.apply(&changes)?;
     config.reset_users(user, &password)?;
     let secret: [u8; 32] = rand::random();
-    config.set_jwt_secret(&hex::encode(secret))?;
+    config.set_jwt_secret_file(&data_dir.join(kyber_config::JWT_KEY_FILE), &hex::encode(secret))?;
+    config.secure_secrets();
 
     let mut s = Settings::load(data_dir)?;
     s.admin_password_hash = Some(auth::hash_password(&password)?);
+    s.install_account = Some(user.to_string());
     s.kyber_dir = Some(kyber_dir);
     if let Some(listen) = &args.listen {
         listen.parse::<SocketAddr>().context("adresse d'écoute invalide")?;
@@ -369,6 +371,33 @@ fn init(args: &RunArgs, data_dir: &std::path::Path, user: &str, kyber_port: u16,
     s.save(data_dir)?;
     println!("Configuration initiale terminée.");
     Ok(())
+}
+
+/// Au démarrage : les secrets de Kyber réservés à SYSTEM et aux Administrateurs
+/// (une mise à jour les a remplacés par des fichiers aux droits de Program
+/// Files), la clé JWT déplacée de `kyber_config.toml` vers le dossier de
+/// données, et le compte d'installation mémorisé s'il ne l'est pas encore
+/// (installation d'avant 0.2.6 : le premier compte de la liste).
+fn kyber_secrets_at_start(kyber: &KyberConfig, mut settings: Settings, data_dir: &std::path::Path) -> Settings {
+    if !kyber.path().exists() {
+        return settings;
+    }
+    match kyber.move_jwt_secret_to_file(&data_dir.join(kyber_config::JWT_KEY_FILE)) {
+        Ok(true) => tracing::info!("clé JWT de Kyber déplacée dans {}", kyber_config::JWT_KEY_FILE),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("clé JWT de Kyber non déplacée : {e:#}"),
+    }
+    kyber.secure_secrets();
+    if settings.install_account.is_none()
+        && let Some(first) = kyber.users().ok().and_then(|u| u.into_iter().next())
+    {
+        settings.install_account = Some(first.username.clone());
+        match settings.save(data_dir) {
+            Ok(()) => tracing::info!("compte d'installation mémorisé : {}", first.username),
+            Err(e) => tracing::warn!("compte d'installation non mémorisé : {e:#}"),
+        }
+    }
+    settings
 }
 
 pub fn init_logging(file: Option<PathBuf>) {
@@ -409,6 +438,8 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     if !config_path.exists() {
         tracing::warn!("{} introuvable : Kyber est-il installé ?", config_path.display());
     }
+    let kyber = KyberConfig::new(config_path.clone(), data_dir.join("backups"));
+    let settings = kyber_secrets_at_start(&kyber, settings, &data_dir);
     let listen: SocketAddr = args
         .listen
         .or_else(|| settings.listen.clone())
@@ -464,7 +495,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
-        kyber: KyberConfig::new(config_path, data_dir.join("backups")),
+        kyber,
         display,
         audio,
         foreground: foreground::Watcher::new(&data_dir),

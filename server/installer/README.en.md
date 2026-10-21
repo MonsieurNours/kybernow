@@ -21,7 +21,7 @@ KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 1. Stops and removes a previous version or official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
 2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)). Right after: `kybernow.json`, `uninstall.exe` and the entry in “Installed apps”, so that an installation interrupted further on can be uninstalled normally.
 3. Generates Kyber's TLS certificate (`cert-gen.exe`).
-4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + console), random JWT secret instead of Kyber's development key.
+4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + console, recorded as the installation account), random JWT secret instead of Kyber's development key, written to `C:\ProgramData\KyberNow\kyber-jwt.key` (`kyber_config.toml` only carries the path). Just before, and again after: `kyber\kyber_config.toml`, Kyber's certificate and key (`kybertest_cert.pem`, `kybertest_key.pem`) are reserved to SYSTEM and Administrators (`src/acl.rs`, `secure_file`, descriptor `O:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)`), also with “Keep my settings”: Program Files is readable by everyone and these files hold the accounts' password hashes. The console reapplies these permissions at every start.
 5. Creates the `kyber` service (quoted path, automatic restart on failure) and opens its start and stop to interactive users (`sc sdset`, see below).
 6. Firewall: stream ports (TCP/UDP) and console port (TCP), the console's Bonjour announcement (UDP 5353, so the apps can find the computer), on the private and domain profiles; a “Public” network is switched to “Private”.
 7. SudoVDA: certificate in Root + Trusted Publishers, device node and driver through `nefconc`.
@@ -53,7 +53,7 @@ By default, ProgramData lets any account create folders in it and become their o
 - A failure is written to `install.log` or `kyber-admin.log` without blocking the installation or the console.
 - The icon, which runs with the user's rights, no longer reads anything in this folder: the console port comes from `C:\Program Files\KyberNow\kybernow.json` (readable by everyone, no secret), and the set-up code is handed over by its elevated part (see “Resetting the console password”).
 
-To check on the computer: `icacls C:\ProgramData\KyberNow` must list `NT AUTHORITY\SYSTEM:(OI)(CI)(F)` and `BUILTIN\Administrators:(OI)(CI)(F)`, nothing else.
+To check on the computer: `icacls C:\ProgramData\KyberNow` must list `NT AUTHORITY\SYSTEM:(OI)(CI)(F)` and `BUILTIN\Administrators:(OI)(CI)(F)`, nothing else; `icacls "C:\Program Files\KyberNow\kyber\kyber_config.toml"` (and both `kybertest_*.pem`) must list SYSTEM and Administrators with `(F)`, without `BUILTIN\Users`, and `type` from a standard account must be refused.
 
 ## Uninstalling
 

@@ -502,8 +502,13 @@ fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
 }
 
 /// Nom sous lequel le client web se connecte à Kyber : le compte créé à
-/// l'installation (celui de la console).
+/// l'installation (`install_account`, mémorisé par `init`), jamais le
+/// premier de la liste (qu'un appareil appairé pourrait devenir si
+/// l'administrateur retire ou réordonne les comptes).
 fn web_user(s: &AppState) -> String {
+    if let Some(account) = s.settings.lock().unwrap().install_account.clone() {
+        return account;
+    }
     s.kyber
         .users()
         .ok()
@@ -514,8 +519,8 @@ fn web_user(s: &AppState) -> String {
 
 /// Ce dont le client web a besoin pour se connecter à Kyber : un jeton signé
 /// avec la clé que Kyber connaît (posée à l'installation), valable le temps
-/// d'une session de la console.
-async fn web_ticket(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+/// d'une session de la console. Jamais mis en cache par le navigateur.
+async fn web_ticket(State(s): State<AppState>) -> ApiResult<Response> {
     const LIFETIME: i64 = 12 * 3600;
     let secret = s.kyber.jwt_secret().ok_or_else(|| {
         ApiError(
@@ -524,13 +529,14 @@ async fn web_ticket(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         )
     })?;
     let user = web_user(&s);
-    Ok(Json(json!({
+    let body = json!({
         "token": crate::kyber_proxy::jwt(&secret, &user, LIFETIME),
         "user": user,
         "expires_in": LIFETIME,
         "kyber_port": s.kyber.port(),
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
-    })))
+    });
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(body)).into_response())
 }
 
 fn base64_decode(input: &str) -> Option<String> {
