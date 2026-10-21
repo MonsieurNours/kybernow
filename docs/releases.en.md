@@ -182,13 +182,6 @@ What it does not cover:
 - **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
 - **Nothing is signed or published**: releasing stays `scripts/release.sh`, on the author's Mac (notarisation, Sparkle and minisign keys). A CI that builds the Windows binaries would be the next step, to have them Authenticode-signed by SignPath (free programme for open-source projects, which requires a CI build).
 
-Until `release.sh` calls `scripts/sign-manifest.sh` itself, sign the manifest after it and attach it to the release, otherwise the console refuses to install it:
-
-```bash
-scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable
-gh release upload vX.Y.Z -R MonsieurNours/kybernow dist/vX.Y.Z/kybernow-release.json dist/vX.Y.Z/kybernow-release.json.minisig
-```
-
 ## Signing and notarising the Mac app
 
 The distributed build (Release configuration) is signed “Developer ID Application: Mathieu Requenna (P6DB682S4K)”, with the hardened runtime and a secure timestamp, without the debugging entitlement. The only entitlement requested: the camera (`KyberNow/KyberNow.entitlements`, for the QR code). Development builds (Debug) keep the development certificate, which is faster.
@@ -227,3 +220,118 @@ By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-adm
 Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
 
 **Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.
+## Keys, GitHub account and Windows signing
+
+### Backing up the signing keys
+
+Two private keys must never be lost: a new key would make everything already installed refuse all updates, and it would have to be reinstalled by hand.
+
+| Key | Where it lives | Expected public key |
+| Sparkle (Mac app, EdDSA) | Login Keychain, item created by `generate_keys` | `SUPublicEDKey` in `apps/macos/project.yml` |
+| minisign (Windows releases) | `~/Library/Application Support/KyberNow/minisign.key`, encrypted with the password of the `kybernow-minisign` Keychain item | `server/admin/src/update/kybernow-release.pub` |
+
+The backup (made on 2026-10-21) is an AES-256 encrypted disk image, `kybernow-cles.dmg`, volume `KyberNow-Cles`. It contains:
+- `sparkle-kybernow.key`, the Sparkle key exported by `generate_keys -x`, in plain text inside the image;
+- `kybernow-minisign.key` and its password `minisign-motdepasse.txt`, taken from the Keychain without going through the screen;
+- `kybernow-minisign.pub`;
+- a `LISEZMOI.txt` with the restore commands.
+
+The image password is written on paper, kept separately. The GitHub 2FA recovery codes can go into the image too. The image must live **off the Mac that publishes** (external drive, NAS, ideally two places). Open it once a year to check that it still reads.
+
+Create or reopen the image and write to it, without displaying anything:
+
+```bash
+hdiutil create -size 20m -fs APFS -encryption AES-256 -volname KyberNow-Cles ~/kybernow-cles.dmg
+hdiutil attach ~/kybernow-cles.dmg
+GK=apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys
+$GK -x /Volumes/KyberNow-Cles/sparkle-kybernow.key
+cp ~/Library/Application\ Support/KyberNow/minisign.key /Volumes/KyberNow-Cles/kybernow-minisign.key
+cp ~/Library/Application\ Support/KyberNow/minisign.pub /Volumes/KyberNow-Cles/kybernow-minisign.pub
+security find-generic-password -s kybernow-minisign -w > /Volumes/KyberNow-Cles/minisign-motdepasse.txt
+hdiutil detach /Volumes/KyberNow-Cles
+```
+
+Check a backup without revealing the key (image open). The first command recomputes the Sparkle public key, which must equal `SUPublicEDKey`. The second signs a test file with the backed-up key and password, then verifies the signature with the repository's public key:
+
+{ printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; base64 -d -i /Volumes/KyberNow-Cles/sparkle-kybernow.key; } \
+  | openssl pkey -inform DER -pubout -outform DER | tail -c 32 | base64
+echo test > /tmp/essai.txt
+tr -d '\n' < /Volumes/KyberNow-Cles/minisign-motdepasse.txt | { read -r PW; printf '%s\n' "$PW"; } \
+  | minisign -S -s /Volumes/KyberNow-Cles/kybernow-minisign.key -m /tmp/essai.txt -x /tmp/essai.txt.minisig >/dev/null 2>&1 \
+  && minisign -V -q -p server/admin/src/update/kybernow-release.pub -m /tmp/essai.txt -x /tmp/essai.txt.minisig && echo minisign OK
+rm -f /tmp/essai.txt /tmp/essai.txt.minisig
+
+Restore the keys on another Mac (image open):
+
+$GK -f /Volumes/KyberNow-Cles/sparkle-kybernow.key && $GK -p      # must print SUPublicEDKey
+mkdir -p ~/Library/Application\ Support/KyberNow
+cp /Volumes/KyberNow-Cles/kybernow-minisign.key ~/Library/Application\ Support/KyberNow/minisign.key
+cp /Volumes/KyberNow-Cles/kybernow-minisign.pub ~/Library/Application\ Support/KyberNow/minisign.pub
+chmod 600 ~/Library/Application\ Support/KyberNow/minisign.key
+printf 'add-generic-password -a kybernow -s kybernow-minisign -l kybernow-minisign -w %s\n' \
+  "$(cat /Volumes/KyberNow-Cles/minisign-motdepasse.txt)" | security -i >/dev/null
+
+`printf` is a shell builtin: the password does not show up in the process list.
+
+### GitHub settings that protect releases
+
+State on 2026-10-21, checked with `gh api`:
+- **2FA** enabled on the `MonsieurNours` account, the repository's only collaborator.
+- **Immutable releases** (Settings › General › Releases). A published release can no longer change its files or its tag. `release.sh` creates a draft, uploads everything, then publishes, which stays compatible. A mistake in a published release is fixed with a new release: the number of a deleted release cannot be reused.
+- **Rules (Settings › Rules)**:
+  - `tags-v-creation`: only the admin role can create a `v*` tag. The Actions `GITHUB_TOKEN` cannot.
+  - `tags-v-figes`: no `v*` tag can be moved or deleted, with no exception. If a release fails after the tag was pushed, publish the next version, or disable the rule while cleaning up.
+  - `main-legere`: `main` cannot be deleted or rewritten (force push). Direct pushes are still allowed.
+- **`gh` on the publishing Mac**: `gh`'s OAuth token (broad rights, development Mac). `release.sh` uses it for releases; `git push` goes over SSH. A fine-grained token limited to the repository would need at least *Contents: Read and write*: GitHub has no narrower permission for releases, so such a token could also push. Remove the unneeded `admin:public_key` scope, which can add an SSH key to the account: `gh auth refresh -h github.com --remove-scopes admin:public_key`.
+- **CI**: workflows use the `GITHUB_TOKEN` provided for each run, reduced to `contents: read`. The repository default is read-only as well. No secret to create.
+
+Read the rules back:
+
+gh api repos/MonsieurNours/kybernow/rulesets --jq '.[].name'
+gh api repos/MonsieurNours/kybernow/immutable-releases
+
+### Windows signing (Authenticode): on hold
+
+Today `KyberNow-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1` are not signed: Windows shows “Unknown publisher” (SmartScreen, UAC). This signature would not replace minisign. Authenticode says who signed; minisign proves it is KyberNow's key, built into the console, which also protects against a compromised GitHub account.
+
+Decision of 2026-10-21: **postponed**, to be picked up when the Windows build is more mature. The intended option is SignPath Foundation (free).
+
+Worth knowing before coming back to it (checked on 2026-10-21):
+- **Displayed name.** SIREN 510 178 577 is listed in SIRENE under “MATTHIEU REQUENNA”, with no trade name. No certificate can carry “Les Lignes Claires” until that name is declared to the register (INPI one-stop shop, to be checked).
+- **Maximum lifetime** of a certificate: 460 days since 2026-03-01.
+- **SmartScreen.** No certificate, EV included, gives immediate reputation any more. Reputation builds with installs and is kept as long as the signing identity does not change.
+
+| Option | Price (2026-10) | Displayed publisher | Signing from the Mac | Notes |
+|---|---|---|---|---|
+| SignPath Foundation | free | “SignPath Foundation” | no | Windows build required on GitHub runners, manual approval of each release |
+| Certum Open Source | €69 (card + reader) or €49 (SimplySign cloud) per year | “Open Source Developer, Matthieu Requenna” | yes, `jsign` (card) | individuals only |
+| Azure Artifact Signing | $9.99/month | legal name | yes, `jsign` | individuals: US and Canada only; French sole proprietorship undocumented |
+| IV / OV (SSL.com, Sectigo, Certum) | IV $129/yr + token or cloud; OV ≈ $200–400/yr | “Matthieu Requenna” | yes, `jsign` | key on a token or in the cloud, mandatory |
+| EV | ≈ €330–380/yr | “Matthieu Requenna” | yes, `jsign` | required for an attested driver |
+
+What SignPath will require:
+- **Building the whole Windows side in GitHub Actions**: console, tray icon, installer, **Kyber overlay** (`server/kyber-patches/build.sh`), and third-party packages downloaded then checked by hash.
+- One signing request per release (`signpath/github-action-submit-signing-request`, API token as an Actions secret), with manual approval on signpath.io.
+- On www.kybernow.app:
+  - a “Code signing policy” page, with the sentence “Free code signing provided by SignPath.io, certificate by SignPath Foundation”;
+  - the roles (author, reviewer, approver);
+  - a privacy statement, which mentions the update check against GitHub every 6 hours.
+- In every signed file, `ProductName = KyberNow` and the same version.
+- 2FA on the SignPath account.
+- Two points to declare, which may block admission:
+  - the installer adds `sudovda.cer` (self-signed, “Code Signing” usage) to the Root and TrustedPublisher stores;
+  - `WebView2Loader.dll` is a redistributable Microsoft component, not open source.
+
+Integration, whatever the option, in this order:
+1. sign `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1`;
+2. build `kybernow-update.zip` and `KyberNow-Setup.exe`, then sign the installer;
+3. compute `SHA256SUMS` and sign the minisign manifest, last, because the Authenticode signature changes the hashes.
+
+`jsign` (Homebrew) signs `.exe`, `.cab` and PowerShell scripts from the Mac. With SignPath, `release.sh` would fetch the files signed by the CI (`gh run download`) before step 3.
+
+Attested virtual display driver (to replace the self-signed SudoVDA, later):
+- an **EV** certificate;
+- a Partner Center “Hardware” account (free, the EV is used to register);
+- submitting a `.cab` signed with the EV, which Microsoft returns signed, valid on desktop Windows 10/11.
+
+Azure Artifact Signing is not accepted for this. To check before buying: that Partner Center accepts a French sole proprietorship.
