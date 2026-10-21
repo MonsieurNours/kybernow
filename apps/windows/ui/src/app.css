@@ -1,0 +1,179 @@
+/* KyberNow pour Windows : identité v2 (brand/v2/tokens/kybernow.css), signal Spectre,
+   mêmes jetons que la console (server/web/src/app.css). */
+
+@font-face {
+  font-family: 'Archivo';
+  src: url('./assets/fonts/Archivo-wdth-wght.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'Martian Mono';
+  src: url('./assets/fonts/MartianMono-wdth-wght.woff2') format('woff2');
+  font-weight: 100 800;
+  font-stretch: 75% 112.5%;
+  font-display: block;
+}
+
+:root {
+  --ink-0: #05070a;
+  --ink-1: #090d12;
+  --ink-2: #0e141a;
+  --ink-3: #141b23;
+  --line: #1e2832;
+  --line-2: #2b3742;
+  --text: #e3edf0;
+  --muted: #b4c2c9;
+  --faint: #8a99a3;
+  --ghost: #65737e;
+
+  --signal: #9a8cff;
+  --signal-strong: #6d5bff;
+  --signal-soft: rgb(109 91 255 / 0.14);
+  --neon-core: #f4f1ff;
+
+  --ok: #4cd68a;
+  --warn: #f5b841;
+  --bad: #ff6b6b;
+  --bad-text: #ffc9c4;
+
+  --display: 'Archivo', 'Segoe UI', sans-serif;
+  --sans: 'Archivo', 'Segoe UI', sans-serif;
+  --mono: 'Martian Mono', Consolas, monospace;
+
+  --ease-out: cubic-bezier(0.2, 0.9, 0.1, 1);
+
+  color-scheme: dark;
+  font-family: var(--sans);
+  color: var(--text);
+  background: var(--ink-0);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* La barre de session est une fenêtre transparente. */
+html.bar,
+html.bar body {
+  background: transparent;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* Bouton principal : aplat signal, coin coupé à 45° en bas à droite. */
+.primary {
+  height: 52px;
+  padding: 0 30px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--signal-strong);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+  transition: filter 0.15s;
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.12) drop-shadow(0 0 10px rgb(109 91 255 / 0.6));
+}
+
+.ghost {
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.ghost:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--faint);
+}
+
+.field {
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  background: var(--ink-2);
+  font-size: 15px;
+  width: 100%;
+  user-select: text;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px rgb(154 140 255 / 0.2);
+}
+
+.error {
+  padding: 10px 14px;
+  border: 1px solid rgb(255 107 107 / 0.4);
+  border-radius: 10px;
+  background: rgb(255 107 107 / 0.12);
+  color: var(--bad-text);
+  font-size: 13px;
+  line-height: 1.5;
+  user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

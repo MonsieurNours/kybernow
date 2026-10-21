@@ -63,6 +63,13 @@ pub fn init_logging() {
     log::info!("KyberNow {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
 }
 
+/// Lancée depuis un terminal (ligne de commande) : écrire dans le sien.
+pub fn attach_console() {
+    unsafe {
+        let _ = windows::Win32::System::Console::AttachConsole(windows::Win32::System::Console::ATTACH_PARENT_PROCESS);
+    }
+}
+
 pub fn dpi_aware() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);

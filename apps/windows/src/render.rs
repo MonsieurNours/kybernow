@@ -71,6 +71,17 @@ struct Planes {
     views: Vec<ID3D11ShaderResourceView>,
 }
 
+/// Nom de la carte graphique de l'appareil Direct3D.
+pub fn adapter_name(device: &ID3D11Device) -> String {
+    unsafe {
+        let Ok(dxgi) = device.cast::<IDXGIDevice>() else { return String::new() };
+        let Ok(adapter) = dxgi.GetAdapter() else { return String::new() };
+        let Ok(desc) = adapter.GetDesc() else { return String::new() };
+        let n = desc.Description.iter().position(|&c| c == 0).unwrap_or(desc.Description.len());
+        String::from_utf16_lossy(&desc.Description[..n])
+    }
+}
+
 pub fn create_device() -> windows::core::Result<(ID3D11Device, ID3D11DeviceContext)> {
     let levels = [
         D3D_FEATURE_LEVEL_11_1,

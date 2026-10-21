@@ -111,7 +111,7 @@ impl ServerCertVerifier for PinVerifier {
 }
 
 /// Réponse de `GET /api/stream/info`.
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Info {
     #[serde(default)]
     pub hostname: String,
@@ -123,6 +123,14 @@ pub struct Info {
     pub av1: bool,
     #[serde(default)]
     pub admin_version: Option<String>,
+    #[serde(default)]
+    pub virtual_display: VirtualDisplayInfo,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct VirtualDisplayInfo {
+    #[serde(default)]
+    pub available: bool,
 }
 
 /// L'appareil qui se présente à la console.
@@ -150,7 +158,7 @@ pub struct PrepareRequest {
     pub mode_policy: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Mode {
     pub width: u32,
     pub height: u32,
@@ -236,6 +244,16 @@ pub struct Ended {
 
 fn yes() -> bool {
     true
+}
+
+/// État d'une demande d'appairage par code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PairStatus {
+    Pending,
+    Refused,
+    Expired,
+    /// Compte Kyber propre à cet appareil, créé par la console.
+    Accepted { username: String, password: String },
 }
 
 pub struct Console {
@@ -354,6 +372,63 @@ impl Console {
             .request("GET", "api/stream/foreground", Duration::from_secs(2))
             .call();
         self.read(r)
+    }
+
+    /// Premier contact, sans compte : le certificat est vu (et retenu par
+    /// `fingerprint_seen`) même si la console répond 401.
+    pub fn probe(&self) -> Result<Option<Info>> {
+        match self.info() {
+            Ok(i) => Ok(Some(i)),
+            Err(ConsoleError::Http { status: 401 | 403, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Aperçu JPEG de l'écran principal (hors session ; 503 pendant une
+    /// session ou sans capture possible).
+    pub fn preview(&self, width: u32) -> Result<Vec<u8>> {
+        let r = self
+            .request("GET", &format!("api/stream/preview?width={width}"), Duration::from_secs(8))
+            .call();
+        match r {
+            Ok(resp) => {
+                let mut buf = Vec::new();
+                std::io::Read::read_to_end(&mut resp.into_reader(), &mut buf)
+                    .map_err(|e| ConsoleError::Network(e.to_string()))?;
+                Ok(buf)
+            }
+            Err(e) => self.read::<serde_json::Value>(Err(e)).map(|_| Vec::new()),
+        }
+    }
+
+    /// Demande d'accès sans compte avec un code à six chiffres, à accepter
+    /// dans la console ; rend l'identifiant de la demande.
+    pub fn pair_request(&self, code: &str, device: &DeviceInfo) -> Result<String> {
+        let r = self
+            .request("POST", "api/pair/request", Duration::from_secs(6))
+            .send_json(serde_json::json!({ "code": code, "device": device }));
+        let v: serde_json::Value = self.read(r)?;
+        v.get("id")
+            .and_then(|i| i.as_str())
+            .map(str::to_owned)
+            .ok_or_else(|| ConsoleError::Invalid("identifiant de demande absent".into()))
+    }
+
+    pub fn pair_status(&self, id: &str) -> Result<PairStatus> {
+        let r = self
+            .request("GET", &format!("api/pair/request/{id}"), Duration::from_secs(6))
+            .call();
+        let v: serde_json::Value = self.read(r)?;
+        let field = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or_default().to_string();
+        Ok(match field("status").as_str() {
+            "pending" => PairStatus::Pending,
+            "refused" => PairStatus::Refused,
+            "accepted" => PairStatus::Accepted {
+                username: field("username"),
+                password: field("password"),
+            },
+            _ => PairStatus::Expired,
+        })
     }
 
     pub fn end(&self, device_id: &str, latency_ms: Option<f64>) -> Result<Ended> {

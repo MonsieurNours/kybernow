@@ -14,13 +14,14 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::HWND;
+use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::latency::{LatencyTracker, now_micros};
 use kybernow_core::media::{FOURCC_AV1, Packet, PacketHandler};
 use kybernow_core::session::Session;
 
-use crate::decoder::{self, Decoder, Probe, codec_name, is_corrupt};
+use crate::decoder::{self, Decoder, codec_name, is_corrupt};
 use crate::render::{self, Renderer};
 
 pub enum VideoMsg {
@@ -107,8 +108,9 @@ pub struct VideoOptions {
     pub vsync: bool,
 }
 
-/// Démarre le fil de l'image ; rend la sonde des décodeurs une fois faite.
-pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<(Arc<VideoHandler>, Probe), String> {
+/// Démarre le fil de l'image, une fois l'appareil Direct3D et la chaîne
+/// d'échange prêts.
+pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc<VideoHandler>, String> {
     let (tx, rx) = mpsc::sync_channel(240);
     let handler = Arc::new(VideoHandler {
         tx,
@@ -123,14 +125,14 @@ pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<(Ar
         .map_err(|e| e.to_string())?;
     // La fenêtre est créée sur ce fil : ses messages doivent passer pendant que
     // le fil de l'image crée la chaîne d'échange (DXGI peut lui en envoyer).
-    let probe = loop {
+    loop {
         match prx.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(p) => break p?,
+            Ok(r) => break r?,
             Err(mpsc::RecvTimeoutError::Timeout) => crate::window::pump_messages(),
             Err(mpsc::RecvTimeoutError::Disconnected) => return Err("le fil de l'image s'est arrêté".into()),
         }
-    };
-    Ok((handler, probe))
+    }
+    Ok(handler)
 }
 
 fn run(
@@ -139,17 +141,15 @@ fn run(
     shared: Arc<Shared>,
     handler: Arc<VideoHandler>,
     rx: Receiver<VideoMsg>,
-    probe_tx: mpsc::Sender<Result<Probe, String>>,
+    ready_tx: mpsc::Sender<Result<(), String>>,
 ) {
     let (device, ctx) = match render::create_device() {
         Ok(d) => d,
         Err(e) => {
-            let _ = probe_tx.send(Err(format!("Direct3D 11 : {e}")));
+            let _ = ready_tx.send(Err(format!("Direct3D 11 : {e}")));
             return;
         }
     };
-    let probe = if opts.hardware { decoder::probe(&device) } else { Probe::default() };
-    log::info!("décodage par la carte graphique : {probe:?}");
     let mut renderer = match Renderer::new(
         device.clone(),
         ctx,
@@ -159,11 +159,11 @@ fn run(
     ) {
         Ok(r) => r,
         Err(e) => {
-            let _ = probe_tx.send(Err(format!("rendu : {e}")));
+            let _ = ready_tx.send(Err(format!("rendu : {e}")));
             return;
         }
     };
-    let _ = probe_tx.send(Ok(probe));
+    let _ = ready_tx.send(Ok(()));
     renderer.clear();
 
     let mut decoder: Option<Decoder> = None;
@@ -275,7 +275,17 @@ fn run(
                                         l.displayed(pts, now_micros());
                                     }
                                     shared.frames.fetch_add(1, Ordering::Relaxed);
-                                    shared.first_image.store(true, Ordering::Relaxed);
+                                    if !shared.first_image.swap(true, Ordering::Relaxed) {
+                                        // La fenêtre se montre à la première image.
+                                        unsafe {
+                                            let _ = PostMessageW(
+                                                Some(HWND(hwnd as *mut _)),
+                                                crate::window::WM_APP_FIRST_IMAGE,
+                                                WPARAM(0),
+                                                LPARAM(0),
+                                            );
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     if dec.hardware {

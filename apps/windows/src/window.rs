@@ -5,9 +5,13 @@
 //! | Ctrl+Alt+Maj+D | se déconnecter |
 //! | Ctrl+Alt+Maj+F | plein écran ou fenêtre |
 //! | Ctrl+Alt+Maj+M | souris des jeux (relative) ou du bureau |
+//!
+//! La fenêtre vit sur le fil de sa session (voir `host.rs`) : l'accueil de
+//! l'app garde le fil principal. Elle reste cachée jusqu'à la première image.
 
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -27,6 +31,19 @@ use crate::video::Shared;
 pub const WM_APP_STATUS: u32 = WM_APP + 1;
 pub const WM_APP_CURSOR: u32 = WM_APP + 2;
 pub const WM_APP_MOUSE: u32 = WM_APP + 3;
+/// Première image présentée : la fenêtre se montre.
+pub const WM_APP_FIRST_IMAGE: u32 = WM_APP + 4;
+/// Ordre de l'app (barre de session) : `wParam` = `Command`.
+pub const WM_APP_COMMAND: u32 = WM_APP + 5;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
+pub enum Command {
+    Disconnect = 1,
+    Fullscreen = 2,
+    MouseToggle = 3,
+    Focus = 4,
+}
 
 #[derive(Default)]
 struct CursorState {
@@ -53,16 +70,28 @@ pub struct App {
     saved_placement: Mutex<Option<(WINDOWPLACEMENT, isize)>>,
     pub closing: AtomicBool,
     pub error: Mutex<Option<String>>,
+    pub events: Arc<dyn crate::host::HostEvents>,
+    /// Plein écran quand la fenêtre se montre.
+    pub fullscreen: bool,
+    shown: AtomicBool,
+    last_edge: Mutex<Option<Instant>>,
 }
 
-static APP: OnceLock<Arc<App>> = OnceLock::new();
+/// La session en cours (une à la fois).
+static APP: Mutex<Option<Arc<App>>> = Mutex::new(None);
 
-fn app() -> Option<&'static Arc<App>> {
-    APP.get()
+fn app() -> Option<Arc<App>> {
+    APP.lock().unwrap().clone()
 }
 
 impl App {
-    pub fn new(host_name: String, input: Arc<Input>, shared: Arc<Shared>) -> Arc<Self> {
+    pub fn new(
+        host_name: String,
+        input: Arc<Input>,
+        shared: Arc<Shared>,
+        events: Arc<dyn crate::host::HostEvents>,
+        fullscreen: bool,
+    ) -> Arc<Self> {
         let app = Arc::new(Self {
             hwnd: AtomicIsize::new(0),
             host_name,
@@ -79,9 +108,22 @@ impl App {
             saved_placement: Mutex::new(None),
             closing: AtomicBool::new(false),
             error: Mutex::new(None),
+            events,
+            fullscreen,
+            shown: AtomicBool::new(false),
+            last_edge: Mutex::new(None),
         });
-        let _ = APP.set(app.clone());
+        *APP.lock().unwrap() = Some(app.clone());
         app
+    }
+
+    /// Fin de la session : la fenêtre n'a plus d'état.
+    pub fn clear() {
+        *APP.lock().unwrap() = None;
+    }
+
+    pub fn shown(&self) -> bool {
+        self.shown.load(Ordering::Relaxed)
     }
 
     pub fn hwnd(&self) -> HWND {
@@ -173,17 +215,6 @@ pub fn create(title: &str, size: (i32, i32)) -> windows::core::Result<HWND> {
     }
 }
 
-pub fn show(hwnd: HWND, fullscreen: bool) {
-    unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = UpdateWindow(hwnd);
-    }
-    if fullscreen {
-        set_fullscreen(hwnd, true);
-    }
-    update_client_size(hwnd);
-}
-
 /// Traite les messages en attente sans bloquer (pendant une attente du fil
 /// principal).
 pub fn pump_messages() {
@@ -210,7 +241,7 @@ pub fn run_loop() {
     }
 }
 
-fn update_client_size(hwnd: HWND) {
+pub fn update_client_size(hwnd: HWND) {
     let mut r = RECT::default();
     unsafe {
         let _ = GetClientRect(hwnd, &mut r);
@@ -511,6 +542,53 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_SYSCHAR | WM_CHAR => LRESULT(0),
             WM_MOUSEMOVE => {
                 mouse_position(hwnd, lparam);
+                // Pointeur contre le haut de l'écran : la barre de session.
+                let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
+                if y <= 1 {
+                    if let Some(a) = app() {
+                        let mut last = a.last_edge.lock().unwrap();
+                        if a.shown() && last.is_none_or(|t| t.elapsed().as_millis() > 400) {
+                            *last = Some(Instant::now());
+                            drop(last);
+                            a.events.top_edge(hwnd.0 as isize);
+                        }
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_APP_FIRST_IMAGE => {
+                if let Some(a) = app() {
+                    if !a.shown.swap(true, Ordering::Relaxed) {
+                        let _ = ShowWindow(hwnd, SW_SHOW);
+                        let _ = SetForegroundWindow(hwnd);
+                        if a.fullscreen {
+                            set_fullscreen(hwnd, true);
+                        }
+                        update_client_size(hwnd);
+                        a.events.visible();
+                    }
+                }
+                LRESULT(0)
+            }
+            WM_APP_COMMAND => {
+                match wparam.0 {
+                    x if x == Command::Disconnect as usize => request_close(hwnd),
+                    x if x == Command::Fullscreen as usize => {
+                        let full = app().is_some_and(|a| a.saved_placement.lock().unwrap().is_some());
+                        set_fullscreen(hwnd, !full);
+                    }
+                    x if x == Command::MouseToggle as usize => {
+                        if let Some(a) = app() {
+                            let now = a.input.relative();
+                            *a.mouse_choice.lock().unwrap() = Some(!now);
+                            apply_mouse_mode(hwnd);
+                        }
+                    }
+                    x if x == Command::Focus as usize => {
+                        let _ = SetForegroundWindow(hwnd);
+                    }
+                    _ => {}
+                }
                 LRESULT(0)
             }
             WM_LBUTTONDOWN | WM_LBUTTONUP => {

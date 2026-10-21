@@ -6,7 +6,7 @@
 # apps/windows/README.md.
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = ["core", "windows"]
 
 [workspace.package]

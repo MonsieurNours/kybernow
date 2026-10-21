@@ -43,6 +43,10 @@ pub struct SessionParams {
     pub virtual_display: bool,
     pub settings: StreamSettings,
     pub auto_reconnect: bool,
+    /// Manettes vues par l'ordinateur comme des Xbox 360 (sinon fidèles :
+    /// DualShock 4 pour une manette Sony).
+    pub gamepad_xbox360: bool,
+    pub clipboard: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -600,8 +604,8 @@ impl Worker {
             audio,
             input: Some(InputSessionConfig {
                 pipeline: self.platform.input_pipeline(),
-                gamepad_force_xbox360: Some(true),
-                clipboard: true,
+                gamepad_force_xbox360: Some(self.params.gamepad_xbox360),
+                clipboard: self.params.clipboard,
             }),
         };
         self.platform.on_display(&display);

@@ -6,6 +6,8 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    // Ressources Windows (icône, manifeste) et contexte de l'app Tauri.
+    tauri_build::build();
     println!("cargo:rerun-if-env-changed=KYBERNOW_NATIVE_PREFIX");
     println!("cargo:rerun-if-env-changed=KYBERNOW_NATIVE_LIB");
     println!("cargo:rerun-if-changed=build.rs");

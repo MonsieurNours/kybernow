@@ -1,0 +1,19 @@
+{
+  "productName": "KyberNow",
+  "version": "0.2.8",
+  "identifier": "fr.leslignesclaires.kybernow",
+  "build": {
+    "frontendDist": "ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["resources/kybernow.ico"]
+  }
+}

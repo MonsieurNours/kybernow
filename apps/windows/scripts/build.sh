@@ -124,6 +124,10 @@ done
 export KYBERNOW_NATIVE_PREFIX="$ROOTFS"
 export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
 
+# Interface (Svelte), embarquée dans l'exécutable par Tauri.
+echo "==> Interface (ui/)"
+(cd "$HERE/ui" && npm ci --silent && npm run build --silent)
+
 cargo_flags=(--target "$TARGET" -p kybernow-windows)
 [ "$PROFILE" = release ] && cargo_flags+=(--release)
 echo "==> cargo build ($ARCH, $PROFILE)"
@@ -136,6 +140,13 @@ echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
+# Chargeur de WebView2 (l'interface), celui de la version de webview2-com-sys
+# du Cargo.lock.
+WV2_VERSION=$(awk '/^name = "webview2-com-sys"$/ {getline; gsub(/version = |"/, ""); print}' "$APPS/Cargo.lock")
+case "$ARCH" in x64) WV2_ARCH=x64 ;; arm64) WV2_ARCH=arm64 ;; esac
+WV2_LOADER=$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-"$WV2_VERSION"/$WV2_ARCH/WebView2Loader.dll | head -1)
+[ -f "$WV2_LOADER" ] || { echo "WebView2Loader.dll ($WV2_ARCH, webview2-com-sys $WV2_VERSION) introuvable" >&2; exit 1; }
+cp "$WV2_LOADER" "$DIST/"
 # Sans les informations de débogage (gardées dans target/).
 "$STRIP" -o "$DIST/kybernow.exe" "$EXE"
 if "$OBJDUMP" -p "$DIST/kybernow.exe" | grep -qi "DLL Name: libvlc"; then

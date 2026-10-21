@@ -15,3 +15,5 @@ server/admin/dev-data/
 
 # Client Windows : dossiers à copier sur le PC
 apps/windows/dist/
+apps/windows/ui/dist/
+apps/windows/gen/
