@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console, mises à jour : installer (ou revenir en arrière) pendant qu'un appareil est en session demande d'abord confirmation, puisque sa session sera coupée.
 - Console, mises à jour : bouton « Revenir à la version précédente » sur la page Mises à jour, tant que la version d'avant est gardée sur l'ordinateur ; même bascule et même contrôle de santé qu'une mise à jour, réglages de Kyber gardés.
 - Console, mises à jour : l'installation ne passe plus par PowerShell. La console lance une copie d'elle-même (`kyber-admin update apply`) qui revérifie le manifeste signé et le paquet, l'extrait sous Program Files (jamais dans un dossier qu'un autre compte pourrait modifier), refuse tout chemin sortant et tout lien, bascule les dossiers, contrôle que la nouvelle console répond avec la bonne version et remet l'ancienne sinon. `update.ps1` reste pour la mise à jour à la main, qui ne vérifie que l'intégrité du paquet.
 - Console, mises à jour : un paquet n'est plus installé que si le manifeste de sa version est signé par la clé de KyberNow, annonce le même numéro que GitHub et un canal suivi par l'ordinateur, et donne la taille et l'empreinte exactes du paquet ; sinon la page Mises à jour dit pourquoi. Nouveau réglage « Canal » (Stable ou Bêta, qui reçoit aussi les préversions).

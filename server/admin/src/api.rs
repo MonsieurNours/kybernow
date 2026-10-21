@@ -307,9 +307,34 @@ async fn update_channel(State(s): State<AppState>, Json(body): Json<UpdateChanne
     Ok(Json(blocking(move || Ok(u.check())).await?))
 }
 
+#[derive(Deserialize, Default)]
+struct UpdateRunBody {
+    /// Installer même si un appareil est en session (sa session sera coupée).
+    #[serde(default)]
+    force: bool,
+}
+
+/// 409 si un appareil est en session, sauf `{"force": true}` : la mise à
+/// jour arrête le serveur et coupe sa session.
+fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
+    let body: UpdateRunBody = if body.iter().all(u8::is_ascii_whitespace) {
+        UpdateRunBody::default()
+    } else {
+        serde_json::from_slice(body).map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("corps illisible : {e}")))?
+    };
+    let live = &s.activity.summary()["live"];
+    if body.force || live.is_null() {
+        return Ok(());
+    }
+    let who = live["name"].as_str().map(|n| format!(" ({n})")).unwrap_or_default();
+    Err(ApiError(StatusCode::CONFLICT, format!("Un appareil est connecté{who} : l'installation coupera sa session")))
+}
+
 /// Télécharge et lance l'installation : la console s'arrête dans la minute
-/// et revient dans la nouvelle version.
-async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+/// et revient dans la nouvelle version. 409 pendant une session, sauf
+/// `{"force": true}`.
+async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    session_guard(&s, &body)?;
     let u = s.updater.clone();
     let version = blocking(move || u.install()).await?;
     tracing::info!("mise à jour {version} lancée");
@@ -318,8 +343,10 @@ async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 }
 
 /// Remet la version précédente (dossiers `.prev`) : la console s'arrête dans
-/// la minute et revient dans cette version.
-async fn update_rollback(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+/// la minute et revient dans cette version. 409 pendant une session, comme
+/// l'installation.
+async fn update_rollback(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    session_guard(&s, &body)?;
     let u = s.updater.clone();
     let version = blocking(move || u.rollback()).await?;
     tracing::info!("retour à la version {version} lancé");

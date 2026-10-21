@@ -312,8 +312,9 @@ export const api = {
   update: () => request<UpdateStatus>('GET', '/api/update'),
   updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
   updateChannel: (channel: UpdateChannel) => request<UpdateStatus>('PUT', '/api/update', { channel }),
-  updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
-  updateRollback: () => request<{ ok: boolean; version: string }>('POST', '/api/update/rollback'),
+  /** 409 si un appareil est en session, sauf `force`. */
+  updateInstall: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/install', force ? { force } : undefined),
+  updateRollback: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/rollback', force ? { force } : undefined),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),

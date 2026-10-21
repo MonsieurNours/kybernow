@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte'
-  import { api, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
+  import { api, ApiError, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
@@ -56,27 +56,33 @@
     }
   }
 
-  async function install() {
-    if (!update?.latest) return
+  // Un appareil en session : la console répond 409 ; on demande avant de couper.
+  async function startUpdate(run: (force: boolean) => Promise<{ version: string }>) {
     try {
-      const r = await api.updateInstall()
+      let r
+      try {
+        r = await run(false)
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 409) || !confirm(`${e.message}. Continuer ?`)) throw e
+        r = await run(true)
+      }
       installing = r.version
       waitForRestart(r.version)
     } catch (e) {
+      if (e instanceof ApiError && e.status === 409) return
       notify('error', errorText(e))
     }
+  }
+
+  async function install() {
+    if (!update?.latest) return
+    await startUpdate(api.updateInstall)
   }
 
   async function rollback() {
     const previous = update?.rollback
     if (!previous || !confirm(`Revenir à KyberNow ${previous} ? La console redémarre, environ une minute.`)) return
-    try {
-      const r = await api.updateRollback()
-      installing = r.version
-      waitForRestart(r.version)
-    } catch (e) {
-      notify('error', errorText(e))
-    }
+    await startUpdate(api.updateRollback)
   }
 
   // La console s'arrête, remplace ses fichiers et repart : on la guette.
