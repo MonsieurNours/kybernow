@@ -44,7 +44,7 @@ Why not a JWT of the device's own, signed by the console with Kyber's key? Kyber
 - `GET /api/pairing`: pairing link;
 - `POST /api/pair/request`, `GET /api/pair/request/{id}`: pairing with a code, without an account (see above).
 
-**Updates** (console account): `GET /api/update` (installed version, latest published version, notes), `POST /api/update/check`, `POST /api/update/install`. If the installation's PowerShell stops without having replaced the console, `GET /api/update` returns `install_error` (with the end of the log) and the installation can be started again. `GET /api/local/state` (reserved for the computer itself, for the icon) also gives `update_available`, `version`, the computer's name, its address and the current session (`activity`).
+**Updates** (console account): `GET /api/update` (installed version, `channel`, latest release of the channel, prerelease or not, notes; `installable` only if the signed manifest is verified and compatible, otherwise the reason in `verify_error` and `requires_setup` when `KyberNow-Setup.exe` is needed), `PUT /api/update` (`{"channel": "stable" | "beta"}`, saved in `update_channel`, returns the state after a new check), `POST /api/update/check`, `POST /api/update/install`. Signing and channels: [docs/releases.en.md](../docs/releases.en.md#update-signing-key-minisign). If the installation's PowerShell stops without having replaced the console, `GET /api/update` returns `install_error` (with the end of the log) and the installation can be started again. `GET /api/local/state` (reserved for the computer itself, for the icon) also gives `update_available`, `version`, the computer's name, its address and the current session (`activity`).
 
 Authentication is Basic, with the Kyber account. The apps pin the console's certificate by its fingerprint.
 
@@ -119,6 +119,6 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 ## Updating a computer that is already installed
 
-In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release published on GitHub, checks its checksum and launches `update.ps1`. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
+In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release of its channel published on GitHub, verifies its manifest's signature (`kybernow-release.json`, minisign), the package's size and checksum, and launches `update.ps1`. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
 
 `server/installer/update.ps1` replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It prepares `kyber.new`, `admin.new` and `tray.new`, switches by renaming (the previous version stays in `kyber.prev`, `admin.prev`, `tray.prev`), then checks that the console answers within 60 s; otherwise it puts the previous version back. It also installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).

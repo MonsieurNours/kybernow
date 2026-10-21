@@ -45,7 +45,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/display/stop", post(display_stop))
         .route("/api/audio", get(audio_status))
         .route("/api/audio/settings", put(audio_settings))
-        .route("/api/update", get(update_status))
+        .route("/api/update", get(update_status).put(update_channel))
         .route("/api/update/check", post(update_check))
         .route("/api/update/install", post(update_install))
         .route("/api/devices", get(devices))
@@ -285,6 +285,21 @@ async fn update_status(State(s): State<AppState>) -> Json<Value> {
 }
 
 async fn update_check(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let u = s.updater.clone();
+    Ok(Json(blocking(move || Ok(u.check())).await?))
+}
+
+#[derive(Deserialize)]
+struct UpdateChannelBody {
+    channel: crate::update::Channel,
+}
+
+/// Canal des mises à jour (`stable` ou `beta`) : enregistré, puis la
+/// dernière version de ce canal est recherchée.
+async fn update_channel(State(s): State<AppState>, Json(body): Json<UpdateChannelBody>) -> ApiResult<Json<Value>> {
+    s.update_settings(|st| st.update_channel = body.channel)?;
+    s.updater.set_channel(body.channel);
+    s.activity.event("info", format!("Mises à jour : canal {}", body.channel.as_str()));
     let u = s.updater.clone();
     Ok(Json(blocking(move || Ok(u.check())).await?))
 }

@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Console, updates: a package is only installed if its release manifest is signed by KyberNow's key, announces the same number as GitHub and a channel the computer follows, and gives the package's exact size and checksum; otherwise the Updates page says why. New “Channel” setting (Stable, or Beta, which also gets prereleases).
 - Computer updates: each release publishes a signed manifest (`kybernow-release.json`, minisign) giving its number, its channel and the checksum of each file; `scripts/sign-manifest.sh` writes and signs it with the release key, kept in the Mac's Keychain.
 - Mac and Apple TV apps, image: 4:4:4 is no longer offered in AV1 (Apple's decoders only read 4:2:0: the stream would not open); the Metal shader is no longer compiled at each stream and the decoder probe no longer blocks the launch; two alternating parameter sets no longer rebuild the decoder at each frame; colour matrix and texture cache lightened; on the Mac, an occluded or minimised window stops rendering and lowers the requested bitrate, then resumes them.
 - Mac and Apple TV apps: the end-to-end latency no longer drops frames whose server measurements arrive after display (optimistic median without vertical sync); the measurements panel shows the share of measured frames and the rejected measurements; the counters start from zero after a reconnection.

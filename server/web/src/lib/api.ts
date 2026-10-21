@@ -202,14 +202,25 @@ export interface AudioStatus {
   last_error: string | null
 }
 
+export type UpdateChannel = 'stable' | 'beta'
+
 export interface UpdateStatus {
   current: string
+  /** Canal suivi : versions publiées, ou aussi les préversions. */
+  channel: UpdateChannel
   latest: string | null
   available: boolean
+  /** Préversion GitHub (canal bêta). */
+  prerelease: boolean
   notes: string | null
   published: string | null
   page: string | null
+  /** Manifeste signé vérifié, compatible avec cet ordinateur. */
   installable: boolean
+  /** Pourquoi la version ne s'installe pas depuis la console (signature, canal, version). */
+  verify_error: string | null
+  /** La version s'installe avec KyberNow-Setup.exe. */
+  requires_setup: boolean
   checked_seconds_ago: number | null
   error: string | null
   installing: string | null
@@ -298,6 +309,7 @@ export const api = {
   pairing: () => request<Pairing>('GET', '/api/pairing'),
   update: () => request<UpdateStatus>('GET', '/api/update'),
   updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
+  updateChannel: (channel: UpdateChannel) => request<UpdateStatus>('PUT', '/api/update', { channel }),
   updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 

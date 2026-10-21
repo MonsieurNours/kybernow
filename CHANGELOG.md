@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console, mises à jour : un paquet n'est plus installé que si le manifeste de sa version est signé par la clé de KyberNow, annonce le même numéro que GitHub et un canal suivi par l'ordinateur, et donne la taille et l'empreinte exactes du paquet ; sinon la page Mises à jour dit pourquoi. Nouveau réglage « Canal » (Stable ou Bêta, qui reçoit aussi les préversions).
 - Mises à jour de l'ordinateur : chaque version publie un manifeste signé (`kybernow-release.json`, minisign) qui donne son numéro, son canal et l'empreinte de chaque fichier ; `scripts/sign-manifest.sh` l'écrit et le signe avec la clé de publication, gardée dans le Trousseau du Mac.
 - Apps Mac et Apple TV, image : le 4:4:4 n'est plus proposé en AV1 (les décodeurs Apple ne lisent que le 4:2:0 : le flux ne s'ouvrait pas) ; le shader Metal n'est plus compilé à chaque flux et la sonde des décodeurs ne bloque plus le lancement ; deux jeux de paramètres qui alternent ne refont plus le décodeur à chaque image ; matrice de couleur et cache de textures allégés ; sur Mac, une fenêtre occultée ou réduite arrête le rendu et baisse le débit demandé, puis les reprend.
 - Apps Mac et Apple TV : la latence de bout en bout ne jette plus les images dont les mesures du serveur arrivent après l'affichage (médiane optimiste sans synchro verticale) ; le panneau des mesures montre la part des images mesurées et les mesures rejetées ; les compteurs repartent de zéro après une reconnexion.

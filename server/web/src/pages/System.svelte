@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import { tick } from 'svelte'
-  import { api, type GpuVendor, type LogFile, type UpdateStatus } from '../lib/api'
+  import { api, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
@@ -31,6 +31,23 @@
     checking = true
     try {
       update = await api.updateCheck()
+      if (update.error) notify('error', `GitHub : ${update.error}`)
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      checking = false
+    }
+  }
+
+  const CHANNELS: { value: UpdateChannel; label: string }[] = [
+    { value: 'stable', label: 'Stable' },
+    { value: 'beta', label: 'Bêta' },
+  ]
+
+  async function setChannel(channel: UpdateChannel) {
+    checking = true
+    try {
+      update = await api.updateChannel(channel)
       if (update.error) notify('error', `GitHub : ${update.error}`)
     } catch (e) {
       notify('error', errorText(e))
@@ -370,7 +387,7 @@
   {:else if update?.available && update.latest}
     <section id="maj" aria-labelledby="t-maj" class="card feature update">
       <div class="update-text">
-        <span class="lbl signal">Nouvelle version · {publishedLabel}</span>
+        <span class="lbl signal">{update.prerelease ? 'Préversion' : 'Nouvelle version'} · {publishedLabel}</span>
         <h2 id="t-maj" class="disp big">KyberNow {update.latest}</h2>
         {#if notes.length}
           <ul>{#each notes as n}<li>{n}</li>{/each}</ul>
@@ -384,10 +401,15 @@
           {#if update.install_error}
             <pre class="install-error">{update.install_error}</pre>
           {/if}
-        {:else}
+        {:else if update.requires_setup || !update.verify_error}
           <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">Télécharger KyberNow-Setup.exe</a>
-          <span>Cette version s'installe avec l'installateur. Vous avez {update.current}.</span>
+          <span>{update.verify_error ?? "Cette version s'installe avec l'installateur."} Vous avez {update.current}.</span>
+        {:else}
+          <!-- Manifeste absent, mal signé, ou d'un autre canal : rien n'est installé. -->
+          <span>Paquet refusé, rien n'a été installé. Vous avez {update.current}.</span>
+          <pre class="install-error">{update.verify_error}</pre>
         {/if}
+        {@render channelPicker()}
       </div>
     </section>
   {:else}
@@ -402,11 +424,21 @@
         <button type="button" class="ghost" disabled={checking} onclick={check}>{checking ? 'Vérification…' : 'Vérifier maintenant'}</button>
       </div>
       {#if update?.install_error}
-        <!-- Échec signalé après un retour à la version précédente (update.ps1). -->
+        <!-- Échec signalé après un retour à la version précédente. -->
         <pre class="install-error">{update.install_error}</pre>
       {/if}
+      {@render channelPicker()}
     </section>
   {/if}
+
+  {#snippet channelPicker()}
+    {#if update}
+      <div class="channel">
+        <span>Canal</span>
+        <Segmented label="Canal des mises à jour" options={CHANNELS} value={update.channel} disabled={checking} onchange={setChannel} />
+      </div>
+    {/if}
+  {/snippet}
 
   <!-- Serveur -->
   <section id="serveur" aria-labelledby="t-srv" class="card">
@@ -631,6 +663,18 @@
     gap: 12px;
     justify-content: center;
     align-items: flex-start;
+  }
+
+  .channel {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--faint);
+  }
+
+  .uptodate .channel {
+    margin-top: 14px;
   }
 
   .install-error {

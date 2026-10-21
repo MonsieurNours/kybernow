@@ -2,8 +2,12 @@
 //! (github.com/MonsieurNours/kybernow, dépôt public : aucun jeton).
 //!
 //! La console regarde la dernière version toutes les 6 heures (ou à la
-//! demande). « Installer » télécharge `kybernow-update.zip`, vérifie son
-//! empreinte dans `SHA256SUMS`, puis lance PowerShell, détaché : il
+//! demande), sur le canal choisi (`update_channel` : stable, ou bêta avec les
+//! préversions). Une version ne s'installe que si son manifeste
+//! (`kybernow-release.json`) est signé par la clé de KyberNow compilée ici,
+//! annonce le même numéro que GitHub et un canal suivi, et accepte la version
+//! installée (voir `manifest`). « Installer » télécharge `kybernow-update.zip`,
+//! vérifie sa taille et son empreinte contre le manifeste, puis lance PowerShell, détaché : il
 //! décompresse le paquet et exécute son `update.ps1`, qui arrête les
 //! services (la console comprise), bascule les dossiers par renommage et
 //! relance tout. Si la nouvelle console ne répond pas en 60 s, le script
@@ -17,13 +21,15 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 pub mod acl;
+pub mod manifest;
+
+pub use manifest::Channel;
+use manifest::{Manifest, Refusal};
 
 pub const REPO: &str = "MonsieurNours/kybernow";
-const PACKAGE: &str = "kybernow-update.zip";
-const SUMS: &str = "SHA256SUMS";
+pub const PACKAGE: &str = "kybernow-update.zip";
 /// Résultat de la dernière installation, écrit par `update.ps1` quand elle échoue.
 const RESULT: &str = "resultat.json";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -34,12 +40,26 @@ pub struct Release {
     pub notes: String,
     pub published: String,
     pub page: String,
+    /// Préversion GitHub (canal bêta).
+    pub prerelease: bool,
     package: Option<String>,
-    sums: Option<String>,
+    manifest_url: Option<String>,
+    signature_url: Option<String>,
+    /// Manifeste vérifié (signature de KyberNow), si la version est plus récente.
+    manifest: Option<Manifest>,
+    /// Pourquoi cette version ne s'installe pas depuis la console.
+    refusal: Option<Refusal>,
+}
+
+impl Release {
+    fn installable(&self) -> bool {
+        self.manifest.is_some() && self.refusal.is_none() && self.package.is_some()
+    }
 }
 
 #[derive(Default)]
 struct State {
+    channel: Channel,
     checked: Option<Instant>,
     latest: Option<Release>,
     error: Option<String>,
@@ -95,7 +115,25 @@ impl Updater {
             state.install_error = Some(format!("L'installation de {version} n'a pas abouti : {message}. {back}{log}"));
             state.last_failure = Some(failure);
         }
+        // Le canal est relu ici (le fichier vient d'être lu par la console) :
+        // le démarrage n'a rien d'autre à transmettre.
+        state.channel = crate::settings::Settings::load(data_dir).map(|s| s.update_channel).unwrap_or_default();
         Self { dir, state: Mutex::new(state) }
+    }
+
+    pub fn channel(&self) -> Channel {
+        self.state.lock().unwrap().channel
+    }
+
+    /// Change le canal suivi ; la version connue est oubliée jusqu'à la
+    /// prochaine vérification (elle venait peut-être de l'autre canal).
+    pub fn set_channel(&self, channel: Channel) {
+        let mut s = self.state.lock().unwrap();
+        if s.channel != channel {
+            s.channel = channel;
+            s.latest = None;
+            s.checked = None;
+        }
     }
 
     /// État pour la console et l'icône (sans appel réseau).
@@ -103,14 +141,21 @@ impl Updater {
         let mut s = self.state.lock().unwrap();
         self.reap(&mut s);
         let latest = s.latest.as_ref();
+        let refusal = latest.and_then(|r| r.refusal.as_ref());
         json!({
             "current": current(),
+            "channel": s.channel,
             "latest": latest.map(|r| r.version.clone()),
             "available": latest.is_some_and(|r| newer(&r.version, current())),
+            "prerelease": latest.is_some_and(|r| r.prerelease),
             "notes": latest.map(|r| r.notes.clone()),
             "published": latest.map(|r| r.published.clone()),
             "page": latest.map(|r| r.page.clone()),
-            "installable": latest.is_some_and(|r| r.package.is_some() && r.sums.is_some()),
+            // Manifeste signé vérifié, compatible, paquet présent.
+            "installable": latest.is_some_and(Release::installable),
+            // Paquet refusé (signature, canal, version) ou à installer avec KyberNow-Setup.exe.
+            "verify_error": refusal.map(|r| r.message().to_string()),
+            "requires_setup": matches!(refusal, Some(Refusal::Setup(_))),
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
             "error": s.error,
             "installing": s.installing,
@@ -141,20 +186,33 @@ impl Updater {
         s.install_error = Some(format!("L'installation de {version} s'est arrêtée ({exit}). Journal : {}\n{tail}", log.display()));
     }
 
-    /// Version disponible, si plus récente (pour l'icône).
+    /// Version disponible, si plus récente et signée par KyberNow (pour
+    /// l'icône) : une version falsifiée n'est signalée que sur la page.
     pub fn available(&self) -> Option<String> {
         let s = self.state.lock().unwrap();
-        s.latest.as_ref().filter(|r| newer(&r.version, current())).map(|r| r.version.clone())
+        s.latest.as_ref().filter(|r| newer(&r.version, current()) && r.manifest.is_some()).map(|r| r.version.clone())
     }
 
-    /// Demande à GitHub la dernière version publiée (bloquant).
+    /// Demande à GitHub la dernière version du canal, et vérifie son
+    /// manifeste si elle est plus récente (bloquant).
     pub fn check(&self) -> Value {
-        let result = fetch_latest();
+        let channel = self.channel();
+        let result = fetch_latest(channel).map(|mut r| {
+            if newer(&r.version, current()) {
+                verify_release(&mut r, channel);
+            }
+            r
+        });
         {
             let mut s = self.state.lock().unwrap();
             s.checked = Some(Instant::now());
             match result {
+                // Le canal a changé pendant la vérification : résultat périmé.
+                Ok(_) if s.channel != channel => {}
                 Ok(r) => {
+                    if let Some(refusal) = &r.refusal {
+                        tracing::warn!("version {} non installable : {}", r.version, refusal.message());
+                    }
                     s.latest = Some(r);
                     s.error = None;
                 }
@@ -191,12 +249,16 @@ impl Updater {
         if !newer(&release.version, current()) {
             bail!("déjà à jour ({})", current());
         }
-        let (Some(package), Some(sums)) = (&release.package, &release.sums) else {
-            bail!("la version {} n'a pas de paquet de mise à jour", release.version);
+        if let Some(refusal) = &release.refusal {
+            bail!("{}", refusal.message());
+        }
+        let (Some(package), Some(manifest_url), Some(signature_url)) = (&release.package, &release.manifest_url, &release.signature_url) else {
+            bail!("la version {} n'a pas de paquet de mise à jour signé", release.version);
         };
         if !valid_version(&release.version) {
             bail!("numéro de version inattendu : {}", release.version);
         }
+        let channel = self.channel();
         {
             let mut s = self.state.lock().unwrap();
             s.installing = Some(release.version.clone());
@@ -204,7 +266,7 @@ impl Updater {
             s.last_failure = None;
         }
         let _ = std::fs::remove_file(self.dir.join(RESULT));
-        let result = self.download_and_launch(&release.version, package, sums);
+        let result = self.download_and_launch(&release.version, channel, package, manifest_url, signature_url);
         let mut s = self.state.lock().unwrap();
         match result {
             Ok(child) => {
@@ -218,30 +280,66 @@ impl Updater {
         }
     }
 
-    fn download_and_launch(&self, version: &str, package_url: &str, sums_url: &str) -> Result<Option<std::process::Child>> {
+    /// Manifeste et signature retéléchargés et revérifiés (rien ne vient de
+    /// la vérification précédente), puis le paquet, contre le manifeste.
+    fn download_and_launch(
+        &self,
+        version: &str,
+        channel: Channel,
+        package_url: &str,
+        manifest_url: &str,
+        signature_url: &str,
+    ) -> Result<Option<std::process::Child>> {
         if !valid_version(version) {
             bail!("numéro de version inattendu : {version}");
         }
         let dir = self.dir.join(version);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
+        let json = get(manifest_url, MANIFEST_LIMIT)?;
+        let signature = get(signature_url, MANIFEST_LIMIT)?;
+        let manifest = manifest::verify_release(&json, &String::from_utf8_lossy(&signature))?;
+        manifest.check(version, channel, current()).map_err(|r| anyhow::anyhow!("{}", r.message()))?;
+        std::fs::write(dir.join(manifest::MANIFEST), &json)?;
+        std::fs::write(dir.join(manifest::SIGNATURE), &signature)?;
         let zip = dir.join(PACKAGE);
-        tracing::info!("mise à jour {version} : téléchargement");
-        download(package_url, &zip)?;
-        let sums = String::from_utf8(get(sums_url)?).context("SHA256SUMS illisible")?;
-        let expected = sums
-            .lines()
-            .find_map(|l| {
-                let (hash, name) = l.split_once(char::is_whitespace)?;
-                (name.trim().trim_start_matches('*') == PACKAGE).then(|| hash.to_lowercase())
-            })
-            .context("empreinte du paquet absente de SHA256SUMS")?;
-        let actual = hex::encode(Sha256::digest(std::fs::read(&zip)?));
-        if actual != expected {
-            bail!("empreinte du paquet incorrecte : téléchargement abîmé ou falsifié");
-        }
-        tracing::info!("mise à jour {version} : paquet vérifié, installation");
+        let expected = manifest.file(PACKAGE)?;
+        tracing::info!("mise à jour {version} : téléchargement ({} octets)", expected.size);
+        // Jamais plus que la taille annoncée par le manifeste signé.
+        std::fs::write(&zip, get(package_url, expected.size + 1)?)?;
+        manifest.check_file(PACKAGE, &zip)?;
+        tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
         launch_installer(&dir, &zip).map(Some)
+    }
+}
+
+/// Taille maximale du manifeste et de sa signature.
+const MANIFEST_LIMIT: u64 = 256 * 1024;
+
+/// Télécharge et vérifie le manifeste d'une version plus récente que celle
+/// installée ; le refus, s'il y en a un, est gardé pour la page.
+fn verify_release(release: &mut Release, channel: Channel) {
+    let (Some(json_url), Some(sig_url)) = (&release.manifest_url, &release.signature_url) else {
+        release.refusal = Some(Refusal::Rejected(format!(
+            "la version {} n'est pas signée (pas de {}) : elle ne s'installe pas depuis la console",
+            release.version,
+            manifest::MANIFEST
+        )));
+        return;
+    };
+    let verified = get(json_url, MANIFEST_LIMIT).and_then(|json| {
+        let signature = get(sig_url, MANIFEST_LIMIT)?;
+        manifest::verify_release(&json, &String::from_utf8_lossy(&signature))
+    });
+    match verified {
+        Ok(m) => {
+            release.refusal = m.check(&release.version, channel, current()).err();
+            if release.refusal.is_none() && release.package.is_none() {
+                release.refusal = Some(Refusal::Rejected(format!("{PACKAGE} absent de la version {}", release.version)));
+            }
+            release.manifest = Some(m);
+        }
+        Err(e) => release.refusal = Some(Refusal::Rejected(format!("version {} refusée : {e:#}", release.version))),
     }
 }
 
@@ -253,24 +351,34 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn get(url: &str) -> Result<Vec<u8>> {
+fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
     let mut resp = agent().get(url).call().with_context(|| format!("téléchargement de {url}"))?;
-    Ok(resp.body_mut().with_config().limit(512 * 1024 * 1024).read_to_vec()?)
+    Ok(resp.body_mut().with_config().limit(limit).read_to_vec().with_context(|| format!("téléchargement de {url}"))?)
 }
 
-fn download(url: &str, to: &Path) -> Result<()> {
-    std::fs::write(to, get(url)?)?;
-    Ok(())
+/// Version la plus récente du canal parmi les dernières publiées : en stable,
+/// sans les préversions ; jamais un brouillon ni un numéro hors format.
+fn pick(releases: &[Value], channel: Channel) -> Option<&Value> {
+    releases
+        .iter()
+        .filter(|r| r["draft"].as_bool() != Some(true))
+        .filter(|r| channel == Channel::Beta || r["prerelease"].as_bool() != Some(true))
+        .filter(|r| r["tag_name"].as_str().is_some_and(|t| valid_version(t.trim_start_matches('v'))))
+        .reduce(|best, r| {
+            let version = |x: &Value| x["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
+            if newer(&version(r), &version(best)) { r } else { best }
+        })
 }
 
-fn fetch_latest() -> Result<Release> {
-    let url = format!("https://api.github.com/repos/{REPO}/releases/latest");
+fn fetch_latest(channel: Channel) -> Result<Release> {
+    let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=30");
     let mut resp = agent()
         .get(&url)
         .header("Accept", "application/vnd.github+json")
         .call()
         .context("GitHub ne répond pas")?;
-    let v: Value = serde_json::from_slice(&resp.body_mut().read_to_vec()?)?;
+    let list: Vec<Value> = serde_json::from_slice(&resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_vec()?)?;
+    let v = pick(&list, channel).with_context(|| format!("aucune version publiée sur le canal {}", channel.as_str()))?;
     let asset = |name: &str| {
         v["assets"].as_array().and_then(|a| {
             a.iter().find(|x| x["name"] == name).and_then(|x| x["browser_download_url"].as_str()).map(String::from)
@@ -285,8 +393,12 @@ fn fetch_latest() -> Result<Release> {
         notes: v["body"].as_str().unwrap_or("").to_string(),
         published: v["published_at"].as_str().unwrap_or("").to_string(),
         page: v["html_url"].as_str().unwrap_or("").to_string(),
+        prerelease: v["prerelease"].as_bool().unwrap_or(false),
         package: asset(PACKAGE),
-        sums: asset(SUMS),
+        manifest_url: asset(manifest::MANIFEST),
+        signature_url: asset(manifest::SIGNATURE),
+        manifest: None,
+        refusal: None,
     })
 }
 
@@ -432,6 +544,31 @@ mod tests {
         std::fs::write(dir.join("update").join(RESULT), r#"{"version":"9.9.9","ok":true}"#).unwrap();
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn channel_picks_the_newest_matching_release() {
+        let list: Vec<Value> = serde_json::from_value(json!([
+            { "tag_name": "v0.2.8", "prerelease": true, "draft": false },
+            { "tag_name": "v0.3.0", "prerelease": false, "draft": true },
+            { "tag_name": "v0.2.10", "prerelease": false, "draft": false },
+            { "tag_name": "v0.2.9", "prerelease": false, "draft": false },
+            { "tag_name": "v0.4.0-rc1", "prerelease": true, "draft": false },
+            { "tag_name": "v0.2.11", "prerelease": true, "draft": false },
+        ]))
+        .unwrap();
+        assert_eq!(pick(&list, Channel::Stable).unwrap()["tag_name"], "v0.2.10");
+        assert_eq!(pick(&list, Channel::Beta).unwrap()["tag_name"], "v0.2.11");
+        assert!(pick(&[], Channel::Stable).is_none());
+    }
+
+    #[test]
+    fn versions_compare_number_by_number() {
+        assert!(newer("0.10.0", "0.9.9"));
+        assert!(newer("0.2.10", "0.2.9"));
+        assert!(!newer("0.2.6", "0.2.6"));
+        assert!(!newer("0.2.5", "0.2.6"));
+        assert!(newer("v1.0.0", "0.99.99"));
     }
 
     #[test]

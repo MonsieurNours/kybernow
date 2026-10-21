@@ -46,7 +46,7 @@ Pourquoi pas un jeton JWT propre à l'appareil, signé par la console avec la cl
 - `GET /api/pairing` : lien d'appairage ;
 - `POST /api/pair/request`, `GET /api/pair/request/{id}` : appairage par code, sans compte (voir plus haut).
 
-**Mises à jour** (compte de la console) : `GET /api/update` (version installée, dernière version publiée, notes), `POST /api/update/check`, `POST /api/update/install`. Si le PowerShell de l'installation s'arrête sans avoir remplacé la console, `GET /api/update` donne `install_error` (avec la fin du journal) et l'installation peut être relancée. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available`, `version`, le nom de l'ordinateur, son adresse et la session en cours (`activity`).
+**Mises à jour** (compte de la console) : `GET /api/update` (version installée, canal `channel`, dernière version du canal, préversion ou non, notes ; `installable` seulement si le manifeste signé est vérifié et compatible, sinon la raison dans `verify_error` et `requires_setup` s'il faut passer par `KyberNow-Setup.exe`), `PUT /api/update` (`{"channel": "stable" | "beta"}`, enregistré dans `update_channel`, renvoie l'état après une nouvelle vérification), `POST /api/update/check`, `POST /api/update/install`. Signature et canaux : [docs/releases.md](../docs/releases.md#clé-de-signature-des-mises-à-jour-minisign). Si le PowerShell de l'installation s'arrête sans avoir remplacé la console, `GET /api/update` donne `install_error` (avec la fin du journal) et l'installation peut être relancée. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available`, `version`, le nom de l'ordinateur, son adresse et la session en cours (`activity`).
 
 L'authentification est en Basic, avec le compte Kyber. Les apps épinglent le certificat de la console par son empreinte.
 
@@ -117,6 +117,6 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 ## Mettre à jour un ordinateur déjà installé
 
-En un clic : page **Mises à jour** de la console (ou « Installer la version X… » dans le menu de l'icône). La console télécharge la dernière version publiée sur GitHub, vérifie son empreinte et lance `update.ps1`. Détails, mise à jour à la main et publication d'une version : [docs/releases.md](../docs/releases.md).
+En un clic : page **Mises à jour** de la console (ou « Installer la version X… » dans le menu de l'icône). La console télécharge la dernière version de son canal publiée sur GitHub, vérifie la signature de son manifeste (`kybernow-release.json`, minisign), la taille et l'empreinte du paquet, et lance `update.ps1`. Détails, mise à jour à la main et publication d'une version : [docs/releases.md](../docs/releases.md).
 
 `server/installer/update.ps1` remplace la console, l'icône et la surcouche Kyber sans réinstaller ni changer les ports. Il prépare `kyber.new`, `admin.new` et `tray.new`, bascule par renommage (la version précédente reste dans `kyber.prev`, `admin.prev`, `tray.prev`), puis vérifie que la console répond en 60 s ; sinon il remet la version précédente. Il installe aussi les haut-parleurs de Steam s'ils manquent et ajoute la règle de pare-feu Bonjour. `server/installer/package-update.sh` fabrique son paquet (`dist/kybernow-update.zip`).
