@@ -72,7 +72,7 @@ KyberNow Discord server, permanent invitation: https://discord.gg/sVy2mu5WdT (op
 | `vendor/three/` | Three.js r170 (MIT): `three.module.min.js` and the few example modules used (bloom, SVGLoader, RoomEnvironment) |
 | `updates/appcast.xml` | Update feed of the Mac app (see "Updating") |
 
-Nothing is loaded from a CDN. The only external request: the GitHub API, to show the latest release and the file sizes (the static text stays if it fails).
+Nothing is loaded from a CDN. The only external request: the GitHub API, to show the latest release and the file sizes (the static text stays if it fails). The size is given the way the system will show it once the file is downloaded: in units of 1,048,576 bytes, truncated, for the `.exe` files (Windows), in millions of bytes for the rest (macOS), to one decimal; the fallback values in `index.html` need redoing whenever a release changes size noticeably.
 
 ## Guideline rules applied
 

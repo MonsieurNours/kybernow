@@ -304,6 +304,14 @@ if (document.querySelector('.dl-card')) {
 }
 
 /* ---------- Dernière version publiée (si GitHub répond) ---------- */
+// Taille telle que le système de l'appareil l'affichera une fois le fichier
+// téléchargé : Windows compte en 1 048 576 octets (et tronque), macOS en
+// millions d'octets. Une décimale, à la française en français.
+function size(asset) {
+  const win = /\.exe$/i.test(asset.name);
+  const v = win ? Math.floor(asset.size / 1048576 * 10) / 10 : Math.round(asset.size / 1e6 * 10) / 10;
+  return v.toLocaleString(EN ? 'en' : 'fr', { maximumFractionDigits: 1 }) + T.mb;
+}
 if ($('release-version')) {
   fetch('https://api.github.com/repos/MonsieurNours/kybernow/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
     .then(r => r.ok ? r.json() : Promise.reject())
@@ -311,7 +319,7 @@ if ($('release-version')) {
       $('release-version').textContent = T.version + rel.tag_name.replace(/^v/, '');
       for (const li of document.querySelectorAll('[data-size]')) {
         const asset = rel.assets.find(a => a.name === li.dataset.size);
-        if (asset) li.textContent = Math.round(asset.size / 1e6) + T.mb;
+        if (asset) li.textContent = size(asset);
       }
     })
     .catch(() => {});

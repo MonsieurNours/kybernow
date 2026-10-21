@@ -72,7 +72,7 @@ Serveur Discord KyberNow, invitation permanente : https://discord.gg/sVy2mu5WdT 
 | `vendor/three/` | Three.js r170 (MIT) : `three.module.min.js` et les quelques modules d'exemples utilisés (bloom, SVGLoader, RoomEnvironment) |
 | `updates/appcast.xml` | Flux des mises à jour de l'app Mac (voir « Mettre à jour ») |
 
-Rien n'est chargé depuis un CDN. Seule requête externe : l'API GitHub, pour afficher la dernière version et la taille des fichiers (le texte statique reste si elle échoue).
+Rien n'est chargé depuis un CDN. Seule requête externe : l'API GitHub, pour afficher la dernière version et la taille des fichiers (le texte statique reste si elle échoue). La taille est donnée comme le système l'affichera une fois le fichier téléchargé : en unités de 1 048 576 octets, tronquée, pour les `.exe` (Windows), en millions d'octets pour le reste (macOS), à une décimale ; les valeurs de secours de `index.html` sont à refaire à chaque version qui change nettement de taille.
 
 ## Règles de la charte appliquées
 
