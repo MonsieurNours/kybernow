@@ -1,0 +1,5 @@
+# www.kybernow.app : tout est public, moteurs de recherche et assistants IA compris.
+User-agent: *
+Allow: /
+
+Sitemap: https://www.kybernow.app/sitemap.xml

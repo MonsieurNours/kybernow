@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Image de partage du site (1200 × 630), rendue par scripts/site-seo.py avec Chrome sans fenêtre.
+     ?lang=fr ou ?lang=en. Polices et images reprises de site/. -->
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@font-face { font-family: "Archivo"; src: url("../../site/fonts/Archivo-wdth-wght.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; }
+@font-face { font-family: "Martian Mono"; src: url("../../site/fonts/MartianMono-wdth-wght.woff2") format("woff2"); font-weight: 100 800; font-stretch: 75% 112.5%; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1200px; height: 630px; overflow: hidden; background: #05070A; }
+body { position: relative; font-family: "Archivo", sans-serif; color: #E3EDF0; -webkit-font-smoothing: antialiased; }
+/* Fond : grille discrète et halo violet derrière le symbole */
+.bg { position: absolute; inset: 0;
+  background:
+    radial-gradient(520px 420px at 930px 300px, rgb(109 91 255 / .30), transparent 70%),
+    radial-gradient(900px 500px at 0 630px, rgb(20 27 35 / .9), transparent 70%),
+    linear-gradient(rgb(227 237 240 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
+    linear-gradient(90deg, rgb(227 237 240 / .035) 1px, transparent 1px) 0 0 / 48px 48px,
+    #05070A; }
+.mark { position: absolute; right: 70px; top: 115px; width: 400px; height: 400px; }
+.copy { position: absolute; left: 72px; top: 64px; width: 700px; height: 502px; display: flex; flex-direction: column; }
+.logo { height: 34px; width: auto; align-self: flex-start; }
+.label { margin-top: 44px; display: flex; align-items: center; gap: 14px; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: #8A99A3; }
+.label::before { content: ""; width: 26px; height: 2px; border-radius: 2px; background: #9A8CFF; }
+.beta { font: 500 13px/1 "Martian Mono", monospace; letter-spacing: .08em; padding: 7px 9px; border-radius: 6px; color: #9A8CFF; background: rgb(154 140 255 / .14); box-shadow: inset 0 0 0 1.5px rgb(154 140 255 / .45); }
+h1 { margin-top: 24px; font-stretch: 125%; font-weight: 380; font-size: 58px; line-height: 1.04; letter-spacing: -.02em; }
+h1 strong { font-weight: 720; }
+p { margin-top: 24px; font-size: 23px; line-height: 1.38; color: #B4C2C9; max-width: 640px; }
+p b { color: #E3EDF0; font-weight: 600; }
+.foot { margin-top: auto; display: flex; gap: 28px; align-items: center; font: 500 15px/1 "Martian Mono", monospace; letter-spacing: .06em; color: #8A99A3; }
+.foot .url { color: #E3EDF0; }
+.foot i { width: 5px; height: 5px; border-radius: 50%; background: #2B3742; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<img class="mark" src="../../site/assets/img/kybernow-mark-now-lit-dark.svg" alt="">
+<div class="copy">
+  <img class="logo" src="../../site/assets/img/kybernow-logo-dark.svg" alt="KyberNow">
+  <div class="label"><span data-t="label"></span><span class="beta" data-t="beta"></span></div>
+  <h1 data-t="title"></h1>
+  <p data-t="text"></p>
+  <div class="foot"><span class="url">www.kybernow.app</span><i></i><span data-t="platforms"></span></div>
+</div>
+<script>
+const T = {
+  fr: { label: "Streaming d'ordinateur", beta: 'Bêta',
+        title: 'Jeu et bureau<br><strong>à distance,<br>en 9,4&nbsp;ms.</strong>',
+        text: "Votre ordinateur sur tous vos appareils. L'alternative <b>libre et nouvelle génération</b> à Sunshine&nbsp;+&nbsp;Moonlight.",
+        platforms: 'Libre · Gratuit · Chiffré' },
+  en: { label: 'Computer streaming', beta: 'Beta',
+        title: 'Remote gaming<br><strong>and desktop,<br>in 9.4&nbsp;ms.</strong>',
+        text: 'Your computer on all your devices. The <b>open&#8209;source, next&#8209;gen</b> alternative to Sunshine&nbsp;+&nbsp;Moonlight.',
+        platforms: 'Open source · Free · Encrypted' },
+};
+const t = T[new URLSearchParams(location.search).get('lang')] || T.fr;
+document.documentElement.lang = t === T.en ? 'en' : 'fr';
+for (const el of document.querySelectorAll('[data-t]')) el.innerHTML = t[el.dataset.t];
+</script>
+</body>
+</html>

@@ -3,10 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Guide et FAQ · KyberNow</title>
-<meta name="description" content="Installer KyberNow Server sur l'ordinateur à partager, connecter un appareil (app Mac ou navigateur), jouer à distance par VPN, mettre à jour : le guide pas à pas et les questions fréquentes.">
+<title>Installer KyberNow : guide et FAQ du jeu et du bureau à distance</title>
+<meta name="description" content="Installer KyberNow sur l'ordinateur à partager, y connecter tous vos appareils, jouer à distance par VPN : guide pas à pas et questions fréquentes.">
+<link rel="canonical" href="https://www.kybernow.app/guide/">
 <meta name="theme-color" content="#05070A">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:locale:alternate" content="en_GB">
+<meta property="og:title" content="Installer KyberNow, pas à pas">
+<meta property="og:description" content="Installer KyberNow sur l'ordinateur à partager, y connecter tous vos appareils, jouer à distance par VPN : guide pas à pas et questions fréquentes.">
+<meta property="og:url" content="https://www.kybernow.app/guide/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="KyberNow : jeu et bureau à distance en 9,4 ms, l'alternative libre et nouvelle génération à Sunshine et Moonlight">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Installer KyberNow, pas à pas">
+<meta name="twitter:description" content="Installer KyberNow sur l'ordinateur à partager, y connecter tous vos appareils, jouer à distance par VPN : guide pas à pas et questions fréquentes.">
+<meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-fr.jpg">
+<meta name="twitter:image:alt" content="KyberNow : jeu et bureau à distance en 9,4 ms, l'alternative libre et nouvelle génération à Sunshine et Moonlight">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="alternate" hreflang="fr" href="https://www.kybernow.app/guide/">
 <link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/guide/">
 <link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/guide/">
@@ -20,6 +39,167 @@
   "three": "/vendor/three/three.module.min.js",
   "three/addons/": "/vendor/three/addons/"
 } }
+</script>
+<script type="application/ld+json" data-faq>
+{
+ "@context": "https://schema.org",
+ "@type": "FAQPage",
+ "inLanguage": "fr",
+ "mainEntity": [
+  {
+   "@type": "Question",
+   "name": "KyberNow est-il vraiment gratuit ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui. C'est un projet communautaire et non commercial, sous licence libre AGPL-3.0 : pas de compte en ligne, pas d'abonnement, pas de publicité. Le code est sur GitHub."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Pourquoi « bêta » ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "KyberNow n'est pas encore en version 1.0. Les versions 0.x s'utilisent déjà au quotidien, mais des défauts subsistent, et réglages comme fonctions peuvent encore changer d'une version à l'autre. Gardez l'ordinateur et vos apps à jour, et signalez les problèmes sur GitHub ou sur Discord."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "KyberNow peut-il remplacer Sunshine et Moonlight ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : votre ordinateur sur tous vos appareils, dans l'app ou dans le navigateur. KyberNow repose sur le moteur Kyber et sur QUIC plutôt que sur le protocole GameStream : image toujours chiffrée, un seul port à ouvrir, écran virtuel à la définition de l'appareil intégré, appairage sans code PIN à recopier. Il lui manque encore le HDR : voir la comparaison."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "KyberNow, c'est du cloud gaming ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "C'est votre propre cloud. Au lieu de louer un ordinateur dans un centre de données, KyberNow rend le vôtre accessible depuis vos autres appareils, chez vous ou de loin par VPN. Pas d'abonnement ni de file d'attente : vos jeux et vos logiciels tels qu'ils sont installés, et l'image ne passe par aucun serveur tiers."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Puis-je jouer à mes jeux PC sur un Mac ou une Apple TV ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : le jeu tourne sur l'ordinateur Windows, avec sa carte graphique, et l'image arrive sur le Mac ou l'Apple TV. N'importe quel jeu ou lanceur, à la manette (Xbox, PlayStation), au clavier et à la souris. L'app Mac suit la fréquence de votre écran, 120 Hz ou plus ; l'Apple TV va jusqu'à la 4K à 60 Hz."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Faut-il une carte graphique particulière ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Non. Kyber encode l'image avec toutes les cartes graphiques, NVIDIA, AMD ou Intel, y compris une carte externe (eGPU). Sans carte graphique, le processeur s'en charge. L'encodeur se choisit dans la console, page Système › Avancé."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Quelles définitions et quelles fréquences ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Celles de votre écran : l'ordinateur crée un écran virtuel à sa mesure, 4K, 5K ou 6K, 60, 120 ou 160 Hz. Nous l'avons utilisé en 3840 × 2160 à 160 Hz et en 5K à 60 Hz. L'option « Au plus 4K » allège l'encodage si votre réseau ou votre carte peinent."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Quelle latence attendre ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Sur un réseau local, nous mesurons 9,4 ms en médiane de la capture à l'affichage, en 4K à 160 Hz. Elle dépend surtout de la carte graphique, du réseau et de l'appareil. L'app l'affiche en direct dans sa barre de session."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Et le HDR ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Pas encore : Kyber 0.29 capture l'écran en 8 bits. Gardez le HDR de Windows désactivé pendant les sessions."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Mes écrans s'éteignent pendant la session, c'est normal ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : l'ordinateur n'affiche que l'écran virtuel, à la taille de votre appareil. Ils se rallument à la fin. En cas de doute, la console offre « Rallumer mes écrans », et le pilote retire de lui-même l'écran virtuel s'il ne reçoit plus de nouvelles."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Le son sort encore des haut-parleurs de l'ordinateur.",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Le son à distance utilise les haut-parleurs virtuels de Steam. Installez Steam sur l'ordinateur, puis relancez l'installateur de KyberNow : l'option « Son à distance » devient disponible."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Ma manette ne répond pas.",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Les manettes Xbox et PlayStation passent par le pilote ViGEmBus, posé à l'installation. Un redémarrage de l'ordinateur est parfois nécessaire après la première installation."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Deux appareils peuvent-ils se connecter en même temps ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Non : le second prend la main, le premier est déconnecté et l'écran virtuel est recréé à la taille du nouvel appareil."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "L'image reste noire ou se fige.",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Mettez l'ordinateur et l'app à jour : l'app redemande une image complète après une perte et allège le flux si l'image ne vient pas. Préférez un câble Ethernet sur l'ordinateur, et vérifiez qu'aucune autre app de streaming n'utilise l'encodeur."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "J'ai oublié le mot de passe.",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Sur l'ordinateur, clic droit sur l'icône KyberNow › « Réinitialiser le mot de passe de la console… », puis suivez la console pour en choisir un nouveau."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "L'app fonctionne-t-elle sur un Mac Intel ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Non, elle demande une puce Apple (M1 ou plus récente). Sur un Mac Intel, utilisez le client web dans le navigateur."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Pourquoi l'app Apple TV n'est-elle pas sur l'App Store ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Pas encore. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple : voir Sur l'Apple TV. Il faut une Apple TV 4K de 2021 ou plus récente ; les modèles plus anciens ne peuvent pas faire tourner l'app."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Quel lien avec Kyber ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "KyberNow utilise Kyber, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute un installateur, une console, des écrans et haut-parleurs virtuels et des apps. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés."
+   }
+  },
+  {
+   "@type": "Question",
+   "name": "Quelles données KyberNow collecte-t-il ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Aucune. Rien ne passe par un serveur à nous : l'image va directement de l'ordinateur à vos appareils. La console interroge seulement GitHub pour savoir si une nouvelle version existe."
+   }
+  }
+ ]
+}
 </script>
 </head>
 <body>
@@ -252,6 +432,9 @@ cd kybernow</code></pre></li>
       <div class="faq">
         <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. C'est un projet communautaire et non commercial, sous licence libre AGPL-3.0&#8239;: pas de compte en ligne, pas d'abonnement, pas de publicité. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
         <details><summary>Pourquoi «&#8239;bêta&#8239;»&#8239;?</summary><p>KyberNow n'est pas encore en version&nbsp;1.0. Les versions 0.x s'utilisent déjà au quotidien, mais des défauts subsistent, et réglages comme fonctions peuvent encore changer d'une version à l'autre. Gardez l'ordinateur et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
+        <details><summary>KyberNow peut-il remplacer Sunshine et Moonlight&#8239;?</summary><p>Oui&#8239;: votre ordinateur sur tous vos appareils, dans l'app ou dans le navigateur. KyberNow repose sur le moteur Kyber et sur QUIC plutôt que sur le protocole GameStream&#8239;: image toujours chiffrée, un seul port à ouvrir, écran virtuel à la définition de l'appareil intégré, appairage sans code PIN à recopier. Il lui manque encore le HDR&#8239;: voir la <a href="/#comparer">comparaison</a>.</p></details>
+        <details><summary>KyberNow, c'est du cloud gaming&#8239;?</summary><p>C'est votre propre cloud. Au lieu de louer un ordinateur dans un centre de données, KyberNow rend le vôtre accessible depuis vos autres appareils, chez vous ou de loin par VPN. Pas d'abonnement ni de file d'attente&#8239;: vos jeux et vos logiciels tels qu'ils sont installés, et l'image ne passe par aucun serveur tiers.</p></details>
+        <details><summary>Puis-je jouer à mes jeux PC sur un Mac ou une Apple TV&#8239;?</summary><p>Oui&#8239;: le jeu tourne sur l'ordinateur Windows, avec sa carte graphique, et l'image arrive sur le Mac ou l'Apple TV. N'importe quel jeu ou lanceur, à la manette (Xbox, PlayStation), au clavier et à la souris. L'app Mac suit la fréquence de votre écran, 120&nbsp;Hz ou plus&#8239;; l'Apple TV va jusqu'à la 4K à 60&nbsp;Hz.</p></details>
         <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Kyber encode l'image avec toutes les cartes graphiques, NVIDIA, AMD ou Intel, y compris une carte externe (eGPU). Sans carte graphique, le processeur s'en charge. L'encodeur se choisit dans la console, page Système › Avancé.</p></details>
         <details><summary>Quelles définitions et quelles fréquences&#8239;?</summary><p>Celles de votre écran&#8239;: l'ordinateur crée un écran virtuel à sa mesure, 4K, 5K ou 6K, 60, 120 ou 160&nbsp;Hz. Nous l'avons utilisé en 3840&nbsp;×&nbsp;2160 à 160&nbsp;Hz et en 5K à 60&nbsp;Hz. L'option «&#8239;Au plus 4K&#8239;» allège l'encodage si votre réseau ou votre carte peinent.</p></details>
         <details><summary>Quelle latence attendre&#8239;?</summary><p>Sur un réseau local, nous mesurons 9,4&nbsp;ms en médiane de la capture à l'affichage, en 4K à 160&nbsp;Hz. Elle dépend surtout de la carte graphique, du réseau et de l'appareil. L'app l'affiche en direct dans sa barre de session.</p></details>

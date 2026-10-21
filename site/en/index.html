@@ -3,13 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KyberNow</title>
-<meta name="description" content="The desktop, the games and the power of your computer on all your devices, in 9.4 ms: in the app or in the browser. Free, open-source computer streaming, built on Kyber and QUIC.">
+<title>KyberNow · Remote gaming and desktop, the Sunshine and Moonlight alternative</title>
+<meta name="description" content="The open-source, next-gen alternative to Sunshine and Moonlight: play and work on your computer from all your devices, in 9.4 ms.">
+<link rel="canonical" href="https://www.kybernow.app/en/">
 <meta name="theme-color" content="#05070A">
-<meta property="og:title" content="KyberNow">
-<meta property="og:description" content="Your computer, within reach anywhere, anytime. Open-source computer streaming, built on Kyber and QUIC.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KyberNow">
+<meta property="og:locale" content="en_GB">
+<meta property="og:locale:alternate" content="fr_FR">
+<meta property="og:title" content="KyberNow, the next-gen alternative to Sunshine and Moonlight">
+<meta property="og:description" content="Remote gaming and desktop in 9.4 ms, from your computer to all your devices. Free, open source, encrypted, built on Kyber and QUIC.">
 <meta property="og:url" content="https://www.kybernow.app/en/">
+<meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="KyberNow, the next-gen alternative to Sunshine and Moonlight">
+<meta name="twitter:description" content="Remote gaming and desktop in 9.4 ms, from your computer to all your devices. Free, open source, encrypted, built on Kyber and QUIC.">
+<meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
+<meta name="twitter:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="alternate" hreflang="fr" href="https://www.kybernow.app/">
 <link rel="alternate" hreflang="en" href="https://www.kybernow.app/en/">
 <link rel="alternate" hreflang="x-default" href="https://www.kybernow.app/en/">
@@ -22,6 +38,79 @@
   "three": "/vendor/three/three.module.min.js",
   "three/addons/": "/vendor/three/addons/"
 } }
+</script>
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "Organization",
+   "@id": "https://www.kybernow.app/#editeur",
+   "name": "Les Lignes Claires",
+   "url": "https://www.leslignesclaires.fr"
+  },
+  {
+   "@type": "WebSite",
+   "@id": "https://www.kybernow.app/#site",
+   "url": "https://www.kybernow.app/",
+   "name": "KyberNow",
+   "inLanguage": [
+    "fr",
+    "en"
+   ],
+   "publisher": {
+    "@id": "https://www.kybernow.app/#editeur"
+   }
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://www.kybernow.app/#kybernow",
+   "name": "KyberNow",
+   "url": "https://www.kybernow.app/en/",
+   "description": "Free, open-source game and remote desktop streaming: your computer on all your devices, in an app or in the browser. 9.4 ms median latency measured on a local network, encrypted QUIC transport, virtual display at the device's resolution. A next-gen alternative to Sunshine and Moonlight, built on the Kyber engine.",
+   "applicationCategory": "MultimediaApplication",
+   "applicationSubCategory": "Game streaming and remote desktop",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, web browser",
+   "softwareHelp": "https://www.kybernow.app/en/guide/",
+   "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
+   "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
+   "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+   },
+   "image": "https://www.kybernow.app/assets/og/kybernow-en.jpg",
+   "inLanguage": [
+    "fr",
+    "en"
+   ],
+   "keywords": "remote gaming, remote desktop, game streaming, self-hosted cloud gaming, remote play, Moonlight alternative, Sunshine alternative, stream PC to Mac, stream PC to Apple TV",
+   "featureList": [
+    "9.4 ms median latency from capture to display (local network, 4K at 160 Hz)",
+    "QUIC transport (RFC 9000), TLS 1.3 encryption, a single port",
+    "Virtual display at the device's resolution and refresh rate (4K, 5K, 6K, 120 Hz and more)",
+    "Opus sound up to 7.1, Xbox and PlayStation gamepads, rumble",
+    "Native apps and a web client served by the computer, on all your devices",
+    "Pairing through Bonjour, QR code or a code to accept, certificate fingerprint verified",
+    "Encoding on any NVIDIA, AMD or Intel graphics card, or on the processor"
+   ],
+   "isBasedOn": {
+    "@type": "SoftwareApplication",
+    "name": "Kyber",
+    "url": "https://kyber.tech"
+   },
+   "publisher": {
+    "@id": "https://www.kybernow.app/#editeur"
+   },
+   "sameAs": [
+    "https://github.com/MonsieurNours/kybernow",
+    "https://discord.gg/sVy2mu5WdT"
+   ]
+  }
+ ]
+}
 </script>
 </head>
 <body>
@@ -102,7 +191,7 @@
       <article class="pillar" data-reveal style="--d:.15s">
         <svg class="ic-lg"><use href="/assets/icons.svg#monitor"/></svg>
         <h3>Work</h3>
-        <p>Sharp text in 4:4:4, shared clipboard, the exact resolution of your screen: 4K, 5K, 6K.</p>
+        <p>A remote desktop with sharp text in 4:4:4, shared clipboard, the exact resolution of your screen: 4K, 5K, 6K.</p>
       </article>
       <article class="pillar" data-reveal style="--d:.25s">
         <svg class="ic-lg"><use href="/assets/icons.svg#broadcast"/></svg>
@@ -228,7 +317,7 @@
 <section class="section" id="comparer" data-scene="rest-l">
   <div class="wrap">
     <p class="label" data-reveal>Compare</p>
-    <h2 class="title" data-split><strong>KyberNow</strong> and Sunshine + Moonlight.</h2>
+    <h2 class="title" data-split><strong>KyberNow</strong>, the alternative to Sunshine + Moonlight.</h2>
     <p class="body-lg" data-reveal>Sunshine and Moonlight made open-source computer streaming available to everyone, and remain excellent software. KyberNow starts from a newer engine and designs the whole thing as a single product, from installation to image.</p>
 
     <div class="compare" data-reveal role="table" aria-label="Comparison">

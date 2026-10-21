@@ -38,6 +38,17 @@ Mise en route, une seule fois :
 3. DNS de `kybernow.app` : quatre enregistrements `A` (185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153), les `AAAA` 2606:50c0:8000::153 à 8003::153, et `www` en `CNAME` vers `monsieurnours.github.io`.
 4. Settings › Pages › Custom domain : `www.kybernow.app` (les enregistrements `A` de `kybernow.app` font rediriger le domaine nu vers `www`), puis « Enforce HTTPS » dès que le certificat est prêt (jusqu'à 24 h ; `.app` exige le HTTPS).
 
+## Référencement
+
+Cible : qu'une recherche de jeu à distance, de bureau à distance, de « cloud gaming » chez soi ou d'alternative à Sunshine et Moonlight mène au site, dans les moteurs comme dans les assistants IA.
+
+- **Message agnostique** : les textes de présentation et de partage (image, descriptions, données structurées, `llms.txt`) disent « votre ordinateur sur tous vos appareils », jamais une liste de plateformes. Les plateformes réelles n'apparaissent que là où l'on installe : section Télécharger et guide.
+- **En-tête de chaque page** : titre et description avec les mots recherchés, URL canonique, Open Graph complet (type, nom du site, langue et langue alternative, image 1200 × 630 avec texte alternatif) et carte Twitter `summary_large_image` ; `apple-touch-icon.png` pour l'écran d'accueil iPhone et iPad. Les mentions légales restent en `noindex`.
+- **Images de partage** : `assets/og/kybernow-fr.jpg` et `kybernow-en.jpg`, composées en HTML dans `scripts/site-og/card.html` (polices, logo et symbole allumé du site) et rendues par `scripts/site-seo.py images` avec Chrome sans fenêtre. Les refaire quand le message, la latence mesurée ou les plateformes changent.
+- **Données structurées** (JSON-LD) : sur l'accueil, `SoftwareApplication` (catégorie, systèmes, gratuité, licence, téléchargement, fonctions, `isBasedOn` Kyber), `WebSite` et `Organization` (Les Lignes Claires), écrits à la main dans les deux langues ; sur les guides, `FAQPage`, produit par `scripts/site-seo.py faq` à partir des questions visibles. **Relancer `scripts/site-seo.py faq` après toute modification de la FAQ.**
+- **Robots** : `robots.txt` ouvre tout, assistants IA compris, et annonce `sitemap.xml` (accueil et guide, avec leurs versions de langue ; date `lastmod` à avancer quand le texte change). `llms.txt` résume KyberNow pour les assistants IA (en anglais, avec les faits mesurés et la comparaison) : à tenir à jour avec la page d'accueil.
+- **Textes** : la section Comparer s'intitule « KyberNow, l'alternative à Sunshine + Moonlight » ; la FAQ répond à « peut-il remplacer Sunshine et Moonlight », « est-ce du cloud gaming », « jouer à ses jeux PC sur Mac ou Apple TV ». `lang.js` ne redirige jamais un robot.
+
 ## Communauté
 
 Serveur Discord KyberNow, invitation permanente : https://discord.gg/sVy2mu5WdT (ouvre #bienvenue). Liens dans la navigation, le menu mobile, le téléchargement, le guide et le pied de page.
@@ -54,6 +65,8 @@ Serveur Discord KyberNow, invitation permanente : https://discord.gg/sVy2mu5WdT 
 | `assets/main.js` | Apparitions au défilement, menu mobile, section épinglée du trajet (compteur, étapes), simulation QUIC / flux unique, profils, bouton principal selon le système du visiteur, version lue sur GitHub ; textes en français ou en anglais selon la page |
 | `assets/scene.js` | Scène 3D (Three.js) : symbole « Relais » extrudé depuis la géométrie de `brand/v2/tools/geometry.json`, couture en néon (bloom), flux de particules ; un état par section (`data-scene`) |
 | `assets/icons.svg` | Icônes Phosphor 2.1.1 (MIT, `assets/PHOSPHOR-LICENSE`) en sprite |
+| `assets/og/` | Images de partage, française et anglaise (voir « Référencement ») |
+| `apple-touch-icon.png`, `robots.txt`, `sitemap.xml`, `llms.txt` | Icône iPhone et iPad, robots, plan du site, résumé pour les assistants IA |
 | `assets/img/` | Logo et symboles (copies de `brand/v2/`) |
 | `fonts/` | Archivo et Martian Mono (OFL) |
 | `vendor/three/` | Three.js r170 (MIT) : `three.module.min.js` et les quelques modules d'exemples utilisés (bloom, SVGLoader, RoomEnvironment) |
