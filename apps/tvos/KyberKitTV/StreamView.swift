@@ -154,7 +154,7 @@ public final class StreamView: UIView {
     func inputConnected() {
         guard input != nil else { return }
         updateRelative()
-        keyboardMouse.resendHeldModifiers()
+        keyboardMouse.inputConnected()
         if remoteMouse || padMouse || mouseSeen {
             pointer.queue.async { [pointer] in pointer.resendHeld() }
         }

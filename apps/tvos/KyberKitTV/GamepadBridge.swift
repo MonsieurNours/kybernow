@@ -746,8 +746,9 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Manette en souris
 
-    private var heldMouse = Set<InputPipeline.MouseButton>()
-    private var heldKeys = Set<UInt16>()
+    /// Clics et touches tenus par la manette en souris et la télécommande
+    /// (politique « tout relâcher » partagée : menu, arrière-plan, fin de session).
+    private let held = ReleaseAll()
     private var altHeld = false
     private var altRelease: DispatchWorkItem?
     private var mouseTimer: DispatchSourceTimer?
@@ -776,7 +777,7 @@ public final class GamepadBridge: ObservableObject {
 
     private func key(_ usage: UInt16, _ pressed: Bool, input: InputPipeline) {
         guard let scancode = Keymap.scancode(usage: usage) else { return }
-        if pressed { heldKeys.insert(usage) } else { heldKeys.remove(usage) }
+        held.key(scancode: scancode, pressed: pressed)
         input.key(scancode: scancode, pressed: pressed)
     }
 
@@ -790,7 +791,7 @@ public final class GamepadBridge: ObservableObject {
     /// déplacements partent de cette même file (PointerLayer) : un clic reste
     /// derrière le déplacement qui le précède.
     private func click(_ b: InputPipeline.MouseButton, _ pressed: Bool, input: InputPipeline) {
-        if pressed { heldMouse.insert(b) } else { heldMouse.remove(b) }
+        held.mouseButton(b, pressed: pressed)
         input.mouseButton(b, pressed: pressed)
     }
 
@@ -851,15 +852,12 @@ public final class GamepadBridge: ObservableObject {
         if ix != 0 || iy != 0 { input.mouseMove(dx: ix, dy: iy) }
     }
 
+    /// Relâche clics et touches de la manette en souris (boutons d'abord, puis
+    /// touches, Alt compris).
     private func releaseMouse(_ input: InputPipeline) {
-        for b in heldMouse { input.mouseButton(b, pressed: false) }
-        heldMouse.removeAll()
         altRelease?.cancel()
         altHeld = false
-        for usage in heldKeys {
-            if let scancode = Keymap.scancode(usage: usage) { input.key(scancode: scancode, pressed: false) }
-        }
-        heldKeys.removeAll()
+        held.release(into: input)
     }
 
     private func updateMouseTimer() {
