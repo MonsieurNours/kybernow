@@ -131,6 +131,20 @@ In English: `project.yml` is the XcodeGen project (KyberKit and KyberNow targets
 
 Flow of a session: `ConsoleClient.prepare` (virtual display at this Mac's size, sound with the right number of channels) → `KyberClient.connect` → wait for the display list to settle → `startStreaming` → heartbeat every few seconds → `ConsoleClient.end` (the computer gets its displays and its audio output back).
 
+
+### Shared input module
+
+The files marked “partagé” (shared) above import neither AppKit nor UIKit: the Apple TV compiles them as they are (`apps/tvos/project.yml`), iOS will do the same. What they hold, once:
+
+- `InputPipeline` and `PacketQueue`: the kynput chain (keyboard, mouse, app-produced gamepad, text and FlushKeys packets), counted refusals and the retry backlog for packets that do not catch up (3 ms, 200 ms, order kept), gamepad axis filtering (at 1/512 of the travel, batched per 4 ms, returns to rest retried), reception of the computer's pointer and of rumble.
+- `Keymap`: HID usages → scancodes, “⌘ sent as Ctrl”, swap of the Apple ISO keyboard keys, lock keys (toggles: press + release, never resynced).
+- `PadCombo`: L1 + R1 + Start + Select combination and held buttons of each gamepad; the six axes to put back to rest at capture.
+- `PointerLayer`, `MouseMode`, `MouseModeRules`, `InputQueue`: position, shape, hot spot and visibility of the computer's pointer, position held by the device, Auto / Desktop / Game rules with the full-screen watch (0.6 s of pointer shown again, recheck at 0.7 s), drawing scale and frame, serial queue of the device's inputs.
+- `ReleaseAll`: what the device holds down and the “release everything” policy (keyboard lost, background, end of session), resync of the modifiers actually held on return.
+- `ClipboardBridge` and `PlatformPasteboard`: shared clipboard, the computer's packets handled outside the lock of kynput's router.
+
+What a platform provides: **event capture** (AppKit in `StreamView` on the Mac; GameController in `GamepadBridge` and `KeyboardMouse` on the Apple TV), **drawing** the pointer on the main thread from `PointerLayer.onChanged` (`NSCursor` and a layer in game mode on the Mac, an always-visible layer on the Apple TV), the **pasteboard** (`Pasteboard.general`: `NSPasteboard` in `PasteboardMac`, none on tvOS), the keyboard's **ISO layout** (`KBGetLayoutType` in `KeymapMac`; “Apple ISO keyboard” setting and Apple heuristic on tvOS), the pointer layer's **queue** (main thread on the Mac, `InputQueue.device` on the Apple TV) and **when the combination forms** (`PadCombo.Hold`: fourth button on the Mac, 250 ms on the Apple TV). The Mac's gamepads are still read by kynput through SDL: `GamepadGate` filters their packets in the router hook.
+
 ## Building
 
 Prerequisites: Xcode 27, XcodeGen, Rust 1.89 + `cargo-c`, the Kyber 0.29 client built in `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
@@ -192,4 +206,13 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Towards iOS and Apple TV
 
-Reusable as they are: `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `ReleaseAll` (release everything on focus loss, in the background or at the end of the session, modifiers actually held sent again on return: the platform tells it what it sent and what the system holds), `PointerLayer` (state of the computer's pointer and mouse rules; the platform draws, feeds it the device's movements on its queue, iOS will plug touch into it), `PadCombo` (the platform feeds it every gamepad button and chooses when the combination forms: at the fourth button on the Mac, after 250 ms held on the Apple TV; GameController on iOS will do as the Apple TV), `Keymap` (the platform provides the key's HID usage, which GameController gives directly, and says whether the keyboard is ISO: on iOS, the Apple TV's setting and Apple heuristic). `ClipboardBridge` is shared as it is: iOS provides a `Pasteboard.general` on `UIPasteboard` (`PlatformPasteboard` protocol, like `PasteboardMac`), tvOS has none. To write: a UIKit view that holds the Metal layer (equivalent of `MetalSurface`), touch and remote inputs, and building libkyclient, libkynput and libopus for iOS and tvOS (`kysdk/kyctl/build-ios.sh` is a starting point). There is neither VRR nor turning off sync on Apple TV.
+The Apple TV is done (`apps/tvos`). For iOS and iPadOS, KyberKit is taken as it is: connection, decoding, Metal rendering, sound, latency, console, and the whole shared input module (`InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `PointerLayer`, `ReleaseAll`, `ClipboardBridge`). What iOS has to write, and only that:
+
+1. `Pasteboard.swift`: `enum Pasteboard { static var general: PlatformPasteboard? }` on `UIPasteboard.general` (`changeCount`, `string`), after `PasteboardMac`.
+2. A UIKit `StreamView`, from the Apple TV's (`apps/tvos/KyberKitTV/StreamView.swift`, with its `MetalSurface`): a `PointerLayer(queue: InputQueue.device, holdsPosition: true)`; pointer drawing on the main thread from `onChanged`; identical `attach`, `inputConnected`, `setHostSize` and `detach`; `MouseModeRules(needsHiddenPointer: false)` like the Apple TV, or the Mac's Auto / Desktop / Game setting.
+3. Touch → pointer events: a dragging finger → `pointer.move(dx:dy:)` on `InputQueue.device` (or an absolute position through `kynput_video_layout_local_to_host` and `InputPipeline.mouse` when the finger points at a spot of the image); a tap → `InputPipeline.mouseButton(.left, pressed:)` recorded in a `ReleaseAll`; two fingers → `wheel`; in game mode, raw `mouseMove`.
+4. Hardware keyboard and gamepads: the Apple TV's `KeyboardMouse.swift` and `GamepadBridge.swift` (GameController, UIKit, Core Haptics; only the Siri Remote is tvOS-specific there), or directly `Keymap.scancode(hid:iso:)` with the ISO setting and `Keymap.appleKeyboard`, `PadCombo(hold: .after(PadCombo.holdDelay, on: InputQueue.device))` and `ReleaseAll`; the on-screen keyboard → `InputPipeline.type`.
+5. Background: `ReleaseAll.release(into:)` then `InputPipeline.flushKeys` on `willResignActive` (what `GamepadBridge` does), modifiers resynced when the inputs are connected again.
+6. Building libkyclient, libkynput and libopus for iOS (`apps/tvos/scripts/build-kyber-tvos.sh` is the model).
+
+There is neither VRR nor turning off sync on Apple TV.

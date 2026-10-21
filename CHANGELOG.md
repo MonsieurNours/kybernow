@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.7
 
+- Apps Mac et Apple TV : le code des entrées (clavier, manettes, pointeur, tout relâcher, file d'envoi, presse-papiers) n'est plus écrit qu'une fois dans KyberKit, sans AppKit ni UIKit ; l'app Apple TV le compile tel quel, et les READMEs des deux apps disent ce que chaque plateforme fournit et ce qu'une app iOS aura à écrire. Les deux apps se comportent comme en 0.2.6.
 - App Mac : test hors ligne du module d'entrées partagé (`apps/macos/tests/inputs/run.sh`) : table du clavier (touches, clavier ISO ou non, Verr. maj.), combinaison de manette (brève, tenue, relâchement complet), file de secours des paquets et filtrage des axes.
 - App Mac, presse-papiers : les paquets de l'ordinateur ne sont plus traités sous le verrou du routeur d'entrées de kynput (la réponse y réentrait sur le même fil) mais sur la file des entrées de l'app ; le presse-papiers lui-même passe derrière une petite interface (`PlatformPasteboard` : NSPasteboard sur Mac, UIPasteboard à venir sur iOS, rien sur Apple TV). Mêmes échanges qu'avant.
 - Apps Mac et Apple TV, entrées : la file de secours des paquets refusés par kynput (`PacketQueue`) et le filtrage des axes de manette (axes inchangés écartés, regroupés par 4 ms, retours au repos réessayés) ne sont plus écrits qu'une fois dans la chaîne d'entrées partagée ; l'app Apple TV n'en garde plus de copie. Mêmes seuils, mêmes délais.
