@@ -123,9 +123,18 @@ impl Session {
             device_id: String::new(),
             alive: Arc::new(AtomicBool::new(true)),
         };
+        let guard_platform = worker.platform.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-session".into())
-            .spawn(move || worker.run())
+            .spawn(move || {
+                // Une panique ne doit pas laisser l'app attendre une fin qui
+                // ne viendrait jamais.
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run())).is_err() {
+                    guard_platform.on_status(&Status::Ended {
+                        error: Some("erreur interne de la session".into()),
+                    });
+                }
+            })
             .expect("fil de session");
         Arc::new(Session {
             tx: Mutex::new(tx),
@@ -238,7 +247,9 @@ impl Worker {
         let prepared = self.prepared.clone().expect("prepare");
 
         self.status(Status::Connecting);
-        kyclient::init_crypto();
+        // Fournisseur de chiffrement par défaut de rustls (kyclient::init_crypto
+        // échoue s'il est déjà posé, à la deuxième session par exemple).
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let mut config = ConnectConfig {
             host: console.host().to_string(),
             port: prepared.kyber_port.unwrap_or(8080),
@@ -385,7 +396,9 @@ impl Worker {
                 self.retries = 0;
                 self.status(Status::Streaming);
             }
-            Event::StreamingStartFailed => return self.pipeline_failed("l'ordinateur refuse l'image"),
+            // Kyber se déconnecte lui-même après cet échec : un nouvel essai
+            // annoncerait « image démarrée » sans connexion (écran noir).
+            Event::StreamingStartFailed => return Some("l'ordinateur refuse l'image".into()),
             Event::StreamerPipelineEvent { type_, event, .. } => {
                 if event == StreamerPipelineEventType::Error {
                     return self.pipeline_failed(&format!("erreur de la chaîne d'image ({type_:?})"));

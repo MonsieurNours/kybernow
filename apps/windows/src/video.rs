@@ -1,10 +1,15 @@
 //! Fil de l'image : reçoit les paquets de Kyber, décode, dessine, présente,
 //! et note l'heure d'affichage de chaque image pour la latence.
 //!
+//! Chaque paquet est décodé, mais seule l'image la plus récente est montrée :
+//! si d'autres attendent (rafale du réseau, écran un peu plus lent que
+//! l'ordinateur), celle-ci est sautée, sans quoi le retard s'accumulerait
+//! derrière la synchro verticale. Comme sur Mac.
+//!
 //! Un seul fil possède l'appareil Direct3D, le décodeur et la chaîne
 //! d'échange : rien n'attend ailleurs.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -57,6 +62,8 @@ impl Shared {
 pub struct VideoHandler {
     tx: SyncSender<VideoMsg>,
     overflow: AtomicBool,
+    /// Images en attente de décodage.
+    pending: AtomicUsize,
 }
 
 impl PacketHandler for VideoHandler {
@@ -71,9 +78,20 @@ impl PacketHandler for VideoHandler {
             },
             Packet::Hole { .. } => return,
         };
-        if let Err(TrySendError::Full(_)) = self.tx.try_send(msg) {
-            // Le décodage ne suit plus : il faudra repartir d'une image clé.
-            self.overflow.store(true, Ordering::Relaxed);
+        match msg {
+            // Début de flux et paramètres : jamais perdus (rares, et sans eux
+            // le décodeur ne repart pas).
+            VideoMsg::Codec(_) | VideoMsg::Config(_) => {
+                let _ = self.tx.send(msg);
+            }
+            msg => {
+                self.pending.fetch_add(1, Ordering::Relaxed);
+                if let Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) = self.tx.try_send(msg) {
+                    self.pending.fetch_sub(1, Ordering::Relaxed);
+                    // Le décodage ne suit plus : il faudra repartir d'une image clé.
+                    self.overflow.store(true, Ordering::Relaxed);
+                }
+            }
         }
     }
 }
@@ -95,6 +113,7 @@ pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<(Ar
     let handler = Arc::new(VideoHandler {
         tx,
         overflow: AtomicBool::new(false),
+        pending: AtomicUsize::new(0),
     });
     let (ptx, prx) = mpsc::channel();
     let h = handler.clone();
@@ -102,7 +121,15 @@ pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<(Ar
         .name("kybernow-video".into())
         .spawn(move || run(hwnd, opts, shared, h, rx, ptx))
         .map_err(|e| e.to_string())?;
-    let probe = prx.recv().map_err(|_| "le fil de l'image s'est arrêté".to_string())??;
+    // La fenêtre est créée sur ce fil : ses messages doivent passer pendant que
+    // le fil de l'image crée la chaîne d'échange (DXGI peut lui en envoyer).
+    let probe = loop {
+        match prx.recv_timeout(std::time::Duration::from_millis(10)) {
+            Ok(p) => break p?,
+            Err(mpsc::RecvTimeoutError::Timeout) => crate::window::pump_messages(),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Err("le fil de l'image s'est arrêté".into()),
+        }
+    };
     Ok((handler, probe))
 }
 
@@ -145,6 +172,7 @@ fn run(
     let mut send_config = false;
     let mut waiting_key = true;
     let mut hw_allowed = opts.hardware;
+    let mut unsupported_logged = false;
     let mut last_request = Instant::now() - Duration::from_secs(1);
     let mut keyframe = |shared: &Shared, force: bool| {
         if force || last_request.elapsed() >= Duration::from_millis(300) {
@@ -176,7 +204,7 @@ fn run(
         let msg = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(m) => m,
             Err(RecvTimeoutError::Timeout) => {
-                if waiting_key && decoder.is_some() {
+                if waiting_key {
                     keyframe(&shared, false);
                 }
                 continue;
@@ -201,6 +229,9 @@ fn run(
                 send_config = true;
             }
             VideoMsg::Frame { data, pts, key } => {
+                // D'autres images attendent derrière celle-ci : on la décode
+                // sans la montrer.
+                let newer_waiting = handler.pending.fetch_sub(1, Ordering::Relaxed) > 1;
                 if handler.overflow.swap(false, Ordering::Relaxed) {
                     log::warn!("image : file pleine, reprise sur une image clé");
                     waiting_key = true;
@@ -235,6 +266,9 @@ fn run(
                                 keyframe(&shared, false);
                             }
                             let pts = frame.pts as u64;
+                            if newer_waiting {
+                                continue;
+                            }
                             match renderer.draw(frame) {
                                 Ok(()) => {
                                     if let Some(l) = shared.latency.get() {
@@ -244,8 +278,14 @@ fn run(
                                     shared.first_image.store(true, Ordering::Relaxed);
                                 }
                                 Err(e) => {
-                                    log::warn!("rendu : {}", e.0);
-                                    fallback = dec.hardware;
+                                    if dec.hardware {
+                                        log::warn!("rendu : {}", e.0);
+                                        fallback = true;
+                                    } else if !unsupported_logged {
+                                        // Format que l'app ne sait pas montrer (10 bits…).
+                                        log::error!("rendu impossible : {}", e.0);
+                                        unsupported_logged = true;
+                                    }
                                     break;
                                 }
                             }

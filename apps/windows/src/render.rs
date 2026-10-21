@@ -185,6 +185,7 @@ pub struct Renderer {
     size: (u32, u32),
     tearing: bool,
     pub vsync: bool,
+    present_failed: bool,
 }
 
 /// L'image ne peut pas être montrée telle quelle (format de la carte non pris
@@ -269,6 +270,7 @@ impl Renderer {
                 size,
                 tearing,
                 vsync,
+                present_failed: false,
             };
             r.create_rtv()?;
             Ok(r)
@@ -290,16 +292,22 @@ impl Renderer {
         if size == self.size || size.0 == 0 || size.1 == 0 {
             return;
         }
-        self.size = size;
+        // Toutes les vues de la chaîne d'échange relâchées avant
+        // ResizeBuffers ; la taille n'est retenue qu'en cas de réussite (sinon
+        // on réessaie à l'image suivante).
         self.rtv = None;
         unsafe {
-            self.ctx.OMSetRenderTargets(None, None);
+            self.ctx.ClearState();
+            self.ctx.Flush();
             let flags = if self.tearing { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING } else { DXGI_SWAP_CHAIN_FLAG(0) };
-            if let Err(e) = self.swapchain.ResizeBuffers(0, size.0, size.1, DXGI_FORMAT_UNKNOWN, flags) {
-                log::warn!("ResizeBuffers : {e}");
+            match self.swapchain.ResizeBuffers(0, size.0, size.1, DXGI_FORMAT_UNKNOWN, flags) {
+                Ok(()) => self.size = size,
+                Err(e) => log::warn!("ResizeBuffers : {e}"),
             }
         }
-        let _ = self.create_rtv();
+        if let Err(e) = self.create_rtv() {
+            log::warn!("vue de la chaîne d'échange : {e}");
+        }
     }
 
     fn texture(&self, w: u32, h: u32, format: DXGI_FORMAT) -> windows::core::Result<ID3D11Texture2D> {
@@ -450,7 +458,12 @@ impl Renderer {
             } else {
                 (0, DXGI_PRESENT(0))
             };
-            let _ = self.swapchain.Present(interval, flags);
+            let hr = self.swapchain.Present(interval, flags);
+            if hr.is_err() && !self.present_failed {
+                // Carte graphique perdue (pilote mis à jour, mise en veille…).
+                log::error!("Present : {hr:?}");
+                self.present_failed = true;
+            }
         }
         Ok(())
     }

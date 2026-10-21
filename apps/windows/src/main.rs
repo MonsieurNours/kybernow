@@ -320,6 +320,9 @@ Raccourcis : Ctrl+Alt+Maj+D se déconnecter, +F plein écran, +M souris des jeux
         };
 
         let mut settings = StreamSettings::for_profile(args.profile, probe.caps);
+        // Un réglage retouché rend le profil « Personnalisé » : son débit est
+        // celui que le profil donnait pour ce mode.
+        let profile_mbps = settings.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
         if let Some(c) = args.codec {
             settings.codec = c;
             settings.profile = None;
@@ -332,9 +335,8 @@ Raccourcis : Ctrl+Alt+Maj+D se déconnecter, +F plein écran, +M souris des jeux
             settings.mbps = m;
             settings.profile = None;
         }
-        // Profil retouché : on garde le débit calé sur ce mode.
         if settings.profile.is_none() && args.mbps.is_none() {
-            settings.mbps = settings.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
+            settings.mbps = profile_mbps;
         }
         if settings.codec == Codec::H264 && mode.width > 4096 {
             mode.height = mode.height * 4096 / mode.width / 2 * 2;
@@ -386,6 +388,9 @@ Raccourcis : Ctrl+Alt+Maj+D se déconnecter, +F plein écran, +M souris des jeux
         video_handler.stop();
         if let Some(a) = &audio {
             a.stop();
+        }
+        if app.input.refused() > 0 {
+            log::info!("entrées : {} paquets refusés par kynput (réessayés)", app.input.refused());
         }
         let (median, p95) = session.latency().session();
         if let Some(m) = median {

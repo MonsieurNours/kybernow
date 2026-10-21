@@ -184,6 +184,22 @@ pub fn show(hwnd: HWND, fullscreen: bool) {
     update_client_size(hwnd);
 }
 
+/// Traite les messages en attente sans bloquer (pendant une attente du fil
+/// principal).
+pub fn pump_messages() {
+    unsafe {
+        let mut msg = MSG::default();
+        while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            if msg.message == WM_QUIT {
+                PostQuitMessage(msg.wParam.0 as i32);
+                return;
+            }
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+}
+
 pub fn run_loop() {
     unsafe {
         let mut msg = MSG::default();
@@ -520,7 +536,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     if msg == WM_MOUSEWHEEL {
                         a.input.wheel(0.0, -delta);
                     } else {
-                        a.input.wheel(delta, 0.0);
+                        // Comme le client de Kyber : les deux axes inversés.
+                        a.input.wheel(-delta, 0.0);
                     }
                 }
                 LRESULT(0)
