@@ -99,6 +99,23 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 
 **Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh` et au manifeste signé.
 
+## Intégration continue
+
+`.github/workflows/ci.yml` vérifie chaque push et chaque pull request vers `main` (onglet Actions du dépôt) :
+
+| Job | Machine | Ce qu'il vérifie |
+|---|---|---|
+| Console, icône, installateur | macOS | `cargo test` de la console et de l'installateur ; `cargo check --target x86_64-pc-windows-gnu` de la console, de l'installateur (`--features ui`) et de l'icône, ressources Windows comprises (MinGW par Homebrew) |
+| Interfaces Svelte | Linux | `npm ci`, `npm run build`, `npm run check` dans `server/web` et `server/installer/ui` |
+| Scripts et update.ps1 | Linux | `shellcheck` de tous les scripts, `update.ps1` en ASCII, banc de `update.ps1` (`server/installer/tests/update-bench.ps1`, services simulés) |
+| App Apple TV | macOS | `xcodegen`, puis `xcodebuild` pour le simulateur, sans signature, avec le `KyberSDK-tvOS.zip` de la dernière release |
+
+Ce qu'elle ne couvre pas :
+- **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part. Pour la compiler en CI, il faudrait joindre à chaque release un `KyberSDK-macOS.zip` (le contenu de `apps/macos/Vendor`), comme `KyberSDK-tvOS.zip` pour l'Apple TV.
+- **L'app Apple TV quand les correctifs client ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante. C'est le cas jusqu'à la 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
+- **Les binaires Windows liés et Kyber** : la CI vérifie le code, elle ne produit ni `KyberNow-Setup.exe` ni la surcouche (correctifs de Kyber, `third_party/` absent), et ne lance rien sous Windows.
+- **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign). Une CI qui construit les binaires Windows serait l'étape suivante, pour les faire signer Authenticode par SignPath (programme gratuit pour les projets libres, qui exige une construction en CI).
+
 ## Signature et notarisation de l'app Mac
 
 La version diffusée (configuration Release) est signée « Developer ID Application: Mathieu Requenna (P6DB682S4K) », avec le runtime renforcé et un horodatage sécurisé, sans autorisation de débogage. Seule autorisation demandée : la caméra (`KyberNow/KyberNow.entitlements`, pour le QR code). Les compilations de développement (Debug) gardent le certificat de développement, plus rapide.

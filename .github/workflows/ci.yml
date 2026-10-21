@@ -1,0 +1,153 @@
+# Vérifications de chaque push et pull request vers main : console, icône et
+# installateur (tests sur macOS, compilation pour Windows), interfaces Svelte,
+# scripts (shellcheck, banc de update.ps1), app Apple TV (simulateur, sans
+# signature). Voir docs/releases.md, « Intégration continue ».
+#
+# L'app Mac n'est pas compilée ici : elle lie le SDK client de Kyber et VLC
+# (apps/macos/Vendor, 88 Mo, compilés depuis les sources de Kyber par
+# apps/macos/scripts/build-kyclient.sh), qui ne sont publiés nulle part. Pour
+# la compiler en CI, il faudrait joindre à chaque release un KyberSDK-macOS.zip
+# (le contenu de apps/macos/Vendor), comme KyberSDK-tvOS.zip pour l'Apple TV.
+#
+# Rien n'est signé ni publié : la publication reste scripts/release.sh, sur le
+# Mac de l'auteur (notarisation, clés Sparkle et minisign).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-gcc
+
+jobs:
+  rust:
+    name: Console, icône, installateur
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      # windres (ressources Windows : icône, manifeste, version) et l'éditeur
+      # de liens MinGW, comme sur le Mac qui publie.
+      - name: MinGW
+        run: brew install mingw-w64
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            server/admin
+            server/installer
+            server/tray
+      - name: Tests de la console
+        working-directory: server/admin
+        run: cargo test --locked
+      - name: Tests de l'installateur
+        working-directory: server/installer
+        run: cargo test --locked
+      # Sans server/web/dist ni ui/dist (allow_missing) : on vérifie le code
+      # Windows, pas l'interface embarquée (job web).
+      - name: Console pour Windows
+        working-directory: server/admin
+        run: cargo check --locked --target x86_64-pc-windows-gnu
+      - name: Installateur pour Windows (avec l'interface)
+        working-directory: server/installer
+        run: cargo check --locked --target x86_64-pc-windows-gnu --features ui
+      - name: Icône pour Windows
+        working-directory: server/tray
+        run: cargo check --locked --target x86_64-pc-windows-gnu
+
+  web:
+    name: Interfaces Svelte
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [server/web, server/installer/ui]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run check
+
+  scripts:
+    name: Scripts et update.ps1
+    runs-on: ubuntu-latest   # shellcheck et pwsh préinstallés
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S warning -s bash
+      # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII
+      # (package-update.sh le vérifie aussi).
+      - name: update.ps1 en ASCII
+        run: |
+          if LC_ALL=C grep -n '[^ -~[:space:]]' server/installer/update.ps1; then
+            echo "::error file=server/installer/update.ps1::caractères non ASCII"
+            exit 1
+          fi
+      - name: Banc de update.ps1 (services simulés)
+        run: pwsh -NoProfile -File server/installer/tests/update-bench.ps1
+
+  tvos:
+    name: App Apple TV (simulateur)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags : on compare au SDK de la dernière release
+      # Le SDK de Kyber pour tvOS (apps/tvos/Vendor) est compilé depuis les
+      # sources de Kyber, absentes ici : on prend celui de la dernière release.
+      # Si les correctifs client (apps/macos/kyber-patches) ont changé depuis,
+      # ce SDK ne correspond plus au code : la compilation est sautée, avec un
+      # avertissement, jusqu'à la release suivante.
+      - name: SDK de Kyber de la dernière release
+        id: sdk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          echo "Dernière release : $tag"
+          if ! git diff --quiet "$tag" HEAD -- apps/macos/kyber-patches apps/tvos/scripts/build-kyber-tvos.sh; then
+            echo "::warning title=App Apple TV non compilée::Correctifs client modifiés depuis $tag : le SDK publié ne correspond plus. Compilation vérifiée à la prochaine release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern KyberSDK-tvOS.zip --dir "$RUNNER_TEMP"
+          mkdir -p apps/tvos/Vendor
+          ditto -x -k "$RUNNER_TEMP/KyberSDK-tvOS.zip" apps/tvos/Vendor
+          ls apps/tvos/Vendor
+      - name: Xcode
+        if: steps.sdk.outputs.skip != 'true'
+        run: |
+          xcodebuild -version
+          brew install xcodegen
+          # Plateforme tvOS parfois absente des images GitHub.
+          xcodebuild -showsdks | grep -q appletvsimulator || xcodebuild -downloadPlatform tvOS
+      - name: Compilation (simulateur, sans signature)
+        if: steps.sdk.outputs.skip != 'true'
+        working-directory: apps/tvos
+        run: |
+          xcodegen generate
+          set -o pipefail
+          xcodebuild -project KyberNowTV.xcodeproj -scheme KyberNowTV -configuration Debug \
+            -destination 'generic/platform=tvOS Simulator' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build | grep -E "error:|BUILD (SUCC|FAIL)"
