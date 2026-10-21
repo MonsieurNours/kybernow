@@ -8,6 +8,7 @@ Ready-to-install Windows streaming server and macOS / tvOS clients, built on [Ky
 |---|---|
 | `PROJECT.md` | Scope and decisions (in English: [PROJECT.en.md](PROJECT.en.md)) |
 | `apps/macos/` | macOS app (SwiftUI, VideoToolbox, Metal, Core Audio), see [its README](apps/macos/README.en.md) |
+| `apps/core/`, `apps/windows/` | Rust client core and Windows app (Direct3D 11, FFmpeg, WASAPI), see [its README](apps/windows/README.en.md) |
 | `server/` | Everything that runs on the shared computer, see [its README](server/README.en.md) |
 | `server/admin/`, `server/web/` | Administration console (Windows service, Rust) and its interface (Svelte) |
 | `server/tray/` | Notification area icon |

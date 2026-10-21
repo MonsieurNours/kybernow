@@ -12,3 +12,6 @@ server/admin/dev-data/
 /dist/
 # Réglages locaux de Claude Code
 /.claude/
+
+# Client Windows : dossiers à copier sur le PC
+apps/windows/dist/

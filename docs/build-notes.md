@@ -91,6 +91,17 @@ Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (We
 - **build.rs de kynputserver** : il testait `cfg!(target_os = "macos")`, c'est-à-dire la machine qui compile ; depuis un Mac, il assemblait le code macOS avec MinGW et échouait. Corrigé par 0012 (test de `CARGO_CFG_TARGET_OS`).
 - **Runtime** : comme le reste de la surcouche, `kynput.dll` et `kynputserver.exe` sont en UCRT, à côté de `kyclient.dll` et `kyclient.exe` officiels (msvcrt) qui chargent la même `kynput.dll`. Sans risque ici : l'API C de kynput libère toujours elle-même ce qu'elle alloue (`kynput_*_unref`, `kynput_free_string`). Elle exporte les fonctions de la version officielle, plus celles du presse-papiers si le correctif client 0002 est appliqué dans `third_party` au moment du build.
 
+## Client Windows (apps/windows), depuis macOS
+
+`apps/windows/scripts/build.sh` compile le cœur client (`apps/core`) et l'app Windows avec la chaîne du serveur (`x86_64-pc-windows-gnu`, MinGW de Homebrew), en s'appuyant sur ce que `server/kyber-patches/build.sh` a produit : FFmpeg et libopus statiques (`third_party/rootfs-win64`), `kynput.dll` (`third_party/rootfs-win64-kynput`).
+
+- **Crates de Kyber** : l'app dépend directement de la crate Rust `kyclient` (pas de son API C). Ses dépendances se nomment par leur version crates.io : `apps/Cargo.toml` les renvoie vers `third_party/kyber-desktop/kysdk` (`[patch.crates-io]`, comme `kysdk/.cargo/config.toml`), et `apps/Cargo.lock` part de celui de `kysdk/kyctl` pour garder les mêmes versions.
+- **VLC** : `kyvlcplayer` lie toujours `libvlc` sous Windows (`vlc-rs`, par pkg-config), même quand l'image et le son vont à l'app. Le script fabrique une `libvlc.a` de fonctions vides (une par export de `libvlc.dll.a`) et un `libvlc.pc` qui la désigne, dans `third_party/windows-client-x64`. Les bibliothèques statiques de FFmpeg sont liées depuis un dossier à part (`third_party/windows-client-x64/native`) : celui du rootfs contient aussi `libvlc.dll.a`, que l'éditeur de liens préférait aux fonctions vides (l'exécutable dépendait alors de `libvlc.dll`). Le script refuse un exécutable qui en dépend encore.
+- **libavcodec** : son décodeur Opus appelle libswresample, à lier aussi.
+- **Liaisons de FFmpeg** : générées par bindgen au build (`apps/windows/build.rs`) depuis les en-têtes du rootfs, avec les mêmes `BINDGEN_EXTRA_CLANG_ARGS` que kynput. `AVD3D11VADeviceContext` est recopiée à la main (des pointeurs) pour ne pas faire lire les en-têtes COM de Direct3D à bindgen.
+- **Taille** : l'exécutable embarque les encodeurs de la libavcodec du serveur (x264, VPL) ; la copie de `dist/` est sans informations de débogage (36 Mo).
+- **Tests du cœur sur le Mac** : `cargo test -p kybernow-core` avec `PKG_CONFIG_PATH` vers `third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig` (libvlc et kynput du client macOS de Kyber).
+
 ## Moteur du client web (kyclient_wasm), depuis macOS
 
 Le moteur que charge le client web vient du dépôt `kyber/apps/kyber-web` de Kyber (crate `kyclient-wasm`, l'API JS), pas de kyber-desktop. `server/kyber-patches/build.sh` le recompile avec les correctifs 0013 à 0015 et pose `kyclient_wasm.js` et `kyclient_wasm_bg.wasm` dans `webclient/` de la surcouche.
