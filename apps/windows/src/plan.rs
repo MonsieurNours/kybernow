@@ -65,6 +65,10 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
             custom = true;
         }
     }
+    // Le 4:4:4 n'existe qu'en HEVC, et seulement si la carte le décode.
+    if settings.yuv444 && (settings.codec != Codec::Hevc || !caps.hevc444) {
+        settings.yuv444 = false;
+    }
     if c.mbps.is_some() {
         custom = true;
     }

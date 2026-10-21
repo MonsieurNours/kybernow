@@ -24,7 +24,8 @@
       }),
       listen<string>('bar-shown', (l) => {
         label = l
-        cancelHide()
+        // Le pointeur n'y entre pas : elle repart d'elle-même.
+        scheduleHide(1600)
       }),
     ]
     return () => off.forEach((p) => p.then((f) => f()))
@@ -41,15 +42,15 @@
     hideTimer = null
   }
 
-  function scheduleHide() {
+  function scheduleHide(delay = 700) {
     cancelHide()
-    hideTimer = setTimeout(() => invoke('bar_hide'), 700)
+    hideTimer = setTimeout(() => invoke('bar_hide'), delay)
   }
 
   const command = (c: string) => invoke('session_command', { command: c })
 </script>
 
-<div class="bar" role="toolbar" aria-label="Barre de session" tabindex="-1" onmouseleave={scheduleHide} onmouseenter={cancelHide}>
+<div class="bar" role="toolbar" aria-label="Barre de session" tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
   <Mark size={20} state="now" lit />
   <div class="lat">
     <span class="mono">{ms(stats?.latency_ms)} ms</span>

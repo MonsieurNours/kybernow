@@ -19,9 +19,12 @@
   let confirmRemove = $state(false)
   let name = $state(untrack(() => computer.name))
 
-  async function save(patch: Partial<Settings>) {
+  // Enregistrements à la suite : le dernier état gagne toujours.
+  let saving: Promise<unknown> = Promise.resolve()
+  function save(patch: Partial<Settings>) {
     s = { ...s, ...patch }
-    await invoke('save_settings', { id: computer.id, settings: s })
+    const settings = $state.snapshot(s)
+    saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch(() => {})
   }
 
   const custom = $derived(isCustom(s))
@@ -53,7 +56,14 @@
     if (s.mbps != null) return s.mbps
     if (!thisPc) return base.mbps
     const hz = s.battery === 'alleger' && thisPc.on_battery ? Math.min(30, thisPc.refresh) : thisPc.refresh
-    const ratio = (thisPc.width * thisPc.height * hz) / (3840 * 2160 * 60)
+    // Même ajustement de l'écran que plan.rs (au plus 4K).
+    let { width: w, height: h } = thisPc
+    if (s.max_4k && (w > 3840 || h > 2160)) {
+      const k = Math.min(3840 / w, 2160 / h)
+      w = Math.floor(w * k)
+      h = Math.floor(h * k)
+    }
+    const ratio = (w * h * hz) / (3840 * 2160 * 60)
     const k = Math.min(3, Math.max(0.4, Math.pow(ratio, 0.75)))
     return Math.round(base.mbps * k)
   })

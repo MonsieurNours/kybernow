@@ -97,19 +97,41 @@ impl Store {
         let dir = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("computers.json");
-        let computers = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let computers = match std::fs::read_to_string(&path) {
+            Ok(text) => match serde_json::from_str(&text) {
+                Ok(list) => list,
+                Err(e) => {
+                    // Illisible : mis de côté plutôt qu'écrasé au prochain enregistrement.
+                    let aside = path.with_extension(format!(
+                        "json.{}.illisible",
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+                    ));
+                    log::error!("computers.json illisible ({e}) : mis de côté dans {}", aside.display());
+                    let _ = std::fs::rename(&path, &aside);
+                    Vec::new()
+                }
+            },
+            Err(_) => Vec::new(),
+        };
         Self { path, computers }
     }
 
     pub fn save(&self) {
+        use std::io::Write;
         let tmp = self.path.with_extension("json.tmp");
-        if let Ok(text) = serde_json::to_string_pretty(&self.computers) {
-            if std::fs::write(&tmp, text).is_ok() {
-                let _ = std::fs::rename(&tmp, &self.path);
+        let Ok(text) = serde_json::to_string_pretty(&self.computers) else { return };
+        // Écrit et posé sur le disque avant de remplacer l'ancien.
+        let written = std::fs::File::create(&tmp).and_then(|mut f| {
+            f.write_all(text.as_bytes())?;
+            f.sync_all()
+        });
+        match written {
+            Ok(()) => {
+                if let Err(e) = std::fs::rename(&tmp, &self.path) {
+                    log::error!("computers.json : {e}");
+                }
             }
+            Err(e) => log::error!("computers.json : {e}"),
         }
     }
 
@@ -183,9 +205,13 @@ pub fn password(id: &str) -> Option<String> {
     unsafe {
         CredReadW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None, &mut p).ok()?;
         let c = &*p;
-        let bytes = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
-        let units: Vec<u16> = bytes.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
-        let s = String::from_utf16_lossy(&units);
+        let s = if c.CredentialBlob.is_null() || c.CredentialBlobSize == 0 {
+            String::new()
+        } else {
+            let bytes = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
+            let units: Vec<u16> = bytes.chunks_exact(2).map(|b| u16::from_le_bytes([b[0], b[1]])).collect();
+            String::from_utf16_lossy(&units)
+        };
         CredFree(p as *const _);
         Some(s)
     }

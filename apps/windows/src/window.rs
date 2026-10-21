@@ -545,7 +545,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 // Pointeur contre le haut de l'écran : la barre de session.
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
                 if y <= 1 {
-                    if let Some(a) = app() {
+                    // Pas en souris des jeux : regarder vers le haut y plaque le pointeur.
+                    if let Some(a) = app().filter(|a| !a.input.relative()) {
                         let mut last = a.last_edge.lock().unwrap();
                         if a.shown() && last.is_none_or(|t| t.elapsed().as_millis() > 400) {
                             *last = Some(Instant::now());
@@ -565,7 +566,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                             set_fullscreen(hwnd, true);
                         }
                         update_client_size(hwnd);
-                        a.events.visible();
+                        // Si Windows a refusé le premier plan (autre app passée
+                        // devant pendant la préparation), l'accueil reste là.
+                        a.events.visible(GetForegroundWindow() == hwnd);
                     }
                 }
                 LRESULT(0)

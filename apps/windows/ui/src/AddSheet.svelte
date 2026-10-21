@@ -41,7 +41,10 @@
   // Code.
   let code = $state<string | null>(null)
   let pairState = $state<'pending' | 'refused' | 'expired'>('pending')
-  let timer: ReturnType<typeof setInterval> | null = null
+  // Interrogation de la console : un appel à la fois, relancé 1,5 s après
+  // la réponse ; `round` invalide une interrogation dépassée.
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let round = 0
 
   // Compte.
   let user = $state('')
@@ -49,16 +52,22 @@
 
   // Ouvert depuis une carte « Sur le réseau » : l'ordinateur est déjà choisi.
   const first = untrack(() => initial)
-  if (first) {
-    candidate = { host: first.host, port: first.port, name: first.name, fingerprint: first.fingerprint }
-  }
+  if (first) choose({ host: first.host, port: first.port, name: first.name, fingerprint: first.fingerprint })
 
   const known = (f: Found) => computers.some((c) => c.host === f.host && c.port === f.port)
   const groups = (fp: string | null) => (fp ?? '').replace(/^sha256:/, '').split(':')
 
   function stopPolling() {
-    if (timer) clearInterval(timer)
+    round++
+    if (timer) clearTimeout(timer)
     timer = null
+  }
+
+  /** Ordinateur trouvé : l'accès par code commence aussitôt. */
+  function choose(c: Candidate) {
+    candidate = c
+    error = null
+    if (access === 'code') startCode()
   }
 
   onDestroy(() => {
@@ -80,7 +89,7 @@
 
   async function fromLink() {
     const c = await run(() => invoke<Candidate>('parse_link', { link }))
-    if (c) candidate = c
+    if (c) choose(c)
   }
 
   async function fromAddress() {
@@ -90,23 +99,27 @@
 
   async function startCode() {
     stopPolling()
+    const mine = round
     pairState = 'pending'
     code = null
     const c = await run(() => invoke<string>('pair_start', { candidate }))
-    if (!c) return
+    if (!c || mine !== round) return
     code = c
-    timer = setInterval(async () => {
+    const poll = async () => {
       try {
         const r = await invoke<string>('pair_poll')
-        if (r === 'pending') return
-        stopPolling()
+        if (mine !== round) return
+        if (r === 'pending') {
+          timer = setTimeout(poll, 1500)
+          return
+        }
         if (r === 'refused' || r === 'expired') pairState = r
         else onadded(r)
       } catch (e) {
-        stopPolling()
-        error = String(e)
+        if (mine === round) error = String(e)
       }
-    }, 1500)
+    }
+    timer = setTimeout(poll, 1500)
   }
 
   async function withAccount() {
@@ -114,15 +127,14 @@
     if (id) onadded(id)
   }
 
-  $effect(() => {
-    if (candidate && access === 'code' && code === null && !working && !error) startCode()
-  })
-
   function chooseAccess(a: 'code' | 'compte') {
+    if (a === access) return
     access = a
     error = null
-    if (a === 'compte') stopPolling()
-    else code = null
+    if (a === 'compte') {
+      stopPolling()
+      invoke('pair_cancel').catch(() => {})
+    } else startCode()
   }
 
   function back() {
@@ -151,7 +163,7 @@
           <span><span class="t">{w.title}</span><span class="s">{w.sub}</span></span>
         </button>
       {/each}
-      <p class="aside">Pas de caméra à viser : le QR code de la console porte le même lien. Collez-le ici, ou cliquez-le dans le navigateur de ce PC.</p>
+      <p class="aside">Pas de caméra à viser : le QR code de la console porte le même lien. Copiez-le dans la console, espace Accès, et collez-le ici.</p>
     </nav>
 
     <div class="pane">
@@ -166,7 +178,7 @@
             <ul class="found">
               {#each discovered as f (f.id)}
                 <li>
-                  <button disabled={known(f)} onclick={() => (candidate = { host: f.host, port: f.port, name: f.name, fingerprint: f.fingerprint })}>
+                  <button disabled={known(f)} onclick={() => choose({ host: f.host, port: f.port, name: f.name, fingerprint: f.fingerprint })}>
                     <span class="name">{f.name}</span>
                     <span class="mono addr">{f.host}:{f.port}</span>
                     <span class="go">{known(f) ? 'Déjà ajouté' : 'Choisir'}</span>
@@ -195,7 +207,7 @@
             </div>
             <p class="hint">Comparez les quatre premiers groupes avec l’empreinte affichée dans la console de l’ordinateur, espace Accès. Différente : n’allez pas plus loin.</p>
             <div class="row">
-              <button class="primary" onclick={() => (candidate = seen)}>C’est la même</button>
+              <button class="primary" onclick={() => seen && choose(seen)}>C’est la même</button>
               <button class="ghost" onclick={() => (seen = null)}>Annuler</button>
             </div>
           {/if}
@@ -232,6 +244,8 @@
             {/if}
           {:else if working}
             <div class="wait"><span class="pulse"></span>Demande à la console…</div>
+          {:else if error}
+            <div><button class="ghost" onclick={startCode}>Réessayer</button></div>
           {/if}
         {:else}
           <div class="grid">

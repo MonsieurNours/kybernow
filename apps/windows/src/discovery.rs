@@ -62,7 +62,9 @@ pub fn start(changed: impl Fn(Vec<Found>) + Send + 'static) -> Arc<Discovery> {
                             continue;
                         }
                         // Une adresse IPv4 de préférence (VPN et IPv6 locales à part).
-                        let mut addrs: Vec<String> = info.get_addresses().iter().map(|a| a.to_string()).collect();
+                        // Les adresses IPv6 locales au lien (`fe80::…%12`) ne font pas une URL.
+                        let mut addrs: Vec<String> =
+                            info.get_addresses().iter().map(|a| a.to_string()).filter(|a| !a.contains('%')).collect();
                         addrs.sort_by_key(|a| a.contains(':'));
                         let Some(host) = addrs.into_iter().next() else { continue };
                         let fullname = info.get_fullname().to_string();

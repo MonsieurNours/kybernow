@@ -90,6 +90,8 @@ pub struct UiState {
     this_pc: Mutex<Option<ThisPc>>,
     pairing: Mutex<Option<Pairing>>,
     session: Mutex<Option<Running>>,
+    /// Fermeture demandée pendant une session : quitter à sa fin.
+    quitting: std::sync::atomic::AtomicBool,
 }
 
 impl UiState {
@@ -237,13 +239,14 @@ fn probe_address(host: String, port: u16) -> Result<Candidate, String> {
 
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
+    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
     while i < b.len() {
         match b[i] {
             b'%' if i + 2 < b.len() => {
-                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    out.push(v);
+                if let (Some(h), Some(l)) = (hex(b[i + 1]), hex(b[i + 2])) {
+                    out.push(h << 4 | l);
                     i += 3;
                     continue;
                 }
@@ -352,8 +355,11 @@ fn pair_poll(app: AppHandle) -> Result<String, String> {
         PairStatus::Refused => Ok("refused".into()),
         PairStatus::Expired => Ok("expired".into()),
         PairStatus::Accepted { username, password } => {
+            // La demande n'est oubliée qu'une fois l'ordinateur ajouté : la
+            // console ne redonne pas ce compte.
+            let id = add(&app, &candidate, &username, &password)?;
             *state.pairing.lock().unwrap() = None;
-            add(&app, &candidate, &username, &password)
+            Ok(id)
         }
     }
 }
@@ -430,26 +436,33 @@ impl HostEvents for UiEvents {
         let _ = self.app.emit_to("bar", "stats", s);
     }
 
-    fn visible(&self) {
-        if let Some(w) = self.app.get_webview_window("main") {
-            let _ = w.hide();
+    fn visible(&self, foreground: bool) {
+        if foreground {
+            if let Some(w) = self.app.get_webview_window("main") {
+                let _ = w.hide();
+            }
         }
     }
 
     fn top_edge(&self, hwnd: isize) {
-        let Some(bar) = self.app.get_webview_window("bar") else { return };
         let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
         unsafe {
             let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
             let _ = GetMonitorInfoW(m, &mut mi);
         }
         let r = mi.rcMonitor;
-        let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
-        let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
-        let _ = bar.set_position(tauri::PhysicalPosition::new(x, r.top + 10));
-        let _ = bar.set_always_on_top(true);
-        let _ = bar.show();
-        let _ = self.app.emit_to("bar", "bar-shown", &self.label);
+        let app = self.app.clone();
+        let label = self.label.clone();
+        // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
+        let _ = self.app.run_on_main_thread(move || {
+            let Some(bar) = app.get_webview_window("bar") else { return };
+            let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
+            let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
+            let _ = bar.set_position(tauri::PhysicalPosition::new(x, r.top));
+            let _ = bar.set_always_on_top(true);
+            let _ = bar.show();
+            let _ = app.emit_to("bar", "bar-shown", &label);
+        });
     }
 
     fn ended(&self, s: &Summary) {
@@ -487,6 +500,10 @@ impl HostEvents for UiEvents {
         }
         let _ = self.app.emit_to("main", "session-ended", Ended { id: &self.id, summary: s });
         emit_computers(&self.app);
+        // L'app se fermait : la console est prévenue, on peut partir.
+        if state.quitting.load(std::sync::atomic::Ordering::Relaxed) {
+            self.app.exit(0);
+        }
     }
 }
 
@@ -554,6 +571,12 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         _ => None,
     };
     log::info!("session vers {} ({}) : {label}, {}×{} à {} Hz", c.name, c.host, mode.width, mode.height, mode.refresh);
+    // Tenu jusqu'à l'inscription de la session : une fin très rapide (dans
+    // `ended`) ne peut pas passer avant.
+    let mut running = state.session.lock().unwrap();
+    if running.is_some() {
+        return Err("une session est déjà ouverte".into());
+    }
     let host = SessionHost::start(
         c.name.clone(),
         params,
@@ -566,7 +589,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         },
         Arc::new(UiEvents { app: app.clone(), id: id.clone(), label }),
     );
-    *state.session.lock().unwrap() = Some(Running { id, host });
+    *running = Some(Running { id, host });
     Ok(())
 }
 
@@ -650,14 +673,31 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Fermer l'accueil quitte l'app (la barre, cachée, resterait).
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { .. } = event {
-                    let state = window.app_handle().state::<UiState>();
-                    if let Some(r) = state.session.lock().unwrap().as_ref() {
+            let tauri::WindowEvent::CloseRequested { api, .. } = event else { return };
+            let app = window.app_handle();
+            match window.label() {
+                // Fermer l'accueil quitte l'app ; pendant une session, après
+                // sa fin propre (console prévenue, écrans rendus).
+                "main" => {
+                    let state = app.state::<UiState>();
+                    let session = state.session.lock().unwrap();
+                    if let Some(r) = session.as_ref() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                        state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
                         r.host.command(Command::Disconnect);
+                    } else {
+                        drop(session);
+                        app.exit(0);
                     }
-                    window.app_handle().exit(0);
+                }
+                // La barre ne se ferme pas (Alt+F4) : elle se cache.
+                _ => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    if let Some(r) = app.state::<UiState>().session.lock().unwrap().as_ref() {
+                        r.host.command(Command::Focus);
+                    }
                 }
             }
         })

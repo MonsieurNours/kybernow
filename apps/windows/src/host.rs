@@ -45,8 +45,9 @@ pub struct Summary {
 pub trait HostEvents: Send + Sync {
     fn status(&self, _status: &Status) {}
     fn stats(&self, _stats: &Stats) {}
-    /// La fenêtre de session vient de se montrer (première image).
-    fn visible(&self) {}
+    /// La fenêtre de session vient de se montrer (première image) ;
+    /// `foreground` : elle a obtenu le premier plan.
+    fn visible(&self, _foreground: bool) {}
     /// Pointeur contre le haut de l'écran de la session.
     fn top_edge(&self, _hwnd: isize) {}
     /// Tout est arrêté, fenêtre fermée, console prévenue.

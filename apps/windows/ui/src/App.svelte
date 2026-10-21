@@ -39,11 +39,6 @@
   }
 
   onMount(() => {
-    invoke<Snapshot>('snapshot').then((s) => {
-      computers = s.computers
-      discovered = s.discovered
-      thisPc = s.this_pc
-    })
     const off = [
       listen<Computer[]>('computers', (c) => (computers = c)),
       listen<Found[]>('discovered', (d) => (discovered = d)),
@@ -61,6 +56,14 @@
         setTimeout(() => (passage = null), 750)
       }),
     ]
+    // L'état complet une fois les écoutes en place (rien ne passe entre deux).
+    Promise.all(off).then(() =>
+      invoke<Snapshot>('snapshot').then((s) => {
+        computers = s.computers
+        discovered = s.discovered
+        thisPc = s.this_pc ?? thisPc
+      }),
+    )
     return () => off.forEach((p) => p.then((f) => f()))
   })
 
