@@ -1,19 +1,20 @@
+// Gabarit lu par build.rs : les @...@ prennent la version de Cargo.toml et des chemins absolus.
 #include <winver.h>
-1 ICON "kybernow.ico"
-1 24 "ui.manifest"
+1 ICON "@ICON@"
+1 24 "@MANIFEST@"
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,1,0,0
-PRODUCTVERSION 0,1,0,0
+FILEVERSION @VERSION_COMMAS@
+PRODUCTVERSION @VERSION_COMMAS@
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
     BLOCK "040C04B0"
     BEGIN
       VALUE "CompanyName", "Les Lignes Claires"
-      VALUE "FileDescription", "Interface de l'installation de KyberNow"
-      VALUE "FileVersion", "0.1.0"
+      VALUE "FileDescription", "Installation de KyberNow"
+      VALUE "FileVersion", "@VERSION@"
       VALUE "ProductName", "KyberNow"
-      VALUE "ProductVersion", "0.1.0"
+      VALUE "ProductVersion", "@VERSION@"
       VALUE "LegalCopyright", "Les Lignes Claires - AGPL-3.0-or-later"
     END
   END

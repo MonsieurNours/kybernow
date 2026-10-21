@@ -119,15 +119,68 @@ The password can only be read while the Mac is unlocked, like the notarisation p
 
 ## Publishing a release
 
-1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`.
-2. If the Kyber patches have changed: `server/kyber-patches/build.sh`.
-3. Quit the KyberNow built in Release if it is open (another copy does not matter), then run:
+0. Check that the CI is green on `main` (the repository's Actions tab, see "Continuous integration"): it does not cover the Mac app, which `--dry-run` builds.
+1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree.
+2. If the Kyber patches have changed: `server/kyber-patches/build.sh` (it writes `third_party/payload/kyber-overlay.stamp`, the fingerprint of the compiled patches, which the script compares with the repository's).
+3. Quit the KyberNow built in Release if it is open (another copy does not matter), then, from `main`:
 
 ```bash
-scripts/release.sh X.Y.Z
+scripts/release.sh X.Y.Z --check     # checks only
+scripts/release.sh X.Y.Z --dry-run   # full rehearsal, nothing is published
+scripts/release.sh X.Y.Z             # release
 ```
 
-The script aligns the versions, builds the installer, the update package and the app (Release), signs the Sparkle feed and computes `SHA256SUMS`. It commits, tags `vX.Y.Z`, pushes, then creates the GitHub release. The files stay in `dist/vX.Y.Z/`.
+**Order.** The published binaries must be those of the tagged commit (the AGPL requires publishing the exact source of the binaries):
+1. preliminary checks, all shown at once; if one fails, nothing is modified;
+2. version alignment (console, tray icon, installer, Mac and Apple TV apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
+3. build from that commit: installer, update package, Developer ID-signed Mac app, Kyber SDK for the Apple TV and Apple TV app; if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
+4. notarisation of the Mac app, stapling of the ticket, Gatekeeper check;
+5. signed Sparkle feed, `SHA256SUMS`, signed manifest `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign);
+6. GitHub release created **as a draft** with all the files;
+7. tag `vX.Y.Z` on the version commit; 8. push of `main` and the tag, at once (`--atomic`);
+9. publication of the draft.
+
+The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
+
+**Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused.
+
+**Checked before publishing**:
+
+| Check | If it fails |
+|---|---|
+| Branch `main`, clean tree (`git status --porcelain` empty, ignored files excepted), `origin/main` included | commit, `git switch main`, `git pull` |
+| `## X.Y.Z` section in `CHANGELOG.md` and `CHANGELOG.en.md` | add it to both |
+| Kyber overlay compiled with the repository's patches: fingerprint of `server/kyber-patches/*.patch` and `build.sh` equal to `kyber-overlay.stamp`; without a fingerprint, overlay newer than all these files | `server/kyber-patches/build.sh` |
+| Kyber SDK of the Mac app (`apps/macos/Vendor`) present | `apps/macos/scripts/build-kyclient.sh` |
+| No `vX.Y.Z` tag other than on the version commit, no `vX.Y.Z` release already published | `git tag -d vX.Y.Z` if left over from a rehearsal |
+| `gh` logged in, `notarytool` profile "kybernow" readable (Mac unlocked) | `gh auth login`, see below |
+| `scripts/sign-manifest.sh` present | without a signed manifest, the console refuses the update |
+| Tools: xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip | Homebrew |
+
+**Channels.** A stable release is GitHub's "latest release" (`releases/latest`), the one the console and the Mac app see. `--beta` publishes a *prerelease*, never marked "latest": its manifest has `"channel": "beta"` and its Sparkle feed `<sparkle:channel>beta</sparkle:channel>`. The number stays `X.Y.Z` (the console refuses any other format): a beta takes the next number, and the stable release that follows it a higher one. Current limit of the Mac app: it reads `releases/latest/download/appcast.xml`, which GitHub resolves to the latest **stable** release; to offer it betas, a feed combining both channels (on the website, for example) and `allowedChannels` in the app will be needed.
+
+**Rehearsal (`--dry-run`).** Does everything except the commit, notarisation, release, tag and push, which it prints (`[essai, non lancé] …`). It aligns the versions to build like the release, then puts the version files back as it found them. It does not rebuild the Apple TV SDK (`build-kyber-tvos.sh` applies the patches in `third_party/`, shared with the other checkouts) and reuses `apps/tvos/Vendor`. Failed checks are listed at the beginning and at the end; the rehearsal goes on to show the rest and exits with an error. `--check` stops after the checks and prints the plan.
+
+**Requirements of an update.** `--min-installer A.B.C` (installed KyberNow version below which the package is refused, 0.2.0 by default) and `--requires-setup` (the update needs the installer) are passed to `package-update.sh`, which keeps a copy in the package (`requirements.json`), and to `scripts/sign-manifest.sh`, whose signed manifest is authoritative. When to use them: "Settings migrations", below.
+
+**What the author sets up once**: `gh auth login` with a token limited to the `MonsieurNours/kybernow` repository (*fine-grained* token, Contents permission read and write: releases, tags and push of `main`; plus Workflows if `main` pushes a change to `.github/workflows/`), the notarisation profile and the Developer ID certificate ("Signing and notarising the Mac app"), the Sparkle key (above) and the minisign key (header of `scripts/sign-manifest.sh`).
+
+## Continuous integration
+
+`.github/workflows/ci.yml` checks each push and each pull request to `main` (the repository's Actions tab):
+
+| Job | Machine | What it checks |
+|---|---|---|
+| Console, tray icon, installer | macOS | `cargo test` of the console and the installer; `cargo check --target x86_64-pc-windows-gnu` of the console, the installer (`--features ui`) and the tray icon, Windows resources included (MinGW from Homebrew) |
+| Svelte interfaces | Linux | `npm ci`, `npm run build`, `npm run check` in `server/web` and `server/installer/ui` |
+| Scripts and update.ps1 | Linux | `shellcheck` of all the scripts, `update.ps1` in ASCII, `update.ps1` test bench (`server/installer/tests/update-bench.ps1`, simulated services) |
+| Apple TV app | macOS | `xcodegen`, then `xcodebuild` for the simulator, unsigned, with the latest release's `KyberSDK-tvOS.zip` |
+
+What it does not cover:
+- **The Mac app.** It links Kyber's client SDK and VLC (`apps/macos/Vendor`, 88 MB, built from Kyber's sources by `build-kyclient.sh`), published nowhere. To build it in CI, each release would need a `KyberSDK-macOS.zip` (the contents of `apps/macos/Vendor`), like `KyberSDK-tvOS.zip` for the Apple TV.
+- **The Apple TV app when the client patches have changed** since the latest release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`): the published SDK no longer matches the code, so the build is skipped with a warning until the next release. This is the case until 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
+- **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
+- **Nothing is signed or published**: releasing stays `scripts/release.sh`, on the author's Mac (notarisation, Sparkle and minisign keys). A CI that builds the Windows binaries would be the next step, to have them Authenticode-signed by SignPath (free programme for open-source projects, which requires a CI build).
 
 Until `release.sh` calls `scripts/sign-manifest.sh` itself, sign the manifest after it and attach it to the release, otherwise the console refuses to install it:
 
@@ -155,3 +208,22 @@ xcrun notarytool store-credentials kybernow --apple-id <votre identifiant Apple>
 The saved password can only be read while the Mac is unlocked: `release.sh` checks it before building and keeps the display on until the end, so that it does not lock along the way.
 
 The first notarisation for an account can take several hours (Apple's checks); after that, a few minutes. To find a submission: `xcrun notarytool history --keychain-profile kybernow`.
+
+## Settings migrations
+
+The console's settings (`C:\ProgramData\KyberNow\kyber-admin.toml`) carry the version of their format: `schema = 1` since 0.2.6 (missing = 0). At each start, and before `init` or `reset-password`, the console brings the file to the format it knows (`server/admin/src/migrate.rs`):
+
+- one migration per version (from N to N+1), in order, each idempotent: running it again changes nothing more;
+- before writing, the original is copied to `backups\kyber-admin.toml.schema-<N>-<timestamp>`; each change is written to the log (`kyber-admin.log`); the file's comments are kept;
+- a file from a **newer** console (after an update rollback) is left as it is, and the settings this console does not know are kept when it rewrites the file;
+- a migration that cannot be done (unreadable file) does not prevent the console from starting: the file is then set aside as before (`kyber-admin.toml.invalide-…`).
+
+By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-admin.exe migrate` does it.
+
+| Schema | Since | Change |
+|---|---|---|
+| 1 | 0.2.6 | `listen` becomes a valid `IP:port` address: port 9443 added to a bare address (`"0.0.0.0"`, which prevented the console from starting), `"0.0.0.0:<port>"` for a bare port (`listen = 9443`, which made the whole file unreadable: it was set aside, password included), spaces removed; an unusable value is removed (default address). |
+
+Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
+
+**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.

@@ -77,9 +77,9 @@ The `C:\ProgramData\KyberNow` folder is reserved to SYSTEM and Administrators: t
 
 | Location | Contents |
 |---|---|
-| `C:\ProgramData\KyberNow\kyber-admin.toml` | settings: `listen`, Kyber folder, password hash, virtual display, sound |
+| `C:\ProgramData\KyberNow\kyber-admin.toml` | settings: format version (`schema`), `listen`, Kyber folder, password hash, virtual display, sound |
 | `C:\ProgramData\KyberNow\tls\` | the console's certificate |
-| `C:\ProgramData\KyberNow\backups\` | previous versions of `kyber_config.toml` |
+| `C:\ProgramData\KyberNow\backups\` | previous versions of `kyber_config.toml`, and of `kyber-admin.toml` before each migration (`kyber-admin.toml.schema-<N>-<timestamp>`) |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | what to restore at the end of the session, even after a crash |
 | `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, signed manifest and its signature, the applicator's `update.log` and `lancement.log` output (the two latest versions) |
 | `C:\ProgramData\KyberNow\update\resultat.json` | result of the last update or rollback (written by the applicator or `update.ps1`, read by the console when it starts) |
@@ -90,7 +90,7 @@ The `C:\ProgramData\KyberNow` folder is reserved to SYSTEM and Administrators: t
 | `C:\ProgramData\KyberNow\foreground\` | full-screen watch during a session (`run`: heartbeat, `state.json`: last state) |
 | `C:\ProgramData\KyberNow\kyber-admin.log` | the service's log |
 
-Commands: `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (then restart the service), `kyber-admin.exe init …` (used by the installer), `kyber-admin.exe` alone to run in a console window (diagnosis).
+Commands: `kyber-admin.exe service install|uninstall`, `kyber-admin.exe reset-password` (then restart the service), `kyber-admin.exe migrate [--dry-run]` (brings `kyber-admin.toml` to this version's format, also done at each start; see [docs/releases.en.md](../docs/releases.en.md#settings-migrations)), `kyber-admin.exe init …` (used by the installer), `kyber-admin.exe` alone to run in a console window (diagnosis).
 
 ## Developing on the Mac
 
