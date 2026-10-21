@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.3.0</title>
+            <pubDate>Wed, 21 Oct 2026 18:42:55 +0200</pubDate>
+            <sparkle:version>202610211838</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow speaks English.** The installers of the computer and of the Windows app, the console, the tray icon, the web client and the Windows, Mac and Apple TV apps exist in French and English. They follow the system language (the browser's for the console and the web client): French if it is French, English for any other language. A “Language” setting (Auto, Français, English) in each app and in the console lets you choose. The console's messages to the apps (refusals, pairing, updates) and its event feed arrive in the reader's language; release notes are published in both languages.
+- Mac and Apple TV apps: texts that pointed to console pages that no longer exist (“Users”, “Connection”) now point to the Access page.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.3.0/KyberNow-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.3.0/KyberNow-macOS.zip" length="43255914" type="application/octet-stream" sparkle:edSignature="6+tasTfwxz/8uyJ9giI+OXWLUpMXgFifDnRFiulTAZe5q4RswqLCMkeS+DtsZWGZ/LE93S1IOsM4FNh/p2ElAQ=="/>
+        </item>
+        <item>
             <title>0.2.9</title>
             <pubDate>Wed, 21 Oct 2026 17:33:38 +0200</pubDate>
             <sparkle:version>202610211729</sparkle:version>
