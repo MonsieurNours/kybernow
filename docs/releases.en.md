@@ -16,6 +16,8 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
 | `KyberSDK-tvOS.zip` | Kyber SDK built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
+| `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from the console, whether a reinstallation is needed, SHA-256 checksum and size of each file above |
+| `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by the console before any installation |
 | `SHA256SUMS` | Checksums of all the files |
 
 ## Updating
@@ -54,6 +56,57 @@ apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x ~
 
 Without it, no app update could be signed any more. To restore it on another Mac: `generate_keys -f ~/sparkle-kybernow.key`.
 
+## Update signing key (minisign)
+
+Each release publishes a manifest, `kybernow-release.json`, signed with an ed25519 key (minisign):
+
+```json
+{
+  "version": "0.2.6",
+  "channel": "stable",
+  "published": "2026-10-21T08:00:00Z",
+  "min_installer_version": "0.2.0",
+  "requires_setup": false,
+  "files": {
+    "kybernow-update.zip": { "sha256": "…", "size": 123456789 },
+    "…": {}
+  }
+}
+```
+
+`files` lists those of the published files that are present (`KyberNow-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
+
+The manifest is written and signed with:
+
+```bash
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable            # or beta
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable --min-installer 0.2.6 --requires-setup
+```
+
+`--min-installer X.Y.Z`: oldest version from which the console can install this package (0.2.0 by default). `--requires-setup`: this release only installs with `KyberNow-Setup.exe` (new driver, new service…). The script installs `minisign` with Homebrew if it is missing, then checks the signature against the repository's public key: a private key that does not match it is caught before publishing.
+
+**The private key** is in `~/Library/Application Support/KyberNow/minisign.key`, encrypted with a random password kept in the Keychain (item `kybernow-minisign`). The script creates it if it is missing and writes the public key into the repository; if a public key is already in the repository, it refuses to create another one: a new key would make every console already installed refuse all updates, and they would have to be reinstalled with `KyberNow-Setup.exe`.
+
+**Offline backup** (USB stick, password vault), like the Sparkle key, never in the repository: the private key and its password, one without the other is useless.
+
+```bash
+cp ~/Library/Application\ Support/KyberNow/minisign.key /Volumes/<backup>/kybernow-minisign.key
+security find-generic-password -s kybernow-minisign -w     # password, to copy into the vault
+```
+
+**Restoring on another Mac**:
+
+```bash
+mkdir -p ~/Library/Application\ Support/KyberNow
+cp /Volumes/<backup>/kybernow-minisign.key ~/Library/Application\ Support/KyberNow/minisign.key
+chmod 600 ~/Library/Application\ Support/KyberNow/minisign.key
+security add-generic-password -a kybernow -s kybernow-minisign -w   # paste the password at the prompt
+```
+
+Then a dry run on a folder holding any `update.ps1` (`scripts/sign-manifest.sh <folder> 0.0.0 stable`, followed by `minisign -V -p server/admin/src/update/kybernow-release.pub -m <folder>/kybernow-release.json`) confirms that the key matches the repository.
+
+The password can only be read while the Mac is unlocked, like the notarisation profile.
+
 ## Publishing a release
 
 1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`.
@@ -65,6 +118,13 @@ scripts/release.sh X.Y.Z
 ```
 
 The script aligns the versions, builds the installer, the update package and the app (Release), signs the Sparkle feed and computes `SHA256SUMS`. It commits, tags `vX.Y.Z`, pushes, then creates the GitHub release. The files stay in `dist/vX.Y.Z/`.
+
+Until `release.sh` calls `scripts/sign-manifest.sh` itself, sign the manifest after it and attach it to the release, otherwise the console refuses to install it:
+
+```bash
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable
+gh release upload vX.Y.Z -R MonsieurNours/kybernow dist/vX.Y.Z/kybernow-release.json dist/vX.Y.Z/kybernow-release.json.minisig
+```
 
 ## Signing and notarising the Mac app
 

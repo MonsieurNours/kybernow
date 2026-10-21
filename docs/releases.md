@@ -16,6 +16,8 @@ Un seul numéro de version pour tout KyberNow : la console, l'icône, l'installa
 | `KyberNow-macOS.zip` | L'app Mac (première installation : la glisser dans Applications) |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
 | `KyberSDK-tvOS.zip` | SDK de Kyber compilé pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
+| `kybernow-release.json` | Manifeste de la version : numéro, canal (`stable` ou `beta`), date, version minimale déjà installée pour une mise à jour depuis la console, réinstallation nécessaire ou non, empreinte SHA-256 et taille de chaque fichier ci-dessus |
+| `kybernow-release.json.minisig` | Signature du manifeste (minisign, ed25519), vérifiée par la console avant toute installation |
 | `SHA256SUMS` | Empreintes de tous les fichiers |
 
 ## Mettre à jour
@@ -54,6 +56,57 @@ apps/macos/build/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_keys -x ~
 
 Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la remettre sur un autre Mac : `generate_keys -f ~/sparkle-kybernow.key`.
 
+## Clé de signature des mises à jour (minisign)
+
+Chaque version publie un manifeste, `kybernow-release.json`, signé avec une clé ed25519 (minisign) :
+
+```json
+{
+  "version": "0.2.6",
+  "channel": "stable",
+  "published": "2026-10-21T08:00:00Z",
+  "min_installer_version": "0.2.0",
+  "requires_setup": false,
+  "files": {
+    "kybernow-update.zip": { "sha256": "…", "size": 123456789 },
+    "…": {}
+  }
+}
+```
+
+`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans la console : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
+
+Le manifeste s'écrit et se signe avec :
+
+```bash
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable            # ou beta
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable --min-installer 0.2.6 --requires-setup
+```
+
+`--min-installer X.Y.Z` : version la plus ancienne depuis laquelle la console peut installer ce paquet (0.2.0 par défaut). `--requires-setup` : cette version ne s'installe qu'avec `KyberNow-Setup.exe` (nouveau pilote, nouveau service…). Le script installe `minisign` avec Homebrew s'il manque, puis vérifie la signature contre la clé publique du dépôt : une clé privée qui ne lui correspond pas est vue avant la publication.
+
+**La clé privée** est dans `~/Library/Application Support/KyberNow/minisign.key`, chiffrée par un mot de passe aléatoire gardé dans le Trousseau (élément `kybernow-minisign`). Le script la crée si elle manque et écrit la clé publique dans le dépôt ; si une clé publique est déjà dans le dépôt, il refuse d'en créer une autre : une nouvelle clé ferait refuser toutes les mises à jour par les consoles déjà installées, qu'il faudrait réinstaller avec `KyberNow-Setup.exe`.
+
+**Sauvegarde hors ligne** (clé USB, coffre de mots de passe), comme la clé Sparkle, sans jamais les mettre dans le dépôt : la clé privée et son mot de passe, l'un sans l'autre ne sert à rien.
+
+```bash
+cp ~/Library/Application\ Support/KyberNow/minisign.key /Volumes/<sauvegarde>/kybernow-minisign.key
+security find-generic-password -s kybernow-minisign -w     # mot de passe, à recopier dans le coffre
+```
+
+**Remise sur un autre Mac** :
+
+```bash
+mkdir -p ~/Library/Application\ Support/KyberNow
+cp /Volumes/<sauvegarde>/kybernow-minisign.key ~/Library/Application\ Support/KyberNow/minisign.key
+chmod 600 ~/Library/Application\ Support/KyberNow/minisign.key
+security add-generic-password -a kybernow -s kybernow-minisign -w   # colle le mot de passe à l'invite
+```
+
+Puis un essai à blanc sur un dossier où l'on a mis un `update.ps1` quelconque (`scripts/sign-manifest.sh <dossier> 0.0.0 stable`, suivi de `minisign -V -p server/admin/src/update/kybernow-release.pub -m <dossier>/kybernow-release.json`) confirme que la clé correspond au dépôt.
+
+Le mot de passe n'est lisible que Mac déverrouillé, comme le profil de notarisation.
+
 ## Publier une version
 
 1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`.
@@ -65,6 +118,13 @@ scripts/release.sh X.Y.Z
 ```
 
 Le script aligne les versions, construit l'installateur, le paquet de mise à jour et l'app (Release), signe le flux Sparkle et calcule `SHA256SUMS`. Il commite, étiquette `vX.Y.Z`, pousse, puis crée la version GitHub. Les fichiers restent dans `dist/vX.Y.Z/`.
+
+Tant que `release.sh` n'appelle pas `scripts/sign-manifest.sh` lui-même, signez le manifeste après lui et joignez-le à la version, sans quoi la console refuse de l'installer :
+
+```bash
+scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable
+gh release upload vX.Y.Z -R MonsieurNours/kybernow dist/vX.Y.Z/kybernow-release.json dist/vX.Y.Z/kybernow-release.json.minisig
+```
 
 ## Signature et notarisation de l'app Mac
 
