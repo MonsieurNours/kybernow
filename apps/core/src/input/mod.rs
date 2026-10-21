@@ -25,6 +25,7 @@ pub mod keymap;
 pub mod packet;
 pub mod packet_queue;
 pub mod pad_combo;
+pub mod pipeline;
 pub mod pointer_layer;
 pub mod release_all;
 
@@ -33,5 +34,6 @@ pub use clock::{Clock, ManualClock, MonotonicClock};
 pub use packet::{OwnedPacket, PacketSink};
 pub use packet_queue::PacketQueue;
 pub use pad_combo::{PadAxis, PadButton, PadCombo, PadId, PadKey};
+pub use pipeline::{GamepadRumble, InputPipeline, InputPlatform, Options};
 pub use pointer_layer::{MouseMode, MouseModeRules, PointerLayer, RemoteCursor, Shape};
 pub use release_all::ReleaseAll;
