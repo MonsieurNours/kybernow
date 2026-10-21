@@ -54,8 +54,12 @@
       listen<number>('update-progress', (p) => (progress = p)),
       listen<Phase>('session-status', (p) => {
         if (!passage || passage.id !== p.id) return
-        passage.phase = p.phase
-        if (p.phase === 'streaming') passage.opening = true
+        // Connectée mais sans image encore : le passage attend la première,
+        // il ne s'ouvre pas sur du noir.
+        passage.phase = p.phase === 'streaming' && !passage.opening ? 'first_images' : p.phase
+      }),
+      listen<string>('session-shown', (id) => {
+        if (passage && passage.id === id) passage.opening = true
       }),
       listen<{ id: string; summary: Summary }>('session-ended', ({ summary }) => {
         error = summary.error ? `La session s’est arrêtée : ${summary.error}` : null

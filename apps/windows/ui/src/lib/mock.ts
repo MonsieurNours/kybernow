@@ -106,6 +106,10 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
       await sleep(1200)
     }
     emit('session-status', { id: a.id, phase: 'streaming', detail: null })
+    // ?sansimage : l'ordinateur n'envoie jamais d'image.
+    if (new URLSearchParams(location.search).has('sansimage')) return
+    await sleep(600)
+    emit('session-shown', a.id)
     await sleep(1500)
     emit('session-ended', { id: a.id, summary: { error: null, median_ms: 9.1, p95_ms: 13, seconds: 60 } })
   },

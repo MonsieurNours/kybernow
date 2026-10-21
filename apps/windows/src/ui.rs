@@ -579,6 +579,8 @@ impl HostEvents for UiEvents {
         if !foreground {
             log::info!("session hors du premier plan : accueil caché quand même");
         }
+        // Le passage s'ouvre à la première image montrée, pas à la connexion.
+        let _ = self.app.emit_to("main", "session-shown", &self.id);
         if let Some(w) = self.app.get_webview_window("main") {
             let _ = w.hide();
         }

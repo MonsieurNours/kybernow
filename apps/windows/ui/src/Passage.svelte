@@ -17,6 +17,15 @@
     oncancel,
   }: { computer: Computer; phase: Phase['phase']; opening: boolean; closing: boolean; oncancel: () => void } = $props()
 
+  // Pas d'image au bout de 12 s : on le dit, plutôt qu'un passage figé.
+  let slow = $state(false)
+  $effect(() => {
+    slow = false
+    if (phase !== 'first_images') return
+    const t = setTimeout(() => (slow = true), 12000)
+    return () => clearTimeout(t)
+  })
+
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
   const steps = [
@@ -47,6 +56,11 @@
       {/each}
       <button onclick={oncancel}>Annuler</button>
     </div>
+    {#if slow}
+      <p class="slow" role="status">
+        {computer.name} est connecté mais n’envoie pas d’image. Son journal dit souvent pourquoi : console de l’ordinateur, Système › Journaux.
+      </p>
+    {/if}
   {/if}
 </div>
 
@@ -163,6 +177,20 @@
     from {
       transform: var(--from);
     }
+  }
+
+  .slow {
+    position: absolute;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%);
+    width: min(640px, calc(100% - 48px));
+    margin: 0;
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--warn-text, #f5b841);
+    animation: up 0.4s var(--ease-out) both;
   }
 
   .capsule {
