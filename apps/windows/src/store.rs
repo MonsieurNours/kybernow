@@ -23,6 +23,8 @@ pub struct Settings {
     pub mbps: Option<u32>,
     pub reliable: Option<bool>,
     pub max_4k: bool,
+    /// Écran virtuel sur mesure (définition et fréquence) ; sinon comme cet écran.
+    pub custom: Option<kybernow_core::console::Mode>,
     pub vsync: bool,
     /// `auto`, `bureau` ou `jeu`.
     pub mouse: String,
@@ -45,6 +47,7 @@ impl Default for Settings {
             mbps: None,
             reliable: None,
             max_4k: false,
+            custom: None,
             vsync: true,
             mouse: "auto".into(),
             gamepad: "xbox360".into(),

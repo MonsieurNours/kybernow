@@ -53,6 +53,7 @@
     if (!selected || !thisPc) return null
     const s = selected.settings
     if (!s.virtual_display) return 'Écrans de l’ordinateur tels quels'
+    if (s.custom) return `${s.custom.width} × ${s.custom.height} · ${s.custom.refresh} Hz`
     let { width: w, height: h } = thisPc
     if (s.max_4k && (w > 3840 || h > 2160)) {
       const k = Math.min(3840 / w, 2160 / h)
@@ -94,7 +95,7 @@
         <div class="chip">
           <Icon name="monitor" size={20} />
           {#if selected.settings.virtual_display}
-            <span>Écran virtuel à <span class="mono">{screen}</span>, comme cet écran</span>
+            <span>Écran virtuel à <span class="mono">{screen}</span>, {selected.settings.custom ? 'sur mesure' : 'comme cet écran'}</span>
           {:else}
             <span>{screen}</span>
           {/if}

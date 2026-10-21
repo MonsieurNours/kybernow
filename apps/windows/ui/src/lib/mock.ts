@@ -11,6 +11,7 @@ const settings = {
   mbps: null,
   reliable: null,
   max_4k: false,
+  custom: null,
   vsync: true,
   mouse: 'auto',
   gamepad: 'xbox360',

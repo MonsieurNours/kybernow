@@ -469,6 +469,13 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         return Err("une session est déjà ouverte".into());
     }
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or("ordinateur inconnu")?;
+    // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
+    let me = std::env::var("COMPUTERNAME").unwrap_or_default();
+    let host_name = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
+    let local = ["127.0.0.1", "::1", "localhost"].contains(&c.host.as_str());
+    if local || (!me.is_empty() && (host_name.eq_ignore_ascii_case(&me) || c.name.eq_ignore_ascii_case(&me))) {
+        return Err("c'est ce PC : KyberNow s'affiche sur un autre appareil que l'ordinateur partagé".into());
+    }
     let password = store::password(&id).ok_or("mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur")?;
     let pc = {
         let cached = state.this_pc.lock().unwrap().clone();
@@ -488,8 +495,8 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         yuv444: s.yuv444,
         mbps: s.mbps,
         reliable: s.reliable,
-        max_4k: s.max_4k,
-        size: None,
+        max_4k: s.max_4k && s.custom.is_none(),
+        size: s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24),
         lighten: s.battery == "alleger" && pc::on_battery(),
     };
     let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };

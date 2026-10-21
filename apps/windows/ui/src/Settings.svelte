@@ -54,11 +54,12 @@
   /** Débit réel d'une session à l'écran de ce PC. */
   const realMbps = $derived.by(() => {
     if (s.mbps != null) return s.mbps
-    if (!thisPc) return base.mbps
-    const hz = s.battery === 'alleger' && thisPc.on_battery ? Math.min(30, thisPc.refresh) : thisPc.refresh
+    if (!thisPc && !s.custom) return base.mbps
+    const mode = s.custom ?? thisPc!
+    const hz = s.battery === 'alleger' && thisPc?.on_battery ? Math.min(30, mode.refresh) : mode.refresh
     // Même ajustement de l'écran que plan.rs (au plus 4K).
-    let { width: w, height: h } = thisPc
-    if (s.max_4k && (w > 3840 || h > 2160)) {
+    let { width: w, height: h } = mode
+    if (!s.custom && s.max_4k && (w > 3840 || h > 2160)) {
       const k = Math.min(3840 / w, 2160 / h)
       w = Math.floor(w * k)
       h = Math.floor(h * k)
@@ -77,6 +78,22 @@
 
   let mbpsDraft = $state<number | null>(null)
   const sliderMbps = $derived(mbpsDraft ?? realMbps)
+
+  const presets = [
+    { label: '1080p', width: 1920, height: 1080 },
+    { label: '1440p', width: 2560, height: 1440 },
+    { label: '4K', width: 3840, height: 2160 },
+    { label: '16:10', width: 1920, height: 1200 },
+  ]
+  const num = (e: Event) => Math.round(Number((e.currentTarget as HTMLInputElement).value))
+  /** Taille paire, dans les limites de l'écran virtuel (7680 × 4320, 24 à 240 Hz). */
+  function setCustom(patch: Partial<NonNullable<Settings['custom']>>) {
+    const c = { ...(s.custom ?? { width: 1920, height: 1080, refresh: 60 }), ...patch }
+    c.width = Math.min(7680, Math.max(640, c.width || 1920)) & ~1
+    c.height = Math.min(4320, Math.max(360, c.height || 1080)) & ~1
+    c.refresh = Math.min(240, Math.max(24, c.refresh || 60))
+    save({ custom: c })
+  }
 
   async function rename() {
     if (name.trim() && name.trim() !== computer.name) await invoke('rename_computer', { id: computer.id, name })
@@ -124,9 +141,43 @@
   <div class="cols">
     <section>
       <h2 class="eyebrow">Image</h2>
-      <div class="line">
-        <span>Écran de l’ordinateur</span>
-        <Segmented label="Écran de l'ordinateur" value={s.max_4k ? 'max4k' : 'match'} options={[{ value: 'match', label: 'Comme cet écran' }, { value: 'max4k', label: 'Au plus 4K' }]} onchange={(v) => save({ max_4k: v === 'max4k' })} />
+      <div class="line stack">
+        <div class="lr">
+          <span>Écran de l’ordinateur</span>
+          <Segmented
+            label="Écran de l'ordinateur"
+            value={s.custom ? 'custom' : s.max_4k ? 'max4k' : 'match'}
+            options={[
+              { value: 'match', label: 'Comme cet écran' },
+              { value: 'max4k', label: 'Au plus 4K' },
+              { value: 'custom', label: 'Sur mesure' },
+            ]}
+            onchange={(v) =>
+              save(
+                v === 'custom'
+                  ? { custom: { width: thisPc?.width ?? 1920, height: thisPc?.height ?? 1080, refresh: thisPc?.refresh ?? 60 } }
+                  : { custom: null, max_4k: v === 'max4k' },
+              )}
+          />
+        </div>
+        {#if s.custom}
+          {@const c = s.custom}
+          <div class="custom-mode">
+            <label><span class="eyebrow">Largeur</span><input class="field mono" type="number" min="640" max="7680" step="2" value={c.width} onchange={(e) => setCustom({ width: num(e) })} /></label>
+            <span class="x">×</span>
+            <label><span class="eyebrow">Hauteur</span><input class="field mono" type="number" min="360" max="4320" step="2" value={c.height} onchange={(e) => setCustom({ height: num(e) })} /></label>
+            <label><span class="eyebrow">Hz</span><input class="field mono" type="number" min="24" max="240" value={c.refresh} onchange={(e) => setCustom({ refresh: num(e) })} /></label>
+          </div>
+          <div class="presets">
+            {#each presets as p (p.label)}
+              <button class:on={c.width === p.width && c.height === p.height} onclick={() => setCustom({ width: p.width, height: p.height })}>{p.label}</button>
+            {/each}
+            {#each [60, 120, 144] as hz (hz)}
+              <button class:on={c.refresh === hz} onclick={() => setCustom({ refresh: hz })}>{hz} Hz</button>
+            {/each}
+          </div>
+          <span class="help">L’écran virtuel de l’ordinateur prend cette taille, que l’image soit plus grande ou plus petite que cet écran (elle est mise à l’échelle). Jusqu’à 7680 × 4320.</span>
+        {/if}
       </div>
       <div class="line">
         <span>Format</span>
@@ -412,6 +463,51 @@
   .val {
     font-size: 12px;
     color: var(--muted);
+  }
+
+  .custom-mode {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr 0.7fr;
+    align-items: end;
+    gap: 8px;
+  }
+
+  .custom-mode label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .custom-mode .field {
+    height: 38px;
+    font-size: 13px;
+  }
+
+  .x {
+    padding-bottom: 10px;
+    color: var(--faint);
+  }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .presets button {
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 7px;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .presets button.on {
+    border-color: var(--signal);
+    color: var(--text);
+    background: var(--signal-soft);
   }
 
   input[type='range'] {

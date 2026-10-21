@@ -8,7 +8,7 @@
 use std::ffi::c_void;
 use std::ptr;
 
-use windows::Win32::Graphics::Direct3D11::ID3D11Device;
+use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11VideoContext, ID3D11VideoDevice};
 use windows::core::Interface;
 
 use kybernow_core::media::{FOURCC_AV1, FOURCC_H264, FOURCC_HEVC};
@@ -100,13 +100,28 @@ impl Decoder {
             }
             (*ctx).flags |= AV_CODEC_FLAG_LOW_DELAY as i32;
             let mut hardware = false;
-            if let Some(dev) = device {
+            // Interfaces vidéo de l'appareil : sans elles (machine virtuelle,
+            // pilote de base), pas de décodage par la carte.
+            let video = device.and_then(|dev| {
+                let vdev = dev.cast::<ID3D11VideoDevice>().ok()?;
+                let vctx = dev.GetImmediateContext().ok()?.cast::<ID3D11VideoContext>().ok()?;
+                Some((dev, vdev, vctx))
+            });
+            if device.is_some() && video.is_none() {
+                log::info!("décodeur : pas d'interface vidéo Direct3D 11, décodage par le processeur");
+            }
+            if let Some((dev, vdev, vctx)) = video {
                 let hw = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_D3D11VA);
                 if !hw.is_null() {
                     let devctx = (*hw).data as *mut AVHWDeviceContext;
                     let d3d = (*devctx).hwctx as *mut AVD3D11VADeviceContext;
-                    // FFmpeg relâche l'appareil à la fin : on lui en donne une référence.
+                    // FFmpeg 8.1 ne cherche pas lui-même les interfaces vidéo d'un
+                    // appareil fourni (d3d11va_device_init) : sans elles, il plante
+                    // à la création du décodeur. Il relâche tout à la fin : on lui
+                    // en donne des références.
                     (*d3d).device = dev.clone().into_raw();
+                    (*d3d).video_device = vdev.into_raw();
+                    (*d3d).video_context = vctx.into_raw();
                     let mut hw = hw;
                     if av_hwdevice_ctx_init(hw) == 0 {
                         (*ctx).hw_device_ctx = hw;

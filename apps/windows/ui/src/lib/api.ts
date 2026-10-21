@@ -25,6 +25,8 @@ export type Settings = {
   mbps: number | null
   reliable: boolean | null
   max_4k: boolean
+  /** Écran virtuel sur mesure ; sinon comme cet écran. */
+  custom: { width: number; height: number; refresh: number } | null
   vsync: boolean
   mouse: 'auto' | 'bureau' | 'jeu'
   gamepad: 'xbox360' | 'fidele'

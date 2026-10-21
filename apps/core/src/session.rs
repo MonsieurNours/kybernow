@@ -392,7 +392,18 @@ impl Worker {
                 self.displays_changed(displays);
             }
             Event::ControlPlaneConnectFailed { reason } => {
-                return Some(format!("connexion à Kyber impossible ({reason:?})"));
+                return Some(match reason {
+                    // Compte d'appareil tout juste créé par la console : Kyber
+                    // ne le lit qu'à son démarrage, que la console reporte
+                    // pendant une session.
+                    kyclient::ConnectFailedReason::Unauthorized => "le serveur de l'ordinateur ne reconnaît pas encore le compte de cet appareil : \
+                        dans la console, redémarrez le serveur (Système), puis réessayez"
+                        .into(),
+                    kyclient::ConnectFailedReason::TlsVerificationFailed => {
+                        "le certificat du serveur de l'ordinateur ne correspond pas à celui que donne la console".into()
+                    }
+                    other => format!("connexion à Kyber impossible ({other:?})"),
+                });
             }
             Event::DataPlaneConnectFailed => return Some("connexion au flux impossible".into()),
             Event::StreamingStarted => {
