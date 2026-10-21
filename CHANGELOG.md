@@ -67,6 +67,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - App Apple TV : le bouton Home de la manette peut aller au jeu comme Guide (Steam Big Picture, Game Bar), si tvOS le laisse ; sinon, réglage « Bouton Guide » sur Appui long : Menu ou Options tenus 0,6 s envoient Guide. L'écran de test montre si Home arrive à l'app.
 - App Apple TV : la molette d'une souris Bluetooth défile enfin dans le bon sens (elle défilait de côté), un cran pour un cran ; les boutons 4 et 5 (précédent, suivant) marchent.
 - App Apple TV : manette en souris, le stick droit vers le haut fait défiler vers le haut (c'était l'inverse) ; un clic de la souris, de la télécommande ou de la manette en souris ne tombe plus à côté du pointeur quand l'interface est occupée, et un clic tenu n'est plus oublié à l'ouverture du menu ou quand la manette se coupe.
+- Publication : `scripts/release.sh` refuse un arbre modifié ou une autre branche que `main`, vérifie les deux CHANGELOG, la surcouche Kyber (empreinte des correctifs écrite par `server/kyber-patches/build.sh`), `gh` et la notarisation avant de commencer, commite la version avant de construire (les binaires sont ceux du commit étiqueté), publie en brouillon puis tague, pousse et publie ; une relance après un échec reprend où il s'est arrêté. Nouveau : `--beta` (prerelease, canal bêta), `--dry-run` (essai complet sans rien publier), `--check`, `--min-installer` et `--requires-setup` (manifeste signé).
 
 ## 0.2.5
 

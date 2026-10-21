@@ -56,15 +56,48 @@ Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la 
 
 ## Publier une version
 
-1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`.
-2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh`.
-3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis lancer :
+1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié.
+2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh` (il écrit `third_party/payload/kyber-overlay.stamp`, l'empreinte des correctifs compilés, que le script compare à ceux du dépôt).
+3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis, depuis `main` :
 
 ```bash
-scripts/release.sh X.Y.Z
+scripts/release.sh X.Y.Z --check     # vérifications seules
+scripts/release.sh X.Y.Z --dry-run   # essai complet, rien n'est publié
+scripts/release.sh X.Y.Z             # publication
 ```
 
-Le script aligne les versions, construit l'installateur, le paquet de mise à jour et l'app (Release), signe le flux Sparkle et calcule `SHA256SUMS`. Il commite, étiquette `vX.Y.Z`, pousse, puis crée la version GitHub. Les fichiers restent dans `dist/vX.Y.Z/`.
+**Ordre.** Les binaires publiés doivent être ceux du commit étiqueté (l'AGPL oblige à publier le code exact des binaires) :
+1. vérifications préalables, toutes affichées d'un coup ; une seule en échec et rien n'est modifié ;
+2. alignement des versions (console, icône, installateur, apps Mac et Apple TV, `Cargo.lock` et projets Xcode compris) et commit « KyberNow X.Y.Z » ; un commit refusé arrête tout ;
+3. construction depuis ce commit : installateur, paquet de mise à jour, app Mac signée Developer ID, SDK de Kyber pour l'Apple TV et app Apple TV ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
+4. notarisation de l'app Mac, agrafage du ticket, vérification Gatekeeper ;
+5. flux Sparkle signé, `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ;
+6. release GitHub créée **en brouillon** avec tous les fichiers ;
+7. tag `vX.Y.Z` sur le commit de version ; 8. push de `main` et du tag, en une fois (`--atomic`) ;
+9. publication du brouillon.
+
+Les fichiers restent dans `dist/vX.Y.Z/`.
+
+**Relancer après un échec** : la même commande. Le commit « KyberNow X.Y.Z » déjà en tête est réutilisé (pas de second commit), un brouillon existant reçoit les nouveaux fichiers (`--clobber`), le tag est posé s'il manque. Seule une version déjà publiée est refusée.
+
+**Vérifié avant de publier** :
+
+| Vérification | Si elle échoue |
+|---|---|
+| Branche `main`, arbre propre (`git status --porcelain` vide, fichiers ignorés exceptés), `origin/main` inclus | commiter, `git switch main`, `git pull` |
+| Section `## X.Y.Z` dans `CHANGELOG.md` et `CHANGELOG.en.md` | l'ajouter aux deux |
+| Surcouche Kyber compilée avec les correctifs du dépôt : empreinte de `server/kyber-patches/*.patch` et `build.sh` égale à `kyber-overlay.stamp` ; sans empreinte, surcouche plus récente que tous ces fichiers | `server/kyber-patches/build.sh` |
+| SDK de Kyber de l'app Mac (`apps/macos/Vendor`) présent | `apps/macos/scripts/build-kyclient.sh` |
+| Ni tag `vX.Y.Z` ailleurs que sur le commit de version, ni release `vX.Y.Z` déjà publiée | `git tag -d vX.Y.Z` s'il reste d'un essai |
+| `gh` connecté, profil `notarytool` « kybernow » lisible (Mac déverrouillé) | `gh auth login`, voir plus bas |
+| `scripts/sign-manifest.sh` présent | sans manifeste signé, la console refuse la mise à jour |
+| Outils : xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip | Homebrew |
+
+**Canaux.** Une version stable est la « dernière version » de GitHub (`releases/latest`), celle que voient la console et l'app Mac. `--beta` publie une *prerelease*, jamais marquée « dernière » : son manifeste porte `"channel": "beta"` et son flux Sparkle `<sparkle:channel>beta</sparkle:channel>`. Le numéro reste `X.Y.Z` (la console refuse tout autre format) : une bêta prend le numéro suivant, et la stable qui la suit un numéro plus haut. Limite actuelle de l'app Mac : elle lit `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière **stable** ; pour lui proposer les bêtas, il faudra un flux qui réunit les deux canaux (par exemple sur le site) et `allowedChannels` dans l'app.
+
+**Essai (`--dry-run`).** Fait tout sauf le commit, la notarisation, la release, le tag et le push, qu'il affiche (`[essai, non lancé] …`). Il aligne les versions pour construire comme la publication, puis remet les fichiers de version tels qu'il les a trouvés. Il ne recompile pas le SDK de l'Apple TV (`build-kyber-tvos.sh` applique les correctifs dans `third_party/`, partagé avec les autres copies) et reprend `apps/tvos/Vendor`. Les vérifications en échec sont listées au début et à la fin, l'essai continue pour montrer la suite et sort en erreur. `--check` s'arrête après les vérifications et affiche le plan.
+
+**Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh` et au manifeste signé.
 
 ## Signature et notarisation de l'app Mac
 

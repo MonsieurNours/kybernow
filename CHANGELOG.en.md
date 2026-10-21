@@ -66,6 +66,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - Apple TV app: the gamepad's Home button can go to the game as Guide (Steam Big Picture, Game Bar), if tvOS allows it; otherwise, set “Bouton Guide” to long press: Menu or Options held for 0.6 s send Guide. The test screen shows whether Home reaches the app.
 - Apple TV app: a Bluetooth mouse's wheel finally scrolls the right way (it scrolled sideways), one notch per notch; buttons 4 and 5 (back, forward) work.
 - Apple TV app: gamepad as mouse, pushing the right stick up scrolls up (it was the other way round); a click from the mouse, the remote or the gamepad as mouse no longer lands beside the pointer when the interface is busy, and a held click is no longer forgotten when the menu opens or the gamepad turns off.
+- Publishing: `scripts/release.sh` refuses a modified tree or a branch other than `main`, checks both CHANGELOGs, the Kyber overlay (fingerprint of the patches written by `server/kyber-patches/build.sh`), `gh` and notarisation before starting, commits the version before building (the binaries are those of the tagged commit), publishes as a draft then tags, pushes and publishes; re-running after a failure resumes where it stopped. New: `--beta` (prerelease, beta channel), `--dry-run` (full rehearsal without publishing anything), `--check`, `--min-installer` and `--requires-setup` (signed manifest).
 
 ## 0.2.5
 

@@ -215,7 +215,7 @@ KYCONTROLLER="$KYCTL/target/x86_64-pc-windows-gnu/release/kycontroller.exe"
 KYNPUTSERVER="$KYNPUT/target/x86_64-pc-windows-gnu/release/kynputserver.exe"
 check_fresh "$ROOTFS/bin/kyavserver.exe" "$ROOTFS/bin/libtxproto-0.dll" "$KYCONTROLLER" \
     "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER"
-rm -rf "$OVERLAY" && mkdir -p "$OVERLAY"
+rm -rf "$OVERLAY" "$OVERLAY.stamp" && mkdir -p "$OVERLAY"
 for f in kyavserver.exe libtxproto-0.dll liblua.dll libspirv-cross-c-shared.dll; do
     cp "$ROOTFS/bin/$f" "$OVERLAY/"
 done
@@ -229,3 +229,5 @@ x86_64-w64-mingw32-strip --strip-debug "$OVERLAY"/*.exe "$OVERLAY"/*.dll
 mkdir -p "$OVERLAY/webclient"
 cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
 ls -lhR "$OVERLAY"
+# Empreinte des correctifs compilés, vérifiée par scripts/release.sh (à côté de la surcouche : pas livrée).
+cat "$HERE"/*.patch "$HERE/build.sh" | shasum -a 256 | cut -d' ' -f1 > "$OVERLAY.stamp"
