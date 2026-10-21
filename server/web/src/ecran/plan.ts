@@ -3,6 +3,7 @@
 
 import type { CodecSupport, StreamSettings } from './engine'
 import { hasWebTransport, isFirefox, isTouch, isWebKit, type Mode } from './device'
+import { engineInputs } from './inputs'
 import type { Prefs } from './prefs'
 
 /** Pourquoi l'image passe par WebSocket dans ce navigateur. */
@@ -11,26 +12,29 @@ export type WebSocketReason = 'touch' | 'webkit' | 'firefox' | 'unsupported'
 /**
  * Transport de l'image. WebTransport (direct, vérifié par l'empreinte du
  * certificat) quand c'est possible ; WebSocket (relayé par la console) :
- * - en tactile : c'est sur la connexion WebSocket des entrées que la page
- *   envoie le texte tapé (paquets Unicode) et la position du doigt quand le
- *   pointeur de l'ordinateur est masqué ; en WebTransport, le moteur ne laisse
- *   rien glisser dans son flux ;
+ * - en tactile avec le moteur d'origine, ou dans Safari et sur iPhone et
+ *   iPad : c'est sur la connexion WebSocket des entrées que la page envoie le
+ *   texte tapé (paquets Unicode) et la position du doigt quand le pointeur de
+ *   l'ordinateur est masqué ; en WebTransport, le moteur ne laisse rien
+ *   glisser dans son flux. Le moteur corrigé fait ces envois lui-même
+ *   (`engineInputs()`) : plus besoin de WebSocket pour eux ;
  * - dans Safari et sur iPhone et iPad : leur WebTransport ne vérifie pas un
  *   certificat par son empreinte ;
  * - dans Firefox (avec H.264 par défaut), la combinaison retenue pour lui ;
  * - sans WebTransport.
+ * À lire une fois le moteur chargé (`supportedCodecs()`), qui dit s'il est corrigé.
  */
-export const websocketReason: WebSocketReason | null = isTouch
-  ? 'touch'
-  : isWebKit
-    ? 'webkit'
-    : isFirefox
-      ? 'firefox'
-      : !hasWebTransport
-        ? 'unsupported'
-        : null
+export function websocketReason(): WebSocketReason | null {
+  if (isTouch && !engineInputs()) return 'touch'
+  if (isWebKit) return 'webkit'
+  if (isFirefox) return 'firefox'
+  if (!hasWebTransport) return 'unsupported'
+  return null
+}
 
-export const preferredProtocol: 'kymux' | 'websocket' = websocketReason ? 'websocket' : 'kymux'
+export function preferredProtocol(): 'kymux' | 'websocket' {
+  return websocketReason() ? 'websocket' : 'kymux'
+}
 
 const REFERENCE_PIXEL_RATE = 3840 * 2160 * 60
 export const MIN_MBPS = 10
@@ -48,7 +52,7 @@ export interface Plan extends StreamSettings {
   lost444: boolean
 }
 
-export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: 'kymux' | 'websocket' = preferredProtocol): Plan {
+export function choose(p: Prefs, mode: Mode, codecs: CodecSupport[], protocol: 'kymux' | 'websocket' = preferredProtocol()): Plan {
   const hevc = codecs.find((c) => c.codec === 'hevc')
   const h264 = codecs.find((c) => c.codec === 'h264')
   // Auto : HEVC si la carte graphique le décode, sauf dans Firefox (H.264).

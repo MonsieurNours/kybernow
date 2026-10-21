@@ -9,6 +9,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 - App Mac, mises à jour : l'app lit le flux cumulatif du site (`www.kybernow.app/updates/appcast.xml`, toutes les versions, stables et bêtas) au lieu du flux de la dernière stable ; nouveau réglage « Recevoir les versions bêta » dans KyberNow › Réglages…, une stable plus récente restant toujours proposée. Les apps précédentes reçoivent cette version par l'ancien flux, toujours publié avec chaque version. `scripts/release.sh` complète et commite le flux du site à chaque publication ; `scripts/rebuild-appcast.sh` le reconstruit à partir des releases GitHub.
 - App Mac : un écran branché, débranché ou changé de définition en session est remarqué. Avec « Comme cet écran », une capsule propose d'adapter l'image au nouveau mode (« L'écran a changé : adapter l'image à 2560 × 1440 ? »), aussi dans la barre ; un clic refait l'écran virtuel de l'ordinateur et relance l'image, rien ne change sans lui. En plein écran sur un écran débranché, la session revient en plein écran sur l'écran restant.
+- Client web : avec le moteur corrigé (console 0.2.6 et suivantes), les appareils tactiles hors Safari et iOS passent en WebTransport au lieu de WebSocket ; le moteur tape lui-même le texte du clavier de l'appareil (champ marqué `data-kynput-text`) et envoie la position du doigt. Avec un moteur plus ancien, et toujours dans Safari et sur iPhone et iPad, rien ne change.
 
 ## 0.2.6
 

@@ -7,6 +7,19 @@
 //   leurs touches).
 // En WebTransport, les entrées passent dans un flux du moteur où l'on ne peut
 // rien glisser : ces envois échouent (`false`).
+// Avec le moteur corrigé (hors Safari, iPhone et iPad), la page n'envoie
+// plus rien elle-même : voir `engineInputs()`.
+
+import { isWebKit } from './device'
+import { isFixedEngine } from './engine'
+
+/** Le moteur tape lui-même le texte du champ marqué `data-kynput-text` et
+ * envoie la position même pointeur de l'ordinateur masqué : moteur corrigé,
+ * hors Safari, iPhone et iPad (image par WebSocket et envois de la page,
+ * comme avec le moteur d'origine). */
+export function engineInputs(): boolean {
+  return isFixedEngine() && !isWebKit
+}
 
 const MOUSE_POSITION = 2
 const UNICODE = 10
