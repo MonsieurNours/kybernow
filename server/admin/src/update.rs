@@ -135,6 +135,12 @@ impl Updater {
             let message = failure["message"].as_str().unwrap_or("raison inconnue");
             let back = if failure["rolled_back"].as_bool() == Some(true) {
                 format!("La version précédente ({}) a été remise en place.", current())
+            } else if failure["undo_failed"].as_bool() == Some(true) {
+                format!(
+                    "Le retour à la version précédente n'a pas abouti : la version {} tourne peut-être à moitié remplacée. Vérifiez les dossiers kyber, admin et tray (et leurs .prev) dans {}, ou réinstallez avec KyberNow-Setup.exe.",
+                    current(),
+                    install_dir().display()
+                )
             } else {
                 "Les fichiers n'ont pas été remplacés.".to_string()
             };
@@ -206,9 +212,11 @@ impl Updater {
         let version = s.installing.take().unwrap_or_default();
         s.child = None;
         let dir = self.dir.join(&version);
-        let log = dir.join("update.log");
-        // Sans journal, sa sortie dit pourquoi il n'a pas démarré.
-        let log = if log.exists() { log } else { dir.join("lancement.log") };
+        // Le plus récent des deux : le journal, ou la sortie de l'applicateur
+        // s'il s'est arrêté avant d'écrire (le journal peut dater d'avant).
+        let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        let (journal, output) = (dir.join("update.log"), dir.join("lancement.log"));
+        let log = if modified(&journal) >= modified(&output) && journal.exists() { journal } else { output };
         let tail = std::fs::read_to_string(&log)
             .map(|t| t.lines().rev().filter(|l| !l.trim().is_empty()).take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
             .ok()
@@ -478,7 +486,9 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
 /// tourne est périmé : elle a été installée depuis.
 fn read_failure(path: &Path) -> Option<Value> {
     let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-    (value["ok"].as_bool() == Some(false) && value["version"].as_str() != Some(current())).then_some(value)
+    // Sauf un retour arrière raté : la version qui tourne est alors celle qui a échoué.
+    let stale = value["version"].as_str() == Some(current()) && value["undo_failed"].as_bool() != Some(true);
+    (value["ok"].as_bool() == Some(false) && !stale).then_some(value)
 }
 
 /// L'applicateur, détaché de la console (elle va s'arrêter) : une copie de
@@ -586,6 +596,13 @@ mod tests {
         assert!(error.contains("9.9.9") && error.contains("remise en place"), "{error}");
         std::fs::write(dir.join("update").join(RESULT), r#"{"version":"9.9.9","ok":true}"#).unwrap();
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
+        // Échec de la version qui tourne : périmé, sauf si le retour arrière a raté.
+        let failed = |undo: bool| format!(r#"{{"version":"{}","ok":false,"rolled_back":false,"undo_failed":{undo},"message":"x"}}"#, current());
+        std::fs::write(dir.join("update").join(RESULT), failed(false)).unwrap();
+        assert!(Updater::new(&dir).status()["last_failure"].is_null());
+        std::fs::write(dir.join("update").join(RESULT), failed(true)).unwrap();
+        let error = Updater::new(&dir).status()["install_error"].as_str().unwrap().to_string();
+        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Setup.exe"), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

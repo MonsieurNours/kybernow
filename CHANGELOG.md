@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.6
 
+- Console, mises à jour : l'applicateur arrête aussi l'icône relancée par la nouvelle console avant de remettre l'ancienne version, suspend la relance automatique de Kyber pendant la bascule, joint la console à l'adresse de son réglage d'écoute, refuse les noms de fichiers réservés de Windows, et un retour arrière qui n'aboutit pas est affiché au lieu d'être masqué.
 - Console, mises à jour : tests automatiques du manifeste signé (y compris un manifeste produit par le script de publication), de l'extraction du paquet et de la bascule sur un faux dossier d'installation (réussite, retour arrière, paquet falsifié, retour à la version précédente).
 - Console, mises à jour : installer (ou revenir en arrière) pendant qu'un appareil est en session demande d'abord confirmation, puisque sa session sera coupée.
 - Console, mises à jour : bouton « Revenir à la version précédente » sur la page Mises à jour, tant que la version d'avant est gardée sur l'ordinateur ; même bascule et même contrôle de santé qu'une mise à jour, réglages de Kyber gardés.

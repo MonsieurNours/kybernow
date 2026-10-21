@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Console, updates: the applicator also stops the icon relaunched by the new console before putting the old version back, suspends Kyber's automatic restart during the switch, reaches the console at the address of its listen setting, refuses Windows' reserved file names, and a rollback that does not succeed is shown instead of hidden.
 - Console, updates: automatic tests of the signed manifest (including a manifest produced by the release script), of the package extraction and of the switch on a fake installation folder (success, rollback, forged package, going back to the previous version).
 - Console, updates: installing (or going back) while a device is in session first asks for confirmation, since its session will be cut.
 - Console, updates: “Go back to the previous version” button on the Updates page, as long as the previous version is kept on the computer; same switch and same health check as an update, Kyber's settings kept.

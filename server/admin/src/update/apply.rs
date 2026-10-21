@@ -111,8 +111,8 @@ pub trait System {
     fn service_rights(&mut self, layout: &Layout) -> Result<()>;
     /// Démarre la console puis le serveur.
     fn start_services(&mut self) -> Result<()>;
-    /// La console répond sur `port` avec `version`, et le serveur tourne.
-    fn health(&mut self, port: u16, version: &str, timeout: Duration) -> Result<()>;
+    /// La console répond à `address` (hôte:port) avec `version`, et le serveur tourne.
+    fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()>;
     /// « Applications installées » (`DisplayVersion`).
     fn register_version(&mut self, version: &str) -> Result<()>;
     /// Version d'une console, lue sur l'exécutable (`--version`).
@@ -142,9 +142,11 @@ impl Journal {
 }
 
 /// Chemin relatif d'une entrée du paquet, refusé s'il pourrait sortir du
-/// dossier d'extraction : `..`, chemin absolu, lecteur, flux NTFS (`:`).
+/// dossier d'extraction (`..`, chemin absolu, lecteur, flux NTFS `:`) ou ne
+/// pas désigner un fichier ordinaire sous Windows (périphériques `CON`,
+/// `NUL`…, nom finissant par un point ou une espace, caractères interdits).
 pub fn safe_entry_path(name: &str) -> Result<PathBuf> {
-    if name.is_empty() || name.contains('\0') || name.contains(':') {
+    if name.is_empty() || name.chars().any(|c| c.is_control() || matches!(c, ':' | '<' | '>' | '"' | '|' | '?' | '*')) {
         bail!("chemin refusé dans le paquet : {name:?}");
     }
     if name.starts_with('/') || name.starts_with('\\') {
@@ -155,6 +157,7 @@ pub fn safe_entry_path(name: &str) -> Result<PathBuf> {
         match part {
             "" | "." => continue,
             ".." => bail!("chemin sortant refusé dans le paquet : {name:?}"),
+            p if p.ends_with('.') || p.ends_with(' ') || reserved_name(p) => bail!("nom refusé sous Windows dans le paquet : {name:?}"),
             p => out.push(p),
         }
     }
@@ -162,6 +165,13 @@ pub fn safe_entry_path(name: &str) -> Result<PathBuf> {
         bail!("chemin refusé dans le paquet : {name:?}");
     }
     Ok(out)
+}
+
+/// `CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9`, avec ou sans extension.
+fn reserved_name(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem.as_bytes()[3].is_ascii_digit() && stem.as_bytes()[3] != b'0')
 }
 
 /// Extrait le paquet dans `dest` (créé, doit être vide). Refuse les liens,
@@ -217,6 +227,15 @@ pub fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> Result<()> {
         } else if kind.is_dir() {
             copy_tree(&src, &dst, &[])?;
         } else {
+            // Un fichier en lecture seule ne se remplace pas (Copy-Item -Force le faisait).
+            if let Ok(meta) = fs::symlink_metadata(&dst)
+                && meta.permissions().readonly()
+            {
+                let mut perms = meta.permissions();
+                #[allow(clippy::permissions_set_readonly_false)]
+                perms.set_readonly(false);
+                let _ = fs::set_permissions(&dst, perms);
+            }
             fs::copy(&src, &dst).with_context(|| format!("copie de {}", src.display()))?;
         }
     }
@@ -249,18 +268,25 @@ fn remove_dir(path: &Path) -> Result<()> {
     }
 }
 
-/// Port de la console : `listen` de kyber-admin.toml, sinon `console_port` de
-/// kybernow.json, sinon 9443.
-pub fn console_port(layout: &Layout) -> u16 {
-    let from_settings = crate::settings::Settings::load(&layout.data)
-        .ok()
-        .and_then(|s| s.listen)
-        .and_then(|l| l.rsplit_once(':').and_then(|(_, p)| p.parse().ok()));
+/// Adresse où joindre la console depuis l'ordinateur : `listen` de
+/// kyber-admin.toml (toutes les adresses → 127.0.0.1 ou [::1], une adresse
+/// précise → elle-même), sinon le `console_port` de kybernow.json, sinon 9443.
+pub fn console_address(layout: &Layout) -> String {
+    let from_settings = crate::settings::Settings::load(&layout.data).ok().and_then(|s| s.listen).and_then(|l| {
+        let (host, port) = l.rsplit_once(':')?;
+        let port: u16 = port.parse().ok()?;
+        let host = match host {
+            "" | "0.0.0.0" => "127.0.0.1",
+            "[::]" => "[::1]",
+            h => h,
+        };
+        Some(format!("{host}:{port}"))
+    });
     let from_record = || {
         let v: Value = serde_json::from_slice(&fs::read(layout.install.join("kybernow.json")).ok()?).ok()?;
-        v["console_port"].as_u64().and_then(|p| u16::try_from(p).ok())
+        v["console_port"].as_u64().and_then(|p| u16::try_from(p).ok()).map(|p| format!("127.0.0.1:{p}"))
     };
-    from_settings.or_else(from_record).unwrap_or(9443)
+    from_settings.or_else(from_record).unwrap_or_else(|| "127.0.0.1:9443".into())
 }
 
 /// Version dans `kybernow.json` (écrite d'un bloc : fichier temporaire puis renommage).
@@ -313,14 +339,19 @@ fn prune_updates(layout: &Layout, keep: &str) {
 /// Un dossier basculé : `part` a pris la place de l'ancien, venu de `incoming`.
 struct Swap {
     part: &'static str,
-    /// D'où vient le nouveau dossier (`.staging\<version>\kyber`, ou `kyber.prev`).
-    incoming: PathBuf,
+    /// D'où vient le nouveau dossier (`.staging\<version>\kyber`, ou
+    /// `kyber.prev`) ; rien si le dossier est seulement retiré (`webclient`
+    /// apporté par la version qu'on quitte).
+    incoming: Option<PathBuf>,
     /// Où est parti l'ancien (`kyber.prev`, ou `kyber.bad`), s'il existait.
     old: Option<PathBuf>,
 }
 
+/// Plan d'une bascule : chaque dossier et son remplaçant (rien : retiré).
+type Plan = Vec<(&'static str, Option<PathBuf>)>;
+
 /// Bascule : chaque dossier actuel part dans `old_suffix`, son remplaçant prend sa place.
-fn switch(layout: &Layout, plan: &[(&'static str, PathBuf)], old_suffix: &str, swaps: &mut Vec<Swap>, log: &mut Journal) -> Result<()> {
+fn switch(layout: &Layout, plan: &Plan, old_suffix: &str, swaps: &mut Vec<Swap>, log: &mut Journal) -> Result<()> {
     for (part, incoming) in plan {
         let current = layout.part(part);
         let old = layout.with_suffix(part, old_suffix);
@@ -330,29 +361,50 @@ fn switch(layout: &Layout, plan: &[(&'static str, PathBuf)], old_suffix: &str, s
             rename_retry(&current, &old)?;
         }
         swaps.push(Swap { part, incoming: incoming.clone(), old: had.then_some(old) });
-        rename_retry(incoming, &current)?;
-        log.line(format!("    {part} remplacé"));
+        match incoming {
+            Some(incoming) => {
+                rename_retry(incoming, &current)?;
+                log.line(format!("    {part} remplacé"));
+            }
+            None => log.line(format!("    {part} retiré")),
+        }
     }
     Ok(())
 }
 
 /// Remet chaque dossier où il était avant la bascule (dans l'ordre inverse).
+/// Va jusqu'au bout même si un dossier résiste, et le dit.
 fn undo(layout: &Layout, swaps: &mut Vec<Swap>, log: &mut Journal) -> Result<()> {
+    let mut failed = Vec::new();
     while let Some(s) = swaps.pop() {
         let current = layout.part(s.part);
         if let (true, Some(old)) = (s.part == "kyber", &s.old) {
             move_kyber_log(&current, old);
         }
-        if current.exists() {
-            remove_dir(&s.incoming)?;
-            rename_retry(&current, &s.incoming)?;
+        let step = (|| -> Result<()> {
+            if current.exists() {
+                match &s.incoming {
+                    Some(incoming) => {
+                        remove_dir(incoming)?;
+                        rename_retry(&current, incoming)?;
+                    }
+                    None => bail!("{} réapparu pendant la mise à jour", current.display()),
+                }
+            }
+            if let Some(old) = &s.old {
+                rename_retry(old, &current)?;
+            }
+            Ok(())
+        })();
+        match step {
+            Ok(()) => log.line(format!("    {} remis", s.part)),
+            Err(e) => {
+                log.line(format!("    {} NON remis : {e:#}", s.part));
+                failed.push(s.part);
+            }
         }
-        if let Some(old) = &s.old {
-            rename_retry(old, &current)?;
-        }
-        log.line(format!("    {} remis", s.part));
     }
-    Ok(())
+    if failed.is_empty() { Ok(()) } else { bail!("dossiers non remis : {}", failed.join(", ")) }
 }
 
 /// Journaux de Kyber : déplacés de l'ancien dossier vers le nouveau, jamais copiés.
@@ -380,6 +432,9 @@ pub fn verify_package(layout: &Layout, zip: &Path, version: &str, checks: &Check
     let dir = layout.updates().join(version);
     let json = fs::read(dir.join(manifest::MANIFEST)).with_context(|| format!("manifeste absent de {}", dir.display()))?;
     let signature = fs::read_to_string(dir.join(manifest::SIGNATURE)).context("signature du manifeste absente")?;
+    if !super::newer(version, checks.installed) {
+        bail!("la version {version} n'est pas plus récente que celle installée ({}) : utilisez le retour en arrière", checks.installed);
+    }
     let manifest = manifest::verify(&json, &signature, checks.public_key)?;
     manifest.check(version, checks.channel, checks.installed).map_err(|r| anyhow::anyhow!("{}", r.message()))?;
     manifest.check_file(PACKAGE, zip)?;
@@ -418,24 +473,37 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
             return Err(e);
         }
     }
-    let parts: Vec<&'static str> = PARTS.iter().copied().filter(|p| package.join(p).is_dir()).collect();
-    let result = run_switch(layout, sys, &mut log, version, || {
-        // Copie du dossier actuel (réglages, certificat), puis le paquet par-dessus.
+    // Tout dossier présent ici ou dans le paquet passe par la bascule : chacun
+    // a ainsi son .prev, et un dossier sans .prev a été apporté par la mise à
+    // jour (le retour en arrière le retire).
+    let parts: Vec<&'static str> = PARTS.iter().copied().filter(|p| package.join(p).is_dir() || layout.part(p).is_dir()).collect();
+    let (result, undo_failed) = run_switch(layout, sys, &mut log, version, || {
         let mut plan = Vec::new();
+        for part in PARTS.iter().filter(|p| !parts.contains(p)) {
+            remove_dir(&layout.with_suffix(part, "prev"))?;
+        }
+        // Copie du dossier actuel (réglages, certificat), puis le paquet par-dessus.
         for part in &parts {
             let target = staged.join(part);
             let current = layout.part(part);
             if current.is_dir() {
                 copy_tree(&current, &target, if *part == "kyber" { &KYBER_SKIP } else { &[] })?;
             }
-            copy_tree(&package.join(part), &target, &[])?;
-            plan.push((*part, target));
+            if package.join(part).is_dir() {
+                copy_tree(&package.join(part), &target, &[])?;
+            }
+            plan.push((*part, Some(target)));
         }
         Ok(plan)
     }, "prev", |layout| {
         move_kyber_log(&layout.with_suffix("kyber", "prev"), &layout.part("kyber"));
     });
-    let _ = remove_dir(&staged);
+    if undo_failed {
+        // Les dossiers de la nouvelle version y sont peut-être encore : gardés.
+        log.line(format!("    {} gardé pour remettre les dossiers à la main", staged.display()));
+    } else {
+        let _ = remove_dir(&staged);
+    }
     prune_updates(layout, version);
     result
 }
@@ -451,10 +519,19 @@ pub fn rollback(layout: &Layout, sys: &mut dyn System) -> Result<String> {
     }
     let mut log = Journal::open(layout.updates().join(&previous).join("update.log"));
     log.line(format!("==> Retour à KyberNow {previous} (version précédente)"));
-    let parts: Vec<&'static str> = PARTS.iter().copied().filter(|p| layout.with_suffix(p, "prev").is_dir()).collect();
-    let result = run_switch(layout, sys, &mut log, &previous, || {
-        Ok(parts.iter().map(|p| (*p, layout.with_suffix(p, "prev"))).collect())
-    }, "bad", |layout| {
+    // Un dossier sans .prev a été apporté par la version qu'on quitte : retiré.
+    let plan: Plan = PARTS
+        .iter()
+        .filter_map(|p| {
+            let prev = layout.with_suffix(p, "prev");
+            if prev.is_dir() {
+                Some((*p, Some(prev)))
+            } else {
+                layout.part(p).is_dir().then_some((*p, None))
+            }
+        })
+        .collect();
+    let (result, _) = run_switch(layout, sys, &mut log, &previous, || Ok(plan), "bad", |layout| {
         // Réglages de Kyber changés depuis la mise à jour : gardés.
         let (bad, kyber) = (layout.with_suffix("kyber", "bad"), layout.part("kyber"));
         let _ = fs::copy(bad.join("kyber_config.toml"), kyber.join("kyber_config.toml"));
@@ -476,10 +553,10 @@ fn run_switch(
     sys: &mut dyn System,
     log: &mut Journal,
     version: &str,
-    prepare: impl FnOnce() -> Result<Vec<(&'static str, PathBuf)>>,
+    prepare: impl FnOnce() -> Result<Plan>,
     old_suffix: &str,
     after_switch: impl Fn(&Layout),
-) -> Result<()> {
+) -> (Result<()>, bool) {
     log.line("==> Arrêt de l'icône, du serveur puis de la console");
     let tray_was_running = sys.stop_tray();
     let mut swaps = Vec::new();
@@ -499,7 +576,7 @@ fn run_switch(
         let _ = fs::remove_file(layout.updates().join(RESULT));
         log.line(format!("==> Redémarrage et contrôle de santé (la console doit répondre en {} s)", HEALTH_TIMEOUT.as_secs()));
         sys.start_services()?;
-        sys.health(console_port(layout), version, HEALTH_TIMEOUT)?;
+        sys.health(&console_address(layout), version, HEALTH_TIMEOUT)?;
         Ok(())
     })();
     match steps {
@@ -513,18 +590,24 @@ fn run_switch(
             }
             write_result(layout, json!({ "version": version, "ok": true, "log": log.path }));
             log.line(format!("Terminé : KyberNow {version}."));
-            Ok(())
+            (Ok(()), false)
         }
         Err(e) => {
             log.line(format!("ERREUR : {e:#}"));
-            let mut rolled_back = false;
+            let (mut rolled_back, mut undo_failed) = (false, false);
             if !swaps.is_empty() {
                 log.line("==> Retour à la version qui tournait");
+                // L'icône a pu être relancée par la nouvelle console : elle
+                // tiendrait le dossier tray.
+                sys.stop_tray();
                 let _ = sys.stop_server();
                 let _ = sys.stop_console();
                 match undo(layout, &mut swaps, log) {
                     Ok(()) => rolled_back = true,
-                    Err(u) => log.line(format!("ERREUR pendant le retour arrière : {u:#} ; dossiers à vérifier dans {}", layout.install.display())),
+                    Err(u) => {
+                        undo_failed = true;
+                        log.line(format!("ERREUR pendant le retour arrière : {u:#} ; dossiers à vérifier dans {}", layout.install.display()));
+                    }
                 }
                 if rolled_back {
                     let _ = sys.service_rights(layout);
@@ -537,8 +620,11 @@ fn run_switch(
             if let Err(s) = sys.start_services() {
                 log.line(format!("    {s:#}"));
             }
-            write_result(layout, json!({ "version": version, "ok": false, "rolled_back": rolled_back, "message": format!("{e:#}"), "log": log.path }));
-            Err(e)
+            write_result(
+                layout,
+                json!({ "version": version, "ok": false, "rolled_back": rolled_back, "undo_failed": undo_failed, "message": format!("{e:#}"), "log": log.path }),
+            );
+            (Err(e), undo_failed)
         }
     }
 }
@@ -589,6 +675,11 @@ mod windows {
     const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
     const KYBER_PROCESSES: [&str; 5] = ["kyavserver.exe", "kycontroller.exe", "kynputserver.exe", "kyclient.exe", "kyservice.exe"];
     const UNINSTALL_KEY: &str = r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\KyberNow";
+    /// Relance automatique de Kyber après une panne, posée par l'installateur
+    /// (`server/installer/src/install.rs`) : suspendue pendant la bascule, pour
+    /// que Windows ne relance pas `kyber` au milieu des renommages.
+    const KYBER_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"];
+    const NO_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "0", "actions=", ""];
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     pub struct WindowsSystem;
@@ -618,13 +709,15 @@ mod windows {
         let Ok(service) = manager()?.open_service(name, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP) else {
             return Ok(());
         };
-        if service.query_status()?.current_state != ServiceState::Stopped {
-            let _ = service.stop();
-        }
         let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline {
-            if service.query_status()?.current_state == ServiceState::Stopped {
-                return Ok(());
+            match service.query_status()?.current_state {
+                ServiceState::Stopped => return Ok(()),
+                // En marche ou en train de démarrer (relancé entre-temps) : l'arrêt est redemandé.
+                ServiceState::Running | ServiceState::StartPending | ServiceState::Paused => {
+                    let _ = service.stop();
+                }
+                _ => {}
             }
             std::thread::sleep(Duration::from_millis(500));
         }
@@ -657,6 +750,7 @@ mod windows {
         }
 
         fn stop_server(&mut self) -> Result<()> {
+            let _ = run("sc.exe", &NO_RECOVERY);
             stop_service("kyber")?;
             for p in KYBER_PROCESSES {
                 kill(p);
@@ -669,6 +763,11 @@ mod windows {
             // Agents de la console dans la session de l'utilisateur (l'applicateur
             // s'appelle kyber-admin-maj.exe : il n'est pas concerné).
             kill("kyber-admin.exe");
+            // La console a pu relancer Kyber entre-temps (comptes, bouton Démarrer).
+            stop_service("kyber")?;
+            for p in KYBER_PROCESSES {
+                kill(p);
+            }
             std::thread::sleep(Duration::from_secs(2));
             Ok(())
         }
@@ -690,21 +789,24 @@ mod windows {
         }
 
         fn start_services(&mut self) -> Result<()> {
+            let _ = run("sc.exe", &KYBER_RECOVERY);
             let admin = start_service("kyber-admin");
             let kyber = start_service("kyber");
             admin.and(kyber)
         }
 
-        fn health(&mut self, port: u16, version: &str, timeout: Duration) -> Result<()> {
+        fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()> {
             let deadline = Instant::now() + timeout;
             let agent: ureq::Agent = ureq::Agent::config_builder()
                 .timeout_global(Some(Duration::from_secs(3)))
                 // Certificat de la console, auto-signé : seule la version compte ici.
                 .tls_config(ureq::tls::TlsConfig::builder().disable_verification(true).build())
                 .http_status_as_error(false)
+                // Jamais par un proxy (HTTPS_PROXY du système) : c'est l'ordinateur lui-même.
+                .proxy(None)
                 .build()
                 .into();
-            let url = format!("https://127.0.0.1:{port}/api/session");
+            let url = format!("https://{address}/api/session");
             let mut last = String::from("aucune réponse");
             while Instant::now() < deadline {
                 match agent.get(&url).call() {
@@ -728,7 +830,7 @@ mod windows {
                 }
                 std::thread::sleep(Duration::from_secs(2));
             }
-            bail!("{last} sur le port {port} après {} s", timeout.as_secs())
+            bail!("{last} ({address}) après {} s", timeout.as_secs())
         }
 
         fn register_version(&mut self, version: &str) -> Result<()> {
@@ -813,8 +915,8 @@ mod tests {
             self.calls.push("start".into());
             Ok(())
         }
-        fn health(&mut self, port: u16, version: &str, _: Duration) -> Result<()> {
-            self.calls.push(format!("health {port} {version}"));
+        fn health(&mut self, address: &str, version: &str, _: Duration) -> Result<()> {
+            self.calls.push(format!("health {address} {version}"));
             if self.unhealthy.iter().any(|v| v == version) {
                 bail!("la nouvelle console ne répond pas");
             }
@@ -916,7 +1018,12 @@ mod tests {
     fn entry_paths_never_leave_the_folder() {
         assert_eq!(safe_entry_path("kyber/webclient/index.html").unwrap(), PathBuf::from("kyber/webclient/index.html"));
         assert_eq!(safe_entry_path("admin\\kyber-admin.exe").unwrap(), PathBuf::from("admin/kyber-admin.exe"));
-        for bad in ["../x", "kyber/../../x", "kyber/..", "/etc/passwd", "\\Windows\\x", "C:/x", "kyber/a:flux", "", "./", "a\0b"] {
+        assert!(safe_entry_path("tray/console.dll").is_ok());
+        assert!(safe_entry_path("kyber/COM10.txt").is_ok());
+        for bad in [
+            "../x", "kyber/../../x", "kyber/..", "/etc/passwd", "\\Windows\\x", "C:/x", "kyber/a:flux", "", "./", "a\0b",
+            "kyber/CON", "kyber/nul.txt", "admin/com1.log", "LPT9", "kyber/fin.", "kyber/fin ", "kyber/a?b", "kyber/a|b", "a<b", "a\"b",
+        ] {
             assert!(safe_entry_path(bad).is_err(), "{bad:?}");
         }
     }
@@ -970,7 +1077,7 @@ mod tests {
         let mut sys = Fake { tray_running: true, ..Fake::default() };
         bench.apply(&mut sys, &zip, "0.2.6").unwrap();
 
-        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 9555 0.2.6"]);
+        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.6"]);
         // Nouveaux fichiers, réglages de Kyber gardés, journaux déplacés.
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.6");
         assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 30000");
@@ -995,6 +1102,53 @@ mod tests {
     }
 
     #[test]
+    fn console_address_follows_the_listen_setting() {
+        let bench = Bench::new("address");
+        assert_eq!(console_address(&bench.layout), "127.0.0.1:9555");
+        fs::create_dir_all(&bench.layout.data).unwrap();
+        for (listen, expected) in [("0.0.0.0:9443", "127.0.0.1:9443"), ("192.168.1.5:9444", "192.168.1.5:9444"), ("[::]:9445", "[::1]:9445")] {
+            fs::write(bench.layout.data.join(crate::settings::FILE_NAME), format!("listen = \"{listen}\"")).unwrap();
+            assert_eq!(console_address(&bench.layout), expected);
+        }
+    }
+
+    #[test]
+    fn older_or_same_versions_are_not_applied() {
+        let bench = Bench::new("downgrade");
+        let zip = bench.package("0.2.5", &[]);
+        let e = bench.apply(&mut Fake::default(), &zip, "0.2.5").unwrap_err().to_string();
+        assert!(e.contains("pas plus récente"), "{e}");
+    }
+
+    #[test]
+    fn webclient_added_by_an_update_leaves_with_the_rollback() {
+        let bench = Bench::new("webclient");
+        let zip = bench.package("0.2.6", &[("webclient/index.html", "web 0.2.6")]);
+        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
+        assert_eq!(bench.read("webclient/index.html"), "web 0.2.6");
+        assert!(!bench.layout.with_suffix("webclient", "prev").exists());
+        rollback(&bench.layout, &mut Fake::default()).unwrap();
+        assert!(!bench.layout.part("webclient").exists());
+        assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.5");
+    }
+
+    #[test]
+    fn folders_missing_from_the_package_still_get_a_previous_copy() {
+        let bench = Bench::new("keep");
+        fs::create_dir_all(bench.layout.part("webclient")).unwrap();
+        fs::write(bench.layout.part("webclient").join("index.html"), "web 0.2.5").unwrap();
+        // Ancien .prev d'une version plus ancienne : ne doit pas survivre.
+        fs::create_dir_all(bench.layout.with_suffix("webclient", "prev")).unwrap();
+        fs::write(bench.layout.with_suffix("webclient", "prev").join("index.html"), "web 0.2.3").unwrap();
+        let zip = bench.package("0.2.6", &[]);
+        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
+        assert_eq!(bench.read("webclient/index.html"), "web 0.2.5");
+        assert_eq!(bench.read("webclient.prev/index.html"), "web 0.2.5");
+        rollback(&bench.layout, &mut Fake::default()).unwrap();
+        assert_eq!(bench.read("webclient/index.html"), "web 0.2.5");
+    }
+
+    #[test]
     fn failed_health_check_puts_everything_back() {
         let bench = Bench::new("rollback");
         let zip = bench.package("0.2.6", &[]);
@@ -1012,8 +1166,11 @@ mod tests {
         let result = bench.result();
         assert_eq!(result["ok"], false);
         assert_eq!(result["rolled_back"], true);
-        // Services relancés après le retour arrière ; l'icône ne tournait pas.
+        // Icône relancée par la nouvelle console arrêtée avant de remettre les
+        // dossiers ; services relancés ensuite ; l'icône ne tournait pas avant.
+        assert_eq!(sys.calls.iter().filter(|c| *c == "stop_tray").count(), 2);
         assert_eq!(sys.calls.last().map(String::as_str), Some("start"));
+        assert_eq!(result["undo_failed"], false);
         assert!(!bench.layout.updates().join("relaunch-tray").exists());
         assert!(!bench.layout.staging().join("0.2.6").exists());
     }
@@ -1080,7 +1237,7 @@ mod tests {
 
         let mut sys = Fake::default();
         assert_eq!(rollback(&bench.layout, &mut sys).unwrap(), "0.2.5");
-        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 9555 0.2.5"]);
+        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.5"]);
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.5");
         assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.5");
         assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 31000");
