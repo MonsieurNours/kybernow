@@ -121,8 +121,15 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
         }
         return false;
     }
-    let fullscreen = app.saved_placement.lock().unwrap().is_some();
-    if !fullscreen || unsafe { GetForegroundWindow() } != app.hwnd() {
+    // Répétition d'une touche déjà prise : prise aussi, même si la session a
+    // perdu le premier plan entre-temps (sinon Windows verrait l'enfoncement
+    // sans le relâchement, et la touche resterait tenue sur ce PC).
+    if GRABBED.lock().unwrap().contains(&k.vkCode) {
+        return true;
+    }
+    // Pas de verrou ici : `set_fullscreen` tient le sien pendant SetWindowPos,
+    // et Windows peut appeler ce crochet sur ce même fil pendant ce temps.
+    if !app.fullscreen_now.load(Ordering::Relaxed) || unsafe { GetForegroundWindow() } != app.hwnd() {
         return false;
     }
     let alt = (k.flags.0 & LLKHF_ALTDOWN.0) != 0;
@@ -146,6 +153,13 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
         app.input.key(code, true);
     }
     true
+}
+
+/// Format demandé après un changement de profil (décodeur de secours).
+pub fn set_session_codec(fourcc: u32) {
+    if let Some(a) = app() {
+        a.shared.codec.store(fourcc, Ordering::Relaxed);
+    }
 }
 
 /// Session en cours, pour l'accueil (changement de profil).
@@ -187,6 +201,8 @@ pub struct App {
     pub events: Arc<dyn crate::host::HostEvents>,
     /// Plein écran quand la fenêtre se montre.
     pub fullscreen: bool,
+    /// Plein écran en ce moment (lu par le crochet clavier, sans verrou).
+    fullscreen_now: AtomicBool,
     shown: AtomicBool,
     last_edge: Mutex<Option<Instant>>,
 }
@@ -224,6 +240,7 @@ impl App {
             error: Mutex::new(None),
             events,
             fullscreen,
+            fullscreen_now: AtomicBool::new(false),
             shown: AtomicBool::new(false),
             last_edge: Mutex::new(None),
         });
@@ -448,6 +465,7 @@ fn set_fullscreen(hwnd: HWND, on: bool) {
             }
         }
     }
+    app.fullscreen_now.store(saved.is_some(), Ordering::Relaxed);
 }
 
 fn clip_cursor(hwnd: HWND, on: bool) {
@@ -573,12 +591,18 @@ fn update_cursor(hwnd: HWND) {
     st.host_visible = c.visible;
     st.pos = (c.x, c.y);
     let scale = image_scale(&app);
-    let shape = match &c.data {
-        CursorData::Raw(px) => Some((c.width, c.height, c.xhot, c.yhot, px.clone())),
-        _ => None,
+    // Comparée avant toute copie : la plupart des paquets ne portent qu'une position.
+    let same = match (&c.data, &st.shape) {
+        (CursorData::Raw(px), Some((w, h, xh, yh, old))) => *w == c.width && *h == c.height && *xh == c.xhot && *yh == c.yhot && old == px,
+        _ => false,
     };
-    let changed = shape.is_some() && (shape != st.shape || (scale - st.scale).abs() > 0.01);
+    let raw = matches!(c.data, CursorData::Raw(_));
+    let changed = raw && (!same || (scale - st.scale).abs() > 0.01);
     if changed {
+        let shape = match &c.data {
+            CursorData::Raw(px) => Some((c.width, c.height, c.xhot, c.yhot, px.clone())),
+            _ => None,
+        };
         if let Some(new) = make_cursor(&c, scale) {
             st.shape = shape;
             st.scale = scale;

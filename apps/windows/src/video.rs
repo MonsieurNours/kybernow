@@ -46,6 +46,9 @@ pub struct Shared {
     pub watch: Mutex<Option<(Instant, u64)>>,
     /// Dernière image de la session (JPEG), écrite à la fin du fil de l'image.
     pub last_image: Mutex<Option<Vec<u8>>>,
+    /// Format demandé pour la session (`media::FOURCC_*`), suivi en cas de
+    /// changement de profil : il sert si le paquet de format se perd.
+    pub codec: std::sync::atomic::AtomicU32,
 }
 
 impl Shared {
@@ -230,6 +233,10 @@ fn run(
     // Diagnostic : ce qui arrive vraiment (le journal disait seulement « rien »).
     let (mut seen_codec, mut seen_config, mut seen_frame, mut seen_key) = (false, false, false, false);
     let mut dropped: u64 = 0;
+    // Format voulu par la session, et s'il a été annoncé depuis son dernier changement.
+    shared.codec.store(opts.codec, Ordering::Relaxed);
+    let mut last_wanted = opts.codec;
+    let mut codec_announced = false;
     let mut keyframe = |shared: &Shared, force: bool| {
         if force || last_request.elapsed() >= Duration::from_millis(300) {
             last_request = Instant::now();
@@ -274,6 +281,7 @@ fn run(
         match msg {
             VideoMsg::Stop => break,
             VideoMsg::Codec(c) => {
+                codec_announced = true;
                 if !seen_codec {
                     seen_codec = true;
                     log::info!("image : format annoncé, {}", codec_name(c));
@@ -311,9 +319,16 @@ fn run(
                 // Le paquet qui annonce le format s'est perdu (transport rapide,
                 // avec pertes) : sans lui, aucun décodeur et un écran noir sans
                 // fin. On ouvre celui du format demandé pour la session.
-                if decoder.is_none() && fourcc == 0 && opts.codec != 0 {
-                    log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(opts.codec));
-                    fourcc = opts.codec;
+                let wanted = shared.codec.load(Ordering::Relaxed);
+                if wanted != last_wanted {
+                    last_wanted = wanted;
+                    codec_announced = false;
+                }
+                // Profil changé vers un autre format et paquet de format perdu.
+                let stale = decoder.is_some() && wanted != 0 && fourcc != wanted && !codec_announced;
+                if (decoder.is_none() && fourcc == 0 && wanted != 0) || stale {
+                    log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(wanted));
+                    fourcc = wanted;
                     decoder = open(fourcc, hw_allowed, &shared);
                     send_config = true;
                     waiting_key = true;

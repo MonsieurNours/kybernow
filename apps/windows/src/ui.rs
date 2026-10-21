@@ -636,6 +636,8 @@ impl HostEvents for UiEvents {
         let label = self.label.lock().unwrap().clone();
         // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
         let _ = self.app.run_on_main_thread(move || {
+            // Toujours à sa taille sans menu en se montrant.
+            bar_menu(app.clone(), false);
             let Some(bar) = app.get_webview_window("bar") else { return };
             let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
             let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
@@ -852,6 +854,7 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     let shown = BarLabel { label, profile };
     *bar.lock().unwrap() = shown.clone();
     let _ = app.emit_to("bar", "bar-label", &shown);
+    window::set_session_codec(settings.codec.fourcc());
     window::current_session().ok_or("session pas encore prête")?.set_settings(settings);
     Ok(())
 }
@@ -873,6 +876,8 @@ fn bar_hide(app: AppHandle) {
     if let Some(bar) = app.get_webview_window("bar") {
         let _ = bar.hide();
     }
+    // Un menu ouvert laissait la fenêtre agrandie pour la fois suivante.
+    bar_menu(app.clone(), false);
     if let Some(r) = app.state::<UiState>().session.lock().unwrap().as_ref() {
         r.host.command(Command::Focus);
     }

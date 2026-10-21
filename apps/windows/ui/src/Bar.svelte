@@ -45,6 +45,8 @@
       listen<Shown>('bar-shown', (s) => {
         label = s.label
         profile = s.profile
+        // Montrée de nouveau : aucun menu d'une fois précédente.
+        menu = null
         // Le pointeur n'y entre pas : elle repart d'elle-même.
         scheduleHide(1600)
       }),
@@ -83,7 +85,8 @@
 
   async function pickProfile(id: string) {
     await closeMenu()
-    if (id !== profile) await invoke('session_profile', { profile: id })
+    // Même profil : remis tel quel (utile après des réglages personnalisés).
+    await invoke('session_profile', { profile: id })
   }
 
   async function pickKeys(id: string) {
@@ -97,7 +100,13 @@
 </script>
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
-<svelte:window onblur={() => menu && closeMenu().then(() => scheduleHide())} />
+<svelte:window
+  onblur={() => menu && closeMenu().then(() => scheduleHide())}
+  onpointerdown={(e) => {
+    // Clic dans la partie transparente sous la barre : le menu se referme.
+    if (menu && !(e.target as Element).closest('.bar')) closeMenu().then(() => scheduleHide())
+  }}
+/>
 
 <div class="bar" role="toolbar" aria-label="Barre de session" tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
   <Mark size={20} state="now" lit />

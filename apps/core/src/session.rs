@@ -109,7 +109,7 @@ impl Session {
     pub fn start(params: SessionParams, platform: Arc<dyn Platform>) -> Arc<Session> {
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
-        let profile_label = Arc::new(Mutex::new(params.settings.label().to_string()));
+        let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
         let worker = Worker {
             params,
             platform,
@@ -212,8 +212,8 @@ struct Worker {
     no_image: u32,
     /// Dernier écran redemandé parce que la console le disait parti.
     last_restore: Option<Instant>,
-    /// Profil annoncé à la console par le signal de vie (il peut changer en session).
-    profile_label: Arc<Mutex<String>>,
+    /// Profil et règle de mode annoncés par le signal de vie (ils peuvent changer en session).
+    profile_label: Arc<Mutex<(String, String)>>,
     last_retry: Option<Instant>,
     reconnected_at: Option<Instant>,
     restored_after_reconnect: bool,
@@ -332,7 +332,9 @@ impl Worker {
                     std::thread::sleep(Duration::from_secs(seconds));
                     let mut hb = hb.clone();
                     hb.latency_ms = latency.lock().unwrap().map(|l| (l * 10.0).round() / 10.0);
-                    hb.profile = Some(profile.lock().unwrap().clone());
+                    let (label, policy) = profile.lock().unwrap().clone();
+                    hb.profile = Some(label);
+                    hb.mode_policy = Some(policy);
                     match console.heartbeat(&hb) {
                         Ok(r) if r.end => {
                             info!("la console met fin à la session");
@@ -391,7 +393,7 @@ impl Worker {
                 }
                 Ok(Msg::Settings(s)) => {
                     let before = std::mem::replace(&mut self.params.settings, s.clone());
-                    *self.profile_label.lock().unwrap() = s.label().to_string();
+                    *self.profile_label.lock().unwrap() = (s.label().to_string(), s.mode_policy().to_string());
                     let restart = before.codec != s.codec || before.yuv444 != s.yuv444 || before.reliable != s.reliable;
                     info!("profil : {} ({})", s.label(), if restart { "flux relancé" } else { "débit seul" });
                     if self.streaming.is_some() {
