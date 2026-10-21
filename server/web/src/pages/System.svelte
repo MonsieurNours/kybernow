@@ -67,6 +67,18 @@
     }
   }
 
+  async function rollback() {
+    const previous = update?.rollback
+    if (!previous || !confirm(`Revenir à KyberNow ${previous} ? La console redémarre, environ une minute.`)) return
+    try {
+      const r = await api.updateRollback()
+      installing = r.version
+      waitForRestart(r.version)
+    } catch (e) {
+      notify('error', errorText(e))
+    }
+  }
+
   // La console s'arrête, remplace ses fichiers et repart : on la guette.
   function waitForRestart(version: string) {
     const started = Date.now()
@@ -84,7 +96,7 @@
           clearInterval(timer)
           installing = null
           update = s
-          notify('ok', `KyberNow ${version} est installé.`)
+          notify('ok', `KyberNow ${version} est en place.`)
           refreshStatus()
         }
       } catch {
@@ -410,6 +422,7 @@
           <pre class="install-error">{update.verify_error}</pre>
         {/if}
         {@render channelPicker()}
+        {@render rollbackButton()}
       </div>
     </section>
   {:else}
@@ -428,8 +441,15 @@
         <pre class="install-error">{update.install_error}</pre>
       {/if}
       {@render channelPicker()}
+      {@render rollbackButton()}
     </section>
   {/if}
+
+  {#snippet rollbackButton()}
+    {#if update?.rollback}
+      <button type="button" class="ghost rollback" onclick={rollback}>Revenir à la version précédente ({update.rollback})</button>
+    {/if}
+  {/snippet}
 
   {#snippet channelPicker()}
     {#if update}
@@ -677,9 +697,15 @@
     margin-top: 14px;
   }
 
+  .uptodate .rollback {
+    margin-top: 10px;
+  }
+
   .install-error {
     margin: 0;
     max-width: 100%;
+    /* Pas la hauteur fixe du journal (règle pre ci-dessous). */
+    height: auto;
     max-height: 14rem;
     overflow: auto;
     padding: 0.75rem;

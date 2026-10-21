@@ -221,6 +221,8 @@ export interface UpdateStatus {
   verify_error: string | null
   /** La version s'installe avec KyberNow-Setup.exe. */
   requires_setup: boolean
+  /** Version gardée dans les dossiers .prev (retour en arrière possible). */
+  rollback: string | null
   checked_seconds_ago: number | null
   error: string | null
   installing: string | null
@@ -311,6 +313,7 @@ export const api = {
   updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
   updateChannel: (channel: UpdateChannel) => request<UpdateStatus>('PUT', '/api/update', { channel }),
   updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
+  updateRollback: () => request<{ ok: boolean; version: string }>('POST', '/api/update/rollback'),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),

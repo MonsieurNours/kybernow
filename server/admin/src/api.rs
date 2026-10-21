@@ -48,6 +48,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/update", get(update_status).put(update_channel))
         .route("/api/update/check", post(update_check))
         .route("/api/update/install", post(update_install))
+        .route("/api/update/rollback", post(update_rollback))
         .route("/api/devices", get(devices))
         .route("/api/devices/{id}", axum::routing::delete(forget_device))
         // Appairage par code (app Apple TV) : la demande et son état sans compte,
@@ -313,6 +314,16 @@ async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let version = blocking(move || u.install()).await?;
     tracing::info!("mise à jour {version} lancée");
     s.activity.event("info", format!("Installation de KyberNow {version} lancée"));
+    Ok(Json(json!({ "ok": true, "version": version })))
+}
+
+/// Remet la version précédente (dossiers `.prev`) : la console s'arrête dans
+/// la minute et revient dans cette version.
+async fn update_rollback(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let u = s.updater.clone();
+    let version = blocking(move || u.rollback()).await?;
+    tracing::info!("retour à la version {version} lancé");
+    s.activity.event("info", format!("Retour à KyberNow {version} lancé"));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
 
