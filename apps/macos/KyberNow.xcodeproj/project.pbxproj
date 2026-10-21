@@ -47,6 +47,7 @@
 		DA6906C0CE3D758F5B735BDE /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 323EA304E0762094819E42DC /* VideoRenderer.swift */; };
 		EC7BE0F92DE4BE9C45C6E280 /* CloudPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99198F43007755A8AA639EA3 /* CloudPublisher.swift */; };
 		EF08B843B2E9F16E7D1604F8 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */; };
+		FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E532750726326EB565F259 /* PadCombo.swift */; };
 		FF944D9B7152051097FCA7BA /* AddHostFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F46D6860BE7B12712A7135A1 /* AddHostFlow.swift */; };
 /* End PBXBuildFile section */
 
@@ -111,6 +112,7 @@
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
 		B80D4448B6B94C0BED6CBEA8 /* GamepadGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadGate.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		C7E532750726326EB565F259 /* PadCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadCombo.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
@@ -193,6 +195,7 @@
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
 				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
+				C7E532750726326EB565F259 /* PadCombo.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				5DF4EB6B53960D68B69DE19D /* StreamView.swift */,
 				EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */,
@@ -374,6 +377,7 @@
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
 				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
+				FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */,
 				83B905E69CFA18FE4DCA7F4D /* VideoDecoder.swift in Sources */,

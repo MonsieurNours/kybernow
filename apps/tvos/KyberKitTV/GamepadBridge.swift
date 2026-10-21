@@ -6,10 +6,12 @@
 // session, son bouton Retour ouvre le menu, et son pavé peut servir de souris.
 //
 // L1 + R1 + Start + Select (comme sur Mac) ouvre aussi le menu : la manette
-// pilote alors KyberNow et le jeu ne reçoit plus rien. Le pont ne décide pas :
-// il signale la combinaison, et c'est le contrôleur de session qui prend la
-// manette (`setCaptured`) quand le menu s'ouvre vraiment. Hors session
-// (connexion, reconnexion), rien n'est pris et la manette reste au jeu.
+// pilote alors KyberNow et le jeu ne reçoit plus rien. La combinaison et les
+// touches tenues de chaque manette sont suivies par PadCombo (partagé avec le
+// Mac), formée ici après 250 ms tenues. Le pont ne décide pas : il signale la
+// combinaison, et c'est le contrôleur de session qui prend la manette
+// (`setCaptured`) quand le menu s'ouvre vraiment. Hors session (connexion,
+// reconnexion), rien n'est pris et la manette reste au jeu.
 //
 // Fils : tout GameController (manettes, télécommande, clavier et souris
 // Bluetooth) arrive sur une seule file série `userInteractive` (`queue`),
@@ -168,18 +170,12 @@ public final class GamepadBridge: ObservableObject {
         /// 1 à 4 ; 0 : en attente, rien ne part vers l'ordinateur.
         var player: Int
         var active: Bool { player > 0 }
-        var pressed = Set<PadButton>()
         var live = Live()
         var motors: Motors?
         /// Dernière valeur partie de chaque axe, et celles qui attendent la
         /// prochaine tranche de 4 ms.
         var lastAxis: [PadAxis: Int16] = [:]
         var pendingAxes: [PadAxis: Int16] = [:]
-        /// La combinaison du menu a été formée : on n'agit pas au relâchement de ses touches.
-        var comboSeen = false
-        /// Les quatre touches de la combinaison sont tenues : elle se forme au
-        /// bout de 250 ms si aucune n'a été lâchée entre-temps.
-        var comboTimer: DispatchWorkItem?
         /// Bouton Guide par appui long : Menu ou Options tenus, pas encore
         /// envoyés (minuterie de 600 ms), et ceux qui tiennent le Guide.
         var deferred: [PadButton: DispatchWorkItem] = [:]
@@ -195,6 +191,8 @@ public final class GamepadBridge: ObservableObject {
 
     // Sur la file seulement.
     private var slots: [ObjectIdentifier: Slot] = [:]
+    /// Combinaison du menu et touches tenues, par manette (`slot.id`).
+    private let combo = PadCombo(hold: .after(PadCombo.holdDelay, on: GamepadBridge.queue))
     private var nextID: UInt32 = 1
     private weak var input: InputPipeline?
     /// La manette pilote l'app (menu ouvert) : rien ne part vers l'ordinateur.
@@ -220,6 +218,7 @@ public final class GamepadBridge: ObservableObject {
             guard let self, let c = note.object as? GCController else { return }
             self.queue.async { self.disconnected(c) }
         }
+        combo.onFormed = { [weak self] id in self?.comboFormed(id) }
         let present = GCController.controllers()
         queue.async { present.forEach(self.connected) }
         GCController.startWirelessControllerDiscovery {}
@@ -373,7 +372,7 @@ public final class GamepadBridge: ObservableObject {
         guard input != nil, !captured, !config.padMouse, slot.active else { return }
         guard let pad = slot.controller.extendedGamepad else { return }
         let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
-        slot.pressed = pressed
+        combo.set(pressed: pressed, for: slot.id)
         slot.live.pressed = Set(pressed.map(\.name))
         liveDirty = true
         axis(slot, .leftX, Self.stick(pad.leftThumbstick.xAxis.value))
@@ -477,14 +476,14 @@ public final class GamepadBridge: ObservableObject {
             return
         }
         guard let slot = slots.removeValue(forKey: ObjectIdentifier(c)) else { return }
-        slot.comboTimer?.cancel()
         slot.motors?.stop()
         if slot.active, let input {
             releaseAll(slot, input: input)
             input.gamepadUnplug(id: slot.id)
         }
         // Manette en souris coupée en plein glisser : le clic ne reste pas enfoncé.
-        if config.padMouse, !slot.pressed.isEmpty, let input { releaseMouse(input) }
+        if config.padMouse, !combo.pressed(slot.id).isEmpty, let input { releaseMouse(input) }
+        combo.forget(slot.id)
         // Une place se libère : la première manette en attente la prend.
         if slot.active, let next = orderedSlots.first(where: { !$0.active }) {
             seat(next, slot.player)
@@ -563,24 +562,16 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
-    private static let combo: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
-
     private func button(_ slot: Slot, _ button: PadButton, pressed: Bool) {
         onQueue()
-        if pressed { slot.pressed.insert(button) } else { slot.pressed.remove(button) }
+        // La combinaison ne s'arme qu'en session, si le réglage le permet ; la
+        // touche part au jeu comme les autres (formée après 250 ms, voir PadCombo).
+        combo.enabled = config.menuFromCombo && input != nil
+        combo.button(slot.id, button, pressed: pressed)
         if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
         liveDirty = true
         noteKind(Self.kind(slot.controller))
         guard let input else { return }
-        if Self.combo.contains(button) {
-            if pressed, config.menuFromCombo, slot.pressed.isSuperset(of: Self.combo) {
-                armCombo(slot)
-            } else if !pressed {
-                slot.comboTimer?.cancel()
-                slot.comboTimer = nil
-            }
-        }
-        defer { if slot.pressed.isDisjoint(with: Self.combo) { slot.comboSeen = false } }
         guard !captured else { return }
         if config.padMouse {
             mouseButton(slot, button, pressed: pressed, input: input)
@@ -638,7 +629,7 @@ public final class GamepadBridge: ObservableObject {
             guard let self, let slot, slot.deferred[button] != nil, let input = self.input, !self.captured else { return }
             // L1 ou R1 tenus : la combinaison du menu est peut-être en train
             // de se former ; pas de Guide au jeu juste avant le menu.
-            if !slot.pressed.isDisjoint(with: [.leftShoulder, .rightShoulder]) {
+            if !self.combo.pressed(slot.id).isDisjoint(with: [.leftShoulder, .rightShoulder]) {
                 self.armGuide(slot, button, after: .milliseconds(100))
                 return
             }
@@ -688,29 +679,17 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
-    /// Quatre touches tenues : la combinaison ne se forme qu'au bout de
-    /// 250 ms. En dessous (un jeu qui les presse ensemble, un appui
-    /// maladroit), rien ne change pour le jeu, qui a reçu les quatre touches
-    /// comme les autres, et rien n'est relâché pour lui. Formée, la suite est
-    /// au contrôleur de session : prendre la manette (les touches tenues sont
-    /// alors relâchées pour l'ordinateur), ou la rendre.
-    private func armCombo(_ slot: Slot) {
-        slot.comboTimer?.cancel()
-        let item = DispatchWorkItem { [weak self, weak slot] in
-            guard let self, let slot else { return }
-            slot.comboTimer = nil
-            guard self.config.menuFromCombo, self.input != nil, slot.pressed.isSuperset(of: Self.combo) else { return }
-            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
-            slot.comboSeen = true
-            // Appui long sur Start ou Select en cours : il n'aboutit pas.
-            self.dropLongPress(slot, input: self.input)
-            self.requestMenu()
-        }
-        slot.comboTimer = item
-        queue.asyncAfter(deadline: .now() + Self.comboHold, execute: item)
+    /// Combinaison formée (quatre touches tenues 250 ms, voir PadCombo) : la
+    /// suite est au contrôleur de session : prendre la manette (les touches
+    /// tenues sont alors relâchées pour l'ordinateur), ou la rendre.
+    private func comboFormed(_ id: UInt32) {
+        onQueue()
+        guard config.menuFromCombo, input != nil, let slot = slots.values.first(where: { $0.id == id }) else { return }
+        KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
+        // Appui long sur Start ou Select en cours : il n'aboutit pas.
+        dropLongPress(slot, input: input)
+        requestMenu()
     }
-
-    private static let comboHold: DispatchTimeInterval = .milliseconds(250)
 
     /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
     /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
@@ -827,7 +806,7 @@ public final class GamepadBridge: ObservableObject {
         func click(_ b: InputPipeline.MouseButton) { self.click(b, pressed, input: input) }
         // Touches de la combinaison du menu : elles agissent au relâchement,
         // sauf si la combinaison a été formée entre-temps.
-        let released = !pressed && !slot.comboSeen
+        let released = !pressed && !combo.formed(slot.id)
         switch button {
         case .a: click(.left)
         case .x: click(.right)
@@ -956,9 +935,9 @@ public final class GamepadBridge: ObservableObject {
     private func releaseAll(_ slot: Slot, input: InputPipeline) {
         guard slot.active else { return }
         dropLongPress(slot, input: input)
-        for b in slot.pressed { input.gamepadButton(id: slot.id, b, pressed: false) }
+        for b in combo.pressed(slot.id) { input.gamepadButton(id: slot.id, b, pressed: false) }
         slot.pendingAxes.removeAll()
-        for a in [PadAxis.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger] {
+        for a in PadCombo.axes {
             slot.lastAxis[a] = 0
             input.gamepadAxis(id: slot.id, a, value: 0)
         }

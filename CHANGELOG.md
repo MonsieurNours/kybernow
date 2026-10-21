@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.2.7
 
+- Apps Mac et Apple TV, manettes : la combinaison L1 + R1 + Start + Select et les touches tenues de chaque manette sont suivies par un seul code partagé (`PadCombo`) ; le Mac la forme toujours à la quatrième touche, l'Apple TV toujours après 250 ms tenues. Rien ne change pour l'utilisateur.
 - Apps Mac et Apple TV, clavier : la table des touches (usages HID → scancodes), l'échange des touches `@#` et `<>` des claviers Apple ISO et le traitement des touches de verrouillage ne sont plus écrits qu'une fois (`Keymap`, partagé) ; le Mac y apporte sa table kVK et la disposition dite par le système, l'Apple TV son réglage « Clavier Apple ISO ». Rien ne change pour l'utilisateur.
 
 ## 0.2.6

@@ -78,6 +78,12 @@ public enum PadButton: Sendable, CaseIterable {
         case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT
         }
     }
+
+    /// Touche d'un paquet kynput (manettes SDL du Mac).
+    init?(sdk: kynput_GamepadButton) {
+        guard let button = Self.allCases.first(where: { $0.sdk == sdk }) else { return nil }
+        self = button
+    }
 }
 
 public enum PadAxis: Sendable {

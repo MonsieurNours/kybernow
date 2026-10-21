@@ -35,6 +35,7 @@
 		792782AA0C95A50E7A9C8600 /* TopShelfStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */; };
 		7BCF06DA4E16543B527776CE /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C5E2A6702CE5C7966E801CC /* Security.framework */; };
 		7E927435A4BCBAFE2D6FBDDF /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */; };
+		7F7002457D8145829336CB78 /* PadCombo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41ECBDCF24114264574E3773 /* PadCombo.swift */; };
 		81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68E5FAAE774C0DD788031289 /* KyberLog.swift */; };
 		87F2964ED239257EDAD128ED /* Archivo-wdth-wght.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D2CB1819AEAB327E349B2FDD /* Archivo-wdth-wght.ttf */; };
 		9DDACBC5030D4B3D6219E1B7 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4533B3F463014C650D6D7C3C /* Platform.swift */; };
@@ -116,6 +117,7 @@
 		35E2162DA9EA9189EFA5F4A1 /* libiconv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libiconv.tbd; path = usr/lib/libiconv.tbd; sourceTree = SDKROOT; };
 		36C379C44CA1F146A47FEBB2 /* MartianMono-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "MartianMono-wdth-wght.ttf"; sourceTree = "<group>"; };
 		3FEF93D2C6B0878C79E24A54 /* KyberNowTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = KyberNowTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		41ECBDCF24114264574E3773 /* PadCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadCombo.swift; sourceTree = "<group>"; };
 		41FC50A907BD6DAF12DD33D8 /* GamepadBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadBridge.swift; sourceTree = "<group>"; };
 		4533B3F463014C650D6D7C3C /* Platform.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Platform.swift; sourceTree = "<group>"; };
 		4A6A5701AECE3DAA9B83327B /* KyberClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberClient.swift; sourceTree = "<group>"; };
@@ -301,6 +303,7 @@
 				4A6A5701AECE3DAA9B83327B /* KyberClient.swift */,
 				68E5FAAE774C0DD788031289 /* KyberLog.swift */,
 				C923979E9305471ABFD9F333 /* LatencyTracker.swift */,
+				41ECBDCF24114264574E3773 /* PadCombo.swift */,
 				93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */,
 				4E56869493711B171A05A7A2 /* VideoPipeline.swift */,
 				3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */,
@@ -527,6 +530,7 @@
 				81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */,
 				D095A206CE4DA906F9E6D031 /* LatencyTracker.swift in Sources */,
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
+				7F7002457D8145829336CB78 /* PadCombo.swift in Sources */,
 				F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */,
 				C061C90F011E8A35C9773AD7 /* VideoDecoder.swift in Sources */,
 				55648362D3F43B7B69A955D2 /* VideoPipeline.swift in Sources */,
