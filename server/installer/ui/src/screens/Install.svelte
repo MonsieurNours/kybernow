@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import StatusIcon from '../lib/StatusIcon.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { app, go, startInstall, TASK_ORDER } from '../lib/state.svelte'
 
   let showLog = $state(false)
@@ -11,27 +12,24 @@
 
   const s = $derived(app.ports.stream)
   const c = $derived(app.ports.console)
+  const task = (id: string, vars: Record<string, number> = {}) => ({ title: t(`install.tasks.${id}.title`), text: t(`install.tasks.${id}.text`, vars) })
   const rows = $derived<Record<string, { title: string; text: string; fact?: string; warn?: string }>>({
-    files: { title: 'Moteur de streaming Kyber 0.29', text: 'Le moteur, ses bibliothèques vidéo et le client web se posent dans C:\\Program Files\\KyberNow.' },
-    cert: { title: 'Certificat de cet ordinateur', text: 'Il chiffre tout ce qui circule entre vos appareils et lui.' },
-    service: { title: 'Démarrage avec l’ordinateur', text: 'Le serveur devient un service : il démarre seul, avant même votre session Windows.' },
-    firewall: { title: 'Réseau', text: `Ouverture des ports ${s} (flux) et ${c} (console), sur votre réseau privé seulement.`, fact: `flux ${s} · console ${c}` },
-    vdd: { title: 'Écran virtuel', text: 'Il prendra la taille de chaque appareil qui se connecte.', fact: 'SudoVDA' },
-    gamepad: { title: 'Manettes', text: 'Pour jouer depuis n’importe quel appareil.', fact: 'ViGEmBus' },
-    audio: { title: 'Son à distance', text: 'Les haut-parleurs virtuels de Steam : l’ordinateur se tait, l’appareil reçoit le son.' },
-    admin: { title: 'Console d’administration', text: `Elle démarre sur le port ${c}.`, fact: `port ${c}` },
-    power: {
-      title: 'Alimentation',
-      text: 'Le mode Performances élevées évite les ralentissements pendant une session.',
-      warn: 'Windows refuse ce mode ici : inchangé, le reste est installé',
-    },
+    files: task('files'),
+    cert: task('cert'),
+    service: task('service'),
+    firewall: { ...task('firewall', { stream: s, console: c }), fact: t('common.portsPair', { stream: s, console: c }) },
+    vdd: { ...task('vdd'), fact: 'SudoVDA' },
+    gamepad: { ...task('gamepad'), fact: 'ViGEmBus' },
+    audio: task('audio'),
+    admin: { ...task('admin', { port: c }), fact: t('install.tasks.admin.fact', { port: c }) },
+    power: { ...task('power'), warn: t('install.tasks.power.warn') },
   })
 
   const finished = $derived(!!app.result)
   const visible = $derived(TASK_ORDER.filter((id) => app.tasks[id] !== 'skipped'))
-  const lastLine = $derived(app.log.at(-1)?.replace(/^\s*/, '› ') ?? '› préparation')
+  const lastLine = $derived(app.log.at(-1)?.replace(/^\s*/, '› ') ?? t('install.lastLineEmpty'))
   const remaining = $derived(
-    finished || app.failure ? '' : app.percent < 30 ? 'Encore moins d’une minute' : app.percent < 75 ? 'Encore une trentaine de secondes' : 'Encore quelques secondes',
+    finished || app.failure ? '' : app.percent < 30 ? t('install.remainingLong') : app.percent < 75 ? t('install.remainingHalf') : t('install.remainingShort'),
   )
 
   $effect(() => {
@@ -43,20 +41,20 @@
 <div class="install">
   <div class="head">
     <span class="lbl signal">
-      {app.failure ? 'Installation interrompue' : finished ? 'Installation terminée' : `Installation · ${Math.round(app.percent)} %`}
+      {app.failure ? t('install.labelFailed') : finished ? t('install.labelDone') : t('install.labelProgress', { percent: Math.round(app.percent) })}
     </span>
-    <h1 class="title">{app.failure ? 'Quelque chose a bloqué.' : finished ? 'Tout est en place.' : 'Cet ordinateur, bientôt sur tous vos écrans.'}</h1>
+    <h1 class="title">{app.failure ? t('install.titleFailed') : finished ? t('install.titleDone') : t('install.titleRunning')}</h1>
     <p class="lead">
       {app.failure
         ? app.failure.message
         : finished
-          ? 'Le serveur, la console et les pilotes sont installés.'
-          : 'KyberNow Server se met en place. Rien à faire : on vous montre ce qui se passe, au fur et à mesure.'}
+          ? t('install.leadDone')
+          : t('install.leadRunning')}
     </p>
   </div>
 
   {#if showLog || app.failure}
-    <pre bind:this={logBox} class="mono">{app.log.join('\n') || 'Préparation…'}</pre>
+    <pre bind:this={logBox} class="mono">{app.log.join('\n') || t('install.preparing')}</pre>
   {:else}
     <ol>
       {#each visible as id (id)}
@@ -69,9 +67,9 @@
               <span class="d">{rows[id].text}</span>
               <span class="bar" aria-hidden="true"><span></span></span>
             {:else if status === 'warn'}
-              <span class="mono f warn">{rows[id].warn ?? 'à vérifier : voir le détail'}</span>
+              <span class="mono f warn">{rows[id].warn ?? t('install.warnDefault')}</span>
             {:else if (status === 'done' && rows[id].fact) || status === 'failed'}
-              <span class="mono f">{status === 'failed' ? 'échec' : rows[id].fact}</span>
+              <span class="mono f">{status === 'failed' ? t('install.failed') : rows[id].fact}</span>
             {/if}
           </div>
         </li>
@@ -85,12 +83,12 @@
   <div class="spacer"></div>
   {#if remaining}<span class="remaining">{remaining}</span>{/if}
   {#if app.failure}
-    <button type="button" class="ghost" onclick={() => go('options')}>Modifier les options</button>
-    <button type="button" class="primary" onclick={startInstall}>Réessayer</button>
+    <button type="button" class="ghost" onclick={() => go('options')}>{t('install.editOptions')}</button>
+    <button type="button" class="primary" onclick={startInstall}>{t('install.retry')}</button>
   {:else if finished}
-    <button type="button" class="primary lit" onclick={() => go('done')}>Continuer</button>
+    <button type="button" class="primary lit" onclick={() => go('done')}>{t('common.continue')}</button>
   {:else}
-    <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? 'Masquer le détail' : 'Voir le détail'}</button>
+    <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? t('install.hideLog') : t('install.showLog')}</button>
   {/if}
 </div>
 

@@ -8,6 +8,7 @@
   import Icon from './lib/Icon.svelte'
   import type { Computer, Phase } from './lib/api'
   import { hue } from './lib/api'
+  import { t } from './lib/i18n/index.svelte'
 
   let {
     computer,
@@ -28,11 +29,11 @@
 
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
-  const steps = [
-    { label: 'Écran virtuel', from: 0 },
-    { label: 'Connexion', from: 1 },
-    { label: 'Premières images', from: 2 },
-  ]
+  const steps = $derived([
+    { label: t('passage.virtual'), from: 0 },
+    { label: t('passage.connection'), from: 1 },
+    { label: t('passage.first_images'), from: 2 },
+  ])
 
   const background = $derived(
     computer.preview
@@ -48,17 +49,17 @@
 
   {#if !opening && !closing}
     <div class="capsule" role="status">
-      {#each steps as s (s.label)}
+      {#each steps as s (s.from)}
         <span class="step" class:done={at > s.from} class:now={at === s.from}>
           {#if at > s.from}<Icon name="check" size={14} stroke={2.2} />{:else}<span class="dot"></span>{/if}
           {s.label}
         </span>
       {/each}
-      <button onclick={oncancel}>Annuler</button>
+      <button onclick={oncancel}>{t('common.cancel')}</button>
     </div>
     {#if slow}
       <p class="slow" role="status">
-        {computer.name} est connecté mais n’envoie pas d’image. Son journal dit souvent pourquoi : console de l’ordinateur, Système › Journaux.
+        {t('passage.slow', { name: computer.name })}
       </p>
     {/if}
   {/if}

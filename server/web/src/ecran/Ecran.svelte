@@ -10,11 +10,12 @@
   import Gate from './Gate.svelte'
   import Home from './Home.svelte'
   import Session from './Session.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
   let session = $state<ConsoleSession | null>(null)
   let prefs = $state<Prefs>(loadPrefs())
   let inSession = $state(false)
-  let loadError = $state('')
+  let loadError = $state(false)
 
   $effect(() => savePrefs($state.snapshot(prefs)))
 
@@ -23,7 +24,7 @@
       session = await backend.session()
       if (session.hostname) document.title = `${session.hostname} · KyberNow`
     } catch {
-      loadError = 'La console ne répond pas.'
+      loadError = true
     }
   }
 
@@ -31,19 +32,19 @@
 </script>
 
 {#if loadError}
-  <div class="center"><p class="muted">{loadError}</p></div>
+  <div class="center"><p class="muted">{t('web.app.noConsole')}</p></div>
 {:else if !session}
   <div class="center" aria-busy="true"></div>
 {:else if !session.configured}
   <div class="center">
-    <p>La console de cet ordinateur n'a pas encore de mot de passe.</p>
-    <a class="primary" href="/">Ouvrir la console</a>
+    <p>{t('web.app.noPassword')}</p>
+    <a class="primary" href="/">{t('web.app.openConsole')}</a>
   </div>
 {:else if !session.authenticated}
   <Gate hostname={session.hostname ?? null} onDone={load} />
 {:else if inSession}
   <Session
-    hostname={session.hostname ?? 'Cet ordinateur'}
+    hostname={session.hostname ?? t('web.app.thisComputer')}
     bind:prefs
     onEnd={() => {
       inSession = false
@@ -58,7 +59,7 @@
     }}
   />
 {:else}
-  <Home hostname={session.hostname ?? 'Cet ordinateur'} bind:prefs onConnect={() => (inSession = true)} onSignedOut={load} />
+  <Home hostname={session.hostname ?? t('web.app.thisComputer')} bind:prefs onConnect={() => (inSession = true)} onSignedOut={load} />
 {/if}
 
 <style>

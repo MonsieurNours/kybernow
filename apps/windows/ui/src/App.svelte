@@ -9,6 +9,7 @@
   import AppSheet from './AppSheet.svelte'
   import type { Action, AppInfo, Candidate, Computer, Found, Phase, Snapshot, Summary, ThisPc, Update } from './lib/api'
   import { invoke, listen } from './lib/api'
+  import { setLang, t } from './lib/i18n/index.svelte'
 
   let computers = $state<Computer[]>([])
   let discovered = $state<Found[]>([])
@@ -51,6 +52,7 @@
       // Demande d'une autre ouverture, gardée par l'app jusqu'à ce qu'on la prenne.
       listen<null>('action-ready', () => invoke<Action | null>('take_action').then((a) => a && handle(a))),
       listen<Update | null>('update', (u) => (update = u)),
+      listen<string>('lang', setLang),
       listen<number>('update-progress', (p) => (progress = p)),
       listen<Phase>('session-status', (p) => {
         if (!passage || passage.id !== p.id) return
@@ -62,7 +64,7 @@
         if (passage && passage.id === id) passage.opening = true
       }),
       listen<{ id: string; summary: Summary }>('session-ended', ({ summary }) => {
-        error = summary.error ? `La session s’est arrêtée : ${summary.error}` : null
+        error = summary.error ? t('app.session_stopped', { error: summary.error }) : null
         if (!passage) return
         passage.opening = false
         passage.closing = true
@@ -76,7 +78,12 @@
         discovered = s.discovered
         thisPc = s.this_pc ?? thisPc
       })
-        .then(() => invoke<AppInfo>('app_info').then((i) => (update = i.update)))
+        .then(() =>
+          invoke<AppInfo>('app_info').then((i) => {
+            update = i.update
+            setLang(i.lang)
+          }),
+        )
         .then(() => invoke<Action | null>('take_action'))
         .then((a) => a && handle(a)),
     )
@@ -101,7 +108,7 @@
         error = String(e)
       }
     } else if (a.kind === 'updated') {
-      invoke<AppInfo>('app_info').then((i) => (notice = `KyberNow ${i.version} est installée.`))
+      invoke<AppInfo>('app_info').then((i) => (notice = t('app.installed', { version: i.version })))
     }
   }
 
@@ -139,7 +146,7 @@
 </script>
 
 <TitleBar
-  title={settingsFor ? 'KyberNow · Réglages' : 'KyberNow'}
+  title={settingsFor ? t('app.title_settings') : 'KyberNow'}
   onback={settingsFor ? () => (settingsId = null) : undefined}
   onapp={() => (appSheet = true)}
   badge={update !== null}
@@ -148,12 +155,12 @@
 {#if (update || notice) && !settingsFor && !passage}
   <div class="banner" role="status">
     {#if update}
-      <span>KyberNow {update.version} est prête.</span>
-      {#if progress !== null}<span class="mono">{progress} %</span>{:else}<button onclick={installUpdate}>Installer et relancer</button>{/if}
-      <button class="more" onclick={() => (appSheet = true)}>Nouveautés</button>
+      <span>{t('app.update_ready', { version: update.version })}</span>
+      {#if progress !== null}<span class="mono">{progress} %</span>{:else}<button onclick={installUpdate}>{t('app.install_relaunch')}</button>{/if}
+      <button class="more" onclick={() => (appSheet = true)}>{t('app.whats_new')}</button>
     {:else}
       <span>{notice}</span>
-      <button class="more" onclick={() => (notice = null)}>OK</button>
+      <button class="more" onclick={() => (notice = null)}>{t('common.ok')}</button>
     {/if}
   </div>
 {/if}

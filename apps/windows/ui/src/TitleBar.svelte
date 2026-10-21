@@ -3,6 +3,7 @@
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
   import { currentWindow } from './lib/api'
+  import { t } from './lib/i18n/index.svelte'
 
   let { title = 'KyberNow', onback, onapp, badge = false }: { title?: string; onback?: () => void; onapp?: () => void; badge?: boolean } = $props()
 </script>
@@ -10,18 +11,18 @@
 <header data-tauri-drag-region>
   <div class="left" data-tauri-drag-region>
     {#if onback}
-      <button class="back" aria-label="Retour à l'accueil" onclick={onback}><Icon name="back" size={16} /></button>
+      <button class="back" aria-label={t('titlebar.back')} onclick={onback}><Icon name="back" size={16} /></button>
     {/if}
     <Mark size={16} state="now" />
     <span data-tauri-drag-region>{title}</span>
   </div>
   <div class="caption">
     {#if onapp}
-      <button aria-label="Réglages de l'app" class="gear" onclick={onapp}><Icon name="gear" size={16} stroke={1.6} />{#if badge}<span class="badge"></span>{/if}</button>
+      <button aria-label={t('titlebar.app_settings')} class="gear" onclick={onapp}><Icon name="gear" size={16} stroke={1.6} />{#if badge}<span class="badge"></span>{/if}</button>
     {/if}
-    <button aria-label="Réduire" onclick={() => currentWindow().minimize()}><Icon name="minimize" size={12} stroke={1.2} /></button>
-    <button aria-label="Agrandir" onclick={() => currentWindow().toggleMaximize()}><Icon name="maximize" size={11} stroke={1.2} /></button>
-    <button aria-label="Fermer" class="close" onclick={() => currentWindow().close()}><Icon name="x" size={12} stroke={1.2} /></button>
+    <button aria-label={t('titlebar.minimize')} onclick={() => currentWindow().minimize()}><Icon name="minimize" size={12} stroke={1.2} /></button>
+    <button aria-label={t('titlebar.maximize')} onclick={() => currentWindow().toggleMaximize()}><Icon name="maximize" size={11} stroke={1.2} /></button>
+    <button aria-label={t('common.close')} class="close" onclick={() => currentWindow().close()}><Icon name="x" size={12} stroke={1.2} /></button>
   </div>
 </header>
 

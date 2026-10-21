@@ -7,6 +7,7 @@
   import { send } from './backend'
   import { app, go, stepIndex, STEPS } from './state.svelte'
   import Mark from './Mark.svelte'
+  import { t } from './i18n/index.svelte'
 
   const index = $derived(stepIndex())
   const finished = $derived(app.screen === 'done')
@@ -39,7 +40,7 @@
     <Mark size={38} state="now" />
     <div>
       <span class="disp name"><span>Kyber</span><b>Now</b></span>
-      <span class="version">Version {__APP_VERSION__}{app.checksDone ? ` · ${app.arch === 'arm64' ? 'ARM64' : 'x64'}` : ''}</span>
+      <span class="version">{t('rail.version', { version: __APP_VERSION__ })}{app.checksDone ? ` · ${app.arch === 'arm64' ? 'ARM64' : 'x64'}` : ''}</span>
     </div>
   </div>
 
@@ -49,14 +50,14 @@
       {@const current = i === index && !finished}
       <li class:done class:current aria-current={current ? 'step' : undefined}>
         <span class="num">{done ? '✓' : i + 1}</span>
-        <span>{step.label}</span>
+        <span>{t(step.label)}</span>
       </li>
     {/each}
   </ol>
 
   <div class="foot">
-    Logiciel libre (AGPL-3.0) ·
-    <button type="button" class="text-button" onclick={() => go(app.screen === 'about' ? app.previous : 'about')}>{app.screen === 'about' ? 'Retour' : 'À propos'}</button>
+    {t('rail.free')}
+    <button type="button" class="text-button" onclick={() => go(app.screen === 'about' ? app.previous : 'about')}>{app.screen === 'about' ? t('rail.back') : t('rail.about')}</button>
   </div>
 </aside>
 

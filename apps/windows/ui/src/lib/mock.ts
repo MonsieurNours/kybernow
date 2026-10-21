@@ -1,5 +1,9 @@
 // Imitation de l'app pour travailler l'interface dans un navigateur
 // (`npm run dev`) : jamais incluse dans l'app (seulement en développement).
+// Langue : celle du navigateur, `?lang=en` ou `?lang=fr` pour forcer, ou le
+// réglage Langue de l'app (comme dans l'app, sans recharger).
+
+import { i18n, langFromTag, t } from './i18n/index.svelte'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -76,6 +80,18 @@ const discovered = [{ id: 'studio', name: 'Studio-Son', host: '192.168.1.42', po
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// Notes d'une release : français, `<!-- en -->`, anglais (comme sur GitHub).
+const notes = '- Client Windows : première version.\n- Console : accès par code appliqué dès que Kyber est libre.\n<!-- en -->\n- Windows client: first version.\n- Console: code access applied as soon as Kyber is free.'
+/** La partie des notes dans la langue de l'interface (comme `release_notes` du cœur). */
+const notesFor = (lang: string) => {
+  const lines = notes.split('\n')
+  const at = lines.findIndex((l) => l.trim() === '<!-- en -->')
+  if (at < 0) return notes
+  return (lang === 'en' ? lines.slice(at + 1) : lines.slice(0, at)).join('\n').trim()
+}
+let language: 'auto' | 'fr' | 'en' = 'auto'
+const update = () => ({ version: '0.2.9', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Windows-x64.exe', size: 1 })
+
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   snapshot: () => ({ computers, discovered, this_pc: thisPc, session: null, version: 'dev' }),
   probe_address: async (a) => {
@@ -84,8 +100,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   parse_link: (a) => {
     const m = String(a.link).match(/^kybernow:\/\/([^:/?]+):(\d+)/)
-    if (!m) throw "ce n'est pas un lien kybernow://"
-    return { host: m[1], port: Number(m[2]), name: 'Depuis le lien', fingerprint: 'sha256:aa' }
+    if (!m) throw t('mock.not_a_link')
+    return { host: m[1], port: Number(m[2]), name: t('mock.from_link'), fingerprint: 'sha256:aa' }
   },
   pair_start: async () => {
     await sleep(300)
@@ -95,7 +111,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   pair_cancel: () => null,
   add_computer: async () => {
     await sleep(500)
-    throw 'console : compte ou mot de passe incorrect (401)'
+    throw t('mock.bad_account')
   },
   save_settings: (a) => {
     computers = computers.map((c) => (c.id === a.id ? { ...c, settings: a.settings as typeof settings } : c))
@@ -119,7 +135,14 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   session_command: () => null,
   bar_hide: () => null,
   take_action: () => null,
-  app_info: () => ({ version: '0.2.8', channel: 'stable', update: { version: '0.2.9', channel: 'stable', notes: '- Client Windows : première version.\n- Console : accès par code appliqué dès que Kyber est libre.', page: '', file: 'KyberNow-Windows-x64.exe', size: 1 }, arch: 'x64' }),
+  app_info: () => ({ version: '0.2.8', channel: 'stable', language, lang: i18n.lang, update: update(), arch: 'x64' }),
+  set_language: (a) => {
+    language = a.language as typeof language
+    const lang = language === 'auto' ? langFromTag(new URLSearchParams(location.search).get('lang') ?? navigator.languages?.[0]) : language
+    emit('lang', lang)
+    emit('update', { ...update(), notes: notesFor(lang) })
+    return lang
+  },
   check_update: async () => {
     await sleep(600)
     return null
@@ -127,6 +150,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   set_channel: async () => null,
   bar_menu: () => null,
   session_profile: async (a) => {
+    // L'app écrit le profil en français, l'interface le traduit (localLabel).
     const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }
     emit('bar-label', { label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
   },
@@ -152,8 +176,8 @@ export function mockTauri() {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
         if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu' } }), 300)
         if (name === 'stats') {
-          const t = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: 'HEVC · carte graphique', relative: false, rtt_ms: 2.1 } }), 1000)
-          return () => clearInterval(t)
+          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1 } }), 1000)
+          return () => clearInterval(timer)
         }
         return () => {}
       },

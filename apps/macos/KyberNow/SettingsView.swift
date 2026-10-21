@@ -99,7 +99,7 @@ private struct SettingsContent: View {
     private var header: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 10) {
-                Theme.eyebrow("Réglages de connexion", color: Theme.muted)
+                Theme.eyebrow(String(localized: "Réglages de connexion"), color: Theme.muted)
                 Text(host.name).font(Theme.display(44, .bold)).tracking(-44 * 0.035).foregroundStyle(Theme.text).lineLimit(1).minimumScaleFactor(0.6)
                 Text("Sur ce Mac. Partez d'un profil, ajustez ensuite si besoin : il devient « Personnalisé ».")
                     .font(Theme.sans(14)).foregroundStyle(Theme.muted)
@@ -109,7 +109,7 @@ private struct SettingsContent: View {
                 Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
                           icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 38)
                     .fixedSize()
-                Text(s.profile?.summary ?? "Personnalisé : vous avez ajusté un profil.")
+                Text(s.profile?.summary ?? String(localized: "Personnalisé : vous avez ajusté un profil."))
                     .font(Theme.sans(13)).foregroundStyle(Theme.muted)
             }
         }
@@ -118,7 +118,7 @@ private struct SettingsContent: View {
     // MARK: - Écran
 
     private var displayCard: some View {
-        SettingsCard(icon: "monitor", title: "Écran de l'ordinateur") {
+        SettingsCard(icon: "monitor", title: String(localized: "Écran de l'ordinateur")) {
             Text("L'ordinateur peut créer un écran virtuel à la taille du vôtre et mettre ses vrais écrans en veille le temps de la session. L'image remplit votre écran, sans bandes noires.")
                 .font(Theme.sans(13)).foregroundStyle(Theme.muted).lineSpacing(2)
                 .fixedSize(horizontal: false, vertical: true)
@@ -127,7 +127,7 @@ private struct SettingsContent: View {
             let native = DisplayInfo.mode(for: screen, codec: s.codec)
             let full = DisplayInfo.mode(for: screen, codec: .hevc)
             VStack(spacing: 8) {
-                option(.match, "Comme cet écran", "\(m.width) × \(m.height) · \(m.refresh) Hz")
+                option(.match, String(localized: "Comme cet écran"), "\(m.width) × \(m.height) · \(m.refresh) Hz")
                 if s.display == .match, full.width > 3840 || full.height > 2160 {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -138,20 +138,20 @@ private struct SettingsContent: View {
                                 .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer()
-                        Switch(isOn: Binding(get: { s.limit4K }, set: { v in update { $0.limit4K = v } }), label: "Au plus 4K")
+                        Switch(isOn: Binding(get: { s.limit4K }, set: { v in update { $0.limit4K = v } }), label: String(localized: "Au plus 4K"))
                     }
                     .padding(.leading, 28)
                 }
-                option(.window, "Taille de la fenêtre", "session fenêtrée, l'écran suit la fenêtre")
-                option(.custom, "Sur mesure", "\(s.customWidth) × \(s.customHeight) · \(s.customRefresh) Hz")
+                option(.window, String(localized: "Taille de la fenêtre"), String(localized: "session fenêtrée, l'écran suit la fenêtre"))
+                option(.custom, String(localized: "Sur mesure"), "\(s.customWidth) × \(s.customHeight) · \(s.customRefresh) Hz")
                 if s.display == .custom { customMode }
-                option(.physical, "Un écran de l'ordinateur", "sans écran virtuel")
+                option(.physical, String(localized: "Un écran de l'ordinateur"), String(localized: "sans écran virtuel"))
             }
             if info != nil, info?.virtualDisplay == false, s.display != .physical {
-                Notice(kind: .warn, text: "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels.")
+                Notice(kind: .warn, text: String(localized: "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels."))
             }
             Spacer(minLength: 0)
-            Notice(kind: .info, text: "À la fin de la session, l'écran virtuel disparaît et les écrans de l'ordinateur se rallument comme avant.")
+            Notice(kind: .info, text: String(localized: "À la fin de la session, l'écran virtuel disparaît et les écrans de l'ordinateur se rallument comme avant."))
         }
         .frame(minHeight: 590, alignment: .top)
     }
@@ -181,11 +181,11 @@ private struct SettingsContent: View {
     private var customMode: some View {
         HStack(spacing: 8) {
             number(s.customWidth, range: 640...7680) { v in update { $0.customWidth = v } }
-            Text("×").foregroundStyle(Theme.muted)
+            Text(verbatim: "×").foregroundStyle(Theme.muted)
             number(s.customHeight, range: 480...4320) { v in update { $0.customHeight = v } }
             Text("à").foregroundStyle(Theme.muted)
             number(s.customRefresh, range: 24...500) { v in update { $0.customRefresh = v } }
-            Text("Hz").foregroundStyle(Theme.muted)
+            Text(verbatim: "Hz").foregroundStyle(Theme.muted)
         }
         .font(Theme.sans(13))
         .padding(.leading, 28)
@@ -198,7 +198,7 @@ private struct SettingsContent: View {
     // MARK: - Image
 
     private var imageCard: some View {
-        SettingsCard(icon: "image", title: "Image") {
+        SettingsCard(icon: "image", title: String(localized: "Image")) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Format de compression").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
                 Segmented(
@@ -212,14 +212,14 @@ private struct SettingsContent: View {
 
             HStack(spacing: 8) {
                 Text("Texte net (4:4:4)").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
-                InfoTip(label: "Qu'est-ce que le 4:4:4 ?") {
+                InfoTip(label: String(localized: "Qu'est-ce que le 4:4:4 ?")) {
                     Text("Toutes les couleurs, pour chaque pixel").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("D'habitude, la couleur est envoyée pour un pixel sur quatre : invisible dans un jeu, mais le texte fin bave un peu. Le 4:4:4 garde tout.")
                     Text("+ Texte, code et tableurs parfaitement nets").foregroundStyle(Theme.accent)
                     Text("− Débit plus élevé, encodage un peu plus long sur l'ordinateur").foregroundStyle(Theme.warn)
                 }
                 Spacer()
-                Switch(isOn: Binding(get: { s.yuv444 && can444 }, set: { v in update(custom: true) { $0.yuv444 = v } }), label: "Texte net (4:4:4)")
+                Switch(isOn: Binding(get: { s.yuv444 && can444 }, set: { v in update(custom: true) { $0.yuv444 = v } }), label: String(localized: "Texte net (4:4:4)"))
                     .disabled(!can444)
                     .opacity(can444 ? 1 : 0.4)
             }
@@ -231,18 +231,18 @@ private struct SettingsContent: View {
 
             HStack(spacing: 8) {
                 Text("Synchro verticale").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
-                InfoTip(label: "Qu'est-ce que la synchro verticale ?") {
+                InfoTip(label: String(localized: "Qu'est-ce que la synchro verticale ?")) {
                     Text("Afficher l'image au bon moment").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("Avec la synchro, chaque image attend le prochain rafraîchissement de l'écran : jamais coupée, au plus un rafraîchissement d'attente (8 ms à 120 Hz, 16 ms à 60 Hz).")
                     Text("Sans elle, l'image s'affiche dès qu'elle est décodée : la latence la plus basse, mais l'écran peut montrer deux images coupées par une ligne (déchirure).")
                     Text("Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), c'est l'écran qui attend l'image : gardez la synchro, elle ne coûte rien.").foregroundStyle(Theme.accent)
                 }
                 Spacer()
-                Switch(isOn: Binding(get: { s.vsync }, set: { v in update { $0.vsync = v } }), label: "Synchro verticale")
+                Switch(isOn: Binding(get: { s.vsync }, set: { v in update { $0.vsync = v } }), label: String(localized: "Synchro verticale"))
             }
             HStack(spacing: 8) {
                 Text("Garder la dernière image").font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
-                InfoTip(label: "Pourquoi garder la dernière image ?") {
+                InfoTip(label: String(localized: "Pourquoi garder la dernière image ?")) {
                     Text("Le fond de l'accueil").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("À la fin de chaque session, l'app garde une petite image de l'écran de l'ordinateur, sur ce Mac seulement. Elle sert de fond à l'accueil.")
                     Text("Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur.")
@@ -251,7 +251,7 @@ private struct SettingsContent: View {
                 Switch(isOn: Binding(get: { s.keepLastImage }, set: { v in
                     update { $0.keepLastImage = v }
                     if !v { app.store.imagery.forgetLast(host) }
-                }), label: "Garder la dernière image")
+                }), label: String(localized: "Garder la dernière image"))
             }
             if !s.vsync {
                 Text(variableRefresh ? "Votre écran suit déjà l'image (fréquence variable) : sans synchro, vous ne gagnez presque rien." : "Latence la plus basse, déchirure possible dans les mouvements rapides.")
@@ -298,12 +298,12 @@ private struct SettingsContent: View {
     private var codecHint: String {
         let base: String
         switch s.codec {
-        case .h264: base = "Le plus compatible. Demande plus de débit pour la même netteté."
-        case .hevc: base = "Recommandé : plus net à débit égal, décodé par la puce de ce Mac."
-        case .av1: base = "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net)."
+        case .h264: base = String(localized: "Le plus compatible. Demande plus de débit pour la même netteté.")
+        case .hevc: base = String(localized: "Recommandé : plus net à débit égal, décodé par la puce de ce Mac.")
+        case .av1: base = String(localized: "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net).")
         }
-        if !DecoderCapabilities.current.av1 { return base + " Ce Mac ne décode pas l'AV1 en matériel." }
-        return info?.av1 == true ? base : base + " AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur."
+        if !DecoderCapabilities.current.av1 { return base + " " + String(localized: "Ce Mac ne décode pas l'AV1 en matériel.") }
+        return info?.av1 == true ? base : base + " " + String(localized: "AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur.")
     }
 
     // MARK: - Ce Mac
@@ -312,13 +312,13 @@ private struct SettingsContent: View {
     private var machineCard: some View {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let native = DisplayInfo.nativePixels(screen)
-        return SettingsCard(icon: "cpu", title: "Ce Mac") {
+        return SettingsCard(icon: "cpu", title: String(localized: "Ce Mac")) {
             VStack(alignment: .leading, spacing: 8) {
-                fact("Écran", "\(screen.localizedName) · \(native.width) × \(native.height) · \(DisplayInfo.refreshLabel(screen))")
+                fact(String(localized: "Écran"), "\(screen.localizedName) · \(native.width) × \(native.height) · \(DisplayInfo.refreshLabel(screen))")
                 if let looks = DisplayInfo.scaledLooksLike(screen) {
-                    fact("Affichage de macOS", "agrandi, comme \(looks)")
+                    fact(String(localized: "Affichage de macOS"), String(localized: "agrandi, comme \(looks)"))
                 }
-                fact("Décodage matériel", DecoderCapabilities.current.summary)
+                fact(String(localized: "Décodage matériel"), DecoderCapabilities.current.summary)
             }
             Text(variableRefresh
                  ? "L'écran se cale sur chaque image : latence minimale sans déchirure."
@@ -338,7 +338,7 @@ private struct SettingsContent: View {
     // MARK: - Réseau
 
     private var networkCard: some View {
-        SettingsCard(icon: "wifi-high", title: "Réseau") {
+        SettingsCard(icon: "wifi-high", title: String(localized: "Réseau")) {
             Segmented(
                 options: Transport.allCases.map { ($0, $0.label) },
                 selection: Binding(get: { s.transport }, set: { t in if let t { update(custom: true) { $0.transport = t } } }),
@@ -348,7 +348,7 @@ private struct SettingsContent: View {
             HStack {
                 Text("Se reconnecter tout seul").font(Theme.sans(14)).foregroundStyle(Theme.text)
                 Spacer()
-                Switch(isOn: Binding(get: { s.autoReconnect }, set: { v in update { $0.autoReconnect = v } }), label: "Se reconnecter tout seul")
+                Switch(isOn: Binding(get: { s.autoReconnect }, set: { v in update { $0.autoReconnect = v } }), label: String(localized: "Se reconnecter tout seul"))
             }
         }
     }
@@ -356,16 +356,16 @@ private struct SettingsContent: View {
     // MARK: - Contrôles et son
 
     private var controlsCard: some View {
-        SettingsCard(icon: "game-controller", title: "Contrôles et son") {
+        SettingsCard(icon: "game-controller", title: String(localized: "Contrôles et son")) {
             HStack {
                 Text("Touche ⌘ envoyée comme Ctrl").font(Theme.sans(14)).foregroundStyle(Theme.text)
                 Spacer()
-                Switch(isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }), label: "Touche ⌘ envoyée comme Ctrl")
+                Switch(isOn: Binding(get: { s.commandAsControl }, set: { v in update { $0.commandAsControl = v } }), label: String(localized: "Touche ⌘ envoyée comme Ctrl"))
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("Souris").font(Theme.sans(14)).foregroundStyle(Theme.text)
-                    InfoTip(label: "Souris") {
+                    InfoTip(label: String(localized: "Souris")) {
                         Text("Bureau ou jeu").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                         Text("En mode bureau, le pointeur du Mac se pose où vous le placez sur l'ordinateur. En mode jeu, seuls les déplacements bruts partent, sans l'accélération de macOS, et le pointeur du Mac se cache : c'est ce qu'attend un jeu pour viser.")
                         Text("Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur. Pendant la session, la barre en haut de l'écran change de mode, et ⌃⌥⌘M bascule.")
@@ -382,7 +382,7 @@ private struct SettingsContent: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text("Manette vue par l'ordinateur").font(Theme.sans(14)).foregroundStyle(Theme.text)
-                    InfoTip(label: "Manette vue par l'ordinateur") {
+                    InfoTip(label: String(localized: "Manette vue par l'ordinateur")) {
                         Text("Xbox 360 ou fidèle").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                         Text("Xbox 360 : toutes les manettes, PlayStation comprises, passent pour des manettes Xbox 360, celles que tous les jeux reconnaissent. Fidèle : une manette Sony reste une DualShock 4, avec son pavé tactile et sa barre lumineuse pour les jeux qui s'en servent ; certains jeux anciens ne la voient pas.")
                         Text("Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients.")
@@ -398,13 +398,13 @@ private struct SettingsContent: View {
             }
             HStack(spacing: 8) {
                 Text("Presse-papiers partagé").font(Theme.sans(14)).foregroundStyle(Theme.text)
-                InfoTip(label: "Presse-papiers partagé") {
+                InfoTip(label: String(localized: "Presse-papiers partagé")) {
                     Text("Copier ici, coller là-bas").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("Le texte copié sur le Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Les images et les fichiers restent de leur côté.")
                     Text("La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers).")
                 }
                 Spacer()
-                Switch(isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }), label: "Presse-papiers partagé")
+                Switch(isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }), label: String(localized: "Presse-papiers partagé"))
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Son").font(Theme.sans(14)).foregroundStyle(Theme.text)
@@ -425,7 +425,7 @@ private struct SettingsContent: View {
 
     private var audioHint: String {
         if info != nil, info?.speakers == false, s.audio != .off {
-            return s.audio.hint + " Sans Steam sur l'ordinateur, le son reste aussi sur ses haut-parleurs."
+            return s.audio.hint + " " + String(localized: "Sans Steam sur l'ordinateur, le son reste aussi sur ses haut-parleurs.")
         }
         return s.audio.hint
     }
@@ -460,7 +460,7 @@ private struct BitrateControl: View {
                 Spacer()
                 NumberField(value: value, range: ConnectionSettings.minBitrate...ConnectionSettings.maxBitrate) { value = $0 }
                     .frame(width: 76)
-                Text("Mbit/s").font(Theme.sans(12)).foregroundStyle(Theme.muted)
+                Text(verbatim: "Mbit/s").font(Theme.sans(12)).foregroundStyle(Theme.muted)
             }
             Slider(value: position, in: 0...1)
                 .tint(level == 2 ? Theme.danger : level == 1 ? Theme.warn : Theme.accent)
@@ -474,9 +474,9 @@ private struct BitrateControl: View {
             }
             switch level {
             case 2:
-                Notice(kind: .danger, text: "Au-delà de ce qu'un réseau Gigabit transporte (~940 Mbit/s). Réservé au 2,5 ou 10 Gbit/s, câblé de bout en bout. Sinon, l'image saccadera.")
+                Notice(kind: .danger, text: String(localized: "Au-delà de ce qu'un réseau Gigabit transporte (~940 Mbit/s). Réservé au 2,5 ou 10 Gbit/s, câblé de bout en bout. Sinon, l'image saccadera."))
             case 1:
-                Notice(kind: .warn, text: "Très haut débit. En Wi-Fi ou sur un réseau chargé, des images risquent de se perdre et la latence de grimper. Préférez un câble Ethernet.")
+                Notice(kind: .warn, text: String(localized: "Très haut débit. En Wi-Fi ou sur un réseau chargé, des images risquent de se perdre et la latence de grimper. Préférez un câble Ethernet."))
             default:
                 Text("Plus de débit, plus de détails dans les scènes chargées. En réseau local, 80 à 150 Mbit/s suffisent en 4K.")
                     .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
@@ -494,7 +494,7 @@ private struct NumberField: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        TextField("", text: $text)
+        TextField(text: $text) { EmptyView() }
             .textFieldStyle(.plain)
             .font(Theme.mono(13))
             .multilineTextAlignment(.trailing)
@@ -525,7 +525,7 @@ private struct GamepadStatus: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle().fill(name != nil ? Theme.ok : Theme.faint).frame(width: 8, height: 8)
-            Text(name.map { "Manette prête : \($0)" } ?? "Aucune manette branchée")
+            Text(name.map { String(localized: "Manette prête : \($0)") } ?? String(localized: "Aucune manette branchée"))
                 .font(Theme.sans(13)).foregroundStyle(Theme.text2)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)

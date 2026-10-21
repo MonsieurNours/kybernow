@@ -7,7 +7,8 @@ final class RemoteNavigationTests: XCTestCase {
 
     private func launch(_ args: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-demo", "YES"] + args
+        // Libellés cherchés en français, quelle que soit la langue du simulateur.
+        app.launchArguments = ["-demo", "YES", "-AppleLanguages", "(fr)"] + args
         app.launch()
         return app
     }

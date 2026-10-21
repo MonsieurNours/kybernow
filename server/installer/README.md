@@ -91,6 +91,14 @@ Le contrôle « Pilote graphique » affiche la version du pilote de cette carte 
 
 Compiler seule : `cd server/tray && cargo build --release --target x86_64-pc-windows-gnu` (avec l'éditeur de liens de `build.sh`).
 
+## Langues
+
+Français et anglais, selon la règle de [docs/i18n.md](../../docs/i18n.md) : la première langue d'affichage de Windows (`GetUserPreferredUILanguages`, sinon `GetUserDefaultUILanguage`) commence par `fr`, français ; toute autre langue, anglais. Ni l'installateur ni l'icône n'ont de réglage de langue.
+
+- **Installateur.** Les textes du Rust (boîtes du lanceur et de la désinstallation, contrôles de l'analyse, messages sur les ports, erreurs montrées à l'écran, nom et description du service `kyber`, raccourcis du menu Démarrer) sont dans `i18n/fr.json` et `i18n/en.json`, embarqués (`src/i18n.rs`, `tr(lang, "cle", &[("nom", &valeur)])`). L'interface reçoit la langue de son hôte avant de démarrer (`window.__knLang`) et prend ses textes dans `ui/src/lib/i18n/fr.json` et `en.json` (`t('ecran.cle', { nom })`) ; dans un navigateur, `?lang=en` ou la langue du navigateur. Le journal (`install.log`, et les lignes « détail » de l'écran Installation qui en viennent) reste en français.
+- **Icône.** Mêmes catalogues dans `server/tray/i18n/` : `tray` pour le menu, l'infobulle et les boîtes de dialogue, `panel` pour le panneau (posé dans la page avant son chargement, `window.__knI18n`). L'icône envoie `Accept-Language: fr|en` à la console, qui répond dans cette langue (erreurs, noms d'événements).
+- **Contrôles.** Une clé absente en anglais retombe sur le français. `cargo test` (installateur et icône) et `npm run check` (interface) vérifient que les deux langues ont les mêmes clés et les mêmes `{variables}`, et, pour l'icône, que chaque `t('…')` de `panel.html` existe. `KYBERNOW_LANG=en` (ou `fr`) force la langue de l'installateur et de l'icône, pour essayer.
+
 ## Construire (depuis le Mac)
 
 `build.sh` produit `dist/KyberNow-Server-Setup.exe` ; `package-update.sh` produit ensuite le paquet de mise à jour d'un ordinateur déjà installé (`dist/kybernow-update.zip`, avec `update.ps1` et `version.txt`, plus `dist/SHA256SUMS`). Publication : [docs/releases.md](../../docs/releases.md). `update.ps1` se teste sans Windows avec `pwsh -NoProfile -File tests/update-bench.ps1`.
@@ -106,5 +114,7 @@ Prérequis : `brew install mingw-w64 zstd`, `rustup target add x86_64-pc-windows
 ```bash
 npm --prefix server/installer/ui run dev     # navigateur : backend simulé (ui/src/lib/backend.ts)
 ```
+
+En anglais : `http://localhost:5173/?lang=en` (`&existant` simule une réinstallation).
 
 Hors Windows, `kybernow-ui` fonctionne aussi avec un déroulé d'installation simulé.

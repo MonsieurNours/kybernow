@@ -75,13 +75,13 @@ pub fn read_footer(path: &Path) -> Result<(Footer, u64)> {
     let mut f = File::open(path).with_context(|| format!("ouverture de {}", path.display()))?;
     let len = content_end(&mut f)?;
     if len < FOOTER_LEN {
-        bail!("installateur incomplet");
+        return Err(crate::i18n::err("errors.incomplete", &[]));
     }
     f.seek(SeekFrom::Start(len - FOOTER_LEN))?;
     let mut b = [0u8; FOOTER_LEN as usize];
     f.read_exact(&mut b)?;
     if &b[56..64] != MAGIC {
-        bail!("l'app est introuvable dans l'installateur (fichier abîmé ?)");
+        return Err(crate::i18n::err("errors.noApp", &[]));
     }
     let n = |i: usize| u64::from_le_bytes(b[i * 8..i * 8 + 8].try_into().unwrap());
     let footer = Footer {
@@ -89,7 +89,7 @@ pub fn read_footer(path: &Path) -> Result<(Footer, u64)> {
         arm64: Part { archive_len: n(3), unpacked_bytes: n(4), files: n(5) },
     };
     let archives = footer.x64.archive_len.checked_add(footer.arm64.archive_len);
-    let exe_len = archives.and_then(|a| (len - FOOTER_LEN).checked_sub(a)).context("installateur abîmé")?;
+    let exe_len = archives.and_then(|a| (len - FOOTER_LEN).checked_sub(a)).ok_or_else(|| crate::i18n::err("errors.damaged", &[]))?;
     Ok((footer, exe_len))
 }
 
@@ -139,7 +139,7 @@ pub fn extract(path: &Path, arch: Arch, dest: &Path, mut progress: impl FnMut(f3
     let (footer, exe_len) = read_footer(path)?;
     let part = footer.part(arch);
     if part.archive_len == 0 {
-        bail!("cet installateur ne contient pas la version {} de KyberNow", arch.label());
+        return Err(crate::i18n::err("errors.noArch", &[("arch", &arch.label())]));
     }
     let start = match arch {
         Arch::X64 => exe_len,
@@ -171,7 +171,7 @@ pub fn extract(path: &Path, arch: Arch, dest: &Path, mut progress: impl FnMut(f3
         }
     }
     if count != part.files {
-        bail!("contenu incomplet : {count} fichiers sur {}", part.files);
+        return Err(crate::i18n::err("errors.contentIncomplete", &[("count", &count), ("total", &part.files)]));
     }
     progress(1.0, "");
     Ok(count)

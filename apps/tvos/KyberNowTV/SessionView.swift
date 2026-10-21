@@ -52,7 +52,7 @@ struct SessionView: View {
             }
 
             if session.menuHint, !session.menuOpen {
-                MenuHint(text: "Retour ou L1 + R1 + Start + Select : menu")
+                MenuHint(text: String(localized: "Retour ou L1 + R1 + Start + Select : menu"))
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, 48)
                     .transition(.opacity)
@@ -81,7 +81,7 @@ struct SessionView: View {
             }
 
             if isReconnecting, !session.menuOpen {
-                MenuHint(text: "Reconnexion à \(session.host.name)…")
+                MenuHint(text: String(localized: "Reconnexion à \(session.host.name)…"))
                     .frame(maxHeight: .infinity, alignment: .top)
                     .padding(.top, 48)
             }
@@ -218,9 +218,11 @@ struct Passage: View {
     /// Comme sur l'accueil : la photographie de l'accueil s'ouvre.
     private var caption: String {
         if let p = imagery.pictures[host.id] {
-            return "\(p.source == .lastSession ? "Dernière image" : "Aperçu") · \(HomeView.when(p.date))"
+            return p.source == .lastSession
+                ? String(localized: "Dernière image · \(HomeView.when(p.date))")
+                : String(localized: "Aperçu · \(HomeView.when(p.date))")
         }
-        return host.lastSession.map { "Dernière session · \(HomeView.when($0))" } ?? "Jamais ouvert sur cette Apple TV"
+        return host.lastSession.map { String(localized: "Dernière session · \(HomeView.when($0))") } ?? String(localized: "Jamais ouvert sur cette Apple TV")
     }
 
     private func half(_ corner: Alignment) -> some View {
@@ -237,7 +239,7 @@ struct Passage: View {
                     .padding(.vertical, -16)
                 HStack(spacing: 12) {
                     Circle().fill(Theme.ok).frame(width: 10, height: 10)
-                    Text(app.isLocal(host) ? "En ligne · réseau local" : "En ligne · par VPN").font(Theme.sans(21))
+                    (app.isLocal(host) ? Text("En ligne · réseau local") : Text("En ligne · par VPN")).font(Theme.sans(21))
                 }
                 .padding(.leading, 16).padding(.trailing, 18)
                 .frame(height: 44)
@@ -298,9 +300,9 @@ struct EnteringCapsule: View {
             }
             Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1)
             VStack(alignment: .leading, spacing: 7) {
-                tick("Écran \(session.modeLabel)")
+                tick(String(localized: "Écran \(session.modeLabel)"))
                 tick(soundLine)
-                if let first = firstImage { tick("Premières images en \(first)") }
+                if let first = firstImage { tick(String(localized: "Premières images en \(first)")) }
             }
             .font(Theme.mono(15))
             .foregroundStyle(Theme.muted)
@@ -321,17 +323,23 @@ struct EnteringCapsule: View {
     }
 
     private var soundLine: String {
-        let audio = session.host.settings.audio == .off ? "Son sur l'ordinateur" : "Son \(session.route.channelsLabel)"
-        let players = pads.pads.filter { !$0.waiting }.map { "J\($0.player)" }
+        let audio = session.host.settings.audio == .off ? String(localized: "Son sur l'ordinateur") : String(localized: "Son \(session.route.channelsLabel)")
+        let players = pads.pads.filter { !$0.waiting }.map { String(localized: "J\($0.player)") }
         switch players.count {
         case 0: return audio
-        case 1: return "\(audio) · \(players[0]) branché"
-        default: return "\(audio) · \(players.dropLast().joined(separator: ", ")) et \(players.last!) branchés"
+        case 1: return String(localized: "\(audio) · \(players[0]) branché")
+        default:
+            let first = players.dropLast().joined(separator: ", ")
+            let last = players.last!
+            return String(localized: "\(audio) · \(first) et \(last) branchés")
         }
     }
 
     private var firstImage: String? {
-        session.firstImageDelay.map { String(format: "%.1f s", $0).replacingOccurrences(of: ".", with: ",") }
+        session.firstImageDelay.map {
+            let s = String(format: "%.1f s", $0)
+            return LanguageChoice.effective == "fr" ? s.replacingOccurrences(of: ".", with: ",") : s
+        }
     }
 
     private func tick(_ text: String) -> some View {
@@ -370,7 +378,7 @@ struct SessionFailure: View {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 14) {
                     Icon("warning", size: 28).foregroundStyle(Theme.warn)
-                    Theme.eyebrow("La session s'est arrêtée", color: Theme.warnText).font(Theme.mono(18))
+                    Theme.eyebrow(String(localized: "La session s'est arrêtée"), color: Theme.warnText).font(Theme.mono(18))
                 }
                 Text(host.name).font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
                 Text(message.prefix(1).uppercased() + message.dropFirst() + ".")

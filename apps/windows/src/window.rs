@@ -22,8 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
 use kybernow_core::kynput_rs::{Cursor, CursorData, MouseButtonType};
+use kybernow_core::i18n::Lang;
 use kybernow_core::session::{Session, Status};
 
+use crate::i18n::t;
 use crate::input::Input;
 use crate::render::video_rect;
 use crate::video::Shared;
@@ -276,23 +278,33 @@ impl App {
     fn title(&self) -> String {
         let status = self.status.lock().unwrap().clone();
         let detail = match status {
-            None | Some(Status::Preparing) => "préparation de l'écran".to_string(),
-            Some(Status::Connecting) => "connexion".to_string(),
-            Some(Status::FirstImages) => "premières images".to_string(),
+            None | Some(Status::Preparing) => t("window.preparing", &[]),
+            Some(Status::Connecting) => t("window.connecting", &[]),
+            Some(Status::FirstImages) => t("window.first_images", &[]),
             Some(Status::Streaming) => {
                 let lat = self
                     .latency
                     .lock()
                     .unwrap()
-                    .map(|l| format!("{:.1} ms", l).replace('.', ","))
+                    .map(|l| {
+                        let v = format!("{:.1} ms", l);
+                        // Virgule décimale en français.
+                        if crate::i18n::lang() == Lang::Fr { v.replace('.', ",") } else { v }
+                    })
                     .unwrap_or_else(|| "— ms".into());
                 let dec = self.shared.decoder.lock().unwrap().clone();
                 let (w, h) = *self.host_size.lock().unwrap();
-                format!("{lat} · {w} × {h} · {dec} · {} i/s", self.fps.lock().unwrap())
+                let fps = self.fps.lock().unwrap().to_string();
+                t(
+                    "window.streaming",
+                    &[("latency", &lat), ("width", &w.to_string()), ("height", &h.to_string()), ("decoder", &dec), ("fps", &fps)],
+                )
             }
-            Some(Status::Reconnecting { attempt, max }) => format!("reconnexion ({attempt}/{max})"),
-            Some(Status::Ending) => "fin de la session".to_string(),
-            Some(Status::Ended { .. }) => "session terminée".to_string(),
+            Some(Status::Reconnecting { attempt, max }) => {
+                t("window.reconnecting", &[("attempt", &attempt.to_string()), ("max", &max.to_string())])
+            }
+            Some(Status::Ending) => t("window.ending", &[]),
+            Some(Status::Ended { .. }) => t("window.ended", &[]),
         };
         format!("KyberNow — {} · {detail}", self.host_name)
     }

@@ -21,8 +21,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde_json::{Value, json};
+
+use crate::i18n::{self, Msg};
 
 pub mod acl;
 pub mod apply;
@@ -65,13 +67,14 @@ struct State {
     channel: Channel,
     checked: Option<Instant>,
     latest: Option<Release>,
-    error: Option<String>,
+    /// Échec de la dernière vérification (écrit dans la langue de qui lit).
+    error: Option<anyhow::Error>,
     installing: Option<String>,
     /// Applicateur de l'installation en cours, suivi pour voir s'il s'arrête
     /// sans avoir remplacé la console.
     child: Option<std::process::Child>,
     /// Dernière installation qui n'a pas abouti (fin de son journal).
-    install_error: Option<String>,
+    install_error: Option<Msg>,
     /// Échec signalé par l'applicateur (`update/resultat.json`) : version,
     /// raison, retour à la version précédente, journal.
     last_failure: Option<Value>,
@@ -103,12 +106,14 @@ pub fn current() -> &'static str {
 /// Une mise à jour (ou un retour en arrière) coupe la session en cours :
 /// message du refus (409) si un appareil est connecté et que `force` n'est pas
 /// demandé. `live` : la session en cours d'`activity` (`null` sans session).
-pub fn session_conflict(live: &Value, force: bool) -> Option<String> {
+pub fn session_conflict(live: &Value, force: bool) -> Option<Msg> {
     if force || live.is_null() {
         return None;
     }
-    let who = live["name"].as_str().map(|n| format!(" ({n})")).unwrap_or_default();
-    Some(format!("Un appareil est connecté{who} : l'installation coupera sa session"))
+    Some(match live["name"].as_str() {
+        Some(name) => Msg::new("update.sessionConflictNamed").with("name", name),
+        None => Msg::new("update.sessionConflict"),
+    })
 }
 
 /// Numéro de version publiable : trois nombres (« 0.2.6 »). Il sert de nom
@@ -132,21 +137,19 @@ impl Updater {
         let mut state = State::default();
         if let Some(failure) = read_failure(&dir.join(RESULT)) {
             let version = failure["version"].as_str().unwrap_or("?");
-            let message = failure["message"].as_str().unwrap_or("raison inconnue");
+            // La raison vient de l'applicateur (en français, comme son journal).
+            let message = failure["message"].as_str().map_or_else(|| Msg::new("update.unknownReason").to_value(), |m| json!(m));
             let back = if failure["rolled_back"].as_bool() == Some(true) {
-                format!("La version précédente ({}) a été remise en place.", current())
+                Msg::new("update.rolledBack").with("version", current())
             } else if failure["undo_failed"].as_bool() == Some(true) {
-                format!(
-                    "Le retour à la version précédente n'a pas abouti : la version {} tourne peut-être à moitié remplacée. Vérifiez les dossiers kyber, admin et tray (et leurs .prev) dans {}, ou réinstallez avec KyberNow-Server-Setup.exe.",
-                    current(),
-                    install_dir().display()
-                )
+                Msg::new("update.undoFailed").with("version", current()).with("dir", install_dir().display().to_string())
             } else {
-                "Les fichiers n'ont pas été remplacés.".to_string()
+                Msg::new("update.notReplaced")
             };
-            let log = failure["log"].as_str().filter(|l| !l.is_empty()).map(|l| format!("\nJournal : {l}")).unwrap_or_default();
-            tracing::error!("mise à jour {version} non installée : {message}");
-            state.install_error = Some(format!("L'installation de {version} n'a pas abouti : {message}. {back}{log}"));
+            let log = failure["log"].as_str().filter(|l| !l.is_empty()).map_or(json!(""), |l| Msg::new("update.logLine").with("path", l).to_value());
+            let msg = Msg::new("update.failed").with("version", version).with("message", message).with_msg("back", back).with("log", log);
+            tracing::error!("mise à jour {version} non installée : {}", failure["message"].as_str().unwrap_or("raison inconnue"));
+            state.install_error = Some(msg);
             state.last_failure = Some(failure);
         }
         // Le canal est relu ici (le fichier vient d'être lu par la console) :
@@ -172,8 +175,10 @@ impl Updater {
         }
     }
 
-    /// État pour la console et l'icône (sans appel réseau).
+    /// État pour la console et l'icône (sans appel réseau), textes et notes de
+    /// version dans la langue de la requête.
     pub fn status(&self) -> Value {
+        let lang = i18n::current();
         let mut s = self.state.lock().unwrap();
         self.reap(&mut s);
         let latest = s.latest.as_ref();
@@ -184,18 +189,19 @@ impl Updater {
             "latest": latest.map(|r| r.version.clone()),
             "available": latest.is_some_and(|r| newer(&r.version, current())),
             "prerelease": latest.is_some_and(|r| r.prerelease),
-            "notes": latest.map(|r| r.notes.clone()),
+            // La partie des notes dans cette langue (marqueur `<!-- en -->`).
+            "notes": latest.map(|r| i18n::notes_for(&r.notes, lang)),
             "published": latest.map(|r| r.published.clone()),
             "page": latest.map(|r| r.page.clone()),
             // Manifeste signé vérifié, compatible, paquet présent.
             "installable": latest.is_some_and(Release::installable),
             // Paquet refusé (signature, canal, version) ou à installer avec KyberNow-Server-Setup.exe.
-            "verify_error": refusal.map(|r| r.message().to_string()),
+            "verify_error": refusal.map(|r| r.message().render(lang)),
             "requires_setup": matches!(refusal, Some(Refusal::Setup(_))),
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
-            "error": s.error,
+            "error": s.error.as_ref().map(|e| i18n::error_text(lang, e)),
             "installing": s.installing,
-            "install_error": s.install_error,
+            "install_error": s.install_error.as_ref().map(|m| m.render(lang)),
             // Échec écrit par l'applicateur : contrôle de santé raté, retour arrière.
             "last_failure": s.last_failure,
             // Version des dossiers .prev : « Revenir à la version précédente ».
@@ -221,9 +227,14 @@ impl Updater {
             .map(|t| t.lines().rev().filter(|l| !l.trim().is_empty()).take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
             .ok()
             .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| "aucune sortie : l'applicateur s'est arrêté avant d'écrire".into());
-        tracing::error!("mise à jour {version} interrompue ({exit}) :\n{tail}");
-        s.install_error = Some(format!("L'installation de {version} s'est arrêtée ({exit}). Journal : {}\n{tail}", log.display()));
+            .map_or_else(|| Msg::new("update.noOutput").to_value(), Value::String);
+        let msg = Msg::new("update.stopped")
+            .with("version", version.as_str())
+            .with("exit", exit.to_string())
+            .with("log", log.display().to_string())
+            .with("tail", tail);
+        tracing::error!("mise à jour {version} interrompue ({exit}) :\n{}", msg.params["tail"].as_str().unwrap_or("aucune sortie"));
+        s.install_error = Some(msg);
     }
 
     /// Version disponible, si plus récente et signée par KyberNow (pour
@@ -256,7 +267,7 @@ impl Updater {
                     s.latest = Some(r);
                     s.error = None;
                 }
-                Err(e) => s.error = Some(format!("{e:#}")),
+                Err(e) => s.error = Some(e),
             }
         }
         self.status()
@@ -282,21 +293,21 @@ impl Updater {
             let mut s = self.state.lock().unwrap();
             self.reap(&mut s);
             if s.installing.is_some() {
-                bail!("une installation est déjà en cours");
+                bail!(Msg::new("update.alreadyInstalling"));
             }
-            s.latest.clone().context("aucune version connue : vérifiez d'abord")?
+            s.latest.clone().ok_or_else(|| Msg::new("update.noKnownVersion"))?
         };
         if !newer(&release.version, current()) {
-            bail!("déjà à jour ({})", current());
+            bail!(Msg::new("update.upToDate").with("version", current()));
         }
         if let Some(refusal) = &release.refusal {
-            bail!("{}", refusal.message());
+            bail!(refusal.message().clone());
         }
         let (Some(package), Some(manifest_url), Some(signature_url)) = (&release.package, &release.manifest_url, &release.signature_url) else {
-            bail!("la version {} n'a pas de paquet de mise à jour signé", release.version);
+            bail!(Msg::new("update.noSignedPackage").with("version", release.version.as_str()));
         };
         if !valid_version(&release.version) {
-            bail!("numéro de version inattendu : {}", release.version);
+            bail!(Msg::new("update.badVersion").with("version", release.version.as_str()));
         }
         let channel = self.channel();
         {
@@ -331,7 +342,7 @@ impl Updater {
         signature_url: &str,
     ) -> Result<Option<std::process::Child>> {
         if !valid_version(version) {
-            bail!("numéro de version inattendu : {version}");
+            bail!(Msg::new("update.badVersion").with("version", version));
         }
         let dir = self.dir.join(version);
         let _ = std::fs::remove_dir_all(&dir);
@@ -339,7 +350,7 @@ impl Updater {
         let json = get(manifest_url, MANIFEST_LIMIT)?;
         let signature = get(signature_url, MANIFEST_LIMIT)?;
         let manifest = manifest::verify_release(&json, &String::from_utf8_lossy(&signature))?;
-        manifest.check(version, channel, current()).map_err(|r| anyhow::anyhow!("{}", r.message()))?;
+        manifest.check(version, channel, current()).map_err(|r| anyhow::Error::new(r.message().clone()))?;
         std::fs::write(dir.join(manifest::MANIFEST), &json)?;
         std::fs::write(dir.join(manifest::SIGNATURE), &signature)?;
         let zip = dir.join(PACKAGE);
@@ -360,9 +371,9 @@ impl Updater {
             let mut s = self.state.lock().unwrap();
             self.reap(&mut s);
             if s.installing.is_some() {
-                bail!("une installation est déjà en cours");
+                bail!(Msg::new("update.alreadyInstalling"));
             }
-            let previous = s.previous.clone().context("aucune version précédente sur cet ordinateur")?;
+            let previous = s.previous.clone().ok_or_else(|| Msg::new("update.noPrevious"))?;
             s.installing = Some(previous.clone());
             s.install_error = None;
             s.last_failure = None;
@@ -399,11 +410,9 @@ const MANIFEST_LIMIT: u64 = 256 * 1024;
 /// installée ; le refus, s'il y en a un, est gardé pour la page.
 fn verify_release(release: &mut Release, channel: Channel) {
     let (Some(json_url), Some(sig_url)) = (&release.manifest_url, &release.signature_url) else {
-        release.refusal = Some(Refusal::Rejected(format!(
-            "la version {} n'est pas signée (pas de {}) : elle ne s'installe pas depuis la console",
-            release.version,
-            manifest::MANIFEST
-        )));
+        release.refusal = Some(Refusal::Rejected(
+            Msg::new("update.unsigned").with("version", release.version.as_str()).with("file", manifest::MANIFEST),
+        ));
         return;
     };
     let verified = get(json_url, MANIFEST_LIMIT).and_then(|json| {
@@ -414,11 +423,15 @@ fn verify_release(release: &mut Release, channel: Channel) {
         Ok(m) => {
             release.refusal = m.check(&release.version, channel, current()).err();
             if release.refusal.is_none() && release.package.is_none() {
-                release.refusal = Some(Refusal::Rejected(format!("{PACKAGE} absent de la version {}", release.version)));
+                release.refusal =
+                    Some(Refusal::Rejected(Msg::new("update.packageMissing").with("package", PACKAGE).with("version", release.version.as_str())));
             }
             release.manifest = Some(m);
         }
-        Err(e) => release.refusal = Some(Refusal::Rejected(format!("version {} refusée : {e:#}", release.version))),
+        Err(e) => {
+            release.refusal =
+                Some(Refusal::Rejected(Msg::new("update.rejected").with("version", release.version.as_str()).with("error", i18n::error_param(&e))))
+        }
     }
 }
 
@@ -431,8 +444,9 @@ fn agent() -> ureq::Agent {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let mut resp = agent().get(url).call().with_context(|| format!("téléchargement de {url}"))?;
-    resp.body_mut().with_config().limit(limit).read_to_vec().with_context(|| format!("téléchargement de {url}"))
+    let failed = |e: ureq::Error| i18n::because(Msg::new("update.download").with("url", url), &e.into());
+    let mut resp = agent().get(url).call().map_err(failed)?;
+    resp.body_mut().with_config().limit(limit).read_to_vec().map_err(failed)
 }
 
 /// Version la plus récente du canal parmi les dernières publiées : en stable,
@@ -455,17 +469,17 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
         .get(&url)
         .header("Accept", "application/vnd.github+json")
         .call()
-        .context("GitHub ne répond pas")?;
+        .map_err(|e| i18n::because(Msg::new("update.githubDown"), &e.into()))?;
     let list: Vec<Value> = serde_json::from_slice(&resp.body_mut().with_config().limit(16 * 1024 * 1024).read_to_vec()?)?;
-    let v = pick(&list, channel).with_context(|| format!("aucune version publiée sur le canal {}", channel.as_str()))?;
+    let v = pick(&list, channel).ok_or_else(|| Msg::new("update.noRelease").with("channel", channel.as_str()))?;
     let asset = |name: &str| {
         v["assets"].as_array().and_then(|a| {
             a.iter().find(|x| x["name"] == name).and_then(|x| x["browser_download_url"].as_str()).map(String::from)
         })
     };
-    let version = v["tag_name"].as_str().context("version sans numéro")?.trim_start_matches('v').to_string();
+    let version = v["tag_name"].as_str().ok_or_else(|| Msg::new("update.noTag"))?.trim_start_matches('v').to_string();
     if !valid_version(&version) {
-        bail!("numéro de version inattendu sur GitHub : {version}");
+        bail!(Msg::new("update.badGithubVersion").with("version", version));
     }
     Ok(Release {
         version,
@@ -500,6 +514,8 @@ fn read_failure(path: &Path) -> Option<Value> {
 fn launch_applicator(layout: &apply::Layout, log_dir: &Path, args: &[std::ffi::OsString]) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
+
+    use anyhow::Context;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
@@ -594,6 +610,9 @@ mod tests {
         assert_eq!(status["last_failure"]["version"], "9.9.9");
         let error = status["install_error"].as_str().unwrap();
         assert!(error.contains("9.9.9") && error.contains("remise en place"), "{error}");
+        let english = i18n::with_lang(i18n::Lang::En, || Updater::new(&dir).status())["install_error"].as_str().unwrap().to_string();
+        assert!(english.starts_with("Installing 9.9.9 failed: la nouvelle console ne repond pas. The previous version"), "{english}");
+        assert!(english.ends_with("\nLog: C:\\x\\update.log"), "{english}");
         std::fs::write(dir.join("update").join(RESULT), r#"{"version":"9.9.9","ok":true}"#).unwrap();
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
         // Échec de la version qui tourne : périmé, sauf si le retour arrière a raté.
@@ -610,10 +629,12 @@ mod tests {
     fn an_update_during_a_session_needs_force() {
         assert_eq!(session_conflict(&Value::Null, false), None);
         let live = json!({ "device_id": "abc", "name": "Apple TV du salon" });
-        let msg = session_conflict(&live, false).unwrap();
+        let msg = session_conflict(&live, false).unwrap().to_string();
         assert!(msg.contains("Apple TV du salon") && msg.contains("coupera sa session"), "{msg}");
         assert_eq!(session_conflict(&live, true), None);
-        assert!(session_conflict(&json!({ "device_id": "abc" }), false).unwrap().starts_with("Un appareil est connecté :"));
+        assert!(session_conflict(&json!({ "device_id": "abc" }), false).unwrap().to_string().starts_with("Un appareil est connecté :"));
+        let english = session_conflict(&live, false).unwrap().render(i18n::Lang::En);
+        assert_eq!(english, "A device is connected (Apple TV du salon): installing will end its session");
     }
 
     #[test]

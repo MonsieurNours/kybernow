@@ -19,6 +19,8 @@
 
 use std::path::PathBuf;
 
+use kybernow::i18n::t;
+
 const UI_EXE: &[u8] = include_bytes!(env!("KYBERNOW_UI_EXE"));
 const WEBVIEW2_LOADER: &[u8] = include_bytes!(env!("KYBERNOW_WEBVIEW2_LOADER"));
 
@@ -29,21 +31,17 @@ fn main() {
         return;
     }
     if let Err(e) = launch() {
-        message("KyberNow", &format!("L'installation n'a pas pu démarrer :\n\n{e:#}"), false);
+        message("KyberNow", &t("setup.startFailed", &[("error", &format!("{e:#}"))]), false);
     }
 }
 
 fn launch() -> anyhow::Result<()> {
     let exe = std::env::current_exe()?;
     if kybernow::payload::read_footer(&exe).is_err() {
-        anyhow::bail!("ce fichier ne contient pas KyberNow. Téléchargez à nouveau l'installateur complet.");
+        anyhow::bail!(t("setup.notAPayload", &[]));
     }
     if !webview2_installed() {
-        message(
-            "KyberNow",
-            "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Server-Setup.",
-            false,
-        );
+        message("KyberNow", &t("setup.webview2Missing", &[]), false);
         let _ = std::process::Command::new("cmd")
             .args(["/C", "start", "", "https://go.microsoft.com/fwlink/p/?LinkId=2124703"])
             .spawn();
@@ -83,27 +81,15 @@ fn launch() -> anyhow::Result<()> {
 }
 
 fn uninstall() {
-    if !message(
-        "Désinstaller KyberNow",
-        "KyberNow va être retiré de cet ordinateur : serveur de streaming, console d'administration, icône, écran virtuel. \
-         Le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis.\n\n\
-         Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
-        true,
-    ) {
+    let title = t("uninstall.title", &[]);
+    if !message(&title, &t("uninstall.confirm", &[]), true) {
         return;
     }
-    let keep_data = message(
-        "Désinstaller KyberNow",
-        "Garder les réglages de KyberNow sur cet ordinateur ?\n\n\
-         Oui : C:\\ProgramData\\KyberNow reste (réglages et certificat de la console, appareils connus, journaux, \
-         copie des réglages de Kyber), lisible par les administrateurs seulement.\n\
-         Non : tout est effacé.",
-        true,
-    );
+    let keep_data = message(&title, &t("uninstall.keepData", &[]), true);
     let done = match kybernow::uninstall::run_uninstall(keep_data) {
-        Ok(()) if keep_data => "KyberNow a été désinstallé. Ses réglages restent dans C:\\ProgramData\\KyberNow.".to_string(),
-        Ok(()) => "KyberNow a été désinstallé.".to_string(),
-        Err(e) => format!("La désinstallation a rencontré un problème :\n\n{e:#}"),
+        Ok(()) if keep_data => t("uninstall.doneKept", &[]),
+        Ok(()) => t("uninstall.done", &[]),
+        Err(e) => t("uninstall.failed", &[("error", &format!("{e:#}"))]),
     };
     message("KyberNow", &done, false);
     // Après la boîte : le dossier est effacé une fois ce programme fermé.

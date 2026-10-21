@@ -4,6 +4,7 @@
   zéro » passe ensuite par « Votre compte », comme une première installation.
 -->
 <script lang="ts">
+  import { t } from '../lib/i18n/index.svelte'
   import { app, go } from '../lib/state.svelte'
 
   const existing = $derived(app.existing!)
@@ -16,12 +17,12 @@
 
 <div class="reinstall">
   <div class="head">
-    <span class="lbl signal kn-enter">Réinstallation</span>
-    <h1 class="title kn-enter kn-d1">KyberNow {existing.version} est déjà là.</h1>
-    <p class="lead kn-enter kn-d2">Vos appareils connaissent déjà cet ordinateur. Que faisons-nous de ses réglages ?</p>
+    <span class="lbl signal kn-enter">{t('reinstall.label')}</span>
+    <h1 class="title kn-enter kn-d1">{t('reinstall.title', { version: existing.version })}</h1>
+    <p class="lead kn-enter kn-d2">{t('reinstall.lead')}</p>
   </div>
 
-  <div class="choices kn-enter kn-d2" role="radiogroup" aria-label="Réglages de KyberNow">
+  <div class="choices kn-enter kn-d2" role="radiogroup" aria-label={t('reinstall.group')}>
     <button
       type="button"
       role="radio"
@@ -33,15 +34,14 @@
     >
       <span class="dot" aria-hidden="true"></span>
       <span class="text">
-        <strong>Conserver mes réglages {#if canKeep}<span class="tag">recommandé</span>{/if}</strong>
+        <strong>{t('reinstall.keep')} {#if canKeep}<span class="tag">{t('common.recommended')}</span>{/if}</strong>
         {#if canKeep}
+          {@const [before, after] = t('reinstall.keepDetail').split('{ports}')}
           <span>
-            Comptes, appareils appairés, certificat, réglages de la console et ports
-            (<span class="mono">flux {existing.streamPort} · console {existing.consolePort}</span>) restent tels quels. Seuls les programmes, les pilotes et les
-            correctifs de Kyber sont remplacés.
+            {before}<span class="mono">{t('common.portsPair', { stream: existing.streamPort, console: existing.consolePort })}</span>{after}
           </span>
         {:else}
-          <span>Impossible ici : les réglages de cette installation sont introuvables.</span>
+          <span>{t('reinstall.keepImpossible')}</span>
         {/if}
       </span>
     </button>
@@ -56,26 +56,23 @@
     >
       <span class="dot" aria-hidden="true"></span>
       <span class="text">
-        <strong>Repartir de zéro</strong>
-        <span>Nouveau compte, nouveaux ports, nouveau certificat, réglages par défaut.</span>
+        <strong>{t('reinstall.fresh')}</strong>
+        <span>{t('reinstall.freshDetail')}</span>
       </span>
     </button>
   </div>
 
   {#if !app.keepSettings || !canKeep}
     <div class="notice warn kn-enter">
-      <span>
-        Tous vos appareils (Mac, Apple TV, navigateurs) perdront l'accès : il faudra les appairer de nouveau avec le nouveau compte. Les réglages de la console
-        et de Kyber reviennent à ceux d'une première installation.
-      </span>
+      <span>{t('reinstall.freshWarning')}</span>
     </div>
   {/if}
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go('welcome')}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go('welcome')}>{t('common.back')}</button>
   <div class="spacer"></div>
-  <button type="button" class="primary" onclick={next}>Continuer</button>
+  <button type="button" class="primary" onclick={next}>{t('common.continue')}</button>
 </div>
 
 <style>

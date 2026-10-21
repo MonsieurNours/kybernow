@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { send } from './backend'
+  import { t } from './i18n/index.svelte'
   import { app, go, stepIndex, STEPS } from './state.svelte'
   import Mark from './Mark.svelte'
 
@@ -39,24 +40,24 @@
     <Mark size={38} state="server" />
     <div>
       <span class="disp name"><span>Kyber</span><b>Now</b> <i>Server</i></span>
-      <span class="version">Version {__APP_VERSION__} · Kyber 0.29</span>
+      <span class="version">{t('rail.version', { version: __APP_VERSION__ })}</span>
     </div>
   </div>
 
   <ol>
-    {#each STEPS as step, i (step.label)}
+    {#each STEPS as step, i (step.key)}
       {@const done = i < index || (finished && i === index)}
       {@const current = i === index && !finished}
       <li class:done class:current aria-current={current ? 'step' : undefined}>
         <span class="num">{done ? '✓' : i + 1}</span>
-        <span>{step.label}</span>
+        <span>{t(step.key)}</span>
       </li>
     {/each}
   </ol>
 
   <div class="foot">
-    Logiciel libre (AGPL-3.0) ·
-    <button type="button" class="text-button" onclick={() => go(app.screen === 'about' ? app.previous : 'about')}>{app.screen === 'about' ? 'Retour' : 'À propos'}</button>
+    {t('rail.license')}
+    <button type="button" class="text-button" onclick={() => go(app.screen === 'about' ? app.previous : 'about')}>{app.screen === 'about' ? t('common.back') : t('rail.about')}</button>
   </div>
 </aside>
 

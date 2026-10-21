@@ -11,6 +11,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket};
 
 use rand::Rng;
 
+use crate::i18n::t;
+
 /// Plage de tirage : sous la plage dynamique de Windows (49152+), au-dessus des
 /// ports classiques. Les ports de Sunshine/Moonlight (47984–48010) sont hors plage.
 pub const RANDOM_RANGE: std::ops::RangeInclusive<u16> = 20000..=44999;
@@ -124,23 +126,20 @@ fn pick_with(mut draw: impl FnMut() -> u16, free: impl Fn(u16) -> bool, avoid: &
 /// Vérifie un port saisi à la main. Renvoie un message lisible en cas de refus.
 pub fn validate(port: u16, other: u16, excluded: &[(u16, u16)]) -> Option<String> {
     if port < 1024 {
-        return Some("Choisissez un port entre 1024 et 65535.".into());
+        return Some(t("ports.range", &[]));
     }
     if port == other {
-        return Some("Le stream et la console ont besoin de deux ports différents.".into());
+        return Some(t("ports.samePort", &[]));
     }
     if excluded.iter().any(|(a, b)| (*a..=*b).contains(&port)) {
-        return Some(format!("Le port {port} est réservé par Windows."));
+        return Some(t("ports.reservedByWindows", &[("port", &port)]));
     }
     if let Some(r) = reserved_by(port) {
-        return Some(format!(
-            "Le port {port} est dans la plage de {} ({}–{}), que le logiciel prend souvent : choisissez-en un autre.",
-            r.owner, r.first, r.last
-        ));
+        return Some(t("ports.reservedBy", &[("port", &port), ("owner", &r.owner), ("first", &r.first), ("last", &r.last)]));
     }
     if !bindable(port) {
-        let who = owner(port).map(|p| format!(" par {p}")).unwrap_or_default();
-        return Some(format!("Le port {port} est déjà utilisé{who}."));
+        let by = owner(port).map(|p| t("ports.by", &[("process", &p)])).unwrap_or_default();
+        return Some(t("ports.inUse", &[("port", &port), ("by", &by)]));
     }
     None
 }
@@ -174,19 +173,19 @@ pub fn owner(port: u16) -> Option<String> {
             .map(|r| r.dwOwningPid)?
     };
     if pid == 4 {
-        return Some("Windows (service HTTP du système)".into());
+        return Some(t("ports.windowsHttp", &[]));
     }
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
         if handle.is_null() {
-            return Some(format!("le processus {pid}"));
+            return Some(t("ports.process", &[("pid", &pid)]));
         }
         let mut buf = [0u16; 1024];
         let mut len = buf.len() as u32;
         let ok = QueryFullProcessImageNameW(handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len);
         CloseHandle(handle);
         if ok == 0 {
-            return Some(format!("le processus {pid}"));
+            return Some(t("ports.process", &[("pid", &pid)]));
         }
         let path = String::from_utf16_lossy(&buf[..len as usize]);
         Some(path.rsplit('\\').next().unwrap_or(&path).to_string())

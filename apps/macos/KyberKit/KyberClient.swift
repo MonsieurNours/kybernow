@@ -74,7 +74,7 @@ public enum KyberError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case let .sdk(what, code): return "\(what) (code \(code))"
+        case let .sdk(what, code): return String(localized: "\(what) (code \(code))", bundle: .kyberKit)
         }
     }
 }
@@ -172,7 +172,7 @@ public final class KyberClient {
         self.host = host
         let creds = kyclient_auth_credentials_new_basic(username, password)
         var config: OpaquePointer?
-        try check(kyclient_connect_config_default(host, creds, &config), "configuration de la connexion")
+        try check(kyclient_connect_config_default(host, creds, &config), String(localized: "configuration de la connexion", bundle: .kyberKit))
         defer { kyclient_connect_config_unref(config) }
         kyclient_connect_config_set_streamer_port(config, port)
         kyclient_connect_config_set_auto_reconnection(config, autoReconnect)
@@ -181,14 +181,14 @@ public final class KyberClient {
             // Kyber : on l'exige, sans mémoire du premier contact. Réinstaller
             // l'ordinateur change ce certificat ; retenu, il bloquait l'app
             // (« connexion impossible ») jusqu'à effacer `known_hosts` à la main.
-            try check(kyclient_connect_config_set_tls_fingerprint(config, fingerprint), "vérification du certificat")
+            try check(kyclient_connect_config_set_tls_fingerprint(config, fingerprint), String(localized: "vérification du certificat", bundle: .kyberKit))
         } else {
             // Console d'avant 0.2.8 : on retient le certificat au premier contact (TOFU).
-            try check(kyclient_connect_config_enable_tofu_auto_accept(config), "vérification du certificat")
+            try check(kyclient_connect_config_enable_tofu_auto_accept(config), String(localized: "vérification du certificat", bundle: .kyberKit))
         }
         // Mesures actives : horodatages des images côté ordinateur et recalage d'horloge.
         guard let c = kyclient_client_new(config, true) else {
-            throw KyberError.sdk("création du client", -1)
+            throw KyberError.sdk(String(localized: "création du client", bundle: .kyberKit), -1)
         }
         client = c
         kyclient_client_set_metrics_callback(c, LatencyTracker.callback, Unmanaged.passUnretained(latency).toOpaque())
@@ -215,7 +215,7 @@ public final class KyberClient {
             },
             userdata: Unmanaged.passUnretained(self).toOpaque()
         )
-        try check(kyclient_client_set_event_handler(c, handler), "abonnement aux événements")
+        try check(kyclient_client_set_event_handler(c, handler), String(localized: "abonnement aux événements", bundle: .kyberKit))
     }
 
     deinit {
@@ -226,7 +226,7 @@ public final class KyberClient {
     }
 
     public func connect() throws {
-        try check(kyclient_client_connect(client), "connexion à \(host)")
+        try check(kyclient_client_connect(client), String(localized: "connexion à \(host)", bundle: .kyberKit))
     }
 
     /// Démarre l'image de `display` dans `view`, avec le son et les entrées.
@@ -259,7 +259,7 @@ public final class KyberClient {
         )
         defer { kyclient_streaming_protocol_unref(protocolRef) }
         var session: OpaquePointer?
-        try check(kyclient_streaming_session_config_default(protocolRef, &session), "configuration de la session")
+        try check(kyclient_streaming_session_config_default(protocolRef, &session), String(localized: "configuration de la session", bundle: .kyberKit))
         defer { kyclient_streaming_session_config_unref(session) }
         kyclient_streaming_session_config_set_bitrate(session, options.bitrate)
 
@@ -270,7 +270,7 @@ public final class KyberClient {
         let handle = kyclient_windowshandle_from_ui_view(viewPointer)
         #endif
         var player: OpaquePointer?
-        try check(kyclient_video_player_config_default(handle, &player), "lecteur vidéo")
+        try check(kyclient_video_player_config_default(handle, &player), String(localized: "lecteur vidéo", bundle: .kyberKit))
         defer { kyclient_video_player_config_unref(player) }
         // La session vidéo recopie les réglages du lecteur à sa création : la
         // sortie vers l'app doit être posée avant (sinon l'image part à VLC).
@@ -299,14 +299,14 @@ public final class KyberClient {
             KyberLog.video.notice("image décodée par VLC (\(options.codec.rawValue, privacy: .public))")
         }
         var video: OpaquePointer?
-        try check(kyclient_video_session_config_default(display.id, player, &video), "configuration vidéo")
+        try check(kyclient_video_session_config_default(display.id, player, &video), String(localized: "configuration vidéo", bundle: .kyberKit))
         kyclient_video_session_config_set_codec(video, options.codec.sdk)
         kyclient_video_session_config_set_yuv444(video, options.yuv444)
         kyclient_streaming_session_config_add_video(session, video)
 
         if options.audio {
             var audio: OpaquePointer?
-            try check(kyclient_audio_session_config_default(&audio), "configuration du son")
+            try check(kyclient_audio_session_config_default(&audio), String(localized: "configuration du son", bundle: .kyberKit))
             if options.nativeAudio {
                 let player = AudioPlayer()
                 player.onStats = { [weak self] in self?.onAudioStats?($0) }
@@ -318,14 +318,14 @@ public final class KyberClient {
         }
 
         var inputConfig: OpaquePointer?
-        try check(kyclient_input_session_config_default(kynput_pipeline_ref(input.pipeline), &inputConfig), "configuration des entrées")
+        try check(kyclient_input_session_config_default(kynput_pipeline_ref(input.pipeline), &inputConfig), String(localized: "configuration des entrées", bundle: .kyberKit))
         kyclient_input_session_config_clipboard(inputConfig, options.clipboard)
         // Manette vue par l'ordinateur (réglage par ordinateur) : Xbox 360
         // pour toutes, Sony comprises, ou fidèle au modèle.
         kyclient_input_session_config_gamepad_force_xbox360(inputConfig, options.gamepadAsXbox360)
         kyclient_streaming_session_config_set_input(session, inputConfig)
 
-        try check(kyclient_client_start_streaming(client, session), "démarrage de l'image")
+        try check(kyclient_client_start_streaming(client, session), String(localized: "démarrage de l'image", bundle: .kyberKit))
         input.startClipboard()
     }
 
@@ -517,7 +517,7 @@ public final class KyberClient {
         case KYCLIENT_EVENT_TYPE_STREAMING_STARTED:
             return .streamingStarted
         case KYCLIENT_EVENT_TYPE_STREAMING_START_FAILED:
-            return .streamingFailed("l'ordinateur n'a pas pu démarrer l'image")
+            return .streamingFailed(String(localized: "l'ordinateur n'a pas pu démarrer l'image", bundle: .kyberKit))
         case KYCLIENT_EVENT_TYPE_STREAMING_STOPPED:
             return .streamingStopped
         case KYCLIENT_EVENT_TYPE_RECONNECTING:
@@ -541,8 +541,11 @@ public final class KyberClient {
             var kind = KYCLIENT_STREAMER_PIPELINE_EVENT_TYPE_ERROR
             guard kyclient_event_unpack_streamer_pipeline_event(event, &type, &stage, &kind) == 0,
                   kind == KYCLIENT_STREAMER_PIPELINE_EVENT_TYPE_ERROR else { return nil }
-            let what = type == KYCLIENT_STREAMER_PIPELINE_TYPE_AUDIO ? "son" : type == KYCLIENT_STREAMER_PIPELINE_TYPE_VIDEO ? "image" : "écrans"
-            return .pipelineError("erreur côté ordinateur (\(what))")
+            switch type {
+            case KYCLIENT_STREAMER_PIPELINE_TYPE_AUDIO: return .pipelineError(String(localized: "erreur côté ordinateur (son)", bundle: .kyberKit))
+            case KYCLIENT_STREAMER_PIPELINE_TYPE_VIDEO: return .pipelineError(String(localized: "erreur côté ordinateur (image)", bundle: .kyberKit))
+            default: return .pipelineError(String(localized: "erreur côté ordinateur (écrans)", bundle: .kyberKit))
+            }
         default:
             return nil
         }
@@ -562,11 +565,11 @@ private extension VideoCodec {
 private extension kyclient_ConnectFailedReason {
     var text: String {
         switch self {
-        case KYCLIENT_CONNECT_FAILED_REASON_UNAUTHORIZED: return "identifiant ou mot de passe refusé"
-        case KYCLIENT_CONNECT_FAILED_REASON_TIMED_OUT: return "l'ordinateur ne répond pas"
-        case KYCLIENT_CONNECT_FAILED_REASON_TLS_VERIFICATION_FAILED: return "le certificat de l'ordinateur a changé"
-        case KYCLIENT_CONNECT_FAILED_REASON_SERVER_ERROR: return "erreur du serveur de streaming"
-        default: return "connexion impossible"
+        case KYCLIENT_CONNECT_FAILED_REASON_UNAUTHORIZED: return String(localized: "identifiant ou mot de passe refusé", bundle: .kyberKit)
+        case KYCLIENT_CONNECT_FAILED_REASON_TIMED_OUT: return String(localized: "l'ordinateur ne répond pas", bundle: .kyberKit)
+        case KYCLIENT_CONNECT_FAILED_REASON_TLS_VERIFICATION_FAILED: return String(localized: "le certificat de l'ordinateur a changé", bundle: .kyberKit)
+        case KYCLIENT_CONNECT_FAILED_REASON_SERVER_ERROR: return String(localized: "erreur du serveur de streaming", bundle: .kyberKit)
+        default: return String(localized: "connexion impossible", bundle: .kyberKit)
         }
     }
 }
@@ -574,10 +577,10 @@ private extension kyclient_ConnectFailedReason {
 private extension kyclient_StopReason {
     var text: String {
         switch self {
-        case KYCLIENT_STOP_REASON_REQUESTED: return "session terminée"
-        case KYCLIENT_STOP_REASON_CONTROL_PLANE_TIMEOUT: return "l'ordinateur ne répond plus"
-        case KYCLIENT_STOP_REASON_DECODE_ERROR: return "image illisible"
-        default: return "connexion perdue"
+        case KYCLIENT_STOP_REASON_REQUESTED: return String(localized: "session terminée", bundle: .kyberKit)
+        case KYCLIENT_STOP_REASON_CONTROL_PLANE_TIMEOUT: return String(localized: "l'ordinateur ne répond plus", bundle: .kyberKit)
+        case KYCLIENT_STOP_REASON_DECODE_ERROR: return String(localized: "image illisible", bundle: .kyberKit)
+        default: return String(localized: "connexion perdue", bundle: .kyberKit)
         }
     }
 }

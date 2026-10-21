@@ -5,6 +5,7 @@
 <script lang="ts">
   import StatusIcon from '../lib/StatusIcon.svelte'
   import Toggle from '../lib/Toggle.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { app, rerunChecks, startInstall } from '../lib/state.svelte'
 
   const running = $derived(!app.checksDone)
@@ -14,35 +15,30 @@
 <div class="welcome">
   <div class="intro">
     {#if update}
-      <span class="lbl signal kn-enter">Mise à jour</span>
-      <h1 class="title kn-enter kn-d1">Une nouvelle version de KyberNow.</h1>
-      <p class="lead kn-enter kn-d2">
-        Vous passez de la version {app.existing} à la {__APP_VERSION__}. Vos ordinateurs, leurs mots de passe et vos réglages restent où ils sont.
-      </p>
+      <span class="lbl signal kn-enter">{t('welcome.updateLabel')}</span>
+      <h1 class="title kn-enter kn-d1">{t('welcome.updateTitle')}</h1>
+      <p class="lead kn-enter kn-d2">{t('welcome.updateLead', { from: app.existing ?? '', to: __APP_VERSION__ })}</p>
     {:else}
-      <span class="lbl signal kn-enter">Bienvenue</span>
-      <h1 class="title kn-enter kn-d1">Votre ordinateur, sur ce PC.</h1>
-      <p class="lead kn-enter kn-d2">
-        Retrouvez l'écran de votre ordinateur ici, comme s'il était devant vous : l'image en quelques millisecondes, le clavier, la souris et la manette qui
-        répondent tout de suite.
-      </p>
+      <span class="lbl signal kn-enter">{t('welcome.label')}</span>
+      <h1 class="title kn-enter kn-d1">{t('welcome.title')}</h1>
+      <p class="lead kn-enter kn-d2">{t('welcome.lead')}</p>
     {/if}
-    <p class="note kn-enter kn-d3">Une minute, pour vous seul, sans droits d'administrateur. Rien ne change sur ce PC avant que vous cliquiez sur {update ? 'Mettre à jour' : 'Installer'}.</p>
+    <p class="note kn-enter kn-d3">{t('welcome.note', { action: t(update ? 'welcome.update' : 'welcome.install') })}</p>
 
     <div class="option kn-enter kn-d3">
       <div>
-        <span class="name">Raccourci sur le Bureau</span>
-        <span class="note">KyberNow est toujours dans le menu Démarrer.</span>
+        <span class="name">{t('welcome.desktop')}</span>
+        <span class="note">{t('welcome.desktopNote')}</span>
       </div>
-      <Toggle bind:checked={app.desktop} label="Raccourci sur le Bureau" />
+      <Toggle bind:checked={app.desktop} label={t('welcome.desktop')} />
     </div>
     {#if app.dir}<p class="mono where kn-enter kn-d3">{app.dir}</p>{/if}
   </div>
 
   <div class="panel checks kn-enter kn-d2">
     <div class="checks-head">
-      <span class="lbl">{running ? 'Nous regardons ce PC…' : 'Ce que nous avons vu'}</span>
-      {#if !running}<button type="button" class="text-button again" onclick={rerunChecks}>Relancer</button>{/if}
+      <span class="lbl">{running ? t('welcome.looking') : t('welcome.seen')}</span>
+      {#if !running}<button type="button" class="text-button again" onclick={rerunChecks}>{t('welcome.rerun')}</button>{/if}
     </div>
     <ul>
       {#each app.checks as check (check.id)}
@@ -61,10 +57,10 @@
 </div>
 
 <div class="footer">
-  {#if app.running}<span class="note warn-note">KyberNow sera fermée pendant l'installation.</span>{/if}
+  {#if app.running}<span class="note warn-note">{t('welcome.willClose')}</span>{/if}
   <div class="spacer"></div>
   <button type="button" class="primary" disabled={running} onclick={startInstall}>
-    {running ? 'Analyse en cours…' : update ? 'Mettre à jour' : 'Installer'}
+    {running ? t('welcome.analysing') : update ? t('welcome.update') : t('welcome.install')}
   </button>
 </div>
 

@@ -124,7 +124,7 @@ Le mot de passe n'est lisible que Mac déverrouillé, comme le profil de notaris
 ## Publier une version
 
 0. Vérifier que la CI est verte sur `main` (onglet Actions du dépôt, voir « Intégration continue ») : elle ne couvre pas l'app Mac, que `--dry-run` compile.
-1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié.
+1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par la console et par l'app. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié. Les deux langues partent avec la version ([docs/i18n.md](i18n.md)) : la release GitHub porte la section française, une ligne `<!-- en -->`, puis l'anglaise (la console et l'app Windows prennent la partie de leur langue) ; dans le flux Sparkle, l'anglais est la description par défaut et le français un lien par langue (`xml:lang="fr"`) vers `site/updates/notes/X.Y.Z/KyberNow-macOS.fr.html` (`scripts/notes-html.py`), commité avec le flux du site.
 2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh` (il écrit `third_party/payload/kyber-overlay.stamp`, l'empreinte des correctifs compilés, que le script compare à ceux du dépôt).
 3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis, depuis `main` :
 

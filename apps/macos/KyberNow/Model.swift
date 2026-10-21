@@ -11,8 +11,8 @@ enum Profile: String, Codable, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .jeu: return "Jeu"
-        case .bureau: return "Bureau"
+        case .jeu: return String(localized: "Jeu")
+        case .bureau: return String(localized: "Bureau")
         case .max: return "Max"
         }
     }
@@ -20,18 +20,18 @@ enum Profile: String, Codable, CaseIterable, Identifiable {
     /// Phrase courte, sous le sélecteur de l'accueil.
     var hint: String {
         switch self {
-        case .jeu: return "Latence minimale, image à la fréquence de cet écran, manette prête."
-        case .bureau: return "Texte net (4:4:4), aucune image perdue, débit plus élevé."
-        case .max: return "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local."
+        case .jeu: return String(localized: "Latence minimale, image à la fréquence de cet écran, manette prête.")
+        case .bureau: return String(localized: "Texte net (4:4:4), aucune image perdue, débit plus élevé.")
+        case .max: return String(localized: "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local.")
         }
     }
 
     /// Phrase de la page Réglages.
     var summary: String {
         switch self {
-        case .jeu: return "Jeu : latence minimale, image fluide."
-        case .bureau: return "Bureau : texte net, aucune image perdue."
-        case .max: return "Max : sans compromis. Latence minimale, 4:4:4, gros débit."
+        case .jeu: return String(localized: "Jeu : latence minimale, image fluide.")
+        case .bureau: return String(localized: "Bureau : texte net, aucune image perdue.")
+        case .max: return String(localized: "Max : sans compromis. Latence minimale, 4:4:4, gros débit.")
         }
     }
 }
@@ -50,12 +50,12 @@ enum DisplayChoice: String, Codable, CaseIterable {
 enum Transport: String, Codable, CaseIterable {
     case fast, reliable
 
-    var label: String { self == .fast ? "Rapide" : "Fiable" }
+    var label: String { self == .fast ? String(localized: "Rapide") : String(localized: "Fiable") }
 
     var hint: String {
         self == .fast
-            ? "Une image perdue est réparée ou sautée, jamais attendue : la latence reste basse."
-            : "Chaque image arrive, quitte à attendre un peu sur un réseau chargé."
+            ? String(localized: "Une image perdue est réparée ou sautée, jamais attendue : la latence reste basse.")
+            : String(localized: "Chaque image arrive, quitte à attendre un peu sur un réseau chargé.")
     }
 }
 
@@ -70,17 +70,17 @@ enum MouseChoice: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .auto: return "Auto"
-        case .desktop: return "Bureau"
-        case .game: return "Jeu"
+        case .auto: return String(localized: "Auto")
+        case .desktop: return String(localized: "Bureau")
+        case .game: return String(localized: "Jeu")
         }
     }
 
     var hint: String {
         switch self {
-        case .auto: return "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau."
-        case .desktop: return "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)."
-        case .game: return "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser."
+        case .auto: return String(localized: "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau.")
+        case .desktop: return String(localized: "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes).")
+        case .game: return String(localized: "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser.")
         }
     }
 
@@ -98,21 +98,21 @@ enum AudioChoice: String, Codable, CaseIterable {
 
     var label: String {
         switch self {
-        case .auto: return "Auto"
-        case .stereo: return "Stéréo"
+        case .auto: return String(localized: "Auto")
+        case .stereo: return String(localized: "Stéréo")
         case .surround51: return "5.1"
         case .surround71: return "7.1"
-        case .off: return "Aucun"
+        case .off: return String(localized: "Aucun")
         }
     }
 
     var hint: String {
         switch self {
-        case .auto: return "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac."
-        case .stereo: return "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac."
-        case .surround51: return "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son)."
-        case .surround71: return "Huit canaux. Il faut une sortie 7.1 sur ce Mac."
-        case .off: return "Le son reste sur l'ordinateur."
+        case .auto: return String(localized: "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac.")
+        case .stereo: return String(localized: "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac.")
+        case .surround51: return String(localized: "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son).")
+        case .surround71: return String(localized: "Huit canaux. Il faut une sortie 7.1 sur ce Mac.")
+        case .off: return String(localized: "Le son reste sur l'ordinateur.")
         }
     }
 
@@ -140,14 +140,14 @@ enum GamepadChoice: String, Codable, CaseIterable {
     var label: String {
         switch self {
         case .xbox360: return "Xbox 360"
-        case .faithful: return "Fidèle"
+        case .faithful: return String(localized: "Fidèle")
         }
     }
 
     var hint: String {
         switch self {
-        case .xbox360: return "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
-        case .faithful: return "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas."
+        case .xbox360: return String(localized: "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent.")
+        case .faithful: return String(localized: "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas.")
         }
     }
 }
@@ -243,7 +243,18 @@ struct ConnectionSettings: Codable, Hashable {
         return o
     }
 
-    var profileLabel: String { profile?.label ?? "Personnalisé" }
+    var profileLabel: String { profile?.label ?? String(localized: "Personnalisé") }
+
+    /// Profil dit à la console (activité, fil des événements) : toujours le
+    /// libellé français, quelle que soit la langue de l'interface.
+    var consoleProfile: String {
+        switch profile {
+        case .jeu?: return "Jeu"
+        case .bureau?: return "Bureau"
+        case .max?: return "Max"
+        case nil: return "Personnalisé"
+        }
+    }
 
     /// Si le mode de l'écran de l'ordinateur change en session (un jeu qui
     /// passe en 1080p) : Jeu laisse faire, Bureau le fait remettre ; sinon

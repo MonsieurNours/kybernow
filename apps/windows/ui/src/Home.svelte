@@ -7,7 +7,8 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import type { Computer, Found, Settings, ThisPc } from './lib/api'
-  import { duration, hue, ms, profileLabel } from './lib/api'
+  import { duration, hue, isCustom, localLabel, ms } from './lib/api'
+  import { t } from './lib/i18n/index.svelte'
 
   let {
     computers,
@@ -39,9 +40,9 @@
 
   const status = $derived.by(() => {
     if (!selected) return null
-    if (selected.online === true) return { text: 'En ligne · disponible', tone: 'ok' }
-    if (selected.online === false) return { text: 'Hors ligne', tone: 'off' }
-    return { text: 'Recherche…', tone: 'wait' }
+    if (selected.online === true) return { text: t('home.online_available'), tone: 'ok' }
+    if (selected.online === false) return { text: t('home.offline'), tone: 'off' }
+    return { text: t('common.searching'), tone: 'wait' }
   })
 
   const meta = $derived(
@@ -52,7 +53,7 @@
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
-    if (!s.virtual_display) return 'Écrans de l’ordinateur tels quels'
+    if (!s.virtual_display) return t('home.screens_as_is')
     if (s.custom) return `${s.custom.width} × ${s.custom.height} · ${s.custom.refresh} Hz`
     let { width: w, height: h } = thisPc
     if (s.max_4k && (w > 3840 || h > 2160)) {
@@ -65,11 +66,11 @@
   })
 
   const frame = $derived(thisPc ? 1000 / Math.max(30, thisPc.refresh) : 16.7)
-  const profiles: { value: Settings['profile']; label: string }[] = [
-    { value: 'jeu', label: 'Jeu' },
-    { value: 'bureau', label: 'Bureau' },
-    { value: 'max', label: 'Max' },
-  ]
+  const profiles: { value: Settings['profile']; label: string }[] = $derived([
+    { value: 'jeu', label: t('profiles.jeu') },
+    { value: 'bureau', label: t('profiles.bureau') },
+    { value: 'max', label: t('profiles.max') },
+  ])
 
   const signature = (fp: string | null) =>
     `radial-gradient(900px 600px at 78% 22%, hsl(${hue(fp)} 90% 62% / 0.38), transparent 70%), radial-gradient(700px 520px at 18% 78%, hsl(${hue(fp, 7)} 70% 55% / 0.16), transparent 70%), #070a0e`
@@ -97,7 +98,7 @@
         <div class="chip">
           <Icon name="monitor" size={20} />
           {#if selected.settings.virtual_display}
-            <span>Écran virtuel à <span class="mono">{screen}</span>, {selected.settings.custom ? 'sur mesure' : 'comme cet écran'}</span>
+            <span>{t('home.virtual_at')}<span class="mono">{screen}</span>{selected.settings.custom ? t('home.virtual_custom') : t('home.virtual_match')}</span>
           {:else}
             <span>{screen}</span>
           {/if}
@@ -105,27 +106,27 @@
       {/if}
       <div class="actions">
         <button class="primary" disabled={busy} onclick={() => onconnect(selected!.id)}>
-          <Icon name="play" size={18} />Se connecter
+          <Icon name="play" size={18} />{t('home.connect')}
         </button>
-        <div class="profiles" role="radiogroup" aria-label="Profil">
+        <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
           {#each profiles as p (p.value)}
             {@const on = selected.settings.profile === p.value}
             <button role="radio" aria-checked={on} class:on onclick={() => onprofile(selected!.id, p.value)}>{p.label}</button>
           {/each}
         </div>
-        <button class="link" onclick={() => onsettings(selected!.id)}>Réglages de cet ordinateur</button>
+        <button class="link" onclick={() => onsettings(selected!.id)}>{t('home.computer_settings')}</button>
       </div>
       <div class="note">
-        {#if profileLabel(selected.settings) === 'Personnalisé'}Profil personnalisé dans les réglages ·{/if}
-        {selected.preview_source === 'last' ? 'Image affichée : la fin de votre dernière session' : selected.preview ? 'Image affichée : aperçu de son écran' : 'Image affichée : sa signature'}
+        {#if isCustom(selected.settings)}{t('home.custom_note')}{/if}
+        {selected.preview_source === 'last' ? t('home.image_last') : selected.preview ? t('home.image_preview') : t('home.image_signature')}
       </div>
       {#if error}<div class="error" role="alert">{error}</div>{/if}
     {:else}
-      <div class="eyebrow">Bienvenue</div>
-      <h1>Votre ordinateur, ici.</h1>
-      <p class="lead">Ajoutez l’ordinateur où la console KyberNow est installée : sur le réseau, avec le lien de sa console ou par son adresse.</p>
+      <div class="eyebrow">{t('home.welcome')}</div>
+      <h1>{t('home.welcome_title')}</h1>
+      <p class="lead">{t('home.welcome_lead')}</p>
       <div class="actions">
-        <button class="primary" onclick={() => onadd()}><Icon name="plus" size={18} />Ajouter un ordinateur</button>
+        <button class="primary" onclick={() => onadd()}><Icon name="plus" size={18} />{t('home.add_computer')}</button>
       </div>
       {#if error}<div class="error" role="alert">{error}</div>{/if}
     {/if}
@@ -133,49 +134,49 @@
 
   {#if selected}
     <aside class="last">
-      <div class="eyebrow">Dernière session</div>
+      <div class="eyebrow">{t('home.last_session')}</div>
       {#if selected.last}
         {@const l = selected.last}
-        <div class="big"><span class="mono value">{ms(l.median_ms)}</span><span class="mono unit">ms médiane</span></div>
+        <div class="big"><span class="mono value">{ms(l.median_ms)}</span><span class="mono unit">{t('home.median')}</span></div>
         <div class="ruler" aria-hidden="true">
           <div class="track"></div>
           <div class="fill" style:width="{Math.min(100, ((l.median_ms ?? 0) / frame) * 100)}%"></div>
           <div class="tick" style:left="{Math.min(100, ((l.median_ms ?? 0) / frame) * 100)}%"></div>
           {#if l.p95_ms != null}<div class="p95" style:left="{Math.min(100, (l.p95_ms / frame) * 100)}%"></div>{/if}
         </div>
-        <div class="scale mono"><span>0</span><span>p95 {ms(l.p95_ms)}</span><span>{ms(frame)} ms · 1 image</span></div>
-        <div class="sub">{duration(l.seconds)} · {l.label}</div>
+        <div class="scale mono"><span>0</span><span>p95 {ms(l.p95_ms)}</span><span>{t('home.one_frame', { ms: ms(frame) })}</span></div>
+        <div class="sub">{duration(l.seconds)} · {localLabel(l.label)}</div>
       {:else}
-        <div class="sub">Pas encore de session avec cet ordinateur.</div>
+        <div class="sub">{t('home.no_session_yet')}</div>
       {/if}
     </aside>
   {/if}
   </div>
 
   <section class="row">
-    <div class="eyebrow">Vos ordinateurs</div>
+    <div class="eyebrow">{t('home.your_computers')}</div>
     <div class="cards">
       {#each computers as c (c.id)}
         <button class="card" class:current={c.id === selected?.id} class:offline={c.online === false} onclick={() => onselect(c.id)}>
           {#if c.preview}<img src={c.preview} alt="" />{:else}<span class="sig" style:background={signature(c.fingerprint)}></span>{/if}
           <span class="label">
             <span class="name">{c.name}</span>
-            <span class="state">{c.online === true ? `En ligne${c.last?.median_ms != null ? ` · ${ms(c.last.median_ms)} ms` : ''}` : c.online === false ? 'Hors ligne' : '…'}</span>
+            <span class="state">{c.online === true ? (c.last?.median_ms != null ? t('home.online_latency', { ms: ms(c.last.median_ms) }) : t('home.online')) : c.online === false ? t('home.offline') : '…'}</span>
           </span>
         </button>
       {/each}
       {#each fresh as f (f.id)}
         <button class="card found" onclick={() => onadd(f)}>
-          <span class="badge eyebrow"><span class="pulse"></span>Sur le réseau</span>
+          <span class="badge eyebrow"><span class="pulse"></span>{t('home.on_network')}</span>
           <span class="label">
             <span class="name">{f.name}</span>
-            <span class="state">Ajouter cet ordinateur</span>
+            <span class="state">{t('home.add_this')}</span>
           </span>
         </button>
       {/each}
       <button class="card add" onclick={() => onadd()}>
         <Icon name="plus" size={24} />
-        <span>Ajouter un ordinateur</span>
+        <span>{t('home.add_computer')}</span>
       </button>
     </div>
   </section>

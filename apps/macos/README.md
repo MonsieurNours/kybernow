@@ -183,6 +183,16 @@ apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session
 
 Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4 (le test soumet les images sans les espacer : avec le décodage asynchrone, le temps affiché inclut l'attente dans la file de VideoToolbox, 3 à 6 ms), couleurs à ±4 niveaux près ; son : 17 à 24 ms de tampon en paquets de 20 ms, 15 à 20 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés (le rattrapage en douceur laisse le tampon un peu plus haut que l'ancienne coupe sèche).
 
+## Langues
+
+L'app est en français et en anglais ([docs/i18n.md](../../docs/i18n.md)) : français si macOS est en français, anglais pour toute autre langue (`CFBundleDevelopmentRegion` à `en`). KyberNow › Réglages… › Langue : Auto, Français ou English, pour KyberNow seulement (préférence `AppleLanguages` de l'app), pris en compte à la relance.
+
+- Textes dans les catalogues de chaînes de Xcode, français comme langue source : `KyberNow/Localizable.xcstrings` (l'app, avec `Model.swift` et `Discovery.swift` repris par l'Apple TV), `KyberNow/InfoPlist.xcstrings` (demandes d'accès au réseau local et à la caméra), `KyberKit/Localizable.xcstrings` (erreurs de connexion et de la console, manettes de l'Apple TV ; `String(localized:bundle: .kyberKit)`). La compilation y ajoute les nouveaux textes (`SWIFT_EMIT_LOC_STRINGS`).
+- Chaque texte porte une valeur française explicite : sans elle, Xcode n'écrit pas `fr.lproj` et un Mac en français afficherait l'anglais. Après avoir ajouté des textes : `python3 scripts/check-strings.py --fix` (ajoute la valeur française, signale les traductions anglaises manquantes ; catalogues de l'Apple TV compris).
+- `ConsoleClient` envoie `Accept-Language: fr` ou `en` (la langue de l'app) à chaque requête : la console répond dans la même langue.
+- Les journaux restent en français ; le profil dit à la console aussi (« Jeu », « Personnalisé »…).
+- Notes de version : celles de Sparkle viennent du flux, une description par langue (`xml:lang`).
+
 ## Journaux
 
 Console.app, sous-système `fr.leslignesclaires.kybernow`, catégories `app`, `kyber` (SDK), `video`, `audio`. En ligne de commande :

@@ -71,19 +71,19 @@ struct AudioRoute: Equatable {
         let latency = Int(((session.outputLatency + session.ioBufferDuration) * 1000).rounded())
         let channels = AudioOutput.channels()
         switch port?.portType {
-        case .HDMI?: return AudioRoute(kind: .hdmi, name: channels > 2 ? "ampli HDMI" : "téléviseur", channels: channels, latencyMs: latency)
+        case .HDMI?: return AudioRoute(kind: .hdmi, name: channels > 2 ? String(localized: "ampli HDMI") : String(localized: "téléviseur"), channels: channels, latencyMs: latency)
         case .bluetoothA2DP?, .bluetoothLE?:
             let name = port?.portName ?? "Bluetooth"
             return AudioRoute(kind: name.localizedCaseInsensitiveContains("AirPods") ? .airpods : .bluetooth, name: name, channels: 2, latencyMs: latency)
         case .airPlay?: return AudioRoute(kind: .airplay, name: port?.portName ?? "AirPlay", channels: 2, latencyMs: latency)
-        default: return AudioRoute(kind: .builtIn, name: port?.portName ?? "téléviseur", channels: channels, latencyMs: latency)
+        default: return AudioRoute(kind: .builtIn, name: port?.portName ?? String(localized: "téléviseur"), channels: channels, latencyMs: latency)
         }
     }
 
     /// AirPods, HomePod, AirPlay : le son arrive nettement après l'image.
     var isLate: Bool { kind != .hdmi && kind != .builtIn && latencyMs > 40 }
 
-    var channelsLabel: String { channels >= 8 ? "7.1" : channels >= 6 ? "5.1" : "Stéréo" }
+    var channelsLabel: String { channels >= 8 ? "7.1" : channels >= 6 ? "5.1" : String(localized: "Stéréo") }
 }
 
 // MARK: - Préférences de l'app (sur cette Apple TV, pour ce profil)
@@ -111,6 +111,14 @@ final class Preferences: ObservableObject {
     /// Vitesse du pointeur quand la manette sert de souris.
     enum PadMouseSpeed: String, CaseIterable {
         case slow = "Lente", normal = "Normale", fast = "Rapide"
+        /// Libellé affiché (la valeur brute, en français, est celle enregistrée).
+        var label: String {
+            switch self {
+            case .slow: return String(localized: "Lente")
+            case .normal: return String(localized: "Normale")
+            case .fast: return String(localized: "Rapide")
+            }
+        }
         var factor: Double { self == .slow ? 0.6 : self == .fast ? 1.6 : 1 }
     }
     @Published var padMouseSpeed: PadMouseSpeed {
@@ -124,6 +132,14 @@ final class Preferences: ObservableObject {
     /// appui long sur Menu ou Options.
     enum GuideChoice: String, CaseIterable {
         case system = "Système", game = "Jeu", longPress = "Appui long"
+        /// Libellé affiché (la valeur brute, en français, est celle enregistrée).
+        var label: String {
+            switch self {
+            case .system: return String(localized: "Système")
+            case .game: return String(localized: "Jeu")
+            case .longPress: return String(localized: "Appui long")
+            }
+        }
         var mode: GamepadBridge.GuideMode { self == .system ? .system : self == .longPress ? .longPress : .game }
     }
     @Published var guideButton: GuideChoice {

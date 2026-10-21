@@ -36,13 +36,13 @@ pub fn read_footer(path: &Path) -> Result<(Footer, u64)> {
     let mut f = File::open(path).with_context(|| format!("ouverture de {}", path.display()))?;
     let len = f.metadata()?.len();
     if len < FOOTER_LEN {
-        bail!("installateur incomplet");
+        bail!(crate::i18n::t("install.payloadIncomplete", &[]));
     }
     f.seek(SeekFrom::Start(len - FOOTER_LEN))?;
     let mut b = [0u8; FOOTER_LEN as usize];
     f.read_exact(&mut b)?;
     if &b[24..32] != MAGIC {
-        bail!("contenu de l'installateur introuvable (fichier corrompu ?)");
+        bail!(crate::i18n::t("install.payloadMissing", &[]));
     }
     let n = |r: std::ops::Range<usize>| u64::from_le_bytes(b[r].try_into().unwrap());
     let footer = Footer { archive_len: n(0..8), unpacked_bytes: n(8..16), files: n(16..24) };

@@ -20,7 +20,7 @@ final class ContentProvider: TVTopShelfContentProvider {
             return item
         }
         let section = TVTopShelfItemCollection(items: items)
-        section.title = "Reprendre sur un ordinateur"
+        section.title = String(localized: "Reprendre sur un ordinateur")
         return TVTopShelfSectionedContent(sections: [section])
     }
 }

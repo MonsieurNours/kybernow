@@ -124,7 +124,7 @@ The password can only be read while the Mac is unlocked, like the notarisation p
 ## Publishing a release
 
 0. Check that the CI is green on `main` (the repository's Actions tab, see "Continuous integration"): it does not cover the Mac app, which `--dry-run` builds.
-1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree.
+1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree. Both languages ship with the release ([docs/i18n.en.md](i18n.en.md)): the GitHub release carries the French section, a `<!-- en -->` line, then the English one (the console and the Windows app take the part in their language); in the Sparkle feed, English is the default description and French a per-language link (`xml:lang="fr"`) to `site/updates/notes/X.Y.Z/KyberNow-macOS.fr.html` (`scripts/notes-html.py`), committed with the site feed.
 2. If the Kyber patches have changed: `server/kyber-patches/build.sh` (it writes `third_party/payload/kyber-overlay.stamp`, the fingerprint of the compiled patches, which the script compares with the repository's).
 3. Quit the KyberNow built in Release if it is open (another copy does not matter), then, from `main`:
 

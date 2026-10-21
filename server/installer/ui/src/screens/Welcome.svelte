@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import StatusIcon from '../lib/StatusIcon.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { app, go, rerunChecks, validatePorts } from '../lib/state.svelte'
 
   let editing = $state(false)
@@ -28,25 +29,22 @@
 
   function detail(id: string, text: string) {
     // Le détail du contrôle des ports suit les valeurs modifiées à la main.
-    return id === 'ports' && app.checksDone ? text.replace(/stream \d+ · console \d+/, `flux ${app.ports.stream} · console ${app.ports.console}`) : text
+    return id === 'ports' && app.checksDone ? text.replace(/stream \d+ · console \d+/, t('common.portsPair', { stream: app.ports.stream, console: app.ports.console })) : text
   }
 </script>
 
 <div class="welcome">
   <div class="intro">
-    <span class="lbl signal kn-enter">Bienvenue</span>
-    <h1 class="title kn-enter kn-d1">Cet ordinateur, sur tous vos écrans.</h1>
-    <p class="lead kn-enter kn-d2">
-      Depuis un téléphone, une tablette, une télé ou un autre ordinateur, vous retrouvez cet écran comme s'il était devant vous : l'image en quelques millisecondes, le
-      clavier, la souris et la manette qui répondent tout de suite.
-    </p>
-    <p class="note kn-enter kn-d3">Trois minutes. Rien ne change sur cet ordinateur avant que vous cliquiez sur Installer.</p>
+    <span class="lbl signal kn-enter">{t('welcome.label')}</span>
+    <h1 class="title kn-enter kn-d1">{t('welcome.title')}</h1>
+    <p class="lead kn-enter kn-d2">{t('welcome.lead')}</p>
+    <p class="note kn-enter kn-d3">{t('welcome.note')}</p>
   </div>
 
   <div class="panel checks kn-enter kn-d2">
     <div class="checks-head">
-      <span class="lbl">{running ? 'Nous vérifions…' : 'Ce que nous avons vérifié'}</span>
-      {#if !running}<button type="button" class="text-button again" onclick={rerunChecks}>Relancer</button>{/if}
+      <span class="lbl">{running ? t('welcome.checking') : t('welcome.checked')}</span>
+      {#if !running}<button type="button" class="text-button again" onclick={rerunChecks}>{t('welcome.rerun')}</button>{/if}
     </div>
     <ul>
       {#each app.checks as check (check.id)}
@@ -56,7 +54,7 @@
             <span class="name">
               {check.title}
               {#if check.id === 'ports' && check.status === 'ok'}
-                <button type="button" class="ghost small" onclick={editing ? confirmPorts : edit} disabled={app.portsPending}>{editing ? 'Valider' : 'Modifier'}</button>
+                <button type="button" class="ghost small" onclick={editing ? confirmPorts : edit} disabled={app.portsPending}>{editing ? t('welcome.validate') : t('welcome.edit')}</button>
               {/if}
             </span>
             {#if check.status !== 'pending' && check.detail}
@@ -64,8 +62,8 @@
             {/if}
             {#if check.id === 'ports' && editing}
               <div class="ports">
-                <label>Flux <input class="plain mono" bind:value={stream} oninput={() => (stream = digits(stream))} inputmode="numeric" aria-invalid={!!app.portErrors.stream} /></label>
-                <label>Console <input class="plain mono" bind:value={consolePort} oninput={() => (consolePort = digits(consolePort))} inputmode="numeric" aria-invalid={!!app.portErrors.console} /></label>
+                <label>{t('welcome.stream')} <input class="plain mono" bind:value={stream} oninput={() => (stream = digits(stream))} inputmode="numeric" aria-invalid={!!app.portErrors.stream} /></label>
+                <label>{t('welcome.console')} <input class="plain mono" bind:value={consolePort} oninput={() => (consolePort = digits(consolePort))} inputmode="numeric" aria-invalid={!!app.portErrors.console} /></label>
               </div>
               {#if app.portErrors.stream || app.portErrors.console}<span class="detail bad">{app.portErrors.stream ?? app.portErrors.console}</span>{/if}
             {/if}
@@ -77,10 +75,10 @@
 </div>
 
 <div class="footer">
-  {#if problems}<span class="note bad-note">{problems === 1 ? 'Un point empêche' : `${problems} points empêchent`} un streaming correct : voyez le détail ci-dessus.</span>{/if}
+  {#if problems}<span class="note bad-note">{problems === 1 ? t('welcome.problemOne') : t('welcome.problemMany', { count: problems })}</span>{/if}
   <div class="spacer"></div>
   <button type="button" class="primary" disabled={running || editing} onclick={() => go(app.existing ? 'reinstall' : 'account')}>
-    {running ? 'Analyse en cours…' : 'Continuer'}
+    {running ? t('welcome.analysing') : t('common.continue')}
   </button>
 </div>
 

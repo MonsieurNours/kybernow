@@ -383,15 +383,28 @@ cp "$OUT/KyberNow-Server-Setup.exe" "$OUT/KyberNow-Setup.exe"
 
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
 SPARKLE=$(ls -d apps/macos/build/SourcePackages/artifacts/*/*/bin | head -1)
-NOTES="$(awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)"
-printf '%s\n' "$NOTES" > "$OUT/notes.md"
+# Notes en deux langues (docs/i18n.md) : la release GitHub porte la section
+# française, une ligne <!-- en -->, puis l'anglaise ; la console et l'app
+# Windows prennent la partie de leur langue.
+section() { awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' "$1"; }
+NOTES_FR="$(section CHANGELOG.md)"
+NOTES_EN="$(section CHANGELOG.en.md)"
+printf '%s\n\n<!-- en -->\n\n%s\n' "$NOTES_FR" "$NOTES_EN" > "$OUT/notes.md"
+# Flux Sparkle : l'anglais est la description par défaut (toute langue autre
+# que le français la reçoit) ; le français est un lien par langue (xml:lang),
+# servi par le site dans un dossier par version (les entrées plus anciennes du
+# flux cumulatif gardent leurs propres notes).
+NOTES_DIR="site/updates/notes/$VERSION"
 FEED="$(mktemp -d)"
 cp "$OUT/KyberNow-macOS.zip" "$FEED/"
-cp "$OUT/notes.md" "$FEED/KyberNow-macOS.md"
+printf '%s\n' "$NOTES_EN" > "$FEED/KyberNow-macOS.md"
+printf '%s\n' "$NOTES_FR" | python3 scripts/notes-html.py > "$FEED/KyberNow-macOS.fr.html"
 CHANNEL_FLAG=()
 [ "$BETA" = 1 ] && CHANNEL_FLAG=(--channel beta)
 "$SPARKLE/generate_appcast" --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
+    --release-notes-url-prefix "https://www.kybernow.app/updates/notes/$VERSION/" \
     ${CHANNEL_FLAG[@]+"${CHANNEL_FLAG[@]}"} --embed-release-notes -o "$OUT/appcast.xml" "$FEED"
+mkdir -p "$OUT/notes" && cp "$FEED/KyberNow-macOS.fr.html" "$OUT/notes/"
 rm -rf "$FEED"
 
 step "Flux cumulatif du site ($SITE_FEED)"
@@ -402,12 +415,13 @@ BASE=()
 [ -f "$SITE_FEED" ] && BASE=(--base "$SITE_FEED")
 python3 scripts/merge-appcast.py -o "$OUT/appcast-site.xml" ${BASE[@]+"${BASE[@]}"} "--$CHANNEL" "$OUT/appcast.xml"
 xmllint --noout "$OUT/appcast-site.xml"
-if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED"; then
+if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED" && cmp -s "$OUT/notes/KyberNow-macOS.fr.html" "$NOTES_DIR/KyberNow-macOS.fr.html"; then
     echo "    $SITE_FEED déjà à jour"
 elif [ "$MODE" = release ]; then
-    mkdir -p "$(dirname "$SITE_FEED")"
+    mkdir -p "$(dirname "$SITE_FEED")" "$NOTES_DIR"
     cp "$OUT/appcast-site.xml" "$SITE_FEED"
-    git add -- "$SITE_FEED"
+    cp "$OUT/notes/KyberNow-macOS.fr.html" "$NOTES_DIR/"
+    git add -- "$SITE_FEED" "$NOTES_DIR"
     # Relance : le commit du flux pas encore poussé est remplacé, pas doublé.
     if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && ! git merge-base --is-ancestor HEAD origin/main; then
         git commit -q --amend --no-edit
@@ -418,7 +432,7 @@ elif [ "$MODE" = release ]; then
 else
     echo "    [essai] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml :"
     git --no-pager diff --no-index --stat -- "$SITE_FEED" "$OUT/appcast-site.xml" || true
-    act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED"
+    act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED" "$NOTES_DIR"
 fi
 
 step "Empreintes et manifeste signé"

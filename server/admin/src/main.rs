@@ -10,6 +10,7 @@ mod discovery;
 mod display;
 mod foreground;
 mod gpu;
+mod i18n;
 mod kyber_config;
 mod kyber_proxy;
 mod local_token;
@@ -575,7 +576,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     let activity = Arc::new(activity::Activity::new(&data_dir));
     {
         let a = activity.clone();
-        display.on_event(Arc::new(move |kind: &str, text: &str| a.event(kind, text)));
+        display.on_event(Arc::new(move |kind: &str, msg: i18n::Msg| a.event(kind, msg)));
     }
 
     let state = AppState(Arc::new(Inner {

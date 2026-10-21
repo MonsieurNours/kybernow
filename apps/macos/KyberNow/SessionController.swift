@@ -400,7 +400,7 @@ final class SessionController: NSObject, ObservableObject {
     func start() {
         openWindow()
         guard let password = store.password(for: host) else {
-            fail("mot de passe introuvable dans le Trousseau")
+            fail(String(localized: "mot de passe introuvable dans le Trousseau"))
             return
         }
         let screen = window?.screen ?? NSScreen.main ?? NSScreen.screens[0]
@@ -429,7 +429,7 @@ final class SessionController: NSObject, ObservableObject {
                 let channels = settings.audio.channels
                 requested = (mode.width, mode.height, mode.refresh, channels)
                 KyberLog.app.notice("préparation : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(channels) canaux")
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel, modePolicy: settings.modePolicy)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.consoleProfile, modePolicy: settings.modePolicy)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     modeLabel = "\(w) × \(h) · \(hz) Hz"
@@ -451,7 +451,7 @@ final class SessionController: NSObject, ObservableObject {
 
     private func connect(password: String) throws {
         guard let port = prepared?.kyberPort ?? host.streamPort else {
-            throw ConsoleError.http(0, "port du flux inconnu")
+            throw ConsoleError.http(0, String(localized: "port du flux inconnu"))
         }
         phase = .connecting
         let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect, fingerprint: prepared?.kyberFingerprint)
@@ -525,7 +525,7 @@ final class SessionController: NSObject, ObservableObject {
                 showHint(.notice(notice), after: 0, for: 4)
             } else if pipelineRelaunched {
                 pipelineRelaunched = false
-                showHint(.notice("L'image a été relancée."), after: 0, for: 4)
+                showHint(.notice(String(localized: "L'image a été relancée.")), after: 0, for: 4)
             }
             guard revealedAt == nil else {
                 phase = .streaming
@@ -585,7 +585,7 @@ final class SessionController: NSObject, ObservableObject {
                 restartStreaming()
             }
         case .reconnectionFailed:
-            fail("connexion perdue")
+            fail(String(localized: "connexion perdue"))
         case let .stopped(reason):
             if phase != .ending && phase != .ended { fail(reason) }
         case .streamingStopped:
@@ -637,7 +637,7 @@ final class SessionController: NSObject, ObservableObject {
             if self.prepared?.virtualDisplay == true, let console = self.console, let r = self.requested {
                 KyberLog.app.notice("écran virtuel redemandé à la console")
                 do {
-                    _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
+                    _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.consoleProfile, modePolicy: self.host.settings.modePolicy)
                 } catch {
                     KyberLog.app.error("écran virtuel pas rétabli : \(error.localizedDescription, privacy: .public)")
                 }
@@ -775,7 +775,7 @@ final class SessionController: NSObject, ObservableObject {
         clearScreenOffer()
         requested = (offer.width, offer.height, offer.refresh, previous.channels)
         KyberLog.app.notice("adaptation à l'écran de ce Mac : écran virtuel redemandé en \(offer.width)×\(offer.height) à \(offer.refresh) Hz")
-        showHint(.notice("Adaptation de l'image à \(offer.width) × \(offer.height)…"), after: 0, for: 3)
+        showHint(.notice(String(localized: "Adaptation de l'image à \(offer.width) × \(offer.height)…")), after: 0, for: 3)
         kyber?.stopStreaming()
         streaming = nil
         lastRestore = Date()
@@ -783,17 +783,17 @@ final class SessionController: NSObject, ObservableObject {
             guard let self else { return }
             defer { self.restoring = nil }
             do {
-                let result = try await console.prepare(width: offer.width, height: offer.height, refresh: offer.refresh, audioChannels: previous.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
+                let result = try await console.prepare(width: offer.width, height: offer.height, refresh: offer.refresh, audioChannels: previous.channels, virtualDisplay: true, profile: self.host.settings.consoleProfile, modePolicy: self.host.settings.modePolicy)
                 self.prepared = result
                 let mode = (result.width ?? offer.width, result.height ?? offer.height, result.refresh ?? offer.refresh)
                 self.streamMode = mode
                 self.modeLabel = "\(mode.0) × \(mode.1) · \(mode.2) Hz"
-                self.pendingNotice = "Image adaptée à \(mode.0) × \(mode.1)."
+                self.pendingNotice = String(localized: "Image adaptée à \(mode.0) × \(mode.1).")
             } catch {
                 // L'ancien mode reste celui à redemander (reconnexion, écran virtuel perdu).
                 self.requested = previous
                 KyberLog.app.error("adaptation refusée : \(error.localizedDescription, privacy: .public)")
-                self.showHint(.fallback("L'écran de l'ordinateur n'a pas pu être adapté : \(error.localizedDescription)"), after: 0, for: 6)
+                self.showHint(.fallback(String(localized: "L'écran de l'ordinateur n'a pas pu être adapté : \(error.localizedDescription)")), after: 0, for: 6)
             }
             // Kyber annonce l'écran recréé quelques instants après la console.
             for _ in 0..<60 where !self.virtualDisplayAnnounced {
@@ -821,8 +821,8 @@ final class SessionController: NSObject, ObservableObject {
         }
         refreshModeOffer()
         let back = preparedSize.map { $0 == (width, height) } ?? false
-        var text = back ? "L'ordinateur est revenu en \(width) × \(height)." : "L'ordinateur est passé en \(width) × \(height)."
-        if let offer = modeRestoreOffer { text += " « \(offer) » dans la barre." }
+        var text = back ? String(localized: "L'ordinateur est revenu en \(width) × \(height).") : String(localized: "L'ordinateur est passé en \(width) × \(height).")
+        if let offer = modeRestoreOffer { text += " " + String(localized: "« \(offer) » dans la barre.") }
         showHint(.notice(text), after: 0, for: 5)
     }
 
@@ -833,7 +833,7 @@ final class SessionController: NSObject, ObservableObject {
             modeRestoreOffer = nil
             return
         }
-        modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
+        modeRestoreOffer = String(localized: "Remettre \(size.width) × \(size.height)")
     }
 
     /// Politique « remettre » (profil Bureau, ou réglage de la console) : la
@@ -860,7 +860,7 @@ final class SessionController: NSObject, ObservableObject {
             // Session finie entre-temps : un prepare recréerait l'écran virtuel.
             guard let self, !Task.isCancelled, self.phase == .streaming else { return }
             do {
-                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: "restore")
+                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.consoleProfile, modePolicy: "restore")
                 // La console peut répondre sans avoir rien remis (mode refusé,
                 // jeu qui insiste) : si l'image n'est pas revenue, le bouton revient.
                 try? await Task.sleep(for: .seconds(6))
@@ -896,7 +896,7 @@ final class SessionController: NSObject, ObservableObject {
             // Windows ne présente que des écrans de 0 × 0 quand aucun n'est
             // allumé sur le bureau (écrans physiques pas revenus, écran virtuel absent).
             KyberLog.app.error("aucun écran utilisable : \(self.displays.map { "\($0.id) \($0.width)×\($0.height)" }.joined(separator: ", "), privacy: .public)")
-            fail(displays.isEmpty ? "l'ordinateur n'a annoncé aucun écran" : "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
+            fail(displays.isEmpty ? String(localized: "l'ordinateur n'a annoncé aucun écran") : String(localized: "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le"))
             return
         }
         if streaming == best.id { return }
@@ -931,7 +931,7 @@ final class SessionController: NSObject, ObservableObject {
         // liste a pu changer depuis le choix (relance différée de 0,3 s).
         if !displays.isEmpty, !usableDisplays.contains(where: { $0.id == display.id }) {
             guard let best = bestDisplay() else {
-                fail("aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
+                fail(String(localized: "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le"))
                 return
             }
             KyberLog.app.notice("écran \(display.id) absent de la liste : écran \(best.id) à la place")
@@ -993,7 +993,7 @@ final class SessionController: NSObject, ObservableObject {
         // Le délai repart du prochain démarrage du flux.
         imageWatch?.cancel()
         KyberLog.app.error("pas d'image : repli \(next, privacy: .public) (\(next == 1 ? "débit \(Self.fallbackBitrate / 1_000_000) Mb/s" : "4:2:0", privacy: .public))")
-        showHint(.fallback(next == 1 ? "L'image ne passait pas : débit ramené à \(Self.fallbackBitrate / 1_000_000) Mb/s pour cette session." : "L'image ne passait pas : 4:2:0 pour cette session."), after: 0, for: 6)
+        showHint(.fallback(next == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(Self.fallbackBitrate / 1_000_000) Mb/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")), after: 0, for: 6)
         lastStallRestart = Date()
         restartStreaming()
         return true
@@ -1023,7 +1023,7 @@ final class SessionController: NSObject, ObservableObject {
                 try? await Task.sleep(for: .seconds(max(1, seconds)))
                 guard let self else { return }
                 let latency = self.stats?.latencyMs
-                let profile = self.host.settings.profileLabel
+                let profile = self.host.settings.consoleProfile
                 guard let beat = await self.console?.heartbeat(latencyMs: latency, profile: profile, modePolicy: self.host.settings.modePolicy) else { continue }
                 // La console a demandé la fin de la session.
                 if beat.end {

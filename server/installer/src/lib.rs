@@ -4,6 +4,7 @@
 pub mod acl;
 pub mod checks;
 pub mod events;
+pub mod i18n;
 pub mod install;
 pub mod payload;
 pub mod ports;

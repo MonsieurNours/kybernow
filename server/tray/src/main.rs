@@ -11,6 +11,8 @@ mod app;
 mod console;
 #[cfg(windows)]
 mod http;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod i18n;
 #[cfg(windows)]
 mod icons;
 #[cfg(windows)]
@@ -32,7 +34,7 @@ fn main() {
         std::process::exit(password::elevated_main());
     }
     if let Err(e) = app::run() {
-        app::alert(&format!("L'icône KyberNow n'a pas pu démarrer : {e:#}"));
+        app::alert(&i18n::t("tray.startFailed", &[("error", &format!("{e:#}"))]));
         std::process::exit(1);
     }
 }

@@ -1,0 +1,98 @@
+{
+  "setup": {
+    "startFailed": "L'installation n'a pas pu démarrer :\n\n{error}",
+    "notAPayload": "ce fichier ne contient pas KyberNow. Téléchargez à nouveau l'installateur complet.",
+    "webview2Missing": "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Server-Setup."
+  },
+  "uninstall": {
+    "title": "Désinstaller KyberNow",
+    "confirm": "KyberNow va être retiré de cet ordinateur : serveur de streaming, console d'administration, icône, écran virtuel. Le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis.\n\nLe pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
+    "keepData": "Garder les réglages de KyberNow sur cet ordinateur ?\n\nOui : C:\\ProgramData\\KyberNow reste (réglages et certificat de la console, appareils connus, journaux, copie des réglages de Kyber), lisible par les administrateurs seulement.\nNon : tout est effacé.",
+    "doneKept": "KyberNow a été désinstallé. Ses réglages restent dans C:\\ProgramData\\KyberNow.",
+    "done": "KyberNow a été désinstallé.",
+    "failed": "La désinstallation a rencontré un problème :\n\n{error}"
+  },
+  "ui": {
+    "windowTitle": "Installation de KyberNow",
+    "rebootReason": "Redémarrage pour terminer l'installation de KyberNow"
+  },
+  "checks": {
+    "gpu": {
+      "title": "Carte graphique",
+      "detail": "{name} · encodage matériel {encoder}",
+      "noneTitle": "Aucune carte graphique compatible",
+      "noneDetail": "L'encodage se fera par le processeur (x264) : plus lent et plus gourmand."
+    },
+    "driver": {
+      "title": "Pilote graphique",
+      "version": "Version {version}",
+      "unknown": "Version inconnue : pensez à mettre à jour le pilote de la carte graphique.",
+      "none": "Aucun pilote de carte graphique : installez celui du fabricant (NVIDIA, AMD ou Intel) pour profiter de l'encodage matériel."
+    },
+    "network": {
+      "title": "Réseau local",
+      "unknownAddress": "adresse inconnue",
+      "ethernet": "Ethernet · {ip}",
+      "wifi": "Wi-Fi · {ip} · un câble Ethernet évite les micro-coupures",
+      "public": " · réseau classé « Public » : nous le passerons en « Privé » pour que vos appareils puissent se connecter"
+    },
+    "ports": {
+      "title": "Ports réseau",
+      "defaultBusy": "Le port habituel 8080 est déjà utilisé{by}. ",
+      "picked": "{reason}Tirés au hasard et vérifiés libres : stream {stream} · console {console}"
+    },
+    "display": {
+      "title": "Écran principal",
+      "mode": "{width} × {height} · {hz} Hz",
+      "none": "Aucun écran détecté : branchez un écran ou activez l'écran virtuel."
+    },
+    "power": {
+      "title": "Mode d'alimentation",
+      "titleWithPlan": "Mode d'alimentation : {plan}",
+      "tuned": "Le GPU garde toute sa puissance pendant le stream.",
+      "notTuned": "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options.",
+      "high": "Performances élevées",
+      "ultimate": "Performances optimales",
+      "saver": "Économie d'énergie",
+      "balanced": "Équilibré",
+      "unknown": "inconnu"
+    },
+    "audio": {
+      "title": "Son à distance",
+      "ok": "Haut-parleurs virtuels de Steam disponibles : pendant le stream, l'ordinateur se tait et le son part en stéréo, 5.1 ou 7.1.",
+      "missing": "Steam n'est pas installé : le son sortira aussi des haut-parleurs de l'ordinateur, au format de Windows. Installez Steam puis relancez l'installation pour en profiter."
+    },
+    "existing": {
+      "title": "Installation existante",
+      "installed": "KyberNow {version} est installé",
+      "keepChoice": "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro.",
+      "noSettings": "Ses réglages sont introuvables : l'installation repartira de zéro.",
+      "kyberTitle": "Une installation de Kyber existe",
+      "kyberDetail": "Elle sera retirée puis remplacée par celle de KyberNow (même moteur, réglé pour vous)."
+    }
+  },
+  "ports": {
+    "range": "Choisissez un port entre 1024 et 65535.",
+    "samePort": "Le stream et la console ont besoin de deux ports différents.",
+    "reservedByWindows": "Le port {port} est réservé par Windows.",
+    "reservedBy": "Le port {port} est dans la plage de {owner} ({first}–{last}), que le logiciel prend souvent : choisissez-en un autre.",
+    "inUse": "Le port {port} est déjà utilisé{by}.",
+    "by": " par {process}",
+    "windowsHttp": "Windows (service HTTP du système)",
+    "process": "le processus {pid}"
+  },
+  "install": {
+    "commandFailed": "{command} a échoué (code {code}) : {output}",
+    "launching": "lancement de {program}",
+    "payloadIncomplete": "installateur incomplet",
+    "payloadMissing": "contenu de l'installateur introuvable (fichier corrompu ?)",
+    "settingsMissing": "réglages introuvables ({path}) : choisissez « Repartir de zéro »",
+    "vigembusMissing": "installeur ViGEmBus absent du contenu",
+    "initialConfiguration": "configuration initiale",
+    "backup": "sauvegarde de {path}",
+    "serviceName": "KyberNow - serveur de streaming",
+    "serviceDescription": "Serveur de streaming Kyber, installé et géré par KyberNow.",
+    "trayShortcut": "KyberNow dans la zone de notification",
+    "consoleShortcut": "Console KyberNow"
+  }
+}

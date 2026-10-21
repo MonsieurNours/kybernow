@@ -2,9 +2,10 @@
 <script lang="ts">
   import qrcode from 'qrcode-generator'
   import { send } from '../lib/backend'
+  import { t } from '../lib/i18n/index.svelte'
   import { app } from '../lib/state.svelte'
 
-  const ip = $derived(app.result?.lanIp ?? app.lanIp ?? 'adresse-du-pc')
+  const ip = $derived(app.result?.lanIp ?? app.lanIp ?? t('done.unknownAddress'))
   const consolePort = $derived(app.result?.consolePort ?? app.ports.console)
   const consoleUrl = $derived(`https://${ip}:${consolePort}`)
   const needReboot = $derived(app.result?.needReboot ?? false)
@@ -28,36 +29,36 @@
 
 <div class="done">
   <div class="text">
-    <span class="lbl ok kn-enter"><span class="dot"></span>Installation terminée</span>
-    <h1 class="title kn-enter kn-d1">Cet ordinateur est prêt. Il est partout.</h1>
+    <span class="lbl ok kn-enter"><span class="dot"></span>{t('done.label')}</span>
+    <h1 class="title kn-enter kn-d1">{t('done.title')}</h1>
     <p class="lead kn-enter kn-d2">
-      Ouvrez KyberNow sur n'importe lequel de vos appareils : cet ordinateur s'y trouve déjà. Sinon, son adresse :
+      {t('done.lead')}
       <span class="mono addr">{ip}</span>
     </p>
     <p class="note kn-enter kn-d3">
-      Sans app ? Ouvrez
+      {t('done.noAppBefore')}
       <button type="button" class="text-button mono small" onclick={() => send({ cmd: 'openUrl', url: `${consoleUrl}/ecran` })}>{consoleUrl}/ecran</button>
-      dans un navigateur.
+      {t('done.noAppAfter')}
     </p>
     {#if needReboot}
       <div class="notice warn kn-enter kn-d3">
-        <span>Les manettes fonctionneront après le prochain redémarrage. Le reste est déjà actif.</span>
-        <button type="button" class="ghost small" onclick={() => finish(true, true)}>Redémarrer maintenant</button>
+        <span>{t('done.reboot')}</span>
+        <button type="button" class="ghost small" onclick={() => finish(true, true)}>{t('done.rebootNow')}</button>
       </div>
     {/if}
   </div>
 
   <div class="panel phone kn-enter kn-d2">
-    <div class="qr" role="img" aria-label="QR code de la console : {consoleUrl}">{@html qr}</div>
-    <strong>La console sur votre téléphone</strong>
-    <span class="note">Un avertissement de certificat s'affiche la première fois : c'est normal.</span>
+    <div class="qr" role="img" aria-label={t('done.qr', { url: consoleUrl })}>{@html qr}</div>
+    <strong>{t('done.phone')}</strong>
+    <span class="note">{t('done.phoneNote')}</span>
   </div>
 </div>
 
 <div class="footer">
   <div class="spacer"></div>
-  <button type="button" class="ghost" onclick={() => finish(false)}>Fermer</button>
-  <button type="button" class="primary lit" onclick={() => finish(true)}>Ouvrir la console</button>
+  <button type="button" class="ghost" onclick={() => finish(false)}>{t('done.close')}</button>
+  <button type="button" class="primary lit" onclick={() => finish(true)}>{t('done.openConsole')}</button>
 </div>
 
 <style>

@@ -1,0 +1,41 @@
+{
+  "console": {
+    "certificate_changed": "le certificat de la console a changé (vu : {seen})",
+    "http": "console : {message} ({status})",
+    "http_status": "erreur HTTP {status}",
+    "network": "console injoignable : {error}",
+    "invalid": "réponse de la console illisible : {error}",
+    "no_request_id": "identifiant de demande absent"
+  },
+  "session": {
+    "internal": "erreur interne de la session",
+    "no_image": "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir le journal de sa console, Système › Journaux)",
+    "unauthorized": "le serveur de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans la console, redémarrez le serveur (Système), puis réessayez",
+    "tls": "le certificat du serveur de l'ordinateur ne correspond pas à celui que donne la console",
+    "connect_failed": "connexion à Kyber impossible ({reason})",
+    "stream_failed": "connexion au flux impossible",
+    "image_refused": "l'ordinateur refuse l'image",
+    "pipeline": "erreur de la chaîne d'image ({kind})",
+    "not_responding": "l'ordinateur ne répond plus",
+    "interrupted": "session interrompue ({reason})",
+    "no_display": "aucun écran utilisable sur l'ordinateur",
+    "start_image": "démarrage de l'image : {error}"
+  },
+  "update": {
+    "download_of": "téléchargement de {url} : {error}",
+    "download": "téléchargement : {error}",
+    "bad_key": "clé de publication illisible : {error}",
+    "bad_signature": "signature illisible : {error}",
+    "other_key": "manifeste signé par une autre clé que celle de KyberNow",
+    "invalid_signature": "signature du manifeste invalide : version falsifiée ou abîmée",
+    "bad_manifest": "manifeste illisible : {error}",
+    "bad_version": "numéro de version inattendu : {version}",
+    "bad_comment": "commentaire de signature inattendu : « {comment} »",
+    "github_down": "GitHub ne répond pas : {error}",
+    "github_invalid": "réponse de GitHub illisible : {error}",
+    "no_manifest": "la version {version} n'a pas de manifeste signé",
+    "version_mismatch": "le manifeste signé annonce {manifest} mais GitHub publie {version}",
+    "file_missing": "{file} absent du manifeste signé de la version {version}",
+    "tampered": "fichier téléchargé différent du manifeste signé : abîmé ou falsifié"
+  }
+}

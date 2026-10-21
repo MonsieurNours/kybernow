@@ -1,0 +1,161 @@
+{
+  "app": {
+    "title": "Installation de KyberNow"
+  },
+  "steps": {
+    "welcome": "Bienvenue",
+    "install": "Installation",
+    "done": "C’est prêt"
+  },
+  "checks": {
+    "windows": "Windows",
+    "arch": "Processeur",
+    "gpu": "Carte graphique",
+    "display": "Écran",
+    "network": "Réseau local",
+    "webview": "Moteur d’affichage"
+  },
+  "status": {
+    "running": "En cours",
+    "done": "Fait",
+    "warn": "Attention",
+    "error": "Erreur",
+    "skipped": "Non installé",
+    "info": "Information",
+    "pending": "À venir"
+  },
+  "rail": {
+    "version": "Version {version}",
+    "free": "Logiciel libre (AGPL-3.0) ·",
+    "about": "À propos",
+    "back": "Retour"
+  },
+  "titleBar": {
+    "minimize": "Réduire",
+    "close": "Fermer",
+    "wait": "Patientez jusqu'à la fin de l'installation"
+  },
+  "welcome": {
+    "updateLabel": "Mise à jour",
+    "updateTitle": "Une nouvelle version de KyberNow.",
+    "updateLead": "Vous passez de la version {from} à la {to}. Vos ordinateurs, leurs mots de passe et vos réglages restent où ils sont.",
+    "label": "Bienvenue",
+    "title": "Votre ordinateur, sur ce PC.",
+    "lead": "Retrouvez l'écran de votre ordinateur ici, comme s'il était devant vous : l'image en quelques millisecondes, le clavier, la souris et la manette qui répondent tout de suite.",
+    "note": "Une minute, pour vous seul, sans droits d'administrateur. Rien ne change sur ce PC avant que vous cliquiez sur {action}.",
+    "install": "Installer",
+    "update": "Mettre à jour",
+    "desktop": "Raccourci sur le Bureau",
+    "desktopNote": "KyberNow est toujours dans le menu Démarrer.",
+    "looking": "Nous regardons ce PC…",
+    "seen": "Ce que nous avons vu",
+    "rerun": "Relancer",
+    "willClose": "KyberNow sera fermée pendant l'installation.",
+    "analysing": "Analyse en cours…"
+  },
+  "install": {
+    "rows": {
+      "close": {
+        "title": "Fermeture de KyberNow",
+        "text": "L’app ouverte se ferme le temps de l’installation."
+      },
+      "files": {
+        "title": "L’app KyberNow {version}",
+        "text": "Ses fichiers se posent dans votre dossier, sans toucher au reste du PC.",
+        "fact": "version {arch}"
+      },
+      "webview": {
+        "title": "Moteur d’affichage WebView2",
+        "text": "Téléchargé chez Microsoft et installé pour vous.",
+        "fact": "Microsoft"
+      },
+      "shortcuts": {
+        "title": "Menu Démarrer et lien kybernow://",
+        "text": "Le lien ou le QR code de la console d’un ordinateur ouvre KyberNow directement.",
+        "warn": "à refaire : ouvrez KyberNow une fois, elle se réinscrit"
+      },
+      "register": {
+        "title": "Applications installées",
+        "text": "KyberNow se met à jour d’elle-même, et se retire comme toute app."
+      }
+    },
+    "preparing": "préparation",
+    "preparingLog": "Préparation…",
+    "fewSeconds": "Encore quelques secondes",
+    "almost": "C’est presque fini",
+    "failedLabel": "Installation interrompue",
+    "finishedLabel": "Installation terminée",
+    "progressLabel": "Installation · {percent} %",
+    "failedTitle": "Quelque chose a bloqué.",
+    "finishedTitle": "Tout est en place.",
+    "title": "Votre ordinateur arrive sur ce PC.",
+    "installed": "KyberNow {version} est installée.",
+    "lead": "Rien à faire : on vous montre ce qui se passe, au fur et à mesure.",
+    "checkDetail": "à vérifier : voir le détail",
+    "failed": "échec",
+    "back": "Retour",
+    "retry": "Réessayer",
+    "continue": "Continuer",
+    "hideDetail": "Masquer le détail",
+    "showDetail": "Voir le détail"
+  },
+  "done": {
+    "updateLabel": "Mise à jour terminée",
+    "installLabel": "Installation terminée",
+    "title": "KyberNow est prête.",
+    "updateLead": "Vos ordinateurs vous attendent dans l'accueil, avec leurs réglages.",
+    "lead": "Ouvrez-la : un ordinateur sur le même réseau apparaît tout seul. Sinon, ajoutez-le avec le lien ou le QR code de sa console, ou par son adresse.",
+    "where": "Elle vous attend aussi dans le menu Démarrer. Clic droit sur son icône dans la barre des tâches : vos ordinateurs, en un clic.",
+    "whereDesktop": "Elle vous attend aussi dans le menu Démarrer et sur le Bureau. Clic droit sur son icône dans la barre des tâches : vos ordinateurs, en un clic.",
+    "session": "Pendant une session",
+    "shift": "Maj",
+    "keys": {
+      "disconnect": "Se déconnecter",
+      "fullscreen": "Plein écran ou fenêtre",
+      "mouse": "Souris libre ou captée (jeux)"
+    },
+    "bar": "La souris en haut de l'écran montre la barre de la session.",
+    "close": "Fermer",
+    "open": "Ouvrir KyberNow"
+  },
+  "about": {
+    "version": "version {version}",
+    "madeBy": "Conçu et développé par",
+    "included": "Logiciels libres inclus",
+    "component": "Composant",
+    "role": "Rôle",
+    "license": "Licence",
+    "roles": {
+      "kybernow": "L’app et son installateur",
+      "kyber": "Connexion, son et entrées (Kyber SAS)",
+      "ffmpeg": "Décodage vidéo",
+      "opus": "Décodage audio",
+      "sdl": "Manettes",
+      "tauri": "Fenêtres et interface",
+      "svelte": "Interface et cœur",
+      "fonts": "Polices de l’interface"
+    },
+    "names": {
+      "svelte": "Svelte, bibliothèques Rust"
+    },
+    "note": "KyberNow est distribué sous AGPL-3.0. Les textes des licences sont dans le dépôt du projet, sur GitHub.",
+    "back": "Retour"
+  },
+  "mock": {
+    "arm64Title": "Processeur ARM64",
+    "arm64": "La version ARM64 de KyberNow s'installe : elle tourne sans émulation, avec le décodage vidéo de la puce.",
+    "x64Title": "Processeur x64",
+    "x64": "La version x64 de KyberNow s'installe.",
+    "gpu": "{name} : elle décode l'image, pour moins de latence et moins de batterie.",
+    "display": "2560 × 1600 · 120 Hz : votre ordinateur peut prendre exactement cette taille pendant la session.",
+    "network": "192.168.1.20 : un ordinateur sur ce réseau apparaît tout seul dans KyberNow.",
+    "webviewTitle": "Moteur d’affichage WebView2",
+    "webview": "Version 141.0.3537.71, de Microsoft : il dessine l’interface de KyberNow.",
+    "existingTitle": "KyberNow 0.2.7 est installée",
+    "existing": "Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages restent.",
+    "runningTitle": "KyberNow est ouverte",
+    "running": "Elle sera fermée au moment d’installer : une session en cours s’arrêtera.",
+    "failed": "Impossible de poser les fichiers dans C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
+    "finished": "installation terminée"
+  }
+}

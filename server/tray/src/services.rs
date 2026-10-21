@@ -15,6 +15,8 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::System::Services::*;
 
+use crate::i18n::t;
+
 /// Serveur de streaming (kyservice).
 pub const KYBER: &str = "kyber";
 /// Console d'administration.
@@ -49,14 +51,14 @@ fn wide(s: &str) -> Vec<u16> {
 }
 
 /// Erreur Windows avec un message lisible pour l'utilisateur.
-fn failure(service: &str, what: &str, code: u32) -> anyhow::Error {
+/// `start` : démarrer, sinon arrêter.
+fn failure(service: &str, start: bool, code: u32) -> anyhow::Error {
     if code == ERROR_ACCESS_DENIED {
-        anyhow::anyhow!(
-            "Windows refuse de vous laisser {what} le service « {service} ». \
-             Relancez l'installation ou la mise à jour de KyberNow pour autoriser l'icône à le piloter."
-        )
+        let key = if start { "tray.errors.serviceDeniedStart" } else { "tray.errors.serviceDeniedStop" };
+        anyhow::anyhow!(t(key, &[("service", &service)]))
     } else {
-        anyhow::anyhow!("Impossible de {what} le service « {service} » ({}).", std::io::Error::from_raw_os_error(code as i32))
+        let key = if start { "tray.errors.serviceStartFailed" } else { "tray.errors.serviceStopFailed" };
+        anyhow::anyhow!(t(key, &[("service", &service), ("error", &std::io::Error::from_raw_os_error(code as i32))]))
     }
 }
 
@@ -95,23 +97,23 @@ pub fn state(name: &str) -> State {
 }
 
 pub fn start(name: &str) -> Result<()> {
-    let service = open(name, SERVICE_START).map_err(|c| failure(name, "démarrer", c))?;
+    let service = open(name, SERVICE_START).map_err(|c| failure(name, true, c))?;
     if unsafe { StartServiceW(service.0, 0, null()) } == 0 {
         let code = unsafe { GetLastError() };
         if code != ERROR_SERVICE_ALREADY_RUNNING {
-            return Err(failure(name, "démarrer", code));
+            return Err(failure(name, true, code));
         }
     }
     Ok(())
 }
 
 pub fn stop(name: &str) -> Result<()> {
-    let service = open(name, SERVICE_STOP).map_err(|c| failure(name, "arrêter", c))?;
+    let service = open(name, SERVICE_STOP).map_err(|c| failure(name, false, c))?;
     let mut status: SERVICE_STATUS = unsafe { std::mem::zeroed() };
     if unsafe { ControlService(service.0, SERVICE_CONTROL_STOP, &mut status) } == 0 {
         let code = unsafe { GetLastError() };
         if code != ERROR_SERVICE_NOT_ACTIVE {
-            return Err(failure(name, "arrêter", code));
+            return Err(failure(name, false, code));
         }
     }
     Ok(())
@@ -126,10 +128,10 @@ pub fn wait(name: &str, target: State, timeout: Duration) -> Result<()> {
             return Ok(());
         }
         if now == State::Stopped && target == State::Running {
-            bail!("Le service « {name} » s'est arrêté au démarrage. Consultez les journaux dans la console.");
+            bail!(t("tray.errors.serviceStoppedAtStart", &[("service", &name)]));
         }
         if Instant::now() > deadline {
-            bail!("Le service « {name} » ne répond pas au bout de {} secondes.", timeout.as_secs());
+            bail!(t("tray.errors.serviceTimeout", &[("service", &name), ("seconds", &timeout.as_secs())]));
         }
         std::thread::sleep(Duration::from_millis(300));
     }

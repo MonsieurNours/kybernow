@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte'
+  import { onMount, tick, untrack } from 'svelte'
   import { api, setUnauthorizedHandler } from './lib/api'
-  import { app, refreshStatus, notify, errorText, accessReason } from './lib/store.svelte'
+  import { app, refreshStatus, notify, errorText, accessReason, kyber, loadKyber } from './lib/store.svelte'
+  import { i18n, t, tn } from './lib/i18n/index.svelte'
+  import LangChoice from './lib/LangChoice.svelte'
   import Login from './pages/Login.svelte'
   import Overview from './pages/Overview.svelte'
   import ImageSound from './pages/ImageSound.svelte'
@@ -11,12 +13,12 @@
   import Icon from './lib/Icon.svelte'
 
   // Quatre espaces, par intention.
-  const spaces = [
-    { id: 'ensemble', label: "Vue d'ensemble", short: 'Ensemble', icon: 'overview', component: Overview },
-    { id: 'image-son', label: 'Image et son', short: 'Image et son', icon: 'image', component: ImageSound },
-    { id: 'acces', label: 'Accès', short: 'Accès', icon: 'key', component: Access },
-    { id: 'systeme', label: 'Système', short: 'Système', icon: 'gear', component: System },
-  ]
+  const spaces = $derived([
+    { id: 'ensemble', label: t('app.spaces.overview'), short: t('app.spaces.overviewShort'), icon: 'overview', component: Overview },
+    { id: 'image-son', label: t('app.spaces.imageSound'), short: t('app.spaces.imageSoundShort'), icon: 'image', component: ImageSound },
+    { id: 'acces', label: t('app.spaces.access'), short: t('app.spaces.accessShort'), icon: 'key', component: Access },
+    { id: 'systeme', label: t('app.spaces.system'), short: t('app.spaces.systemShort'), icon: 'gear', component: System },
+  ])
   // Anciennes adresses (console 0.2) : vers l'espace qui les reprend.
   const legacy: Record<string, string> = {
     dashboard: 'ensemble',
@@ -46,13 +48,13 @@
       ? ''
       : serviceState === 'running'
         ? live
-          ? `En session · ${live.name}`
-          : 'En marche · prêt à recevoir'
+          ? t('app.host.inSessionWith', { name: live.name })
+          : t('app.host.ready')
         : serviceState === 'starting'
-          ? 'Démarrage…'
+          ? t('app.host.starting')
           : serviceState === 'stopped'
-            ? 'Serveur arrêté'
-            : 'Serveur introuvable',
+            ? t('app.host.stopped')
+            : t('app.host.missing'),
   )
   const hostDot = $derived(serviceState === 'running' ? (live ? 'live' : 'ok') : serviceState === 'starting' ? 'warn' : 'bad')
   const updateBadge = $derived(status?.update_available?.split('.').slice(0, 2).join('.') ?? null)
@@ -85,6 +87,26 @@
     void space
   })
 
+  // Titre de l'onglet, dans la langue de la console.
+  $effect(() => {
+    document.title = t('app.title')
+  })
+
+  // Langue changée : les textes venus du serveur (réglages de Kyber, état) sont relus.
+  let langSeen = i18n.lang
+  $effect(() => {
+    const lang = i18n.lang
+    if (lang === langSeen) return
+    langSeen = lang
+    untrack(() => {
+      if (kyber.loaded) {
+        kyber.loaded = false
+        loadKyber()
+      }
+      if (session?.authenticated) refreshStatus()
+    })
+  })
+
   // État du serveur tant que l'on est connecté.
   $effect(() => {
     if (!session?.authenticated) return
@@ -93,7 +115,7 @@
     return () => clearInterval(timer)
   })
 
-  async function restartKyber(done = 'Le serveur a redémarré avec les nouveaux réglages.') {
+  async function restartKyber(done = t('app.restartDone')) {
     restarting = true
     try {
       await api.service('restart')
@@ -125,59 +147,58 @@
       </div>
 
       <div class="host">
-        <span class="name">{status?.hostname ?? 'Cet ordinateur'}</span>
+        <span class="name">{status?.hostname ?? t('app.host.thisComputer')}</span>
         <span class="state"><span class="dot {hostDot}"></span>{hostLine}</span>
       </div>
 
-      <nav aria-label="Espaces">
+      <nav class="spaces" aria-label={t('app.spaces.label')}>
         {#each spaces as s (s.id)}
           <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
             <Icon name={s.icon} />
             {s.label}
             {#if s.id === 'systeme' && updateBadge}<span class="badge">{updateBadge}</span>{/if}
-            {#if s.id === 'acces' && pairRequests.length}<span class="badge" aria-label="{pairRequests.length} demande{pairRequests.length > 1 ? 's' : ''} d'accès">{pairRequests.length}</span>{/if}
+            {#if s.id === 'acces' && pairRequests.length}<span class="badge" aria-label={tn('app.pairBadge', pairRequests.length)}>{pairRequests.length}</span>{/if}
           </a>
         {/each}
       </nav>
 
-      <div class="who">
-        <span class="avatar" aria-hidden="true">A</span>
-        Administrateur
-        <button type="button" class="link" onclick={logout}>Se déconnecter</button>
+      <div class="foot">
+        <div class="who">
+          <span class="avatar" aria-hidden="true">A</span>
+          {t('app.admin')}
+          <button type="button" class="link" onclick={logout}>{t('app.signOut')}</button>
+        </div>
+        <LangChoice compact />
       </div>
     </aside>
 
     <header class="mobile-top">
       <Mark size={22} lit={!!live} />
       <span class="name">{status?.hostname ?? ''}</span>
-      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (live ? 'En session' : 'En marche') : hostLine}</span>
+      <span class="state"><span class="dot {hostDot}"></span>{serviceState === 'running' ? (live ? t('app.host.inSession') : t('app.host.running')) : hostLine}</span>
     </header>
 
     <main>
       {#if status?.pending_access?.length}
         <div class="restart notice warn" role="status">
           <Icon name="restart" size={18} />
-          <span>
-            Redémarrage du serveur en attente pour {accessReason(status.pending_access)} : il se fera tout seul dès la fin de
-            la session en cours, sans couper personne. Pour ne pas attendre, redémarrez maintenant (l'appareil connecté sera
-            déconnecté quelques secondes).
-          </span>
+          <span>{t('app.pendingAccess', { reason: accessReason(status.pending_access) })}</span>
           <button
             type="button"
             class="ghost small"
             disabled={restarting}
-            onclick={() => restartKyber('Le serveur a redémarré : les accès sont à jour.')}
+            onclick={() => restartKyber(t('app.accessRestartDone'))}
           >
-            {restarting ? 'Redémarrage…' : 'Redémarrer maintenant'}
+            {restarting ? t('app.restarting') : t('app.restartNow')}
           </button>
         </div>
       {/if}
       {#if status?.restart_pending}
         <div class="restart notice warn" role="status">
           <Icon name="restart" size={18} />
-          <span>Réglages modifiés : redémarrez le serveur pour les appliquer. Un appareil connecté sera déconnecté quelques secondes.</span>
+          <span>{t('app.settingsChanged')}</span>
           <button type="button" class="ghost small" disabled={restarting} onclick={() => restartKyber()}>
-            {restarting ? 'Redémarrage…' : 'Redémarrer le serveur'}
+            {restarting ? t('app.restarting') : t('app.restartServer')}
           </button>
         </div>
       {/if}
@@ -185,10 +206,10 @@
         <div class="restart notice pair" role="status">
           <Icon name={pairRequests[0].kind === 'tv' ? 'tv' : 'key'} size={18} />
           <span>
-            {pairRequests[0].name} demande l'accès à cet ordinateur, avec le code
-            <b class="mono">{pairRequests[0].code.slice(0, 3)} {pairRequests[0].code.slice(3)}</b>.{pairRequests.length > 1 ? ` Et ${pairRequests.length - 1} autre${pairRequests.length > 2 ? 's' : ''}.` : ''}
+            {t('app.pairAsks', { name: pairRequests[0].name })}
+            <b class="mono">{pairRequests[0].code.slice(0, 3)} {pairRequests[0].code.slice(3)}</b>.{pairRequests.length > 1 ? ` ${tn('app.pairOthers', pairRequests.length - 1)}` : ''}
           </span>
-          <a class="ghost small" href="#/acces/appareils">Voir la demande</a>
+          <a class="ghost small" href="#/acces/appareils">{t('app.seeRequest')}</a>
         </div>
       {/if}
       {#key current.id}
@@ -196,13 +217,13 @@
       {/key}
     </main>
 
-    <nav class="tabbar" aria-label="Espaces">
+    <nav class="tabbar" aria-label={t('app.spaces.label')}>
       {#each spaces as s (s.id)}
         <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
           <Icon name={s.icon} size={22} />
           {s.short}
-          {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label="Mise à jour disponible"></span>{/if}
-          {#if s.id === 'acces' && pairRequests.length}<span class="pip" aria-label="Demande d'accès"></span>{/if}
+          {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label={t('app.updatePip')}></span>{/if}
+          {#if s.id === 'acces' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
         </a>
       {/each}
     </nav>
@@ -284,7 +305,7 @@
     min-width: 0;
   }
 
-  nav[aria-label='Espaces']:not(.tabbar) {
+  nav.spaces {
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -327,9 +348,17 @@
     font-weight: 600;
   }
 
-  .who {
+  .foot {
     margin-top: auto;
     padding: 0 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .who {
+    align-self: stretch;
     display: flex;
     align-items: center;
     gap: 10px;

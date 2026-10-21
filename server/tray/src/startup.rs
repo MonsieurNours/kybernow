@@ -12,6 +12,7 @@ use windows_sys::Win32::System::Threading::{GetExitCodeProcess, INFINITE, WaitFo
 use windows_sys::Win32::UI::Shell::{SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
+use crate::i18n::t;
 use crate::services::{self, ADMIN, KYBER};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -39,7 +40,7 @@ pub fn set(on: bool) -> Result<bool> {
                 return Ok(false);
             }
         }
-        Err(code) => bail!("Impossible de changer le démarrage des services ({}).", std::io::Error::from_raw_os_error(code as i32)),
+        Err(code) => bail!(t("tray.errors.startupServices", &[("error", &std::io::Error::from_raw_os_error(code as i32))])),
     }
     set_run_entry(on)?;
     Ok(true)
@@ -68,7 +69,7 @@ fn set_run_entry(on: bool) -> Result<()> {
         }
     };
     if code != 0 {
-        bail!("Impossible d'écrire le lancement à l'ouverture de session ({}).", std::io::Error::from_raw_os_error(code as i32));
+        bail!(t("tray.errors.startupRunEntry", &[("error", &std::io::Error::from_raw_os_error(code as i32))]));
     }
     Ok(())
 }
@@ -78,7 +79,7 @@ fn run_elevated(on: bool) -> Result<bool> {
     match elevate(&format!("{ELEVATED_ARG} {}", if on { "on" } else { "off" }))? {
         None => Ok(false),
         Some(0) => Ok(true),
-        Some(code) => bail!("Le démarrage des services n'a pas pu être changé ({}).", std::io::Error::from_raw_os_error(code as i32)),
+        Some(code) => bail!(t("tray.errors.startupElevated", &[("error", &std::io::Error::from_raw_os_error(code as i32))])),
     }
 }
 
@@ -99,7 +100,7 @@ pub fn elevate(params: &str) -> Result<Option<u32>> {
         if unsafe { GetLastError() } == ERROR_CANCELLED {
             return Ok(None);
         }
-        bail!("Impossible d'obtenir les droits administrateur.");
+        bail!(t("tray.errors.elevation", &[]));
     }
     let mut code = 1u32;
     unsafe {

@@ -15,6 +15,8 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::i18n::Msg;
+
 pub const MANIFEST: &str = "kybernow-release.json";
 pub const SIGNATURE: &str = "kybernow-release.json.minisig";
 /// Clé publique de publication (format minisign), identifiant D63B24FFFC7E79D1.
@@ -67,13 +69,14 @@ pub struct Manifest {
 pub enum Refusal {
     /// Il faut repasser par `KyberNow-Server-Setup.exe` (version trop ancienne ici,
     /// ou paquet qui l'exige).
-    Setup(String),
+    Setup(Msg),
     /// Paquet refusé (canal, version, fichier absent).
-    Rejected(String),
+    Rejected(Msg),
 }
 
 impl Refusal {
-    pub fn message(&self) -> &str {
+    /// Le message, écrit dans la langue de qui le lit (`Msg::render`).
+    pub fn message(&self) -> &Msg {
         match self {
             Refusal::Setup(m) | Refusal::Rejected(m) => m,
         }
@@ -86,10 +89,10 @@ pub fn verify(json: &[u8], minisig: &str, public_key: &str) -> Result<Manifest> 
     let key = minisign_verify::PublicKey::decode(public_key.trim()).map_err(|e| anyhow::anyhow!("clé publique de publication illisible : {e}"))?;
     let signature = minisign_verify::Signature::decode(minisig.trim()).map_err(|e| anyhow::anyhow!("signature du manifeste illisible : {e}"))?;
     key.verify(json, &signature, false).map_err(|e| match e {
-        minisign_verify::Error::UnexpectedKeyId => anyhow::anyhow!("manifeste signé par une autre clé que celle de KyberNow"),
-        _ => anyhow::anyhow!("signature du manifeste invalide : version falsifiée ou abîmée"),
+        minisign_verify::Error::UnexpectedKeyId => anyhow::Error::new(Msg::new("manifest.otherKey")),
+        _ => anyhow::Error::new(Msg::new("manifest.badSignature")),
     })?;
-    let manifest: Manifest = serde_json::from_slice(json).context("manifeste signé mais illisible")?;
+    let manifest: Manifest = serde_json::from_slice(json).map_err(|e| crate::i18n::because(Msg::new("manifest.unreadable"), &e.into()))?;
     if !super::valid_version(&manifest.version) || !super::valid_version(&manifest.min_installer_version) {
         bail!("numéros de version inattendus dans le manifeste ({}, {})", manifest.version, manifest.min_installer_version);
     }
@@ -111,37 +114,33 @@ impl Manifest {
     /// console, sur le canal `channel`, par-dessus `installed` ?
     pub fn check(&self, tag_version: &str, channel: Channel, installed: &str) -> Result<(), Refusal> {
         if self.version != tag_version {
-            return Err(Refusal::Rejected(format!(
-                "le manifeste signé annonce la version {} mais GitHub publie {tag_version}",
-                self.version
-            )));
+            return Err(Refusal::Rejected(Msg::new("manifest.versionMismatch").with("version", self.version.as_str()).with("tag", tag_version)));
         }
         if !self.channel.accepted_by(channel) {
-            return Err(Refusal::Rejected(format!(
-                "version {} du canal {} : cet ordinateur suit le canal {}",
-                self.version,
-                self.channel.as_str(),
-                channel.as_str()
-            )));
+            return Err(Refusal::Rejected(
+                Msg::new("manifest.channel")
+                    .with("version", self.version.as_str())
+                    .with("channel", self.channel.as_str())
+                    .with("followed", channel.as_str()),
+            ));
         }
         if super::newer(&self.min_installer_version, installed) {
-            return Err(Refusal::Setup(format!(
-                "la version {} demande au moins la {} : réinstallez avec KyberNow-Server-Setup.exe",
-                self.version, self.min_installer_version
-            )));
+            return Err(Refusal::Setup(
+                Msg::new("manifest.minInstaller").with("version", self.version.as_str()).with("min", self.min_installer_version.as_str()),
+            ));
         }
         if self.requires_setup {
-            return Err(Refusal::Setup(format!("la version {} s'installe avec KyberNow-Server-Setup.exe : réinstallez avec lui", self.version)));
+            return Err(Refusal::Setup(Msg::new("manifest.requiresSetup").with("version", self.version.as_str())));
         }
         if !self.files.contains_key(super::PACKAGE) {
-            return Err(Refusal::Rejected(format!("le manifeste de la version {} ne contient pas de paquet de mise à jour", self.version)));
+            return Err(Refusal::Rejected(Msg::new("manifest.noPackage").with("version", self.version.as_str())));
         }
         Ok(())
     }
 
     /// Empreinte et taille attendues d'un fichier publié.
     pub fn file(&self, name: &str) -> Result<&FileEntry> {
-        self.files.get(name).with_context(|| format!("{name} absent du manifeste signé"))
+        self.files.get(name).ok_or_else(|| Msg::new("manifest.fileMissing").with("name", name).into())
     }
 
     /// Le fichier téléchargé est-il exactement celui du manifeste ?
@@ -149,11 +148,11 @@ impl Manifest {
         let entry = self.file(name)?;
         let size = std::fs::metadata(path).with_context(|| format!("lecture de {}", path.display()))?.len();
         if size != entry.size {
-            bail!("{name} : {size} octets au lieu de {} : téléchargement abîmé ou falsifié", entry.size);
+            bail!(Msg::new("manifest.sizeMismatch").with("name", name).with("size", size).with("expected", entry.size));
         }
         let actual = sha256_file(path)?;
         if !actual.eq_ignore_ascii_case(&entry.sha256) {
-            bail!("empreinte de {name} différente du manifeste signé : téléchargement abîmé ou falsifié");
+            bail!(Msg::new("manifest.hashMismatch").with("name", name));
         }
         Ok(())
     }
@@ -315,7 +314,7 @@ pub mod tests {
         let mut old = sample("0.3.0", Channel::Stable);
         old.min_installer_version = "0.2.10".into();
         match old.check("0.3.0", Channel::Stable, "0.2.9") {
-            Err(Refusal::Setup(msg)) => assert!(msg.contains("KyberNow-Server-Setup.exe"), "{msg}"),
+            Err(Refusal::Setup(msg)) => assert!(msg.to_string().contains("KyberNow-Server-Setup.exe"), "{msg}"),
             other => panic!("{other:?}"),
         }
         assert_eq!(old.check("0.3.0", Channel::Stable, "0.2.10"), Ok(()));

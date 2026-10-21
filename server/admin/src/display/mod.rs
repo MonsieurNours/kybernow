@@ -38,6 +38,8 @@ use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::i18n::Msg;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {
@@ -129,10 +131,10 @@ pub struct Mode {
 impl Mode {
     pub fn validate(&self) -> Result<()> {
         if !(640..=7680).contains(&self.width) || !(480..=4320).contains(&self.height) {
-            bail!("résolution hors limites (640 × 480 à 7680 × 4320)");
+            bail!(Msg::new("display.resolutionRange"));
         }
         if !(24..=500).contains(&self.refresh) {
-            bail!("fréquence hors limites (24 à 500 Hz)");
+            bail!(Msg::new("display.refreshRange"));
         }
         Ok(())
     }
@@ -197,8 +199,14 @@ fn applied_mode(applied: &Value, requested: Mode) -> Mode {
     }
 }
 
+/// « 1920 × 1080 à 60 Hz » (journaux).
 fn label(m: Mode) -> String {
     format!("{} × {} à {} Hz", m.width, m.height, m.refresh)
+}
+
+/// Le même, en paramètre d'un événement : écrit dans la langue de qui lit.
+fn mode_param(m: Mode) -> Value {
+    Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value()
 }
 
 struct Session {
@@ -243,7 +251,7 @@ impl Session {
 }
 
 /// Fil des événements de la console (vue d'ensemble).
-pub type EventSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
+pub type EventSink = Arc<dyn Fn(&str, Msg) + Send + Sync>;
 
 /// Fichier écrit pendant une session, pour nettoyer après un plantage.
 #[derive(Serialize, Deserialize)]
@@ -314,11 +322,11 @@ impl Manager {
         *self.events.lock().unwrap() = Some(sink);
     }
 
-    fn event(&self, kind: &str, text: &str) {
+    fn event(&self, kind: &str, msg: Msg) {
         let sink = self.events.lock().unwrap().clone();
         match sink {
-            Some(sink) => sink(kind, text),
-            None => tracing::info!("écran virtuel : {text}"),
+            Some(sink) => sink(kind, msg),
+            None => tracing::info!("écran virtuel : {msg}"),
         }
     }
 
@@ -602,7 +610,7 @@ impl Manager {
             return;
         }
         let observed = self.backend.observe();
-        let mut notes: Vec<(&str, String)> = Vec::new();
+        let mut notes: Vec<(&str, Msg)> = Vec::new();
         let mut reisolate: Option<(Created, Mode, u32)> = None;
         let mut fix: Option<(String, Mode)> = None;
         let default_policy = self.settings.lock().unwrap().on_mode_change;
@@ -627,7 +635,7 @@ impl Manager {
                     s.reisolations.retain(|t| now.duration_since(*t) < REISOLATE_WINDOW);
                     if s.reisolations.len() >= MAX_REISOLATIONS {
                         s.reisolate_gave_up = true;
-                        notes.push(("warn", "Windows rallume sans cesse un écran de l'ordinateur : il reste allumé pour le reste de la session".to_string()));
+                        notes.push(("warn", Msg::new("events.displayKeepsTurningOn")));
                     } else {
                         // En `follow`, le mode en cours est gardé (un jeu a pu le choisir).
                         let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { s.target };
@@ -642,10 +650,11 @@ impl Manager {
             if reisolate.is_none() && o.mode.width > 0 && !same_mode(o.mode, s.target) {
                 if s.announced != Some(o.mode) {
                     s.announced = Some(o.mode);
-                    notes.push(("info", match policy {
-                        ModePolicy::Follow => format!("L'écran virtuel est passé en {} (demandé : {}), laissé tel quel", label(o.mode), label(s.target)),
-                        ModePolicy::Restore => format!("L'écran virtuel est passé en {} : remis en {}", label(o.mode), label(s.target)),
-                    }));
+                    let key = match policy {
+                        ModePolicy::Follow => "events.displayModeFollowed",
+                        ModePolicy::Restore => "events.displayModeRestored",
+                    };
+                    notes.push(("info", Msg::new(key).with("mode", mode_param(o.mode)).with("target", mode_param(s.target))));
                 }
                 let due = s.last_mode_fix.is_none_or(|t| now.duration_since(t) >= MODE_FIX_INTERVAL);
                 if policy == ModePolicy::Restore && due {
@@ -654,7 +663,7 @@ impl Manager {
                         // Le jeu remet sa définition après chaque remise : on
                         // arrête la ronde (et les relances d'image qu'elle coûte).
                         s.restore_gave_up = true;
-                        notes.push(("warn", format!("La définition de l'écran virtuel revient sans cesse à {} (un jeu l'impose) : laissée telle quelle pour le reste de la session", label(o.mode))));
+                        notes.push(("warn", Msg::new("events.displayModeGaveUp").with("mode", mode_param(o.mode))));
                     } else {
                         s.mode_fixes.push(now);
                         fix = Some((o.gdi_name.clone(), s.target));
@@ -664,8 +673,8 @@ impl Manager {
                 s.announced = None;
             }
         }
-        for (kind, text) in notes {
-            self.event(kind, &text);
+        for (kind, msg) in notes {
+            self.event(kind, msg);
         }
         if let Some((gdi_name, target)) = fix {
             self.fix_mode(&gdi_name, target, now);
@@ -680,10 +689,10 @@ impl Manager {
                         s.reisolations.push(now);
                         s.reisolate_failures = 0;
                     }
-                    self.event("info", &if others > 1 {
-                        format!("{others} écrans de l'ordinateur se sont rallumés pendant la session : éteints de nouveau")
+                    self.event("info", if others > 1 {
+                        Msg::new("events.displaysOffAgain").with("count", others)
                     } else {
-                        "Un écran de l'ordinateur s'est rallumé pendant la session : éteint de nouveau".to_string()
+                        Msg::new("events.displayOffAgain")
                     });
                 }
                 Err(e) => {
@@ -699,9 +708,9 @@ impl Manager {
                     };
                     // Annoncé au premier échec et quand la console renonce, pas à chaque essai.
                     if first {
-                        self.event("warn", &format!("Un écran de l'ordinateur s'est rallumé pendant la session et n'a pas pu être éteint : {e:#}"));
+                        self.event("warn", Msg::new("events.displayOffFailed").with("error", crate::i18n::error_param(&e)));
                     } else if gave_up {
-                        self.event("warn", "L'écran rallumé n'a pas pu être éteint après trois essais : il reste allumé pour le reste de la session");
+                        self.event("warn", Msg::new("events.displayOffGaveUp"));
                     }
                 }
             }
@@ -974,7 +983,7 @@ mod tests {
         let m = Manager::with_backend(dir, settings, Box::new(sim.clone()));
         let events = Arc::new(Mutex::new(Vec::new()));
         let feed = events.clone();
-        m.on_event(Arc::new(move |_: &str, text: &str| feed.lock().unwrap().push(text.to_string())));
+        m.on_event(Arc::new(move |_: &str, msg: Msg| feed.lock().unwrap().push(msg.to_string())));
         (m, sim, events)
     }
 

@@ -6,6 +6,7 @@ import type { TouchMode } from './prefs'
 import { engineInputs, sendText as sendUnicode } from './inputs'
 import { isRemoteCursorHidden, sendHostPosition } from './pointer'
 import { diag, diagEnabled } from './diag'
+import { t } from '../lib/i18n/index.svelte'
 
 type Point = { x: number; y: number }
 
@@ -199,17 +200,18 @@ export class TouchInput {
   }
 }
 
-/** Touches que le clavier d'un téléphone n'a pas. */
-export const SPECIAL_KEYS: { label: string; key: string; code: string; sticky?: boolean; aria?: string }[] = [
-  { label: 'Échap', key: 'Escape', code: 'Escape' },
-  { label: 'Tab', key: 'Tab', code: 'Tab' },
-  { label: 'Ctrl', key: 'Control', code: 'ControlLeft', sticky: true },
-  { label: 'Alt', key: 'Alt', code: 'AltLeft', sticky: true },
-  { label: '⊞', key: 'Meta', code: 'MetaLeft', sticky: true, aria: 'Touche Démarrer' },
-  { label: '←', key: 'ArrowLeft', code: 'ArrowLeft', aria: 'Flèche gauche' },
-  { label: '↑', key: 'ArrowUp', code: 'ArrowUp', aria: 'Flèche haut' },
-  { label: '↓', key: 'ArrowDown', code: 'ArrowDown', aria: 'Flèche bas' },
-  { label: '→', key: 'ArrowRight', code: 'ArrowRight', aria: 'Flèche droite' },
+/** Touches que le clavier d'un téléphone n'a pas. Libellés lus à l'affichage
+ * (accesseurs) : ils suivent la langue. */
+export const SPECIAL_KEYS: { readonly label: string; key: string; code: string; sticky?: boolean; readonly aria?: string }[] = [
+  { get label() { return t('web.keys.esc') }, key: 'Escape', code: 'Escape' },
+  { get label() { return t('web.keys.tab') }, key: 'Tab', code: 'Tab' },
+  { get label() { return t('web.keys.ctrl') }, key: 'Control', code: 'ControlLeft', sticky: true },
+  { get label() { return t('web.keys.alt') }, key: 'Alt', code: 'AltLeft', sticky: true },
+  { label: '⊞', key: 'Meta', code: 'MetaLeft', sticky: true, get aria() { return t('web.keys.start') } },
+  { label: '←', key: 'ArrowLeft', code: 'ArrowLeft', get aria() { return t('web.keys.left') } },
+  { label: '↑', key: 'ArrowUp', code: 'ArrowUp', get aria() { return t('web.keys.up') } },
+  { label: '↓', key: 'ArrowDown', code: 'ArrowDown', get aria() { return t('web.keys.down') } },
+  { label: '→', key: 'ArrowRight', code: 'ArrowRight', get aria() { return t('web.keys.right') } },
 ]
 
 function codeFor(ch: string): string {

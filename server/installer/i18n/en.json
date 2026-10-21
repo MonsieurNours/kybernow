@@ -1,0 +1,98 @@
+{
+  "setup": {
+    "startFailed": "Setup could not start:\n\n{error}",
+    "notAPayload": "this file does not contain KyberNow. Download the full installer again.",
+    "webview2Missing": "The installer needs Microsoft Edge WebView2, included in Windows 11 and most Windows 10 installations.\n\nMicrosoft's download page will open: install it, then run KyberNow-Server-Setup again."
+  },
+  "uninstall": {
+    "title": "Uninstall KyberNow",
+    "confirm": "KyberNow will be removed from this computer: streaming server, administration console, tray icon, virtual display. The power mode and network category from before KyberNow are restored.\n\nThe ViGEmBus gamepad driver stays installed, as other software may use it.\n\nContinue?",
+    "keepData": "Keep KyberNow's settings on this computer?\n\nYes: C:\\ProgramData\\KyberNow stays (console settings and certificate, known devices, logs, a copy of Kyber's settings), readable by administrators only.\nNo: everything is deleted.",
+    "doneKept": "KyberNow has been uninstalled. Its settings remain in C:\\ProgramData\\KyberNow.",
+    "done": "KyberNow has been uninstalled.",
+    "failed": "Uninstalling ran into a problem:\n\n{error}"
+  },
+  "ui": {
+    "windowTitle": "KyberNow Setup",
+    "rebootReason": "Restarting to finish installing KyberNow"
+  },
+  "checks": {
+    "gpu": {
+      "title": "Graphics card",
+      "detail": "{name} · {encoder} hardware encoding",
+      "noneTitle": "No compatible graphics card",
+      "noneDetail": "Encoding will be done by the processor (x264): slower and more demanding."
+    },
+    "driver": {
+      "title": "Graphics driver",
+      "version": "Version {version}",
+      "unknown": "Unknown version: consider updating the graphics card driver.",
+      "none": "No graphics card driver: install the manufacturer's (NVIDIA, AMD or Intel) to get hardware encoding."
+    },
+    "network": {
+      "title": "Local network",
+      "unknownAddress": "unknown address",
+      "ethernet": "Ethernet · {ip}",
+      "wifi": "Wi-Fi · {ip} · an Ethernet cable avoids micro-dropouts",
+      "public": " · network set to “Public”: we will switch it to “Private” so your devices can connect"
+    },
+    "ports": {
+      "title": "Network ports",
+      "defaultBusy": "The usual port 8080 is already in use{by}. ",
+      "picked": "{reason}Drawn at random and checked free: stream {stream} · console {console}"
+    },
+    "display": {
+      "title": "Main display",
+      "mode": "{width} × {height} · {hz} Hz",
+      "none": "No display detected: plug in a display or turn on the virtual display."
+    },
+    "power": {
+      "title": "Power mode",
+      "titleWithPlan": "Power mode: {plan}",
+      "tuned": "The GPU keeps its full power during the stream.",
+      "notTuned": "The GPU slows down to save energy, which can triple the encoding time. We will offer to change it at the Options step.",
+      "high": "High performance",
+      "ultimate": "Ultimate Performance",
+      "saver": "Power saver",
+      "balanced": "Balanced",
+      "unknown": "unknown"
+    },
+    "audio": {
+      "title": "Remote sound",
+      "ok": "Steam's virtual speakers are available: during the stream, the computer goes silent and the sound goes out in stereo, 5.1 or 7.1.",
+      "missing": "Steam is not installed: sound will also come out of the computer's speakers, in Windows' format. Install Steam, then run the installation again to get it."
+    },
+    "existing": {
+      "title": "Existing installation",
+      "installed": "KyberNow {version} is installed",
+      "keepChoice": "At the next step, you will choose to keep your settings and devices, or to start from scratch.",
+      "noSettings": "Its settings cannot be found: the installation will start from scratch.",
+      "kyberTitle": "A Kyber installation exists",
+      "kyberDetail": "It will be removed and replaced by KyberNow's (same engine, tuned for you)."
+    }
+  },
+  "ports": {
+    "range": "Choose a port between 1024 and 65535.",
+    "samePort": "The stream and the console need two different ports.",
+    "reservedByWindows": "Port {port} is reserved by Windows.",
+    "reservedBy": "Port {port} is in {owner}'s range ({first}–{last}), which that software often takes: choose another one.",
+    "inUse": "Port {port} is already in use{by}.",
+    "by": " by {process}",
+    "windowsHttp": "Windows (system HTTP service)",
+    "process": "process {pid}"
+  },
+  "install": {
+    "commandFailed": "{command} failed (code {code}): {output}",
+    "launching": "launching {program}",
+    "payloadIncomplete": "incomplete installer",
+    "payloadMissing": "installer payload not found (corrupted file?)",
+    "settingsMissing": "settings not found ({path}): choose “Start from scratch”",
+    "vigembusMissing": "ViGEmBus installer missing from the payload",
+    "initialConfiguration": "initial configuration",
+    "backup": "backing up {path}",
+    "serviceName": "KyberNow - streaming server",
+    "serviceDescription": "Kyber streaming server, installed and managed by KyberNow.",
+    "trayShortcut": "KyberNow in the notification area",
+    "consoleShortcut": "KyberNow console"
+  }
+}

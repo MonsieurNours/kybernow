@@ -1,27 +1,21 @@
 // État de l'installation, alimenté par les événements de l'installateur.
 
+import { t } from './i18n/index.svelte'
 import { onEvent, send, type BackendEvent, type CheckStatus, type Existing, type TaskStatus } from './backend'
 
 export type Screen = 'welcome' | 'reinstall' | 'account' | 'options' | 'install' | 'done' | 'about'
 
 /** Quatre étapes : l'analyse de l'ordinateur tourne pendant la bienvenue, « Terminé » clôt l'installation. */
-export const STEPS: { screens: Screen[]; label: string }[] = [
-  { screens: ['welcome'], label: 'Bienvenue' },
-  { screens: ['reinstall', 'account'], label: 'Votre compte' },
-  { screens: ['options'], label: 'Options' },
-  { screens: ['install', 'done'], label: 'Installation' },
+export const STEPS: { screens: Screen[]; key: string }[] = [
+  { screens: ['welcome'], key: 'steps.welcome' },
+  { screens: ['reinstall', 'account'], key: 'steps.account' },
+  { screens: ['options'], key: 'steps.options' },
+  { screens: ['install', 'done'], key: 'steps.install' },
 ]
 
 export const CHECK_ORDER = ['gpu', 'driver', 'network', 'ports', 'display', 'power', 'audio']
-const CHECK_TITLES: Record<string, string> = {
-  gpu: 'Carte graphique',
-  driver: 'Pilote graphique',
-  network: 'Réseau local',
-  ports: 'Ports réseau',
-  display: 'Écran principal',
-  power: "Mode d'alimentation",
-  audio: 'Son à distance',
-}
+/** Titre d'attente d'un contrôle, avant que l'installateur envoie le sien. */
+const checkTitle = (id: string) => t(`checks.${id}`)
 
 export interface CheckItem {
   id: string
@@ -35,7 +29,7 @@ export const TASK_ORDER = ['files', 'cert', 'service', 'firewall', 'vdd', 'gamep
 export const app = $state({
   screen: 'welcome' as Screen,
   previous: 'welcome' as Screen,
-  checks: CHECK_ORDER.map((id) => ({ id, status: 'pending', title: CHECK_TITLES[id], detail: '' }) as CheckItem),
+  checks: CHECK_ORDER.map((id) => ({ id, status: 'pending', title: checkTitle(id), detail: '' }) as CheckItem),
   checksStarted: false,
   checksDone: false,
   lanIp: null as string | null,
@@ -129,7 +123,7 @@ export function go(screen: Screen) {
 }
 
 export function rerunChecks() {
-  app.checks = CHECK_ORDER.map((id) => ({ id, status: 'pending', title: CHECK_TITLES[id], detail: '' }))
+  app.checks = CHECK_ORDER.map((id) => ({ id, status: 'pending', title: checkTitle(id), detail: '' }))
   app.checksDone = false
   send({ cmd: 'runChecks' })
 }

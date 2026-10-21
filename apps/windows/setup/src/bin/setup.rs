@@ -28,6 +28,7 @@ mod windows {
     use std::time::Duration;
 
     use knsetup::events::Emit;
+    use knsetup::i18n::{describe, lang, tr};
     use knsetup::{install, payload, sys, uninstall, webview2};
 
     const UI_EXE: &[u8] = include_bytes!(env!("KYBERNOW_SETUP_UI_EXE"));
@@ -52,7 +53,7 @@ mod windows {
         if let Err(e) = payload::read_footer(&exe) {
             sys::log(&format!("contenu illisible : {e:#}"));
             if !silent {
-                sys::message(TITLE, &format!("Ce fichier ne contient pas KyberNow ({e:#}). Téléchargez à nouveau l'installateur complet."), false);
+                sys::message(TITLE, &tr(lang(), "setup.notInstaller", &[("error", &describe(lang(), &e))]), false);
             }
             std::process::exit(2);
         }
@@ -61,7 +62,7 @@ mod windows {
         }
         if let Err(e) = launch_ui(&exe) {
             sys::log(&format!("interface : {e:#}"));
-            sys::message(TITLE, &format!("L'installation n'a pas pu démarrer :\n\n{e:#}"), false);
+            sys::message(TITLE, &tr(lang(), "setup.cannotStart", &[("error", &describe(lang(), &e))]), false);
         }
     }
 
@@ -80,11 +81,7 @@ mod windows {
             }
             Err(e) => {
                 if update {
-                    sys::message(
-                        TITLE,
-                        &format!("La mise à jour de KyberNow n'a pas abouti :\n\n{e:#}\n\nKyberNow se rouvre. Le détail est dans %LOCALAPPDATA%\\KyberNow\\setup.log."),
-                        false,
-                    );
+                    sys::message(TITLE, &tr(lang(), "setup.updateFailed", &[("error", &describe(lang(), &e))]), false);
                     let _ = sys::launch_app(&[]);
                 }
                 1
@@ -94,17 +91,11 @@ mod windows {
 
     fn launch_ui(exe: &Path) -> anyhow::Result<()> {
         if webview2::version().is_none() {
-            let ask = "L'installation et l'app KyberNow s'affichent avec WebView2, le moteur d'affichage de Microsoft (celui d'Edge). \
-                       Il manque sur ce PC.\n\nLe télécharger et l'installer maintenant ? (environ 2 Mo, puis l'installateur de Microsoft)";
-            if !sys::message(TITLE, ask, true) {
+            if !sys::message(TITLE, &tr(lang(), "setup.webview2Ask", &[]), true) {
                 return Ok(());
             }
             if let Err(e) = webview2::install() {
-                sys::message(
-                    TITLE,
-                    &format!("WebView2 n'a pas pu être installé : {e:#}\n\nLa page de Microsoft va s'ouvrir : installez « Microsoft Edge WebView2 Runtime », puis relancez cet installateur."),
-                    false,
-                );
+                sys::message(TITLE, &tr(lang(), "setup.webview2Failed", &[("error", &describe(lang(), &e))]), false);
                 sys::open_url("https://go.microsoft.com/fwlink/p/?LinkId=2124703");
                 return Ok(());
             }
@@ -137,24 +128,14 @@ mod windows {
     }
 
     fn run_uninstall(silent: bool) {
-        if !silent
-            && !sys::message(
-                "Désinstaller KyberNow",
-                "KyberNow va être retirée de ce PC : l'app, ses raccourcis et son lien kybernow://.\n\nVos ordinateurs, eux, ne changent pas.\n\nContinuer ?",
-                true,
-            )
-        {
+        let title = tr(lang(), "uninstall.title", &[]);
+        if !silent && !sys::message(&title, &tr(lang(), "uninstall.confirm", &[]), true) {
             return;
         }
-        let erase = !silent
-            && sys::message(
-                "Désinstaller KyberNow",
-                "Effacer aussi la liste de vos ordinateurs, leurs réglages et leurs mots de passe ?\n\nNon : ils seront là si vous réinstallez KyberNow.",
-                true,
-            );
+        let erase = !silent && sys::message(&title, &tr(lang(), "uninstall.erase", &[]), true);
         uninstall::run_uninstall(erase);
         if !silent {
-            sys::message(TITLE, "KyberNow a été désinstallée.", false);
+            sys::message(TITLE, &tr(lang(), "uninstall.done", &[]), false);
         }
         // Après la boîte : le dossier (où est ce programme) est effacé une fois fermé.
         sys::schedule_removal(&sys::install_dir());

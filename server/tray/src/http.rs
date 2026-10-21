@@ -22,6 +22,8 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use sha2::{Digest, Sha256};
 
+use crate::i18n::{lang, t};
+
 /// Réponse : code et corps.
 pub struct Reply {
     pub status: u16,
@@ -46,10 +48,11 @@ impl Client {
         Ok(Self { config: Arc::new(config) })
     }
 
-    /// Une requête sans corps vers `https://127.0.0.1:{port}{path}`.
+    /// Une requête sans corps vers `https://127.0.0.1:{port}{path}`, avec la
+    /// langue de l'icône (`Accept-Language`) : la console y répond dans cette langue.
     pub fn call(&self, method: &str, port: u16, path: &str, headers: &[(&str, &str)], timeout: Duration) -> Result<Reply> {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-        let tcp = TcpStream::connect_timeout(&addr, timeout).context("la console ne répond pas")?;
+        let tcp = TcpStream::connect_timeout(&addr, timeout).with_context(|| t("tray.errors.consoleSilent", &[]))?;
         tcp.set_read_timeout(Some(timeout))?;
         tcp.set_write_timeout(Some(timeout))?;
         tcp.set_nodelay(true)?;
@@ -57,12 +60,12 @@ impl Client {
         let conn = rustls::ClientConnection::new(self.config.clone(), name).context("connexion TLS")?;
         let mut tls = rustls::StreamOwned::new(conn, tcp);
 
-        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: 0\r\n");
+        let mut request = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: 0\r\nAccept-Language: {}\r\n", lang().code());
         for (name, value) in headers {
             request.push_str(&format!("{name}: {value}\r\n"));
         }
         request.push_str("\r\n");
-        tls.write_all(request.as_bytes()).context("envoi à la console (certificat inattendu ?)")?;
+        tls.write_all(request.as_bytes()).with_context(|| t("tray.errors.sendFailed", &[]))?;
 
         let mut raw = Vec::new();
         match tls.read_to_end(&mut raw) {
@@ -118,7 +121,7 @@ impl ServerCertVerifier for Pinned {
         if seen == self.fingerprint {
             Ok(ServerCertVerified::assertion())
         } else {
-            Err(rustls::Error::General("ce n'est pas le certificat de la console KyberNow".into()))
+            Err(rustls::Error::General(t("tray.errors.wrongCertificate", &[])))
         }
     }
 

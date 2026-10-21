@@ -1,10 +1,11 @@
-<!-- Réglages de l'app : version, canal des mises à jour, recherche et installation. -->
+<!-- Réglages de l'app : version, langue, canal des mises à jour, recherche et installation. -->
 <script lang="ts">
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Segmented from './lib/Segmented.svelte'
   import type { AppInfo, Update } from './lib/api'
   import { invoke } from './lib/api'
+  import { setLang, t } from './lib/i18n/index.svelte'
 
   let { update, progress, onclose, oninstall }: { update: Update | null; progress: number | null; onclose: () => void; oninstall: () => void } = $props()
 
@@ -30,6 +31,16 @@
     }
   }
 
+  /** Auto (langue de Windows), Français, English : appliquée tout de suite. */
+  async function language(l: AppInfo['language']) {
+    if (info) info.language = l
+    try {
+      setLang(await invoke<string>('set_language', { language: l }))
+    } catch (e) {
+      error = String(e)
+    }
+  }
+
   const check = () => run(() => invoke<Update | null>('check_update'))
   const channel = (c: 'stable' | 'beta') =>
     run(async () => {
@@ -40,18 +51,32 @@
 
 <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="app-title">
-    <button class="close" aria-label="Fermer" onclick={onclose}><Icon name="x" size={14} /></button>
+    <button class="close" aria-label={t('common.close')} onclick={onclose}><Icon name="x" size={14} /></button>
     <h2 id="app-title">KyberNow</h2>
-    <div class="mono ver">Version {info?.version ?? '…'} · Windows {info?.arch ?? ''}</div>
+    <div class="mono ver">{t('appsheet.version', { version: info?.version ?? '…', arch: info?.arch ?? '' })}</div>
 
     <div class="line">
-      <span>Versions proposées</span>
+      <span>{t('appsheet.language')}</span>
       <Segmented
-        label="Canal des mises à jour"
+        label="Langue / Language"
+        value={info?.language ?? 'auto'}
+        options={[
+          { value: 'auto', label: 'Auto' },
+          { value: 'fr', label: 'Français' },
+          { value: 'en', label: 'English' },
+        ]}
+        onchange={language}
+      />
+    </div>
+
+    <div class="line">
+      <span>{t('appsheet.offered')}</span>
+      <Segmented
+        label={t('appsheet.channel')}
         value={info?.channel ?? 'stable'}
         options={[
-          { value: 'stable', label: 'Stables' },
-          { value: 'beta', label: 'Aussi les bêtas' },
+          { value: 'stable', label: t('appsheet.stable') },
+          { value: 'beta', label: t('appsheet.beta') },
         ]}
         onchange={channel}
       />
@@ -60,27 +85,25 @@
     {#if update}
       <div class="update">
         <div>
-          <div class="eyebrow">Mise à jour</div>
-          <div class="uv">KyberNow {update.version}{update.channel === 'beta' ? ' (bêta)' : ''}</div>
+          <div class="eyebrow">{t('appsheet.update')}</div>
+          <div class="uv">KyberNow {update.version}{update.channel === 'beta' ? t('appsheet.beta_suffix') : ''}</div>
         </div>
         {#if progress !== null}
           <div class="bar" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style:width="{progress}%"></span></div>
         {:else}
-          <button class="primary" onclick={oninstall}>Installer et relancer</button>
+          <button class="primary" onclick={oninstall}>{t('app.install_relaunch')}</button>
         {/if}
       </div>
       {#if update.notes}<pre class="notes">{update.notes}</pre>{/if}
     {:else}
       <div class="row">
-        <button class="ghost" disabled={checking} onclick={check}>{checking ? 'Recherche…' : 'Rechercher une mise à jour'}</button>
-        {#if checked && !error}<span class="ok">Vous avez la dernière version.</span>{/if}
+        <button class="ghost" disabled={checking} onclick={check}>{checking ? t('common.searching') : t('appsheet.check')}</button>
+        {#if checked && !error}<span class="ok">{t('appsheet.up_to_date')}</span>{/if}
       </div>
     {/if}
     {#if error}<div class="error">{error}</div>{/if}
 
-    <p class="help">
-      Chaque version est vérifiée avant de s’installer : manifeste signé par KyberNow, taille et empreinte de l’installateur. L’app cherche toute seule au lancement, puis toutes les 6 heures.
-    </p>
+    <p class="help">{t('appsheet.help')}</p>
   </div>
 </div>
 

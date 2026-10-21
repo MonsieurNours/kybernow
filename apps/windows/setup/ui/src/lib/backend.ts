@@ -1,6 +1,8 @@
 // Pont avec l'installateur Rust (window.ipc fourni par la vue web).
 // Dans un navigateur ordinaire, une simulation joue le même rôle.
 
+import { t } from './i18n/index.svelte'
+
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error' | 'info'
 export type TaskStatus = 'running' | 'done' | 'skipped' | 'warn' | 'failed'
 export type Arch = 'x64' | 'arm64'
@@ -47,7 +49,7 @@ export function send(command: Command) {
 
 // --- Simulation (navigateur) ------------------------------------------------
 // ?maj : mise à jour d'une version installée ; ?ouverte : l'app est ouverte ;
-// ?arm : PC ARM ; ?echec : l'installation échoue.
+// ?arm : PC ARM ; ?echec : l'installation échoue ; ?lang=en : en anglais.
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const emit = (event: BackendEvent) => listener(event)
@@ -60,16 +62,14 @@ async function simulate(command: Command) {
       const arm = q.has('arm')
       const items: [string, CheckStatus, string, string][] = [
         ['windows', 'ok', 'Windows 11 · 24H2', 'Build 26100'],
-        arm
-          ? ['arch', 'ok', 'Processeur ARM64', "La version ARM64 de KyberNow s'installe : elle tourne sans émulation, avec le décodage vidéo de la puce."]
-          : ['arch', 'ok', 'Processeur x64', "La version x64 de KyberNow s'installe."],
-        ['gpu', 'ok', 'Carte graphique', `${arm ? 'Qualcomm Adreno X1-85' : 'Intel Iris Xe Graphics'} : elle décode l'image, pour moins de latence et moins de batterie.`],
-        ['display', 'ok', 'Écran', '2560 × 1600 · 120 Hz : votre ordinateur peut prendre exactement cette taille pendant la session.'],
-        ['network', 'ok', 'Réseau local', '192.168.1.20 : un ordinateur sur ce réseau apparaît tout seul dans KyberNow.'],
-        ['webview', 'ok', 'Moteur d’affichage WebView2', 'Version 141.0.3537.71, de Microsoft : il dessine l’interface de KyberNow.'],
+        arm ? ['arch', 'ok', t('mock.arm64Title'), t('mock.arm64')] : ['arch', 'ok', t('mock.x64Title'), t('mock.x64')],
+        ['gpu', 'ok', t('checks.gpu'), t('mock.gpu', { name: arm ? 'Qualcomm Adreno X1-85' : 'Intel Iris Xe Graphics' })],
+        ['display', 'ok', t('checks.display'), t('mock.display')],
+        ['network', 'ok', t('checks.network'), t('mock.network')],
+        ['webview', 'ok', t('mock.webviewTitle'), t('mock.webview')],
       ]
-      if (q.has('maj')) items.push(['existing', 'info', 'KyberNow 0.2.7 est installée', 'Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages restent.'])
-      if (q.has('ouverte')) items.push(['running', 'warn', 'KyberNow est ouverte', 'Elle sera fermée au moment d’installer : une session en cours s’arrêtera.'])
+      if (q.has('maj')) items.push(['existing', 'info', t('mock.existingTitle'), t('mock.existing')])
+      if (q.has('ouverte')) items.push(['running', 'warn', t('mock.runningTitle'), t('mock.running')])
       for (const [id, status, title, detail] of items) {
         emit({ type: 'check', id, status: 'running', title, detail: '' })
         await wait(420)
@@ -111,13 +111,13 @@ async function simulate(command: Command) {
         }
         if (id === 'files' && q.has('echec')) {
           emit({ type: 'task', id, status: 'failed' })
-          emit({ type: 'failed', task: id, message: 'Impossible de poser les fichiers dans C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).' })
+          emit({ type: 'failed', task: id, message: t('mock.failed') })
           return
         }
         last = target
         emit({ type: 'task', id, status: 'done' })
       }
-      emit({ type: 'log', line: 'installation terminée' })
+      emit({ type: 'log', line: t('mock.finished') })
       emit({ type: 'done' })
       break
     }

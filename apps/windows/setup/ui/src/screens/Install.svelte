@@ -3,6 +3,7 @@
   symbole, dans la colonne, se remplit avec la progression.
 -->
 <script lang="ts">
+  import { t } from '../lib/i18n/index.svelte'
   import StatusIcon from '../lib/StatusIcon.svelte'
   import { app, go, startInstall, TASK_ORDER } from '../lib/state.svelte'
 
@@ -10,22 +11,23 @@
   let logBox: HTMLPreElement | undefined = $state()
 
   const arch = $derived(app.arch === 'arm64' ? 'ARM64' : 'x64')
+  const row = (id: string) => `install.rows.${id}`
   const rows = $derived<Record<string, { title: string; text: string; fact?: string; warn?: string }>>({
-    close: { title: 'Fermeture de KyberNow', text: 'L’app ouverte se ferme le temps de l’installation.' },
-    files: { title: `L’app KyberNow ${__APP_VERSION__}`, text: 'Ses fichiers se posent dans votre dossier, sans toucher au reste du PC.', fact: `version ${arch}` },
-    webview: { title: 'Moteur d’affichage WebView2', text: 'Téléchargé chez Microsoft et installé pour vous.', fact: 'Microsoft' },
-    shortcuts: {
-      title: 'Menu Démarrer et lien kybernow://',
-      text: 'Le lien ou le QR code de la console d’un ordinateur ouvre KyberNow directement.',
-      warn: 'à refaire : ouvrez KyberNow une fois, elle se réinscrit',
+    close: { title: t(`${row('close')}.title`), text: t(`${row('close')}.text`) },
+    files: {
+      title: t(`${row('files')}.title`, { version: __APP_VERSION__ }),
+      text: t(`${row('files')}.text`),
+      fact: t(`${row('files')}.fact`, { arch }),
     },
-    register: { title: 'Applications installées', text: 'KyberNow se met à jour d’elle-même, et se retire comme toute app.' },
+    webview: { title: t(`${row('webview')}.title`), text: t(`${row('webview')}.text`), fact: t(`${row('webview')}.fact`) },
+    shortcuts: { title: t(`${row('shortcuts')}.title`), text: t(`${row('shortcuts')}.text`), warn: t(`${row('shortcuts')}.warn`) },
+    register: { title: t(`${row('register')}.title`), text: t(`${row('register')}.text`) },
   })
 
   const finished = $derived(app.finished)
   const visible = $derived(TASK_ORDER.filter((id) => app.tasks[id] !== 'skipped'))
-  const lastLine = $derived(app.log.at(-1)?.replace(/^\s*/, '› ') ?? '› préparation')
-  const remaining = $derived(finished || app.failure ? '' : app.percent < 60 ? 'Encore quelques secondes' : 'C’est presque fini')
+  const lastLine = $derived(app.log.at(-1)?.replace(/^\s*/, '› ') ?? `› ${t('install.preparing')}`)
+  const remaining = $derived(finished || app.failure ? '' : app.percent < 60 ? t('install.fewSeconds') : t('install.almost'))
 
   $effect(() => {
     void app.log.length
@@ -36,19 +38,19 @@
 <div class="install">
   <div class="head">
     <span class="lbl signal">
-      {app.failure ? 'Installation interrompue' : finished ? 'Installation terminée' : `Installation · ${Math.round(app.percent)} %`}
+      {app.failure ? t('install.failedLabel') : finished ? t('install.finishedLabel') : t('install.progressLabel', { percent: Math.round(app.percent) })}
     </span>
-    <h1 class="title">{app.failure ? 'Quelque chose a bloqué.' : finished ? 'Tout est en place.' : 'Votre ordinateur arrive sur ce PC.'}</h1>
+    <h1 class="title">{app.failure ? t('install.failedTitle') : finished ? t('install.finishedTitle') : t('install.title')}</h1>
     <p class="lead">
       {app.failure
         ? app.failure.message
         : finished
-          ? `KyberNow ${__APP_VERSION__} est installée.`
-          : 'Rien à faire : on vous montre ce qui se passe, au fur et à mesure.'}
+          ? t('install.installed', { version: __APP_VERSION__ })
+          : t('install.lead')}
     </p>
   </div>
   {#if showLog || app.failure}
-    <pre bind:this={logBox} class="mono">{app.log.join('\n') || 'Préparation…'}</pre>
+    <pre bind:this={logBox} class="mono">{app.log.join('\n') || t('install.preparingLog')}</pre>
   {:else}
     <ol>
       {#each visible as id (id)}
@@ -61,9 +63,9 @@
               <span class="d">{rows[id].text}</span>
               <span class="bar" aria-hidden="true"><span></span></span>
             {:else if status === 'warn'}
-              <span class="mono f warn">{rows[id].warn ?? 'à vérifier : voir le détail'}</span>
+              <span class="mono f warn">{rows[id].warn ?? t('install.checkDetail')}</span>
             {:else if (status === 'done' && rows[id].fact) || status === 'failed'}
-              <span class="mono f">{status === 'failed' ? 'échec' : rows[id].fact}</span>
+              <span class="mono f">{status === 'failed' ? t('install.failed') : rows[id].fact}</span>
             {/if}
           </div>
         </li>
@@ -77,12 +79,12 @@
   <div class="spacer"></div>
   {#if remaining}<span class="remaining">{remaining}</span>{/if}
   {#if app.failure}
-    <button type="button" class="ghost" onclick={() => go('welcome')}>Retour</button>
-    <button type="button" class="primary" onclick={startInstall}>Réessayer</button>
+    <button type="button" class="ghost" onclick={() => go('welcome')}>{t('install.back')}</button>
+    <button type="button" class="primary" onclick={startInstall}>{t('install.retry')}</button>
   {:else if finished}
-    <button type="button" class="primary lit" onclick={() => go('done')}>Continuer</button>
+    <button type="button" class="primary lit" onclick={() => go('done')}>{t('install.continue')}</button>
   {:else}
-    <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? 'Masquer le détail' : 'Voir le détail'}</button>
+    <button type="button" class="ghost" onclick={() => (showLog = !showLog)}>{showLog ? t('install.hideDetail') : t('install.showDetail')}</button>
   {/if}
 </div>
 

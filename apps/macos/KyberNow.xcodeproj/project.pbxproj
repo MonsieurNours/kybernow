@@ -18,12 +18,15 @@
 		1BA4B2AB4CFECC0F494E0695 /* PointerLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53FAC72D17DD338280371600 /* PointerLayer.swift */; };
 		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
+		30928C6DAF79737906ED3BFA /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D90BE156020D93559B9D19DD /* Localizable.xcstrings */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
 		377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */; };
+		3C1112D1427766C796C08621 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */; };
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
 		5518069B204C619DC5508112 /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD6D0A4E78C5A89FB64E492 /* AppSettingsView.swift */; };
+		56ADD2F99CFE6C7BA14A69EA /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09097EF9FD0A52E596CF313E /* Language.swift */; };
 		651E54D8B3D686ADCAE9F76A /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2132FE7F8A22F4F68C254657 /* Theme.swift */; };
 		6568003A1DE3783D41253FE9 /* SessionChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */; };
 		65AB3D77F652B8FF228125D6 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = B26BF360224E6C12792A4710 /* AppIcon.icon */; };
@@ -41,6 +44,7 @@
 		936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */; };
 		9657F885E3A51C59AA2836C9 /* KyberNowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */; };
 		9E22CA206C86BC010E6685B1 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 8731611A950718FECBB1AEFD /* OFL.txt */; };
+		A9E789543B67C9BB2811D006 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */; };
 		AA76CB48D0BD4DCE0A0EA724 /* HostImagery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */; };
 		B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF454DEFA73A7E4436050ACE /* KyberLog.swift */; };
 		B6793F11C20A1C6F678627BC /* KyberKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C060A812A5011BB6AEC276EC /* KyberKit.framework */; };
@@ -80,7 +84,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		08A2F3888E8DF0F26A40EBFE /* ConsoleClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsoleClient.swift; sourceTree = "<group>"; };
+		09097EF9FD0A52E596CF313E /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
 		17779E9C5B8C46FF87EE36A8 /* Archivo-wdth-wght.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "Archivo-wdth-wght.ttf"; sourceTree = "<group>"; };
 		1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostImagery.swift; sourceTree = "<group>"; };
 		1B18D524B92EC557D60FED25 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
@@ -113,6 +119,7 @@
 		9E6C27264097C061402863DD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A75F6C84B79E449584F6BDB4 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A78F7EAA3D887DF32857AA27 /* KyberClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberClient.swift; sourceTree = "<group>"; };
+		A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KyberNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B26BF360224E6C12792A4710 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
@@ -122,6 +129,7 @@
 		CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseAll.swift; sourceTree = "<group>"; };
 		CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMac.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
+		D90BE156020D93559B9D19DD /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
 		EE2ED0ACFFE0D513A3C9FB53 /* VideoDecoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoDecoder.swift; sourceTree = "<group>"; };
@@ -173,8 +181,10 @@
 				94C101B09449F09428C0AF60 /* HomeView.swift */,
 				1812D9E52662E7BEB0D9CDC5 /* HostImagery.swift */,
 				80362106CECC77FF3DAFF939 /* Info.plist */,
+				045A387A2C65D3FD43CDC953 /* InfoPlist.xcstrings */,
 				7343E9471127AFC6EB0FF3CA /* KyberNow.entitlements */,
 				2E6ACE0A3AFFD6A6DD55DDCC /* KyberNowApp.swift */,
+				A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */,
 				8C0DDB25384557B8B551045E /* Model.swift */,
 				E407651AF402DB27D895B5B2 /* Passage.swift */,
 				5894FA6B7B20AA3B540B6E37 /* SessionChrome.swift */,
@@ -201,7 +211,9 @@
 				660EA29E7D18D98FB3C21A9F /* KeymapMac.swift */,
 				A78F7EAA3D887DF32857AA27 /* KyberClient.swift */,
 				DF454DEFA73A7E4436050ACE /* KyberLog.swift */,
+				09097EF9FD0A52E596CF313E /* Language.swift */,
 				6AD1367F24F0927922BB40DD /* LatencyTracker.swift */,
+				D90BE156020D93559B9D19DD /* Localizable.xcstrings */,
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				598C5C0D68903426673112FD /* PacketQueue.swift */,
 				C7E532750726326EB565F259 /* PadCombo.swift */,
@@ -235,6 +247,7 @@
 			buildConfigurationList = 842C46A2F594685507842D71 /* Build configuration list for PBXNativeTarget "KyberKit" */;
 			buildPhases = (
 				78C1B7F7766B1041D16A8236 /* Sources */,
+				337698151C123A0AE9CB47F2 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -290,10 +303,11 @@
 				};
 			};
 			buildConfigurationList = 4B0882D598FBA0969AAD1BCC /* Build configuration list for PBXProject "KyberNow" */;
-			developmentRegion = fr;
+			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
+				en,
 				fr,
 			);
 			mainGroup = 2D7773CF2F87A3120EDB4EDE;
@@ -313,6 +327,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		337698151C123A0AE9CB47F2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				30928C6DAF79737906ED3BFA /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		B488B89A11F84E53477CAAE8 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -320,6 +342,8 @@
 				65AB3D77F652B8FF228125D6 /* AppIcon.icon in Resources */,
 				7AA850595946987F20CFDF29 /* Archivo-wdth-wght.ttf in Resources */,
 				8A35461AFBB86EA42CA41F69 /* Assets.xcassets in Resources */,
+				A9E789543B67C9BB2811D006 /* InfoPlist.xcstrings in Resources */,
+				3C1112D1427766C796C08621 /* Localizable.xcstrings in Resources */,
 				C1B3C4BCD7D8194F9A0CEB59 /* MartianMono-wdth-wght.ttf in Resources */,
 				9E22CA206C86BC010E6685B1 /* OFL.txt in Resources */,
 			);
@@ -387,6 +411,7 @@
 				08492ED020ED23978215AE43 /* KeymapMac.swift in Sources */,
 				42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */,
 				B1DF8E0399B418A165156B1F /* KyberLog.swift in Sources */,
+				56ADD2F99CFE6C7BA14A69EA /* Language.swift in Sources */,
 				74C443EEF6EAE54EC88B004C /* LatencyTracker.swift in Sources */,
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */,
@@ -510,6 +535,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.2.9;
 				MTL_ENABLE_DEBUG_INFO = NO;
@@ -519,6 +545,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
 			};
@@ -605,6 +632,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				MARKETING_VERSION = 0.2.9;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
@@ -613,6 +641,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};

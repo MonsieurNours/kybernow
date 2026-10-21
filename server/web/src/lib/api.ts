@@ -1,5 +1,7 @@
 // Client de l'API kyber-admin.
 
+import { langHeaders, t } from './i18n/index.svelte'
+
 export interface Choice {
   value: string
   label: string
@@ -263,7 +265,8 @@ export function setUnauthorizedHandler(fn: () => void) {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
+  // La console répond dans la langue de l'interface (messages d'erreur, notes de version, fil).
+  const headers: Record<string, string> = langHeaders()
   if (method !== 'GET') headers['x-kyber-admin'] = '1'
   if (body !== undefined) headers['content-type'] = 'application/json'
   const res = await fetch(path, {
@@ -281,7 +284,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     if (res.status === 401 && path !== '/api/login') onUnauthorized()
-    throw new ApiError(res.status, data?.error ?? `Erreur ${res.status}`)
+    throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
   }
   return data as T
 }

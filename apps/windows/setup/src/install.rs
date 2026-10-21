@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::events::{Emit, Event, TaskStatus};
+use crate::i18n::{self, Lang, TrContext, lang, tr};
 use crate::{payload, sys, webview2};
 
 pub const TASKS: [&str; 5] = ["close", "files", "webview", "shortcuts", "register"];
@@ -22,9 +23,11 @@ struct Run<'a> {
 }
 
 impl Run<'_> {
-    fn say(&self, line: &str) {
-        sys::log(line);
-        (self.emit)(Event::Log { line: line.to_string() });
+    /// Une ligne du déroulé : en français au journal, dans la langue de
+    /// Windows à l'écran.
+    fn say(&self, key: &str, params: &[(&str, &dyn std::fmt::Display)]) {
+        sys::log(&tr(Lang::Fr, key, params));
+        (self.emit)(Event::Log { line: tr(lang(), key, params) });
     }
 
     fn task(&self, id: &str, status: TaskStatus) {
@@ -43,7 +46,7 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
     sys::hold_setup_mutex();
     let arch = sys::native_arch();
     let dir = sys::install_dir();
-    run.say(&format!("installation de KyberNow {} ({}) dans {}", env!("CARGO_PKG_VERSION"), arch.label(), dir.display()));
+    run.say("install.log.start", &[("version", &env!("CARGO_PKG_VERSION")), ("arch", &arch.label()), ("dir", &dir.display())]);
 
     let step = |id: &str, f: &dyn Fn() -> Result<TaskStatus>| -> Result<()> {
         run.task(id, TaskStatus::Running);
@@ -53,9 +56,11 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
                 Ok(())
             }
             Err(e) => {
-                run.say(&format!("échec ({id}) : {e:#}"));
+                sys::log(&format!("échec ({id}) : {e:#}"));
+                let message = i18n::describe(lang(), &e);
+                (emit)(Event::Log { line: tr(lang(), "install.log.failed", &[("task", &id), ("error", &message)]) });
                 run.task(id, TaskStatus::Failed);
-                (emit)(Event::Failed { task: id.into(), message: format!("{e:#}") });
+                (emit)(Event::Failed { task: id.into(), message });
                 Err(e)
             }
         }
@@ -65,7 +70,7 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
         if !sys::app_running() {
             return Ok(TaskStatus::Skipped);
         }
-        run.say("fermeture de KyberNow");
+        run.say("install.log.closing", &[]);
         sys::close_app(wait_app)?;
         Ok(TaskStatus::Done)
     })?;
@@ -78,18 +83,18 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
                 (emit)(Event::Log { line: format!("  {name}") });
             }
         })?;
-        run.say(&format!("{count} fichiers posés"));
+        run.say("install.log.files", &[("count", &count)]);
         Ok(TaskStatus::Done)
     })?;
     run.progress(84.0);
 
     step("webview", &|| {
         if let Some(v) = webview2::version() {
-            run.say(&format!("WebView2 {v} présent"));
+            run.say("install.log.webviewPresent", &[("version", &v)]);
             return Ok(TaskStatus::Skipped);
         }
         let v = webview2::install()?;
-        run.say(&format!("WebView2 {v} installé"));
+        run.say("install.log.webviewInstalled", &[("version", &v)]);
         Ok(TaskStatus::Done)
     })?;
     run.progress(92.0);
@@ -108,7 +113,8 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
                 Ok(TaskStatus::Done)
             }
             Err(e) => {
-                run.say(&format!("raccourcis : {e:#}"));
+                sys::log(&format!("raccourcis : {e:#}"));
+                (emit)(Event::Log { line: tr(lang(), "install.log.shortcuts", &[("error", &i18n::describe(lang(), &e))]) });
                 Ok(TaskStatus::Warn)
             }
         }
@@ -120,7 +126,7 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
         Ok(TaskStatus::Done)
     })?;
     run.progress(100.0);
-    run.say("installation terminée");
+    run.say("install.log.done", &[]);
     (emit)(Event::Done);
     Ok(())
 }
@@ -143,7 +149,7 @@ fn place_files(setup: &Path, arch: payload::Arch, dir: &Path, progress: &dyn Fn(
         // Dossier verrouillé (explorateur ouvert dessus, dossier courant d'un
         // programme) : on échange fichier par fichier, avec retour arrière.
         sys::log("ancien dossier verrouillé : échange fichier par fichier");
-        swap_files(&new, dir).context("remplacement des fichiers")?;
+        swap_files(&new, dir).tr_context("errors.replaceFiles", &[])?;
         // Désinstalleur de l'ancien installateur (NSIS), remplacé par uninstall.exe.
         let _ = std::fs::remove_file(dir.join("Desinstaller.exe"));
         let _ = remove_dir(&new);
@@ -152,9 +158,9 @@ fn place_files(setup: &Path, arch: payload::Arch, dir: &Path, progress: &dyn Fn(
     if !retry(|| std::fs::rename(&new, dir)) {
         // Remet l'ancienne version en place avant d'abandonner.
         if !dir.exists() && std::fs::rename(&old, dir).is_err() {
-            bail!("impossible de poser les fichiers, et l'ancienne version est restée dans {}", old.display());
+            return Err(i18n::err("errors.placeFilesOld", &[("dir", &old.display())]));
         }
-        bail!("impossible de poser les fichiers dans {}", dir.display());
+        return Err(i18n::err("errors.placeFiles", &[("dir", &dir.display())]));
     }
     if old.exists() && remove_dir(&old).is_err() {
         sys::schedule_removal(&old);
@@ -177,7 +183,7 @@ fn swap_files(new: &Path, dir: &Path) -> Result<()> {
             let backup = target.exists().then(|| dir.join(format!("{}.ancien", e.file_name().to_string_lossy())));
             if let Some(b) = &backup {
                 let _ = std::fs::remove_file(b);
-                std::fs::rename(&target, b).with_context(|| format!("{} est verrouillé", target.display()))?;
+                std::fs::rename(&target, b).tr_context("errors.locked", &[("path", &target.display())])?;
             }
             done.push((target.clone(), backup.clone()));
             std::fs::rename(e.path(), &target).with_context(|| format!("pose de {}", target.display()))?;

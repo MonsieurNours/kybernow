@@ -1,0 +1,55 @@
+{
+  "app": {
+    "start_failed": "The app could not start: {error}",
+    "bar_title": "KyberNow — bar"
+  },
+  "errors": {
+    "session_open_install_later": "a session is open: install after it ends",
+    "no_update": "no update to install",
+    "installer_launch": "starting the installer: {error}",
+    "no_certificate": "no certificate seen",
+    "not_a_link": "this is not a kybernow:// link",
+    "bad_address": "invalid address",
+    "no_port": "the link has no port",
+    "bad_port": "invalid port",
+    "password_store": "the password could not be saved in the Windows Credential Manager",
+    "unknown_computer": "unknown computer",
+    "session_already_open": "a session is already open",
+    "this_pc": "that computer is this PC: use KyberNow from another device to reach the shared computer",
+    "password_missing": "password not found: remove this computer, then add it again",
+    "no_session": "no session",
+    "unknown_profile": "unknown profile",
+    "session_not_ready": "session not ready yet",
+    "session_window": "session window: {error}",
+    "video_thread": "the picture thread stopped"
+  },
+  "notify": {
+    "update_title": "KyberNow {version} is ready",
+    "update_body": "Install it in one click from the app.",
+    "stopped_title": "The session on {name} stopped",
+    "resume": "Resume",
+    "ended_title": "The session on {name} has ended",
+    "ended_body": "Another device took over, or the console ended it.",
+    "take_back": "Take back control"
+  },
+  "shell": {
+    "shortcut": "Your computer on this PC",
+    "connect_to": "Connect to {name}",
+    "computers": "Computers",
+    "add": "Add a computer",
+    "add_description": "Add a computer to KyberNow"
+  },
+  "window": {
+    "preparing": "preparing the display",
+    "connecting": "connecting",
+    "first_images": "first frames",
+    "streaming": "{latency} · {width} × {height} · {decoder} · {fps} fps",
+    "reconnecting": "reconnecting ({attempt}/{max})",
+    "ending": "ending the session",
+    "ended": "session ended"
+  },
+  "decoder": {
+    "hardware": "graphics card",
+    "software": "processor"
+  }
+}

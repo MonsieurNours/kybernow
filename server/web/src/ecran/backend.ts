@@ -1,10 +1,12 @@
 // Appels du client web à la console (même origine, session de la console).
 
 import { ApiError } from '../lib/api'
+import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
+  // La console répond dans la langue de ce client (messages d'erreur).
+  const headers: Record<string, string> = { ...langHeaders() }
   if (method !== 'GET') headers['x-kyber-admin'] = '1'
   if (body !== undefined) headers['content-type'] = 'application/json'
   const res = await fetch(path, {
@@ -20,7 +22,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   } catch {
     data = { error: text }
   }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? `Erreur ${res.status}`)
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
   return data as T
 }
 

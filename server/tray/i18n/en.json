@@ -1,0 +1,149 @@
+{
+  "tray": {
+    "startFailed": "The KyberNow tray icon could not start: {error}",
+    "panelFailed": "The panel could not open: {error}",
+    "consolePortMissing": "The console port cannot be found: is KyberNow installed?",
+    "consolePortMissingShort": "The console port cannot be found.",
+    "status": {
+      "running": "Server running",
+      "starting": "Starting the server…",
+      "stopping": "Stopping the server…",
+      "stopped": "Server stopped",
+      "missing": "Server not installed",
+      "unknown": "Server status unknown"
+    },
+    "session": {
+      "connected": "{name} is connected",
+      "userSession": "Session in progress ({user})",
+      "session": "Session in progress",
+      "none": "No session in progress",
+      "consoleSilent": "The console is not responding",
+      "consoleStopped": "Console stopped",
+      "cannotConnect": "Your devices cannot connect",
+      "reinstall": "Reinstall KyberNow",
+      "wait": "Please wait…"
+    },
+    "menu": {
+      "openConsole": "Open the console",
+      "updates": "Updates…",
+      "installVersion": "Install version {version}…",
+      "stopServer": "Stop the server",
+      "startServer": "Start the server",
+      "restartServer": "Restart the server",
+      "startWithComputer": "Start with the computer",
+      "resetPassword": "Reset the console password…",
+      "quit": "Close the tray icon"
+    },
+    "busy": {
+      "startingConsole": "Starting the console…",
+      "granting": "Giving the device access…",
+      "refusing": "Declining the request…",
+      "endingSession": "Ending the session…",
+      "stopping": "Stopping the server…",
+      "starting": "Starting the server…",
+      "restarting": "Restarting the server…",
+      "startup": "Changing startup…",
+      "resetting": "Resetting the password…"
+    },
+    "confirm": {
+      "endSession": "End the current session? The connected device will be disconnected.",
+      "stopInSession": "A device is connected. Stopping the server will end its session.\n\nStop the server?",
+      "restartInSession": "A device is connected. Restarting the server will end its session.\n\nRestart the server?",
+      "resetPassword": "Reset the console password?\n\nYou will choose a new one with a setup code. Your devices and their accounts do not change."
+    },
+    "quit": {
+      "instruction": "Close the KyberNow tray icon?",
+      "inSession": "A device is connected. The server can keep running: the session goes on, and you can reopen the tray icon from the Start menu.",
+      "idle": "The server can keep running: your devices can still connect, and you can reopen the tray icon from the Start menu.",
+      "keep": "Keep the server running",
+      "stop": "Stop the server too",
+      "fallback": "Close the KyberNow tray icon and stop the server too?\n\nNo: the server keeps running."
+    },
+    "errors": {
+      "certificateUnknown": "The tray icon does not know the console certificate yet (kybernow.json): try again in a few seconds.",
+      "endSessionFailed": "The console could not end the session ({error}).",
+      "pairFailed": "The console could not answer the request ({error}).",
+      "pairExpired": "This request has expired: the device will send a new one with another code.",
+      "consoleSilent": "the console is not responding",
+      "sendFailed": "sending to the console (unexpected certificate?)",
+      "wrongCertificate": "this is not the KyberNow console certificate",
+      "serviceDeniedStart": "Windows will not let you start the “{service}” service. Run the KyberNow installation or update again to allow the tray icon to control it.",
+      "serviceDeniedStop": "Windows will not let you stop the “{service}” service. Run the KyberNow installation or update again to allow the tray icon to control it.",
+      "serviceStartFailed": "Cannot start the “{service}” service ({error}).",
+      "serviceStopFailed": "Cannot stop the “{service}” service ({error}).",
+      "serviceStoppedAtStart": "The “{service}” service stopped while starting. Check the logs in the console.",
+      "serviceTimeout": "The “{service}” service is not responding after {seconds} seconds.",
+      "startupServices": "Cannot change how the services start ({error}).",
+      "startupRunEntry": "Cannot write the sign-in launch entry ({error}).",
+      "startupElevated": "The services' startup could not be changed ({error}).",
+      "elevation": "Cannot get administrator rights.",
+      "resetFailed": "The password could not be reset ({error}).",
+      "codeNotHandedOver": "Password cleared, but the setup code could not be passed to the tray icon: it is in C:\\ProgramData\\KyberNow\\setup-code.txt, readable by an administrator.",
+      "resetCommandFailed": "kyber-admin reset-password failed ({status}).",
+      "noSetupCode": "The console did not write a setup code (C:\\ProgramData\\KyberNow\\setup-code.txt)."
+    }
+  },
+  "panel": {
+    "ago": {
+      "minutes": "{n} min ago",
+      "today": "today",
+      "yesterday": "yesterday",
+      "days": "{n} days ago",
+      "date": "on {date}"
+    },
+    "since": {
+      "lessThanMinute": "For less than a minute",
+      "minutes": "For {m} min",
+      "hours": "For {h} h {mm} min"
+    },
+    "access": {
+      "and": "and",
+      "grant": "give access to {names}",
+      "revoke": "remove access from {names}",
+      "apply": "apply account changes"
+    },
+    "hero": {
+      "running": "Running",
+      "thisComputer": "This computer",
+      "waiting": "{host} is waiting for your devices",
+      "lastSession": "Last session: {name}, {when}",
+      "nobody": "Nobody is connected",
+      "oneMoment": "One moment",
+      "fewSeconds": "A few seconds",
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "serverStarting": "The server is starting…",
+      "serverStopping": "The server is stopping…",
+      "notFound": "Not found",
+      "stopped": "Stopped",
+      "notInstalled": "The server is not installed",
+      "serverStopped": "The server is stopped",
+      "reinstall": "Reinstall KyberNow",
+      "cannotConnect": "Your devices cannot connect",
+      "live": "Live",
+      "screensOff": "screens off",
+      "deviceConnected": "A device is connected",
+      "account": "Account {user}",
+      "consoleSilent": "The console is not responding"
+    },
+    "endSession": "End session",
+    "openConsole": "Open the console",
+    "installUpdate": "Install KyberNow {version}",
+    "aboutAMinute": "About a minute",
+    "restart": "Restart the server",
+    "stop": "Stop the server",
+    "start": "Start the server",
+    "startWithComputer": "Start with the computer",
+    "resetPassword": "Reset the console password…",
+    "setupCode": "Console setup code: enter it when the console opens to choose a new password.",
+    "copyCode": "Copy the code",
+    "copied": "Copied",
+    "pairRequest": "{name} is asking for access",
+    "pairHint": "Compare the code shown on the device with the one in the console before accepting.",
+    "verify": "Check in the console",
+    "refuse": "Decline",
+    "waitTitle": "Restart pending",
+    "waitHint": "To {reason}: the server will restart on its own as soon as the current session ends.",
+    "quit": "Close the tray icon"
+  }
+}

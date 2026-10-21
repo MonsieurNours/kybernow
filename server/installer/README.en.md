@@ -93,6 +93,14 @@ The “Graphics driver” check shows the driver version of that card (for NVIDI
 
 Building it alone: `cd server/tray && cargo build --release --target x86_64-pc-windows-gnu` (with the linker from `build.sh`).
 
+## Languages
+
+French and English, following the rule in [docs/i18n.en.md](../../docs/i18n.en.md): if Windows' first display language (`GetUserPreferredUILanguages`, otherwise `GetUserDefaultUILanguage`) starts with `fr`, French; any other language, English. Neither the installer nor the tray icon has a language setting.
+
+- **Installer.** The Rust texts (launcher and uninstall dialogs, analysis checks, port messages, errors shown on screen, name and description of the `kyber` service, Start menu shortcuts) live in `i18n/fr.json` and `i18n/en.json`, embedded (`src/i18n.rs`, `tr(lang, "key", &[("name", &value)])`). The interface gets the language from its host before it starts (`window.__knLang`) and takes its texts from `ui/src/lib/i18n/fr.json` and `en.json` (`t('screen.key', { name })`); in a browser, `?lang=en` or the browser's language. The log (`install.log`, and the “details” lines of the Installation screen that come from it) stays in French.
+- **Tray icon.** Same catalogs in `server/tray/i18n/`: `tray` for the menu, tooltip and dialogs, `panel` for the panel (set in the page before it loads, `window.__knI18n`). The tray icon sends `Accept-Language: fr|en` to the console, which answers in that language (errors, event names).
+- **Checks.** A key missing in English falls back to French. `cargo test` (installer and tray icon) and `npm run check` (interface) check that both languages have the same keys and the same `{variables}`, and, for the tray icon, that every `t('…')` in `panel.html` exists. `KYBERNOW_LANG=en` (or `fr`) forces the installer's and the tray icon's language, for testing.
+
 ## Building (from the Mac)
 
 `build.sh` produces `dist/KyberNow-Server-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1` and `version.txt`, plus `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
@@ -109,4 +117,4 @@ Prerequisites: `brew install mingw-w64 zstd`, `rustup target add x86_64-pc-windo
 npm --prefix server/installer/ui run dev     # navigateur : backend simulé (ui/src/lib/backend.ts)
 ```
 
-(In a browser, with a simulated backend.) Outside Windows, `kybernow-ui` also works with a simulated installation run.
+(In a browser, with a simulated backend; `?lang=en` for English, `&existant` simulates a reinstallation.) Outside Windows, `kybernow-ui` also works with a simulated installation run.

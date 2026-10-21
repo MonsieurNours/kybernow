@@ -6,6 +6,7 @@
 // Chaque fois, l'empreinte du certificat de la console est retenue (et
 // comparée à celle de l'annonce Bonjour quand il y en a une).
 
+import Combine
 import CoreImage.CIFilterBuiltins
 import KyberKit
 import Network
@@ -26,10 +27,10 @@ struct AddHostView: View {
     enum Target: Hashable { case back, method(Int) }
 
     private let methods: [(icon: String, title: String, sub: String, badge: String?)] = [
-        ("cloud", "Depuis votre Mac", "Synchronisés par iCloud, avec leurs accès", "Conseillé"),
-        ("wifi-high", "Sur le réseau", "Compte à saisir, au clavier de l'iPhone", nil),
-        ("number-square-one", "Code à l'écran", "À accepter dans la console de l'ordinateur", nil),
-        ("globe-hemisphere-west", "Adresse", "VPN ou réseau sans découverte", nil),
+        ("cloud", String(localized: "Depuis votre Mac"), String(localized: "Synchronisés par iCloud, avec leurs accès"), String(localized: "Conseillé")),
+        ("wifi-high", String(localized: "Sur le réseau"), String(localized: "Compte à saisir, au clavier de l'iPhone"), nil),
+        ("number-square-one", String(localized: "Code à l'écran"), String(localized: "À accepter dans la console de l'ordinateur"), nil),
+        ("globe-hemisphere-west", String(localized: "Adresse"), String(localized: "VPN ou réseau sans découverte"), nil),
     ]
 
     var body: some View {
@@ -147,7 +148,7 @@ private struct CloudPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            paneTitle("Trousseau iCloud", "Vos ordinateurs suivent votre Mac")
+            paneTitle(String(localized: "Trousseau iCloud"), String(localized: "Vos ordinateurs suivent votre Mac"))
             Text("Ceux que vous avez ajoutés dans KyberNow sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul.")
                 .font(Theme.sans(23)).foregroundStyle(Theme.text2).lineSpacing(8)
                 .frame(maxWidth: 860, alignment: .leading)
@@ -214,7 +215,7 @@ private struct NetworkPane: View {
                 LoginForm(candidate: candidate) { self.candidate = nil }
             } else {
                 HStack(spacing: 14) {
-                    Theme.eyebrow("Recherche sur le réseau local")
+                    Theme.eyebrow(String(localized: "Recherche sur le réseau local"))
                     WaitingDots()
                 }
                 Text("Trouvé autour de vous").font(Theme.display(48, 640)).tracking(-48 * 0.03)
@@ -277,13 +278,13 @@ private struct LoginForm: View {
             Text("Le compte de \(candidate.name)").font(Theme.display(48, 640)).tracking(-48 * 0.03)
             Text("Celui choisi à l'installation de KyberNow sur cet ordinateur.")
                 .font(Theme.sans(22)).foregroundStyle(Theme.text2)
-            field("Identifiant") {
+            field(String(localized: "Identifiant")) {
                 TextField("Identifiant", text: $username)
                     .textContentType(.username)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
-            field("Mot de passe") {
+            field(String(localized: "Mot de passe")) {
                 SecureField("Mot de passe", text: $password)
                     .textContentType(.password)
             }
@@ -298,11 +299,11 @@ private struct LoginForm: View {
             if let error {
                 Text(error).font(Theme.sans(21)).foregroundStyle(Theme.dangerText)
             } else if let seen, candidate.expected == nil {
-                Text("Empreinte de la console : \(Self.groups(seen)) — à comparer à celle de sa page Connexion.")
+                Text("Empreinte de la console : \(Self.groups(seen)) — à comparer à celle de sa page Accès.")
                     .font(Theme.mono(16)).foregroundStyle(Theme.muted)
             }
             HStack(spacing: 20) {
-                Button(checking ? "Vérification…" : "Ajouter \(candidate.name)", action: add)
+                Button(action: add) { checking ? Text("Vérification…") : Text("Ajouter \(candidate.name)") }
                     .buttonStyle(PrimaryButton(height: 72, fontSize: 25))
                     .disabled(username.isEmpty || password.isEmpty || checking)
                 Button("Annuler", action: cancel)
@@ -338,7 +339,7 @@ private struct LoginForm: View {
             defer { checking = false }
             // L'empreinte annoncée (Bonjour, lien) doit être celle vue.
             if let expected = candidate.expected, let seen, expected.lowercased() != seen.lowercased() {
-                error = "Le certificat de la console ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur."
+                error = String(localized: "Le certificat de la console ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur.")
                 return
             }
             let console = ConsoleClient(host: candidate.address, port: candidate.port, username: username, password: password, fingerprint: seen)
@@ -350,7 +351,7 @@ private struct LoginForm: View {
                 app.selected = host.id
                 app.screen = .home
             } catch ConsoleError.http(401, _) {
-                error = "Identifiant ou mot de passe refusé."
+                error = String(localized: "Identifiant ou mot de passe refusé.")
             } catch {
                 self.error = error.localizedDescription
             }
@@ -377,9 +378,9 @@ private struct CodePane: View {
     var body: some View {
         HStack(alignment: .top, spacing: 60) {
             VStack(alignment: .leading, spacing: 26) {
-                paneTitle("Appairage par code", "Acceptez ce code sur l'ordinateur")
+                paneTitle(String(localized: "Appairage par code"), String(localized: "Acceptez ce code sur l'ordinateur"))
                 // Toujours entier : la chasse fixe de Martian Mono est large.
-                Text("\(code.prefix(3)) \(code.suffix(3))")
+                Text(verbatim: "\(code.prefix(3)) \(code.suffix(3))")
                     .font(Theme.mono(112, .medium))
                     .tracking(112 * 0.04)
                     .lineLimit(1)
@@ -392,9 +393,9 @@ private struct CodePane: View {
                     .padding(.vertical, 10)
                     .accessibilityLabel("Code \(code)")
                 VStack(alignment: .leading, spacing: 14) {
-                    step(1, "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge).")
-                    step(2, "Appareils › « \(UIDevice.current.name) » demande l'accès › Accepter.")
-                    step(3, "C'est tout : l'Apple TV reçoit son propre accès, révocable à tout moment.")
+                    step(1, String(localized: "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge)."))
+                    step(2, String(localized: "Appareils › « \(deviceName) » demande l'accès › Accepter."))
+                    step(3, String(localized: "C'est tout : l'Apple TV reçoit son propre accès, révocable à tout moment."))
                 }
                 Spacer(minLength: 0)
                 HStack(spacing: 14) {
@@ -436,6 +437,8 @@ private struct CodePane: View {
         .task(id: code) { await pairLoop() }
     }
 
+    private var deviceName: String { UIDevice.current.name }
+
     private var remaining: String {
         let s = max(0, Int(expires.timeIntervalSince(now)))
         return "\(s / 60) min \(String(format: "%02d", s % 60))"
@@ -443,7 +446,7 @@ private struct CodePane: View {
 
     private func step(_ n: Int, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Text("\(n).").font(Theme.sans(23, .semibold)).foregroundStyle(Theme.accent)
+            Text(verbatim: "\(n).").font(Theme.sans(23, .semibold)).foregroundStyle(Theme.accent)
             Text(text).font(Theme.sans(23)).foregroundStyle(Theme.text2).lineSpacing(6)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -500,7 +503,7 @@ private struct CodePane: View {
                     app.screen = .home
                     return
                 case .refused:
-                    refused = "\(c.name) a refusé l'accès."
+                    refused = String(localized: "\(c.name) a refusé l'accès.")
                     requests.removeAll { $0.2 == id }
                 case .expired:
                     renew()
@@ -525,14 +528,14 @@ private struct AddressPane: View {
             if let candidate {
                 LoginForm(candidate: candidate) { self.candidate = nil }
             } else {
-                paneTitle("VPN, autre réseau", "Son adresse et son port")
-                Text("Affichés dans la console de l'ordinateur, onglet Connexion. Le port a été tiré au hasard à l'installation.")
+                paneTitle(String(localized: "VPN, autre réseau"), String(localized: "Son adresse et son port"))
+                Text("Affichés dans la console de l'ordinateur, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
                     .font(Theme.sans(22)).foregroundStyle(Theme.text2).lineSpacing(7)
                     .frame(maxWidth: 860, alignment: .leading)
                 HStack(spacing: 20) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Adresse ou nom").font(Theme.sans(19)).foregroundStyle(Theme.muted)
-                        TextField("10.8.0.12", text: $address)
+                        TextField(String("10.8.0.12"), text: $address)
                             .font(Theme.mono(26))
                             .keyboardType(.URL)
                             .autocorrectionDisabled()
@@ -541,7 +544,7 @@ private struct AddressPane: View {
                     }
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Port de la console").font(Theme.sans(19)).foregroundStyle(Theme.muted)
-                        TextField("31877", text: $port)
+                        TextField(String("31877"), text: $port)
                             .font(Theme.mono(26))
                             .keyboardType(.numberPad)
                             .frame(width: 220)

@@ -1,0 +1,234 @@
+{
+  "groups": {
+    "video": {
+      "label": "Picture",
+      "help": "How the computer’s screen is captured, compressed, then sent. These settings affect latency, picture quality and GPU load."
+    },
+    "audio": {
+      "label": "Sound",
+      "help": "How the computer’s sound is captured, then sent. Sound follows Windows’ audio output: stereo, 5.1 or 7.1."
+    },
+    "network": {
+      "label": "Network",
+      "help": "How your devices reach this computer. Usually nothing to change: the installer has already picked a free port."
+    },
+    "input": {
+      "label": "Keyboard, gamepads and clipboard",
+      "help": "What your devices are allowed to do on this computer remotely."
+    },
+    "auth": {
+      "label": "Sign-in",
+      "help": "The ways to prove who you are before accessing the stream. The accounts themselves are managed in the Accounts tab."
+    },
+    "logs": {
+      "label": "Logs",
+      "help": "How much detail is written to the logs. Mostly useful to diagnose a problem."
+    }
+  },
+  "fields": {
+    "video.encoder": {
+      "label": "Video encoder",
+      "help": "The chip or program that compresses each frame before sending it.",
+      "details": "A raw 4K frame weighs about 25 MB: impossible to send as is 60 times a second. The encoder compresses it in a few milliseconds. A hardware encoder (NVENC, AMF or Quick Sync) does it without slowing down the rest of the computer. Installation picks your graphics card’s: NVIDIA, otherwise AMD, otherwise Intel, otherwise the processor.",
+      "advice": "Keep your graphics card’s encoder. Try x264 only if the picture is corrupted.",
+      "options": {
+        "nvenc": {
+          "label": "NVENC — NVIDIA card",
+          "hint": "The dedicated encoding chip of NVIDIA cards. Very fast, and takes almost nothing away from game performance."
+        },
+        "amf": {
+          "label": "AMF — AMD card",
+          "hint": "The dedicated encoding chip of AMD Radeon graphics cards and processors. Fast, and leaves the rest of the computer free."
+        },
+        "qsv": {
+          "label": "Quick Sync — Intel",
+          "hint": "The encoding chip of Intel Arc cards and of the graphics part of Intel processors. Fast, and leaves the rest of the computer free."
+        },
+        "x264": {
+          "label": "x264 — processor",
+          "hint": "Encoding by the processor. Works everywhere, but loads the processor and adds latency."
+        }
+      }
+    },
+    "video.backend": {
+      "label": "Capture engine",
+      "help": "The Kyber module that captures the screen and sound, then drives the encoder.",
+      "details": "Kyber is replacing its capture engine. Both coexist in version 0.29: the legacy one is the safest, the new one gets the latest optimisations.",
+      "advice": "Keep the legacy engine, unless you want to test the new one because of a capture problem.",
+      "options": {
+        "txproto": {
+          "label": "Legacy (txproto)",
+          "hint": "The engine used by default, proven."
+        },
+        "libavconv": {
+          "label": "New (libavconv)",
+          "hint": "Kyber’s new engine, being rolled out. May improve latency, may also be less stable."
+        }
+      }
+    },
+    "video.minimum_bitrate": {
+      "label": "Minimum bitrate",
+      "help": "The floor below which picture quality will never drop.",
+      "details": "Bitrate is the amount of data sent each second: the higher it is, the sharper the picture. Kyber adjusts it constantly to the network, but will never go below this floor.",
+      "advice": "5 Mbit/s suits Wi-Fi. Over Ethernet, 15 to 30 Mbit/s avoid blur in fast scenes.",
+      "caution": "A floor set too high on a slow network causes stutters instead of a merely blurrier picture."
+    },
+    "audio.quality": {
+      "label": "Sound quality",
+      "help": "The sound bitrate, adapted to the number of channels of Windows’ output.",
+      "details": "Sound is compressed with Opus, the most efficient format today. Its bitrate grows with the number of channels: a Windows output set to 5.1 or 7.1 sends all its channels, and the receiving device downmixes them if its own output has fewer.",
+      "advice": "HD suits everything: at this bitrate, compressed sound can no longer be told apart from the original. Studio is mostly for peace of mind; it costs next to nothing compared with the picture.",
+      "options": {
+        "standard": {
+          "label": "Standard",
+          "hint": "128 kbit/s, whatever the number of channels: Kyber’s original value."
+        },
+        "hd": {
+          "label": "HD",
+          "hint": "256 kbit/s in stereo, 576 in 5.1, 768 in 7.1: indistinguishable from the original."
+        },
+        "studio": {
+          "label": "Studio",
+          "hint": "Opus’s maximum: 510 kbit/s in stereo, 1,536 in 5.1, 2,048 in 7.1."
+        }
+      }
+    },
+    "video.intra_refresh": {
+      "label": "Progressive refresh",
+      "help": "Smooths out bitrate spikes by refreshing the picture in bands.",
+      "details": "Every so often, the encoder has to send a full frame, much heavier than the others: a bitrate spike that can cause a micro-stutter. With this setting, the full frame is sent in bands, spread over several frames.",
+      "advice": "Leave it on. It only works with the NVENC encoder."
+    },
+    "network.port": {
+      "label": "Stream port",
+      "help": "The network “door” your devices connect through, over TCP and UDP.",
+      "details": "A computer can host several services; each listens on a different port number. The installer drew one at random and checked it was free. Your devices find it on their own on the local network.",
+      "advice": "Only change it if another program needs this number.",
+      "caution": "After a change, Windows Firewall must allow the new port (TCP and UDP), and devices that knew the old one will have to update it."
+    },
+    "network.listen_mode": {
+      "label": "Accepted addresses",
+      "help": "The Internet protocol versions the server listens on.",
+      "details": "Devices often have two addresses: an IPv4 one (like 192.168.1.100) and a longer IPv6 one. Listening on both ensures every device can connect.",
+      "advice": "Keep IPv4 and IPv6, unless you have an unexplained connection problem.",
+      "options": {
+        "dual_stack": {
+          "label": "IPv4 and IPv6",
+          "hint": "Accepts both kinds of network address. The most compatible choice."
+        },
+        "ipv4": {
+          "label": "IPv4 only",
+          "hint": "For networks where IPv6 causes trouble."
+        }
+      }
+    },
+    "network.datagram_send_queue": {
+      "label": "Frame send queue",
+      "help": "How many frames can wait their turn when the network cannot keep up.",
+      "details": "The picture leaves in small packets. When the network is slower than the picture (busy Wi-Fi, a microwave, another device downloading), these packets pile up on the computer. A deep queue keeps them all: nothing is lost, but what you see lags behind. A short queue drops the oldest: the picture stays current, with a hitch while a full frame comes through. A KyberNow setting (patch 0007), with no effect on a stock Kyber.",
+      "advice": "Keep Deep. Try Short if the picture lags behind on busy Wi-Fi.",
+      "options": {
+        "deep": {
+          "label": "Deep",
+          "hint": "8 MB per device: a large frame is never cut on the computer, but on busy Wi-Fi, up to two seconds of late frames can wait their turn."
+        },
+        "short": {
+          "label": "Short",
+          "hint": "3 MB per device, about three large 4K frames: on a busy network, the oldest are dropped and a full frame is requested again. The picture stays on time, at the cost of a brief hitch."
+        }
+      }
+    },
+    "network.multi_client": {
+      "label": "Several devices at once",
+      "help": "Lets several devices watch the same screen at the same time.",
+      "details": "When on, the screen is encoded once, then shared between all connected devices. When off, one device at a time, but with encoding entirely dedicated to it: the lowest possible latency.",
+      "advice": "For gaming, turn it off. To show your screen to several people, leave it on."
+    },
+    "network.tray": {
+      "label": "Tray icon",
+      "help": "Shows the server’s state in the Windows notification area.",
+      "details": "A small icon shows whether the server is running and whether a device is connected. Handy to see at a glance that someone is using the computer remotely.",
+      "advice": "Keep it: it also tells people in front of the computer that a connection is in progress."
+    },
+    "input.gamepad_force_xbox360": {
+      "label": "All gamepads as Xbox 360",
+      "help": "Presents every gamepad to the computer as an Xbox 360 gamepad.",
+      "details": "By default, a PlayStation gamepad stays a PlayStation gamepad for the computer. Some older games only recognise Xbox 360 gamepads: this setting makes gamepads pass for one.",
+      "advice": "Turn it on only if a game does not detect your gamepad.",
+      "caution": "Requires the ViGEmBus driver, installed with KyberNow."
+    },
+    "input.clipboard_allow_copy": {
+      "label": "Copy from the computer to the device",
+      "help": "What you copy on the computer can be pasted on your Mac or your device.",
+      "details": "The computer’s clipboard is sent to the connected device: text copied in a window on the computer can be pasted straight on the Mac.",
+      "advice": "Handy for work. Turn it off if other people connect to this computer."
+    },
+    "input.clipboard_allow_paste": {
+      "label": "Paste from the device to the computer",
+      "help": "What you copy on your device can be pasted on the computer.",
+      "details": "The connected device’s clipboard is sent to the computer: a link copied on the Mac can be pasted in the computer’s browser.",
+      "advice": "Handy for work. Turn it off if you do not trust every connected device."
+    },
+    "input.keyboard_key_repeat": {
+      "label": "Key repeat",
+      "help": "A key held down repeats, as on a keyboard plugged into the computer.",
+      "details": "When you hold a key, the computer repeats it (“aaaaa”) after a short delay. Some games prefer to receive a single held press.",
+      "advice": "Leave it on, unless a game reacts oddly to held keys."
+    },
+    "auth.basic_enabled": {
+      "label": "Username and password",
+      "help": "Sign-in with the accounts set up in the Accounts tab.",
+      "details": "The classic method: each device enters a username and a password. The password is never stored in clear on the computer, only its hash.",
+      "advice": "Leave it on: it is the method used by the web client and the command-line client.",
+      "caution": "If you turn it off with no other method enabled, no one will be able to connect to the stream anymore."
+    },
+    "auth.jwt_enabled": {
+      "label": "Device tokens",
+      "help": "Sign-in with a signed token, without typing the password again.",
+      "details": "A token is a kind of digital badge signed by this computer. The KyberNow apps for Mac and Apple TV will use it to reconnect without asking for your password again. The installer replaced Kyber’s demo key with a secret unique to this computer.",
+      "advice": "Leave it on for the Mac and Apple TV apps."
+    },
+    "logs.controller": {
+      "label": "Connections",
+      "help": "The controller’s log: connections, authentication, sessions.",
+      "details": "The controller is the part of Kyber that welcomes devices, checks their identity and starts sessions.",
+      "advice": "Normal day to day; Detailed if a device cannot connect.",
+      "options": {
+        "error": { "label": "Errors only", "hint": "The bare minimum: only what stops something from working." },
+        "warn": { "label": "Warnings", "hint": "Errors and abnormal but non-blocking situations." },
+        "info": { "label": "Normal", "hint": "Important events: connections, starts, stops. The right setting day to day." },
+        "debug": { "label": "Detailed", "hint": "Much more information, to understand a specific problem." },
+        "trace": { "label": "Very detailed", "hint": "Everything, down to each frame: large logs, only turn it on for the time of a diagnosis." },
+        "off": { "label": "Off", "hint": "No logs. Not recommended: if something goes wrong, there will be nothing to read." }
+      }
+    },
+    "logs.avserver": {
+      "label": "Picture and sound",
+      "help": "The capture and encoding log.",
+      "details": "The audio/video server captures the screen and sound, then sends them to the encoder.",
+      "advice": "Normal day to day; Detailed for a black, frozen or corrupted picture.",
+      "options": {
+        "error": { "label": "Errors only", "hint": "The bare minimum: only what stops something from working." },
+        "warn": { "label": "Warnings", "hint": "Errors and abnormal but non-blocking situations." },
+        "info": { "label": "Normal", "hint": "Important events: connections, starts, stops. The right setting day to day." },
+        "debug": { "label": "Detailed", "hint": "Much more information, to understand a specific problem." },
+        "trace": { "label": "Very detailed", "hint": "Everything, down to each frame: large logs, only turn it on for the time of a diagnosis." },
+        "off": { "label": "Off", "hint": "No logs. Not recommended: if something goes wrong, there will be nothing to read." }
+      }
+    },
+    "logs.inputserver": {
+      "label": "Keyboard and gamepads",
+      "help": "The input log: keyboard, mouse, gamepads, clipboard.",
+      "details": "The input server replays on the computer the keys, mouse movements and gamepad buttons received from devices.",
+      "advice": "Normal day to day; Detailed if a key or a gamepad does not respond.",
+      "options": {
+        "error": { "label": "Errors only", "hint": "The bare minimum: only what stops something from working." },
+        "warn": { "label": "Warnings", "hint": "Errors and abnormal but non-blocking situations." },
+        "info": { "label": "Normal", "hint": "Important events: connections, starts, stops. The right setting day to day." },
+        "debug": { "label": "Detailed", "hint": "Much more information, to understand a specific problem." },
+        "trace": { "label": "Very detailed", "hint": "Everything, down to each frame: large logs, only turn it on for the time of a diagnosis." },
+        "off": { "label": "Off", "hint": "No logs. Not recommended: if something goes wrong, there will be nothing to read." }
+      }
+    }
+  }
+}

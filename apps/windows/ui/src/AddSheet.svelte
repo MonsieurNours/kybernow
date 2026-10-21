@@ -8,6 +8,7 @@
   import Icon from './lib/Icon.svelte'
   import type { Candidate, Computer, Found } from './lib/api'
   import { invoke } from './lib/api'
+  import { t } from './lib/i18n/index.svelte'
 
   let {
     discovered,
@@ -146,34 +147,34 @@
     error = null
   }
 
-  const ways: { value: Way; title: string; sub: string; icon: string }[] = [
-    { value: 'reseau', title: 'Sur le réseau', sub: 'Trouvé tout seul', icon: 'wifi' },
-    { value: 'lien', title: 'Avec le lien de la console', sub: 'kybernow://… collé ou cliqué', icon: 'link' },
-    { value: 'adresse', title: 'Par adresse', sub: 'VPN, Tailscale, autre réseau', icon: 'globe' },
-  ]
+  const ways: { value: Way; title: string; sub: string; icon: string }[] = $derived([
+    { value: 'reseau', title: t('add.way_network'), sub: t('add.way_network_sub'), icon: 'wifi' },
+    { value: 'lien', title: t('add.way_link'), sub: t('add.way_link_sub'), icon: 'link' },
+    { value: 'adresse', title: t('add.way_address'), sub: t('add.way_address_sub'), icon: 'globe' },
+  ])
 </script>
 
 <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="add-title">
     <nav>
-      <h2 id="add-title">Ajouter un ordinateur</h2>
+      <h2 id="add-title">{t('add.title')}</h2>
       {#each ways as w (w.value)}
         <button class="way" class:on={!candidate && way === w.value} onclick={() => { back(); way = w.value }}>
           <Icon name={w.icon} size={18} />
           <span><span class="t">{w.title}</span><span class="s">{w.sub}</span></span>
         </button>
       {/each}
-      <p class="aside">Pas de caméra à viser : le QR code de la console porte le même lien. Collez-le ici, ou cliquez-le sur ce PC : KyberNow s’ouvre directement sur l’ajout.</p>
+      <p class="aside">{t('add.aside')}</p>
     </nav>
 
     <div class="pane">
-      <button class="close" aria-label="Fermer" onclick={onclose}><Icon name="x" size={14} /></button>
+      <button class="close" aria-label={t('common.close')} onclick={onclose}><Icon name="x" size={14} /></button>
 
       {#if !candidate}
         {#if way === 'reseau'}
-          <div class="eyebrow">Sur ce réseau</div>
+          <div class="eyebrow">{t('add.on_this_network')}</div>
           {#if discovered.length === 0}
-            <p class="hint">Aucun ordinateur annoncé pour l’instant. La console KyberNow s’annonce sur le réseau local ; à distance (VPN), passez par le lien ou l’adresse.</p>
+            <p class="hint">{t('add.none_found')}</p>
           {:else}
             <ul class="found">
               {#each discovered as f (f.id)}
@@ -181,7 +182,7 @@
                   <button disabled={known(f)} onclick={() => choose({ host: f.host, port: f.port, name: f.name, fingerprint: f.fingerprint })}>
                     <span class="name">{f.name}</span>
                     <span class="mono addr">{f.host}:{f.port}</span>
-                    <span class="go">{known(f) ? 'Déjà ajouté' : 'Choisir'}</span>
+                    <span class="go">{known(f) ? t('add.already_added') : t('add.choose')}</span>
                   </button>
                 </li>
               {/each}
@@ -189,71 +190,71 @@
           {/if}
         {:else if way === 'lien'}
           <label class="col">
-            <span class="eyebrow">Lien de la console (Accès)</span>
+            <span class="eyebrow">{t('add.link_label')}</span>
             <textarea class="field area mono" rows="3" placeholder="kybernow://192.168.1.100:31544?name=…&fp=sha256:…" bind:value={link}></textarea>
           </label>
-          <div><button class="primary" disabled={working || !link.trim()} onclick={fromLink}>Continuer</button></div>
+          <div><button class="primary" disabled={working || !link.trim()} onclick={fromLink}>{t('common.continue')}</button></div>
         {:else}
           {#if !seen}
             <div class="grid">
-              <label class="col"><span class="eyebrow">Adresse</span><input class="field" placeholder="192.168.1.100" bind:value={host} /></label>
-              <label class="col"><span class="eyebrow">Port de la console</span><input class="field mono" inputmode="numeric" bind:value={port} /></label>
+              <label class="col"><span class="eyebrow">{t('add.address')}</span><input class="field" placeholder="192.168.1.100" bind:value={host} /></label>
+              <label class="col"><span class="eyebrow">{t('add.console_port')}</span><input class="field mono" inputmode="numeric" bind:value={port} /></label>
             </div>
-            <div><button class="primary" disabled={working || !host.trim()} onclick={fromAddress}>{working ? 'Recherche…' : 'Continuer'}</button></div>
+            <div><button class="primary" disabled={working || !host.trim()} onclick={fromAddress}>{working ? t('common.searching') : t('common.continue')}</button></div>
           {:else}
-            <div class="eyebrow">Empreinte de la console</div>
+            <div class="eyebrow">{t('add.fingerprint')}</div>
             <div class="fp mono">
               {#each groups(seen.fingerprint) as g, i}<span class:strong={i < 4}>{g}</span>{/each}
             </div>
-            <p class="hint">Comparez les quatre premiers groupes avec l’empreinte affichée dans la console de l’ordinateur, espace Accès. Différente : n’allez pas plus loin.</p>
+            <p class="hint">{t('add.compare')}</p>
             <div class="row">
-              <button class="primary" onclick={() => seen && choose(seen)}>C’est la même</button>
-              <button class="ghost" onclick={() => (seen = null)}>Annuler</button>
+              <button class="primary" onclick={() => seen && choose(seen)}>{t('add.same')}</button>
+              <button class="ghost" onclick={() => (seen = null)}>{t('common.cancel')}</button>
             </div>
           {/if}
         {/if}
       {:else}
         <div class="who">
           <div>
-            <div class="eyebrow">Ordinateur choisi</div>
+            <div class="eyebrow">{t('add.chosen')}</div>
             <div class="whoname">{candidate.name ?? candidate.host} <span class="mono addr">· {candidate.host}:{candidate.port}</span></div>
           </div>
-          <button class="ghost" onclick={back}>Changer</button>
+          <button class="ghost" onclick={back}>{t('add.change')}</button>
         </div>
 
         <div class="tabs" role="tablist">
-          <button role="tab" aria-selected={access === 'code'} onclick={() => chooseAccess('code')}>Avec un code</button>
-          <button role="tab" aria-selected={access === 'compte'} onclick={() => chooseAccess('compte')}>Avec un compte</button>
+          <button role="tab" aria-selected={access === 'code'} onclick={() => chooseAccess('code')}>{t('add.with_code')}</button>
+          <button role="tab" aria-selected={access === 'compte'} onclick={() => chooseAccess('compte')}>{t('add.with_account')}</button>
         </div>
 
         {#if access === 'code'}
           {#if code}
-            <div class="digits" aria-label="Code {code}">
+            <div class="digits" aria-label={t('add.code_label', { code })}>
               {#each code.split('') as d, i}{#if i === 3}<span class="gap"></span>{/if}<span class="d mono">{d}</span>{/each}
             </div>
             <ol>
-              <li>Ouvrez la console de {candidate.name ?? 'l’ordinateur'}, espace <strong>Accès › Appareils</strong>, ou le panneau de son icône près de l’horloge.</li>
-              <li>Acceptez la demande de <strong>{deviceName || 'ce PC'}</strong> avec ce code.</li>
-              <li>Rien d’autre à taper : ce PC reçoit son propre accès, que vous pourrez retirer depuis la console.</li>
+              <li>{t('add.step1_before', { name: candidate.name ?? t('add.the_computer') })}<strong>{t('add.step1_strong')}</strong>{t('add.step1_after')}</li>
+              <li>{t('add.step2_before')}<strong>{deviceName || t('add.this_pc')}</strong>{t('add.step2_after')}</li>
+              <li>{t('add.step3')}</li>
             </ol>
             {#if pairState === 'pending'}
-              <div class="wait"><span class="pulse"></span>En attente de la console…</div>
+              <div class="wait"><span class="pulse"></span>{t('add.waiting')}</div>
             {:else}
-              <div class="error">{pairState === 'refused' ? 'La console a refusé la demande.' : 'La demande a expiré.'}</div>
-              <div><button class="ghost" onclick={startCode}>Nouveau code</button></div>
+              <div class="error">{pairState === 'refused' ? t('add.refused') : t('add.expired')}</div>
+              <div><button class="ghost" onclick={startCode}>{t('add.new_code')}</button></div>
             {/if}
           {:else if working}
-            <div class="wait"><span class="pulse"></span>Demande à la console…</div>
+            <div class="wait"><span class="pulse"></span>{t('add.asking')}</div>
           {:else if error}
-            <div><button class="ghost" onclick={startCode}>Réessayer</button></div>
+            <div><button class="ghost" onclick={startCode}>{t('add.retry')}</button></div>
           {/if}
         {:else}
           <div class="grid">
-            <label class="col"><span class="eyebrow">Compte</span><input class="field" autocomplete="username" bind:value={user} /></label>
-            <label class="col"><span class="eyebrow">Mot de passe</span><input class="field" type="password" autocomplete="current-password" bind:value={password} /></label>
+            <label class="col"><span class="eyebrow">{t('add.account')}</span><input class="field" autocomplete="username" bind:value={user} /></label>
+            <label class="col"><span class="eyebrow">{t('add.password')}</span><input class="field" type="password" autocomplete="current-password" bind:value={password} /></label>
           </div>
-          <p class="hint">Le compte de l’ordinateur (celui choisi à l’installation, ou un compte d’appareil). Le mot de passe est rangé dans le gestionnaire d’identifiants de Windows.</p>
-          <div><button class="primary" disabled={working || !user.trim() || !password} onclick={withAccount}>{working ? 'Vérification…' : 'Ajouter'}</button></div>
+          <p class="hint">{t('add.account_hint')}</p>
+          <div><button class="primary" disabled={working || !user.trim() || !password} onclick={withAccount}>{working ? t('add.checking') : t('add.add')}</button></div>
         {/if}
       {/if}
 

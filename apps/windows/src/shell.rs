@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+use crate::i18n::t;
+
 use windows::Win32::Foundation::{HWND, PROPERTYKEY};
 use windows::Win32::Storage::EnhancedStorage::PKEY_Title;
 use windows::Win32::System::Com::StructuredStorage::{PROPVARIANT, PropVariantClear};
@@ -101,7 +103,7 @@ fn save_shortcut(path: &std::path::Path) -> windows::core::Result<()> {
         if let Some(dir) = exe.parent() {
             link.SetWorkingDirectory(&HSTRING::from(dir.as_os_str()))?;
         }
-        link.SetDescription(&HSTRING::from("Votre ordinateur sur ce PC"))?;
+        link.SetDescription(&HSTRING::from(t("shell.shortcut", &[])))?;
         link.SetIconLocation(&HSTRING::from(exe.as_os_str()), 0)?;
         link.cast::<IPersistFile>()?.Save(&HSTRING::from(path.as_os_str()), true)
     }
@@ -202,11 +204,11 @@ fn build_jump_list(computers: &[(String, String)]) -> windows::core::Result<()> 
         if !wanted.is_empty() {
             let items: IObjectCollection = CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
             for (id, name) in wanted {
-                items.AddObject(&link(&format!("--connect {id}"), name, &format!("Se connecter à {name}"))?)?;
+                items.AddObject(&link(&format!("--connect {id}"), name, &t("shell.connect_to", &[("name", name)]))?)?;
             }
             // Refusée si « Afficher les éléments récemment ouverts » est coupé
             // dans Windows : les tâches restent, la liste est validée quand même.
-            if let Err(e) = list.AppendCategory(&HSTRING::from("Ordinateurs"), &items.cast::<IObjectArray>()?) {
+            if let Err(e) = list.AppendCategory(&HSTRING::from(t("shell.computers", &[])), &items.cast::<IObjectArray>()?) {
                 // Une fois : la liste est refaite à chaque changement.
                 static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
                 if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -215,7 +217,7 @@ fn build_jump_list(computers: &[(String, String)]) -> windows::core::Result<()> 
             }
         }
         let tasks: IObjectCollection = CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-        tasks.AddObject(&link("--add", "Ajouter un ordinateur", "Ajouter un ordinateur à KyberNow")?)?;
+        tasks.AddObject(&link("--add", &t("shell.add", &[]), &t("shell.add_description", &[]))?)?;
         list.AddUserTasks(&tasks.cast::<IObjectArray>()?)?;
         list.CommitList()
     }

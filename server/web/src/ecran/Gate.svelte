@@ -3,6 +3,7 @@
   import { backend } from './backend'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
   let { hostname, onDone }: { hostname: string | null; onDone: () => void } = $props()
 
@@ -33,18 +34,18 @@
 
   <main>
     <div class="head">
-      <span class="lbl host"><span class="dot"></span>{hostname ?? 'Cet ordinateur'}</span>
-      <h1 class="disp">Votre ordinateur, dans ce navigateur.</h1>
-      <p>Le mot de passe de la console, choisi à l'installation.</p>
+      <span class="lbl host"><span class="dot"></span>{hostname ?? t('web.app.thisComputer')}</span>
+      <h1 class="disp">{t('web.gate.title')}</h1>
+      <p>{t('web.gate.lead')}</p>
     </div>
     <form onsubmit={submit}>
       <input type="text" name="username" autocomplete="username" value="console" hidden />
-      <label class="sr-only" for="pw">Mot de passe</label>
-      <input id="pw" type="password" placeholder="Mot de passe" required autocomplete="current-password" bind:value={password} />
+      <label class="sr-only" for="pw">{t('web.gate.password')}</label>
+      <input id="pw" type="password" placeholder={t('web.gate.password')} required autocomplete="current-password" bind:value={password} />
       {#if error}<p class="error" role="alert">{error}</p>{/if}
-      <button type="submit" class="primary" disabled={busy}>{busy ? 'Un instant…' : 'Continuer'}</button>
+      <button type="submit" class="primary" disabled={busy}>{busy ? t('web.gate.wait') : t('web.gate.continue')}</button>
     </form>
-    <p class="hint">Rien à installer. Connexion chiffrée par le certificat de cet ordinateur.</p>
+    <p class="hint">{t('web.gate.hint')}</p>
   </main>
 </div>
 

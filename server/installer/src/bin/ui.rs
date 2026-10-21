@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use kybernow::checks::SystemInfo;
 use kybernow::events::{Command, Emit, Event};
+use kybernow::i18n::{self, t};
 use rust_embed::Embed;
 use tao::dpi::LogicalSize;
 use tao::event::{Event as WinEvent, WindowEvent};
@@ -59,7 +60,7 @@ fn main() -> wry::Result<()> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let builder = WindowBuilder::new()
-        .with_title("Installation de KyberNow")
+        .with_title(t("ui.windowTitle", &[]))
         .with_inner_size(LogicalSize::new(1100.0, 700.0))
         .with_resizable(false)
         .with_decorations(false);
@@ -86,6 +87,8 @@ fn main() -> wry::Result<()> {
     let url = if cfg!(windows) { "http://kn.localhost/" } else { "kn://localhost/" };
     let webview = WebViewBuilder::new_with_web_context(&mut context)
         .with_custom_protocol("kn".into(), |_id, request| serve(request))
+        // Langue de Windows, lue par l'interface avant son démarrage.
+        .with_initialization_script(format!("window.__knLang = {:?};", i18n::lang().code()))
         .with_ipc_handler(move |req: Request<String>| {
             let _ = tx.send(req.body().clone());
         })
@@ -184,7 +187,7 @@ fn spawn_backend(rx: mpsc::Receiver<String>, proxy: EventLoopProxy<UserEvent>, p
                 }
                 Command::Reboot => {
                     if cfg!(windows) {
-                        let _ = kybernow::sys::run("shutdown", &["/r", "/t", "5", "/c", "Redémarrage pour terminer l'installation de KyberNow"]);
+                        let _ = kybernow::sys::run("shutdown", &["/r", "/t", "5", "/c", &t("ui.rebootReason", &[])]);
                     }
                     let _ = proxy.send_event(UserEvent::Close);
                 }

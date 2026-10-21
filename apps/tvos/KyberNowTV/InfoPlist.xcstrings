@@ -1,0 +1,23 @@
+{
+  "sourceLanguage" : "fr",
+  "strings" : {
+    "NSLocalNetworkUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow finds your computers on this network and connects to them."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

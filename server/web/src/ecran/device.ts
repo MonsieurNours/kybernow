@@ -1,5 +1,7 @@
 // Ce que ce navigateur et cet écran savent faire.
 
+import { t } from '../lib/i18n/index.svelte'
+
 export interface Mode {
   width: number
   height: number
@@ -39,7 +41,7 @@ function browserName(ua: string): string {
   if (/Firefox\//.test(ua)) return 'Firefox'
   if (/Chrome\//.test(ua)) return 'Chrome'
   if (/Safari\//.test(ua)) return 'Safari'
-  return 'Navigateur'
+  return t('web.device.browser')
 }
 
 function systemName(ua: string): string {
@@ -53,12 +55,13 @@ function systemName(ua: string): string {
   return ''
 }
 
-/** « Chrome sur Windows », pour la liste des appareils de la console. */
+/** « Chrome sur Windows », pour la liste des appareils de la console : dans
+ * la langue de ce client au moment de l'envoi. */
 export function deviceName(): { name: string; os: string; app: string } {
   const ua = navigator.userAgent
   const browser = browserName(ua)
   const os = systemName(ua)
-  return { name: os ? `${browser} sur ${os}` : browser, os, app: `${browser} · KyberNow web` }
+  return { name: os ? t('web.device.name', { browser, os }) : browser, os, app: `${browser} · KyberNow web` }
 }
 
 /** Taille de cet écran en pixels réels, bornée à la 4K, en nombres pairs. */

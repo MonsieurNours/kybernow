@@ -1,0 +1,22 @@
+{
+  "sourceLanguage" : "fr",
+  "strings" : {
+    "Reprendre sur un ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume on a computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre sur un ordinateur"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

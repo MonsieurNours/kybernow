@@ -24,7 +24,7 @@ struct SessionMenu: View {
             // En haut : où l'on est, et la santé du flux.
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Theme.eyebrow("En session depuis \(minutesLabel)")
+                    Theme.eyebrow(String(localized: "En session depuis \(minutesLabel)"))
                     Text(session.host.name).font(Theme.display(60, 660)).tracking(-60 * 0.035).foregroundStyle(Theme.text)
                 }
                 Spacer()
@@ -43,12 +43,12 @@ struct SessionMenu: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 24) {
                     resumeTile
-                    tile(.pads, icon: "game-controller", title: "Manettes", detail: padsDetail) { showPads = true }
+                    tile(.pads, icon: "game-controller", title: String(localized: "Manettes"), detail: padsDetail) { showPads = true }
                     soundTile
                     mouseTile
                     padMouseTile
-                    tile(.type, icon: "keyboard", title: "Taper du texte", detail: "Clavier tvOS ou iPhone") { typing = true }
-                    tile(.quit, icon: "power", iconColor: Theme.danger, title: "Se déconnecter", detail: "L'ordinateur retrouve ses écrans") { session.end() }
+                    tile(.type, icon: "keyboard", title: String(localized: "Taper du texte"), detail: String(localized: "Clavier tvOS ou iPhone")) { typing = true }
+                    tile(.quit, icon: "power", iconColor: Theme.danger, title: String(localized: "Se déconnecter"), detail: String(localized: "L'ordinateur retrouve ses écrans")) { session.end() }
                 }
                 .focusSection()
                 HStack {
@@ -102,24 +102,27 @@ struct SessionMenu: View {
 
     private var minutesLabel: String {
         let m = session.sessionMinutes
-        return m < 60 ? "\(m) min" : "\(m / 60) h \(String(format: "%02d", m % 60))"
+        let mm = String(format: "%02d", m % 60)
+        return m < 60 ? String(localized: "\(m) min") : String(localized: "\(m / 60) h \(mm)")
     }
 
     private var statsStrip: some View {
         let s = session.stats
         let lost = (s?.lostFrames ?? 0) + (s?.lostPackets ?? 0)
+        let codec = session.host.settings.codec == .h264 ? "H.264" : "HEVC"
+        let format = s?.format.components(separatedBy: " ").first ?? "4:2:0"
         return HStack(spacing: 28) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(s?.latencyMs.map(HomeView.ms) ?? "—").font(Theme.mono(30, .medium)).foregroundStyle(Theme.text)
-                Text("ms")
+                Text(verbatim: "ms")
             }
             Rectangle().fill(Color.white.opacity(0.14)).frame(width: 1, height: 32)
             Text("\(Int((s?.fps ?? 0).rounded())) i/s")
             Text("\(Int((s?.mbps ?? 0).rounded())) Mbit/s")
-            Text("\(session.host.settings.codec == .h264 ? "H.264" : "HEVC") \(s?.format.components(separatedBy: " ").first ?? "4:2:0")")
+            Text(verbatim: "\(codec) \(format)")
             HStack(spacing: 8) {
                 Circle().fill(lost == 0 ? Theme.ok : Theme.warn).frame(width: 9, height: 9)
-                Text(lost == 0 ? "0 perte" : "\(lost) pertes")
+                lost == 0 ? Text("0 perte") : Text("\(lost) pertes")
             }
         }
         .font(Theme.mono(18))
@@ -131,13 +134,16 @@ struct SessionMenu: View {
 
     private var audioWarning: some View {
         let r = session.route
-        let title = "\(r.name) : le son arrive \(r.latencyMs) ms après l'image"
+        let title = String(localized: "\(r.name) : le son arrive \(r.latencyMs) ms après l'image")
+        let channels = session.route.channelsLabel
         let body: String = switch r.kind {
-        case .airpods: prefs.spatialAudio
-            ? "Le \(session.route.channels > 2 ? session.route.channelsLabel : "son") du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli."
-            : "Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli."
-        case .airplay: "Par AirPlay, l'Apple TV ne peut pas retarder un jeu en direct pour l'aligner. Gardez le son sur l'ordinateur ou passez par la sortie HDMI."
-        default: "Une sortie Bluetooth ajoute du retard. Pour jouer en rythme, préférez la sortie HDMI."
+        case .airpods: !prefs.spatialAudio
+            ? String(localized: "Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli.")
+            : session.route.channels > 2
+            ? String(localized: "Le \(channels) du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli.")
+            : String(localized: "Le son du jeu est spatialisé dans les AirPods, sans suivi de la tête. Pour jouer en rythme, préférez la sortie HDMI du téléviseur ou de l'ampli.")
+        case .airplay: String(localized: "Par AirPlay, l'Apple TV ne peut pas retarder un jeu en direct pour l'aligner. Gardez le son sur l'ordinateur ou passez par la sortie HDMI.")
+        default: String(localized: "Une sortie Bluetooth ajoute du retard. Pour jouer en rythme, préférez la sortie HDMI.")
         }
         return HStack(alignment: .top, spacing: 20) {
             Icon("warning", size: 34).foregroundStyle(Theme.warn)
@@ -199,17 +205,21 @@ struct SessionMenu: View {
     }
 
     private var padsDetail: String {
-        pads.pads.isEmpty ? "Aucune manette" : pads.pads.prefix(2).map { "J\($0.player) \($0.kind == .xbox ? "Xbox" : $0.kind == .playstation ? HomeView.short($0.name) : "Manette")" }.joined(separator: " · ")
+        guard !pads.pads.isEmpty else { return String(localized: "Aucune manette") }
+        return pads.pads.prefix(2).map { p in
+            let kind = p.kind == .xbox ? "Xbox" : p.kind == .playstation ? HomeView.short(p.name) : String(localized: "Manette")
+            return String(localized: "J\(p.player) \(kind)")
+        }.joined(separator: " · ")
     }
 
     /// Le son : sa sortie ; un clic ouvre le détail et le choix de la sortie de l'Apple TV.
     private var soundTile: some View {
         let r = session.route
-        let detail = session.host.settings.audio == .off ? "Sur l'ordinateur"
-            : r.kind == .hdmi ? "\(r.channelsLabel) · \(r.name) · \(r.latencyMs) ms"
-            : r.kind == .airpods && prefs.spatialAudio ? "\(r.name) · audio spatial" : r.name
+        let detail = session.host.settings.audio == .off ? String(localized: "Sur l'ordinateur")
+            : r.kind == .hdmi ? String(localized: "\(r.channelsLabel) · \(r.name) · \(r.latencyMs) ms")
+            : r.kind == .airpods && prefs.spatialAudio ? String(localized: "\(r.name) · audio spatial") : r.name
         return Button { sound = true } label: {
-            tileLabel(icon: "speaker-high", iconColor: r.isLate ? Theme.warn : Theme.accent, title: "Son", detail: detail)
+            tileLabel(icon: "speaker-high", iconColor: r.isLate ? Theme.warn : Theme.accent, title: String(localized: "Son"), detail: detail)
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .sound)
@@ -220,12 +230,14 @@ struct SessionMenu: View {
         return ZStack {
             Color.black.opacity(0.55)
             VStack(alignment: .leading, spacing: 24) {
-                Theme.eyebrow("Son")
-                Text(session.host.settings.audio == .off ? "Le son reste sur l'ordinateur" : "Son \(r.channelsLabel) · \(r.name)")
+                Theme.eyebrow(String(localized: "Son"))
+                (session.host.settings.audio == .off ? Text("Le son reste sur l'ordinateur") : Text("Son \(r.channelsLabel) · \(r.name)"))
                     .font(Theme.display(44, 640)).tracking(-1.2)
-                Text(session.host.settings.audio == .off
-                     ? "Ses haut-parleurs ou son casque. Pour l'entendre ici, changez « Le son joue » dans les réglages de l'ordinateur."
-                     : "Sortie mesurée : \(r.latencyMs) ms. \(r.isLate ? "Une sortie sans fil ajoute du retard : la sortie HDMI reste la plus rapide." : "C'est la sortie la plus rapide de l'Apple TV.")")
+                (session.host.settings.audio == .off
+                    ? Text("Ses haut-parleurs ou son casque. Pour l'entendre ici, changez « Le son joue » dans les réglages de l'ordinateur.")
+                    : r.isLate
+                    ? Text("Sortie mesurée : \(r.latencyMs) ms. Une sortie sans fil ajoute du retard : la sortie HDMI reste la plus rapide.")
+                    : Text("Sortie mesurée : \(r.latencyMs) ms. C'est la sortie la plus rapide de l'Apple TV."))
                     .font(Theme.sans(23)).foregroundStyle(Theme.text2).frame(width: 900, alignment: .leading)
                 HStack(spacing: 20) {
                     RoutePicker()
@@ -244,25 +256,25 @@ struct SessionMenu: View {
 
     private var mouseTile: some View {
         Button { session.toggleRemoteMouse() } label: {
-            tileLabel(icon: "cursor", title: "Pavé en souris",
-                      detail: session.remoteMouse ? "Télécommande : pavé = pointeur, clic = clic gauche" : "Désactivée · le pavé navigue",
+            tileLabel(icon: "cursor", title: String(localized: "Pavé en souris"),
+                      detail: session.remoteMouse ? String(localized: "Télécommande : pavé = pointeur, clic = clic gauche") : String(localized: "Désactivée · le pavé navigue"),
                       trailing: AnyView(Toggle2(on: session.remoteMouse)))
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .mouse)
-        .accessibilityValue(session.remoteMouse ? "Activée" : "Désactivée")
+        .accessibilityValue(session.remoteMouse ? Text("Activée") : Text("Désactivée"))
     }
 
     /// La manette en souris : stick gauche, A / ✕, X / □…
     private var padMouseTile: some View {
         Button { session.togglePadMouse() } label: {
-            tileLabel(icon: "game-controller", title: "Manette en souris",
-                      detail: session.padMouse ? "Stick : pointeur · A clic · X clic droit" : "Désactivée · la manette joue",
+            tileLabel(icon: "game-controller", title: String(localized: "Manette en souris"),
+                      detail: session.padMouse ? String(localized: "Stick : pointeur · A clic · X clic droit") : String(localized: "Désactivée · la manette joue"),
                       trailing: AnyView(Toggle2(on: session.padMouse)))
         }
         .buttonStyle(GlassButton(radius: 22, scale: 1.07))
         .focused($focus, equals: .padMouse)
-        .accessibilityValue(session.padMouse ? "Activée" : "Désactivée")
+        .accessibilityValue(session.padMouse ? Text("Activée") : Text("Désactivée"))
     }
 
     // MARK: Texte
@@ -271,7 +283,7 @@ struct SessionMenu: View {
         ZStack {
             Color.black.opacity(0.55)
             VStack(alignment: .leading, spacing: 26) {
-                Theme.eyebrow("Taper du texte sur \(session.host.name)")
+                Theme.eyebrow(String(localized: "Taper du texte sur \(session.host.name)"))
                 Text("Le texte part tel quel, à l'endroit où se trouve le curseur sur l'ordinateur.")
                     .font(Theme.sans(23)).foregroundStyle(Theme.text2)
                 TextField("Texte à envoyer", text: $text)

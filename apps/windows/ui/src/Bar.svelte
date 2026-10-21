@@ -9,8 +9,9 @@
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { Stats } from './lib/api'
-  import { invoke, listen, ms } from './lib/api'
+  import type { AppInfo, Stats } from './lib/api'
+  import { invoke, listen, localLabel, ms } from './lib/api'
+  import { setLang, t } from './lib/i18n/index.svelte'
 
   let stats = $state<Stats | null>(null)
   let label = $state('')
@@ -18,17 +19,17 @@
   let menu = $state<'profile' | 'keys' | null>(null)
 
   type Shown = { label: string; profile: string }
-  const profiles = [
-    { id: 'jeu', name: 'Jeu', hint: 'réactivité avant tout' },
-    { id: 'bureau', name: 'Bureau', hint: 'texte net, transport fiable' },
-    { id: 'max', name: 'Max', hint: 'la meilleure image' },
-  ]
-  const keys = [
-    { id: 'ctrl-alt-del', name: 'Ctrl + Alt + Suppr', hint: 'verrouiller, changer' },
-    { id: 'win', name: 'Touche ⊞ seule', hint: 'menu Démarrer' },
-    { id: 'alt-tab', name: 'Alt + Tab', hint: "changer d'app" },
-    { id: 'print', name: 'Impr. écran', hint: 'capture' },
-  ]
+  const profiles = $derived(
+    ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`bar.${id}_hint`) })),
+  )
+  const keys = $derived(
+    [
+      ['ctrl-alt-del', 'ctrl_alt_del'],
+      ['win', 'win'],
+      ['alt-tab', 'alt_tab'],
+      ['print', 'print'],
+    ].map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: t(`bar.${k}_hint`) })),
+  )
   let history = $state<number[]>([])
   let hideTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -50,7 +51,10 @@
         // Le pointeur n'y entre pas : elle repart d'elle-même.
         scheduleHide(1600)
       }),
+      listen<string>('lang', setLang),
     ]
+    // Langue de l'app si la fenêtre a été rechargée depuis son ouverture.
+    invoke<AppInfo>('app_info').then((i) => setLang(i.lang))
     return () => off.forEach((p) => p.then((f) => f()))
   })
 
@@ -108,21 +112,21 @@
   }}
 />
 
-<div class="bar" role="toolbar" aria-label="Barre de session" tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
+<div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
   <Mark size={20} state="now" lit />
   <div class="lat">
     <span class="mono">{ms(stats?.latency_ms)} ms</span>
     <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
   </div>
   <span class="sep"></span>
-  <span class="mono info">{stats ? `${stats.width} × ${stats.height} · ${stats.fps} i/s · ${stats.decoder}` : '—'}</span>
+  <span class="mono info">{stats ? t('bar.info', { width: stats.width, height: stats.height, fps: stats.fps, decoder: stats.decoder }) : '—'}</span>
   <span class="sep"></span>
   <div class="anchor">
-    <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title="Profil de la session" onclick={() => toggle('profile')}>
-      {label || 'Profil'}<span class="caret" aria-hidden="true">▾</span>
+    <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title={t('bar.session_profile')} onclick={() => toggle('profile')}>
+      {label ? localLabel(label) : t('bar.profile')}<span class="caret" aria-hidden="true">▾</span>
     </button>
     {#if menu === 'profile'}
-      <div class="menu" role="menu" aria-label="Profil">
+      <div class="menu" role="menu" aria-label={t('bar.profile')}>
         {#each profiles as p (p.id)}
           <button role="menuitemradio" aria-checked={p.id === profile} onclick={() => pickProfile(p.id)}>
             <span class="tick">{#if p.id === profile}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
@@ -133,11 +137,11 @@
     {/if}
   </div>
   <div class="anchor">
-    <button class="icon" class:on={menu === 'keys'} aria-haspopup="menu" aria-expanded={menu === 'keys'} aria-label="Touches spéciales" title="Touches spéciales" onclick={() => toggle('keys')}>
+    <button class="icon" class:on={menu === 'keys'} aria-haspopup="menu" aria-expanded={menu === 'keys'} aria-label={t('bar.keys')} title={t('bar.keys')} onclick={() => toggle('keys')}>
       <Icon name="keyboard" size={20} stroke={1.6} />
     </button>
     {#if menu === 'keys'}
-      <div class="menu" role="menu" aria-label="Touches">
+      <div class="menu" role="menu" aria-label={t('bar.keys_menu')}>
         {#each keys as k (k.id)}
           <button role="menuitem" onclick={() => pickKeys(k.id)}>
             <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
@@ -146,14 +150,14 @@
       </div>
     {/if}
   </div>
-  <button class="icon" class:on={stats?.relative} aria-label={stats?.relative ? 'Souris des jeux (Ctrl+Alt+Maj+M)' : 'Souris du bureau (Ctrl+Alt+Maj+M)'} title={stats?.relative ? 'Souris des jeux' : 'Souris du bureau'} onclick={() => command('mouse')}>
+  <button class="icon" class:on={stats?.relative} aria-label={(stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')) + t('bar.mouse_shortcut')} title={stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')} onclick={() => command('mouse')}>
     <Icon name="mouse" size={20} stroke={1.6} />
   </button>
-  <button class="icon" aria-label="Plein écran ou fenêtre (Ctrl+Alt+Maj+F)" title="Plein écran ou fenêtre" onclick={() => command('fullscreen')}>
+  <button class="icon" aria-label={t('bar.fullscreen') + t('bar.fullscreen_shortcut')} title={t('bar.fullscreen')} onclick={() => command('fullscreen')}>
     <Icon name="fullscreen" size={20} stroke={1.6} />
   </button>
   <span class="sep"></span>
-  <button class="quit" onclick={() => command('disconnect')}>Quitter</button>
+  <button class="quit" onclick={() => command('disconnect')}>{t('bar.quit')}</button>
 </div>
 
 <style>

@@ -16,6 +16,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table};
 
+use crate::i18n::Msg;
 use crate::schema::{self, Field};
 
 const MAX_BACKUPS: usize = 30;
@@ -109,10 +110,10 @@ impl KyberConfig {
             let field = fields
                 .iter()
                 .find(|f| f.id == id)
-                .ok_or_else(|| anyhow!("réglage inconnu : {id}"))?;
+                .ok_or_else(|| Msg::new("config.unknownSetting").with("id", id.as_str()))?;
             match value {
                 Some(v) => {
-                    field.validate(v).map_err(|e| anyhow!(e))?;
+                    field.validate(v)?;
                     write_field(&mut doc, field, v)?;
                 }
                 None => remove_field(&mut doc, field),
@@ -264,7 +265,7 @@ impl KyberConfig {
     pub fn upsert_user(&self, username: &str, password: &str) -> Result<()> {
         validate_username(username)?;
         if password.chars().count() < 8 {
-            bail!("le mot de passe doit faire au moins 8 caractères");
+            bail!(Msg::new("config.passwordLength"));
         }
         let hash = hex::encode(Sha256::digest(password.as_bytes()));
         let _write = self.write.lock().unwrap();
@@ -282,7 +283,7 @@ impl KyberConfig {
     pub fn reset_users(&self, username: &str, password: &str) -> Result<()> {
         validate_username(username)?;
         if password.chars().count() < 8 {
-            bail!("le mot de passe doit faire au moins 8 caractères");
+            bail!(Msg::new("config.passwordLength"));
         }
         let hash = hex::encode(Sha256::digest(password.as_bytes()));
         let _write = self.write.lock().unwrap();
@@ -308,7 +309,7 @@ impl KyberConfig {
         let before = logins.len();
         logins.retain(|(u, _)| u != username);
         if logins.len() == before {
-            bail!("utilisateur inconnu : {username}");
+            bail!(Msg::new("config.unknownUser").with("username", username));
         }
         write_logins(&mut doc, &logins)?;
         self.save(&doc.to_string())
@@ -317,7 +318,7 @@ impl KyberConfig {
     /// Remplace le fichier entier (éditeur avancé), après vérification de la syntaxe.
     pub fn write_raw(&self, text: &str) -> Result<()> {
         text.parse::<DocumentMut>()
-            .map_err(|e| anyhow!("TOML invalide : {e}"))?;
+            .map_err(|e| Msg::new("config.invalidToml").with("error", e.to_string()))?;
         let _write = self.write.lock().unwrap();
         self.save(text)
     }
@@ -487,10 +488,10 @@ fn write_logins(doc: &mut DocumentMut, logins: &[(String, String)]) -> Result<()
 fn validate_username(username: &str) -> Result<()> {
     // RFC 7617 : pas de « : » dans l'identifiant, pas de caractères de contrôle.
     if username.trim().is_empty() {
-        bail!("l'identifiant est vide");
+        bail!(Msg::new("config.emptyUsername"));
     }
     if username.contains(':') || username.chars().any(char::is_control) {
-        bail!("l'identifiant ne peut contenir ni « : » ni caractère de contrôle");
+        bail!(Msg::new("config.badUsername"));
     }
     Ok(())
 }

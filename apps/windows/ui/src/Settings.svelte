@@ -10,6 +10,7 @@
   import { untrack } from 'svelte'
   import type { Computer, Settings, ThisPc } from './lib/api'
   import { invoke, isCustom } from './lib/api'
+  import { t } from './lib/i18n/index.svelte'
 
   let { computer, thisPc, onremoved }: { computer: Computer; thisPc: ThisPc | null; onremoved: () => void } = $props()
 
@@ -28,11 +29,9 @@
   }
 
   const custom = $derived(isCustom(s))
-  const profiles: { value: Settings['profile']; title: string; sub: string }[] = [
-    { value: 'jeu', title: 'Jeu', sub: 'Latence avant tout, 4:2:0, souris brute' },
-    { value: 'bureau', title: 'Bureau', sub: 'Texte net en 4:4:4, transport fiable' },
-    { value: 'max', title: 'Max', sub: 'Sans compromis : 4:4:4, débit haut' },
-  ]
+  const profiles: { value: Settings['profile']; title: string; sub: string }[] = $derived(
+    (['jeu', 'bureau', 'max'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`settings.${value}_sub`) })),
+  )
 
   /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs). */
   const base = $derived.by(() => {
@@ -119,14 +118,14 @@
 <main>
   <div class="head">
     <div class="title">
-      <div class="eyebrow">Réglages de</div>
-      <input class="name" aria-label="Nom de l'ordinateur" bind:value={name} onblur={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
-      <div class="mono addr">{computer.host}:{computer.port} · compte {computer.user}</div>
+      <div class="eyebrow">{t('settings.settings_of')}</div>
+      <input class="name" aria-label={t('settings.computer_name')} bind:value={name} onblur={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
+      <div class="mono addr">{computer.host}:{computer.port} · {t('settings.account', { user: computer.user })}</div>
     </div>
-    <div class="mono real">Débit réel de la session : {realMbps} Mbit/s</div>
+    <div class="mono real">{t('settings.real_bitrate', { mbps: realMbps })}</div>
   </div>
 
-  <div class="profiles" role="radiogroup" aria-label="Profil">
+  <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
     {#each profiles as p (p.value)}
       {@const on = !custom && s.profile === p.value}
       <button role="radio" aria-checked={on} class:on onclick={() => pickProfile(p.value)}>
@@ -134,23 +133,23 @@
       </button>
     {/each}
     <div class="custom" class:on={custom}>
-      <span class="t">Personnalisé</span><span class="s">{custom ? `Sur la base de ${s.profile === 'jeu' ? 'Jeu' : s.profile === 'bureau' ? 'Bureau' : 'Max'}` : 'Dès qu’un réglage change'}</span>
+      <span class="t">{t('profiles.custom')}</span><span class="s">{custom ? t('settings.custom_based', { profile: t(`profiles.${s.profile}`) }) : t('settings.custom_when')}</span>
     </div>
   </div>
 
   <div class="cols">
     <section>
-      <h2 class="eyebrow">Image</h2>
+      <h2 class="eyebrow">{t('settings.image')}</h2>
       <div class="line stack">
         <div class="lr">
-          <span>Écran de l’ordinateur</span>
+          <span>{t('settings.computer_display')}</span>
           <Segmented
-            label="Écran de l'ordinateur"
+            label={t('settings.computer_display')}
             value={s.custom ? 'custom' : s.max_4k ? 'max4k' : 'match'}
             options={[
-              { value: 'match', label: 'Comme cet écran' },
-              { value: 'max4k', label: 'Au plus 4K' },
-              { value: 'custom', label: 'Sur mesure' },
+              { value: 'match', label: t('settings.match') },
+              { value: 'max4k', label: t('settings.max4k') },
+              { value: 'custom', label: t('settings.custom') },
             ]}
             onchange={(v) =>
               save(
@@ -163,9 +162,9 @@
         {#if s.custom}
           {@const c = s.custom}
           <div class="custom-mode">
-            <label><span class="eyebrow">Largeur</span><input class="field mono" type="number" min="640" max="7680" step="2" value={c.width} onchange={(e) => setCustom({ width: num(e) })} /></label>
+            <label><span class="eyebrow">{t('settings.width')}</span><input class="field mono" type="number" min="640" max="7680" step="2" value={c.width} onchange={(e) => setCustom({ width: num(e) })} /></label>
             <span class="x">×</span>
-            <label><span class="eyebrow">Hauteur</span><input class="field mono" type="number" min="360" max="4320" step="2" value={c.height} onchange={(e) => setCustom({ height: num(e) })} /></label>
+            <label><span class="eyebrow">{t('settings.height')}</span><input class="field mono" type="number" min="360" max="4320" step="2" value={c.height} onchange={(e) => setCustom({ height: num(e) })} /></label>
             <label><span class="eyebrow">Hz</span><input class="field mono" type="number" min="24" max="240" value={c.refresh} onchange={(e) => setCustom({ refresh: num(e) })} /></label>
           </div>
           <div class="presets">
@@ -176,13 +175,13 @@
               <button class:on={c.refresh === hz} onclick={() => setCustom({ refresh: hz })}>{hz} Hz</button>
             {/each}
           </div>
-          <span class="help">L’écran virtuel de l’ordinateur prend cette taille, que l’image soit plus grande ou plus petite que cet écran (elle est mise à l’échelle). Jusqu’à 7680 × 4320.</span>
+          <span class="help">{t('settings.custom_help')}</span>
         {/if}
       </div>
       <div class="line">
-        <span>Format</span>
+        <span>{t('settings.format')}</span>
         <Segmented
-          label="Format"
+          label={t('settings.format')}
           value={codec}
           options={[
             { value: 'h264', label: 'H.264' },
@@ -193,20 +192,20 @@
         />
       </div>
       <div class="line">
-        <span>Couleurs complètes (4:4:4)</span>
-        <Switch label="Couleurs complètes" checked={yuv444 && codec === 'hevc'} disabled={codec !== 'hevc' || !thisPc?.hevc444} onchange={(v) => over('yuv444', v, base.yuv444)} />
+        <span>{t('settings.full_color')}</span>
+        <Switch label={t('settings.full_color_short')} checked={yuv444 && codec === 'hevc'} disabled={codec !== 'hevc' || !thisPc?.hevc444} onchange={(v) => over('yuv444', v, base.yuv444)} />
       </div>
       <div class="line stack">
         <div class="lr">
-          <span>Affichage des images</span>
-          <Segmented label="Affichage" value={s.vsync ? 'sync' : 'now'} options={[{ value: 'sync', label: 'Synchronisé' }, { value: 'now', label: 'Immédiat' }]} onchange={(v) => save({ vsync: v === 'sync' })} />
+          <span>{t('settings.display_mode')}</span>
+          <Segmented label={t('settings.display_short')} value={s.vsync ? 'sync' : 'now'} options={[{ value: 'sync', label: t('settings.synced') }, { value: 'now', label: t('settings.immediate') }]} onchange={(v) => save({ vsync: v === 'sync' })} />
         </div>
-        <span class="help">Chaque image s’affiche dès qu’elle est décodée ; un écran G-SYNC ou FreeSync se cale dessus. « Immédiat » gagne encore une fraction de milliseconde, avec des déchirures possibles.</span>
+        <span class="help">{t('settings.display_help')}</span>
       </div>
       <div class="line stack">
         <div class="lr">
-          <span>Débit</span>
-          <span class="mono val">{sliderMbps} Mbit/s {s.mbps == null ? '· profil' : ''}</span>
+          <span>{t('settings.bitrate')}</span>
+          <span class="mono val">{sliderMbps} Mbit/s {s.mbps == null ? t('settings.profile_suffix') : ''}</span>
         </div>
         <input
           type="range"
@@ -214,100 +213,100 @@
           max="500"
           step="5"
           value={sliderMbps}
-          aria-label="Débit"
+          aria-label={t('settings.bitrate')}
           oninput={(e) => (mbpsDraft = Number((e.currentTarget as HTMLInputElement).value))}
           onchange={() => {
             if (mbpsDraft != null) save({ mbps: mbpsDraft })
             mbpsDraft = null
           }}
         />
-        {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>Revenir au débit du profil</button>{/if}
-        {#if sliderMbps > 300}<span class="help warn">Au-delà de 300 Mbit/s, un réseau Wi-Fi décroche souvent.</span>{/if}
+        {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>{t('settings.reset_bitrate')}</button>{/if}
+        {#if sliderMbps > 300}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
       </div>
     </section>
 
     <section>
-      <h2 class="eyebrow">Clavier, souris, manettes, son</h2>
+      <h2 class="eyebrow">{t('settings.inputs')}</h2>
       <div class="line">
-        <span>Souris</span>
-        <Segmented label="Souris" value={s.mouse} options={[{ value: 'auto', label: 'Auto' }, { value: 'bureau', label: 'Bureau' }, { value: 'jeu', label: 'Jeu' }]} onchange={(v) => save({ mouse: v })} />
+        <span>{t('settings.mouse')}</span>
+        <Segmented label={t('settings.mouse')} value={s.mouse} options={[{ value: 'auto', label: 'Auto' }, { value: 'bureau', label: t('settings.mouse_desktop') }, { value: 'jeu', label: t('settings.mouse_game') }]} onchange={(v) => save({ mouse: v })} />
       </div>
       <div class="line">
-        <span>Manette vue par l’ordinateur</span>
-        <Segmented label="Manette" value={s.gamepad} options={[{ value: 'xbox360', label: 'Xbox 360' }, { value: 'fidele', label: 'Fidèle' }]} onchange={(v) => save({ gamepad: v })} />
+        <span>{t('settings.gamepad')}</span>
+        <Segmented label={t('settings.gamepad_short')} value={s.gamepad} options={[{ value: 'xbox360', label: 'Xbox 360' }, { value: 'fidele', label: t('settings.faithful') }]} onchange={(v) => save({ gamepad: v })} />
       </div>
       <div class="line">
-        <span>Presse-papiers partagé</span>
-        <Switch label="Presse-papiers partagé" checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />
+        <span>{t('settings.clipboard')}</span>
+        <Switch label={t('settings.clipboard')} checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />
       </div>
       <div class="line">
-        <span>Son</span>
+        <span>{t('settings.sound')}</span>
         <Segmented
-          label="Son"
+          label={t('settings.sound')}
           value={s.audio}
           options={[
             { value: 'auto', label: 'Auto' },
-            { value: '2', label: 'Stéréo' },
+            { value: '2', label: t('settings.stereo') },
             { value: '6', label: '5.1' },
             { value: '8', label: '7.1' },
-            { value: '0', label: 'Aucun' },
+            { value: '0', label: t('settings.none') },
           ]}
           onchange={(v) => save({ audio: v })}
         />
       </div>
       <div class="line">
-        <span>Transport</span>
-        <Segmented label="Transport" value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: 'Rapide' }, { value: 'fiable', label: 'Fiable' }]} onchange={(v) => over('reliable', v === 'fiable', base.reliable)} />
+        <span>{t('settings.transport')}</span>
+        <Segmented label={t('settings.transport')} value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: t('settings.fast') }, { value: 'fiable', label: t('settings.reliable') }]} onchange={(v) => over('reliable', v === 'fiable', base.reliable)} />
       </div>
       <div class="line stack">
         <div class="lr">
-          <span>Écran virtuel</span>
-          <Switch label="Écran virtuel" checked={s.virtual_display} onchange={(v) => save({ virtual_display: v })} />
+          <span>{t('settings.virtual')}</span>
+          <Switch label={t('settings.virtual')} checked={s.virtual_display} onchange={(v) => save({ virtual_display: v })} />
         </div>
-        <span class="help">À la taille de cet écran, le temps de la session ; sinon les écrans de l’ordinateur tels quels.</span>
+        <span class="help">{t('settings.virtual_help')}</span>
       </div>
       <div class="line stack">
         <div class="lr">
-          <span>Garder la dernière image</span>
-          <Switch label="Garder la dernière image" checked={s.keep_last_image} onchange={(v) => save({ keep_last_image: v })} />
+          <span>{t('settings.keep_last')}</span>
+          <Switch label={t('settings.keep_last')} checked={s.keep_last_image} onchange={(v) => save({ keep_last_image: v })} />
         </div>
-        <span class="help">La dernière image de votre session devient le fond de cet ordinateur sur l’accueil, gardée sur ce PC seulement.</span>
+        <span class="help">{t('settings.keep_help')}</span>
       </div>
     </section>
 
     <section class="pc">
-      <h2 class="eyebrow">Ce PC</h2>
+      <h2 class="eyebrow">{t('settings.this_pc')}</h2>
       {#if thisPc}
         <div class="pcname">{thisPc.name}</div>
-        <div class="mono gpu">{thisPc.gpu || 'Carte graphique inconnue'}</div>
+        <div class="mono gpu">{thisPc.gpu || t('settings.unknown_gpu')}</div>
         <div class="table mono">
           {#each decodes as d (d.k)}
-            <div class="tr"><span>{d.k}</span><span class:ok={d.v} class:no={!d.v}>{d.v ? 'matériel' : d.k === 'AV1' ? 'non' : 'processeur'}</span></div>
+            <div class="tr"><span>{d.k}</span><span class:ok={d.v} class:no={!d.v}>{d.v ? t('settings.hardware') : d.k === 'AV1' ? t('settings.no') : t('settings.processor')}</span></div>
           {/each}
-          <div class="tr"><span>Écran</span><span>{thisPc.width} × {thisPc.height} · {thisPc.refresh} Hz</span></div>
-          <div class="tr"><span>Son</span><span>{thisPc.audio_channels === 8 ? '7.1' : thisPc.audio_channels === 6 ? '5.1' : 'stéréo'}</span></div>
+          <div class="tr"><span>{t('settings.display')}</span><span>{thisPc.width} × {thisPc.height} · {thisPc.refresh} Hz</span></div>
+          <div class="tr"><span>{t('settings.sound')}</span><span>{thisPc.audio_channels === 8 ? '7.1' : thisPc.audio_channels === 6 ? '5.1' : t('settings.stereo_lower')}</span></div>
         </div>
-        <p class="help">Vérifié au lancement en décodant pour de bon une image de chaque format. Les profils s’y ramènent seuls.</p>
+        <p class="help">{t('settings.probe_help')}</p>
         <div class="line stack battery">
           <div class="lr">
-            <span><Icon name="battery" size={16} /> Sur batterie</span>
-            <Segmented label="Sur batterie" value={s.battery} options={[{ value: 'alleger', label: 'Alléger' }, { value: 'garder', label: 'Garder' }]} onchange={(v) => save({ battery: v })} />
+            <span><Icon name="battery" size={16} /> {t('settings.battery')}</span>
+            <Segmented label={t('settings.battery')} value={s.battery} options={[{ value: 'alleger', label: t('settings.lighten') }, { value: 'garder', label: t('settings.keep') }]} onchange={(v) => save({ battery: v })} />
           </div>
-          <span class="help">Alléger : 30 Hz au plus, le débit suit.{thisPc.on_battery ? ' Ce PC est sur batterie.' : ''}</span>
+          <span class="help">{t('settings.battery_help')}{thisPc.on_battery ? t('settings.on_battery_now') : ''}</span>
         </div>
       {:else}
-        <p class="help">Vérification de la carte graphique…</p>
+        <p class="help">{t('settings.probing')}</p>
       {/if}
     </section>
   </div>
 
   <div class="foot">
     {#if confirmRemove}
-      <span>Retirer {computer.name} de cet appareil ? Son accès reste à retirer dans la console.</span>
-      <button class="danger" onclick={remove}>Retirer</button>
-      <button class="ghost" onclick={() => (confirmRemove = false)}>Annuler</button>
+      <span>{t('settings.remove_confirm', { name: computer.name })}</span>
+      <button class="danger" onclick={remove}>{t('settings.remove')}</button>
+      <button class="ghost" onclick={() => (confirmRemove = false)}>{t('common.cancel')}</button>
     {:else}
-      <button class="ghost" onclick={() => (confirmRemove = true)}><Icon name="trash" size={16} /> Retirer cet ordinateur</button>
+      <button class="ghost" onclick={() => (confirmRemove = true)}><Icon name="trash" size={16} /> {t('settings.remove_computer')}</button>
     {/if}
   </div>
 </main>

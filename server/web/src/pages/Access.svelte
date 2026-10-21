@@ -10,6 +10,7 @@
   import Icon from '../lib/Icon.svelte'
   import Qr from '../lib/Qr.svelte'
   import Switch from '../lib/Switch.svelte'
+  import { t, tn } from '../lib/i18n/index.svelte'
 
   let pairing = $state<Pairing | null>(null)
   let devices = $state<Device[]>([])
@@ -34,7 +35,7 @@
 
   function left(r: PairRequest) {
     const s = Math.max(0, Math.round(r.expires_at - now))
-    return `${Math.floor(s / 60)}\u00a0min\u00a0${String(s % 60).padStart(2, '0')}`
+    return t('access.timeLeft', { m: Math.floor(s / 60), s: String(s % 60).padStart(2, '0') })
   }
 
   async function accept(r: PairRequest) {
@@ -51,10 +52,10 @@
       notify(
         'ok',
         res.restarted
-          ? `${r.name} a reçu son accès. Le serveur redémarre quelques secondes pour en tenir compte.`
+          ? t('access.acceptedRestarting', { name: r.name })
           : waiting
-            ? `${r.name} a reçu son accès. Une session est en cours : le serveur redémarrera tout seul dès qu'elle finira, et ${r.name} pourra alors se connecter.`
-            : `${r.name} a reçu son accès.`,
+            ? t('access.acceptedWaiting', { name: r.name })
+            : t('access.accepted', { name: r.name }),
       )
       api.users().then((u) => (users = u.users)).catch(() => {})
     } catch (e) {
@@ -70,7 +71,7 @@
     try {
       const res = await api.pairRefuse(r.id)
       if (app.status) app.status.pair_requests = res.pair_requests
-      notify('ok', `Accès refusé à ${r.name}.`)
+      notify('ok', t('access.refused', { name: r.name }))
     } catch (e) {
       notify('error', errorText(e))
       refreshStatus()
@@ -105,17 +106,17 @@
     if (!pairing) return
     try {
       await navigator.clipboard.writeText(pairing.link)
-      notify('ok', 'Lien copié.')
+      notify('ok', t('access.linkCopied'))
     } catch {
-      notify('error', 'Copie impossible : sélectionnez le lien à la main.')
+      notify('error', t('access.copyFailed'))
     }
   }
 
   async function forget(d: Device) {
     menu = null
     const question = d.own_account
-      ? `Retirer l'accès de ${d.name} ? Son compte propre (${d.user}) est supprimé : pour revenir, il devra être appairé de nouveau.`
-      : `Oublier ${d.name} ? Il reste capable de se connecter avec son compte ; il disparaît seulement de cette liste.`
+      ? t('access.confirmRevoke', { name: d.name, user: d.user })
+      : t('access.confirmForget', { name: d.name })
     if (!confirm(question)) return
     try {
       const res = await api.forgetDevice(d.id)
@@ -127,11 +128,11 @@
         notify(
           'ok',
           res.pending_access.some((p) => !p.grant && p.account === d.user)
-            ? `Accès de ${d.name} retiré. Le serveur redémarrera pour en tenir compte dès la fin de la session en cours.`
-            : `Accès de ${d.name} retiré.`,
+            ? t('access.revokedLater', { name: d.name })
+            : t('access.revoked', { name: d.name }),
         )
       } else {
-        notify('ok', `${d.name} oublié.`)
+        notify('ok', t('access.forgotten', { name: d.name }))
       }
     } catch (e) {
       notify('error', errorText(e))
@@ -156,10 +157,10 @@
   async function add(event: SubmitEvent) {
     event.preventDefault()
     if (users.some((u) => u.username === username)) {
-      notify('error', `« ${username} » existe déjà : changez plutôt son mot de passe.`)
+      notify('error', t('access.accountExists', { user: username }))
       return
     }
-    if (await runUsers(() => api.upsertUser(username, password), `Compte « ${username} » ajouté.`)) {
+    if (await runUsers(() => api.upsertUser(username, password), t('access.accountAdded', { user: username }))) {
       username = ''
       password = ''
     }
@@ -167,7 +168,7 @@
 
   async function savePassword(event: SubmitEvent, user: string) {
     event.preventDefault()
-    if (await runUsers(() => api.upsertUser(user, newPassword), `Mot de passe de « ${user} » changé.`)) {
+    if (await runUsers(() => api.upsertUser(user, newPassword), t('access.passwordChanged', { user }))) {
       editing = null
       newPassword = ''
     }
@@ -175,9 +176,9 @@
 
   async function remove(user: string) {
     const device = users.find((u) => u.username === user)?.device
-    const consequence = device ? `${device} ne pourra plus se connecter.` : "Les appareils qui l'utilisent ne pourront plus se connecter."
-    if (!confirm(`Supprimer le compte « ${user} » ? ${consequence}`)) return
-    await runUsers(() => api.deleteUser(user), `Compte « ${user} » supprimé.`)
+    const consequence = device ? t('access.removeDeviceConsequence', { device }) : t('access.removeConsequence')
+    if (!confirm(t('access.confirmRemove', { user, consequence }))) return
+    await runUsers(() => api.deleteUser(user), t('access.accountRemoved', { user }))
   }
 
   const insecure = $derived(users.find((u) => u.insecure_default) ?? null)
@@ -188,26 +189,26 @@
 
 <header class="space-head">
   <div>
-    <span class="lbl">Qui peut ouvrir cet ordinateur</span>
-    <h1>Accès</h1>
-    <p>Vos appareils, les comptes qui permettent de se connecter, et comment en ajouter un.</p>
+    <span class="lbl">{t('access.eyebrow')}</span>
+    <h1>{t('access.title')}</h1>
+    <p>{t('access.intro')}</p>
   </div>
 </header>
 
 <div class="space-body">
   <!-- Ajouter un appareil -->
   <section aria-labelledby="t-add" class="card feature add">
-    {#if pairing}<Qr text={pairing.link} label="QR code d'appairage" />{:else}<div class="qr-wait"></div>{/if}
+    {#if pairing}<Qr text={pairing.link} label={t('access.add.qrLabel')} />{:else}<div class="qr-wait"></div>{/if}
     <div class="add-text">
-      <h2 id="t-add" class="disp">Ajouter un appareil</h2>
-      <p>Sur votre réseau, ouvrez KyberNow : cet ordinateur y est déjà. Ailleurs, ou par VPN, scannez ce code avec l'appareil, ou collez le lien dans l'app.</p>
+      <h2 id="t-add" class="disp">{t('access.add.title')}</h2>
+      <p>{t('access.add.text')}</p>
       <div class="add-actions">
-        <button type="button" class="primary" disabled={!pairing} onclick={copy}><Icon name="copy" size={15} stroke={2} />Copier le lien</button>
+        <button type="button" class="primary" disabled={!pairing} onclick={copy}><Icon name="copy" size={15} stroke={2} />{t('access.add.copy')}</button>
         {#if pairing}<span class="mono link">{pairing.link.replace(/\?.*/, '')}</span>{/if}
       </div>
       <details>
-        <summary>Ce que contient le lien</summary>
-        <p>L'adresse de cet ordinateur et l'empreinte de son certificat : l'app sait qu'elle parle bien à lui. Aucun mot de passe.{#if fingerprint} Empreinte : <span class="mono">{fingerprint}</span>{/if}</p>
+        <summary>{t('access.add.contents')}</summary>
+        <p>{t('access.add.explain')}{#if fingerprint} {t('access.add.fingerprint')} <span class="mono">{fingerprint}</span>{/if}</p>
       </details>
     </div>
   </section>
@@ -215,28 +216,28 @@
   <!-- Appareils -->
   <section id="appareils" aria-labelledby="t-dev" class="card">
     <div class="card-head">
-      <h2 id="t-dev">Appareils</h2>
-      <span class="sub">Ceux qui se sont déjà connectés</span>
+      <h2 id="t-dev">{t('access.devices.title')}</h2>
+      <span class="sub">{t('access.devices.sub')}</span>
     </div>
     {#each requests as r (r.id)}
       <div class="request" role="group" aria-labelledby="req-{r.id}">
         <span class="device-icon live"><Icon name={deviceIcon(r.kind)} size={20} stroke={1.6} /></span>
         <div class="who">
-          <span class="name" id="req-{r.id}">{r.name} demande l'accès</span>
-          <span class="mono meta">{[r.os, r.address, `encore\u00a0${left(r)}`].filter(Boolean).join(' · ')}</span>
+          <span class="name" id="req-{r.id}">{t('access.devices.asks', { name: r.name })}</span>
+          <span class="mono meta">{[r.os, r.address, t('access.remaining', { time: left(r) })].filter(Boolean).join(' · ')}</span>
         </div>
         <div class="code">
-          <span class="lbl">Code sur l'écran de l'appareil</span>
-          <strong class="mono" aria-label="Code {r.code.split('').join(' ')}">{r.code.slice(0, 3)} {r.code.slice(3)}</strong>
+          <span class="lbl">{t('access.devices.codeLabel')}</span>
+          <strong class="mono" aria-label={t('access.devices.codeAria', { digits: r.code.split('').join(' ') })}>{r.code.slice(0, 3)} {r.code.slice(3)}</strong>
         </div>
         <div class="answer">
-          <button type="button" class="primary" disabled={answering !== null} onclick={() => accept(r)}><Icon name="check" size={15} stroke={2} />Accepter</button>
-          <button type="button" class="ghost" disabled={answering !== null} onclick={() => refuse(r)}>Refuser</button>
+          <button type="button" class="primary" disabled={answering !== null} onclick={() => accept(r)}><Icon name="check" size={15} stroke={2} />{t('access.devices.accept')}</button>
+          <button type="button" class="ghost" disabled={answering !== null} onclick={() => refuse(r)}>{t('access.devices.refuse')}</button>
         </div>
       </div>
     {/each}
     {#if requests.length}
-      <p class="request-help">Acceptez seulement si ce code est celui affiché sur votre appareil. Il reçoit son propre accès, que vous pourrez lui retirer ici.</p>
+      <p class="request-help">{t('access.devices.requestHelp')}</p>
     {/if}
     {#each devices as d (d.id)}
       {@const isLive = live?.device_id === d.id}
@@ -244,23 +245,23 @@
         <span class="device-icon" class:live={isLive}><Icon name={deviceIcon(d.kind)} size={20} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{d.name}</span>
-          <span class="mono meta">{[d.os, d.own_account ? 'accès propre' : `compte ${d.user}`, d.last_mode ? mode(d.last_mode) : null].filter(Boolean).join(' · ')}</span>
+          <span class="mono meta">{[d.os, d.own_account ? t('access.devices.ownAccess') : t('access.devices.account', { user: d.user }), d.last_mode ? mode(d.last_mode) : null].filter(Boolean).join(' · ')}</span>
         </div>
-        <span class="when" class:live={isLive}>{isLive ? 'En session' : d.sessions === 0 ? `Appairé ${ago(d.last_seen)}` : capital(ago(d.last_seen))}{d.latency_ms && !isLive ? ` · ${ms(d.latency_ms)}` : ''}</span>
+        <span class="when" class:live={isLive}>{isLive ? t('access.devices.inSession') : d.sessions === 0 ? t('access.devices.paired', { ago: ago(d.last_seen) }) : capital(ago(d.last_seen))}{d.latency_ms && !isLive ? ` · ${ms(d.latency_ms)}` : ''}</span>
         <div class="menu-wrap">
-          <button type="button" class="icon-button" aria-label="Options de {d.name}" aria-expanded={menu === d.id} onclick={(e) => (e.stopPropagation(), (menu = menu === d.id ? null : d.id))}>
+          <button type="button" class="icon-button" aria-label={t('access.devices.options', { name: d.name })} aria-expanded={menu === d.id} onclick={(e) => (e.stopPropagation(), (menu = menu === d.id ? null : d.id))}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>
           </button>
           {#if menu === d.id}
             <div class="menu" role="menu">
-              <span class="menu-info">{d.sessions} session{d.sessions > 1 ? 's' : ''}{d.app ? ` · ${d.app}` : ''}</span>
-              <button type="button" role="menuitem" onclick={() => forget(d)}><Icon name="trash" size={15} />{d.own_account ? "Retirer l'accès" : 'Oublier cet appareil'}</button>
+              <span class="menu-info">{tn('access.devices.sessions', d.sessions)}{d.app ? ` · ${d.app}` : ''}</span>
+              <button type="button" role="menuitem" onclick={() => forget(d)}><Icon name="trash" size={15} />{d.own_account ? t('access.devices.removeAccess') : t('access.devices.forget')}</button>
             </div>
           {/if}
         </div>
       </div>
     {:else}
-      <p class="empty">Aucun appareil ne s'est encore connecté. Les apps KyberNow apparaissent ici dès leur première session.</p>
+      <p class="empty">{t('access.devices.empty')}</p>
     {/each}
 
     {#if kyber.loaded && multi}
@@ -274,15 +275,15 @@
   <!-- Comptes -->
   <section id="comptes" aria-labelledby="t-acc" class="card accounts">
     <div class="card-head">
-      <h2 id="t-acc">Comptes</h2>
-      <span class="sub">L'identifiant et le mot de passe saisis sur un appareil</span>
+      <h2 id="t-acc">{t('access.accounts.title')}</h2>
+      <span class="sub">{t('access.accounts.sub')}</span>
     </div>
 
     {#if insecure}
       <div class="notice warn" role="alert">
         <Icon name="warning" />
-        <span>Le compte d'exemple « {insecure.username} » a toujours son mot de passe d'origine, connu de tous.</span>
-        <button type="button" class="ghost small" disabled={busy || users.length <= 1} onclick={() => remove(insecure.username)}>Supprimer ce compte</button>
+        <span>{t('access.accounts.insecure', { user: insecure.username })}</span>
+        <button type="button" class="ghost small" disabled={busy || users.length <= 1} onclick={() => remove(insecure.username)}>{t('access.accounts.deleteThis')}</button>
       </div>
     {/if}
 
@@ -291,34 +292,34 @@
         <span class="avatar" class:warn={u.insecure_default}>{u.username.charAt(0).toUpperCase()}</span>
         <div class="who">
           <span class="name">{u.username}</span>
-          <span class="sub" class:warn={u.insecure_default}>{u.insecure_default ? "Mot de passe d'origine" : u.device ? `Accès propre à ${u.device}` : 'Se connecter depuis un appareil'}</span>
+          <span class="sub" class:warn={u.insecure_default}>{u.insecure_default ? t('access.accounts.originalPassword') : u.device ? t('access.accounts.ownAccessOf', { device: u.device }) : t('access.accounts.connectFromDevice')}</span>
         </div>
         {#if u.device}
           <span></span>
         {:else}
-          <button type="button" class="ghost small" onclick={() => ((editing = editing === u.username ? null : u.username), (newPassword = ''))}>Changer le mot de passe</button>
+          <button type="button" class="ghost small" onclick={() => ((editing = editing === u.username ? null : u.username), (newPassword = ''))}>{t('access.accounts.changePassword')}</button>
         {/if}
         {#if users.length > 1}
-          <button type="button" class="icon-button" aria-label="Supprimer le compte {u.username}" disabled={busy} onclick={() => remove(u.username)}><Icon name="trash" size={16} /></button>
+          <button type="button" class="icon-button" aria-label={t('access.accounts.deleteAria', { user: u.username })} disabled={busy} onclick={() => remove(u.username)}><Icon name="trash" size={16} /></button>
         {:else}
           <span class="icon-spacer"></span>
         {/if}
       </div>
       {#if editing === u.username}
         <form class="inline" onsubmit={(e) => savePassword(e, u.username)}>
-          <div class="field"><label for="np-{u.username}">Nouveau mot de passe de {u.username}</label><input id="np-{u.username}" type="password" minlength="8" required autocomplete="new-password" bind:value={newPassword} placeholder="8 caractères minimum" /></div>
-          <button type="submit" class="ghost" disabled={busy}>Enregistrer</button>
-          <button type="button" class="ghost" onclick={() => (editing = null)}>Annuler</button>
+          <div class="field"><label for="np-{u.username}">{t('access.accounts.newPasswordFor', { user: u.username })}</label><input id="np-{u.username}" type="password" minlength="8" required autocomplete="new-password" bind:value={newPassword} placeholder={t('access.accounts.min8')} /></div>
+          <button type="submit" class="ghost" disabled={busy}>{t('access.accounts.save')}</button>
+          <button type="button" class="ghost" onclick={() => (editing = null)}>{t('access.accounts.cancel')}</button>
         </form>
       {/if}
     {/each}
 
     <form class="new" onsubmit={add}>
-      <div class="field"><label for="u">Nouvel identifiant</label><input id="u" type="text" required autocomplete="off" bind:value={username} placeholder="ex. lea" /></div>
-      <div class="field"><label for="p">Mot de passe</label><input id="p" type="password" minlength="8" required autocomplete="new-password" bind:value={password} placeholder="8 caractères minimum" /></div>
-      <button type="submit" class="ghost" disabled={busy}>Ajouter le compte</button>
+      <div class="field"><label for="u">{t('access.accounts.newUsername')}</label><input id="u" type="text" required autocomplete="off" bind:value={username} placeholder={t('access.accounts.usernamePlaceholder')} /></div>
+      <div class="field"><label for="p">{t('access.accounts.password')}</label><input id="p" type="password" minlength="8" required autocomplete="new-password" bind:value={password} placeholder={t('access.accounts.min8')} /></div>
+      <button type="submit" class="ghost" disabled={busy}>{t('access.accounts.addAccount')}</button>
     </form>
-    <p class="hash">Kyber ne garde que l'empreinte des mots de passe (SHA-256). Un changement de compte s'applique au redémarrage du serveur.</p>
+    <p class="hash">{t('access.accounts.hash')}</p>
   </section>
 </div>
 

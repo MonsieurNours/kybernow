@@ -3,6 +3,8 @@
   import { onMount } from 'svelte'
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
+  import LangChoice from '../lib/LangChoice.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import type { Mode } from './device'
   import { isFirefox, isTouch } from './device'
   import type { Plan } from './plan'
@@ -17,10 +19,10 @@
     onClose,
   }: { prefs: Prefs; hostname: string; mode: Mode; plan: Plan | null; onClose: () => void } = $props()
 
-  const profiles: { id: Profile; label: string; desc: string }[] = [
-    { id: 'bureau', label: 'Bureau', desc: 'Texte net, aucune image perdue, presse-papiers. Pour travailler.' },
-    { id: 'jeu', label: 'Jeu', desc: 'La latence la plus basse et les manettes. Pour jouer.' },
-  ]
+  const profiles: { id: Profile; label: string; desc: string }[] = $derived([
+    { id: 'bureau', label: t('web.settings.desktop'), desc: t('web.settings.desktopDesc') },
+    { id: 'jeu', label: t('web.settings.game'), desc: t('web.settings.gameDesc') },
+  ])
 
   let advanced = $state(false)
 
@@ -30,14 +32,14 @@
     void plan
     const reason = websocketReason()
     return reason === 'touch'
-      ? 'WebSocket sur cet appareil tactile : c’est par cette connexion que partent le texte tapé et la position du doigt (un peu plus de latence).'
+      ? t('web.settings.pathTouch')
       : reason === 'webkit'
-        ? 'WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).'
+        ? t('web.settings.pathWebkit')
         : reason === 'firefox'
-          ? 'WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).'
+          ? t('web.settings.pathFirefox')
           : reason === 'unsupported'
-            ? 'WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).'
-            : 'WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.'
+            ? t('web.settings.pathUnsupported')
+            : t('web.settings.pathDirect')
   })
   let dialog: HTMLElement
 
@@ -53,17 +55,17 @@
 <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1" bind:this={dialog}>
   <div class="top">
     <div>
-      <h2 id="settings-title" class="disp">Réglages</h2>
-      <p class="muted">Gardés dans ce navigateur, pour {hostname}.</p>
+      <h2 id="settings-title" class="disp">{t('web.settings.title')}</h2>
+      <p class="muted">{t('web.settings.kept', { host: hostname })}</p>
     </div>
-    <button type="button" class="close" aria-label="Fermer" onclick={onClose}>
+    <button type="button" class="close" aria-label={t('web.settings.close')} onclick={onClose}>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
     </button>
   </div>
 
   <div class="body">
     <section>
-      <span class="lbl">Profil</span>
+      <span class="lbl">{t('web.settings.profile')}</span>
       <div class="cards">
         {#each profiles as p (p.id)}
           <button type="button" class="card" aria-pressed={prefs.profile === p.id} onclick={() => (prefs.profile = p.id)}>
@@ -75,35 +77,35 @@
     </section>
 
     <section>
-      <span class="lbl">Image</span>
+      <span class="lbl">{t('web.settings.picture')}</span>
       <div class="row">
         <div class="text">
-          <span>À la taille de cet écran</span>
+          <span>{t('web.settings.matchDisplay')}</span>
           <span class="sub">
             {prefs.virtualDisplay
-              ? `L'ordinateur crée un écran de ${mode.width} × ${mode.height} à ${mode.refresh} Hz`
-              : "Les écrans de l'ordinateur, tels quels"}
+              ? t('web.settings.virtualOn', { width: mode.width, height: mode.height, refresh: mode.refresh })
+              : t('web.settings.virtualOff')}
           </span>
         </div>
-        <Switch checked={prefs.virtualDisplay} label="À la taille de cet écran" onchange={(v) => (prefs.virtualDisplay = v)} />
+        <Switch checked={prefs.virtualDisplay} label={t('web.settings.matchDisplay')} onchange={(v) => (prefs.virtualDisplay = v)} />
       </div>
       <div class="row">
         <div class="text">
-          <span>Plein écran</span>
-          <span class="sub">Toute la place pour l'image, dès la connexion</span>
+          <span>{t('web.settings.fullscreen')}</span>
+          <span class="sub">{t('web.settings.fullscreenSub')}</span>
         </div>
-        <Switch checked={prefs.fullscreen} label="Plein écran" onchange={(v) => (prefs.fullscreen = v)} />
+        <Switch checked={prefs.fullscreen} label={t('web.settings.fullscreen')} onchange={(v) => (prefs.fullscreen = v)} />
       </div>
       <div class="row">
         <div class="text">
-          <span>Débit</span>
-          <span class="sub">{prefs.bitrate ? 'Réglé à la main' : 'Suivant le profil et la taille de l’écran'}</span>
+          <span>{t('web.settings.bitrate')}</span>
+          <span class="sub">{prefs.bitrate ? t('web.settings.bitrateManual') : t('web.settings.bitrateAuto')}</span>
         </div>
         <Segmented
-          label="Débit"
+          label={t('web.settings.bitrate')}
           options={[
-            { value: 'auto', label: 'Auto' },
-            { value: 'manual', label: 'Manuel' },
+            { value: 'auto', label: t('web.settings.auto') },
+            { value: 'manual', label: t('web.settings.manual') },
           ]}
           value={prefs.bitrate ? 'manual' : 'auto'}
           onchange={(v) => (prefs.bitrate = v === 'auto' ? null : (plan?.mbps ?? 40))}
@@ -111,7 +113,7 @@
       </div>
       {#if prefs.bitrate}
         <div class="slider">
-          <input type="range" min={MIN_MBPS} max={MAX_MBPS} step="5" bind:value={prefs.bitrate} aria-label="Débit en Mbit/s" />
+          <input type="range" min={MIN_MBPS} max={MAX_MBPS} step="5" bind:value={prefs.bitrate} aria-label={t('web.settings.bitrateAria')} />
           <span class="mono value">{prefs.bitrate} Mbit/s</span>
         </div>
       {:else if plan}
@@ -120,85 +122,91 @@
     </section>
 
     <section>
-      <span class="lbl">Son et partage</span>
+      <span class="lbl">{t('web.settings.soundSharing')}</span>
       <div class="row">
-        <div class="text"><span>Son</span><span class="sub">Stéréo, depuis l'ordinateur</span></div>
-        <Switch checked={prefs.audio} label="Son" onchange={(v) => (prefs.audio = v)} />
+        <div class="text"><span>{t('web.settings.sound')}</span><span class="sub">{t('web.settings.soundSub')}</span></div>
+        <Switch checked={prefs.audio} label={t('web.settings.sound')} onchange={(v) => (prefs.audio = v)} />
       </div>
       <div class="row">
-        <div class="text"><span>Presse-papiers partagé</span><span class="sub">Le navigateur demandera l'autorisation une fois</span></div>
-        <Switch checked={prefs.clipboard} label="Presse-papiers partagé" onchange={(v) => (prefs.clipboard = v)} />
+        <div class="text"><span>{t('web.settings.clipboard')}</span><span class="sub">{t('web.settings.clipboardSub')}</span></div>
+        <Switch checked={prefs.clipboard} label={t('web.settings.clipboard')} onchange={(v) => (prefs.clipboard = v)} />
       </div>
     </section>
 
     {#if !isTouch}
       <section>
-        <span class="lbl">Souris</span>
+        <span class="lbl">{t('web.settings.mouse')}</span>
         <Segmented
-          label="Souris"
+          label={t('web.settings.mouse')}
           options={[
-            { value: 'auto', label: 'Auto' },
-            { value: 'bureau', label: 'Bureau' },
-            { value: 'jeu', label: 'Jeu' },
+            { value: 'auto', label: t('web.settings.auto') },
+            { value: 'bureau', label: t('web.settings.desktop') },
+            { value: 'jeu', label: t('web.settings.game') },
           ]}
           value={prefs.mouse}
           onchange={(v: MouseMode) => (prefs.mouse = v)}
         />
         <p class="sub">
           {prefs.mouse === 'auto'
-            ? 'Capturée seulement quand un jeu est en plein écran sur l’ordinateur. Ctrl + Alt + Maj la rend.'
+            ? t('web.settings.mouseAuto')
             : prefs.mouse === 'jeu'
-              ? 'Capturée : déplacements bruts, pour viser. Ctrl + Alt + Maj la rend.'
-              : 'Toujours libre : le pointeur se pose où vous le placez.'}
+              ? t('web.settings.mouseGame')
+              : t('web.settings.mouseDesktop')}
         </p>
       </section>
     {/if}
 
     {#if isTouch}
       <section>
-        <span class="lbl">Toucher</span>
+        <span class="lbl">{t('web.settings.touch')}</span>
         <Segmented
-          label="Toucher"
+          label={t('web.settings.touch')}
           options={[
-            { value: 'trackpad', label: 'Pavé tactile' },
-            { value: 'direct', label: 'Toucher direct' },
+            { value: 'trackpad', label: t('web.settings.trackpad') },
+            { value: 'direct', label: t('web.settings.direct') },
           ]}
           value={prefs.touch}
           onchange={(v: TouchMode) => (prefs.touch = v)}
         />
-        <p class="sub">{prefs.touch === 'trackpad' ? 'Comme celui d’un portable : précis, pour le petit texte.' : 'Le doigt est la souris : rapide, pour les gros boutons.'}</p>
+        <p class="sub">{prefs.touch === 'trackpad' ? t('web.settings.trackpadDesc') : t('web.settings.directDesc')}</p>
       </section>
     {/if}
 
     <section>
+      <span class="lbl">{t('web.settings.language')}</span>
+      <LangChoice />
+      <p class="sub">{t('web.settings.languageHint')}</p>
+    </section>
+
+    <section>
       <button type="button" class="more" aria-expanded={advanced} onclick={() => (advanced = !advanced)}>
-        <span class="text"><span>Avancé</span><span class="sub">Format et transport : choisis pour vous</span></span>
+        <span class="text"><span>{t('web.settings.advanced')}</span><span class="sub">{t('web.settings.advancedSub')}</span></span>
         <svg class:open={advanced} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </button>
       {#if advanced}
         <div class="row">
-          <div class="text"><span>Chemin de l'image</span><span class="sub">{pathText}</span></div>
+          <div class="text"><span>{t('web.settings.path')}</span><span class="sub">{pathText}</span></div>
         </div>
         <div class="row">
-          <div class="text"><span>Transport</span><span class="sub">Fiable : chaque image arrive. Rapide : une image perdue est sautée.</span></div>
+          <div class="text"><span>{t('web.settings.transport')}</span><span class="sub">{t('web.settings.transportSub')}</span></div>
         </div>
         <Segmented
-          label="Transport"
+          label={t('web.settings.transport')}
           options={[
-            { value: 'auto', label: 'Auto' },
-            { value: 'fiable', label: 'Fiable' },
-            { value: 'rapide', label: 'Rapide' },
+            { value: 'auto', label: t('web.settings.auto') },
+            { value: 'fiable', label: t('web.settings.reliable') },
+            { value: 'rapide', label: t('web.settings.fast') },
           ]}
           value={prefs.transport}
           onchange={(v: Transport) => (prefs.transport = v)}
         />
         <div class="row">
-          <div class="text"><span>Format</span><span class="sub">{isFirefox ? 'Auto : H.264 dans Firefox' : 'Auto : HEVC quand la carte graphique de cet appareil le décode'}</span></div>
+          <div class="text"><span>{t('web.settings.format')}</span><span class="sub">{isFirefox ? t('web.settings.formatFirefox') : t('web.settings.formatAuto')}</span></div>
         </div>
         <Segmented
-          label="Format"
+          label={t('web.settings.format')}
           options={[
-            { value: 'auto', label: 'Auto' },
+            { value: 'auto', label: t('web.settings.auto') },
             { value: 'h264', label: 'H.264' },
             { value: 'hevc', label: 'HEVC' },
           ]}

@@ -1,6 +1,8 @@
 // Pont avec l'installateur Rust (window.ipc fourni par la vue web).
 // Dans un navigateur ordinaire, une simulation joue le même rôle.
 
+import { t } from './i18n/index.svelte'
+
 export type CheckStatus = 'running' | 'ok' | 'warn' | 'error'
 export type TaskStatus = 'running' | 'done' | 'skipped' | 'warn' | 'failed'
 
@@ -61,6 +63,8 @@ declare global {
   interface Window {
     ipc?: { postMessage(message: string): void }
     __knReceive?: (event: BackendEvent) => void
+    /** Langue de Windows (« fr », « en »), posée par l'installateur avant la page. */
+    __knLang?: string
   }
 }
 
@@ -91,19 +95,19 @@ async function simulate(command: Command) {
       const stream = randomPort()
       const consolePort = randomPort()
       const items: [string, CheckStatus, string, string][] = [
-        ['gpu', 'ok', 'Carte graphique', 'NVIDIA GeForce RTX (simulation) · encodage matériel NVENC'],
-        ['driver', 'ok', 'Pilote graphique', 'Version 000.00 (simulation)'],
-        ['network', 'ok', 'Réseau local', 'Ethernet · 192.168.1.100'],
-        ['ports', 'ok', 'Ports réseau', `Le port habituel 8080 est déjà utilisé par httpd.exe. Tirés au hasard et vérifiés libres : stream ${stream} · console ${consolePort}`],
-        ['display', 'ok', 'Écran principal', '3840 × 2160 · 160 Hz'],
-        ['power', 'warn', "Mode d'alimentation : Équilibré", "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options."],
-        ['audio', 'ok', 'Son à distance', 'Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.'],
+        ['gpu', 'ok', t('checks.gpu'), t('simulation.gpu')],
+        ['driver', 'ok', t('checks.driver'), t('simulation.driver')],
+        ['network', 'ok', t('checks.network'), 'Ethernet · 192.168.1.100'],
+        ['ports', 'ok', t('checks.ports'), t('simulation.ports', { stream, console: consolePort })],
+        ['display', 'ok', t('checks.display'), '3840 × 2160 · 160 Hz'],
+        ['power', 'warn', t('simulation.power'), t('simulation.powerDetail')],
+        ['audio', 'ok', t('checks.audio'), t('simulation.audioDetail')],
       ]
       // ?existant dans l'adresse : simule une réinstallation par-dessus KyberNow 0.2.5.
       const existing = new URLSearchParams(location.search).has('existant')
         ? { version: '0.2.5', streamPort: 23456, consolePort: 34567, settings: true }
         : null
-      if (existing) items.push(['existing', 'ok', 'KyberNow 0.2.5 est installé', "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro."])
+      if (existing) items.push(['existing', 'ok', t('simulation.existing'), t('simulation.existingDetail')])
       for (const [id, status, title, detail] of items) {
         emit({ type: 'check', id, status: 'running', title, detail: '' })
         await wait(650)
@@ -115,7 +119,7 @@ async function simulate(command: Command) {
     case 'validatePorts': {
       await wait(250)
       const bad = (p: number, other: number) =>
-        p < 1024 || p > 65535 ? 'Choisissez un port entre 1024 et 65535.' : p === other ? 'Le stream et la console ont besoin de deux ports différents.' : p === 8080 ? 'Le port 8080 est déjà utilisé par httpd.exe.' : null
+        p < 1024 || p > 65535 ? t('simulation.portRange') : p === other ? t('simulation.samePort') : p === 8080 ? t('simulation.portInUse') : null
       emit({ type: 'portsValidated', streamError: bad(command.stream, command.console), consoleError: bad(command.console, command.stream) })
       break
     }

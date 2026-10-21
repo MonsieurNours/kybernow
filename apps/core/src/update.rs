@@ -14,6 +14,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::i18n::{self, Lang};
+
+/// Message d'erreur dans la langue de l'app.
+fn t(key: &str, params: &[(&str, &str)]) -> String {
+    i18n::tr(i18n::current(), key, params)
+}
+
 pub const REPO: &str = "MonsieurNours/kybernow";
 const MANIFEST: &str = "kybernow-release.json";
 const SIGNATURE: &str = "kybernow-release.json.minisig";
@@ -55,7 +62,11 @@ struct Manifest {
 pub struct Available {
     pub version: String,
     pub channel: Channel,
+    /// Notes de version dans la langue de l'app (voir [`Available::localize`]).
     pub notes: String,
+    /// Texte complet de la release (français, `<!-- en -->`, anglais).
+    #[serde(skip)]
+    pub body: String,
     pub page: String,
     pub file: String,
     pub url: String,
@@ -83,30 +94,30 @@ fn agent() -> ureq::Agent {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
-    let resp = agent().get(url).call().map_err(|e| format!("téléchargement de {url} : {e}"))?;
+    let resp = agent().get(url).call().map_err(|e| t("update.download_of", &[("url", url), ("error", &e.to_string())]))?;
     let mut buf = Vec::new();
     resp.into_reader()
         .take(limit)
         .read_to_end(&mut buf)
-        .map_err(|e| format!("téléchargement de {url} : {e}"))?;
+        .map_err(|e| t("update.download_of", &[("url", url), ("error", &e.to_string())]))?;
     Ok(buf)
 }
 
 fn verify(json: &[u8], minisig: &str) -> Result<Manifest, String> {
-    let key = minisign_verify::PublicKey::decode(RELEASE_KEY.trim()).map_err(|e| format!("clé de publication illisible : {e}"))?;
-    let sig = minisign_verify::Signature::decode(minisig.trim()).map_err(|e| format!("signature illisible : {e}"))?;
+    let key = minisign_verify::PublicKey::decode(RELEASE_KEY.trim()).map_err(|e| t("update.bad_key", &[("error", &e.to_string())]))?;
+    let sig = minisign_verify::Signature::decode(minisig.trim()).map_err(|e| t("update.bad_signature", &[("error", &e.to_string())]))?;
     key.verify(json, &sig, false).map_err(|e| match e {
-        minisign_verify::Error::UnexpectedKeyId => "manifeste signé par une autre clé que celle de KyberNow".to_string(),
-        _ => "signature du manifeste invalide : version falsifiée ou abîmée".to_string(),
+        minisign_verify::Error::UnexpectedKeyId => t("update.other_key", &[]),
+        _ => t("update.invalid_signature", &[]),
     })?;
-    let m: Manifest = serde_json::from_slice(json).map_err(|e| format!("manifeste illisible : {e}"))?;
+    let m: Manifest = serde_json::from_slice(json).map_err(|e| t("update.bad_manifest", &[("error", &e.to_string())]))?;
     if !valid_version(&m.version) {
-        return Err(format!("numéro de version inattendu : {}", m.version));
+        return Err(t("update.bad_version", &[("version", &m.version)]));
     }
     // Le commentaire de confiance est signé lui aussi.
     let expected = format!("kybernow {} {}", m.version, m.channel.as_str());
     if sig.trusted_comment() != expected {
-        return Err(format!("commentaire de signature inattendu : « {} »", sig.trusted_comment()));
+        return Err(t("update.bad_comment", &[("comment", sig.trusted_comment())]));
     }
     Ok(m)
 }
@@ -119,13 +130,13 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
         .get(&url)
         .set("Accept", "application/vnd.github+json")
         .call()
-        .map_err(|e| format!("GitHub ne répond pas : {e}"))?;
+        .map_err(|e| t("update.github_down", &[("error", &e.to_string())]))?;
     let mut body = Vec::new();
     resp.into_reader()
         .take(16 << 20)
         .read_to_end(&mut body)
         .map_err(|e| e.to_string())?;
-    let list: Vec<serde_json::Value> = serde_json::from_slice(&body).map_err(|e| format!("réponse de GitHub illisible : {e}"))?;
+    let list: Vec<serde_json::Value> = serde_json::from_slice(&body).map_err(|e| t("update.github_invalid", &[("error", &e.to_string())]))?;
     let version_of = |r: &serde_json::Value| r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
     let has_file = |r: &serde_json::Value| r["assets"].as_array().is_some_and(|a| a.iter().any(|x| x["name"] == file));
     // La plus récente qui publie l'installateur de cette plateforme (une
@@ -148,7 +159,7 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
         })
     };
     let (Some(murl), Some(surl)) = (asset(MANIFEST), asset(SIGNATURE)) else {
-        return Err(format!("la version {version} n'a pas de manifeste signé"));
+        return Err(t("update.no_manifest", &[("version", &version)]));
     };
     let Some(furl) = asset(file) else {
         // Version sans app pour cette plateforme : rien à proposer.
@@ -156,16 +167,18 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
     };
     let manifest = verify(&get(&murl, 256 << 10)?, &String::from_utf8_lossy(&get(&surl, 16 << 10)?))?;
     if manifest.version != version {
-        return Err(format!("le manifeste signé annonce {} mais GitHub publie {version}", manifest.version));
+        return Err(t("update.version_mismatch", &[("manifest", &manifest.version), ("version", &version)]));
     }
     if manifest.channel == Channel::Beta && channel == Channel::Stable {
         return Ok(None);
     }
-    let entry = manifest.files.get(file).ok_or(format!("{file} absent du manifeste signé de la version {version}"))?;
+    let entry = manifest.files.get(file).ok_or_else(|| t("update.file_missing", &[("file", file), ("version", &version)]))?;
+    let body = release["body"].as_str().unwrap_or("").to_string();
     Ok(Some(Available {
         version,
         channel: manifest.channel,
-        notes: release["body"].as_str().unwrap_or("").to_string(),
+        notes: i18n::release_notes(&body, i18n::current()),
+        body,
         page: release["html_url"].as_str().unwrap_or("").to_string(),
         file: file.to_string(),
         url: furl,
@@ -174,17 +187,24 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
     }))
 }
 
+impl Available {
+    /// Notes de version reprises dans `lang` (la langue de l'app a changé).
+    pub fn localize(&mut self, lang: Lang) {
+        self.notes = i18n::release_notes(&self.body, lang);
+    }
+}
+
 /// Télécharge le fichier dans `dest`, jamais plus que la taille du
 /// manifeste, et vérifie taille et empreinte ; `progress` reçoit les octets reçus.
 pub fn download(a: &Available, dest: &Path, progress: impl Fn(u64)) -> Result<(), String> {
-    let resp = agent().get(&a.url).call().map_err(|e| format!("téléchargement : {e}"))?;
+    let resp = agent().get(&a.url).call().map_err(|e| t("update.download", &[("error", &e.to_string())]))?;
     let mut reader = resp.into_reader().take(a.size + 1);
     let mut out = std::fs::File::create(dest).map_err(|e| format!("{} : {e}", dest.display()))?;
     let mut hash = Sha256::new();
     let mut total = 0u64;
     let mut buf = vec![0u8; 256 << 10];
     loop {
-        let n = reader.read(&mut buf).map_err(|e| format!("téléchargement : {e}"))?;
+        let n = reader.read(&mut buf).map_err(|e| t("update.download", &[("error", &e.to_string())]))?;
         if n == 0 {
             break;
         }
@@ -198,7 +218,7 @@ pub fn download(a: &Available, dest: &Path, progress: impl Fn(u64)) -> Result<()
     let digest: String = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     if total != a.size || digest != a.sha256 {
         let _ = std::fs::remove_file(dest);
-        return Err("fichier téléchargé différent du manifeste signé : abîmé ou falsifié".into());
+        return Err(t("update.tampered", &[]));
     }
     Ok(())
 }

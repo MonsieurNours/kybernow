@@ -26,7 +26,8 @@ use crate::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
-use crate::{audio, instance, shell, snapshot, system, window};
+use crate::i18n::t;
+use crate::{audio, i18n, instance, shell, snapshot, system, window};
 use kybernow_core::update::{self, Available, Channel};
 
 #[derive(Debug, Clone, Default)]
@@ -128,13 +129,24 @@ fn parse_action(args: &[String]) -> Option<Action> {
 #[serde(default)]
 pub struct Prefs {
     pub channel: Channel,
+    /// Langue de l'app : `auto` (celle de Windows, aussi si absent), `fr`, `en`.
+    pub language: String,
+}
+
+/// `auto`, `fr` ou `en`.
+fn language_choice(p: &Prefs) -> &'static str {
+    match p.language.as_str() {
+        "fr" => "fr",
+        "en" => "en",
+        _ => "auto",
+    }
 }
 
 fn prefs_path() -> std::path::PathBuf {
     std::env::var_os("APPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir).join("KyberNow").join("app.json")
 }
 
-fn load_prefs() -> Prefs {
+pub fn load_prefs() -> Prefs {
     std::fs::read_to_string(prefs_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
@@ -222,15 +234,21 @@ fn take_action(state: tauri::State<'_, UiState>) -> Option<Action> {
 struct AppInfo {
     version: &'static str,
     channel: Channel,
+    /// Choix de la langue (`auto`, `fr`, `en`) et langue appliquée (`fr`, `en`).
+    language: &'static str,
+    lang: &'static str,
     update: Option<Available>,
     arch: &'static str,
 }
 
 #[tauri::command(async)]
 fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
+    let prefs = state.prefs.lock().unwrap().clone();
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
-        channel: state.prefs.lock().unwrap().channel,
+        channel: prefs.channel,
+        language: language_choice(&prefs),
+        lang: i18n::lang().code(),
         update: state.update.lock().unwrap().clone(),
         arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
     }
@@ -246,7 +264,7 @@ fn check_now(app: &AppHandle) -> Result<Option<Available>, String> {
     let _ = app.emit_to("main", "update", &found);
     if fresh && !shell::app_in_front() {
         if let Some(u) = &found {
-            shell::notify(&format!("KyberNow {} est prête", u.version), "Elle s'installe en un clic depuis l'app.", None);
+            shell::notify(&t("notify.update_title", &[("version", &u.version)]), &t("notify.update_body", &[]), None);
         }
     }
     Ok(found)
@@ -265,11 +283,43 @@ fn set_channel(app: AppHandle, channel: Channel) -> Result<Option<Available>, St
         p.channel = channel;
         p.clone()
     };
+    save_prefs(&prefs);
+    check_now(&app)
+}
+
+fn save_prefs(prefs: &Prefs) {
     if let Some(dir) = prefs_path().parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(prefs_path(), serde_json::to_string_pretty(&prefs).unwrap_or_default());
-    check_now(&app)
+    let _ = std::fs::write(prefs_path(), serde_json::to_string_pretty(prefs).unwrap_or_default());
+}
+
+/// Langue choisie dans les réglages de l'app (`auto`, `fr`, `en`) : appliquée
+/// tout de suite aux deux fenêtres, aux messages du côté Rust, aux notes de
+/// version et à la liste de la barre des tâches. Rend la langue appliquée.
+#[tauri::command(async)]
+fn set_language(app: AppHandle, language: String) -> &'static str {
+    let state = app.state::<UiState>();
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        p.language = language;
+        p.language = language_choice(&p).to_string();
+        p.clone()
+    };
+    save_prefs(&prefs);
+    let lang = i18n::apply(&prefs.language);
+    log::info!("langue : {} ({})", prefs.language, lang.code());
+    let update = {
+        let mut u = state.update.lock().unwrap();
+        if let Some(u) = u.as_mut() {
+            u.localize(lang);
+        }
+        u.clone()
+    };
+    let _ = app.emit("lang", lang.code());
+    let _ = app.emit_to("main", "update", &update);
+    emit_computers(&app);
+    lang.code()
 }
 
 /// Télécharge l'installateur vérifié, le lance en silence et quitte : il
@@ -279,9 +329,9 @@ fn install_update(app: AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let state = app.state::<UiState>();
     if state.session.lock().unwrap().is_some() {
-        return Err("une session est ouverte : installez après".into());
+        return Err(t("errors.session_open_install_later", &[]));
     }
-    let u = state.update.lock().unwrap().clone().ok_or("aucune mise à jour à installer")?;
+    let u = state.update.lock().unwrap().clone().ok_or_else(|| t("errors.no_update", &[]))?;
     let dir = std::env::temp_dir().join("KyberNow");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("KyberNow-{}-{}", u.version, u.file));
@@ -310,7 +360,7 @@ fn install_update(app: AppHandle) -> Result<(), String> {
     let spawn = |flags: u32| std::process::Command::new(&path).args(["/S", "/UPDATE"]).current_dir(&dir).creation_flags(flags).spawn();
     spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
         .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
-        .map_err(|e| format!("lancement de l'installateur : {e}"))?;
+        .map_err(|e| t("errors.installer_launch", &[("error", &e.to_string())]))?;
     app.exit(0);
     Ok(())
 }
@@ -388,7 +438,7 @@ fn snapshot(state: tauri::State<'_, UiState>) -> Snapshot {
 fn probe_address(host: String, port: u16) -> Result<Candidate, String> {
     let console = Console::new(host.trim(), port, "", "", None);
     let info = console.probe().map_err(|e| e.to_string())?;
-    let fingerprint = console.fingerprint_seen().ok_or("aucun certificat vu")?;
+    let fingerprint = console.fingerprint_seen().ok_or_else(|| t("errors.no_certificate", &[]))?;
     Ok(Candidate {
         host: host.trim().into(),
         port,
@@ -422,17 +472,17 @@ fn percent_decode(s: &str) -> String {
 
 /// `kybernow://adresse:port?name=…&fp=sha256:…` (lien ou QR code de la console).
 pub fn parse_link_text(link: &str) -> Result<Candidate, String> {
-    let rest = link.trim().strip_prefix("kybernow://").ok_or("ce n'est pas un lien kybernow://")?;
+    let rest = link.trim().strip_prefix("kybernow://").ok_or_else(|| t("errors.not_a_link", &[]))?;
     let (authority, query) = rest.split_once('?').unwrap_or((rest, ""));
     let authority = authority.trim_end_matches('/');
     let (host, port) = if let Some(r) = authority.strip_prefix('[') {
-        let (h, p) = r.split_once(']').ok_or("adresse invalide")?;
+        let (h, p) = r.split_once(']').ok_or_else(|| t("errors.bad_address", &[]))?;
         (h.to_string(), p.trim_start_matches(':').to_string())
     } else {
-        let (h, p) = authority.rsplit_once(':').ok_or("port absent du lien")?;
+        let (h, p) = authority.rsplit_once(':').ok_or_else(|| t("errors.no_port", &[]))?;
         (h.to_string(), p.to_string())
     };
-    let port: u16 = port.parse().map_err(|_| "port invalide")?;
+    let port: u16 = port.parse().map_err(|_| t("errors.bad_port", &[]))?;
     let mut name = None;
     let mut fingerprint = None;
     for pair in query.split('&') {
@@ -477,7 +527,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str) -> Re
         })
     });
     if !store::set_password(&id, user, password) {
-        return Err("le mot de passe n'a pas pu être rangé dans le gestionnaire d'identifiants".into());
+        return Err(t("errors.password_store", &[]));
     }
     state.live.lock().unwrap().insert(id.clone(), Live { online: Some(true), info: Some(info), ..Default::default() });
     emit_computers(app);
@@ -540,7 +590,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
         }
     }
     state.with_store(|s| {
-        let c = s.get_mut(&id).ok_or("ordinateur inconnu")?;
+        let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         c.settings = settings;
         s.save();
         Ok::<_, String>(())
@@ -553,7 +603,7 @@ fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), S
 fn rename_computer(app: AppHandle, id: String, name: String) -> Result<(), String> {
     let state = app.state::<UiState>();
     state.with_store(|s| {
-        let c = s.get_mut(&id).ok_or("ordinateur inconnu")?;
+        let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         if !name.trim().is_empty() {
             c.name = name.trim().into();
         }
@@ -686,11 +736,15 @@ impl HostEvents for UiEvents {
         if !shell::app_in_front() {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
             match &s.error {
-                Some(e) => shell::notify(&format!("La session sur {name} s'est arrêtée"), e, Some(("Reprendre", &format!("kybernow://connect?id={}", self.id)))),
+                Some(e) => shell::notify(
+                    &t("notify.stopped_title", &[("name", &name)]),
+                    e,
+                    Some((&t("notify.resume", &[]), &format!("kybernow://connect?id={}", self.id))),
+                ),
                 None => shell::notify(
-                    &format!("La session sur {name} est terminée"),
-                    "Un autre appareil a pris la main, ou la console y a mis fin.",
-                    Some(("Reprendre la main", &format!("kybernow://connect?id={}", self.id))),
+                    &t("notify.ended_title", &[("name", &name)]),
+                    &t("notify.ended_body", &[]),
+                    Some((&t("notify.take_back", &[]), &format!("kybernow://connect?id={}", self.id))),
                 ),
             }
         }
@@ -738,18 +792,18 @@ fn session_plan(c: &Computer, pc: &ThisPc) -> (kybernow_core::profile::StreamSet
 fn connect(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<UiState>();
     if state.session.lock().unwrap().is_some() {
-        return Err("une session est déjà ouverte".into());
+        return Err(t("errors.session_already_open", &[]));
     }
-    let c = state.with_store(|s| s.get(&id).cloned()).ok_or("ordinateur inconnu")?;
+    let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
     let host_name = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
     let local = system::is_this_pc(&c.host);
     if local || (!me.is_empty() && (host_name.eq_ignore_ascii_case(&me) || c.name.eq_ignore_ascii_case(&me))) {
         log::warn!("session refusée : {} ({}) est ce PC", c.name, c.host);
-        return Err("c'est ce PC : KyberNow s'affiche sur un autre appareil que l'ordinateur partagé".into());
+        return Err(t("errors.this_pc", &[]));
     }
-    let password = store::password(&id).ok_or("mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur")?;
+    let password = store::password(&id).ok_or_else(|| t("errors.password_missing", &[]))?;
     let pc = {
         let cached = state.this_pc.lock().unwrap().clone();
         match cached {
@@ -792,7 +846,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
     // `ended`) ne peut pas passer avant.
     let mut running = state.session.lock().unwrap();
     if running.is_some() {
-        return Err("une session est déjà ouverte".into());
+        return Err(t("errors.session_already_open", &[]));
     }
     let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
     let host = SessionHost::start(
@@ -834,11 +888,11 @@ fn session_command(state: tauri::State<'_, UiState>, command: String) {
 fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     let state = app.state::<UiState>();
     let Some((id, bar)) = state.session.lock().unwrap().as_ref().map(|r| (r.id.clone(), r.bar.clone())) else {
-        return Err("aucune session".into());
+        return Err(t("errors.no_session", &[]));
     };
-    Profile::parse(&profile).ok_or("profil inconnu")?;
+    Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
     let c = state.with_store(|s| {
-        let c = s.get_mut(&id).ok_or("ordinateur inconnu")?;
+        let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
         c.settings.profile = profile.clone();
         c.settings.codec = None;
         c.settings.yuv444 = None;
@@ -855,7 +909,7 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     *bar.lock().unwrap() = shown.clone();
     let _ = app.emit_to("bar", "bar-label", &shown);
     window::set_session_codec(settings.codec.fourcc());
-    window::current_session().ok_or("session pas encore prête")?.set_settings(settings);
+    window::current_session().ok_or_else(|| t("errors.session_not_ready", &[]))?.set_settings(settings);
     Ok(())
 }
 
@@ -909,11 +963,15 @@ pub fn run(args: Vec<String>) {
             app_info,
             check_update,
             set_channel,
+            set_language,
             install_update
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            // Langue connue de l'interface dès son premier affichage (ensuite : l'événement `lang`).
+            let lang_script = format!("window.__KN_LANG = '{}';", i18n::lang().code());
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .initialization_script(&lang_script)
                 .title("KyberNow")
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(960.0, 600.0)
@@ -921,7 +979,8 @@ pub fn run(args: Vec<String>) {
                 .center()
                 .build()?;
             WebviewWindowBuilder::new(app, "bar", WebviewUrl::App("bar.html".into()))
-                .title("KyberNow — barre")
+                .initialization_script(&lang_script)
+                .title(t("app.bar_title", &[]))
                 .inner_size(1040.0, 76.0)
                 .decorations(false)
                 .transparent(true)
@@ -998,7 +1057,7 @@ pub fn run(args: Vec<String>) {
         .build(tauri::generate_context!());
     match app {
         Ok(app) => app.run(|_, _| {}),
-        Err(e) => system::error_box(&format!("L'app n'a pas pu démarrer : {e}")),
+        Err(e) => system::error_box(&t("app.start_failed", &[("error", &e.to_string())])),
     }
 }
 

@@ -131,36 +131,36 @@ private struct PassageCapsule: View {
             Mark(size: 34, level: mode == .failed || (mode == .closing && session.closing.done) ? .off : .lit)
             switch mode {
             case .waiting:
-                lines(title: waitingTitle, sub: "Un écran de \(session.modeLabel.replacingOccurrences(of: " · ", with: " à ")) l'attend.")
+                lines(title: waitingTitle, sub: String(localized: "Un écran de \(modeAt) l'attend."))
                 divider
                 VStack(alignment: .leading, spacing: 5) {
-                    check(session.phase != .preparing, "Écran \(session.modeLabel.replacingOccurrences(of: " · ", with: " à "))")
-                    check(false, "Premières images")
+                    check(session.phase != .preparing, String(localized: "Écran \(modeAt)"))
+                    check(false, String(localized: "Premières images"))
                 }
                 divider
                 Button("Annuler") { session.end() }
                     .buttonStyle(GhostButton(height: 34))
                     .keyboardShortcut(.cancelAction)
             case .entering:
-                lines(title: "Vous entrez dans \(name)", sub: "Les commandes sont en haut de l'écran. ⌃⌥⌘F : fenêtre · ⌃⌥⌘D : quitter.")
+                lines(title: String(localized: "Vous entrez dans \(name)"), sub: String(localized: "Les commandes sont en haut de l'écran. ⌃⌥⌘F : fenêtre · ⌃⌥⌘D : quitter."))
                 divider
                 VStack(alignment: .leading, spacing: 5) {
-                    check(true, "Écran \(session.modeLabel.replacingOccurrences(of: " · ", with: " à "))")
-                    check(true, "Premières images")
+                    check(true, String(localized: "Écran \(modeAt)"))
+                    check(true, String(localized: "Premières images"))
                 }
                 latency
             case .reconnecting:
                 if case let .reconnecting(n) = session.phase {
-                    lines(title: "Reconnexion à \(name)…", sub: "Essai \(n). L'image revient d'elle-même.")
+                    lines(title: String(localized: "Reconnexion à \(name)…"), sub: String(localized: "Essai \(n). L'image revient d'elle-même."))
                 }
             case .failed:
                 if case let .failed(message) = session.phase {
-                    lines(title: "Impossible d'entrer dans \(name)", sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                    lines(title: String(localized: "Impossible d'entrer dans \(name)"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                 }
                 Button("Revenir à l'accueil") { session.dismissFailure() }
                     .buttonStyle(PrimaryButton(height: 40))
             case .closing:
-                lines(title: "À bientôt", sub: "\(name) retrouve ses écrans et son son.")
+                lines(title: String(localized: "À bientôt"), sub: String(localized: "\(name) retrouve ses écrans et son son."))
             case .hidden:
                 EmptyView()
             }
@@ -170,10 +170,15 @@ private struct PassageCapsule: View {
 
     private var waitingTitle: String {
         switch session.phase {
-        case .preparing: return "On prépare \(name)"
-        case .connecting: return "Connexion à \(name)…"
-        default: return "Premières images…"
+        case .preparing: return String(localized: "On prépare \(name)")
+        case .connecting: return String(localized: "Connexion à \(name)…")
+        default: return String(localized: "Premières images…")
         }
+    }
+
+    /// « 2560 × 1440 à 120 Hz ».
+    private var modeAt: String {
+        session.modeLabel.replacingOccurrences(of: " · ", with: " " + String(localized: "à") + " ")
     }
 
     private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 38) }
@@ -200,7 +205,7 @@ private struct PassageCapsule: View {
         if let ms = session.stats?.latencyMs {
             VStack(alignment: .trailing, spacing: 2) {
                 LitNumber(text: Moment.ms(ms), size: 24)
-                Theme.eyebrow("Écart")
+                Theme.eyebrow(String(localized: "Écart"))
             }
             .frame(minWidth: 104, alignment: .trailing)
         }
@@ -335,16 +340,16 @@ private struct SessionBar: View {
 
     private var mouseLabel: String {
         let choice = session.host.settings.mouse
-        guard choice == .auto else { return choice == .game ? "Souris jeu" : "Souris" }
-        return session.mouseCaptured ? "Souris jeu" : "Souris"
+        guard choice == .auto else { return choice == .game ? String(localized: "Souris jeu") : String(localized: "Souris") }
+        return session.mouseCaptured ? String(localized: "Souris jeu") : String(localized: "Souris")
     }
 
     private var audioLabel: String {
-        guard session.host.settings.audio != .off else { return "Son coupé" }
+        guard session.host.settings.audio != .off else { return String(localized: "Son coupé") }
         switch session.audioStats?.channels {
         case 6?: return "5.1"
         case 8?: return "7.1"
-        case 2?: return "Stéréo"
+        case 2?: return String(localized: "Stéréo")
         default: return session.host.settings.audio.label
         }
     }
@@ -373,7 +378,7 @@ private struct SessionBar: View {
                         Sparkline(values: session.latencyHistory)
                             .frame(width: 64, height: 22)
                     } else if let fps = session.stats?.fps {
-                        Text(String(format: "%.0f i/s", fps)).font(Theme.mono(13)).foregroundStyle(Theme.text2)
+                        Text(String(localized: "\(Int(fps.rounded())) i/s")).font(Theme.mono(13)).foregroundStyle(Theme.text2)
                     }
                     Text(formatLabel).font(Theme.mono(11)).foregroundStyle(Theme.muted)
                 }
@@ -402,19 +407,19 @@ private struct SessionBar: View {
                 }
                 .help("Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
                 .overlay(ring(1))
-                chip(icon: "clipboard-text", text: "Presse-papiers")
+                chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"))
                     .opacity(session.host.settings.clipboard ? 1 : 0.45)
                     .help(session.host.settings.clipboard ? "Presse-papiers partagé avec l'ordinateur (texte)" : "Presse-papiers non partagé (Réglages)")
                 if session.canPickScreen {
                     GlassMenu(items: session.screens.enumerated().map { i, screen in
-                        .init(id: "\(screen.id)", title: "Écran \(i + 1) · \(screen.width) × \(screen.height)", checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
+                        .init(id: "\(screen.id)", title: String(localized: "Écran \(i + 1) · \(screen.width) × \(screen.height)"), checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
                     }) {
-                        chip(icon: "monitor", text: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)", caret: true)
+                        chip(icon: "monitor", text: String(localized: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)"), caret: true)
                     }
                 }
                 if let offer = session.screenOffer {
                     Button { session.adaptToScreen() } label: {
-                        chip(icon: "monitor", text: "Adapter à \(offer.width) × \(offer.height)", tint: Theme.accent)
+                        chip(icon: "monitor", text: String(localized: "Adapter à \(offer.width) × \(offer.height)"), tint: Theme.accent)
                     }
                     .buttonStyle(.plain)
                     .help("L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image")
@@ -533,10 +538,10 @@ private struct PadBanner: View {
             .foregroundStyle(Theme.accentLight)
             Text("L'ordinateur ne la reçoit plus").font(Theme.sans(12)).foregroundStyle(Theme.faint)
             Rectangle().fill(Color.white.opacity(0.18)).frame(width: 1, height: 18)
-            key("◀ ▶", "naviguer")
-            key("A / ✕", "choisir")
-            key("B / ○", "fermer")
-            key("L1 R1 START SELECT", "revenir à l'ordinateur")
+            key("◀ ▶", String(localized: "naviguer"))
+            key("A / ✕", String(localized: "choisir"))
+            key("B / ○", String(localized: "fermer"))
+            key("L1 R1 START SELECT", String(localized: "revenir à l'ordinateur"))
         }
         .padding(.horizontal, 16)
         .frame(height: 40)

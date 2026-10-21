@@ -52,8 +52,8 @@ public enum ConsoleError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case let .http(code, message): return message.isEmpty ? "la console a répondu \(code)" : message
-        case .certificateChanged: return "le certificat de la console a changé : ce n'est peut-être pas votre ordinateur"
+        case let .http(code, message): return message.isEmpty ? String(localized: "la console a répondu \(code)", bundle: .kyberKit) : message
+        case .certificateChanged: return String(localized: "le certificat de la console a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         }
     }
 }
@@ -80,6 +80,8 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         request.timeoutInterval = timeout
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         request.setValue("1", forHTTPHeaderField: "x-kyber-admin")
+        // La console répond dans la langue de l'app (messages d'erreur, refus).
+        request.setValue(LanguageChoice.effective, forHTTPHeaderField: "Accept-Language")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -124,6 +126,8 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
         request.timeoutInterval = 8
         request.setValue(authorization, forHTTPHeaderField: "Authorization")
         request.setValue("1", forHTTPHeaderField: "x-kyber-admin")
+        // La console répond dans la langue de l'app (messages d'erreur, refus).
+        request.setValue(LanguageChoice.effective, forHTTPHeaderField: "Accept-Language")
         guard let (data, response) = try? await session.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               (http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("image/jpeg"), !data.isEmpty
@@ -281,7 +285,7 @@ public final class ConsoleClient: NSObject, URLSessionDelegate, @unchecked Senda
     /// `ConsoleError.http(404, _)` : console d'une version qui ne le connaît pas.
     public func pairRequest(code: String) async throws -> String {
         let json = try await call("POST", "api/pair/request", body: ["code": code, "device": Self.thisDevice], timeout: 6)
-        guard let id = json["id"] as? String else { throw ConsoleError.http(0, "réponse inattendue de la console") }
+        guard let id = json["id"] as? String else { throw ConsoleError.http(0, String(localized: "réponse inattendue de la console", bundle: .kyberKit)) }
         return id
     }
 

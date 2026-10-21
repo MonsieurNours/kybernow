@@ -468,8 +468,8 @@ struct Wordmark: View {
     var color: Color = Theme.text
 
     var body: some View {
-        (Text("Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
-            + Text("Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
+        (Text(verbatim: "Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
+            + Text(verbatim: "Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
             .tracking(-size * 0.012)
             .foregroundStyle(color)
             .accessibilityLabel("KyberNow")
@@ -680,7 +680,7 @@ struct Switch: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
-        .accessibilityValue(isOn ? "activé" : "désactivé")
+        .accessibilityValue(isOn ? Text("activé") : Text("désactivé"))
     }
 }
 
@@ -832,6 +832,6 @@ struct FrameRuler: View {
         }
         .frame(height: 40)
         .accessibilityElement()
-        .accessibilityLabel(String(format: "Latence médiane %.1f millisecondes", median))
+        .accessibilityLabel(Text("Latence médiane \(median, specifier: "%.1f") millisecondes"))
     }
 }

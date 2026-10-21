@@ -4,6 +4,7 @@
 //! par l'app à travers [`session::Platform`].
 
 pub mod console;
+pub mod i18n;
 pub mod latency;
 pub mod media;
 pub mod profile;

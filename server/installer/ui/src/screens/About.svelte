@@ -1,23 +1,25 @@
 <!-- À propos : qui fait KyberNow, et les logiciels libres qu'il embarque. -->
 <script lang="ts">
   import { send } from '../lib/backend'
+  import { t } from '../lib/i18n/index.svelte'
   import { app, go } from '../lib/state.svelte'
   import Mark from '../lib/Mark.svelte'
 
-  const licenses = [
-    ['KyberNow', "Installateur et console d'administration", 'AGPL-3.0'],
-    ['Kyber 0.29', 'Moteur de streaming (Kyber SAS)', 'AGPL-3.0'],
-    ['VLC / libVLC', 'Lecture audio et vidéo (VideoLAN)', 'LGPL-2.1+'],
-    ['FFmpeg', 'Capture et encodage', 'LGPL-2.1+ / GPL-2.0+'],
-    ['x264', 'Encodage logiciel H.264', 'GPL-2.0+'],
-    ['Opus', 'Compression audio', 'BSD-3-Clause'],
-    ['SDL2', 'Manettes', 'Zlib'],
-    ['SudoVDA', "Pilote d'écran virtuel", 'MIT / CC0'],
-    ['ViGEmBus', 'Pilote de manettes virtuelles', 'BSD-3-Clause'],
-    ['nefcon', 'Installation de pilotes', 'MIT'],
-    ['Archivo, Martian Mono', "Polices de l'interface", 'OFL-1.1'],
-    ['Svelte, wry, bibliothèques Rust', 'Interface et installateur', 'MIT / Apache-2.0'],
-  ]
+  // [composant, clé du rôle (about.roles.*), licence]
+  const licenses = $derived([
+    ['KyberNow', 'kybernow', 'AGPL-3.0'],
+    ['Kyber 0.29', 'kyber', 'AGPL-3.0'],
+    ['VLC / libVLC', 'vlc', 'LGPL-2.1+'],
+    ['FFmpeg', 'ffmpeg', 'LGPL-2.1+ / GPL-2.0+'],
+    ['x264', 'x264', 'GPL-2.0+'],
+    ['Opus', 'opus', 'BSD-3-Clause'],
+    ['SDL2', 'sdl', 'Zlib'],
+    ['SudoVDA', 'sudovda', 'MIT / CC0'],
+    ['ViGEmBus', 'vigembus', 'BSD-3-Clause'],
+    ['nefcon', 'nefcon', 'MIT'],
+    ['Archivo, Martian Mono', 'fonts', 'OFL-1.1'],
+    [t('about.rustLibraries'), 'rust', 'MIT / Apache-2.0'],
+  ])
 </script>
 
 <div class="about">
@@ -25,33 +27,33 @@
     <Mark size={48} state="server" />
     <div>
       <span class="disp name"><span>Kyber</span><b>Now</b> <i>Server</i></span>
-      <span class="mono version">version {__APP_VERSION__}</span>
+      <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
     </div>
   </div>
 
   <div class="panel dev kn-enter kn-d1">
-    <div><span class="lbl">Conçu et développé par</span><strong>Les Lignes Claires</strong></div>
+    <div><span class="lbl">{t('about.madeBy')}</span><strong>Les Lignes Claires</strong></div>
     <button type="button" class="ghost" onclick={() => send({ cmd: 'openUrl', url: 'https://www.leslignesclaires.fr' })}>www.leslignesclaires.fr</button>
   </div>
 
   <div class="panel list kn-enter kn-d2">
-    <span class="lbl">Logiciels libres inclus</span>
+    <span class="lbl">{t('about.included')}</span>
     <div class="scroll">
       <table>
-        <thead><tr><th scope="col">Composant</th><th scope="col">Rôle</th><th scope="col">Licence</th></tr></thead>
+        <thead><tr><th scope="col">{t('about.component')}</th><th scope="col">{t('about.role')}</th><th scope="col">{t('about.license')}</th></tr></thead>
         <tbody>
-          {#each licenses as [name, role, spdx] (name)}
-            <tr><td>{name}</td><td class="role">{role}</td><td class="mono spdx">{spdx}</td></tr>
+          {#each licenses as [name, role, spdx] (role)}
+            <tr><td>{name}</td><td class="role">{t(`about.roles.${role}`)}</td><td class="mono spdx">{spdx}</td></tr>
           {/each}
         </tbody>
       </table>
     </div>
-    <p class="note">KyberNow est distribué sous AGPL-3.0. Les textes des licences sont installés dans C:\Program Files\KyberNow\licenses.</p>
+    <p class="note">{t('about.note')}</p>
   </div>
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go(app.previous)}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(app.previous)}>{t('common.back')}</button>
   <div class="spacer"></div>
 </div>
 

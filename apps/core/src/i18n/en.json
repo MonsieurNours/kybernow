@@ -1,0 +1,41 @@
+{
+  "console": {
+    "certificate_changed": "the console's certificate has changed (seen: {seen})",
+    "http": "console: {message} ({status})",
+    "http_status": "HTTP error {status}",
+    "network": "console unreachable: {error}",
+    "invalid": "unreadable response from the console: {error}",
+    "no_request_id": "request ID missing"
+  },
+  "session": {
+    "internal": "internal session error",
+    "no_image": "the computer is not sending a picture (its encoder is not responding: see its console's log, System › Logs)",
+    "unauthorized": "the computer's server does not recognise this device's account yet: in the console, restart the server (System), then try again",
+    "tls": "the certificate of the computer's server does not match the one given by the console",
+    "connect_failed": "cannot connect to Kyber ({reason})",
+    "stream_failed": "cannot connect to the stream",
+    "image_refused": "the computer rejected the picture request",
+    "pipeline": "picture pipeline error ({kind})",
+    "not_responding": "the computer is no longer responding",
+    "interrupted": "session interrupted ({reason})",
+    "no_display": "no usable display on the computer",
+    "start_image": "starting the picture: {error}"
+  },
+  "update": {
+    "download_of": "downloading {url}: {error}",
+    "download": "download: {error}",
+    "bad_key": "unreadable release key: {error}",
+    "bad_signature": "unreadable signature: {error}",
+    "other_key": "manifest signed with a key other than KyberNow's",
+    "invalid_signature": "invalid manifest signature: tampered or damaged version",
+    "bad_manifest": "unreadable manifest: {error}",
+    "bad_version": "unexpected version number: {version}",
+    "bad_comment": "unexpected signature comment: “{comment}”",
+    "github_down": "GitHub is not responding: {error}",
+    "github_invalid": "unreadable response from GitHub: {error}",
+    "no_manifest": "version {version} has no signed manifest",
+    "version_mismatch": "the signed manifest announces {manifest} but GitHub publishes {version}",
+    "file_missing": "{file} is missing from the signed manifest of version {version}",
+    "tampered": "downloaded file differs from the signed manifest: damaged or tampered with"
+  }
+}

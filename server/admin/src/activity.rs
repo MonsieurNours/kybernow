@@ -3,6 +3,12 @@
 //! et le fil des événements (`events.json`, les 300 derniers), écrits en
 //! phrases pour la vue d'ensemble.
 //!
+//! Un événement garde sa clé et ses paramètres (`key`, `params`, voir
+//! `i18n::Msg`) : la phrase est écrite à la lecture, dans la langue de qui
+//! regarde. Il garde aussi sa phrase française (`text`), que relisent les
+//! consoles d'avant les deux langues (retour à une version précédente) ; les
+//! événements enregistrés avant n'ont qu'elle et s'affichent tels quels.
+//!
 //! Les apps KyberNow se présentent en début de session (`/api/stream/prepare`),
 //! donnent leur latence avec leur signal de vie, et la latence de toute la
 //! session à la fin. La console peut demander la fin d'une session : l'app
@@ -17,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::display::now_secs;
+use crate::i18n::{self, Lang, Msg};
 
 /// Sans signal de vie d'une app pendant ce temps (il part toutes les 5 s),
 /// la console tient sa session pour interrompue : le fil d'événements la
@@ -127,7 +134,24 @@ pub struct Event {
     pub at: u64,
     /// « info » ou « warn »
     pub kind: String,
+    /// La phrase en français (seule gardée par les consoles d'avant 0.3.0).
     pub text: String,
+    /// Clé du message (`events.connected`…) et ses paramètres : la phrase
+    /// est réécrite à la lecture, dans la langue demandée.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub params: serde_json::Map<String, Value>,
+}
+
+impl Event {
+    /// La phrase dans `lang` ; un événement d'avant les deux langues garde son texte.
+    pub fn in_lang(mut self, lang: Lang) -> Event {
+        if let Some(key) = &self.key {
+            self.text = i18n::render(lang, key, &self.params);
+        }
+        self
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -172,9 +196,10 @@ impl Activity {
         }
     }
 
-    fn push(&self, s: &mut State, kind: &str, text: String) {
+    fn push(&self, s: &mut State, kind: &str, msg: Msg) {
+        let text = msg.to_string();
         tracing::info!("événement : {text}");
-        s.events.push_back(Event { at: now_secs(), kind: kind.to_string(), text });
+        s.events.push_back(Event { at: now_secs(), kind: kind.to_string(), text, key: Some(msg.key), params: msg.params });
         while s.events.len() > MAX_EVENTS {
             s.events.pop_front();
         }
@@ -182,9 +207,9 @@ impl Activity {
     }
 
     /// Un événement pour le fil de la vue d'ensemble.
-    pub fn event(&self, kind: &str, text: impl Into<String>) {
+    pub fn event(&self, kind: &str, msg: Msg) {
         let mut s = self.state.lock().unwrap();
-        self.push(&mut s, kind, text.into());
+        self.push(&mut s, kind, msg);
     }
 
     /// Un appareil veut ouvrir une session. Si un autre appareil est en
@@ -202,7 +227,7 @@ impl Activity {
         live.end_requested = true;
         live.taking_over = Some(newcomer.to_string());
         if !already {
-            self.push(&mut s, "info", format!("{newcomer} prend la main : fin de la session de {previous} demandée"));
+            self.push(&mut s, "info", Msg::new("events.takeover").with("newcomer", newcomer).with("previous", previous.as_str()));
         }
         Claim::Waiting { previous }
     }
@@ -279,11 +304,15 @@ impl Activity {
             last_beat: now,
         });
         self.save_devices(&s);
-        let text = match mode {
-            Some(m) => format!("{} s'est connecté, écran de {} × {} à {} Hz", info.name, m.width, m.height, m.refresh),
-            None => format!("{} s'est connecté", info.name),
+        let msg = match mode {
+            Some(m) => Msg::new("events.connectedMode")
+                .with("name", info.name.as_str())
+                .with("width", m.width)
+                .with("height", m.height)
+                .with("refresh", m.refresh),
+            None => Msg::new("events.connected").with("name", info.name.as_str()),
         };
-        self.push(&mut s, "info", text);
+        self.push(&mut s, "info", msg);
     }
 
     /// La session en cours est-elle celle de cet appareil ? Les apps à partir
@@ -335,14 +364,12 @@ impl Activity {
             ended_at: now,
         });
         self.save_devices(&s);
-        let mut text = format!("{} s'est déconnecté après {}", live.name, duration(now.saturating_sub(live.started_at)));
-        if let Some(ms) = latency {
-            text.push_str(&format!(", écart médian {}", milliseconds(ms)));
-        }
-        if let Some(next) = live.taking_over {
-            text.push_str(&format!(" ; {next} prend la main"));
-        }
-        self.push(&mut s, "info", text);
+        let msg = Msg::new("events.disconnected")
+            .with("name", live.name.as_str())
+            .with("duration", json!({ "duration": now.saturating_sub(live.started_at) }))
+            .with("latency", latency.map_or(json!(""), |ms| Msg::new("events.latencySuffix").with("ms", json!({ "ms": ms })).to_value()))
+            .with("takeover", live.taking_over.map_or(json!(""), |next| Msg::new("events.takeoverSuffix").with("next", next).to_value()));
+        self.push(&mut s, "info", msg);
         true
     }
 
@@ -353,12 +380,13 @@ impl Activity {
         let Some(live) = s.live.as_mut() else { return false };
         live.end_requested = true;
         let name = live.name.clone();
-        self.push(&mut s, "info", format!("Fin de la session de {name} demandée depuis la console"));
+        self.push(&mut s, "info", Msg::new("events.endRequested").with("name", name));
         true
     }
 
-    /// Session d'app en cours, perdue sans fin propre (signal de vie arrêté).
-    pub fn drop_live(&self, reason: &str) {
+    /// Session d'app en cours, perdue sans fin propre (signal de vie arrêté) :
+    /// `reason` complète la phrase (« plus de signal de l'appareil »).
+    pub fn drop_live(&self, reason: Msg) {
         let mut s = self.state.lock().unwrap();
         if let Some(live) = s.live.take() {
             s.stored.last = Some(LastSession {
@@ -368,7 +396,7 @@ impl Activity {
                 ended_at: now_secs(),
             });
             self.save_devices(&s);
-            self.push(&mut s, "warn", format!("Session de {} interrompue : {reason}", live.name));
+            self.push(&mut s, "warn", Msg::new("events.interrupted").with("name", live.name.as_str()).with_msg("reason", reason));
         }
     }
 
@@ -381,7 +409,7 @@ impl Activity {
     fn expire(&self) {
         let stale = self.state.lock().unwrap().live.as_ref().is_some_and(|l| now_secs().saturating_sub(l.last_beat) > HEARTBEAT_GRACE.as_secs());
         if stale {
-            self.drop_live("plus de signal de l'appareil");
+            self.drop_live(Msg::new("events.noSignal"));
         }
     }
 
@@ -435,7 +463,7 @@ impl Activity {
         s.stored.devices.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
         s.stored.devices.truncate(MAX_DEVICES);
         self.save_devices(&s);
-        self.push(&mut s, "info", format!("{} a reçu son accès (appairage par code)", info.name));
+        self.push(&mut s, "info", Msg::new("events.paired").with("name", info.name.as_str()));
         previous
     }
 
@@ -454,24 +482,10 @@ impl Activity {
         s.stored.devices.iter().filter(|d| d.own_account).map(|d| (d.user.clone(), d.name.clone())).collect()
     }
 
-    /// Les `limit` derniers événements, du plus récent au plus ancien.
-    pub fn events(&self, limit: usize) -> Vec<Event> {
-        self.state.lock().unwrap().events.iter().rev().take(limit).cloned().collect()
+    /// Les `limit` derniers événements, du plus récent au plus ancien, écrits en `lang`.
+    pub fn events(&self, limit: usize, lang: Lang) -> Vec<Event> {
+        self.state.lock().unwrap().events.iter().rev().take(limit).cloned().map(|e| e.in_lang(lang)).collect()
     }
-}
-
-fn duration(seconds: u64) -> String {
-    let minutes = seconds / 60;
-    match minutes {
-        0 => "moins d'une minute".into(),
-        1 => "1 minute".into(),
-        m if m < 60 => format!("{m} minutes"),
-        m => format!("{} h {:02}", m / 60, m % 60),
-    }
-}
-
-fn milliseconds(ms: f64) -> String {
-    if ms >= 100.0 { format!("{} ms", ms.round() as u64) } else { format!("{:.1} ms", ms).replace('.', ",") }
 }
 
 #[cfg(test)]
@@ -501,7 +515,8 @@ mod tests {
         // Relu depuis le disque.
         let again = Activity::new(&dir);
         assert_eq!(again.devices().len(), 1);
-        assert!(again.events(10)[0].text.contains("déconnecté"));
+        assert!(again.events(10, Lang::Fr)[0].text.contains("déconnecté"));
+        assert!(again.events(10, Lang::En)[0].text.contains("disconnected after less than a minute, median latency 8.1 ms"));
         a.begin(Some(mac), "matthieu", None, None);
         assert_eq!(a.devices()[0].sessions, 2);
         assert!(a.forget("abc").is_some());
@@ -563,6 +578,22 @@ mod tests {
         assert_eq!(a.claim("tv", "Apple TV"), Claim::Free);
         a.begin(Some(tv), "matthieu", None, None);
         assert_eq!(a.live_device_id().as_deref(), Some("tv"));
-        assert!(a.events(3).iter().any(|e| e.text.contains("prend la main")));
+        assert!(a.events(3, Lang::Fr).iter().any(|e| e.text.contains("prend la main")));
+        assert!(a.events(3, Lang::En).iter().any(|e| e.text == "MacBook disconnected after less than a minute; Apple TV is taking over"));
+    }
+
+    #[test]
+    fn fil_d_avant_les_deux_langues() {
+        let dir = temp();
+        // events.json d'une console 0.2.9 : la phrase seule.
+        fs::write(dir.join(EVENTS_FILE), r#"[{"at":1,"kind":"info","text":"Compte lea ajouté"}]"#).unwrap();
+        let a = Activity::new(&dir);
+        assert_eq!(a.events(5, Lang::En)[0].text, "Compte lea ajouté");
+        a.event("info", Msg::new("events.accountAdded").with("username", "max"));
+        let e = &a.events(5, Lang::En)[0];
+        assert_eq!((e.text.as_str(), e.key.as_deref()), ("Account max added", Some("events.accountAdded")));
+        // Sur le disque : la phrase française reste, à côté de la clé et des paramètres.
+        let stored: Vec<Value> = serde_json::from_slice(&fs::read(dir.join(EVENTS_FILE)).unwrap()).unwrap();
+        assert_eq!(stored[1], json!({ "at": stored[1]["at"], "kind": "info", "text": "Compte max ajouté", "key": "events.accountAdded", "params": { "username": "max" } }));
     }
 }

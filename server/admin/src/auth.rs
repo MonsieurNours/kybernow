@@ -20,6 +20,7 @@ use axum::response::{IntoResponse, Response};
 use rand::Rng;
 
 use crate::AppState;
+use crate::i18n::Msg;
 
 pub const COOKIE: &str = "kyber_admin_session";
 /// En-tête exigé sur toute requête qui modifie quelque chose : un site tiers ne
@@ -131,7 +132,7 @@ impl Auth {
             let expected = self.setup_code.lock().unwrap();
             match expected.as_deref() {
                 Some(c) if c.eq_ignore_ascii_case(code.trim()) => {}
-                _ => bail!("code d'initialisation incorrect"),
+                _ => bail!(Msg::new("auth.wrongSetupCode")),
             }
         }
         let hash = hash_password(password)?;
@@ -143,7 +144,7 @@ impl Auth {
 
     pub fn change_password(&self, current: &str, new: &str) -> Result<String> {
         if !self.verify(current) {
-            bail!("mot de passe actuel incorrect");
+            bail!(Msg::new("auth.wrongCurrentPassword"));
         }
         let hash = hash_password(new)?;
         *self.password_hash.lock().unwrap() = Some(hash.clone());
@@ -184,7 +185,7 @@ impl Auth {
 
 pub fn hash_password(password: &str) -> Result<String> {
     if password.chars().count() < 10 {
-        bail!("le mot de passe administrateur doit faire au moins 10 caractères");
+        bail!(Msg::new("auth.adminPasswordLength"));
     }
     let salt_bytes: [u8; 16] = rand::random();
     let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -231,12 +232,12 @@ pub async fn require_session(State(state): State<AppState>, req: Request, next: 
         || path.starts_with("/api/stream/")
         || is_pair_request(path);
     if req.method() != Method::GET && req.headers().get(CSRF_HEADER).is_none() {
-        return (StatusCode::FORBIDDEN, "en-tête x-kyber-admin manquant").into_response();
+        return (StatusCode::FORBIDDEN, Msg::new("auth.adminHeader").text()).into_response();
     }
     if !public {
         let ok = session_token(req.headers()).is_some_and(|t| state.auth.session_valid(&t));
         if !ok {
-            return (StatusCode::UNAUTHORIZED, "session requise").into_response();
+            return (StatusCode::UNAUTHORIZED, Msg::new("auth.sessionRequired").text()).into_response();
         }
     }
     next.run(req).await

@@ -5,6 +5,8 @@ use std::process::{Command, Output};
 
 use anyhow::{Context, Result, bail};
 
+use crate::i18n::t;
+
 /// Lance une commande sans fenêtre de console et renvoie sa sortie.
 pub fn run(program: &str, args: &[&str]) -> Result<Output> {
     let mut cmd = Command::new(program);
@@ -15,7 +17,7 @@ pub fn run(program: &str, args: &[&str]) -> Result<Output> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    cmd.output().with_context(|| format!("lancement de {program}"))
+    cmd.output().with_context(|| t("install.launching", &[("program", &program)]))
 }
 
 /// Comme [`run`], mais échoue si le code de sortie n'est pas dans `ok_codes`.
@@ -23,11 +25,8 @@ pub fn run_ok(program: &str, args: &[&str], ok_codes: &[i32]) -> Result<Output> 
     let out = run(program, args)?;
     let code = out.status.code().unwrap_or(-1);
     if !ok_codes.contains(&code) {
-        bail!(
-            "{program} {} a échoué (code {code}) : {}",
-            args.join(" "),
-            text(&out).trim()
-        );
+        let command = format!("{program} {}", args.join(" "));
+        bail!(t("install.commandFailed", &[("command", &command), ("code", &code), ("output", &text(&out).trim())]));
     }
     Ok(out)
 }

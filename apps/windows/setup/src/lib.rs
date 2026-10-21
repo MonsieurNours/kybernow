@@ -2,6 +2,7 @@
 //! d'administrateur, une seule fois pour x64 et ARM64.
 
 pub mod events;
+pub mod i18n;
 pub mod payload;
 
 #[cfg(windows)]

@@ -35,7 +35,7 @@ const MAX_NAME: usize = 60;
 
 #[derive(Debug, PartialEq)]
 pub enum RequestError {
-    /// Code ou présentation invalides.
+    /// Code ou présentation invalides (clé du message, voir `i18n`).
     Invalid(&'static str),
     /// Trop de demandes de cette adresse, ou au total.
     TooMany,
@@ -130,12 +130,12 @@ impl Pairing {
     /// Nouvelle demande. Rend son identifiant (secret : c'est lui qui donne l'accès).
     pub fn request(&self, code: &str, mut device: DeviceInfo, peer: IpAddr) -> Result<String, RequestError> {
         if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(RequestError::Invalid("le code doit faire 6 chiffres"));
+            return Err(RequestError::Invalid("pairing.codeDigits"));
         }
         device.id = device.id.trim().chars().filter(|c| !c.is_control()).take(80).collect();
         device.name = device.name.trim().chars().filter(|c| !c.is_control()).take(MAX_NAME).collect();
         if device.id.is_empty() || device.name.is_empty() {
-            return Err(RequestError::Invalid("l'appareil doit donner son identifiant et son nom"));
+            return Err(RequestError::Invalid("pairing.deviceIdentity"));
         }
         let now = Instant::now();
         let mut s = self.state.lock().unwrap();

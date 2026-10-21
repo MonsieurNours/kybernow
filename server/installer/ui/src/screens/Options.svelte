@@ -1,67 +1,64 @@
 <!-- Étape 3 · Les options, déjà réglées au mieux. -->
 <script lang="ts">
   import Toggle from '../lib/Toggle.svelte'
+  import { t } from '../lib/i18n/index.svelte'
   import { app, beforeOptions, go, startInstall } from '../lib/state.svelte'
 </script>
 
 <div class="options">
   <div class="head">
-    <span class="lbl signal kn-enter">Options</span>
-    <h1 class="title kn-enter kn-d1">Tout est déjà réglé au mieux.</h1>
-    <p class="lead kn-enter kn-d2">Tout se change plus tard dans la console.</p>
+    <span class="lbl signal kn-enter">{t('options.label')}</span>
+    <h1 class="title kn-enter kn-d1">{t('options.title')}</h1>
+    <p class="lead kn-enter kn-d2">{t('options.lead')}</p>
   </div>
 
   <div class="list kn-enter kn-d2">
     <div class="opt">
       <div>
-        <h3>Écran virtuel adapté à chaque appareil <span class="tag">recommandé</span></h3>
-        <p>L'image arrive à la définition et à la fréquence de l'appareil. Le pilote libre SudoVDA n'est pas signé par Microsoft : son certificat sera ajouté aux autorités de confiance.</p>
+        <h3>{t('options.virtualDisplay')} <span class="tag">{t('common.recommended')}</span></h3>
+        <p>{t('options.virtualDisplayDetail')}</p>
       </div>
-      <Toggle bind:checked={app.options.virtualDisplay} label="Écran virtuel" />
+      <Toggle bind:checked={app.options.virtualDisplay} label={t('options.virtualDisplayLabel')} />
     </div>
     <div class="opt">
       <div>
-        <h3>Manettes</h3>
-        <p>Xbox ou PlayStation, vues comme de vraies manettes (pilote ViGEmBus). Un redémarrage sera peut-être demandé.</p>
+        <h3>{t('options.gamepads')}</h3>
+        <p>{t('options.gamepadsDetail')}</p>
       </div>
-      <Toggle bind:checked={app.options.gamepads} label="Manettes" />
+      <Toggle bind:checked={app.options.gamepads} label={t('options.gamepads')} />
     </div>
     <div class="opt" class:off={!app.steamSpeakers}>
       <div>
-        <h3>Son à distance</h3>
+        <h3>{t('options.audio')}</h3>
         <p>
-          {app.steamSpeakers
-            ? "L'ordinateur se tait, le son part vers l'appareil, jusqu'au 7.1. Utilise les haut-parleurs de Steam, trouvés sur cet ordinateur."
-            : "Demande Steam, qui fournit des haut-parleurs virtuels signés. Sans lui, le son sort aussi de l'ordinateur."}
+          {app.steamSpeakers ? t('options.audioDetail') : t('options.audioMissing')}
         </p>
       </div>
-      <Toggle bind:checked={app.options.virtualAudio} label="Son à distance" disabled={!app.steamSpeakers} />
+      <Toggle bind:checked={app.options.virtualAudio} label={t('options.audio')} disabled={!app.steamSpeakers} />
     </div>
     <div class="opt">
       <div>
-        <h3>Démarrer avec l'ordinateur</h3>
-        <p>Disponible avant même l'ouverture de votre session Windows. L'icône KyberNow s'affiche près de l'horloge.</p>
+        <h3>{t('options.startWithWindows')}</h3>
+        <p>{t('options.startWithWindowsDetail')}</p>
       </div>
-      <Toggle bind:checked={app.options.startWithWindows} label="Démarrer avec l'ordinateur" />
+      <Toggle bind:checked={app.options.startWithWindows} label={t('options.startWithWindows')} />
     </div>
     <div class="opt">
       <div>
-        <h3>Performances maximales</h3>
+        <h3>{t('options.maxPerformance')}</h3>
         <p>
-          {app.powerNeedsTuning
-            ? 'Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.'
-            : 'Déjà réglé : cet ordinateur est en mode Performances élevées.'}
+          {app.powerNeedsTuning ? t('options.maxPerformanceDetail') : t('options.maxPerformanceAlready')}
         </p>
       </div>
-      <Toggle bind:checked={app.options.maxPerformance} label="Performances maximales" />
+      <Toggle bind:checked={app.options.maxPerformance} label={t('options.maxPerformance')} />
     </div>
   </div>
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go(beforeOptions())}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(beforeOptions())}>{t('common.back')}</button>
   <div class="spacer"></div>
-  <button type="button" class="primary" onclick={startInstall}>Installer</button>
+  <button type="button" class="primary" onclick={startInstall}>{t('options.install')}</button>
 </div>
 
 <style>

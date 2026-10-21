@@ -10,6 +10,7 @@
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
   const PRESETS = [
     { width: 1920, height: 1080, refresh: 60 },
@@ -23,33 +24,32 @@
     { width: 3840, height: 2160, refresh: 120 },
   ]
 
-  const TRIGGERS: { value: Trigger; label: string }[] = [
-    { value: 'apps', label: 'Avec les apps' },
-    { value: 'all', label: 'Toujours' },
-    { value: 'off', label: 'Jamais' },
-  ]
+  const TRIGGERS: { value: Trigger; label: string }[] = $derived([
+    { value: 'apps', label: t('imageSound.triggers.apps') },
+    { value: 'all', label: t('imageSound.triggers.all') },
+    { value: 'off', label: t('imageSound.triggers.off') },
+  ])
 
   // Un jeu qui change la définition de l'écran virtuel pendant la session.
-  const MODE_POLICIES: { value: ModePolicy; label: string }[] = [
-    { value: 'follow', label: 'Laisser faire' },
-    { value: 'restore', label: 'Remettre' },
-  ]
+  const MODE_POLICIES: { value: ModePolicy; label: string }[] = $derived([
+    { value: 'follow', label: t('imageSound.modePolicy.follow') },
+    { value: 'restore', label: t('imageSound.modePolicy.restore') },
+  ])
 
-  const CHANNELS: { value: AudioChannels; label: string; hint: string }[] = [
-    { value: 'auto', label: 'Auto', hint: 'Auto suit ce que la sortie de l’appareil accepte. Un appareil qui en a moins réduit lui-même.' },
-    { value: 'stereo', label: 'Stéréo', hint: 'Toujours deux canaux, quel que soit l’appareil.' },
-    { value: '5.1', label: '5.1', hint: 'Six canaux, même si l’appareil ne demande rien : les jeux et les films en surround placent chaque son.' },
-    { value: '7.1', label: '7.1', hint: 'Huit canaux, même si l’appareil ne demande rien.' },
-  ]
+  const CHANNELS: { value: AudioChannels; label: string; hint: string }[] = $derived([
+    { value: 'auto', label: t('imageSound.channels.auto'), hint: t('imageSound.channels.autoHint') },
+    { value: 'stereo', label: t('imageSound.channels.stereo'), hint: t('imageSound.channels.stereoHint') },
+    { value: '5.1', label: '5.1', hint: t('imageSound.channels.surround51Hint') },
+    { value: '7.1', label: '7.1', hint: t('imageSound.channels.surround71Hint') },
+  ])
 
   const INPUTS = ['input.clipboard_allow_copy', 'input.clipboard_allow_paste', 'input.gamepad_force_xbox360', 'input.keyboard_key_repeat']
   // Depuis KyberNow 0.2.6, les apps Mac et Apple TV choisissent par ordinateur
   // la manette vue par l'ordinateur (Xbox 360 ou fidèle) et l'imposent à la
   // session : l'option de la console n'est plus qu'un défaut pour les autres clients.
-  const INPUT_NOTES: Record<string, string> = {
-    'input.gamepad_force_xbox360':
-      'Les apps Mac et Apple TV choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur ») : ici, seulement le défaut pour les autres clients.',
-  }
+  const INPUT_NOTES: Record<string, string> = $derived({
+    'input.gamepad_force_xbox360': t('imageSound.inputNotes.gamepad'),
+  })
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
@@ -107,13 +107,13 @@
       return
     }
     custom = null
-    setDisplay(PRESETS[Number(raw)], 'Mode par défaut enregistré.')
+    setDisplay(PRESETS[Number(raw)], t('imageSound.toast.defaultMode'))
   }
 
   async function saveCustom(event: SubmitEvent) {
     event.preventDefault()
     if (!custom) return
-    await setDisplay(custom, 'Mode par défaut enregistré.')
+    await setDisplay(custom, t('imageSound.toast.defaultMode'))
     custom = null
   }
 
@@ -124,24 +124,24 @@
   }
 
   async function stopDisplay() {
-    const r = await run(() => api.displayStop(), 'Vos écrans reviennent.')
+    const r = await run(() => api.displayStop(), t('imageSound.toast.displaysBack'))
     if (r) display = r
   }
 
   const displayPill = $derived.by(() => {
     if (!display) return null
-    if (!display.supported) return { kind: 'warn', text: 'Simulé : cette console ne tourne pas sous Windows' }
-    if (display.session) return { kind: 'signal', text: `${display.session.origin === 'test' ? 'Essai' : 'Actif'} · ${mode(display.session.mode)}` }
-    if (!display.driver.available) return { kind: 'warn', text: 'Pilote indisponible' }
-    return { kind: 'ok', text: `Prêt · pilote SudoVDA${display.driver.info ? ` ${display.driver.info.version}` : ''}` }
+    if (!display.supported) return { kind: 'warn', text: t('imageSound.pill.simulated') }
+    if (display.session) return { kind: 'signal', text: t(display.session.origin === 'test' ? 'imageSound.pill.test' : 'imageSound.pill.active', { mode: mode(display.session.mode) }) }
+    if (!display.driver.available) return { kind: 'warn', text: t('imageSound.pill.driverUnavailable') }
+    return { kind: 'ok', text: display.driver.info ? t('imageSound.pill.readyVersion', { version: display.driver.info.version }) : t('imageSound.pill.ready') }
   })
 
   const audioPill = $derived.by(() => {
     if (!audio) return null
-    if (!audio.supported) return { kind: 'warn', text: 'Simulé : cette console ne tourne pas sous Windows' }
-    if (audio.session) return { kind: 'signal', text: `Envoyé · ${audio.session.channels === 8 ? '7.1' : audio.session.channels === 6 ? '5.1' : 'stéréo'}` }
-    if (!audio.devices.speakers) return { kind: 'warn', text: 'Haut-parleurs virtuels absents' }
-    return { kind: 'ok', text: 'Prêt · haut-parleurs de Steam' }
+    if (!audio.supported) return { kind: 'warn', text: t('imageSound.pill.simulated') }
+    if (audio.session) return { kind: 'signal', text: t('imageSound.pill.sent', { channels: audio.session.channels === 8 ? '7.1' : audio.session.channels === 6 ? '5.1' : t('imageSound.pill.stereo') }) }
+    if (!audio.devices.speakers) return { kind: 'warn', text: t('imageSound.pill.noSpeakers') }
+    return { kind: 'ok', text: t('imageSound.pill.readySound') }
   })
 
   const quality = $derived(field('audio.quality'))
@@ -152,13 +152,13 @@
 
 <header class="space-head with-tabs">
   <div>
-    <span class="lbl">Pendant une session</span>
-    <h1>Image et son</h1>
-    <p>Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.</p>
-    <nav class="tabs" aria-label="Sections">
-      <a href="#/image-son/ecran" class:current={app.section === 'ecran' || !app.section}>Écran</a>
-      <a href="#/image-son/son" class:current={app.section === 'son'}>Son</a>
-      <a href="#/image-son/commandes" class:current={app.section === 'commandes'}>Clavier, souris et manettes</a>
+    <span class="lbl">{t('imageSound.kicker')}</span>
+    <h1>{t('imageSound.title')}</h1>
+    <p>{t('imageSound.intro')}</p>
+    <nav class="tabs" aria-label={t('imageSound.sections')}>
+      <a href="#/image-son/ecran" class:current={app.section === 'ecran' || !app.section}>{t('imageSound.tabs.display')}</a>
+      <a href="#/image-son/son" class:current={app.section === 'son'}>{t('imageSound.tabs.sound')}</a>
+      <a href="#/image-son/commandes" class:current={app.section === 'commandes'}>{t('imageSound.tabs.inputs')}</a>
     </nav>
   </div>
 </header>
@@ -168,16 +168,16 @@
   <section id="ecran" aria-labelledby="t-ecran" class="card">
     <div class="card-head">
       <div>
-        <h2 id="t-ecran">Écran virtuel</h2>
-        <span class="sub">Un écran à la taille exacte de l'appareil qui se connecte.</span>
+        <h2 id="t-ecran">{t('imageSound.display.title')}</h2>
+        <span class="sub">{t('imageSound.display.sub')}</span>
       </div>
       {#if displayPill}<span class="pill {displayPill.kind}"><Icon name={displayPill.kind === 'warn' ? 'warning' : 'check'} size={13} stroke={2.6} />{displayPill.text}</span>{/if}
     </div>
 
     <div class="steps">
-      <div><span class="lbl">1 · À la connexion</span><span>L'écran virtuel prend la définition et la fréquence de l'appareil.</span></div>
-      <div><span class="lbl">2 · Pendant la session</span><span>Les écrans branchés s'éteignent : personne ne voit ce que vous faites.</span></div>
-      <div><span class="lbl">3 · À la fin</span><span>Vos écrans reviennent, avec leur disposition habituelle.</span></div>
+      <div><span class="lbl">{t('imageSound.display.step1')}</span><span>{t('imageSound.display.step1Text')}</span></div>
+      <div><span class="lbl">{t('imageSound.display.step2')}</span><span>{t('imageSound.display.step2Text')}</span></div>
+      <div><span class="lbl">{t('imageSound.display.step3')}</span><span>{t('imageSound.display.step3Text')}</span></div>
     </div>
 
     {#if display?.last_error}
@@ -189,46 +189,46 @@
 
     {#if display}
       <div class="set">
-        <div><h3>Quand créer l'écran virtuel</h3><p>Les apps KyberNow annoncent leur écran ; un navigateur ou un client en ligne de commande ne le fait pas, il reçoit alors le mode par défaut.</p></div>
-        <Segmented label="Quand créer l'écran virtuel" options={TRIGGERS} value={display.settings.trigger} disabled={busy} onchange={(t) => setDisplay({ trigger: t }, t === 'off' ? 'Écran virtuel désactivé.' : 'Enregistré.')} />
+        <div><h3>{t('imageSound.display.trigger')}</h3><p>{t('imageSound.display.triggerHelp')}</p></div>
+        <Segmented label={t('imageSound.display.trigger')} options={TRIGGERS} value={display.settings.trigger} disabled={busy} onchange={(v) => setDisplay({ trigger: v }, v === 'off' ? t('imageSound.toast.displayOff') : t('imageSound.toast.saved'))} />
       </div>
       <div class="set">
-        <div><label class="title" for="mode">Mode par défaut</label><p>Pour les connexions qui n'annoncent pas leur écran.</p></div>
+        <div><label class="title" for="mode">{t('imageSound.display.defaultMode')}</label><p>{t('imageSound.display.defaultModeHelp')}</p></div>
         <select id="mode" value={custom ? 'custom' : presetIndex >= 0 ? String(presetIndex) : 'custom'} disabled={busy} onchange={(e) => choosePreset(e.currentTarget.value)}>
           {#each PRESETS as p, i}<option value={String(i)}>{mode(p)}</option>{/each}
-          <option value="custom">{presetIndex < 0 && !custom ? `${mode(display.settings)} (autre)` : 'Autre…'}</option>
+          <option value="custom">{presetIndex < 0 && !custom ? t('imageSound.display.otherCurrent', { mode: mode(display.settings) }) : t('imageSound.display.other')}</option>
         </select>
         {#if custom}
           <form class="custom" onsubmit={saveCustom}>
-            <div class="field"><label for="w">Largeur</label><input id="w" type="number" min="640" max="7680" bind:value={custom.width} /></div>
-            <div class="field"><label for="h">Hauteur</label><input id="h" type="number" min="480" max="4320" bind:value={custom.height} /></div>
-            <div class="field"><label for="r">Fréquence (Hz)</label><input id="r" type="number" min="24" max="240" bind:value={custom.refresh} /></div>
-            <button type="submit" class="ghost" disabled={busy}>Enregistrer</button>
+            <div class="field"><label for="w">{t('imageSound.display.width')}</label><input id="w" type="number" min="640" max="7680" bind:value={custom.width} /></div>
+            <div class="field"><label for="h">{t('imageSound.display.height')}</label><input id="h" type="number" min="480" max="4320" bind:value={custom.height} /></div>
+            <div class="field"><label for="r">{t('imageSound.display.refresh')}</label><input id="r" type="number" min="24" max="240" bind:value={custom.refresh} /></div>
+            <button type="submit" class="ghost" disabled={busy}>{t('imageSound.display.save')}</button>
           </form>
         {/if}
       </div>
       <div class="set">
         <div>
-          <h3>Si un jeu change la définition</h3>
-          <p>Laisser faire : l'image suit le jeu. Remettre : l'écran revient à la taille de l'appareil. Les apps choisissent selon leur profil (Jeu : laisser faire, Bureau : remettre) ; ce choix vaut pour les autres. Avec le moteur libavconv, un changement de définition peut couper l'image.</p>
+          <h3>{t('imageSound.display.modeChange')}</h3>
+          <p>{t('imageSound.display.modeChangeHelp')}</p>
           {#if display.session && display.mode && (display.mode.width !== display.session.mode.width || display.mode.height !== display.session.mode.height)}
-            <p>En ce moment : {mode(display.mode)} (demandé : {mode(display.session.mode)}).</p>
+            <p>{t('imageSound.display.modeNow', { current: mode(display.mode), requested: mode(display.session.mode) })}</p>
           {/if}
         </div>
-        <Segmented label="Si un jeu change la définition" options={MODE_POLICIES} value={display.settings.on_mode_change ?? 'follow'} disabled={busy} onchange={(p) => setDisplay({ on_mode_change: p }, 'Enregistré.')} />
+        <Segmented label={t('imageSound.display.modeChange')} options={MODE_POLICIES} value={display.settings.on_mode_change ?? 'follow'} disabled={busy} onchange={(p) => setDisplay({ on_mode_change: p }, t('imageSound.toast.saved'))} />
       </div>
       <div class="set">
         <div>
-          <h3>Si quelque chose tourne mal</h3>
-          <p>Le pilote retire l'écran virtuel tout seul s'il ne reçoit plus de signe de vie{watchdog ? ` pendant ${watchdog} s` : ''}, et Windows rallume vos écrans. Vous pouvez aussi le faire tout de suite.</p>
+          <h3>{t('imageSound.display.failsafe')}</h3>
+          <p>{watchdog ? t('imageSound.display.failsafeHelpSeconds', { s: watchdog }) : t('imageSound.display.failsafeHelp')}</p>
         </div>
         <div class="buttons">
           {#if display.session?.origin === 'test'}
-            <button type="button" class="ghost" disabled={busy} onclick={stopDisplay}>Arrêter l'essai{display.session.seconds_left ? ` (${display.session.seconds_left} s)` : ''}</button>
+            <button type="button" class="ghost" disabled={busy} onclick={stopDisplay}>{display.session.seconds_left ? t('imageSound.display.stopTestSeconds', { s: display.session.seconds_left }) : t('imageSound.display.stopTest')}</button>
           {:else}
-            <button type="button" class="ghost" disabled={busy || !!display.session || !display.driver.available} onclick={tryDisplay}>Essayer pendant 15 s</button>
+            <button type="button" class="ghost" disabled={busy || !!display.session || !display.driver.available} onclick={tryDisplay}>{t('imageSound.display.tryIt')}</button>
           {/if}
-          <button type="button" class="ghost" disabled={busy || !display.session} onclick={stopDisplay}>Rallumer mes écrans</button>
+          <button type="button" class="ghost" disabled={busy || !display.session} onclick={stopDisplay}>{t('imageSound.display.restore')}</button>
         </div>
       </div>
     {/if}
@@ -238,14 +238,14 @@
   <section id="son" aria-labelledby="t-son" class="card">
     <div class="card-head">
       <div>
-        <h2 id="t-son">Son</h2>
-        <span class="sub">L'ordinateur se tait, votre appareil reçoit le son, de la stéréo au 7.1.</span>
+        <h2 id="t-son">{t('imageSound.sound.title')}</h2>
+        <span class="sub">{t('imageSound.sound.sub')}</span>
       </div>
       {#if audioPill}<span class="pill {audioPill.kind}"><Icon name={audioPill.kind === 'warn' ? 'warning' : 'check'} size={13} stroke={2.6} />{audioPill.text}</span>{/if}
     </div>
 
     {#if audio && audio.supported && !audio.devices.speakers}
-      <div class="notice warn"><Icon name="info" /><span>Installez Steam sur cet ordinateur, puis relancez l'installateur KyberNow : il ajoutera les haut-parleurs virtuels. Sans eux, le son sort aussi des haut-parleurs de l'ordinateur.</span></div>
+      <div class="notice warn"><Icon name="info" /><span>{t('imageSound.sound.installSteam')}</span></div>
     {/if}
     {#if audio?.last_error}
       <div class="notice warn" role="alert"><Icon name="warning" /><span>{audio.last_error}</span></div>
@@ -253,18 +253,18 @@
 
     {#if audio}
       <div class="set">
-        <div><h3>Quand envoyer le son</h3><p>Sinon, le son sort des haut-parleurs de l'ordinateur, comme d'habitude.</p></div>
-        <Segmented label="Quand envoyer le son" options={TRIGGERS} value={audio.settings.trigger} disabled={busy} onchange={(t) => setAudio({ trigger: t }, 'Enregistré.')} />
+        <div><h3>{t('imageSound.sound.trigger')}</h3><p>{t('imageSound.sound.triggerHelp')}</p></div>
+        <Segmented label={t('imageSound.sound.trigger')} options={TRIGGERS} value={audio.settings.trigger} disabled={busy} onchange={(v) => setAudio({ trigger: v }, t('imageSound.toast.saved'))} />
       </div>
       <div class="set">
-        <div><h3>Canaux</h3><p>{CHANNELS.find((c) => c.value === audio!.settings.channels)?.hint}</p></div>
-        <Segmented label="Canaux" options={CHANNELS} value={audio.settings.channels} disabled={busy} onchange={(c) => setAudio({ channels: c }, 'Enregistré.')} />
+        <div><h3>{t('imageSound.sound.channels')}</h3><p>{CHANNELS.find((c) => c.value === audio!.settings.channels)?.hint}</p></div>
+        <Segmented label={t('imageSound.sound.channels')} options={CHANNELS} value={audio.settings.channels} disabled={busy} onchange={(c) => setAudio({ channels: c }, t('imageSound.toast.saved'))} />
       </div>
     {/if}
     {#if quality?.kind.type === 'enum'}
       <div class="set">
-        <div><h3>Qualité</h3><p>{qualityHint}</p></div>
-        <Segmented label="Qualité du son" options={quality.kind.options} value={qualityValue} onchange={(v) => setValues({ 'audio.quality': v })} />
+        <div><h3>{t('imageSound.sound.quality')}</h3><p>{qualityHint}</p></div>
+        <Segmented label={t('imageSound.sound.qualityLabel')} options={quality.kind.options} value={qualityValue} onchange={(v) => setValues({ 'audio.quality': v })} />
       </div>
     {/if}
   </section>
@@ -273,8 +273,8 @@
   <section id="commandes" aria-labelledby="t-cmd" class="card">
     <div class="card-head">
       <div>
-        <h2 id="t-cmd">Clavier, souris et manettes</h2>
-        <span class="sub">Ce qui part de votre appareil vers cet ordinateur.</span>
+        <h2 id="t-cmd">{t('imageSound.inputs.title')}</h2>
+        <span class="sub">{t('imageSound.inputs.sub')}</span>
       </div>
     </div>
     {#if kyber.loaded}
@@ -290,7 +290,7 @@
     {/if}
   </section>
 
-  <p class="aside">L'encodeur, le moteur de capture et le débit minimum sont dans <a href="#/systeme/avance">Système › Avancé</a>.</p>
+  <p class="aside">{t('imageSound.aside.before')}<a href="#/systeme/avance">{t('imageSound.aside.link')}</a>{t('imageSound.aside.after')}</p>
 </div>
 
 <style>

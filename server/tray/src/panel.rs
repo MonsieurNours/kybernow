@@ -96,6 +96,8 @@ impl Panel {
         let proxy = std::sync::Mutex::new(self.proxy.clone());
         let webview = WebViewBuilder::new_with_web_context(&mut self.context)
             .with_custom_protocol("kn".into(), |_id, request| serve(request))
+            // Langue et textes du panneau, posés avant la page.
+            .with_initialization_script(crate::i18n::panel_script())
             .with_ipc_handler(move |req: Request<String>| {
                 let _ = proxy.lock().unwrap().send_event(UserEvent::Panel(req.body().clone()));
             })
@@ -138,7 +140,7 @@ impl Panel {
             return false;
         }
         if let Err(e) = self.ensure_webview() {
-            crate::app::alert(&format!("Le panneau n'a pas pu s'ouvrir : {e:#}"));
+            crate::app::alert(&crate::i18n::t("tray.panelFailed", &[("error", &format!("{e:#}"))]));
             return false;
         }
         self.anchor = Some((icon, icon_size));

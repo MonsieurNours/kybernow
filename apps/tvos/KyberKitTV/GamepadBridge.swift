@@ -49,7 +49,7 @@ public final class GamepadBridge: ObservableObject {
         /// Cinquième manette (ou plus) : l'ordinateur n'en voit que quatre.
         public var waiting: Bool { player == 0 }
         /// « J2 », ou « en attente ».
-        public var label: String { waiting ? "en attente" : "J\(player)" }
+        public var label: String { waiting ? String(localized: "en attente", bundle: .kyberKit) : String(localized: "J\(player)", bundle: .kyberKit) }
     }
 
     /// État en direct d'une manette (écran de test).
@@ -440,7 +440,7 @@ public final class GamepadBridge: ObservableObject {
         } else {
             c.playerIndex = .indexUnset
             KyberLog.app.notice("manette en attente : \(c.vendorName ?? "?", privacy: .public) (déjà quatre joueurs)")
-            post("\(Self.name(c)) en attente : l'ordinateur ne voit que quatre manettes")
+            post(String(localized: "\(Self.name(c)) en attente : l'ordinateur ne voit que quatre manettes", bundle: .kyberKit))
         }
         publishPads()
     }
@@ -489,7 +489,7 @@ public final class GamepadBridge: ObservableObject {
             seat(next, slot.player)
             resync(next)
             applyHomeGesture()
-            post("\(Self.name(next.controller)) rejoint l'ordinateur en J\(next.player)")
+            post(String(localized: "\(Self.name(next.controller)) rejoint l'ordinateur en J\(next.player)", bundle: .kyberKit))
         }
         publishPads()
     }
@@ -1011,7 +1011,7 @@ public final class GamepadBridge: ObservableObject {
         case is GCXboxGamepad: return "Xbox Wireless Controller"
         case is GCDualSenseGamepad: return "DualSense"
         case is GCDualShockGamepad: return "DualShock 4"
-        default: return c.vendorName ?? "Manette"
+        default: return c.vendorName ?? String(localized: "Manette", bundle: .kyberKit)
         }
     }
 

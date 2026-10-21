@@ -20,6 +20,8 @@ mod discovery;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
+mod i18n;
+#[cfg(windows)]
 mod input;
 #[cfg(windows)]
 mod instance;
@@ -47,6 +49,8 @@ mod window;
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Langue de Windows, ou celle choisie dans les réglages de l'app.
+    i18n::apply(&ui::load_prefs().language);
     // L'app : sans argument, ou ouverte par un lien, la barre des tâches, une
     // notification ou l'installateur. Le reste : la ligne de commande.
     let app = args.first().is_none_or(|a| a.starts_with("kybernow://") || ["--connect", "--add", "--updated"].contains(&a.as_str()));

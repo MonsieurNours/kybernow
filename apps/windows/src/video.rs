@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
+use kybernow_core::i18n::Lang;
 use kybernow_core::latency::{LatencyTracker, now_micros};
 use kybernow_core::media::{FOURCC_AV1, Packet, PacketHandler};
 use kybernow_core::session::Session;
@@ -185,7 +186,7 @@ pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc
         match prx.recv_timeout(std::time::Duration::from_millis(10)) {
             Ok(r) => break r?,
             Err(mpsc::RecvTimeoutError::Timeout) => crate::window::pump_messages(),
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Err("le fil de l'image s'est arrêté".into()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => return Err(crate::i18n::t("errors.video_thread", &[])),
         }
     }
     Ok(handler)
@@ -246,13 +247,11 @@ fn run(
     let open = |fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
         match Decoder::new(fourcc, hw.then_some(&device)) {
             Ok(d) => {
-                let what = format!(
-                    "{} · {}",
-                    codec_name(fourcc),
-                    if d.hardware { "carte graphique" } else { "processeur" }
-                );
-                log::info!("décodeur : {what}");
-                *shared.decoder.lock().unwrap() = what;
+                let key = if d.hardware { "decoder.hardware" } else { "decoder.software" };
+                let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
+                log::info!("décodeur : {}", what(Lang::Fr));
+                // Montré dans la barre et le titre de la session : langue de l'app.
+                *shared.decoder.lock().unwrap() = what(crate::i18n::lang());
                 Some(d)
             }
             Err(e) => {

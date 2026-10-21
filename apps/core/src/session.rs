@@ -22,6 +22,7 @@ use kyvlcplayer::WindowHandle;
 use log::{info, warn};
 
 use crate::console::{Console, DeviceInfo, Heartbeat, Mode, PrepareRequest, Prepared};
+use crate::i18n::{self, Lang};
 use crate::latency::LatencyTracker;
 use crate::media::{PacketHandler, packet_sink};
 use crate::profile::StreamSettings;
@@ -144,7 +145,7 @@ impl Session {
                 // ne viendrait jamais.
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run())).is_err() {
                     guard_platform.on_status(&Status::Ended {
-                        error: Some("erreur interne de la session".into()),
+                        error: Some(t("session.internal", &[])),
                     });
                 }
             })
@@ -221,6 +222,11 @@ struct Worker {
     last_latency: Arc<Mutex<Option<f64>>>,
     device_id: String,
     alive: Arc<AtomicBool>,
+}
+
+/// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
+fn t(key: &str, params: &[(&str, &str)]) -> String {
+    i18n::tr(i18n::current(), key, params)
 }
 
 fn usable(d: &Display) -> bool {
@@ -345,7 +351,7 @@ impl Worker {
                             let _ = tx.send(Msg::DisplayGone);
                         }
                         Ok(_) => {}
-                        Err(e) => warn!("signal de vie : {e}"),
+                        Err(e) => warn!("signal de vie : {}", e.text(Lang::Fr)),
                     }
                     if !alive.load(Ordering::Relaxed) {
                         return;
@@ -423,9 +429,7 @@ impl Worker {
                     if self.streaming.is_some() && self.start_at.is_none() {
                         self.no_image += 1;
                         if self.no_image > 3 {
-                            return Some(
-                                "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir le journal de sa console, Système › Journaux)".into(),
-                            );
+                            return Some(t("session.no_image", &[]));
                         }
                         warn!("aucune image : flux relancé ({}/3)", self.no_image);
                         self.stop_streaming();
@@ -472,16 +476,12 @@ impl Worker {
                     // Compte d'appareil tout juste créé par la console : Kyber
                     // ne le lit qu'à son démarrage, que la console reporte
                     // pendant une session.
-                    kyclient::ConnectFailedReason::Unauthorized => "le serveur de l'ordinateur ne reconnaît pas encore le compte de cet appareil : \
-                        dans la console, redémarrez le serveur (Système), puis réessayez"
-                        .into(),
-                    kyclient::ConnectFailedReason::TlsVerificationFailed => {
-                        "le certificat du serveur de l'ordinateur ne correspond pas à celui que donne la console".into()
-                    }
-                    other => format!("connexion à Kyber impossible ({other:?})"),
+                    kyclient::ConnectFailedReason::Unauthorized => t("session.unauthorized", &[]),
+                    kyclient::ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
+                    other => t("session.connect_failed", &[("reason", &format!("{other:?}"))]),
                 });
             }
-            Event::DataPlaneConnectFailed => return Some("connexion au flux impossible".into()),
+            Event::DataPlaneConnectFailed => return Some(t("session.stream_failed", &[])),
             Event::StreamingStarted => {
                 self.latency.reset();
                 self.retries = 0;
@@ -489,10 +489,10 @@ impl Worker {
             }
             // Kyber se déconnecte lui-même après cet échec : un nouvel essai
             // annoncerait « image démarrée » sans connexion (écran noir).
-            Event::StreamingStartFailed => return Some("l'ordinateur refuse l'image".into()),
+            Event::StreamingStartFailed => return Some(t("session.image_refused", &[])),
             Event::StreamerPipelineEvent { type_, event, .. } => {
                 if event == StreamerPipelineEventType::Error {
-                    return self.pipeline_failed(&format!("erreur de la chaîne d'image ({type_:?})"));
+                    return self.pipeline_failed(&format!("{type_:?}"));
                 }
             }
             Event::Reconnecting { attempt, max_attempts } => {
@@ -519,10 +519,10 @@ impl Worker {
                     self.status(Status::Streaming);
                 }
             }
-            Event::ReconnectionFailed => return Some("l'ordinateur ne répond plus".into()),
+            Event::ReconnectionFailed => return Some(t("session.not_responding", &[])),
             Event::Stopped { reason } => {
                 if !self.ending {
-                    return Some(format!("session interrompue ({reason:?})"));
+                    return Some(t("session.interrupted", &[("reason", &format!("{reason:?}"))]));
                 }
             }
             Event::InputServiceConnected => self.platform.on_input_connected(),
@@ -531,10 +531,10 @@ impl Worker {
         None
     }
 
-    /// Erreur de la chaîne d'image : écran redemandé juste après une
-    /// reconnexion, sinon image relancée (3 fois au plus).
-    fn pipeline_failed(&mut self, what: &str) -> Option<String> {
-        warn!("{what}");
+    /// Erreur de la chaîne d'image (`kind` : son étage) : écran redemandé
+    /// juste après une reconnexion, sinon image relancée (3 fois au plus).
+    fn pipeline_failed(&mut self, kind: &str) -> Option<String> {
+        warn!("{}", i18n::tr(Lang::Fr, "session.pipeline", &[("kind", kind)]));
         if let Some(at) = self.reconnected_at {
             if at.elapsed() < Duration::from_secs(15) && !self.restored_after_reconnect {
                 self.restored_after_reconnect = true;
@@ -546,7 +546,7 @@ impl Worker {
             self.retries = 0;
         }
         if self.retries >= 3 {
-            return Some(what.to_string());
+            return Some(t("session.pipeline", &[("kind", kind)]));
         }
         self.retries += 1;
         self.last_retry = Some(Instant::now());
@@ -592,7 +592,7 @@ impl Worker {
         if usable_count == 0 {
             if deadline_passed && self.wait_until.is_some() {
                 self.wait_until = None;
-                let _ = self.tx.send(Msg::Fail("aucun écran utilisable sur l'ordinateur".into()));
+                let _ = self.tx.send(Msg::Fail(t("session.no_display", &[])));
             }
             return;
         }
@@ -700,7 +700,7 @@ impl Worker {
         self.last_shown = Some(display);
         self.status(Status::FirstImages);
         if let Err(e) = client.start_streaming(config) {
-            let _ = self.tx.send(Msg::Fail(format!("démarrage de l'image : {e}")));
+            let _ = self.tx.send(Msg::Fail(t("session.start_image", &[("error", &e.to_string())])));
         }
     }
 
@@ -730,7 +730,7 @@ impl Worker {
                     warn!("fin : écrans {} son {} ({:?})", e.display_restored, e.audio_restored, e.error)
                 }
                 Ok(_) => {}
-                Err(e) => warn!("fin de session : {e}"),
+                Err(e) => warn!("fin de session : {}", e.text(Lang::Fr)),
             }
         }
         self.status(Status::Ended { error });

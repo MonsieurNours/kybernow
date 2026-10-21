@@ -116,13 +116,13 @@ final class SessionController: ObservableObject {
 
     func start() {
         guard let password = store.password(for: host) else {
-            fail("mot de passe introuvable dans le Trousseau")
+            fail(String(localized: "mot de passe introuvable dans le Trousseau"))
             return
         }
         let settings = host.settings
         let mode = TVDisplay.mode(for: settings)
         streamMode = mode
-        modeLabel = "\(mode.width) × \(mode.height) à \(mode.refresh) Hz"
+        modeLabel = String(localized: "\(mode.width) × \(mode.height) à \(mode.refresh) Hz")
         matchFrameRate(mode.refresh)
         let gamepads = GamepadBridge.shared
         gamepads.onMenuRequest = { [weak self] in self?.menuRequested() }
@@ -144,11 +144,11 @@ final class SessionController: ObservableObject {
                 // Son : celui de la sortie (ampli 5.1 ou 7.1, sinon stéréo), ou resté sur l'ordinateur.
                 let channels = settings.audio == .off ? 0 : settings.audio.channels
                 requested = (mode.width, mode.height, mode.refresh, channels)
-                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.profileLabel, modePolicy: settings.modePolicy)
+                let result = try await console.prepare(width: mode.width, height: mode.height, refresh: mode.refresh, audioChannels: channels, virtualDisplay: settings.display != .physical, profile: settings.consoleProfile, modePolicy: settings.modePolicy)
                 prepared = result
                 if let w = result.width, let h = result.height, let hz = result.refresh {
                     streamMode = (w, h, hz)
-                    modeLabel = "\(w) × \(h) à \(hz) Hz"
+                    modeLabel = String(localized: "\(w) × \(h) à \(hz) Hz")
                 }
                 if host.consoleFingerprint == nil || host.streamPort != result.kyberPort {
                     host.consoleFingerprint = console.fingerprint
@@ -185,7 +185,7 @@ final class SessionController: ObservableObject {
 
     private func connect(password: String) throws {
         guard let port = prepared?.kyberPort ?? host.streamPort else {
-            throw ConsoleError.http(0, "port du flux inconnu")
+            throw ConsoleError.http(0, String(localized: "port du flux inconnu"))
         }
         phase = .connecting
         let kyber = try KyberClient(host: host.address, port: port, username: host.username, password: password, autoReconnect: host.settings.autoReconnect, fingerprint: prepared?.kyberFingerprint)
@@ -244,7 +244,7 @@ final class SessionController: ObservableObject {
         case .streamingStarted:
             if pipelineRelaunched {
                 pipelineRelaunched = false
-                show(notice: "L'image a été relancée", for: 4)
+                show(notice: String(localized: "L'image a été relancée"), for: 4)
             }
             guard revealedAt == nil else {
                 phase = .streaming
@@ -295,7 +295,7 @@ final class SessionController: ObservableObject {
                 restartStreaming()
             }
         case .reconnectionFailed:
-            fail("connexion perdue")
+            fail(String(localized: "connexion perdue"))
         case let .stopped(reason):
             if phase != .ending && phase != .ended { fail(reason) }
         case .streamingStopped:
@@ -342,7 +342,7 @@ final class SessionController: ObservableObject {
             guard let self else { return }
             defer { self.restoring = nil }
             if self.prepared?.virtualDisplay == true, let console = self.console, let r = self.requested {
-                _ = try? await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy)
+                _ = try? await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.consoleProfile, modePolicy: self.host.settings.modePolicy)
                 for _ in 0..<30 where !self.virtualDisplayAnnounced {
                     try? await Task.sleep(for: .milliseconds(100))
                 }
@@ -372,14 +372,14 @@ final class SessionController: ObservableObject {
     /// KyberClient) : l'étiquette et le débit suivent, la capsule le dit.
     private func hostSizeChanged(width: Int, height: Int) {
         streamMode = (width, height, streamMode.refresh)
-        modeLabel = "\(width) × \(height) à \(streamMode.refresh) Hz"
+        modeLabel = String(localized: "\(width) × \(height) à \(streamMode.refresh) Hz")
         if let shown = display, shown.width != width || shown.height != height {
             display = shown.resized(width: width, height: height)
         }
         refreshModeOffer()
         let back = preparedSize.map { $0 == (width, height) } ?? false
-        var text = back ? "L'ordinateur est revenu en \(width) × \(height)" : "L'ordinateur est passé en \(width) × \(height)"
-        if let offer = modeRestoreOffer { text += " · « \(offer) » dans le menu" }
+        var text = back ? String(localized: "L'ordinateur est revenu en \(width) × \(height)") : String(localized: "L'ordinateur est passé en \(width) × \(height)")
+        if let offer = modeRestoreOffer { text += String(localized: " · « \(offer) » dans le menu") }
         show(notice: text)
     }
 
@@ -399,7 +399,7 @@ final class SessionController: ObservableObject {
             modeRestoreOffer = nil
             return
         }
-        modeRestoreOffer = "Remettre \(size.width) × \(size.height)"
+        modeRestoreOffer = String(localized: "Remettre \(size.width) × \(size.height)")
     }
 
     /// Politique « remettre » (profil Bureau, ou réglage de la console) : la
@@ -426,7 +426,7 @@ final class SessionController: ObservableObject {
             // Session finie entre-temps : un prepare recréerait l'écran virtuel.
             guard let self, !Task.isCancelled, self.phase == .streaming else { return }
             do {
-                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.profileLabel, modePolicy: "restore")
+                _ = try await console.prepare(width: r.width, height: r.height, refresh: r.refresh, audioChannels: r.channels, virtualDisplay: true, profile: self.host.settings.consoleProfile, modePolicy: "restore")
                 // La console peut répondre sans avoir rien remis (mode refusé,
                 // jeu qui insiste) : si l'image n'est pas revenue, le bouton revient.
                 try? await Task.sleep(for: .seconds(6))
@@ -459,7 +459,7 @@ final class SessionController: ObservableObject {
         guard let best = bestDisplay() else {
             // Windows ne présente que des écrans de 0 × 0 quand aucun n'est
             // allumé sur le bureau (écrans physiques pas revenus, écran virtuel absent).
-            fail(displays.isEmpty ? "l'ordinateur n'a annoncé aucun écran" : "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
+            fail(displays.isEmpty ? String(localized: "l'ordinateur n'a annoncé aucun écran") : String(localized: "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le"))
             return
         }
         if streaming == best.id { return }
@@ -491,7 +491,7 @@ final class SessionController: ObservableObject {
         // liste a pu changer depuis le choix (relance différée de 0,3 s).
         if !displays.isEmpty, !usableDisplays.contains(where: { $0.id == display.id }) {
             guard let best = bestDisplay() else {
-                fail("aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le")
+                fail(String(localized: "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le"))
                 return
             }
             KyberLog.app.notice("écran \(display.id) absent de la liste : écran \(best.id) à la place")
@@ -531,7 +531,7 @@ final class SessionController: ObservableObject {
         guard next <= 2 else { return false }
         fallback = next
         imageWatch?.cancel()
-        fallbackNote = next == 1 ? "L'image ne passait pas : débit ramené à \(Self.fallbackBitrate / 1_000_000) Mbit/s pour cette session." : "L'image ne passait pas : 4:2:0 pour cette session."
+        fallbackNote = next == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(Self.fallbackBitrate / 1_000_000) Mbit/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")
         DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
         lastStallRestart = Date()
         restartStreaming()
@@ -552,7 +552,7 @@ final class SessionController: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(max(1, seconds)))
                 guard let self else { return }
-                guard let beat = await self.console?.heartbeat(latencyMs: self.stats?.latencyMs, profile: self.host.settings.profileLabel, modePolicy: self.host.settings.modePolicy) else { continue }
+                guard let beat = await self.console?.heartbeat(latencyMs: self.stats?.latencyMs, profile: self.host.settings.consoleProfile, modePolicy: self.host.settings.modePolicy) else { continue }
                 if beat.end {
                     self.end()
                     return
@@ -656,7 +656,7 @@ final class SessionController: ObservableObject {
                 self.phase = .streaming
             }
             self.startedAt = Date().addingTimeInterval(-42 * 60)
-            self.modeLabel = "3840 × 2160 à 60 Hz"
+            self.modeLabel = String(localized: "\(3840) × \(2160) à \(60) Hz")
             var stats = VideoStats()
             stats.latencyMs = 9.1
             stats.fps = 60

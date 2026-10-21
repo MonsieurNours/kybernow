@@ -9,6 +9,7 @@
   import { ago, capital, deviceIcon, duration, hhmm, isToday, mode, ms, when } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
   import Mark from '../lib/Mark.svelte'
+  import { i18n, t } from '../lib/i18n/index.svelte'
 
   let display = $state<DisplayStatus | null>(null)
   let audio = $state<AudioStatus | null>(null)
@@ -22,7 +23,7 @@
   const status = $derived(app.status)
   const live = $derived(status?.activity?.live ?? null)
   const last = $derived(status?.activity?.last ?? null)
-  const hostname = $derived(status?.hostname ?? 'Cet ordinateur')
+  const hostname = $derived(status?.hostname ?? t('overview.thisComputer'))
   // Un autre client que les apps (navigateur, ligne de commande) : écran ou son virtuels actifs.
   const other = $derived(!live && (!!display?.session || !!audio?.session))
   const gpuName = $derived(status?.gpu?.devices[0]?.name ?? null)
@@ -78,19 +79,21 @@
   })
 
   // Une session qui commence ou finit : la liste et le fil bougent.
+  // La langue change : le fil est réécrit par le serveur dans la nouvelle langue.
   $effect(() => {
     void live?.device_id
+    void i18n.lang
     loadLists()
   })
 
   async function endSession() {
-    const who = live?.name ?? 'l’appareil connecté'
+    const who = live?.name ?? t('overview.connectedDevice')
     const restart = !live
-    if (!confirm(restart ? 'Couper la connexion en cours ? Le serveur redémarre, quelques secondes.' : `Mettre fin à la session de ${who} ?`)) return
+    if (!confirm(restart ? t('overview.confirmCut') : t('overview.confirmEnd', { who }))) return
     ending = true
     try {
       const r = await api.endSession()
-      notify('ok', r.method === 'app' ? `${capital(who)} va se déconnecter.` : r.method === 'restart' ? 'Connexion coupée.' : 'Aucune session en cours.')
+      notify('ok', r.method === 'app' ? t('overview.willDisconnect', { who: capital(who) }) : r.method === 'restart' ? t('overview.cut') : t('overview.noSession'))
       await refreshStatus()
     } catch (e) {
       notify('error', errorText(e))
@@ -106,30 +109,40 @@
 
   const serverCard = $derived.by(() => {
     const s = status?.service.state
-    if (s === 'running') return { ok: true, title: 'En marche', sub: status?.controller.reachable ? `Flux sur le port ${status.controller.port}` : 'Démarrage du flux…' }
-    if (s === 'starting') return { ok: false, title: 'Démarrage', sub: 'Quelques secondes' }
-    if (s === 'stopped') return { ok: false, title: 'Arrêté', sub: 'Démarrez-le dans Système' }
-    return { ok: false, title: 'Introuvable', sub: 'Réinstallez KyberNow' }
+    if (s === 'running')
+      return {
+        ok: true,
+        title: t('overview.server.running'),
+        sub: status?.controller.reachable ? t('overview.server.streamPort', { port: status.controller.port }) : t('overview.server.streamStarting'),
+      }
+    if (s === 'starting') return { ok: false, title: t('overview.server.starting'), sub: t('overview.server.fewSeconds') }
+    if (s === 'stopped') return { ok: false, title: t('overview.server.stopped'), sub: t('overview.server.startInSystem') }
+    return { ok: false, title: t('overview.server.missing'), sub: t('overview.server.reinstall') }
   })
 
   const displayCard = $derived.by(() => {
     if (!display) return { ok: true, title: '…', sub: '' }
-    if (display.settings.trigger === 'off') return { ok: true, off: true, title: 'Désactivé', sub: 'Les écrans de l’ordinateur sont envoyés' }
-    if (display.session) return { ok: true, title: 'Actif', sub: mode(display.session.mode) }
-    if (!display.driver.available) return { ok: false, title: 'Pilote absent', sub: 'Voir Image et son' }
-    return { ok: true, title: 'Prêt', sub: 'À la taille de chaque appareil' }
+    if (display.settings.trigger === 'off') return { ok: true, off: true, title: t('overview.display.off'), sub: t('overview.display.offSub') }
+    if (display.session) return { ok: true, title: t('overview.display.active'), sub: mode(display.session.mode) }
+    if (!display.driver.available) return { ok: false, title: t('overview.display.noDriver'), sub: t('overview.display.seeImageSound') }
+    return { ok: true, title: t('overview.display.ready'), sub: t('overview.display.readySub') }
   })
 
   const audioCard = $derived.by(() => {
     if (!audio) return { ok: true, title: '…', sub: '' }
-    if (audio.settings.trigger === 'off') return { ok: true, off: true, title: 'Désactivé', sub: 'Le son reste sur l’ordinateur' }
-    if (audio.session) return { ok: true, title: 'Envoyé', sub: audio.session.channels === 8 ? '7.1' : audio.session.channels === 6 ? '5.1' : 'Stéréo' }
-    if (!audio.devices.speakers) return { ok: false, title: 'Haut-parleurs absents', sub: 'Voir Image et son' }
-    return { ok: true, title: 'Prêt', sub: 'Jusqu’au 7.1, l’ordinateur se tait' }
+    if (audio.settings.trigger === 'off') return { ok: true, off: true, title: t('overview.audio.off'), sub: t('overview.audio.offSub') }
+    if (audio.session)
+      return {
+        ok: true,
+        title: t('overview.audio.sent'),
+        sub: audio.session.channels === 8 ? '7.1' : audio.session.channels === 6 ? '5.1' : t('overview.audio.stereo'),
+      }
+    if (!audio.devices.speakers) return { ok: false, title: t('overview.audio.noSpeakers'), sub: t('overview.audio.seeImageSound') }
+    return { ok: true, title: t('overview.audio.ready'), sub: t('overview.audio.readySub') }
   })
 </script>
 
-<section class="hero" aria-label="L'écran de cet ordinateur">
+<section class="hero" aria-label={t('overview.heroLabel')}>
   <div class="picture" aria-hidden="true">
     {#if preview}
       <img src={preview.url} alt="" />
@@ -142,11 +155,11 @@
 
   <div class="top">
     {#if live || other}
-      <span class="lbl live"><span class="dot live"></span>En direct</span>
+      <span class="lbl live"><span class="dot live"></span>{t('overview.live')}</span>
     {:else if preview}
-      <span class="lbl">Aperçu · {ago(preview.at)}</span>
+      <span class="lbl">{t('overview.previewAgo', { ago: ago(preview.at) })}</span>
     {:else}
-      <span class="lbl">{previewFailed ? 'Aperçu indisponible' : 'Aperçu…'}</span>
+      <span class="lbl">{previewFailed ? t('overview.previewUnavailable') : t('overview.previewLoading')}</span>
     {/if}
     <span class="mono specs">{[status?.os, gpuName].filter(Boolean).join(' · ')}</span>
   </div>
@@ -154,72 +167,72 @@
   <div class="bottom">
     {#if live}
       <div class="title">
-        <h1 class="disp">{live.name} est sur cet écran</h1>
-        <span>Depuis {duration(now - live.started_at)}{live.profile ? ` · profil ${live.profile}` : ''}{live.mode ? ` · ${mode(live.mode)}` : ''}</span>
+        <h1 class="disp">{t('overview.liveTitle', { name: live.name })}</h1>
+        <span>{t('overview.since', { duration: duration(now - live.started_at) })}{live.profile ? ` · ${t('overview.profile', { profile: live.profile })}` : ''}{live.mode ? ` · ${mode(live.mode)}` : ''}</span>
       </div>
       <div class="actions">
         {#if live.latency_ms}
           <div class="latency">
             <span class="lit-number">{ms(live.latency_ms)}</span>
-            <span class="lbl">Écart médian</span>
+            <span class="lbl">{t('overview.medianLatency')}</span>
           </div>
         {/if}
         <button type="button" class="danger" disabled={ending || live.end_requested} onclick={endSession}>
-          {live.end_requested ? 'Fin demandée…' : 'Mettre fin à la session'}
+          {live.end_requested ? t('overview.endRequested') : t('overview.endSession')}
         </button>
       </div>
     {:else if other}
       <div class="title">
-        <h1 class="disp">Un appareil est connecté</h1>
-        <span>{display?.session ? `${display.session.user ? `Compte ${display.session.user} · ` : ''}${mode(display.session.mode)}` : 'Son envoyé à l’appareil'}</span>
+        <h1 class="disp">{t('overview.otherTitle')}</h1>
+        <span>{display?.session ? `${display.session.user ? `${t('overview.account', { user: display.session.user })} · ` : ''}${mode(display.session.mode)}` : t('overview.soundSent')}</span>
       </div>
-      <button type="button" class="danger" disabled={ending} onclick={endSession}>Couper la connexion</button>
+      <button type="button" class="danger" disabled={ending} onclick={endSession}>{t('overview.cutConnection')}</button>
     {:else}
       <div class="title">
-        <h1 class="disp">{hostname} attend vos appareils</h1>
+        <h1 class="disp">{t('overview.waiting', { hostname })}</h1>
         <span>
           {#if last}
-            Personne n'est connecté. Dernière session : {last.name}, {when(last.ended_at)}, pendant {duration(last.ended_at - last.started_at)}.
+            {t('overview.lastSession', { name: last.name, when: when(last.ended_at), duration: duration(last.ended_at - last.started_at) })}
           {:else}
-            Personne n'est connecté pour l'instant.
+            {t('overview.nobody')}
           {/if}
         </span>
       </div>
       <div class="ctas">
-        <a href="/ecran/" class="ghost glass-ghost"><Icon name="browser" size={16} />Ouvrir dans le navigateur</a>
-        <a href="#/acces" class="primary"><Icon name="plus" size={15} stroke={2.2} />Ajouter un appareil</a>
+        <a href="/ecran/" class="ghost glass-ghost"><Icon name="browser" size={16} />{t('overview.openInBrowser')}</a>
+        <a href="#/acces" class="primary"><Icon name="plus" size={15} stroke={2.2} />{t('overview.addDevice')}</a>
       </div>
     {/if}
   </div>
 </section>
 
 <div class="body rise">
-  <section class="health" aria-label="État">
+  <section class="health" aria-label={t('overview.healthLabel')}>
     <a href="#/systeme/serveur" class="tile">
-      <span class="lbl">Serveur</span>
+      <span class="lbl">{t('overview.serverTile')}</span>
       <span class="state" class:warn={!serverCard.ok}><Icon name={serverCard.ok ? 'check' : 'warning'} size={16} stroke={2.4} />{serverCard.title}</span>
       <span class="sub">{serverCard.sub}</span>
     </a>
     <a href="#/image-son/ecran" class="tile">
-      <span class="lbl">Écran virtuel</span>
+      <span class="lbl">{t('overview.displayTile')}</span>
       <span class="state" class:warn={!displayCard.ok} class:off={displayCard.off}><Icon name={displayCard.ok ? 'check' : 'warning'} size={16} stroke={2.4} />{displayCard.title}</span>
       <span class="sub">{displayCard.sub}</span>
     </a>
     <a href="#/image-son/son" class="tile">
-      <span class="lbl">Son</span>
+      <span class="lbl">{t('overview.soundTile')}</span>
       <span class="state" class:warn={!audioCard.ok} class:off={audioCard.off}><Icon name={audioCard.ok ? 'check' : 'warning'} size={16} stroke={2.4} />{audioCard.title}</span>
       <span class="sub">{audioCard.sub}</span>
     </a>
     {#if status?.update_available}
       <a href="#/systeme" class="tile update">
-        <span class="lbl">Mise à jour</span>
-        <span class="state"><Icon name="download" size={16} stroke={2.2} />{status.update_available} disponible</span>
-        <span class="sub">Installer, environ une minute</span>
+        <span class="lbl">{t('overview.updateTile')}</span>
+        <span class="state"><Icon name="download" size={16} stroke={2.2} />{t('overview.updateAvailable', { version: status.update_available })}</span>
+        <span class="sub">{t('overview.updateSub')}</span>
       </a>
     {:else}
       <a href="#/systeme" class="tile">
-        <span class="lbl">Version</span>
-        <span class="state"><Icon name="check" size={16} stroke={2.4} />À jour</span>
+        <span class="lbl">{t('overview.versionTile')}</span>
+        <span class="state"><Icon name="check" size={16} stroke={2.4} />{t('overview.upToDate')}</span>
         <span class="sub">KyberNow {status?.admin_version ?? ''}</span>
       </a>
     {/if}
@@ -228,8 +241,8 @@
   <div class="columns">
     <section aria-labelledby="t-app" class="list devices">
       <div class="list-head">
-        <h2 id="t-app" class="disp">Appareils</h2>
-        <a href="#/acces">Tous les appareils</a>
+        <h2 id="t-app" class="disp">{t('overview.devices')}</h2>
+        <a href="#/acces">{t('overview.allDevices')}</a>
       </div>
       {#each devices.slice(0, 3) as d (d.id)}
         {@const isLive = live?.device_id === d.id}
@@ -237,19 +250,19 @@
           <span class="device-icon"><Icon name={deviceIcon(d.kind)} size={19} stroke={1.6} /></span>
           <div class="who">
             <span class="name">{d.name}</span>
-            <span class="mono meta">{[d.os, d.latency_ms ? `médiane ${ms(d.latency_ms)}` : null].filter(Boolean).join(' · ')}</span>
+            <span class="mono meta">{[d.os, d.latency_ms ? t('overview.median', { ms: ms(d.latency_ms) }) : null].filter(Boolean).join(' · ')}</span>
           </div>
-          <span class="when" class:live={isLive}>{isLive ? 'En session' : capital(ago(d.last_seen))}</span>
+          <span class="when" class:live={isLive}>{isLive ? t('overview.inSession') : capital(ago(d.last_seen))}</span>
         </div>
       {:else}
-        <p class="empty">Aucun appareil ne s'est encore connecté. <a href="#/acces">Ajouter un appareil</a></p>
+        <p class="empty">{t('overview.noDevices')} <a href="#/acces">{t('overview.addDevice')}</a></p>
       {/each}
     </section>
 
     <section aria-labelledby="t-log" class="list events">
       <div class="list-head">
-        <h2 id="t-log" class="disp">{visibleEvents.today ? "Aujourd'hui" : 'Dernièrement'}</h2>
-        <a href="#/systeme/journaux">Journaux</a>
+        <h2 id="t-log" class="disp">{visibleEvents.today ? t('overview.today') : t('overview.lately')}</h2>
+        <a href="#/systeme/journaux">{t('overview.logs')}</a>
       </div>
       {#if visibleEvents.list.length}
         <ol>
@@ -261,7 +274,7 @@
           {/each}
         </ol>
       {:else}
-        <p class="empty">Rien pour l'instant : les connexions et les changements apparaîtront ici.</p>
+        <p class="empty">{t('overview.noEvents')}</p>
       {/if}
     </section>
   </div>

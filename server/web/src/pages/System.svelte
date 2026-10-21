@@ -3,12 +3,15 @@
   les réglages fins de Kyber (Avancé).
 -->
 <script lang="ts">
-  import { tick } from 'svelte'
+  import { tick, untrack } from 'svelte'
   import { api, ApiError, type GpuVendor, type LogFile, type UpdateChannel, type UpdateStatus } from '../lib/api'
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import Switch from '../lib/Switch.svelte'
+  import LangChoice from '../lib/LangChoice.svelte'
+  import { i18n, locale, t, tn } from '../lib/i18n/index.svelte'
+  import { ms } from '../lib/format'
 
   const status = $derived(app.status)
 
@@ -31,7 +34,7 @@
     checking = true
     try {
       update = await api.updateCheck()
-      if (update.error) notify('error', `GitHub : ${update.error}`)
+      if (update.error) notify('error', t('system.update.githubError', { error: update.error }))
     } catch (e) {
       notify('error', errorText(e))
     } finally {
@@ -39,16 +42,16 @@
     }
   }
 
-  const CHANNELS: { value: UpdateChannel; label: string }[] = [
-    { value: 'stable', label: 'Stable' },
-    { value: 'beta', label: 'Bêta' },
-  ]
+  const CHANNELS: { value: UpdateChannel; label: string }[] = $derived([
+    { value: 'stable', label: t('system.update.stable') },
+    { value: 'beta', label: t('system.update.beta') },
+  ])
 
   async function setChannel(channel: UpdateChannel) {
     checking = true
     try {
       update = await api.updateChannel(channel)
-      if (update.error) notify('error', `GitHub : ${update.error}`)
+      if (update.error) notify('error', t('system.update.githubError', { error: update.error }))
     } catch (e) {
       notify('error', errorText(e))
     } finally {
@@ -63,7 +66,7 @@
       try {
         r = await run(false)
       } catch (e) {
-        if (!(e instanceof ApiError && e.status === 409) || !confirm(`${e.message}. Continuer ?`)) throw e
+        if (!(e instanceof ApiError && e.status === 409) || !confirm(t('system.update.confirmForce', { message: e.message }))) throw e
         r = await run(true)
       }
       installing = r.version
@@ -81,7 +84,7 @@
 
   async function rollback() {
     const previous = update?.rollback
-    if (!previous || !confirm(`Revenir à KyberNow ${previous} ? La console redémarre, environ une minute.`)) return
+    if (!previous || !confirm(t('system.update.confirmRollback', { version: previous }))) return
     await startUpdate(api.updateRollback)
   }
 
@@ -102,7 +105,7 @@
           clearInterval(timer)
           installing = null
           update = s
-          notify('ok', `KyberNow ${version} est en place.`)
+          notify('ok', t('system.update.installed', { version }))
           refreshStatus()
         }
       } catch {
@@ -111,7 +114,7 @@
       if (Date.now() - started > 300_000) {
         clearInterval(timer)
         installing = null
-        notify('error', "La mise à jour n'a pas abouti en 5 minutes : voyez C:\\ProgramData\\KyberNow\\update\\<version>\\update.log.")
+        notify('error', t('system.update.timeout'))
       }
     }, 3000)
   }
@@ -124,13 +127,20 @@
       .map((l) => l.slice(2).replace(/\*\*/g, ''))
       .slice(0, 6),
   )
+  const latestLine = $derived.by(() => {
+    const version = update?.current ?? status?.admin_version ?? ''
+    const ago = update?.checked_seconds_ago
+    if (ago == null) return t('system.update.latest', { version })
+    if (ago < 120) return t('system.update.latestJustNow', { version })
+    return t('system.update.latestMinutes', { version, n: Math.round(ago / 60) })
+  })
   const published = $derived(update?.published ? new Date(update.published) : null)
   const publishedLabel = $derived(
     !published
       ? ''
       : published.toDateString() === new Date().toDateString()
-        ? 'publiée aujourd’hui'
-        : `publiée le ${published.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`,
+        ? t('system.update.publishedToday')
+        : t('system.update.publishedOn', { date: published.toLocaleDateString(locale(), { day: 'numeric', month: 'long' }) }),
   )
 
   // Serveur
@@ -138,11 +148,11 @@
   let serviceBusy = $state(false)
 
   async function service(action: 'start' | 'stop' | 'restart') {
-    if (action === 'stop' && !confirm('Arrêter le serveur ? Plus aucun appareil ne pourra se connecter jusqu’à son redémarrage.')) return
+    if (action === 'stop' && !confirm(t('system.server.confirmStop'))) return
     serviceBusy = true
     try {
       await api.service(action)
-      notify('ok', action === 'stop' ? 'Serveur arrêté.' : action === 'start' ? 'Serveur démarré.' : 'Serveur redémarré.')
+      notify('ok', t(action === 'stop' ? 'system.server.stopped' : action === 'start' ? 'system.server.started' : 'system.server.restarted'))
       await refreshStatus()
     } catch (e) {
       notify('error', errorText(e))
@@ -175,36 +185,36 @@
     if (!name || !gpu || ENCODERS[id].vendor !== gpu.vendor) return label ?? name ?? id
     // NVIDIA : sessions, images par seconde et latence de NVENC.
     if (gpu.encoder_sessions != null) {
-      const fps = gpu.encoder_fps ? `, ${gpu.encoder_fps} i/s` : ''
-      const latency = gpu.encoder_latency_us ? ` · ${(gpu.encoder_latency_us / 1000).toFixed(1).replace('.', ',')} ms par image` : ''
-      return `${name}${gpu.encoder_sessions ? ` · ${gpu.encoder_sessions} flux${fps}` : ' · au repos'}${latency}`
+      const fps = gpu.encoder_fps ? `, ${t('system.server.fps', { n: gpu.encoder_fps })}` : ''
+      const latency = gpu.encoder_latency_us ? ` · ${t('system.server.perFrame', { time: ms(gpu.encoder_latency_us / 1000) })}` : ''
+      return `${name} · ${gpu.encoder_sessions ? `${tn('system.server.streams', gpu.encoder_sessions)}${fps}` : t('system.server.idle')}${latency}`
     }
-    const load = gpu.encoding && gpu.encoder_utilization ? `, occupé à ${gpu.encoder_utilization} %` : ''
-    return `${name} · ${gpu.encoding ? `flux en cours${load}` : 'au repos'}`
+    const busy = gpu.encoding && gpu.encoder_utilization ? t('system.server.streamingLoad', { n: gpu.encoder_utilization }) : t('system.server.streaming')
+    return `${name} · ${gpu.encoding ? busy : t('system.server.idle')}`
   })
-  const PSTATES: Record<number, string> = { 0: 'Puissance maximale', 2: 'Performances élevées', 5: 'Puissance réduite', 8: 'Au repos' }
+  const PSTATES: Record<number, string> = { 0: 'max', 2: 'high', 5: 'reduced', 8: 'idle' }
   const serviceLine = $derived.by(() => {
     switch (status?.service.state) {
       case 'running':
-        return { dot: 'ok', text: status.controller.reachable ? 'En marche' : 'En marche, le flux démarre' }
+        return { dot: 'ok', text: status.controller.reachable ? t('system.server.running') : t('system.server.runningStarting') }
       case 'starting':
-        return { dot: 'warn', text: 'Démarrage…' }
+        return { dot: 'warn', text: t('system.server.starting') }
       case 'stopping':
-        return { dot: 'warn', text: 'Arrêt…' }
+        return { dot: 'warn', text: t('system.server.stopping') }
       case 'stopped':
-        return { dot: 'bad', text: 'Arrêté' }
+        return { dot: 'bad', text: t('system.server.stoppedState') }
       default:
-        return { dot: 'bad', text: 'Introuvable : réinstallez KyberNow' }
+        return { dot: 'bad', text: t('system.server.missing') }
     }
   })
 
   // Journaux
 
   const SOURCES = [
-    { value: 'connexions', label: 'Connexions', match: (n: string) => n.startsWith('kyber/') && /controller/i.test(n) },
-    { value: 'image', label: 'Image et son', match: (n: string) => n.startsWith('kyber/') && /(avserver|kyav|txproto)/i.test(n) },
-    { value: 'commandes', label: 'Commandes', match: (n: string) => n.startsWith('kyber/') && /(input|kynput)/i.test(n) },
-    { value: 'console', label: 'Console', match: (n: string) => n.startsWith('kybernow/') },
+    { value: 'connexions', label: 'connections', match: (n: string) => n.startsWith('kyber/') && /controller/i.test(n) },
+    { value: 'image', label: 'picture', match: (n: string) => n.startsWith('kyber/') && /(avserver|kyav|txproto)/i.test(n) },
+    { value: 'commandes', label: 'commands', match: (n: string) => n.startsWith('kyber/') && /(input|kynput)/i.test(n) },
+    { value: 'console', label: 'console', match: (n: string) => n.startsWith('kybernow/') },
   ]
 
   let files = $state<LogFile[]>([])
@@ -219,7 +229,7 @@
   const groups = $derived.by(() => {
     const known = SOURCES.map((s) => ({ ...s, files: files.filter((f) => s.match(f.name)) }))
     const rest = files.filter((f) => !SOURCES.some((s) => s.match(f.name)))
-    return rest.length ? [...known, { value: 'autres', label: 'Autres', match: () => false, files: rest }] : known
+    return rest.length ? [...known, { value: 'autres', label: 'other', match: () => false, files: rest }] : known
   })
   const groupFiles = $derived(groups.find((g) => g.value === source)?.files ?? [])
   const shown = $derived(filter ? text.split('\n').filter((l) => l.toLowerCase().includes(filter.toLowerCase())).join('\n') : text)
@@ -286,11 +296,7 @@
     return /\b(ERROR|ERR|FATAL)\b/.test(line) ? 'err' : /\bWARN(ING)?\b/.test(line) ? 'warn' : ''
   }
 
-  const LEVELS = [
-    { value: 'error', label: 'Erreurs' },
-    { value: 'info', label: 'Normal' },
-    { value: 'debug', label: 'Détaillé' },
-  ]
+  const LEVELS = $derived(['error', 'info', 'debug'].map((v) => ({ value: v, label: t(`system.logs.levels.${v}`) })))
   const LOG_FIELDS = ['logs.controller', 'logs.avserver', 'logs.inputserver']
   const level = $derived.by(() => {
     const v = LOG_FIELDS.map((id) => value<string>(id))
@@ -332,7 +338,7 @@
       markRestartPending()
       kyber.loaded = false
       await loadKyber()
-      notify('ok', 'kyber_config.toml enregistré.')
+      notify('ok', t('system.advanced.saved'))
     } catch (e) {
       rawError = errorText(e)
     } finally {
@@ -343,14 +349,14 @@
   async function changePassword(event: SubmitEvent) {
     event.preventDefault()
     if (next !== confirmNext) {
-      notify('error', 'Les deux mots de passe ne correspondent pas.')
+      notify('error', t('system.password.mismatch'))
       return
     }
     try {
       await api.changePassword(current, next)
       current = next = confirmNext = ''
       passwordOpen = false
-      notify('ok', 'Mot de passe de la console changé. Les autres sessions ont été fermées.')
+      notify('ok', t('system.password.changed'))
     } catch (e) {
       notify('error', errorText(e))
     }
@@ -368,10 +374,18 @@
     return f?.kind.type === 'enum' ? (f.kind.options.find((o) => o.value === value(id))?.hint ?? f.help) : (f?.help ?? '')
   }
 
+  // L'état des mises à jour porte des textes du serveur (notes, erreurs) :
+  // on le redemande quand la langue change.
   $effect(() => {
-    loadUpdate()
-    loadFiles()
-    loadKyber()
+    void i18n.lang
+    untrack(loadUpdate)
+  })
+
+  $effect(() => {
+    untrack(() => {
+      loadFiles()
+      loadKyber()
+    })
     const timer = setInterval(loadFiles, 15000)
     return () => clearInterval(timer)
   })
@@ -380,13 +394,13 @@
 <header class="space-head with-tabs">
   <div>
     <span class="lbl">KyberNow Server {status?.admin_version ?? ''} · Kyber 0.29</span>
-    <h1>Système</h1>
-    <p>Mises à jour, le serveur et la carte graphique, les journaux, et les réglages fins de Kyber.</p>
-    <nav class="tabs" aria-label="Sections">
-      <a href="#/systeme/maj" class:current={app.section === 'maj' || !app.section}>Mises à jour</a>
-      <a href="#/systeme/serveur" class:current={app.section === 'serveur'}>Serveur</a>
-      <a href="#/systeme/journaux" class:current={app.section === 'journaux'}>Journaux</a>
-      <a href="#/systeme/avance" class:current={app.section === 'avance'}>Avancé</a>
+    <h1>{t('system.title')}</h1>
+    <p>{t('system.intro')}</p>
+    <nav class="tabs" aria-label={t('system.sections')}>
+      <a href="#/systeme/maj" class:current={app.section === 'maj' || !app.section}>{t('system.tabs.updates')}</a>
+      <a href="#/systeme/serveur" class:current={app.section === 'serveur'}>{t('system.tabs.server')}</a>
+      <a href="#/systeme/journaux" class:current={app.section === 'journaux'}>{t('system.tabs.logs')}</a>
+      <a href="#/systeme/avance" class:current={app.section === 'avance'}>{t('system.tabs.advanced')}</a>
     </nav>
   </div>
 </header>
@@ -396,35 +410,35 @@
   {#if installing}
     <section id="maj" class="card feature update" aria-live="polite">
       <div class="update-text">
-        <span class="lbl signal">Installation en cours</span>
+        <span class="lbl signal">{t('system.update.installing')}</span>
         <h2 class="disp big">KyberNow {installing}</h2>
-        <p class="lead">La console s'arrête, remplace ses fichiers et revient d'elle-même, dans environ une minute. Cette page se recharge seule.</p>
+        <p class="lead">{t('system.update.installingLead')}</p>
       </div>
       <div class="progress" aria-hidden="true"><span></span></div>
     </section>
   {:else if update?.available && update.latest}
     <section id="maj" aria-labelledby="t-maj" class="card feature update">
       <div class="update-text">
-        <span class="lbl signal">{update.prerelease ? 'Préversion' : 'Nouvelle version'} · {publishedLabel}</span>
+        <span class="lbl signal">{update.prerelease ? t('system.update.prerelease') : t('system.update.newVersion')} · {publishedLabel}</span>
         <h2 id="t-maj" class="disp big">KyberNow {update.latest}</h2>
         {#if notes.length}
           <ul>{#each notes as n}<li>{n}</li>{/each}</ul>
         {/if}
-        {#if update.page}<a href={update.page} target="_blank" rel="noreferrer">Toutes les notes de version</a>{/if}
+        {#if update.page}<a href={update.page} target="_blank" rel="noreferrer">{t('system.update.allNotes')}</a>{/if}
       </div>
       <div class="update-action">
         {#if update.installable}
-          <button type="button" class="primary lit" onclick={install}>Installer maintenant</button>
-          <span>Environ une minute. Une session en cours sera coupée. Vous avez {update.current}.</span>
+          <button type="button" class="primary lit" onclick={install}>{t('system.update.installNow')}</button>
+          <span>{t('system.update.installHint', { current: update.current })}</span>
           {#if update.install_error}
             <pre class="install-error">{update.install_error}</pre>
           {/if}
         {:else if update.requires_setup || !update.verify_error}
-          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">Télécharger KyberNow-Server-Setup.exe</a>
-          <span>{update.verify_error ?? "Cette version s'installe avec l'installateur."} Vous avez {update.current}.</span>
+          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">{t('system.update.download')}</a>
+          <span>{update.verify_error ?? t('system.update.needsSetup')} {t('system.update.youHave', { current: update.current })}</span>
         {:else}
           <!-- Manifeste absent, mal signé, ou d'un autre canal : rien n'est installé. -->
-          <span>Paquet refusé, rien n'a été installé. Vous avez {update.current}.</span>
+          <span>{t('system.update.refused', { current: update.current })}</span>
           <pre class="install-error">{update.verify_error}</pre>
         {/if}
         {@render channelPicker()}
@@ -435,12 +449,12 @@
     <section id="maj" aria-labelledby="t-maj" class="card uptodate">
       <div class="card-head">
         <div>
-          <h2 id="t-maj">Mises à jour</h2>
+          <h2 id="t-maj">{t('system.update.title')}</h2>
           <span class="sub">
-            {#if update?.error}GitHub ne répond pas : {update.error}{:else}KyberNow {update?.current ?? status?.admin_version ?? ''} est la dernière version{update?.checked_seconds_ago != null ? ` · vérifié il y a ${update.checked_seconds_ago < 120 ? 'un instant' : `${Math.round(update.checked_seconds_ago / 60)} min`}` : ''}.{/if}
+            {#if update?.error}{t('system.update.githubDown', { error: update.error })}{:else}{latestLine}{/if}
           </span>
         </div>
-        <button type="button" class="ghost" disabled={checking} onclick={check}>{checking ? 'Vérification…' : 'Vérifier maintenant'}</button>
+        <button type="button" class="ghost" disabled={checking} onclick={check}>{checking ? t('system.update.checking') : t('system.update.checkNow')}</button>
       </div>
       {#if update?.install_error}
         <!-- Échec signalé après un retour à la version précédente. -->
@@ -453,15 +467,15 @@
 
   {#snippet rollbackButton()}
     {#if update?.rollback}
-      <button type="button" class="ghost rollback" onclick={rollback}>Revenir à la version précédente ({update.rollback})</button>
+      <button type="button" class="ghost rollback" onclick={rollback}>{t('system.update.rollback', { version: update.rollback })}</button>
     {/if}
   {/snippet}
 
   {#snippet channelPicker()}
     {#if update}
       <div class="channel">
-        <span>Canal</span>
-        <Segmented label="Canal des mises à jour" options={CHANNELS} value={update.channel} disabled={checking} onchange={setChannel} />
+        <span>{t('system.update.channel')}</span>
+        <Segmented label={t('system.update.channelLabel')} options={CHANNELS} value={update.channel} disabled={checking} onchange={setChannel} />
       </div>
     {/if}
   {/snippet}
@@ -470,41 +484,41 @@
   <section id="serveur" aria-labelledby="t-srv" class="card">
     <div class="card-head">
       <div>
-        <h2 id="t-srv">Serveur</h2>
-        <span class="state"><span class="dot {serviceLine.dot}"></span>{serviceLine.text}{status?.service.simulated ? ' (simulé hors Windows)' : ''}</span>
+        <h2 id="t-srv">{t('system.server.title')}</h2>
+        <span class="state"><span class="dot {serviceLine.dot}"></span>{serviceLine.text}{status?.service.simulated ? ` ${t('system.server.simulated')}` : ''}</span>
       </div>
       <div class="buttons">
         {#if status?.service.state === 'stopped'}
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('start')}><Icon name="play" size={15} />Démarrer</button>
+          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('start')}><Icon name="play" size={15} />{t('system.server.start')}</button>
         {:else}
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('restart')}><Icon name="restart" size={15} />Redémarrer</button>
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('stop')}><Icon name="stop" size={15} />Arrêter</button>
+          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('restart')}><Icon name="restart" size={15} />{t('system.server.restart')}</button>
+          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('stop')}><Icon name="stop" size={15} />{t('system.server.stop')}</button>
         {/if}
       </div>
     </div>
     {#if kyber.loaded && field('network.tray')}
       {@const f = field('network.tray')!}
       <div class="set">
-        <div><h3>Icône de Kyber près de l'horloge</h3><p>{f.help} L'icône KyberNow, elle, se règle dans son menu (démarrage avec l'ordinateur).</p></div>
+        <div><h3>{t('system.server.trayTitle')}</h3><p>{f.help} {t('system.server.trayNote')}</p></div>
         <Switch label={f.label} checked={!!value('network.tray')} onchange={(v) => setValues({ 'network.tray': v })} />
       </div>
     {/if}
     <div class="kv-grid">
       <div>
-        <div class="kv"><span>Carte graphique</span><span>{gpu ? `${gpu.name}${(gpu.driver ?? status?.gpu?.driver) ? ` · pilote ${gpu.driver ?? status?.gpu?.driver}` : ''}` : status ? 'Aucune carte graphique compatible' : '—'}</span></div>
+        <div class="kv"><span>{t('system.server.gpu')}</span><span>{gpu ? ((gpu.driver ?? status?.gpu?.driver) ? t('system.server.gpuDriver', { name: gpu.name, driver: gpu.driver ?? status?.gpu?.driver }) : gpu.name) : status ? t('system.server.noGpu') : '—'}</span></div>
         {#if encoderLine}
-          <div class="kv"><span>Encodeur</span><span>{encoderLine}</span></div>
+          <div class="kv"><span>{t('system.server.encoder')}</span><span>{encoderLine}</span></div>
         {/if}
         {#if gpu && (gpu.pstate != null || gpu.temperature_c != null || gpu.power_w != null)}
-          <div class="kv"><span>Alimentation</span><span>{gpu.pstate != null ? (PSTATES[gpu.pstate] ?? `P${gpu.pstate}`) : '—'}{gpu.temperature_c != null ? ` · ${gpu.temperature_c} °C` : ''}{gpu.power_w != null ? ` · ${Math.round(gpu.power_w)} W` : ''}</span></div>
+          <div class="kv"><span>{t('system.server.power')}</span><span>{gpu.pstate != null ? (PSTATES[gpu.pstate] ? t(`system.server.pstate.${PSTATES[gpu.pstate]}`) : `P${gpu.pstate}`) : '—'}{gpu.temperature_c != null ? ` · ${gpu.temperature_c} °C` : ''}{gpu.power_w != null ? ` · ${Math.round(gpu.power_w)} W` : ''}</span></div>
         {:else if gpu?.gpu_utilization != null}
-          <div class="kv"><span>Charge</span><span>{gpu.gpu_utilization} %</span></div>
+          <div class="kv"><span>{t('system.server.load')}</span><span>{gpu.gpu_utilization} %</span></div>
         {/if}
       </div>
       <div>
-        <div class="kv"><span>Adresse</span><span class="mono small">{status?.lan_ip ?? '—'}</span></div>
-        <div class="kv"><span>Ports</span><span class="mono small">flux {status?.controller.port ?? '—'} · console {location.port || '443'}</span></div>
-        <div class="kv"><span>Système</span><span>{status?.os ?? '—'}</span></div>
+        <div class="kv"><span>{t('system.server.address')}</span><span class="mono small">{status?.lan_ip ?? '—'}</span></div>
+        <div class="kv"><span>{t('system.server.ports')}</span><span class="mono small">{t('system.server.portsValue', { stream: status?.controller.port ?? '—', console: location.port || '443' })}</span></div>
+        <div class="kv"><span>{t('system.server.os')}</span><span>{status?.os ?? '—'}</span></div>
       </div>
     </div>
   </section>
@@ -512,25 +526,25 @@
   <!-- Journaux -->
   <section id="journaux" aria-labelledby="t-log" class="card logs">
     <div class="card-head">
-      <h2 id="t-log">Journaux</h2>
-      <Segmented label="Journal" options={groups.map((g) => ({ value: g.value, label: g.label }))} value={source} onchange={(v) => (source = v)} />
+      <h2 id="t-log">{t('system.logs.title')}</h2>
+      <Segmented label={t('system.logs.log')} options={groups.map((g) => ({ value: g.value, label: t(`system.logs.sources.${g.label}`) }))} value={source} onchange={(v) => (source = v)} />
     </div>
     <div class="log-tools">
-      <label for="filter" class="sr-only">Filtrer</label>
-      <input id="filter" type="search" placeholder="Filtrer, ex. ERROR" bind:value={filter} />
+      <label for="filter" class="sr-only">{t('system.logs.filter')}</label>
+      <input id="filter" type="search" placeholder={t('system.logs.filterPlaceholder')} bind:value={filter} />
       {#if groupFiles.length > 1}
-        <label for="file" class="sr-only">Fichier</label>
+        <label for="file" class="sr-only">{t('system.logs.file')}</label>
         <select id="file" bind:value={selected}>{#each groupFiles as f (f.name)}<option value={f.name}>{f.name.split('/').pop()}</option>{/each}</select>
       {/if}
-      <button type="button" class="ghost follow" class:on={follow} aria-pressed={follow} onclick={() => (follow = !follow)}><span class="dot" class:live={follow}></span>Suivre</button>
-      <button type="button" class="ghost" disabled={!selected} onclick={download}><Icon name="download" size={15} />Télécharger</button>
+      <button type="button" class="ghost follow" class:on={follow} aria-pressed={follow} onclick={() => (follow = !follow)}><span class="dot" class:live={follow}></span>{t('system.logs.follow')}</button>
+      <button type="button" class="ghost" disabled={!selected} onclick={download}><Icon name="download" size={15} />{t('system.logs.download')}</button>
     </div>
-    <pre class="mono" bind:this={pre}>{#if logError}<span class="err">{logError}</span>{:else if !selected}<span class="muted">Aucun journal pour cette source.</span>{:else}{#each shown.split('\n') as line}<span class={lineClass(line)}>{line}
+    <pre class="mono" bind:this={pre}>{#if logError}<span class="err">{logError}</span>{:else if !selected}<span class="muted">{t('system.logs.empty')}</span>{:else}{#each shown.split('\n') as line}<span class={lineClass(line)}>{line}
 </span>{/each}{/if}</pre>
     {#if kyber.loaded}
       <div class="set">
-        <div><h3>Niveau de détail</h3><p>Normal suffit au quotidien. Détaillé le temps de comprendre un problème : les journaux grossissent vite.</p></div>
-        <Segmented label="Niveau de détail" options={LEVELS} value={level} onchange={(v) => setValues(Object.fromEntries(LOG_FIELDS.map((id) => [id, v])))} />
+        <div><h3>{t('system.logs.level')}</h3><p>{t('system.logs.levelHelp')}</p></div>
+        <Segmented label={t('system.logs.level')} options={LEVELS} value={level} onchange={(v) => setValues(Object.fromEntries(LOG_FIELDS.map((id) => [id, v])))} />
       </div>
     {/if}
   </section>
@@ -539,8 +553,8 @@
   <section id="avance" aria-labelledby="t-adv" class="card">
     <div class="card-head">
       <div>
-        <h2 id="t-adv">Avancé</h2>
-        <span class="sub wide">Les réglages de Kyber lui-même. Les valeurs par défaut conviennent presque toujours ; un mauvais réglage peut empêcher les appareils de se connecter.</span>
+        <h2 id="t-adv">{t('system.advanced.title')}</h2>
+        <span class="sub wide">{t('system.advanced.intro')}</span>
       </div>
     </div>
     {#if kyber.loaded}
@@ -551,7 +565,7 @@
       {@const sendQueue = field('network.datagram_send_queue')}
       {#if encoder?.kind.type === 'enum'}
         <div class="set">
-          <div><label class="title" for="enc">Encodeur</label><p>{choiceHint('video.encoder')}</p></div>
+          <div><label class="title" for="enc">{t('system.advanced.encoder')}</label><p>{choiceHint('video.encoder')}</p></div>
           <select id="enc" value={value<string>('video.encoder')} onchange={(e) => setValues({ 'video.encoder': e.currentTarget.value })}>
             {#each encoder.kind.options as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
           </select>
@@ -559,8 +573,8 @@
       {/if}
       {#if backend?.kind.type === 'enum'}
         <div class="set">
-          <div><h3>Moteur de capture</h3><p>{choiceHint('video.backend')}</p></div>
-          <Segmented label="Moteur de capture" options={backend.kind.options.map((o) => ({ value: o.value, label: o.label.replace(/\s*\(.*\)/, '') }))} value={value<string>('video.backend')} onchange={(v) => setValues({ 'video.backend': v })} />
+          <div><h3>{t('system.advanced.backend')}</h3><p>{choiceHint('video.backend')}</p></div>
+          <Segmented label={t('system.advanced.backend')} options={backend.kind.options.map((o) => ({ value: o.value, label: o.label.replace(/\s*\(.*\)/, '') }))} value={value<string>('video.backend')} onchange={(v) => setValues({ 'video.backend': v })} />
         </div>
       {/if}
       {#if intra}
@@ -570,17 +584,17 @@
         </div>
       {/if}
       <div class="set">
-        <div><label class="title" for="minbr">Débit minimum</label><p>{field('video.minimum_bitrate')?.help}</p></div>
+        <div><label class="title" for="minbr">{t('system.advanced.minBitrate')}</label><p>{field('video.minimum_bitrate')?.help}</p></div>
         <form class="inline-number" onsubmit={(e) => (e.preventDefault(), setValues({ 'video.minimum_bitrate': Math.round((minBitrate ?? 0) * 1_000_000) }))}>
           <input id="minbr" type="number" min="1" max="1000" step="1" bind:value={minBitrate} /><span class="unit">Mbit/s</span>
-          <button type="submit" class="ghost small">Enregistrer</button>
+          <button type="submit" class="ghost small">{t('system.advanced.save')}</button>
         </form>
       </div>
       <div class="set">
-        <div><label class="title" for="port">Port du flux</label><p>Tiré au hasard à l'installation. Le changer oblige à réajouter l'ordinateur sur vos appareils, et à ouvrir le nouveau port dans le pare-feu.</p></div>
-        <form class="inline-number" onsubmit={(e) => (e.preventDefault(), confirm('Changer le port du flux ? Vos appareils devront réajouter cet ordinateur.') && setValues({ 'network.port': port }))}>
+        <div><label class="title" for="port">{t('system.advanced.port')}</label><p>{t('system.advanced.portHelp')}</p></div>
+        <form class="inline-number" onsubmit={(e) => (e.preventDefault(), confirm(t('system.advanced.confirmPort')) && setValues({ 'network.port': port }))}>
           <input id="port" type="number" min="1024" max="65535" bind:value={port} />
-          <button type="submit" class="ghost small">Enregistrer</button>
+          <button type="submit" class="ghost small">{t('system.advanced.save')}</button>
         </form>
       </div>
       {#if listen?.kind.type === 'enum'}
@@ -606,29 +620,33 @@
       {/each}
     {/if}
     <div class="set">
-      <div><h3>Fichier de configuration</h3><p>kyber_config.toml, en direct. La syntaxe est vérifiée avant l'enregistrement, pas le sens des valeurs.</p></div>
-      <button type="button" class="ghost" aria-expanded={raw !== null} onclick={openRaw}>{raw === null ? "Ouvrir l'éditeur" : "Fermer l'éditeur"}</button>
+      <div><h3>{t('system.advanced.config')}</h3><p>{t('system.advanced.configHelp')}</p></div>
+      <button type="button" class="ghost" aria-expanded={raw !== null} onclick={openRaw}>{raw === null ? t('system.advanced.openEditor') : t('system.advanced.closeEditor')}</button>
       {#if raw !== null}
         <div class="editor">
-          <label for="raw" class="sr-only">Contenu de kyber_config.toml</label>
+          <label for="raw" class="sr-only">{t('system.advanced.editorLabel')}</label>
           <textarea id="raw" rows="18" spellcheck="false" bind:value={raw}></textarea>
           {#if rawError}<div class="notice bad" role="alert"><Icon name="warning" /><span>{rawError}</span></div>{/if}
           <div class="buttons">
-            <button type="button" class="ghost" disabled={raw === rawOriginal} onclick={() => (raw = rawOriginal)}>Annuler les changements</button>
-            <button type="button" class="ghost" disabled={rawBusy || raw === rawOriginal} onclick={saveRaw}>{rawBusy ? 'Enregistrement…' : 'Enregistrer'}</button>
+            <button type="button" class="ghost" disabled={raw === rawOriginal} onclick={() => (raw = rawOriginal)}>{t('system.advanced.revert')}</button>
+            <button type="button" class="ghost" disabled={rawBusy || raw === rawOriginal} onclick={saveRaw}>{rawBusy ? t('system.advanced.saving') : t('system.advanced.save')}</button>
           </div>
         </div>
       {/if}
     </div>
     <div class="set">
-      <div><h3>Mot de passe de la console</h3><p>Celui choisi à l'installation. Le changer ferme les autres sessions ouvertes.</p></div>
-      <button type="button" class="ghost" aria-expanded={passwordOpen} onclick={() => (passwordOpen = !passwordOpen)}>{passwordOpen ? 'Annuler' : 'Changer'}</button>
+      <div><h3>{t('system.lang.title')}</h3><p>{t('system.lang.help')}</p></div>
+      <LangChoice />
+    </div>
+    <div class="set">
+      <div><h3>{t('system.password.title')}</h3><p>{t('system.password.help')}</p></div>
+      <button type="button" class="ghost" aria-expanded={passwordOpen} onclick={() => (passwordOpen = !passwordOpen)}>{passwordOpen ? t('system.password.cancel') : t('system.password.change')}</button>
       {#if passwordOpen}
         <form class="password" onsubmit={changePassword}>
-          <div class="field"><label for="cur">Mot de passe actuel</label><input id="cur" type="password" required autocomplete="current-password" bind:value={current} /></div>
-          <div class="field"><label for="nx">Nouveau (10 caractères au moins)</label><input id="nx" type="password" minlength="10" required autocomplete="new-password" bind:value={next} /></div>
-          <div class="field"><label for="cf">Confirmation</label><input id="cf" type="password" minlength="10" required autocomplete="new-password" bind:value={confirmNext} /></div>
-          <button type="submit" class="ghost">Changer le mot de passe</button>
+          <div class="field"><label for="cur">{t('system.password.current')}</label><input id="cur" type="password" required autocomplete="current-password" bind:value={current} /></div>
+          <div class="field"><label for="nx">{t('system.password.next')}</label><input id="nx" type="password" minlength="10" required autocomplete="new-password" bind:value={next} /></div>
+          <div class="field"><label for="cf">{t('system.password.confirm')}</label><input id="cf" type="password" minlength="10" required autocomplete="new-password" bind:value={confirmNext} /></div>
+          <button type="submit" class="ghost">{t('system.password.submit')}</button>
         </form>
       {/if}
     </div>

@@ -27,7 +27,7 @@ C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](..
 - **Lien `kybernow://`** (lien et QR code de la console) : inscrit pour l'utilisateur (HKCU) par l'installateur et à chaque lancement ; il ouvre l'ajout avec l'ordinateur et son empreinte déjà vérifiés.
 - **Barre des tâches** : au clic droit de l'icône (et dans le menu Démarrer pour l'app épinglée), vos ordinateurs, un clic lance la session (`kybernow.exe --connect <id>`), et « Ajouter un ordinateur ». La liste suit les ajouts, retraits et changements de nom.
 - **Notifications de Windows**, seulement si l'app n'est pas au premier plan : session terminée (par un autre appareil, la console ou une erreur), avec « Reprendre la main » qui relance la session ; nouvelle version prête. Identité des notifications inscrite dans HKCU (`AppUserModelId\LesLignesClaires.KyberNow`, icône `kybernow.png`).
-- **Réglages de l'app** (roue de la barre de titre) : version, versions proposées (stables, ou aussi les bêtas), recherche et installation d'une mise à jour, ses nouveautés. Une pastille sur la roue et un bandeau dans la barre de titre disent qu'une version attend.
+- **Réglages de l'app** (roue de la barre de titre) : version, langue (Auto, Français, English), versions proposées (stables, ou aussi les bêtas), recherche et installation d'une mise à jour, ses nouveautés. Une pastille sur la roue et un bandeau dans la barre de titre disent qu'une version attend.
 
 ### Installation et mises à jour
 
@@ -63,6 +63,17 @@ C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](..
 | Ctrl+Alt+Maj+F | Plein écran ou fenêtre |
 | Ctrl+Alt+Maj+M | Souris des jeux ou du bureau |
 
+## Langues
+
+L'app et son installateur existent en français et en anglais ([docs/i18n.md](../../docs/i18n.md)).
+
+- **Détection** : langue d'affichage de Windows (`GetUserPreferredUILanguages`) ; si elle commence par `fr`, français, sinon anglais.
+- **Réglage Langue** (réglages de l'app) : Auto (par défaut, celle de Windows), Français, English ; enregistré dans `%APPDATA%\KyberNow\app.json` (`language`) et appliqué tout de suite aux deux fenêtres (accueil et barre de session), aux messages du côté Rust, aux notifications, à la liste de la barre des tâches et au titre de la fenêtre de session. L'installateur n'a pas de réglage : il suit Windows.
+- **Console** : chaque requête porte `Accept-Language: fr` ou `en` (langue de l'app), pour que la console réponde dans cette langue.
+- **Notes de version** : seule la partie de la langue de l'app est montrée (le texte de la release est coupé à la ligne `<!-- en -->` : français avant, anglais après ; tout le texte sans elle).
+- **Catalogues** (mêmes clés, le français est la source, une clé absente en anglais retombe sur le français) : interface `ui/src/lib/i18n/{fr,en}.json` (fonction `t()`), côté Rust de l'app `src/i18n/{fr,en}.json` (`tr()`, `src/i18n.rs`), cœur `apps/core/src/i18n/{fr,en}.json` (`apps/core/src/i18n.rs`), installateur `setup/src/i18n/` et `setup/ui/src/lib/i18n/`. `npm run check` compare les clés de chaque paire. Les journaux et la ligne de commande (essais, dépannage) restent en français.
+- **Imitation** dans un navigateur : langue du navigateur, ou `?lang=en` / `?lang=fr` dans l'adresse.
+
 ## Utilisation
 
 `kybernow.exe` sans argument ouvre l'app. En ligne de commande, une session directe (essais, dépannage) :
@@ -81,7 +92,8 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | Dossier | Contenu |
 |---|---|
 | `apps/Cargo.toml` | Espace de travail Rust des clients (`core`, `windows`) ; renvoie les crates de Kyber vers `third_party/kyber-desktop/kysdk` |
-| `apps/core/src/console.rs` | Client de la console (`info`, `prepare`, `heartbeat`, `foreground`, `end`), certificat épinglé |
+| `apps/core/src/console.rs` | Client de la console (`info`, `prepare`, `heartbeat`, `foreground`, `end`), certificat épinglé, `Accept-Language` |
+| `apps/core/src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue |
 | `apps/core/src/session.rs` | Déroulé d'une session sur un fil dédié ; ce que la plateforme fournit : `Platform` |
 | `apps/core/src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), en-tête Opus |
 | `apps/core/src/profile.rs` | Profils, format, débit selon les pixels par seconde |
@@ -101,6 +113,7 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/windows/src/audio.rs` | libopus et WASAPI |
 | `apps/windows/src/input.rs` | Chaîne kynput : clavier, souris, pointeur de l'ordinateur |
 | `apps/windows/src/system.rs` | Journal, écran, identité de l'appareil, consoles connues |
+| `apps/windows/src/i18n.rs` | Langue de Windows, textes du côté Rust de l'app (`src/i18n/`) |
 
 Le cœur ne dépend d'aucun système : une autre plateforme fournit sa fenêtre, ses décodeurs, son son et ses entrées par `Platform`.
 
@@ -148,6 +161,7 @@ Au premier contact, l'empreinte de la console s'affiche : la comparer à celle d
 | Fichier | Contenu |
 |---|---|
 | `%APPDATA%\KyberNow\computers.json` | Ordinateurs de l'app, leurs réglages et leur dernière session |
+| `%APPDATA%\KyberNow\app.json` | Réglages de l'app : canal des mises à jour (`channel`), langue (`language` : `auto`, `fr`, `en`) |
 | Gestionnaire d'identifiants, `KyberNow:<id>` | Mot de passe de chaque ordinateur |
 | `%APPDATA%\KyberNow\device-id` | Identifiant de cet appareil pour la console (tiré une fois) |
 | `%APPDATA%\KyberNow\consoles.txt` | Empreintes des consoles retenues par la ligne de commande (`hôte:port sha256:…`) |

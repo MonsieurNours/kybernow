@@ -68,12 +68,12 @@ struct StatsPanel: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Theme.eyebrow("Mesures détaillées")
+                Theme.eyebrow(String(localized: "Mesures détaillées"))
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     if let ms = stats?.latencyMs {
                         LitNumber(text: Moment.ms(ms), size: 26)
                     } else {
-                        Text("—").font(Theme.mono(26, .medium)).foregroundStyle(Theme.faint)
+                        Text(verbatim: "—").font(Theme.mono(26, .medium)).foregroundStyle(Theme.faint)
                     }
                     Text("de la capture\nà votre écran")
                         .font(Theme.sans(11.5))
@@ -107,12 +107,12 @@ struct StatsPanel: View {
         let decode = c?.decode ?? s.decodeMs
         let display = c?.display ?? max(0, s.displayMs - s.decodeMs)
         return [
-            .init(name: "Capture", place: .computer, ms: c?.capture, help: "De la capture de l'image au début de son encodage"),
-            .init(name: "Encodage", place: .computer, ms: c?.encode, help: "Compression de l'image par la carte graphique de l'ordinateur"),
-            .init(name: "Envoi", place: .computer, ms: c?.send, help: "Mise en paquets et départ sur le réseau"),
-            .init(name: "Réseau", place: .network, ms: c?.network, help: "Du départ de l'ordinateur à l'image complète reçue ici"),
-            .init(name: "Décodage", place: .mac, ms: s.decodeMs > 0 || c != nil ? decode : nil, help: "Décompression de l'image par ce Mac"),
-            .init(name: "Affichage", place: .mac, ms: s.displayMs > 0 || c != nil ? display : nil, help: "Rendu et attente du prochain rafraîchissement de l'écran"),
+            .init(name: String(localized: "Capture"), place: .computer, ms: c?.capture, help: String(localized: "De la capture de l'image au début de son encodage")),
+            .init(name: String(localized: "Encodage"), place: .computer, ms: c?.encode, help: String(localized: "Compression de l'image par la carte graphique de l'ordinateur")),
+            .init(name: String(localized: "Envoi"), place: .computer, ms: c?.send, help: String(localized: "Mise en paquets et départ sur le réseau")),
+            .init(name: String(localized: "Réseau"), place: .network, ms: c?.network, help: String(localized: "Du départ de l'ordinateur à l'image complète reçue ici")),
+            .init(name: String(localized: "Décodage"), place: .mac, ms: s.decodeMs > 0 || c != nil ? decode : nil, help: String(localized: "Décompression de l'image par ce Mac")),
+            .init(name: String(localized: "Affichage"), place: .mac, ms: s.displayMs > 0 || c != nil ? display : nil, help: String(localized: "Rendu et attente du prochain rafraîchissement de l'écran")),
         ]
     }
 
@@ -122,16 +122,16 @@ struct StatsPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             let latencies = history.map(\.latencyMs)
             let losses = history.map { $0.lostFrames + $0.holes }
-            Curve(title: "Latence", value: stats?.latencyMs.map { Moment.ms($0) } ?? "—",
-                  values: latencies, floorTop: budget * 1.6, guide: budget, guideLabel: "1 image",
+            Curve(title: String(localized: "Latence"), value: stats?.latencyMs.map { Moment.ms($0) } ?? "—",
+                  values: latencies, floorTop: budget * 1.6, guide: budget, guideLabel: String(localized: "1 image"),
                   marks: losses, format: { Moment.ms($0) }, lit: true)
-            Curve(title: "Débit", value: stats.map { Self.mbps($0.mbps) } ?? "—",
+            Curve(title: String(localized: "Débit"), value: stats.map { Self.mbps($0.mbps) } ?? "—",
                   values: history.map { $0.mbps }, floorTop: 10, format: Self.mbps, lit: false)
         }
     }
 
     static func mbps(_ v: Double) -> String {
-        (v >= 100 ? String(Int(v.rounded())) : String(format: "%.1f", v).replacingOccurrences(of: ".", with: ",")) + " Mb/s"
+        (v >= 100 ? String(Int(v.rounded())) : String(format: "%.1f", v).replacingOccurrences(of: ".", with: LanguageChoice.effective == "fr" ? "," : ".")) + " Mb/s"
     }
 
     // MARK: Pertes
@@ -143,17 +143,17 @@ struct StatsPanel: View {
         let keyframes = history.reduce(0) { $0 + $1.keyframeRequests }
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Theme.eyebrow("Pertes · 30 s")
+                Theme.eyebrow(String(localized: "Pertes · 30 s"))
                 Spacer()
                 Text("Session : \(sessionLosses.frames) images, \(sessionLosses.packets) paquets")
                     .font(Theme.mono(10.5))
                     .foregroundStyle(Theme.faint)
             }
             HStack(alignment: .top, spacing: 0) {
-                tile(lost, "Images perdues", warn: true, help: "Envoyées par l'ordinateur et jamais montrées ici : paquets manquants, ou images écartées en attendant une image clé.")
-                tile(packets, "Paquets perdus", warn: true, help: "Paquets perdus sur le réseau d'après Kyber. La correction d'erreurs en rattrape la plupart sans perte d'image.")
-                tile(keyframes, "Images clés", warn: true, help: "Images complètes redemandées à l'ordinateur après une perte.")
-                tile(skipped, "Remplacées", warn: false, help: "Images remplacées par une plus récente avant d'atteindre l'écran : normal quand l'ordinateur envoie plus d'images que l'écran n'en montre.")
+                tile(lost, String(localized: "Images perdues"), warn: true, help: String(localized: "Envoyées par l'ordinateur et jamais montrées ici : paquets manquants, ou images écartées en attendant une image clé."))
+                tile(packets, String(localized: "Paquets perdus"), warn: true, help: String(localized: "Paquets perdus sur le réseau d'après Kyber. La correction d'erreurs en rattrape la plupart sans perte d'image."))
+                tile(keyframes, String(localized: "Images clés"), warn: true, help: String(localized: "Images complètes redemandées à l'ordinateur après une perte."))
+                tile(skipped, String(localized: "Remplacées"), warn: false, help: String(localized: "Images remplacées par une plus récente avant d'atteindre l'écran : normal quand l'ordinateur envoie plus d'images que l'écran n'en montre."))
             }
         }
     }
@@ -163,7 +163,7 @@ struct StatsPanel: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 5) {
                 if alert { Icon("warning", size: 12, bold: true).foregroundStyle(Theme.warn) }
-                Text("\(value)")
+                Text(verbatim: "\(value)")
                     .font(Theme.mono(17, .medium))
                     .foregroundStyle(alert ? Theme.warnText : value == 0 ? Theme.text2 : Theme.text)
                     .contentTransition(.numericText())
@@ -179,15 +179,16 @@ struct StatsPanel: View {
 
     private func details(_ s: VideoStats) -> some View {
         return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 7) {
-            row("Réseau", s.rttMs.map { "aller-retour \(Moment.ms($0))" } ?? "aller-retour —")
-            row("Image", "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s")
+            row(String(localized: "Réseau"), s.rttMs.map { String(localized: "aller-retour \(Moment.ms($0))") } ?? String(localized: "aller-retour —"))
+            row(String(localized: "Image"), String(localized: "\(s.width) × \(s.height) · \(s.format) · \(Int(s.fps.rounded())) i/s"))
             if s.latencyMs != nil || s.rejectedSamples > 0 {
-                row("Mesures", "\(Int((s.measuredRatio * 100).rounded())) % des images" + (s.rejectedSamples > 0 ? " · \(s.rejectedSamples) rejetées" : ""))
+                row(String(localized: "Mesures"), String(localized: "\(Int((s.measuredRatio * 100).rounded())) % des images") + (s.rejectedSamples > 0 ? " · " + String(localized: "\(s.rejectedSamples) rejetées") : ""))
             }
             if let audio, audio.channels > 0 {
                 let lag = audio.bufferMs + audio.outputMs - s.displayMs
-                row("Son", "tampon \(Moment.ms(audio.bufferMs)) · sortie \(Moment.ms(audio.outputMs))")
-                row("Synchro", "son \(lag >= 0 ? "+" : "−")\(Moment.ms(abs(lag))) après l'image" + (audio.gaps > 0 ? " · \(audio.gaps) trous" : ""))
+                row(String(localized: "Son"), String(localized: "tampon \(Moment.ms(audio.bufferMs)) · sortie \(Moment.ms(audio.outputMs))"))
+                let sign = lag >= 0 ? "+" : "−"
+                row(String(localized: "Synchro"), String(localized: "son \(sign)\(Moment.ms(abs(lag))) après l'image") + (audio.gaps > 0 ? " · " + String(localized: "\(audio.gaps) trous") : ""))
             }
         }
     }
@@ -206,7 +207,17 @@ struct StatsPanel: View {
 /// une échelle commune de la capture à l'écran. Le pointillé marque la durée
 /// d'une image.
 private struct Waterfall: View {
-    enum Place: String { case computer = "Sur l'ordinateur", network = "Réseau", mac = "Sur ce Mac" }
+    enum Place {
+        case computer, network, mac
+
+        var label: String {
+            switch self {
+            case .computer: return String(localized: "Sur l'ordinateur")
+            case .network: return String(localized: "Réseau")
+            case .mac: return String(localized: "Sur ce Mac")
+            }
+        }
+    }
 
     struct Stage {
         let name: String
@@ -228,7 +239,7 @@ private struct Waterfall: View {
         let starts = stages.indices.map { i in stages[..<i].compactMap(\.ms).reduce(0, +) }
         VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
-                Theme.eyebrow("Trajet d'une image")
+                Theme.eyebrow(String(localized: "Trajet d'une image"))
                 Spacer()
                 Path { p in
                     p.move(to: CGPoint(x: 0.5, y: 0))
@@ -252,7 +263,7 @@ private struct Waterfall: View {
         VStack(alignment: .leading, spacing: 5) {
             ForEach(Array(stages.enumerated()), id: \.offset) { i, stage in
                 if i == 0 || stages[i - 1].place != stage.place {
-                    Text(stage.place.rawValue.uppercased())
+                    Text(stage.place.label.uppercased())
                         .font(Theme.mono(9, .medium))
                         .tracking(0.8)
                         .foregroundStyle(Theme.ghost)
@@ -403,7 +414,7 @@ private struct Curve: View {
             }
             .frame(height: 52)
             HStack {
-                Text("−30 s")
+                Text(verbatim: "−30 s")
                 Spacer()
                 if let peak = known.max() { Text("pic \(format(peak))") }
                 Spacer()

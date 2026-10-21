@@ -7,6 +7,8 @@
   import { api } from '../lib/api'
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
+  import LangChoice from '../lib/LangChoice.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
   let {
     configured,
@@ -25,7 +27,7 @@
     event.preventDefault()
     error = ''
     if (!configured && password !== confirm) {
-      error = 'Les deux mots de passe ne correspondent pas.'
+      error = t('login.mismatch')
       return
     }
     busy = true
@@ -64,56 +66,58 @@
   <div class="lockup">
     <Mark size={30} lit breathe />
     <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
-    <span class="tag">Console de l'ordinateur</span>
+    <span class="tag">{t('login.tag')}</span>
   </div>
+
+  <div class="lang-corner"><LangChoice compact /></div>
 
   <main>
     <div class="head">
       {#if configured}
-        <span class="lbl host"><span class="dot ok"></span>{hostname ?? 'Cet ordinateur'}</span>
-        <h1 class="disp">Bon retour.</h1>
-        <p>Le mot de passe de la console, choisi à l'installation.</p>
+        <span class="lbl host"><span class="dot ok"></span>{hostname ?? t('login.thisComputer')}</span>
+        <h1 class="disp">{t('login.welcome')}</h1>
+        <p>{t('login.signInIntro')}</p>
       {:else}
-        <span class="lbl first">Première visite</span>
-        <h1 class="disp small">Choisissez le mot de passe de la console.</h1>
-        <p>Le code prouve que vous êtes bien devant cet ordinateur, ou que vous y avez accès.</p>
+        <span class="lbl first">{t('login.firstVisit')}</span>
+        <h1 class="disp small">{t('login.chooseTitle')}</h1>
+        <p>{t('login.codeIntro')}</p>
       {/if}
     </div>
 
     <form onsubmit={submit}>
       {#if !configured}
         <div class="field">
-          <label for="code">Code d'initialisation</label>
+          <label for="code">{t('login.code')}</label>
           <input id="code" class="mono code" type="text" autocomplete="one-time-code" required bind:value={code} />
-          <span class="hint">Sur l'ordinateur : menu de l'icône KyberNow, ou le fichier {setupCodeFile}</span>
+          <span class="hint">{t('login.codeHint', { file: setupCodeFile })}</span>
         </div>
       {/if}
       <div class="field">
-        <label for="pw">{configured ? 'Mot de passe' : 'Nouveau mot de passe'}</label>
+        <label for="pw">{configured ? t('login.password') : t('login.newPassword')}</label>
         <input id="pw" type="password" required minlength={configured ? undefined : 10} autocomplete={configured ? 'current-password' : 'new-password'} bind:value={password} />
-        {#if !configured}<span class="hint">10 caractères au moins.</span>{/if}
+        {#if !configured}<span class="hint">{t('login.min10')}</span>{/if}
       </div>
       {#if !configured}
         <div class="field">
-          <label for="cf">Confirmation</label>
+          <label for="cf">{t('login.confirm')}</label>
           <input id="cf" type="password" required minlength="10" autocomplete="new-password" bind:value={confirm} />
         </div>
       {/if}
       {#if error}<p class="error" role="alert">{error}</p>{/if}
       <button type="submit" class="primary" disabled={busy}>
-        {busy ? 'Un instant…' : configured ? 'Ouvrir la console' : 'Créer et ouvrir la console'}
+        {busy ? t('login.wait') : configured ? t('login.open') : t('login.create')}
       </button>
     </form>
 
     {#if configured}
       <details class="hint">
-        <summary>Mot de passe oublié ?</summary>
-        <p>Sur l'ordinateur, menu de l'icône KyberNow › Réinitialiser le mot de passe de la console. Vos appareils et leurs comptes ne changent pas.</p>
+        <summary>{t('login.forgot')}</summary>
+        <p>{t('login.forgotHelp')}</p>
       </details>
     {/if}
   </main>
 
-  <p class="foot hint">Connexion chiffrée par le certificat de cet ordinateur.</p>
+  <p class="foot hint">{t('login.foot')}</p>
 </div>
 
 <style>
@@ -287,6 +291,13 @@
     margin-top: 8px;
   }
 
+  .lang-corner {
+    position: absolute;
+    right: 64px;
+    top: 53px;
+    z-index: 1;
+  }
+
   .foot {
     position: absolute;
     left: 64px;
@@ -307,6 +318,11 @@
     .lockup {
       left: 24px;
       top: 28px;
+    }
+
+    .lang-corner {
+      right: 24px;
+      top: 29px;
     }
 
     .tag {

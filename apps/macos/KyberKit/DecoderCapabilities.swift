@@ -32,10 +32,10 @@ public struct DecoderCapabilities: Sendable {
     /// Résumé lisible pour les réglages.
     public var summary: String {
         var parts: [String] = []
-        if hevc { parts.append(hevc444 ? "HEVC (4:4:4 compris)" : "HEVC") }
+        if hevc { parts.append(hevc444 ? String(localized: "HEVC (4:4:4 compris)", bundle: .kyberKit) : "HEVC") }
         if h264 { parts.append("H.264") }
         if av1 { parts.append("AV1") }
-        return parts.isEmpty ? "aucun décodeur matériel" : parts.joined(separator: ", ")
+        return parts.isEmpty ? String(localized: "aucun décodeur matériel", bundle: .kyberKit) : parts.joined(separator: ", ")
     }
 
     private static func probe() -> DecoderCapabilities {

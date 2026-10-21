@@ -3,17 +3,18 @@
   import { send } from '../lib/backend'
   import { app, go } from '../lib/state.svelte'
   import Mark from '../lib/Mark.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
-  const licenses = [
-    ['KyberNow', 'L’app et son installateur', 'AGPL-3.0'],
-    ['Kyber 0.29', 'Connexion, son et entrées (Kyber SAS)', 'AGPL-3.0'],
-    ['FFmpeg', 'Décodage vidéo', 'LGPL-2.1+'],
-    ['Opus', 'Décodage audio', 'BSD-3-Clause'],
-    ['SDL2', 'Manettes', 'Zlib'],
-    ['Tauri, wry, WebView2', 'Fenêtres et interface', 'MIT / Apache-2.0'],
-    ['Svelte, bibliothèques Rust', 'Interface et cœur', 'MIT / Apache-2.0'],
-    ['Archivo, Martian Mono', 'Polices de l’interface', 'OFL-1.1'],
-  ]
+  const licenses = $derived([
+    ['KyberNow', t('about.roles.kybernow'), 'AGPL-3.0'],
+    ['Kyber 0.29', t('about.roles.kyber'), 'AGPL-3.0'],
+    ['FFmpeg', t('about.roles.ffmpeg'), 'LGPL-2.1+'],
+    ['Opus', t('about.roles.opus'), 'BSD-3-Clause'],
+    ['SDL2', t('about.roles.sdl'), 'Zlib'],
+    ['Tauri, wry, WebView2', t('about.roles.tauri'), 'MIT / Apache-2.0'],
+    [t('about.names.svelte'), t('about.roles.svelte'), 'MIT / Apache-2.0'],
+    ['Archivo, Martian Mono', t('about.roles.fonts'), 'OFL-1.1'],
+  ])
 </script>
 
 <div class="about">
@@ -21,20 +22,20 @@
     <Mark size={48} state="now" />
     <div>
       <span class="disp name"><span>Kyber</span><b>Now</b></span>
-      <span class="mono version">version {__APP_VERSION__}</span>
+      <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
     </div>
   </div>
 
   <div class="panel dev kn-enter kn-d1">
-    <div><span class="lbl">Conçu et développé par</span><strong>Les Lignes Claires</strong></div>
+    <div><span class="lbl">{t('about.madeBy')}</span><strong>Les Lignes Claires</strong></div>
     <button type="button" class="ghost" onclick={() => send({ cmd: 'openUrl', url: 'https://www.leslignesclaires.fr' })}>www.leslignesclaires.fr</button>
   </div>
 
   <div class="panel list kn-enter kn-d2">
-    <span class="lbl">Logiciels libres inclus</span>
+    <span class="lbl">{t('about.included')}</span>
     <div class="scroll">
       <table>
-        <thead><tr><th scope="col">Composant</th><th scope="col">Rôle</th><th scope="col">Licence</th></tr></thead>
+        <thead><tr><th scope="col">{t('about.component')}</th><th scope="col">{t('about.role')}</th><th scope="col">{t('about.license')}</th></tr></thead>
         <tbody>
           {#each licenses as [name, role, spdx] (name)}
             <tr><td>{name}</td><td class="role">{role}</td><td class="mono spdx">{spdx}</td></tr>
@@ -42,12 +43,12 @@
         </tbody>
       </table>
     </div>
-    <p class="note">KyberNow est distribué sous AGPL-3.0. Les textes des licences sont dans le dépôt du projet, sur GitHub.</p>
+    <p class="note">{t('about.note')}</p>
   </div>
 </div>
 
 <div class="footer">
-  <button type="button" class="ghost" onclick={() => go(app.previous)}>Retour</button>
+  <button type="button" class="ghost" onclick={() => go(app.previous)}>{t('about.back')}</button>
   <div class="spacer"></div>
 </div>
 

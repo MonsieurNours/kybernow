@@ -1,25 +1,18 @@
 // État de l'installation, alimenté par les événements de l'installateur.
 
 import { onEvent, send, type Arch, type BackendEvent, type CheckStatus, type TaskStatus } from './backend'
+import { t } from './i18n/index.svelte'
 
 export type Screen = 'welcome' | 'install' | 'done' | 'about'
 
 /** Trois étapes : l'analyse du PC tourne pendant la bienvenue. */
 export const STEPS: { screens: Screen[]; label: string }[] = [
-  { screens: ['welcome'], label: 'Bienvenue' },
-  { screens: ['install'], label: 'Installation' },
-  { screens: ['done'], label: 'C’est prêt' },
+  { screens: ['welcome'], label: 'steps.welcome' },
+  { screens: ['install'], label: 'steps.install' },
+  { screens: ['done'], label: 'steps.done' },
 ]
 
 export const CHECK_ORDER = ['windows', 'arch', 'gpu', 'display', 'network', 'webview']
-const CHECK_TITLES: Record<string, string> = {
-  windows: 'Windows',
-  arch: 'Processeur',
-  gpu: 'Carte graphique',
-  display: 'Écran',
-  network: 'Réseau local',
-  webview: 'Moteur d’affichage',
-}
 
 export interface CheckItem {
   id: string
@@ -30,7 +23,7 @@ export interface CheckItem {
 
 export const TASK_ORDER = ['close', 'files', 'webview', 'shortcuts', 'register']
 
-const freshChecks = () => CHECK_ORDER.map((id) => ({ id, status: 'pending', title: CHECK_TITLES[id], detail: '' }) as CheckItem)
+const freshChecks = () => CHECK_ORDER.map((id) => ({ id, status: 'pending', title: t(`checks.${id}`), detail: '' }) as CheckItem)
 
 export const app = $state({
   screen: 'welcome' as Screen,

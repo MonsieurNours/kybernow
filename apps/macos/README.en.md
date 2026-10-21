@@ -189,6 +189,16 @@ apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session
 
 Measured on an M4 Max: 1 to 2 ms decoding at 2560 × 1440 (4:2:0), 1.6 to 2.7 ms in 4:4:4 (the test submits frames without spacing them: with asynchronous decoding, the time shown includes the wait in VideoToolbox's queue, 3 to 6 ms), colours within ±4 levels; sound: 17 to 24 ms of buffer with 20 ms packets, 15 to 20 ms with 10 ms packets (server with 0004), with ± 8 ms of simulated jitter (the smooth catch-up leaves the buffer a little higher than the old hard cut).
 
+## Languages
+
+The app is in French and English ([docs/i18n.en.md](../../docs/i18n.en.md)): French if macOS is in French, English for any other language (`CFBundleDevelopmentRegion` set to `en`). KyberNow › Settings… › Language: Auto, Français or English, for KyberNow only (the app's `AppleLanguages` preference), applied on relaunch.
+
+- Texts live in Xcode string catalogs, with French as the source language: `KyberNow/Localizable.xcstrings` (the app, including `Model.swift` and `Discovery.swift` reused by the Apple TV), `KyberNow/InfoPlist.xcstrings` (local network and camera access requests), `KyberKit/Localizable.xcstrings` (connection and console errors, Apple TV gamepads; `String(localized:bundle: .kyberKit)`). Building adds new texts to them (`SWIFT_EMIT_LOC_STRINGS`).
+- Every text carries an explicit French value: without it, Xcode doesn't write `fr.lproj` and a Mac in French would show English. After adding texts: `python3 scripts/check-strings.py --fix` (adds the French value, reports missing English translations; Apple TV catalogs included).
+- `ConsoleClient` sends `Accept-Language: fr` or `en` (the app's language) with every request: the console answers in the same language.
+- Logs stay in French, and so does the profile name sent to the console (“Jeu”, “Personnalisé”…).
+- Release notes: Sparkle's come from the feed, one description per language (`xml:lang`).
+
 ## Logs
 
 Console.app, subsystem `fr.leslignesclaires.kybernow`, categories `app`, `kyber` (SDK), `video`, `audio`. From the command line:

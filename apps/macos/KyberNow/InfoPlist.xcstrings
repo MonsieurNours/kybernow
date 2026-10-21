@@ -1,0 +1,40 @@
+{
+  "sourceLanguage" : "fr",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow reads the QR code shown by your computer's console."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow lit le QR code affiché par la console de votre ordinateur."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow connects to your computers on the local network."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow se connecte à vos ordinateurs sur le réseau local."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

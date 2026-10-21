@@ -1,47 +1,44 @@
 <!-- C'est prêt : ouvrir KyberNow, et les raccourcis à connaître pendant une session. -->
 <script lang="ts">
   import { send } from '../lib/backend'
+  import { t } from '../lib/i18n/index.svelte'
   import { app } from '../lib/state.svelte'
 
   const keys: [string, string][] = [
-    ['D', 'Se déconnecter'],
-    ['F', 'Plein écran ou fenêtre'],
-    ['M', 'Souris libre ou captée (jeux)'],
+    ['D', 'done.keys.disconnect'],
+    ['F', 'done.keys.fullscreen'],
+    ['M', 'done.keys.mouse'],
   ]
 </script>
 
 <div class="done">
   <div class="text">
-    <span class="lbl ok kn-enter"><span class="dot"></span>{app.existing ? 'Mise à jour terminée' : 'Installation terminée'}</span>
-    <h1 class="title kn-enter kn-d1">KyberNow est prête.</h1>
+    <span class="lbl ok kn-enter"><span class="dot"></span>{app.existing ? t('done.updateLabel') : t('done.installLabel')}</span>
+    <h1 class="title kn-enter kn-d1">{t('done.title')}</h1>
     <p class="lead kn-enter kn-d2">
-      {#if app.existing}
-        Vos ordinateurs vous attendent dans l'accueil, avec leurs réglages.
-      {:else}
-        Ouvrez-la : un ordinateur sur le même réseau apparaît tout seul. Sinon, ajoutez-le avec le lien ou le QR code de sa console, ou par son adresse.
-      {/if}
+      {app.existing ? t('done.updateLead') : t('done.lead')}
     </p>
-    <p class="note kn-enter kn-d3">Elle vous attend aussi dans le menu Démarrer{app.desktop ? ' et sur le Bureau' : ''}. Clic droit sur son icône dans la barre des tâches : vos ordinateurs, en un clic.</p>
+    <p class="note kn-enter kn-d3">{t(app.desktop ? 'done.whereDesktop' : 'done.where')}</p>
   </div>
 
   <div class="panel keys kn-enter kn-d2">
-    <span class="lbl">Pendant une session</span>
+    <span class="lbl">{t('done.session')}</span>
     <ul>
       {#each keys as [key, what] (key)}
         <li>
-          <span class="combo mono"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd class="k">{key}</kbd></span>
-          <span>{what}</span>
+          <span class="combo mono"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>{t('done.shift')}</kbd><kbd class="k">{key}</kbd></span>
+          <span>{t(what)}</span>
         </li>
       {/each}
     </ul>
-    <span class="note">La souris en haut de l'écran montre la barre de la session.</span>
+    <span class="note">{t('done.bar')}</span>
   </div>
 </div>
 
 <div class="footer">
   <div class="spacer"></div>
-  <button type="button" class="ghost" onclick={() => send({ cmd: 'close' })}>Fermer</button>
-  <button type="button" class="primary lit" onclick={() => send({ cmd: 'launch' })}>Ouvrir KyberNow</button>
+  <button type="button" class="ghost" onclick={() => send({ cmd: 'close' })}>{t('done.close')}</button>
+  <button type="button" class="primary lit" onclick={() => send({ cmd: 'launch' })}>{t('done.open')}</button>
 </div>
 
 <style>

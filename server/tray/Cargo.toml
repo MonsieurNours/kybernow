@@ -20,6 +20,7 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 sha2 = "0.10"
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Security",

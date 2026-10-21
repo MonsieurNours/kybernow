@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 
 use crate::console;
+use crate::i18n::t;
 use crate::services::{self, ADMIN, State};
 use crate::startup;
 
@@ -30,16 +31,13 @@ pub fn reset() -> Result<Option<String>> {
     match startup::elevate(ELEVATED_ARG)? {
         None => return Ok(None),
         Some(0) => {}
-        Some(code) => bail!("Le mot de passe n'a pas pu être réinitialisé ({}).", std::io::Error::from_raw_os_error(code as i32)),
+        Some(code) => bail!(t("tray.errors.resetFailed", &[("error", &std::io::Error::from_raw_os_error(code as i32))])),
     }
     // La partie élevée a attendu le code avant de rendre la main.
     if let Some(code) = console::take_setup_code() {
         return Ok(Some(code));
     }
-    bail!(
-        "Mot de passe effacé, mais le code d'initialisation n'a pas pu être transmis à l'icône : \
-         il est dans C:\\ProgramData\\KyberNow\\setup-code.txt, lisible par un administrateur."
-    )
+    bail!(t("tray.errors.codeNotHandedOver", &[]))
 }
 
 /// Partie élevée : arrête la console, efface le mot de passe, la relance.
@@ -70,7 +68,7 @@ fn run() -> Result<()> {
     let _ = std::fs::remove_file(console::data_setup_code_path());
     services::start(ADMIN)?;
     if !status.success() {
-        bail!("kyber-admin reset-password a échoué ({status}).");
+        bail!(t("tray.errors.resetCommandFailed", &[("status", &status)]));
     }
     services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
     hand_over_code()
@@ -90,7 +88,7 @@ fn hand_over_code() -> Result<()> {
             return Ok(());
         }
         if Instant::now() > deadline {
-            bail!("La console n'a pas écrit de code d'initialisation (C:\\ProgramData\\KyberNow\\setup-code.txt).");
+            bail!(t("tray.errors.noSetupCode", &[]));
         }
         std::thread::sleep(Duration::from_millis(500));
     }

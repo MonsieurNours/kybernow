@@ -142,7 +142,7 @@ private struct FindStep: View {
                     .buttonStyle(GhostButton(height: 34))
                     .keyboardShortcut(.cancelAction)
             }
-            Segmented(options: [(.network, "Sur ce réseau"), (.address, "Par adresse"), (.link, "QR code ou lien")], selection: $tab, height: 40, fill: true)
+            Segmented(options: [(.network, String(localized: "Sur ce réseau")), (.address, String(localized: "Par adresse")), (.link, String(localized: "QR code ou lien"))], selection: $tab, height: 40, fill: true)
             Group {
                 switch tab ?? .address {
                 case .network: NetworkTab(found: found)
@@ -174,11 +174,12 @@ private struct NetworkTab: View {
             }
             ForEach(discovery.found.filter { resolved[$0.id] != nil }) { f in
                 let c = resolved[f.id]!
+                let announced = f.fingerprint == nil ? String(localized: "annonce sans empreinte") : String(localized: "empreinte annoncée")
                 let known = app.store.hosts.contains { ($0.consoleFingerprint != nil && $0.consoleFingerprint == f.fingerprint) || ($0.address == c.address && $0.consolePort == c.port) }
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(f.name).font(Theme.sans(16, .semibold)).foregroundStyle(Theme.text)
-                        Text("\(c.address) · \(f.fingerprint == nil ? "annonce sans empreinte" : "empreinte annoncée")").font(Theme.mono(12)).foregroundStyle(Theme.faint)
+                        Text(verbatim: "\(c.address) · \(announced)").font(Theme.mono(12)).foregroundStyle(Theme.faint)
                     }
                     Spacer()
                     if known {
@@ -222,10 +223,10 @@ private struct AddressTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 14) {
-                LabeledField(label: "Adresse de l'ordinateur", text: $address, prompt: "ex. 192.168.1.100", mono: true)
-                LabeledField(label: "Port de la console", text: $port, prompt: "ex. 37462", mono: true).frame(width: 170)
+                LabeledField(label: String(localized: "Adresse de l'ordinateur"), text: $address, prompt: String(localized: "ex. 192.168.1.100"), mono: true)
+                LabeledField(label: String(localized: "Port de la console"), text: $port, prompt: String(localized: "ex. 37462"), mono: true).frame(width: 170)
             }
-            Notice(kind: .info, text: "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN.")
+            Notice(kind: .info, text: String(localized: "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."))
             Spacer(minLength: 0)
             HStack {
                 Spacer()
@@ -271,7 +272,7 @@ private struct LinkTab: View {
                     Text("OU").font(Theme.sans(12)).tracking(1).foregroundStyle(Theme.faint)
                     Rectangle().fill(Theme.line).frame(height: 1)
                 }
-                LabeledField(label: "Collez le lien copié depuis la console", text: $link, prompt: "kybernow://192.168.1.100:37462?fp=sha256:…", mono: true)
+                LabeledField(label: String(localized: "Collez le lien copié depuis la console"), text: $link, prompt: "kybernow://192.168.1.100:37462?fp=sha256:…", mono: true)
                     .onSubmit(useLink)
                 if invalid {
                     Text("Ce n'est pas un lien KyberNow.").font(Theme.sans(12)).foregroundStyle(Theme.warn)
@@ -353,9 +354,9 @@ struct LabeledField: View {
             Text(label).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
             Group {
                 if secure {
-                    SecureField("", text: $text, prompt: Text(prompt))
+                    SecureField(text: $text, prompt: Text(prompt)) { EmptyView() }
                 } else {
-                    TextField("", text: $text, prompt: Text(prompt).foregroundColor(Theme.ghost))
+                    TextField(text: $text, prompt: Text(prompt).foregroundColor(Theme.ghost)) { EmptyView() }
                 }
             }
             .textFieldStyle(.plain)
@@ -427,11 +428,11 @@ private struct VerifyAndAccount: View {
             .frame(width: 64, height: 64)
             VStack(alignment: .leading, spacing: 4) {
                 Text(candidate.name).font(Theme.display(22)).foregroundStyle(Theme.text).lineLimit(2)
-                Text("\(candidate.address):\(candidate.port)").font(Theme.mono(12)).foregroundStyle(Theme.faint)
+                Text(verbatim: "\(candidate.address):\(candidate.port)").font(Theme.mono(12)).foregroundStyle(Theme.faint)
             }
             VStack(alignment: .leading, spacing: 18) {
-                stepRow(1, "Vérifier l'ordinateur", verified ? "Empreinte vérifiée par le lien" : "Son certificat, une seule fois", done: step == .account, now: step == .trust)
-                stepRow(2, "Votre compte", "Gardé dans le Trousseau", done: false, now: step == .account)
+                stepRow(1, String(localized: "Vérifier l'ordinateur"), verified ? String(localized: "Empreinte vérifiée par le lien") : String(localized: "Son certificat, une seule fois"), done: step == .account, now: step == .trust)
+                stepRow(2, String(localized: "Votre compte"), String(localized: "Gardé dans le Trousseau"), done: false, now: step == .account)
             }
             Spacer()
         }
@@ -451,7 +452,7 @@ private struct VerifyAndAccount: View {
                 if done {
                     Icon("check", size: 13, bold: true).foregroundStyle(Theme.accentInk)
                 } else {
-                    Text("\(n)").font(Theme.sans(13, .semibold)).foregroundStyle(now ? Theme.accentLight : Theme.faint)
+                    Text(verbatim: "\(n)").font(Theme.sans(13, .semibold)).foregroundStyle(now ? Theme.accentLight : Theme.faint)
                 }
             }
             .frame(width: 26, height: 26)
@@ -471,7 +472,7 @@ private struct VerifyAndAccount: View {
                 Text("Connexion à la console…").font(Theme.sans(14)).foregroundStyle(Theme.muted)
             }
         } else if seen == nil {
-            Notice(kind: .danger, text: "La console ne répond pas à \(candidate.address):\(candidate.port). Vérifiez l'adresse, le port, et que l'ordinateur est allumé.")
+            Notice(kind: .danger, text: String(localized: "La console ne répond pas à \(candidate.address):\(candidate.port). Vérifiez l'adresse, le port, et que l'ordinateur est allumé."))
             Spacer()
             HStack { Spacer(); Button("Retour") { step = .find }.buttonStyle(GhostButton(height: 44)) }
         } else if verified {
@@ -482,28 +483,28 @@ private struct VerifyAndAccount: View {
             Text("Le lien ou l'annonce de l'ordinateur contenait l'empreinte de son certificat, et elle correspond à celui qu'il présente.")
                 .font(Theme.sans(14)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             Spacer()
-            actions(primary: "Continuer") { step = .account }
+            actions(primary: String(localized: "Continuer")) { step = .account }
         } else {
             Text("Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**.")
                 .font(Theme.sans(15)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             FingerprintBox(fingerprint: seen ?? "")
             if mismatch {
-                Notice(kind: .danger, text: "Cette empreinte ne correspond pas à celle du lien ou de l'annonce. Quelqu'un se fait peut-être passer pour votre ordinateur : refusez.")
+                Notice(kind: .danger, text: String(localized: "Cette empreinte ne correspond pas à celle du lien ou de l'annonce. Quelqu'un se fait peut-être passer pour votre ordinateur : refusez."))
             } else {
-                Notice(kind: .warn, text: "Si elle diffère, quelqu'un se fait peut-être passer pour votre ordinateur. Refusez, et vérifiez l'adresse.")
+                Notice(kind: .warn, text: String(localized: "Si elle diffère, quelqu'un se fait peut-être passer pour votre ordinateur. Refusez, et vérifiez l'adresse."))
             }
             Spacer()
-            actions(primary: "C'est bien mon ordinateur", secondary: "Refuser") { step = .account }
+            actions(primary: String(localized: "C'est bien mon ordinateur"), secondary: String(localized: "Refuser")) { step = .account }
         }
     }
 
     // Étape 2 : le compte.
     @ViewBuilder private var account: some View {
         Text("Votre compte KyberNow").font(Theme.display(28)).foregroundStyle(Theme.text)
-        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, rubrique **Utilisateurs**.")
+        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**.")
             .font(Theme.sans(15)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-        LabeledField(label: "Identifiant", text: $username)
-        LabeledField(label: "Mot de passe", text: $password, secure: true)
+        LabeledField(label: String(localized: "Identifiant"), text: $username)
+        LabeledField(label: String(localized: "Mot de passe"), text: $password, secure: true)
         HStack(spacing: 12) {
             Icon("key", size: 18).foregroundStyle(Theme.accent)
             VStack(alignment: .leading, spacing: 2) {
@@ -555,7 +556,7 @@ private struct VerifyAndAccount: View {
                 app.store.add(host, password: password)
                 done()
             } catch ConsoleError.http(401, _) {
-                error = "Identifiant ou mot de passe refusé."
+                error = String(localized: "Identifiant ou mot de passe refusé.")
             } catch ConsoleError.http(404, _) {
                 // Console d'une version précédente : le compte n'a pas pu être vérifié.
                 var host = Host(name: candidate.name, address: candidate.address, consolePort: candidate.port, username: username)
@@ -584,7 +585,7 @@ private struct FingerprintBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Theme.eyebrow("Empreinte SHA-256 reçue")
+            Theme.eyebrow(String(localized: "Empreinte SHA-256 reçue"))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 8), alignment: .leading, spacing: 6) {
                 ForEach(Array(groups.enumerated()), id: \.offset) { i, g in
                     Text(g).font(Theme.mono(15, i < 4 ? .medium : .regular)).foregroundStyle(i < 4 ? Theme.accent : Theme.muted)

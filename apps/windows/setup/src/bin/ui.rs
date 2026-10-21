@@ -24,6 +24,7 @@ mod ui {
     use std::time::Duration;
 
     use knsetup::events::{Command, Emit, Event};
+    use knsetup::i18n::{lang, tr};
     use knsetup::{checks, install, sys};
     use tao::dpi::LogicalSize;
     use tao::event::{Event as WinEvent, WindowEvent};
@@ -84,7 +85,7 @@ mod ui {
         // L'ombre de tao réserve autour de la fenêtre une bande de cadre que
         // Windows peint en clair : on la fait nous-mêmes, sans bande (frame).
         let window = WindowBuilder::new()
-            .with_title("Installation de KyberNow")
+            .with_title(tr(lang(), "setup.windowTitle", &[]))
             .with_inner_size(LogicalSize::new(1000.0, 640.0))
             .with_resizable(false)
             .with_decorations(false)
@@ -106,7 +107,8 @@ mod ui {
             })
             .with_background_color((5, 7, 10, 255))
             .with_devtools(cfg!(debug_assertions))
-            .with_url("http://kn.localhost/")
+            // La langue de Windows, passée à l'interface (l'installateur n'a pas de réglage).
+            .with_url(format!("http://kn.localhost/?lang={}", lang().code()))
             .build(&window)?;
 
         event_loop.run(move |event, _, control_flow| {

@@ -1,0 +1,5558 @@
+{
+  "sourceLanguage" : "fr",
+  "strings" : {
+    "%@ a retrouvé ses écrans et son son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ has its displays and sound back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ a retrouvé ses écrans et son son"
+          }
+        }
+      }
+    },
+    "%@ est déjà dans vos ordinateurs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is already in your computers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ est déjà dans vos ordinateurs"
+          }
+        }
+      }
+    },
+    "%@ retrouve ses écrans et son son." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is getting its displays and sound back."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ retrouve ses écrans et son son."
+          }
+        }
+      }
+    },
+    "%@ sur 30 secondes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ over 30 seconds"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ sur 30 secondes"
+          }
+        }
+      }
+    },
+    "%lld %% des images" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld%% of frames"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld %% des images"
+          }
+        }
+      }
+    },
+    "%lld Hz variable (%lld–%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variable %lld Hz (%lld–%lld)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld Hz variable (%lld–%lld)"
+          }
+        }
+      }
+    },
+    "%lld i/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld fps"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld i/s"
+          }
+        }
+      }
+    },
+    "%lld mégabits par seconde" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld megabits per second"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld mégabits par seconde"
+          }
+        }
+      }
+    },
+    "%lld ordinateurs publiés." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld computers published."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ordinateurs publiés."
+          }
+        }
+      }
+    },
+    "%lld rejetées" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld rejected"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld rejetées"
+          }
+        }
+      }
+    },
+    "%lld trous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld gaps"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld trous"
+          }
+        }
+      }
+    },
+    "%lld × %lld · %@ · %lld i/s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld · %@ · %lld fps"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld · %@ · %lld i/s"
+          }
+        }
+      }
+    },
+    "+ Texte, code et tableurs parfaitement nets" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+ Perfectly sharp text, code and spreadsheets"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+ Texte, code et tableurs parfaitement nets"
+          }
+        }
+      }
+    },
+    ", puis présentez le QR code devant la caméra." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ", then hold the QR code up to the camera."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : ", puis présentez le QR code devant la caméra."
+          }
+        }
+      }
+    },
+    "1 image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 frame"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 image"
+          }
+        }
+      }
+    },
+    "1 image · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 frame · %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 image · %@"
+          }
+        }
+      }
+    },
+    "1 ordinateur publié." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 computer published."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 ordinateur publié."
+          }
+        }
+      }
+    },
+    "95 %% des images sous %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "95%% of frames under %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "95 %% des images sous %@"
+          }
+        }
+      }
+    },
+    "AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AV1 needs an RTX 40 card or newer on the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "AV1 demande une carte RTX 40 ou plus récente sur l'ordinateur."
+          }
+        }
+      }
+    },
+    "Accès à la caméra refusé (Réglages Système › Confidentialité)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Camera access denied (System Settings › Privacy & Security)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accès à la caméra refusé (Réglages Système › Confidentialité)."
+          }
+        }
+      }
+    },
+    "Adaptation de l'image à %lld × %lld…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fitting the picture to %lld × %lld…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adaptation de l'image à %lld × %lld…"
+          }
+        }
+      }
+    },
+    "Adapter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adapter"
+          }
+        }
+      }
+    },
+    "Adapter à %lld × %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to %lld × %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adapter à %lld × %lld"
+          }
+        }
+      }
+    },
+    "Adresse de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computer address"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adresse de l'ordinateur"
+          }
+        }
+      }
+    },
+    "Adresse et port" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Address and port"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adresse et port"
+          }
+        }
+      }
+    },
+    "Affichage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichage"
+          }
+        }
+      }
+    },
+    "Affichage de macOS" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichage de macOS"
+          }
+        }
+      }
+    },
+    "Afficher l'image au bon moment" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing each frame at the right time"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher l'image au bon moment"
+          }
+        }
+      }
+    },
+    "Ajouter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter"
+          }
+        }
+      }
+    },
+    "Ajouter l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter l'ordinateur"
+          }
+        }
+      }
+    },
+    "Ajouter un ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un ordinateur"
+          }
+        }
+      }
+    },
+    "Ajoutez un ordinateur équipé de KyberNow Server, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a computer running KyberNow Server, whether it is on Windows, macOS or Linux. On this network, it shows up on its own at the bottom of the screen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajoutez un ordinateur équipé de KyberNow Server, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran."
+          }
+        }
+      }
+    },
+    "Annuler" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler"
+          }
+        }
+      }
+    },
+    "Aperçu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu"
+          }
+        }
+      }
+    },
+    "Aperçu de sa console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview from its console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu de sa console"
+          }
+        }
+      }
+    },
+    "Aperçu · %@, depuis sa console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview · %@, from its console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu · %@, depuis sa console"
+          }
+        }
+      }
+    },
+    "Aperçu, en cours…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview, loading…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aperçu, en cours…"
+          }
+        }
+      }
+    },
+    "Appareils" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Devices"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appareils"
+          }
+        }
+      }
+    },
+    "Au plus 4K" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4K at most"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Au plus 4K"
+          }
+        }
+      }
+    },
+    "Au-delà de ce qu'un réseau Gigabit transporte (~940 Mbit/s). Réservé au 2,5 ou 10 Gbit/s, câblé de bout en bout. Sinon, l'image saccadera." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beyond what a Gigabit network carries (~940 Mbit/s). Only for 2.5 or 10 Gbit/s, wired end to end. Otherwise, the picture will stutter."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Au-delà de ce qu'un réseau Gigabit transporte (~940 Mbit/s). Réservé au 2,5 ou 10 Gbit/s, câblé de bout en bout. Sinon, l'image saccadera."
+          }
+        }
+      }
+    },
+    "Aucun" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun"
+          }
+        }
+      }
+    },
+    "Aucun compte iCloud sur ce Mac : la liste partira à la connexion." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No iCloud account on this Mac: the list will be sent once you sign in."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun compte iCloud sur ce Mac : la liste partira à la connexion."
+          }
+        }
+      }
+    },
+    "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No computer found yet. It may be on another network (VPN), or its console is not up to date yet: use the By address tab."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse."
+          }
+        }
+      }
+    },
+    "Aucun ordinateur à publier pour l'instant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No computers to publish yet."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun ordinateur à publier pour l'instant."
+          }
+        }
+      }
+    },
+    "Aucune caméra sur ce Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No camera on this Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune caméra sur ce Mac."
+          }
+        }
+      }
+    },
+    "Aucune manette branchée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No gamepad connected"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune manette branchée"
+          }
+        }
+      }
+    },
+    "Auto" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto"
+          }
+        }
+      }
+    },
+    "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: the language of macOS. This choice only applies to KyberNow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow."
+          }
+        }
+      }
+    },
+    "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto: stereo for now, whatever this Mac's output."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac."
+          }
+        }
+      }
+    },
+    "Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur. Pendant la session, la barre en haut de l'écran change de mode, et ⌃⌥⌘M bascule." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto switches to the game mouse when a game is full screen on the computer. During the session, the bar at the top of the screen switches between them, and ⌃⌥⌘M toggles."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur. Pendant la session, la barre en haut de l'écran change de mode, et ⌃⌥⌘M bascule."
+          }
+        }
+      }
+    },
+    "Avec la synchro, chaque image attend le prochain rafraîchissement de l'écran : jamais coupée, au plus un rafraîchissement d'attente (8 ms à 120 Hz, 16 ms à 60 Hz)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With sync, each frame waits for the display's next refresh: never torn, at most one refresh of waiting (8 ms at 120 Hz, 16 ms at 60 Hz)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avec la synchro, chaque image attend le prochain rafraîchissement de l'écran : jamais coupée, au plus un rafraîchissement d'attente (8 ms à 120 Hz, 16 ms à 60 Hz)."
+          }
+        }
+      }
+    },
+    "Bienvenue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bienvenue"
+          }
+        }
+      }
+    },
+    "Bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bureau"
+          }
+        }
+      }
+    },
+    "Bureau : texte net, aucune image perdue." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop: sharp text, no dropped frames."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bureau : texte net, aucune image perdue."
+          }
+        }
+      }
+    },
+    "Bureau ou jeu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desktop or game"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bureau ou jeu"
+          }
+        }
+      }
+    },
+    "C'est bien mon ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is my computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C'est bien mon ordinateur"
+          }
+        }
+      }
+    },
+    "C'est bien votre ordinateur ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Is this really your computer?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C'est bien votre ordinateur ?"
+          }
+        }
+      }
+    },
+    "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is the account created during installation on the computer. More accounts can be added in the console, under **Accounts**."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**."
+          }
+        }
+      }
+    },
+    "Capture" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Capture"
+          }
+        }
+      }
+    },
+    "Ce Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac"
+          }
+        }
+      }
+    },
+    "Ce Mac ne décode pas l'AV1 en matériel." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac cannot decode AV1 in hardware."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac ne décode pas l'AV1 en matériel."
+          }
+        }
+      }
+    },
+    "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac cannot decode 4:4:4 in hardware: the picture stays in 4:2:0."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce Mac ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0."
+          }
+        }
+      }
+    },
+    "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This choice overrides the “All gamepads as Xbox 360” option in the computer's console, which only remains a default for other clients."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients."
+          }
+        }
+      }
+    },
+    "Ce n'est pas un lien KyberNow." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is not a KyberNow link."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce n'est pas un lien KyberNow."
+          }
+        }
+      }
+    },
+    "Cette empreinte ne correspond pas à celle du lien ou de l'annonce. Quelqu'un se fait peut-être passer pour votre ordinateur : refusez." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This fingerprint does not match the one in the link or announcement. Someone may be impersonating your computer: decline."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette empreinte ne correspond pas à celle du lien ou de l'annonce. Quelqu'un se fait peut-être passer pour votre ordinateur : refusez."
+          }
+        }
+      }
+    },
+    "Cette version de KyberNow n'est pas signée pour iCloud : rien n'est publié." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This build of KyberNow is not signed for iCloud: nothing is published."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette version de KyberNow n'est pas signée pour iCloud : rien n'est publié."
+          }
+        }
+      }
+    },
+    "Chaque image arrive, quitte à attendre un peu sur un réseau chargé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every frame arrives, even if it means waiting a little on a busy network."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chaque image arrive, quitte à attendre un peu sur un réseau chargé."
+          }
+        }
+      }
+    },
+    "Collez le lien copié depuis la console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste the link copied from the console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collez le lien copié depuis la console"
+          }
+        }
+      }
+    },
+    "Comme cet écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match this display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comme cet écran"
+          }
+        }
+      }
+    },
+    "Compression de l'image par la carte graphique de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frame compression by the computer's graphics card"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compression de l'image par la carte graphique de l'ordinateur"
+          }
+        }
+      }
+    },
+    "Connexion à %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting to %@…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexion à %@…"
+          }
+        }
+      }
+    },
+    "Connexion à la console…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connecting to the console…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connexion à la console…"
+          }
+        }
+      }
+    },
+    "Continuer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continuer"
+          }
+        }
+      }
+    },
+    "Contrôles et son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls and sound"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contrôles et son"
+          }
+        }
+      }
+    },
+    "Copier ici, coller là-bas" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy here, paste there"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copier ici, coller là-bas"
+          }
+        }
+      }
+    },
+    "D'habitude, la couleur est envoyée pour un pixel sur quatre : invisible dans un jeu, mais le texte fin bave un peu. Le 4:4:4 garde tout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Usually, colour is sent for one pixel in four: invisible in a game, but fine text bleeds a little. 4:4:4 keeps everything."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "D'habitude, la couleur est envoyée pour un pixel sur quatre : invisible dans un jeu, mais le texte fin bave un peu. Le 4:4:4 garde tout."
+          }
+        }
+      }
+    },
+    "Dans la console de l'ordinateur, ouvrez " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In the computer's console, open "
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dans la console de l'ordinateur, ouvrez "
+          }
+        }
+      }
+    },
+    "De la capture de l'image au début de son encodage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From capturing the frame to the start of its encoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De la capture de l'image au début de son encodage"
+          }
+        }
+      }
+    },
+    "Dernière image · %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last image · %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière image · %@"
+          }
+        }
+      }
+    },
+    "Dernière session" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last session"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière session"
+          }
+        }
+      }
+    },
+    "Dernière session, aucune" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last session, none"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière session, aucune"
+          }
+        }
+      }
+    },
+    "Dernière session, aucune gardée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last session, none kept"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dernière session, aucune gardée"
+          }
+        }
+      }
+    },
+    "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Two channels: ideal for headphones or the Mac's speakers."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac."
+          }
+        }
+      }
+    },
+    "Du départ de l'ordinateur à l'image complète reçue ici" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "From leaving the computer to the full frame received here"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du départ de l'ordinateur à l'image complète reçue ici"
+          }
+        }
+      }
+    },
+    "Débit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bitrate"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Débit"
+          }
+        }
+      }
+    },
+    "Débit du profil calé sur la 4K à 60 Hz : à %lld × %lld et %lld Hz, la session part à %lld Mbit/s. Un débit réglé à la main reste tel quel." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The profile's bitrate is set for 4K at 60 Hz: at %lld × %lld and %lld Hz, the session starts at %lld Mbit/s. A bitrate set by hand stays as it is."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Débit du profil calé sur la 4K à 60 Hz : à %lld × %lld et %lld Hz, la session part à %lld Mbit/s. Un débit réglé à la main reste tel quel."
+          }
+        }
+      }
+    },
+    "Décodage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Décodage"
+          }
+        }
+      }
+    },
+    "Décodage matériel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hardware decoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Décodage matériel"
+          }
+        }
+      }
+    },
+    "Décompression de l'image par ce Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frame decompression by this Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Décompression de l'image par ce Mac"
+          }
+        }
+      }
+    },
+    "Déjà ajouté" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already added"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déjà ajouté"
+          }
+        }
+      }
+    },
+    "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Raw mouse movement, without macOS acceleration, pointer hidden: for aiming."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser."
+          }
+        }
+      }
+    },
+    "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, the image is deleted right away: the home screen shows a preview requested from the console, or the computer's signature."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur."
+          }
+        }
+      }
+    },
+    "Empreinte SHA-256 reçue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SHA-256 fingerprint received"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empreinte SHA-256 reçue"
+          }
+        }
+      }
+    },
+    "Empreinte vérifiée : c'est bien l'ordinateur annoncé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fingerprint verified: this is the announced computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empreinte vérifiée : c'est bien l'ordinateur annoncé."
+          }
+        }
+      }
+    },
+    "Empreinte vérifiée par le lien" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fingerprint verified by the link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empreinte vérifiée par le lien"
+          }
+        }
+      }
+    },
+    "En H.264, l'ordinateur encode au plus 4096 pixels de large." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In H.264, the computer encodes at most 4096 pixels wide."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En H.264, l'ordinateur encode au plus 4096 pixels de large."
+          }
+        }
+      }
+    },
+    "En ligne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Online"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En ligne"
+          }
+        }
+      }
+    },
+    "En mode bureau, le pointeur du Mac se pose où vous le placez sur l'ordinateur. En mode jeu, seuls les déplacements bruts partent, sans l'accélération de macOS, et le pointeur du Mac se cache : c'est ce qu'attend un jeu pour viser." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With the desktop mouse, the Mac's pointer lands where you put it on the computer. With the game mouse, only raw movements are sent, without macOS acceleration, and the Mac's pointer hides: that is what a game expects for aiming."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En mode bureau, le pointeur du Mac se pose où vous le placez sur l'ordinateur. En mode jeu, seuls les déplacements bruts partent, sans l'accélération de macOS, et le pointeur du Mac se cache : c'est ce qu'attend un jeu pour viser."
+          }
+        }
+      }
+    },
+    "Encodage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encoding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Encodage"
+          }
+        }
+      }
+    },
+    "Envoi" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sending"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi"
+          }
+        }
+      }
+    },
+    "Envoyées par l'ordinateur et jamais montrées ici : paquets manquants, ou images écartées en attendant une image clé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sent by the computer and never shown here: missing packets, or frames discarded while waiting for a keyframe."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyées par l'ordinateur et jamais montrées ici : paquets manquants, ou images écartées en attendant une image clé."
+          }
+        }
+      }
+    },
+    "Essai %lld. L'image revient d'elle-même." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attempt %lld. The picture will come back on its own."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Essai %lld. L'image revient d'elle-même."
+          }
+        }
+      }
+    },
+    "Fermer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer"
+          }
+        }
+      }
+    },
+    "Fermer les mesures" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close measurements"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer les mesures"
+          }
+        }
+      }
+    },
+    "Fermer les mesures (⌃⌥⌘S)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close measurements (⌃⌥⌘S)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer les mesures (⌃⌥⌘S)"
+          }
+        }
+      }
+    },
+    "Fermer les mesures détaillées (⌃⌥⌘S)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close detailed measurements (⌃⌥⌘S)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fermer les mesures détaillées (⌃⌥⌘S)"
+          }
+        }
+      }
+    },
+    "Fiable" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reliable"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fiable"
+          }
+        }
+      }
+    },
+    "Fidèle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faithful"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fidèle"
+          }
+        }
+      }
+    },
+    "Format de compression" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compression format"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format de compression"
+          }
+        }
+      }
+    },
+    "Garder la dernière image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep the last image"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder la dernière image"
+          }
+        }
+      }
+    },
+    "Gardé dans le Trousseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kept in the Keychain"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gardé dans le Trousseau"
+          }
+        }
+      }
+    },
+    "Hors ligne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offline"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hors ligne"
+          }
+        }
+      }
+    },
+    "Huit canaux. Il faut une sortie 7.1 sur ce Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eight channels. This Mac needs a 7.1 output."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Huit canaux. Il faut une sortie 7.1 sur ce Mac."
+          }
+        }
+      }
+    },
+    "Identifiant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Username"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant"
+          }
+        }
+      }
+    },
+    "Identifiant ou mot de passe refusé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Username or password rejected."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Identifiant ou mot de passe refusé."
+          }
+        }
+      }
+    },
+    "Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image"
+          }
+        }
+      }
+    },
+    "Image adaptée à %lld × %lld." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture fitted to %lld × %lld."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image adaptée à %lld × %lld."
+          }
+        }
+      }
+    },
+    "Image affichée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image shown"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image affichée"
+          }
+        }
+      }
+    },
+    "Images clés" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyframes"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images clés"
+          }
+        }
+      }
+    },
+    "Images complètes redemandées à l'ordinateur après une perte." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full frames requested again from the computer after a loss."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images complètes redemandées à l'ordinateur après une perte."
+          }
+        }
+      }
+    },
+    "Images perdues" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lost frames"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images perdues"
+          }
+        }
+      }
+    },
+    "Images remplacées par une plus récente avant d'atteindre l'écran : normal quand l'ordinateur envoie plus d'images que l'écran n'en montre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frames replaced by a newer one before reaching the display: normal when the computer sends more frames than the display shows."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Images remplacées par une plus récente avant d'atteindre l'écran : normal quand l'ordinateur envoie plus d'images que l'écran n'en montre."
+          }
+        }
+      }
+    },
+    "Impossible d'entrer dans %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not enter %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d'entrer dans %@"
+          }
+        }
+      }
+    },
+    "Jeu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeu"
+          }
+        }
+      }
+    },
+    "Jeu : latence minimale, image fluide." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game: lowest latency, smooth picture."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeu : latence minimale, image fluide."
+          }
+        }
+      }
+    },
+    "KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow"
+          }
+        }
+      }
+    },
+    "L'image a été relancée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The picture was restarted."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image a été relancée."
+          }
+        }
+      }
+    },
+    "L'image ne passait pas : 4:2:0 pour cette session." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The picture was not getting through: 4:2:0 for this session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image ne passait pas : 4:2:0 pour cette session."
+          }
+        }
+      }
+    },
+    "L'image ne passait pas : débit ramené à %u Mb/s pour cette session." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The picture was not getting through: bitrate lowered to %u Mbit/s for this session."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'image ne passait pas : débit ramené à %u Mb/s pour cette session."
+          }
+        }
+      }
+    },
+    "L'ordinateur a changé de définition : remettre celle de ce Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer changed resolution: put back this Mac's"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur a changé de définition : remettre celle de ce Mac"
+          }
+        }
+      }
+    },
+    "L'ordinateur est passé en %lld × %lld." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer switched to %lld × %lld."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur est passé en %lld × %lld."
+          }
+        }
+      }
+    },
+    "L'ordinateur est revenu en %lld × %lld." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer went back to %lld × %lld."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur est revenu en %lld × %lld."
+          }
+        }
+      }
+    },
+    "L'ordinateur n'envoie pas encore le détail de ses étapes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer does not send the breakdown of its steps yet."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur n'envoie pas encore le détail de ses étapes."
+          }
+        }
+      }
+    },
+    "L'ordinateur ne la reçoit plus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer no longer receives it"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur ne la reçoit plus"
+          }
+        }
+      }
+    },
+    "L'ordinateur peut créer un écran virtuel à la taille du vôtre et mettre ses vrais écrans en veille le temps de la session. L'image remplit votre écran, sans bandes noires." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer can create a virtual display the size of yours and put its real displays to sleep for the session. The picture fills your screen, with no black bars."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'ordinateur peut créer un écran virtuel à la taille du vôtre et mettre ses vrais écrans en veille le temps de la session. L'image remplit votre écran, sans bandes noires."
+          }
+        }
+      }
+    },
+    "L'écran a changé : adapter l'image à %lld × %lld ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The screen changed: fit the picture to %lld × %lld?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'écran a changé : adapter l'image à %lld × %lld ?"
+          }
+        }
+      }
+    },
+    "L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac's screen changed: rebuild the computer's display at its resolution and restart the picture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image"
+          }
+        }
+      }
+    },
+    "L'écran de l'ordinateur n'a pas pu être adapté : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer's display could not be adapted: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'écran de l'ordinateur n'a pas pu être adapté : %@"
+          }
+        }
+      }
+    },
+    "L'écran se cale sur chaque image : latence minimale sans déchirure." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The display syncs to each frame: minimal latency with no tearing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'écran se cale sur chaque image : latence minimale sans déchirure."
+          }
+        }
+      }
+    },
+    "La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each computer's KyberNow console announces itself on the local network (Bonjour)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour)."
+          }
+        }
+      }
+    },
+    "La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer's console can block it in either direction (Settings › Keyboard, gamepads and clipboard)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)."
+          }
+        }
+      }
+    },
+    "La console ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console at %@:%u is not responding. Check the address, the port, and that the computer is on."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La console ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé."
+          }
+        }
+      }
+    },
+    "La manette pilote KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The gamepad controls KyberNow"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La manette pilote KyberNow"
+          }
+        }
+      }
+    },
+    "La prochaine fois, un clic sur Se connecter suffit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next time, one click on Connect is all it takes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La prochaine fois, un clic sur Se connecter suffit."
+          }
+        }
+      }
+    },
+    "Langue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Langue"
+          }
+        }
+      }
+    },
+    "Latence" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latency"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latence"
+          }
+        }
+      }
+    },
+    "Latence la plus basse, déchirure possible dans les mouvements rapides." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lowest latency, possible tearing in fast motion."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latence la plus basse, déchirure possible dans les mouvements rapides."
+          }
+        }
+      }
+    },
+    "Latence minimale, image à la fréquence de cet écran, manette prête." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lowest latency, picture at this display's refresh rate, gamepad ready."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latence minimale, image à la fréquence de cet écran, manette prête."
+          }
+        }
+      }
+    },
+    "Latence médiane %.1f millisecondes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Median latency %.1f milliseconds"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latence médiane %.1f millisecondes"
+          }
+        }
+      }
+    },
+    "Le 4:4:4 demande le HEVC." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "4:4:4 requires HEVC."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le 4:4:4 demande le HEVC."
+          }
+        }
+      }
+    },
+    "Le fond de l'accueil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The home screen background"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fond de l'accueil"
+          }
+        }
+      }
+    },
+    "Le lien contient l'adresse, le port et l'empreinte du certificat de l'ordinateur : la connexion est sûre dès la première fois, sans question." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The link contains the computer's address, port and certificate fingerprint: the connection is secure from the very first time, no questions asked."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le lien contient l'adresse, le port et l'empreinte du certificat de l'ordinateur : la connexion est sûre dès la première fois, sans question."
+          }
+        }
+      }
+    },
+    "Le lien ou l'annonce de l'ordinateur contenait l'empreinte de son certificat, et elle correspond à celui qu'il présente." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The computer's link or announcement contained its certificate fingerprint, and it matches the certificate it presents."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le lien ou l'annonce de l'ordinateur contenait l'empreinte de son certificat, et elle correspond à celui qu'il présente."
+          }
+        }
+      }
+    },
+    "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The virtual display driver is not responding on the computer: you will see its displays as they are."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le pilote d'écran virtuel ne répond pas sur l'ordinateur : vous verrez ses écrans tels quels."
+          }
+        }
+      }
+    },
+    "Le plus compatible. Demande plus de débit pour la même netteté." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The most compatible. Needs more bitrate for the same sharpness."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le plus compatible. Demande plus de débit pour la même netteté."
+          }
+        }
+      }
+    },
+    "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The most efficient, decoded by M3 chips and later (4:2:0 only: no sharp text)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le plus efficace, décodé par les puces M3 et suivantes (en 4:2:0 seulement : pas de texte net)."
+          }
+        }
+      }
+    },
+    "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Mac's pointer, always: desktop, videos, mouse-driven games (strategy, cards)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes)."
+          }
+        }
+      }
+    },
+    "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The console port is shown at the end of the installation on the computer, and in the console itself. The app reads everything else from there: stream port, name and graphics card. Over a VPN (Tailscale, WireGuard…), use the computer's address on the VPN."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."
+          }
+        }
+      }
+    },
+    "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s sound is not restored yet: it will come back the next time KyberNow starts"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow"
+          }
+        }
+      }
+    },
+    "Le son reste sur l'ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sound stays on the computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le son reste sur l'ordinateur."
+          }
+        }
+      }
+    },
+    "Le texte copié sur le Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Les images et les fichiers restent de leur côté." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text copied on the Mac can be pasted on the computer, and the other way around, up to 60 KB. Images and files stay on their own side."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le texte copié sur le Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Les images et les fichiers restent de leur côté."
+          }
+        }
+      }
+    },
+    "Les commandes sont en haut de l'écran, au survol." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls are at the top of the screen, on hover."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les commandes sont en haut de l'écran, au survol."
+          }
+        }
+      }
+    },
+    "Les commandes sont en haut de l'écran. ⌃⌥⌘F : fenêtre · ⌃⌥⌘D : quitter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls are at the top of the screen. ⌃⌥⌘F: window · ⌃⌥⌘D: quit."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les commandes sont en haut de l'écran. ⌃⌥⌘F : fenêtre · ⌃⌥⌘D : quitter."
+          }
+        }
+      }
+    },
+    "Les mesures détaillées viennent du décodage par l'app : elles ne sont pas disponibles avec le lecteur VLC (Réglages, Avancé)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detailed measurements come from the app's own decoding: they are not available with the VLC player (Settings, Advanced)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les mesures détaillées viennent du décodage par l'app : elles ne sont pas disponibles avec le lecteur VLC (Réglages, Avancé)."
+          }
+        }
+      }
+    },
+    "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New features before everyone else, sometimes less stable. A newer stable version is always offered; turning this off does not roll back, KyberNow waits for the next stable version."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante."
+          }
+        }
+      }
+    },
+    "Les profils demandent l'image à la fréquence de cet écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profiles request the picture at this display's refresh rate."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les profils demandent l'image à la fréquence de cet écran."
+          }
+        }
+      }
+    },
+    "Les quatre premiers groupes suffisent : s'ils sont identiques, c'est bien votre ordinateur." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The first four groups are enough: if they match, it is your computer."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les quatre premiers groupes suffisent : s'ils sont identiques, c'est bien votre ordinateur."
+          }
+        }
+      }
+    },
+    "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@'s displays are not responding yet: they will come back the next time KyberNow starts"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow"
+          }
+        }
+      }
+    },
+    "Lien kybernow://" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "kybernow:// link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lien kybernow://"
+          }
+        }
+      }
+    },
+    "Manette prête : %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gamepad ready: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manette prête : %@"
+          }
+        }
+      }
+    },
+    "Manette vue par l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gamepad seen by the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manette vue par l'ordinateur"
+          }
+        }
+      }
+    },
+    "Max : sans compromis. Latence minimale, 4:4:4, gros débit." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max: no compromise. Lowest latency, 4:4:4, high bitrate."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max : sans compromis. Latence minimale, 4:4:4, gros débit."
+          }
+        }
+      }
+    },
+    "Mesures" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Measurements"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesures"
+          }
+        }
+      }
+    },
+    "Mesures détaillées" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detailed measurements"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesures détaillées"
+          }
+        }
+      }
+    },
+    "Mesures détaillées (⌃⌥⌘S)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Detailed measurements (⌃⌥⌘S)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mesures détaillées (⌃⌥⌘S)"
+          }
+        }
+      }
+    },
+    "Mise en paquets et départ sur le réseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Packetising and sending over the network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise en paquets et départ sur le réseau"
+          }
+        }
+      }
+    },
+    "Mises à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Updates"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mises à jour"
+          }
+        }
+      }
+    },
+    "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game mouse as soon as a full-screen game on the computer hides its pointer; desktop mouse the rest of the time. Full-screen browsers and video players stay on the desktop mouse."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau."
+          }
+        }
+      }
+    },
+    "Mot de passe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Password"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mot de passe"
+          }
+        }
+      }
+    },
+    "Médianes de la dernière seconde. Le pointillé marque la durée d'une image à %lld i/s." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medians over the last second. The dotted line marks the duration of one frame at %lld fps."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Médianes de la dernière seconde. Le pointillé marque la durée d'une image à %lld i/s."
+          }
+        }
+      }
+    },
+    "Ne pas ajouter cet ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do not add this computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ne pas ajouter cet ordinateur"
+          }
+        }
+      }
+    },
+    "Nouvel ordinateur · jamais ouvert depuis ce Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New computer · never opened from this Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvel ordinateur · jamais ouvert depuis ce Mac"
+          }
+        }
+      }
+    },
+    "OU" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OR"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OU"
+          }
+        }
+      }
+    },
+    "On prépare %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preparing %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On prépare %@"
+          }
+        }
+      }
+    },
+    "Oublier cet ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Forget this computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oublier cet ordinateur"
+          }
+        }
+      }
+    },
+    "Ouvrir pour la première fois" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open for the first time"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir pour la première fois"
+          }
+        }
+      }
+    },
+    "Paquets perdus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lost packets"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paquets perdus"
+          }
+        }
+      }
+    },
+    "Paquets perdus sur le réseau d'après Kyber. La correction d'erreurs en rattrape la plupart sans perte d'image." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Packets lost on the network according to Kyber. Error correction recovers most of them without losing a frame."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paquets perdus sur le réseau d'après Kyber. La correction d'erreurs en rattrape la plupart sans perte d'image."
+          }
+        }
+      }
+    },
+    "Par adresse" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "By address"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Par adresse"
+          }
+        }
+      }
+    },
+    "Personnalisé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personnalisé"
+          }
+        }
+      }
+    },
+    "Personnalisé : vos propres réglages, dans Réglages." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom: your own settings, in Settings."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personnalisé : vos propres réglages, dans Réglages."
+          }
+        }
+      }
+    },
+    "Personnalisé : vous avez ajusté un profil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom: you adjusted a profile."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personnalisé : vous avez ajusté un profil."
+          }
+        }
+      }
+    },
+    "Pertes · 30 s" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Losses · 30 s"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pertes · 30 s"
+          }
+        }
+      }
+    },
+    "Plein écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plein écran"
+          }
+        }
+      }
+    },
+    "Plein écran ou fenêtre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full screen or window"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plein écran ou fenêtre"
+          }
+        }
+      }
+    },
+    "Plein écran ou fenêtre (⌃⌥⌘F)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full screen or window (⌃⌥⌘F)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plein écran ou fenêtre (⌃⌥⌘F)"
+          }
+        }
+      }
+    },
+    "Plus de débit, plus de détails dans les scènes chargées. En réseau local, 80 à 150 Mbit/s suffisent en 4K." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More bitrate, more detail in busy scenes. On a local network, 80 to 150 Mbit/s is enough for 4K."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus de débit, plus de détails dans les scènes chargées. En réseau local, 80 à 150 Mbit/s suffisent en 4K."
+          }
+        }
+      }
+    },
+    "Plus léger à encoder, décoder et transporter. Sans : le texte au pixel près." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lighter to encode, decode and carry. Without it: pixel-perfect text."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus léger à encoder, décoder et transporter. Sans : le texte au pixel près."
+          }
+        }
+      }
+    },
+    "Plus tard" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Later"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus tard"
+          }
+        }
+      }
+    },
+    "Plus tard : la proposition reste dans la barre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Later: the offer stays in the bar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plus tard : la proposition reste dans la barre"
+          }
+        }
+      }
+    },
+    "Port de la console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Console port"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port de la console"
+          }
+        }
+      }
+    },
+    "Pourquoi garder la dernière image ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Why keep the last image?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pourquoi garder la dernière image ?"
+          }
+        }
+      }
+    },
+    "Premières images" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First frames"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premières images"
+          }
+        }
+      }
+    },
+    "Premières images…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First frames…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premières images…"
+          }
+        }
+      }
+    },
+    "Presse-papiers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clipboard"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presse-papiers"
+          }
+        }
+      }
+    },
+    "Presse-papiers non partagé (Réglages)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clipboard not shared (Settings)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presse-papiers non partagé (Réglages)"
+          }
+        }
+      }
+    },
+    "Presse-papiers partagé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shared clipboard"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presse-papiers partagé"
+          }
+        }
+      }
+    },
+    "Presse-papiers partagé avec l'ordinateur (texte)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clipboard shared with the computer (text)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Presse-papiers partagé avec l'ordinateur (texte)"
+          }
+        }
+      }
+    },
+    "Profil : Jeu, Bureau ou Max" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profile: Game, Desktop or Max"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profil : Jeu, Bureau ou Max"
+          }
+        }
+      }
+    },
+    "QR code de sa console" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code from its console"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code de sa console"
+          }
+        }
+      }
+    },
+    "QR code ou lien" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code or link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QR code ou lien"
+          }
+        }
+      }
+    },
+    "Qu'est-ce que la synchro verticale ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What is vertical sync?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qu'est-ce que la synchro verticale ?"
+          }
+        }
+      }
+    },
+    "Qu'est-ce que le 4:4:4 ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What is 4:4:4?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qu'est-ce que le 4:4:4 ?"
+          }
+        }
+      }
+    },
+    "Quitter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter"
+          }
+        }
+      }
+    },
+    "Rapide" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fast"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rapide"
+          }
+        }
+      }
+    },
+    "Recevoir les versions bêta" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get beta versions"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recevoir les versions bêta"
+          }
+        }
+      }
+    },
+    "Rechercher des mises à jour…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check for updates…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rechercher des mises à jour…"
+          }
+        }
+      }
+    },
+    "Recherche…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Searching…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recherche…"
+          }
+        }
+      }
+    },
+    "Recommandé : plus net à débit égal, décodé par la puce de ce Mac." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recommended: sharper at the same bitrate, decoded by this Mac's chip."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recommandé : plus net à débit égal, décodé par la puce de ce Mac."
+          }
+        }
+      }
+    },
+    "Reconnexion à %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnecting to %@…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnexion à %@…"
+          }
+        }
+      }
+    },
+    "Refaire l'écran de l'ordinateur à la définition et à la fréquence de cet écran (%lld Hz), puis relancer l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rebuild the computer's display at this screen's resolution and refresh rate (%lld Hz), then restart the picture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refaire l'écran de l'ordinateur à la définition et à la fréquence de cet écran (%lld Hz), puis relancer l'image"
+          }
+        }
+      }
+    },
+    "Refuser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Decline"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refuser"
+          }
+        }
+      }
+    },
+    "Relancez KyberNow pour changer de langue." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relaunch KyberNow to change the language."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Relancez KyberNow pour changer de langue."
+          }
+        }
+      }
+    },
+    "Remettre %lld × %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore %lld × %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remettre %lld × %lld"
+          }
+        }
+      }
+    },
+    "Remplacées" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replaced"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacées"
+          }
+        }
+      }
+    },
+    "Rendu et attente du prochain rafraîchissement de l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering and waiting for the display's next refresh"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendu et attente du prochain rafraîchissement de l'écran"
+          }
+        }
+      }
+    },
+    "Retour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour"
+          }
+        }
+      }
+    },
+    "Revenir à l'accueil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to home"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revenir à l'accueil"
+          }
+        }
+      }
+    },
+    "Réessayer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réessayer"
+          }
+        }
+      }
+    },
+    "Réglages de %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ settings"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages de %@"
+          }
+        }
+      }
+    },
+    "Réglages de connexion" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connection settings"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages de connexion"
+          }
+        }
+      }
+    },
+    "Réglages…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages…"
+          }
+        }
+      }
+    },
+    "Réseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réseau"
+          }
+        }
+      }
+    },
+    "Sa signature · aucune image gardée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its signature · no image kept"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sa signature · aucune image gardée"
+          }
+        }
+      }
+    },
+    "Sa signature · pas encore d'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its signature · no image yet"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sa signature · pas encore d'image"
+          }
+        }
+      }
+    },
+    "Sans Steam sur l'ordinateur, le son reste aussi sur ses haut-parleurs." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Without Steam on the computer, sound also stays on its speakers."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sans Steam sur l'ordinateur, le son reste aussi sur ses haut-parleurs."
+          }
+        }
+      }
+    },
+    "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No compromise: lowest latency, 4:4:4 and high bitrate. Ideal on a local network."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local."
+          }
+        }
+      }
+    },
+    "Sans elle, l'image s'affiche dès qu'elle est décodée : la latence la plus basse, mais l'écran peut montrer deux images coupées par une ligne (déchirure)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Without it, each frame shows as soon as it is decoded: the lowest latency, but the display may show two frames split by a line (tearing)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sans elle, l'image s'affiche dès qu'elle est décodée : la latence la plus basse, mais l'écran peut montrer deux images coupées par une ligne (déchirure)."
+          }
+        }
+      }
+    },
+    "Scanner un QR code" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scan a QR code"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scanner un QR code"
+          }
+        }
+      }
+    },
+    "Se connecter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se connecter"
+          }
+        }
+      }
+    },
+    "Se déconnecter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disconnect"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se déconnecter"
+          }
+        }
+      }
+    },
+    "Se déconnecter (⌃⌥⌘D)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disconnect (⌃⌥⌘D)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se déconnecter (⌃⌥⌘D)"
+          }
+        }
+      }
+    },
+    "Se reconnecter tout seul" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reconnect automatically"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se reconnecter tout seul"
+          }
+        }
+      }
+    },
+    "Ses écrans tels quels, sans écran virtuel." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its displays as they are, no virtual display."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ses écrans tels quels, sans écran virtuel."
+          }
+        }
+      }
+    },
+    "Session" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session"
+          }
+        }
+      }
+    },
+    "Session : %lld images, %lld paquets" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session: %lld frames, %lld packets"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session : %lld images, %lld paquets"
+          }
+        }
+      }
+    },
+    "Si elle diffère, quelqu'un se fait peut-être passer pour votre ordinateur. Refusez, et vérifiez l'adresse." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If it differs, someone may be impersonating your computer. Decline, and check the address."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si elle diffère, quelqu'un se fait peut-être passer pour votre ordinateur. Refusez, et vérifiez l'adresse."
+          }
+        }
+      }
+    },
+    "Signature" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signature"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signature"
+          }
+        }
+      }
+    },
+    "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Six channels. This Mac needs a 5.1 output (HDMI receiver, soundbar)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son)."
+          }
+        }
+      }
+    },
+    "Son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sound"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son"
+          }
+        }
+      }
+    },
+    "Son certificat, une seule fois" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Its certificate, just once"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son certificat, une seule fois"
+          }
+        }
+      }
+    },
+    "Son coupé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sound off"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Son coupé"
+          }
+        }
+      }
+    },
+    "Souris" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Souris"
+          }
+        }
+      }
+    },
+    "Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse: Auto switches to the game mouse when a game is full screen on the computer (⌃⌥⌘M toggles)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)"
+          }
+        }
+      }
+    },
+    "Souris : mode jeu ou bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse: game or desktop"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Souris : mode jeu ou bureau"
+          }
+        }
+      }
+    },
+    "Souris en mode jeu." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game mouse on."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Souris en mode jeu."
+          }
+        }
+      }
+    },
+    "Souris jeu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Game mouse"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Souris jeu"
+          }
+        }
+      }
+    },
+    "Stéréo" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stereo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stéréo"
+          }
+        }
+      }
+    },
+    "Sur ce Mac" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On this Mac"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur ce Mac"
+          }
+        }
+      }
+    },
+    "Sur ce Mac. Partez d'un profil, ajustez ensuite si besoin : il devient « Personnalisé »." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On this Mac. Start from a profile, then adjust if needed: it becomes “Custom”."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur ce Mac. Partez d'un profil, ajustez ensuite si besoin : il devient « Personnalisé »."
+          }
+        }
+      }
+    },
+    "Sur ce réseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On this network"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur ce réseau"
+          }
+        }
+      }
+    },
+    "Sur l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur l'ordinateur"
+          }
+        }
+      }
+    },
+    "Sur mesure" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur mesure"
+          }
+        }
+      }
+    },
+    "Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), c'est l'écran qui attend l'image : gardez la synchro, elle ne coûte rien." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On a variable refresh rate display (ProMotion, Adaptive-Sync), the display waits for the frame: keep sync on, it costs nothing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sur un écran à fréquence variable (ProMotion, Adaptive-Sync), c'est l'écran qui attend l'image : gardez la synchro, elle ne coûte rien."
+          }
+        }
+      }
+    },
+    "Synchro" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchro"
+          }
+        }
+      }
+    },
+    "Synchro verticale" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vertical sync"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchro verticale"
+          }
+        }
+      }
+    },
+    "Synchroniser avec iCloud" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sync with iCloud"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synchroniser avec iCloud"
+          }
+        }
+      }
+    },
+    "TROUVÉ SUR LE RÉSEAU" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FOUND ON THE NETWORK"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TROUVÉ SUR LE RÉSEAU"
+          }
+        }
+      }
+    },
+    "Taille de la fenêtre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Window size"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taille de la fenêtre"
+          }
+        }
+      }
+    },
+    "Texte net (4:4:4)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sharp text (4:4:4)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texte net (4:4:4)"
+          }
+        }
+      }
+    },
+    "Texte net (4:4:4), aucune image perdue, débit plus élevé." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sharp text (4:4:4), no dropped frames, higher bitrate."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Texte net (4:4:4), aucune image perdue, débit plus élevé."
+          }
+        }
+      }
+    },
+    "Touche ⌘ envoyée comme Ctrl" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "⌘ key sent as Ctrl"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touche ⌘ envoyée comme Ctrl"
+          }
+        }
+      }
+    },
+    "Toutes les couleurs, pour chaque pixel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every colour, for every pixel"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toutes les couleurs, pour chaque pixel"
+          }
+        }
+      }
+    },
+    "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All gamepads, PlayStation included, become Xbox 360 gamepads on the computer: the ones every game recognises."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toutes les manettes, PlayStation comprises, deviennent des manettes Xbox 360 sur l'ordinateur : celles que tous les jeux reconnaissent."
+          }
+        }
+      }
+    },
+    "Trajet d'une image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path of a frame"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trajet d'une image"
+          }
+        }
+      }
+    },
+    "Trois façons de faire, choisissez la plus simple pour vous." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Three ways to do it: pick the easiest for you."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trois façons de faire, choisissez la plus simple pour vous."
+          }
+        }
+      }
+    },
+    "Trousseau iCloud : erreur %d." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Keychain: error %d."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trousseau iCloud : erreur %d."
+          }
+        }
+      }
+    },
+    "Trousseau iCloud refusé : droit keychain-access-groups absent du profil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iCloud Keychain refused: keychain-access-groups entitlement missing from the profile."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trousseau iCloud refusé : droit keychain-access-groups absent du profil."
+          }
+        }
+      }
+    },
+    "Trousseau verrouillé : les mots de passe partiront à son ouverture." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keychain locked: passwords will be sent once it is unlocked."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trousseau verrouillé : les mots de passe partiront à son ouverture."
+          }
+        }
+      }
+    },
+    "Très haut débit. En Wi-Fi ou sur un réseau chargé, des images risquent de se perdre et la latence de grimper. Préférez un câble Ethernet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Very high bitrate. On Wi-Fi or a busy network, frames may be lost and latency may climb. Prefer an Ethernet cable."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Très haut débit. En Wi-Fi ou sur un réseau chargé, des images risquent de se perdre et la latence de grimper. Préférez un câble Ethernet."
+          }
+        }
+      }
+    },
+    "Un écran de %@ l'attend." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A %@ display is waiting for it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un écran de %@ l'attend."
+          }
+        }
+      }
+    },
+    "Un écran de %lld × %lld à %lld Hz l'attend, taillé pour cet écran." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A %lld × %lld display at %lld Hz is waiting for it, sized for this screen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un écran de %lld × %lld à %lld Hz l'attend, taillé pour cet écran."
+          }
+        }
+      }
+    },
+    "Un écran de %lld × %lld à %lld Hz l'attend." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A %lld × %lld display at %lld Hz is waiting for it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un écran de %lld × %lld à %lld Hz l'attend."
+          }
+        }
+      }
+    },
+    "Un écran de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One of the computer's displays"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un écran de l'ordinateur"
+          }
+        }
+      }
+    },
+    "Un écran à la taille de cette fenêtre l'attend." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A display the size of this window is waiting for it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un écran à la taille de cette fenêtre l'attend."
+          }
+        }
+      }
+    },
+    "Une image perdue est réparée ou sautée, jamais attendue : la latence reste basse." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A lost frame is repaired or skipped, never waited for: latency stays low."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image perdue est réparée ou sautée, jamais attendue : la latence reste basse."
+          }
+        }
+      }
+    },
+    "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A Sony gamepad stays a DualShock 4 on the computer (touchpad, light bar for games that use them); the others stay Xbox 360 gamepads. Some older games do not see it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une manette Sony reste une DualShock 4 sur l'ordinateur (pavé tactile, barre lumineuse pour les jeux qui s'en servent) ; les autres restent des Xbox 360. Certains jeux anciens ne la voient pas."
+          }
+        }
+      }
+    },
+    "Vos autres ordinateurs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your other computers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos autres ordinateurs"
+          }
+        }
+      }
+    },
+    "Vos ordinateurs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs"
+          }
+        }
+      }
+    },
+    "Vos ordinateurs et leurs accès arrivent sur l'Apple TV connectée au même compte iCloud, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers and their credentials appear on the Apple TV signed in to the same iCloud account, with nothing to type. Passwords stay in iCloud Keychain, end-to-end encrypted."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs et leurs accès arrivent sur l'Apple TV connectée au même compte iCloud, sans rien taper. Mots de passe dans le Trousseau iCloud, chiffré de bout en bout."
+          }
+        }
+      }
+    },
+    "Vos ordinateurs,\nici." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers,\nright here."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs,\nici."
+          }
+        }
+      }
+    },
+    "Votre compte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre compte"
+          }
+        }
+      }
+    },
+    "Votre compte KyberNow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your KyberNow account"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre compte KyberNow"
+          }
+        }
+      }
+    },
+    "Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computer proves its identity with a certificate KyberNow created during installation. Compare its fingerprint with the one shown in the computer's console, under **Devices**."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**."
+          }
+        }
+      }
+    },
+    "Votre écran suit déjà l'image (fréquence variable) : sans synchro, vous ne gagnez presque rien." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your display already follows the picture (variable refresh rate): turning sync off gains you almost nothing."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre écran suit déjà l'image (fréquence variable) : sans synchro, vous ne gagnez presque rien."
+          }
+        }
+      }
+    },
+    "Vous entrez dans %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Entering %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous entrez dans %@"
+          }
+        }
+      }
+    },
+    "Vérification…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification…"
+          }
+        }
+      }
+    },
+    "Vérifier l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verify the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifier l'ordinateur"
+          }
+        }
+      }
+    },
+    "Windows, macOS ou Linux : ils s'ouvrent tous de la même façon." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows, macOS or Linux: they all open the same way."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows, macOS ou Linux : ils s'ouvrent tous de la même façon."
+          }
+        }
+      }
+    },
+    "Xbox 360 : toutes les manettes, PlayStation comprises, passent pour des manettes Xbox 360, celles que tous les jeux reconnaissent. Fidèle : une manette Sony reste une DualShock 4, avec son pavé tactile et sa barre lumineuse pour les jeux qui s'en servent ; certains jeux anciens ne la voient pas." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xbox 360: every gamepad, PlayStation included, passes as an Xbox 360 gamepad, the kind every game recognises. Faithful: a Sony gamepad stays a DualShock 4, with its touchpad and light bar for games that use them; some older games do not see it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xbox 360 : toutes les manettes, PlayStation comprises, passent pour des manettes Xbox 360, celles que tous les jeux reconnaissent. Fidèle : une manette Sony reste une DualShock 4, avec son pavé tactile et sa barre lumineuse pour les jeux qui s'en servent ; certains jeux anciens ne la voient pas."
+          }
+        }
+      }
+    },
+    "Xbox 360 ou fidèle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xbox 360 or faithful"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Xbox 360 ou fidèle"
+          }
+        }
+      }
+    },
+    "activé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "on"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "activé"
+          }
+        }
+      }
+    },
+    "agrandi, comme %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "scaled, looks like %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "agrandi, comme %@"
+          }
+        }
+      }
+    },
+    "aller-retour %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "round trip %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aller-retour %@"
+          }
+        }
+      }
+    },
+    "aller-retour —" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "round trip —"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aller-retour —"
+          }
+        }
+      }
+    },
+    "annonce sans empreinte" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "announced without a fingerprint"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "annonce sans empreinte"
+          }
+        }
+      }
+    },
+    "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "none of the computer's displays is on: turn its displays back on or restart it"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aucun écran de l'ordinateur n'est allumé : rallumez ses écrans ou redémarrez-le"
+          }
+        }
+      }
+    },
+    "aujourd'hui, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "today, %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "aujourd'hui, %@"
+          }
+        }
+      }
+    },
+    "choisir" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "select"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "choisir"
+          }
+        }
+      }
+    },
+    "connexion perdue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "connection lost"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "connexion perdue"
+          }
+        }
+      }
+    },
+    "de la capture\nà votre écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "from capture\nto your screen"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "de la capture\nà votre écran"
+          }
+        }
+      }
+    },
+    "désactivé" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "off"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "désactivé"
+          }
+        }
+      }
+    },
+    "empreinte annoncée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fingerprint announced"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "empreinte annoncée"
+          }
+        }
+      }
+    },
+    "ex. 192.168.1.100" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "e.g. 192.168.1.100"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ex. 192.168.1.100"
+          }
+        }
+      }
+    },
+    "ex. 37462" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "e.g. 37462"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ex. 37462"
+          }
+        }
+      }
+    },
+    "fenêtre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "window"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fenêtre"
+          }
+        }
+      }
+    },
+    "fermer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "close"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "fermer"
+          }
+        }
+      }
+    },
+    "hier, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "yesterday, %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "hier, %@"
+          }
+        }
+      }
+    },
+    "il y a %lld jours" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld days ago"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "il y a %lld jours"
+          }
+        }
+      }
+    },
+    "l'ordinateur n'a annoncé aucun écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the computer announced no display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "l'ordinateur n'a annoncé aucun écran"
+          }
+        }
+      }
+    },
+    "le %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "on %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "le %@"
+          }
+        }
+      }
+    },
+    "maintenant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "maintenant"
+          }
+        }
+      }
+    },
+    "mot de passe introuvable dans le Trousseau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "password not found in the Keychain"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "mot de passe introuvable dans le Trousseau"
+          }
+        }
+      }
+    },
+    "ms médiane" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms median"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ms médiane"
+          }
+        }
+      }
+    },
+    "naviguer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "navigate"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "naviguer"
+          }
+        }
+      }
+    },
+    "pertes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "losses"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pertes"
+          }
+        }
+      }
+    },
+    "pic %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "peak %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pic %@"
+          }
+        }
+      }
+    },
+    "port du flux inconnu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "unknown stream port"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "port du flux inconnu"
+          }
+        }
+      }
+    },
+    "pour la reprendre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "to get it back"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "pour la reprendre"
+          }
+        }
+      }
+    },
+    "revenir à l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "back to the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "revenir à l'ordinateur"
+          }
+        }
+      }
+    },
+    "sans écran virtuel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "no virtual display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sans écran virtuel"
+          }
+        }
+      }
+    },
+    "session fenêtrée, l'écran suit la fenêtre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "windowed session, the display follows the window"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "session fenêtrée, l'écran suit la fenêtre"
+          }
+        }
+      }
+    },
+    "son %@%@ après l'image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "sound %@%@ after the picture"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "son %@%@ après l'image"
+          }
+        }
+      }
+    },
+    "tampon %@ · sortie %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "buffer %@ · output %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "tampon %@ · sortie %@"
+          }
+        }
+      }
+    },
+    "« %@ » dans la barre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” in the bar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "« %@ » dans la barre."
+          }
+        }
+      }
+    },
+    "À bientôt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "See you soon"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À bientôt"
+          }
+        }
+      }
+    },
+    "À la fin de chaque session, l'app garde une petite image de l'écran de l'ordinateur, sur ce Mac seulement. Elle sert de fond à l'accueil." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the end of each session, the app keeps a small image of the computer's screen, on this Mac only. It is used as the home screen background."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À la fin de chaque session, l'app garde une petite image de l'écran de l'ordinateur, sur ce Mac seulement. Elle sert de fond à l'accueil."
+          }
+        }
+      }
+    },
+    "À la fin de la session, l'écran virtuel disparaît et les écrans de l'ordinateur se rallument comme avant." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When the session ends, the virtual display goes away and the computer's displays turn back on as before."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À la fin de la session, l'écran virtuel disparaît et les écrans de l'ordinateur se rallument comme avant."
+          }
+        }
+      }
+    },
+    "Écart" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latency"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écart"
+          }
+        }
+      }
+    },
+    "Écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran"
+          }
+        }
+      }
+    },
+    "Écran %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran %@"
+          }
+        }
+      }
+    },
+    "Écran %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran %lld"
+          }
+        }
+      }
+    },
+    "Écran %lld · %lld × %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display %lld · %lld × %lld"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran %lld · %lld × %lld"
+          }
+        }
+      }
+    },
+    "Écran de l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computer's display"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Écran de l'ordinateur"
+          }
+        }
+      }
+    },
+    "à" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "at"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "à"
+          }
+        }
+      }
+    },
+    "à l'instant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "just now"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "à l'instant"
+          }
+        }
+      }
+    },
+    "− Débit plus élevé, encodage un peu plus long sur l'ordinateur" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "− Higher bitrate, slightly longer encoding on the computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "− Débit plus élevé, encodage un peu plus long sur l'ordinateur"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

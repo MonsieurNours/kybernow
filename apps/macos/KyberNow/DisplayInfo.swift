@@ -54,7 +54,7 @@ enum DisplayInfo {
         let max = screen.maximumFramesPerSecond
         guard variableRefresh(screen) else { return "\(max) Hz" }
         let min = Int((1 / screen.maximumRefreshInterval).rounded())
-        return "\(max) Hz variable (\(min)–\(max))"
+        return String(localized: "\(max) Hz variable (\(min)–\(max))")
     }
 }
 

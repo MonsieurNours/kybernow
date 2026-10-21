@@ -10,6 +10,8 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::i18n::Msg;
+
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct Choice {
     pub value: &'static str,
@@ -353,20 +355,20 @@ pub fn fields() -> Vec<Field> {
 
 impl Field {
     /// Vérifie qu'une valeur envoyée par l'interface est acceptable pour ce champ.
-    pub fn validate(&self, value: &Value) -> Result<(), String> {
+    /// Refus éventuel, écrit dans la langue de qui le lit (libellé compris).
+    pub fn validate(&self, value: &Value) -> Result<(), Msg> {
+        let label = json!({ "field": self.id });
         match (self.kind, value) {
             (Kind::Bool, Value::Bool(_)) => Ok(()),
             (Kind::Int { min, max }, Value::Number(n)) => match n.as_i64() {
                 Some(v) if (min..=max).contains(&v) => Ok(()),
-                _ => Err(format!("{} : valeur attendue entre {min} et {max}", self.label)),
+                _ => Err(Msg::new("config.outOfRange").with("label", label).with("min", min).with("max", max)),
             },
             (Kind::Enum { options }, Value::String(s)) if options.iter().any(|o| o.value == s) => Ok(()),
-            (Kind::Enum { options }, _) => Err(format!(
-                "{} : valeurs possibles {}",
-                self.label,
-                options.iter().map(|o| o.value).collect::<Vec<_>>().join(", ")
-            )),
-            _ => Err(format!("{} : type de valeur invalide", self.label)),
+            (Kind::Enum { options }, _) => Err(Msg::new("config.allowedValues")
+                .with("label", label)
+                .with("values", options.iter().map(|o| o.value).collect::<Vec<_>>().join(", "))),
+            _ => Err(Msg::new("config.invalidType").with("label", label)),
         }
     }
 }

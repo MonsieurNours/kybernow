@@ -94,9 +94,9 @@ struct HomeView: View {
 
     private var padsLabel: String {
         switch pads.pads.count {
-        case 0: return "Manettes"
-        case 1: return "1 manette"
-        default: return "\(pads.pads.count) manettes"
+        case 0: return String(localized: "Manettes")
+        case 1: return String(localized: "1 manette")
+        default: return String(localized: "\(pads.pads.count) manettes")
         }
     }
 
@@ -166,7 +166,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 14) {
                     Circle().fill(Theme.accent).frame(width: 9, height: 9)
-                    Theme.eyebrow("Bienvenue").font(Theme.mono(18))
+                    Theme.eyebrow(String(localized: "Bienvenue")).font(Theme.mono(18))
                 }
                 Text("Vos ordinateurs, sur ce téléviseur")
                     .font(Theme.display(110, 680))
@@ -197,27 +197,32 @@ struct HomeView: View {
         let route = AudioRoute.current
         let mode = host.map { TVDisplay.mode(for: $0.settings) } ?? TVDisplay.native
         return VStack(alignment: .leading, spacing: 22) {
-            Theme.eyebrow("Prêt à jouer")
+            Theme.eyebrow(String(localized: "Prêt à jouer"))
             readyRow("game-controller", padsTitle, padsDetail)
             readyRow(route.isLate ? "warning" : "speaker-high",
-                     "Son \(route.channelsLabel) · \(route.name)",
-                     route.kind == .hdmi ? "LPCM \(route.channels) canaux · sortie \(route.latencyMs) ms" : "Sortie \(route.latencyMs) ms")
+                     String(localized: "Son \(route.channelsLabel) · \(route.name)"),
+                     route.kind == .hdmi ? String(localized: "LPCM \(route.channels) canaux · sortie \(route.latencyMs) ms") : String(localized: "Sortie \(route.latencyMs) ms"))
             readyRow("monitor", "\(TVDisplay.label(mode.width, mode.height)) · \(mode.refresh) Hz · \(host?.settings.codec == .h264 ? "H.264" : "HEVC")",
-                     host?.lastLatencyMs.map { "Dernière session \(Self.ms($0)) ms médiane" } ?? "Pas encore de session ici")
+                     host?.lastLatencyMs.map { String(localized: "Dernière session \(Self.ms($0)) ms médiane") } ?? String(localized: "Pas encore de session ici"))
         }
         .padding(.horizontal, 30).padding(.vertical, 28)
         .glass(24)
     }
 
     private var padsTitle: String {
-        guard !pads.pads.isEmpty else { return "Aucune manette" }
-        return pads.pads.prefix(2).map { "J\($0.player) \(Self.short($0.name))" }.joined(separator: " · ")
+        guard !pads.pads.isEmpty else { return String(localized: "Aucune manette") }
+        return pads.pads.prefix(2).map { String(localized: "J\($0.player) \(Self.short($0.name))") }.joined(separator: " · ")
     }
 
     private var padsDetail: String {
-        let levels = pads.pads.prefix(2).compactMap { $0.battery }.map { "\(Int(($0 * 100).rounded())) %" }
-        if pads.pads.isEmpty { return "Allumez-en une en mode appairage" }
-        return levels.isEmpty ? (pads.pads.count > 1 ? "Branchées" : "Branchée") : "\(levels.count > 1 ? "Batteries" : "Batterie") \(levels.joined(separator: " · "))"
+        let levels = pads.pads.prefix(2).compactMap { $0.battery }.map { b -> String in
+            let percent = Int((b * 100).rounded())
+            return String(localized: "\(percent) %")
+        }
+        if pads.pads.isEmpty { return String(localized: "Allumez-en une en mode appairage") }
+        if levels.isEmpty { return pads.pads.count > 1 ? String(localized: "Branchées") : String(localized: "Branchée") }
+        let joined = levels.joined(separator: " · ")
+        return levels.count > 1 ? String(localized: "Batteries \(joined)") : String(localized: "Batterie \(joined)")
     }
 
     private func readyRow(_ icon: String, _ title: String, _ detail: String) -> some View {
@@ -236,7 +241,7 @@ struct HomeView: View {
     private var shelf: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack {
-                Theme.eyebrow("Vos ordinateurs")
+                Theme.eyebrow(String(localized: "Vos ordinateurs"))
                 Spacer()
                 HStack(spacing: 30) {
                     HStack(spacing: 10) {
@@ -360,32 +365,33 @@ struct HomeView: View {
 
     private func hint(_ p: Profile?) -> String {
         switch p {
-        case .jeu?: return "Jeu : latence minimale, 4K à 60 Hz, manettes prêtes."
-        case .bureau?: return "Bureau : texte net (4:4:4), aucune image perdue. La télécommande sert de souris."
-        case .max?: return "Max : sans compromis, 4:4:4 et gros débit. Idéal en réseau local filaire."
-        case nil: return "Personnalisé : vos réglages pour cet ordinateur."
+        case .jeu?: return String(localized: "Jeu : latence minimale, 4K à 60 Hz, manettes prêtes.")
+        case .bureau?: return String(localized: "Bureau : texte net (4:4:4), aucune image perdue. La télécommande sert de souris.")
+        case .max?: return String(localized: "Max : sans compromis, 4:4:4 et gros débit. Idéal en réseau local filaire.")
+        case nil: return String(localized: "Personnalisé : vos réglages pour cet ordinateur.")
         }
     }
 
     private func caption(_ h: Host) -> String {
         if let p = app.store.imagery.pictures[h.id] {
-            return "\(p.source == .lastSession ? "Dernière image" : "Aperçu") · \(Self.when(p.date))"
+            let kind = p.source == .lastSession ? String(localized: "Dernière image") : String(localized: "Aperçu")
+            return "\(kind) · \(Self.when(p.date))"
         }
-        if let last = h.lastSession { return "Dernière session · \(Self.when(last))" }
-        return "Jamais ouvert sur cette Apple TV"
+        if let last = h.lastSession { return String(localized: "Dernière session · \(Self.when(last))") }
+        return String(localized: "Jamais ouvert sur cette Apple TV")
     }
 
     private func status(_ h: Host) -> String {
-        guard online(h) else { return "Hors ligne" }
-        return app.isLocal(h) ? "En ligne · réseau local" : "En ligne · par VPN"
+        guard online(h) else { return String(localized: "Hors ligne") }
+        return app.isLocal(h) ? String(localized: "En ligne · réseau local") : String(localized: "En ligne · par VPN")
     }
 
     private func shortStatus(_ h: Host) -> String {
         guard online(h) else {
-            if let last = h.lastSession { return "Vu \(Self.ago(last))" }
-            return "Hors ligne"
+            if let last = h.lastSession { return String(localized: "Vu \(Self.ago(last))") }
+            return String(localized: "Hors ligne")
         }
-        return app.isLocal(h) ? "Réseau local" : "VPN"
+        return app.isLocal(h) ? String(localized: "Réseau local") : "VPN"
     }
 
     private func specs(_ h: Host) -> String {
@@ -398,14 +404,16 @@ struct HomeView: View {
     }
 
     private func screenLine(_ h: Host, online: Bool) -> String {
-        guard online else { return "Allumez-le ou sortez-le de veille : il réapparaîtra tout seul." }
+        guard online else { return String(localized: "Allumez-le ou sortez-le de veille : il réapparaîtra tout seul.") }
         let m = TVDisplay.mode(for: h.settings)
         if store.status[h.id]?.info?.virtualDisplay ?? true {
             let tv = TVDisplay.native
             let same = m.width == tv.width && m.height == tv.height
-            return "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend\(same ? ", celui de ce téléviseur" : "")."
+            return same
+                ? String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend, celui de ce téléviseur.")
+                : String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend.")
         }
-        return "Son écran, jusqu'à \(m.width) × \(m.height) à \(m.refresh) Hz."
+        return String(localized: "Son écran, jusqu'à \(m.width) × \(m.height) à \(m.refresh) Hz.")
     }
 
     static func gpu(_ name: String) -> String {
@@ -419,27 +427,34 @@ struct HomeView: View {
         name.replacingOccurrences(of: " Controller", with: "")
     }
 
+    /// Virgule décimale en français, point en anglais.
     static func ms(_ v: Double) -> String {
-        String(format: "%.1f", v).replacingOccurrences(of: ".", with: ",")
+        let text = String(format: "%.1f", v)
+        return LanguageChoice.effective == "fr" ? text.replacingOccurrences(of: ".", with: ",") : text
     }
 
-    /// « aujourd'hui, 10 h 12 », « hier, 21 h 40 », « lundi, 18 h 05 », « il y a 12 jours ».
+    /// « aujourd'hui, 10 h 12 », « hier, 21 h 40 », « lundi, 18 h 05 », « il y a 12 jours »
+    /// (en anglais : “today, 10:12 AM”, “Monday, 6:05 PM”).
     static func when(_ date: Date) -> String {
         let cal = Calendar.current
-        let hm = date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "fr_FR")))
-            .replacingOccurrences(of: ":", with: " h ")
-        if cal.isDateInToday(date) { return "aujourd'hui, \(hm)" }
-        if cal.isDateInYesterday(date) { return "hier, \(hm)" }
+        let fr = LanguageChoice.effective == "fr"
+        let locale = Locale(identifier: fr ? "fr_FR" : "en_US")
+        let hm = fr
+            ? date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
+                .replacingOccurrences(of: ":", with: " h ")
+            : date.formatted(.dateTime.hour().minute(.twoDigits).locale(locale))
+        if cal.isDateInToday(date) { return String(localized: "aujourd'hui, \(hm)") }
+        if cal.isDateInYesterday(date) { return String(localized: "hier, \(hm)") }
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: Date())).day ?? 0
-        if days < 7 { return "\(date.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "fr_FR")))), \(hm)" }
+        if days < 7 { return "\(date.formatted(.dateTime.weekday(.wide).locale(locale))), \(hm)" }
         return ago(date)
     }
 
     static func ago(_ date: Date) -> String {
         let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
-        if days < 1 { return "aujourd'hui" }
-        if days == 1 { return "hier" }
-        return "il y a \(days) jours"
+        if days < 1 { return String(localized: "aujourd'hui") }
+        if days == 1 { return String(localized: "hier") }
+        return String(localized: "il y a \(days) jours")
     }
 }
 

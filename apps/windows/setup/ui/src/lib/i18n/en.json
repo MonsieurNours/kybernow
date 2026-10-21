@@ -1,0 +1,161 @@
+{
+  "app": {
+    "title": "KyberNow Setup"
+  },
+  "steps": {
+    "welcome": "Welcome",
+    "install": "Installation",
+    "done": "Ready"
+  },
+  "checks": {
+    "windows": "Windows",
+    "arch": "Processor",
+    "gpu": "Graphics card",
+    "display": "Display",
+    "network": "Local network",
+    "webview": "Display engine"
+  },
+  "status": {
+    "running": "In progress",
+    "done": "Done",
+    "warn": "Warning",
+    "error": "Error",
+    "skipped": "Not installed",
+    "info": "Information",
+    "pending": "Coming up"
+  },
+  "rail": {
+    "version": "Version {version}",
+    "free": "Free software (AGPL-3.0) ·",
+    "about": "About",
+    "back": "Back"
+  },
+  "titleBar": {
+    "minimize": "Minimise",
+    "close": "Close",
+    "wait": "Wait until the installation is complete"
+  },
+  "welcome": {
+    "updateLabel": "Update",
+    "updateTitle": "A new version of KyberNow.",
+    "updateLead": "You are going from version {from} to {to}. Your computers, their passwords and your settings stay where they are.",
+    "label": "Welcome",
+    "title": "Your computer, on this PC.",
+    "lead": "Find your computer's screen right here, as if it were in front of you: the picture in a few milliseconds, and a keyboard, mouse and gamepad that respond instantly.",
+    "note": "One minute, just for you, no administrator rights needed. Nothing changes on this PC until you click {action}.",
+    "install": "Install",
+    "update": "Update",
+    "desktop": "Desktop shortcut",
+    "desktopNote": "KyberNow is in the Start menu either way.",
+    "looking": "Looking at this PC…",
+    "seen": "What we found",
+    "rerun": "Run again",
+    "willClose": "KyberNow will be closed during installation.",
+    "analysing": "Analysing…"
+  },
+  "install": {
+    "rows": {
+      "close": {
+        "title": "Closing KyberNow",
+        "text": "The open app closes for the duration of the installation."
+      },
+      "files": {
+        "title": "The KyberNow {version} app",
+        "text": "Its files go into your own folder, without touching the rest of the PC.",
+        "fact": "{arch} version"
+      },
+      "webview": {
+        "title": "WebView2 display engine",
+        "text": "Downloaded from Microsoft and installed for you.",
+        "fact": "Microsoft"
+      },
+      "shortcuts": {
+        "title": "Start menu and kybernow:// link",
+        "text": "The link or QR code from a computer's console opens KyberNow directly.",
+        "warn": "to redo: open KyberNow once and it registers itself again"
+      },
+      "register": {
+        "title": "Installed apps",
+        "text": "KyberNow updates itself, and uninstalls like any other app."
+      }
+    },
+    "preparing": "preparing",
+    "preparingLog": "Preparing…",
+    "fewSeconds": "A few seconds to go",
+    "almost": "Almost done",
+    "failedLabel": "Installation interrupted",
+    "finishedLabel": "Installation complete",
+    "progressLabel": "Installation · {percent}%",
+    "failedTitle": "Something got in the way.",
+    "finishedTitle": "Everything is in place.",
+    "title": "Your computer is coming to this PC.",
+    "installed": "KyberNow {version} is installed.",
+    "lead": "Nothing to do: we show you each step as it happens.",
+    "checkDetail": "to check: see the details",
+    "failed": "failed",
+    "back": "Back",
+    "retry": "Try again",
+    "continue": "Continue",
+    "hideDetail": "Hide details",
+    "showDetail": "Show details"
+  },
+  "done": {
+    "updateLabel": "Update complete",
+    "installLabel": "Installation complete",
+    "title": "KyberNow is ready.",
+    "updateLead": "Your computers are waiting for you on the home screen, with their settings.",
+    "lead": "Open it: a computer on the same network shows up on its own. Otherwise, add it with the link or QR code from its console, or by its address.",
+    "where": "It is also waiting for you in the Start menu. Right-click its icon in the taskbar: your computers, one click away.",
+    "whereDesktop": "It is also waiting for you in the Start menu and on the desktop. Right-click its icon in the taskbar: your computers, one click away.",
+    "session": "During a session",
+    "shift": "Shift",
+    "keys": {
+      "disconnect": "Disconnect",
+      "fullscreen": "Full screen or window",
+      "mouse": "Free or captured mouse (games)"
+    },
+    "bar": "Moving the mouse to the top of the screen shows the session bar.",
+    "close": "Close",
+    "open": "Open KyberNow"
+  },
+  "about": {
+    "version": "version {version}",
+    "madeBy": "Designed and developed by",
+    "included": "Free software included",
+    "component": "Component",
+    "role": "Role",
+    "license": "Licence",
+    "roles": {
+      "kybernow": "The app and its installer",
+      "kyber": "Connection, sound and input (Kyber SAS)",
+      "ffmpeg": "Video decoding",
+      "opus": "Audio decoding",
+      "sdl": "Gamepads",
+      "tauri": "Windows and interface",
+      "svelte": "Interface and core",
+      "fonts": "Interface fonts"
+    },
+    "names": {
+      "svelte": "Svelte, Rust libraries"
+    },
+    "note": "KyberNow is distributed under the AGPL-3.0. The licence texts are in the project repository, on GitHub.",
+    "back": "Back"
+  },
+  "mock": {
+    "arm64Title": "ARM64 processor",
+    "arm64": "The ARM64 version of KyberNow will be installed: it runs without emulation, with the chip's video decoding.",
+    "x64Title": "x64 processor",
+    "x64": "The x64 version of KyberNow will be installed.",
+    "gpu": "{name}: it decodes the picture, for lower latency and longer battery life.",
+    "display": "2560 × 1600 · 120 Hz: your computer can take exactly this size during the session.",
+    "network": "192.168.1.20: a computer on this network shows up in KyberNow on its own.",
+    "webviewTitle": "WebView2 display engine",
+    "webview": "Version 141.0.3537.71, by Microsoft: it draws the KyberNow interface.",
+    "existingTitle": "KyberNow 0.2.7 is installed",
+    "existing": "It will be updated. Your computers, their passwords and your settings stay.",
+    "runningTitle": "KyberNow is open",
+    "running": "It will be closed during installation: a session in progress will stop.",
+    "failed": "Could not put the files in C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
+    "finished": "installation complete"
+  }
+}

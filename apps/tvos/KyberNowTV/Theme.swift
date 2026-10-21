@@ -259,11 +259,11 @@ struct Wordmark: View {
     var size: CGFloat = 28
 
     var body: some View {
-        (Text("Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
-            + Text("Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
+        (Text(verbatim: "Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
+            + Text(verbatim: "Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
             .tracking(-size * 0.012)
             .foregroundStyle(Theme.text)
-            .accessibilityLabel("KyberNow")
+            .accessibilityLabel(Text(verbatim: "KyberNow"))
     }
 }
 
@@ -437,8 +437,8 @@ struct Toggle2: View {
 /// Glyphes d'aide en bas d'écran : ils suivent la dernière manette utilisée.
 struct GlyphHints: View {
     @ObservedObject var pads = GamepadBridge.shared
-    var choose = "Choisir"
-    var back = "Retour"
+    var choose = String(localized: "Choisir")
+    var back = String(localized: "Retour")
 
     var body: some View {
         HStack(spacing: 30) {

@@ -84,7 +84,7 @@ struct GamepadsView: View {
             HStack(spacing: 18) {
                 Icon("game-controller", size: 32).foregroundStyle(Theme.warn)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(p.name) en attente\(others > 0 ? " (+ \(others))" : "")").font(Theme.sans(22, .semibold))
+                    (others > 0 ? Text("\(p.name) en attente (+ \(others))") : Text("\(p.name) en attente")).font(Theme.sans(22, .semibold))
                     Text("L'ordinateur ne voit que quatre manettes : elle prendra la place de la première qui se débranche")
                         .font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
@@ -100,7 +100,7 @@ struct GamepadsView: View {
             HStack(spacing: 18) {
                 Icon("television-simple", size: 32).foregroundStyle(Theme.muted)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Siri Remote").font(Theme.sans(22, .semibold))
+                    Text(verbatim: "Siri Remote").font(Theme.sans(22, .semibold))
                     Text("Pilote KyberNow · en session, souris si vous l'activez").font(Theme.sans(17)).foregroundStyle(Theme.muted)
                 }
             }
@@ -123,8 +123,8 @@ struct GamepadsView: View {
                     .background(RoundedRectangle(cornerRadius: 14).fill(p == nil ? Color.clear : Theme.accentFill))
                     .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(p == nil ? Color.white.opacity(0.2) : .clear, lineWidth: 1.5))
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(p?.name ?? "Place libre").font(Theme.sans(25, .semibold)).foregroundStyle(p == nil ? Theme.faint : Theme.text)
-                    Text(p.map { _ in "Bluetooth · J\(i + 1) sur l'ordinateur" } ?? (i == 2 ? "Allumez une manette en mode appairage" : "Jusqu'à 4 joueurs sur l'ordinateur"))
+                    (p.map { Text($0.name) } ?? Text("Place libre")).font(Theme.sans(25, .semibold)).foregroundStyle(p == nil ? Theme.faint : Theme.text)
+                    (p != nil ? Text("Bluetooth · J\(i + 1) sur l'ordinateur") : i == 2 ? Text("Allumez une manette en mode appairage") : Text("Jusqu'à 4 joueurs sur l'ordinateur"))
                         .font(Theme.sans(18)).foregroundStyle(Theme.muted)
                 }
                 Spacer(minLength: 0)
@@ -156,14 +156,15 @@ struct GamepadsView: View {
     private var live: some View {
         let state = pad.flatMap { pads.live[$0.id] } ?? GamepadBridge.Live()
         let xbox = pad?.kind != .playstation
+        let padLabel = pad?.label ?? "—"
         return VStack(alignment: .leading, spacing: 20) {
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 12) {
                         Circle().fill(Theme.accent).frame(width: 9, height: 9).shadow(color: Theme.accentFill, radius: 6)
-                        Theme.eyebrow("Test en direct · \(pad?.label ?? "—")")
+                        Theme.eyebrow(String(localized: "Test en direct · \(padLabel)"))
                     }
-                    Text(pad?.name ?? "Aucune manette").font(Theme.display(40, 640)).tracking(-1)
+                    (pad.map { Text($0.name) } ?? Text("Aucune manette")).font(Theme.display(40, 640)).tracking(-1)
                 }
                 Spacer()
                 Button {
@@ -216,7 +217,7 @@ struct GamepadsView: View {
         .frame(width: 150)
     }
 
-    private func feature(_ title: String, _ detail: String) -> some View {
+    private func feature(_ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Icon("check", size: 24, bold: true).foregroundStyle(Theme.ok).padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {

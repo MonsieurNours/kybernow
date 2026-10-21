@@ -18,6 +18,7 @@ use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, PolicyChoice, Trigger, VdSettings};
 use crate::access::PendingAccess;
 use crate::activity::{self, DeviceInfo, ModeInfo};
+use crate::i18n::{self, Msg};
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
@@ -72,9 +73,19 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/preview", get(stream_preview))
         .route("/api/stream/end", post(stream_end))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
+        // La langue des réponses (`Accept-Language`, français sans en-tête),
+        // posée avant tout le reste : les refus de `require_session` aussi.
+        .layer(axum::middleware::from_fn(i18n::scope))
 }
 
 pub struct ApiError(StatusCode, String);
+
+impl ApiError {
+    /// Un refus, écrit dans la langue de la requête.
+    fn msg(status: StatusCode, msg: Msg) -> Self {
+        ApiError(status, msg.text())
+    }
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
@@ -84,9 +95,10 @@ impl IntoResponse for ApiError {
 
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> Self {
-        // Message lisible pour l'interface, chaîne complète dans le journal.
+        // Message lisible pour l'interface (dans la langue de la requête),
+        // chaîne complète dans le journal (en français).
         tracing::warn!("{e:#}");
-        ApiError(StatusCode::BAD_REQUEST, format!("{e:#}"))
+        ApiError(StatusCode::BAD_REQUEST, i18n::error_text(i18n::current(), &e))
     }
 }
 
@@ -114,9 +126,9 @@ struct SetupBody {
 /// Trop d'essais manqués depuis cette adresse : 429 avec le délai d'attente.
 fn check_lockout(s: &AppState, peer: SocketAddr) -> ApiResult<()> {
     match s.auth.locked_for(peer.ip()) {
-        Some(wait) => Err(ApiError(
+        Some(wait) => Err(ApiError::msg(
             StatusCode::TOO_MANY_REQUESTS,
-            format!("trop d'essais : réessayez dans {} s", wait.as_secs().max(1)),
+            Msg::new("api.tooManyTries").with("seconds", wait.as_secs().max(1)),
         )),
         None => Ok(()),
     }
@@ -162,7 +174,7 @@ async fn login(
         s.auth.note_failure(peer.ip());
         // Ralentit les essais répétés.
         tokio::time::sleep(Duration::from_millis(800)).await;
-        return Err(ApiError(StatusCode::UNAUTHORIZED, "mot de passe incorrect".into()));
+        return Err(ApiError::msg(StatusCode::UNAUTHORIZED, Msg::new("api.wrongPassword")));
     }
     s.auth.note_success(peer.ip());
     Ok(with_new_session(&s))
@@ -239,10 +251,10 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
 /// l'utilisateur (`x-kyber-local`, voir `local_token.rs`).
 fn local_only(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> ApiResult<()> {
     if !peer.ip().to_canonical().is_loopback() {
-        return Err(ApiError(StatusCode::FORBIDDEN, "réservé à l'ordinateur local".into()));
+        return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localOnly")));
     }
     if !s.local_token.accepts(headers) {
-        return Err(ApiError(StatusCode::FORBIDDEN, "jeton local absent ou périmé".into()));
+        return Err(ApiError::msg(StatusCode::FORBIDDEN, Msg::new("api.localToken")));
     }
     Ok(())
 }
@@ -307,7 +319,7 @@ async fn local_pair_answer(
     match action.as_str() {
         "accept" => pair_accept(State(s), Path(id)).await,
         "refuse" => pair_refuse(State(s), Path(id)).await,
-        _ => Err(ApiError(StatusCode::NOT_FOUND, format!("action inconnue : {action}"))),
+        _ => Err(ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownAction").with("action", action))),
     }
 }
 
@@ -330,7 +342,7 @@ struct UpdateChannelBody {
 async fn update_channel(State(s): State<AppState>, Json(body): Json<UpdateChannelBody>) -> ApiResult<Json<Value>> {
     s.update_settings(|st| st.update_channel = body.channel)?;
     s.updater.set_channel(body.channel);
-    s.activity.event("info", format!("Mises à jour : canal {}", body.channel.as_str()));
+    s.activity.event("info", Msg::new("events.channel").with("channel", body.channel.as_str()));
     let u = s.updater.clone();
     Ok(Json(blocking(move || Ok(u.check())).await?))
 }
@@ -348,10 +360,11 @@ fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
     let body: UpdateRunBody = if body.iter().all(u8::is_ascii_whitespace) {
         UpdateRunBody::default()
     } else {
-        serde_json::from_slice(body).map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("corps illisible : {e}")))?
+        serde_json::from_slice(body)
+            .map_err(|e| ApiError::msg(StatusCode::BAD_REQUEST, Msg::new("api.unreadableBody").with("error", e.to_string())))?
     };
     match crate::update::session_conflict(&s.activity.summary()["live"], body.force) {
-        Some(message) => Err(ApiError(StatusCode::CONFLICT, message)),
+        Some(message) => Err(ApiError::msg(StatusCode::CONFLICT, message)),
         None => Ok(()),
     }
 }
@@ -364,7 +377,7 @@ async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Jso
     let u = s.updater.clone();
     let version = blocking(move || u.install()).await?;
     tracing::info!("mise à jour {version} lancée");
-    s.activity.event("info", format!("Installation de KyberNow {version} lancée"));
+    s.activity.event("info", Msg::new("events.installing").with("version", version.as_str()));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
 
@@ -376,12 +389,14 @@ async fn update_rollback(State(s): State<AppState>, body: Bytes) -> ApiResult<Js
     let u = s.updater.clone();
     let version = blocking(move || u.rollback()).await?;
     tracing::info!("retour à la version {version} lancé");
-    s.activity.event("info", format!("Retour à KyberNow {version} lancé"));
+    s.activity.event("info", Msg::new("events.rollingBack").with("version", version.as_str()));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
 
+/// Les réglages de Kyber exposés, avec leurs textes dans la langue de la requête.
 async fn schema_route() -> Json<Value> {
-    Json(json!({ "groups": schema::GROUPS, "fields": schema::fields() }))
+    let (groups, fields) = i18n::localize_schema(i18n::current(), json!(schema::GROUPS), json!(schema::fields()));
+    Json(json!({ "groups": groups, "fields": fields }))
 }
 
 async fn config(State(s): State<AppState>) -> ApiResult<Json<Value>> {
@@ -441,18 +456,19 @@ async fn upsert_user(
     let existed = s.kyber.users()?.iter().any(|u| u.username == username);
     s.kyber.upsert_user(&username, &body.password)?;
     s.restart_pending.store(true, Ordering::Relaxed);
-    s.activity.event("info", if existed { format!("Mot de passe du compte {username} changé") } else { format!("Compte {username} ajouté") });
+    let key = if existed { "events.passwordChanged" } else { "events.accountAdded" };
+    s.activity.event("info", Msg::new(key).with("username", username.as_str()));
     Ok(Json(json!({ "users": users_json(&s)?, "restart_pending": true })))
 }
 
 async fn delete_user(State(s): State<AppState>, Path(username): Path<String>) -> ApiResult<Json<Value>> {
     if s.kyber.users()?.len() <= 1 {
-        return Err(ApiError(StatusCode::BAD_REQUEST, "il doit rester au moins un utilisateur".into()));
+        return Err(ApiError::msg(StatusCode::BAD_REQUEST, Msg::new("api.lastUser")));
     }
     s.kyber.delete_user(&username)?;
     s.pending_access.forget(&username);
     s.restart_pending.store(true, Ordering::Relaxed);
-    s.activity.event("info", format!("Compte {username} supprimé"));
+    s.activity.event("info", Msg::new("events.accountDeleted").with("username", username.as_str()));
     Ok(Json(json!({ "users": users_json(&s)?, "restart_pending": true })))
 }
 
@@ -462,7 +478,7 @@ async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -
         "start" => s.service.start()?,
         "stop" => s.service.stop()?,
         "restart" => service::restart(s.service.as_ref()).await?,
-        _ => return Err(ApiError(StatusCode::NOT_FOUND, format!("action inconnue : {action}"))),
+        _ => return Err(ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownAction").with("action", action))),
     }
     if action != "stop" {
         // Kyber relit sa configuration en démarrant : comptes compris.
@@ -470,11 +486,11 @@ async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -
         s.pending_access.applied(&taken);
     }
     tracing::info!("service kyber : {action}");
-    s.activity.event("info", match action.as_str() {
-        "start" => "Serveur démarré depuis la console",
-        "stop" => "Serveur arrêté depuis la console",
-        _ => "Serveur redémarré depuis la console",
-    });
+    s.activity.event("info", Msg::new(match action.as_str() {
+        "start" => "events.serverStarted",
+        "stop" => "events.serverStopped",
+        _ => "events.serverRestarted",
+    }));
     Ok(Json(json!({ "state": s.service.state()? })))
 }
 
@@ -500,8 +516,10 @@ async fn log_tail(
     Ok(Json(json!({ "text": text })))
 }
 
+/// `f` dans un fil à part, avec la langue de la requête (textes écrits par `f`).
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> ApiResult<T> {
-    tokio::task::spawn_blocking(f)
+    let lang = i18n::current();
+    tokio::task::spawn_blocking(move || i18n::with_lang(lang, f))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map_err(ApiError::from)
@@ -574,7 +592,7 @@ async fn audio_settings(State(s): State<AppState>, Json(body): Json<AudioSetting
 
 /// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
 fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
-    let bad = || ApiError(StatusCode::UNAUTHORIZED, "identifiants Kyber requis".into());
+    let bad = || ApiError::msg(StatusCode::UNAUTHORIZED, Msg::new("api.kyberCredentials"));
     // Le client web (/ecran) passe par la session de la console.
     if !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t)) {
         return Ok(web_user(s));
@@ -607,12 +625,7 @@ fn web_user(s: &AppState) -> String {
 /// d'une session de la console. Jamais mis en cache par le navigateur.
 async fn web_ticket(State(s): State<AppState>) -> ApiResult<Response> {
     const LIFETIME: i64 = 12 * 3600;
-    let secret = s.kyber.jwt_secret().ok_or_else(|| {
-        ApiError(
-            StatusCode::CONFLICT,
-            "Kyber n'a pas de clé pour les jetons de la console. Réinstallez KyberNow Server pour la créer.".into(),
-        )
-    })?;
+    let secret = s.kyber.jwt_secret().ok_or_else(|| ApiError::msg(StatusCode::CONFLICT, Msg::new("api.noTokenKey")))?;
     let user = web_user(&s);
     let body = json!({
         "token": crate::kyber_proxy::jwt(&secret, &user, LIFETIME),
@@ -746,7 +759,7 @@ async fn stream_prepare(
             if tokio::time::Instant::now() >= deadline {
                 // Il ne répond plus : sa session est close, ses écrans et son
                 // son seront repris par la préparation qui suit.
-                s.activity.drop_live(&format!("n'a pas rendu la main à {device_name}"));
+                s.activity.drop_live(Msg::new("events.noHandover").with("device", device_name.as_str()));
                 break;
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -924,14 +937,14 @@ async fn devices(State(s): State<AppState>) -> Json<Value> {
 /// propre est supprimé (et sa session, s'il en a une, prend fin).
 async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let live = s.activity.live().is_some_and(|l| l.device_id == id);
-    let device = s.activity.forget(&id).ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "appareil inconnu".into()))?;
+    let device = s.activity.forget(&id).ok_or_else(|| ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownDevice")))?;
     let mut revoked = false;
     if device.own_account && s.kyber.users()?.iter().any(|u| u.username == device.user) {
         s.kyber.delete_user(&device.user)?;
         if live {
             s.activity.request_end();
         }
-        s.activity.event("info", format!("Accès de {} retiré (compte {} supprimé)", device.name, device.user));
+        s.activity.event("info", Msg::new("events.accessRevoked").with("name", device.name.as_str()).with("account", device.user.as_str()));
         apply_accounts(&s, &device.user, &device.name, false).await;
         revoked = true;
     }
@@ -975,8 +988,9 @@ async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
 
 /// Redémarre Kyber pour qu'il lise les comptes en attente, s'il ne sert
 /// personne d'autre que `except`. Vrai si Kyber connaît désormais tous les
-/// comptes qui attendaient. `context` complète l'événement du fil.
-async fn apply_pending_access(s: &AppState, except: Option<&str>, context: &str) -> bool {
+/// comptes qui attendaient. `context` complète l'événement du fil
+/// (« , maintenant que personne n'est connecté »).
+async fn apply_pending_access(s: &AppState, except: Option<&str>, context: Option<&str>) -> bool {
     let _one = s.kyber_restart.lock().await;
     let taken = s.pending_access.snapshot();
     if taken.is_empty() {
@@ -1001,7 +1015,8 @@ async fn apply_pending_access(s: &AppState, except: Option<&str>, context: &str)
             s.pending_access.applied(&taken);
             s.restart_pending.store(false, Ordering::Relaxed);
             tracing::info!("Kyber redémarré pour {why}");
-            s.activity.event("info", format!("Serveur redémarré pour {why}{context}"));
+            let context = context.map_or(json!(""), |key| Msg::new(key).to_value());
+            s.activity.event("info", Msg::new("events.restartedFor").with_msg("why", why).with("context", context));
             true
         }
         Err(e) => {
@@ -1020,11 +1035,11 @@ async fn apply_accounts(s: &AppState, account: &str, device: &str, grant: bool) 
     let running = s.service.state().ok() == Some(service::ServiceState::Running);
     if running && kyber_busy(s, None).await {
         let why = PendingAccess::reason(&s.pending_access.snapshot());
-        s.activity.event("info", format!("Redémarrage du serveur en attente pour {why} : il se fera dès la fin de la session en cours"));
+        s.activity.event("info", Msg::new("events.restartWaiting").with_msg("why", why));
         return false;
     }
     let s = s.clone();
-    tokio::spawn(async move { apply_pending_access(&s, None, "").await });
+    tokio::spawn(async move { apply_pending_access(&s, None, None).await });
     running
 }
 
@@ -1036,7 +1051,7 @@ pub fn supervise_access(s: AppState) {
         loop {
             tick.tick().await;
             if !s.pending_access.is_empty() {
-                apply_pending_access(&s, None, ", maintenant que personne n'est connecté").await;
+                apply_pending_access(&s, None, Some("events.contextNobody")).await;
             }
         }
     });
@@ -1063,14 +1078,8 @@ impl Drop for Preparing<'_> {
 /// d'autre ne s'en sert. Sinon, un message clair plutôt qu'un refus de Kyber.
 async fn grant_pending_access(s: &AppState, user: &str, device_id: &str, port: u16) -> ApiResult<()> {
     let busy = |name: Option<String>| {
-        let who = name.map(|n| format!("la session de {n}")).unwrap_or_else(|| "la connexion en cours".into());
-        ApiError(
-            StatusCode::CONFLICT,
-            format!(
-                "Cet appareil vient de recevoir son accès : le serveur doit redémarrer pour en tenir compte. \
-                 Il le fera dès la fin de {who} ; réessayez ensuite."
-            ),
-        )
+        let who = name.map_or_else(|| Msg::new("api.currentConnection"), |n| Msg::new("api.sessionOf").with("name", n));
+        ApiError::msg(StatusCode::CONFLICT, Msg::new("api.accessPending").with_msg("who", who))
     };
     let other_live = || s.activity.live().filter(|l| l.device_id != device_id);
     // Ne jamais couper la session d'un autre appareil (ni la lui prendre :
@@ -1080,7 +1089,7 @@ async fn grant_pending_access(s: &AppState, user: &str, device_id: &str, port: u
     }
     let deadline = tokio::time::Instant::now() + ACCESS_FREE_WAIT;
     while s.pending_access.waits_for(user) {
-        if apply_pending_access(s, Some(device_id), ", qui se connecte").await {
+        if apply_pending_access(s, Some(device_id), Some("events.contextConnecting")).await {
             break;
         }
         if let Some(live) = other_live() {
@@ -1139,10 +1148,10 @@ async fn pair_request(
             tracing::info!("demande d'appairage de « {} » depuis {}", name.trim(), peer.ip());
             Ok(Json(json!({ "id": id, "expires_in": pairing::REQUEST_TTL.as_secs() })))
         }
-        Err(RequestError::Invalid(message)) => Err(ApiError(StatusCode::BAD_REQUEST, message.into())),
+        Err(RequestError::Invalid(key)) => Err(ApiError::msg(StatusCode::BAD_REQUEST, Msg::new(key))),
         Err(RequestError::TooMany) => {
             tracing::warn!("demandes d'appairage refusées depuis {} : trop de demandes", peer.ip());
-            Err(ApiError(StatusCode::TOO_MANY_REQUESTS, "trop de demandes d'appairage : réessayez dans une minute".into()))
+            Err(ApiError::msg(StatusCode::TOO_MANY_REQUESTS, Msg::new("api.pairTooMany")))
         }
     }
 }
@@ -1164,7 +1173,7 @@ async fn pair_status(State(s): State<AppState>, Path(id): Path<String>) -> Respo
 }
 
 fn request_gone() -> ApiError {
-    ApiError(StatusCode::GONE, "cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code".into())
+    ApiError::msg(StatusCode::GONE, Msg::new("api.requestGone"))
 }
 
 /// La console accepte : l'appareil reçoit un compte Kyber propre à lui, que
@@ -1200,7 +1209,7 @@ async fn pair_accept(State(s): State<AppState>, Path(id): Path<String>) -> ApiRe
 
 async fn pair_refuse(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
     let name = s.pairing.refuse(&id).ok_or_else(request_gone)?;
-    s.activity.event("info", format!("Accès refusé à {name} (appairage par code)"));
+    s.activity.event("info", Msg::new("events.pairRefused").with("name", name));
     Ok(Json(json!({ "ok": true, "pair_requests": s.pairing.pending() })))
 }
 
@@ -1209,8 +1218,10 @@ struct EventsQuery {
     limit: Option<usize>,
 }
 
+/// Le fil, du plus récent au plus ancien, chaque phrase écrite dans la langue
+/// de la requête (`text`), avec sa clé et ses paramètres (`key`, `params`).
 async fn events(State(s): State<AppState>, Query(q): Query<EventsQuery>) -> Json<Value> {
-    Json(json!({ "events": s.activity.events(q.limit.unwrap_or(50).min(300)) }))
+    Json(json!({ "events": s.activity.events(q.limit.unwrap_or(50).min(300), i18n::current()) }))
 }
 
 /// Met fin à la session en cours. Une app KyberNow l'apprend à son signal de
@@ -1235,7 +1246,7 @@ async fn end_session(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let taken = s.pending_access.snapshot();
     service::restart(s.service.as_ref()).await?;
     s.pending_access.applied(&taken);
-    s.activity.event("info", "Connexions coupées depuis la console (serveur redémarré)");
+    s.activity.event("info", Msg::new("events.connectionsCut"));
     Ok(Json(json!({ "ok": true, "method": "restart" })))
 }
 
@@ -1319,7 +1330,7 @@ mod tests {
     }
 
     fn restarted_event(s: &AppState) -> Option<String> {
-        s.activity.events(20).into_iter().map(|e| e.text).find(|t| t.starts_with("Serveur redémarré pour"))
+        s.activity.events(20, i18n::Lang::Fr).into_iter().map(|e| e.text).find(|t| t.starts_with("Serveur redémarré pour"))
     }
 
     #[tokio::test]
@@ -1329,19 +1340,21 @@ mod tests {
         assert!(!apply_accounts(&c.s, "apple-tv", "Apple TV", true).await);
         assert!(c.s.pending_access.waits_for("apple-tv"));
         // Tant que le Mac est en session, personne ne redémarre Kyber.
-        assert!(!apply_pending_access(&c.s, None, "").await);
+        assert!(!apply_pending_access(&c.s, None, None).await);
         assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
 
         c.s.activity.end("mac", Some("mac"), None);
-        assert!(apply_pending_access(&c.s, None, ", maintenant que personne n'est connecté").await);
+        assert!(apply_pending_access(&c.s, None, Some("events.contextNobody")).await);
         assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
         assert!(c.s.pending_access.is_empty());
         assert_eq!(
             restarted_event(&c.s).as_deref(),
             Some("Serveur redémarré pour donner l'accès à Apple TV, maintenant que personne n'est connecté")
         );
+        let english = c.s.activity.events(20, i18n::Lang::En).into_iter().map(|e| e.text).find(|t| t.starts_with("Server restarted"));
+        assert_eq!(english.as_deref(), Some("Server restarted to give access to Apple TV, now that nobody is connected"));
         // Plus rien n'attend : pas de second redémarrage.
-        assert!(apply_pending_access(&c.s, None, "").await);
+        assert!(apply_pending_access(&c.s, None, None).await);
         assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
     }
 
@@ -1363,9 +1376,9 @@ mod tests {
         let c = console();
         c.s.pending_access.add("apple-tv", "Apple TV", true);
         let other = Preparing::new(&c.s.preparing);
-        assert!(!apply_pending_access(&c.s, None, "").await);
+        assert!(!apply_pending_access(&c.s, None, None).await);
         drop(other);
-        assert!(apply_pending_access(&c.s, None, "").await);
+        assert!(apply_pending_access(&c.s, None, None).await);
         assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
     }
 

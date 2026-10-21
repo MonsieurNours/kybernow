@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::checks::SystemInfo;
 use crate::events::{Emit, Event, InstallRequest, TaskStatus};
+use crate::i18n::t;
 use crate::sys::{self, run, run_ok};
 
 pub const SUDOVDA_HWID: &str = r"root\sudomaker\sudovda";
@@ -272,7 +273,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
                     .filter_map(|e| e.ok())
                     .map(|e| e.path())
                     .find(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("exe")))
-                    .context("installeur ViGEmBus absent du contenu")?;
+                    .with_context(|| t("install.vigembusMissing", &[]))?;
                 let out = run_ok(&installer.display().to_string(), &["/quiet", "/norestart"], &[0, 1641, 3010])?;
                 need_reboot = true;
                 ctx.log(format!("Pilote de manettes ViGEmBus installé (code {})", out.status.code().unwrap_or(0)));
@@ -481,9 +482,9 @@ fn init_settings(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo) -> Result<(
     ]);
     cmd.env("KYBERNOW_PASSWORD", &req.password);
     hide_window(&mut cmd);
-    let out = cmd.output().context("configuration initiale")?;
+    let out = cmd.output().with_context(|| t("install.initialConfiguration", &[]))?;
     if !out.status.success() {
-        anyhow::bail!("configuration initiale : {}", sys::text(&out).trim());
+        anyhow::bail!("{} : {}", t("install.initialConfiguration", &[]), sys::text(&out).trim());
     }
     ctx.log(format!("Configuration : port {}, encodeur {}, compte « {} »", req.stream_port, info.encoder, req.user));
     Ok(())
@@ -494,8 +495,8 @@ fn init_settings(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo) -> Result<(
 fn create_kyber_service(ctx: &Ctx, req: &InstallRequest) -> Result<()> {
     let bin = format!("\"{}\"", ctx.kyber().join("kyservice.exe").display());
     let start = if req.start_with_windows { "auto" } else { "demand" };
-    run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", "KyberNow - serveur de streaming"], &[0])?;
-    let _ = run("sc", &["description", "kyber", "Serveur de streaming Kyber, installé et géré par KyberNow."]);
+    run_ok("sc", &["create", "kyber", "binPath=", &bin, "start=", start, "DisplayName=", &t("install.serviceName", &[])], &[0])?;
+    let _ = run("sc", &["description", "kyber", &t("install.serviceDescription", &[])]);
     let _ = run("sc", &["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"]);
     run_ok("sc", &["sdset", "kyber", SERVICE_SDDL], &[0])?;
     ctx.log(format!("Service Windows « kyber » créé (démarrage {start})"));
@@ -508,7 +509,7 @@ fn check_kept_settings() -> Result<()> {
     let admin = sys::data_dir().join("kyber-admin.toml");
     for file in [&kyber, &admin] {
         if !file.is_file() {
-            anyhow::bail!("réglages introuvables ({}) : choisissez « Repartir de zéro »", file.display());
+            anyhow::bail!(t("install.settingsMissing", &[("path", &file.display())]));
         }
     }
     Ok(())
@@ -522,7 +523,7 @@ fn backup_kyber_config(ctx: &Ctx) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let to = dir.join(format!("kyber_config.toml.reinstallation-{stamp}"));
-    std::fs::copy(&from, &to).with_context(|| format!("sauvegarde de {}", from.display()))?;
+    std::fs::copy(&from, &to).with_context(|| t("install.backup", &[("path", &from.display())]))?;
     ctx.log(format!("Réglages de Kyber gardés (copie : {})", to.display()));
     Ok(())
 }
@@ -679,9 +680,10 @@ fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
         .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow\KyberNow.lnk");
     let _ = sys::powershell(&format!(
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; \
-         $s.Description = 'KyberNow dans la zone de notification'; $s.Save()",
+         $s.Description = '{}'; $s.Save()",
         lnk.display(),
-        exe
+        exe,
+        t("install.trayShortcut", &[]).replace('\'', "''")
     ));
     let _ = if start_with_windows {
         run("reg", &["add", RUN_KEY, "/v", "KyberNow", "/t", "REG_SZ", "/d", &format!("\"{exe}\""), "/f"])
@@ -701,8 +703,16 @@ fn write_shortcut(console_port: u16) {
     let dir = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
         .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow");
     let _ = std::fs::create_dir_all(&dir);
+    // Nom dans la langue de l'installation ; celui de l'autre langue (installation précédente) est retiré.
+    let name = t("install.consoleShortcut", &[]);
+    for other in [crate::i18n::Lang::Fr, crate::i18n::Lang::En] {
+        let old = crate::i18n::tr(other, "install.consoleShortcut", &[]);
+        if old != name {
+            let _ = std::fs::remove_file(dir.join(format!("{old}.url")));
+        }
+    }
     let _ = std::fs::write(
-        dir.join("Console KyberNow.url"),
+        dir.join(format!("{name}.url")),
         format!("[InternetShortcut]\r\nURL=https://localhost:{console_port}/\r\n"),
     );
 }

@@ -188,7 +188,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         Ok(h) => h,
         Err(e) => {
             App::clear();
-            return fail(&events, format!("fenêtre de session : {e}"));
+            return fail(&events, crate::i18n::t("errors.session_window", &[("error", &e.to_string())]));
         }
     };
     app.hwnd.store(hwnd.0 as isize, Ordering::Relaxed);

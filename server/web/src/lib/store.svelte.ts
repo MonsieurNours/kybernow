@@ -1,6 +1,7 @@
 // État partagé entre les pages.
 
 import { api, type Field, type FieldValue, type PendingAccess, type Status } from './api'
+import { list, t } from './i18n/index.svelte'
 
 export const app = $state({
   status: null as Status | null,
@@ -32,14 +33,12 @@ export function markRestartPending() {
 
 /** « donner l'accès à Apple TV et retirer l'accès de iPad » (comme le fil de la console). */
 export function accessReason(pending: PendingAccess[]): string {
-  const join = (names: string[]) =>
-    names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} et ${names[names.length - 1]}`
   const granted = pending.filter((p) => p.grant).map((p) => p.device)
   const revoked = pending.filter((p) => !p.grant).map((p) => p.device)
   const parts = []
-  if (granted.length) parts.push(`donner l'accès à ${join(granted)}`)
-  if (revoked.length) parts.push(`retirer l'accès de ${join(revoked)}`)
-  return parts.join(' et ') || 'appliquer les comptes'
+  if (granted.length) parts.push(t('store.grant', { names: list(granted) }))
+  if (revoked.length) parts.push(t('store.revoke', { names: list(revoked) }))
+  return list(parts) || t('store.applyAccounts')
 }
 
 export function errorText(e: unknown): string {
@@ -75,7 +74,7 @@ export function value<T = unknown>(id: string): T {
 }
 
 /** Enregistre aussitôt un ou plusieurs réglages de Kyber ; un redémarrage les applique. */
-export async function setValues(changes: Record<string, unknown>, message = 'Enregistré. Redémarrez le serveur pour l’appliquer.') {
+export async function setValues(changes: Record<string, unknown>, message = t('store.saved')) {
   try {
     const res = await api.updateConfig(changes)
     kyber.values = Object.fromEntries(res.values.map((v) => [v.id, v]))

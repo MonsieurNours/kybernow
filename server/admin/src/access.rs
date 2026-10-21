@@ -10,6 +10,9 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
+use serde_json::json;
+
+use crate::i18n::Msg;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Entry {
@@ -56,34 +59,23 @@ impl PendingAccess {
         self.0.lock().unwrap().retain(|e| !taken.contains(e));
     }
 
-    /// « donner l'accès à Apple TV et retirer l'accès de iPad ».
-    pub fn reason(entries: &[Entry]) -> String {
-        let names = |grant: bool| entries.iter().filter(|e| e.grant == grant).map(|e| e.device.as_str()).collect::<Vec<_>>();
-        let mut parts = Vec::new();
-        let granted = names(true);
-        if !granted.is_empty() {
-            parts.push(format!("donner l'accès à {}", join(&granted)));
+    /// « donner l'accès à Apple TV et retirer l'accès de iPad », écrit à
+    /// l'affichage dans la langue de qui lit.
+    pub fn reason(entries: &[Entry]) -> Msg {
+        let names = |grant: bool| entries.iter().filter(|e| e.grant == grant).map(|e| e.device.clone()).collect::<Vec<_>>();
+        let part = |key: &str, names: Vec<String>| (!names.is_empty()).then(|| Msg::new(key).with("names", json!({ "list": names })));
+        match (part("access.grant", names(true)), part("access.revoke", names(false))) {
+            (Some(grant), Some(revoke)) => Msg::new("access.both").with_msg("grant", grant).with_msg("revoke", revoke),
+            (Some(one), None) | (None, Some(one)) => one,
+            (None, None) => Msg::new("access.apply"),
         }
-        let revoked = names(false);
-        if !revoked.is_empty() {
-            parts.push(format!("retirer l'accès de {}", join(&revoked)));
-        }
-        if parts.is_empty() { "appliquer les comptes".into() } else { parts.join(" et ") }
-    }
-}
-
-/// « A », « A et B », « A, B et C ».
-fn join(names: &[&str]) -> String {
-    match names {
-        [] => String::new(),
-        [one] => (*one).into(),
-        [rest @ .., last] => format!("{} et {last}", rest.join(", ")),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Lang;
 
     #[test]
     fn grant_waits_until_applied() {
@@ -114,11 +106,10 @@ mod tests {
     #[test]
     fn reason_names_devices() {
         let e = |d: &str, grant| Entry { account: d.to_lowercase(), device: d.into(), grant };
-        assert_eq!(PendingAccess::reason(&[e("Salon", true)]), "donner l'accès à Salon");
-        assert_eq!(
-            PendingAccess::reason(&[e("Salon", true), e("Bureau", true), e("Chambre", true), e("iPad", false)]),
-            "donner l'accès à Salon, Bureau et Chambre et retirer l'accès de iPad"
-        );
-        assert_eq!(PendingAccess::reason(&[]), "appliquer les comptes");
+        assert_eq!(PendingAccess::reason(&[e("Salon", true)]).to_string(), "donner l'accès à Salon");
+        let both = PendingAccess::reason(&[e("Salon", true), e("Bureau", true), e("Chambre", true), e("iPad", false)]);
+        assert_eq!(both.to_string(), "donner l'accès à Salon, Bureau et Chambre et retirer l'accès de iPad");
+        assert_eq!(both.render(Lang::En), "give access to Salon, Bureau and Chambre and remove access from iPad");
+        assert_eq!(PendingAccess::reason(&[]).to_string(), "appliquer les comptes");
     }
 }

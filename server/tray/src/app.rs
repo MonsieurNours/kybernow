@@ -29,6 +29,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::console::{self, Client, LocalState};
+use crate::i18n::t;
 use crate::icons::{Icons, Look};
 use crate::panel::Panel;
 use crate::services::{self, ADMIN, KYBER, State};
@@ -62,7 +63,7 @@ fn open_console() -> Result<()> {
 
 /// Une page de la console (« updates »…), la page d'accueil si vide.
 fn open_console_at(page: &str) -> Result<()> {
-    let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable : KyberNow est-il installé ?"))?;
+    let port = console::port().ok_or_else(|| anyhow::anyhow!(t("tray.consolePortMissing", &[])))?;
     let url = console::url(port);
     open_url(&if page.is_empty() { url } else { format!("{url}#/{page}") });
     Ok(())
@@ -88,7 +89,7 @@ fn poll(client: &Client) -> Snapshot {
 #[derive(Default)]
 struct Shared {
     snapshot: Option<Snapshot>,
-    /// Action en cours, affichée à la place de l'état du serveur.
+    /// Action en cours (clé de `tray.busy`), affichée à la place de l'état du serveur.
     busy: Option<&'static str>,
     /// Code d'initialisation après « Réinitialiser le mot de passe de la console ».
     setup_code: Option<String>,
@@ -126,25 +127,25 @@ fn watch(shared: SharedState, wake: Receiver<()>) {
 /// Textes et apparence pour un état donné.
 fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
     let status = match (busy, s.kyber) {
-        (Some(label), _) => label,
-        (_, State::Running) => "Serveur en marche",
-        (_, State::Starting) => "Démarrage du serveur…",
-        (_, State::Stopping) => "Arrêt du serveur…",
-        (_, State::Stopped) => "Serveur arrêté",
-        (_, State::Missing) => "Serveur non installé",
-        (_, State::Unknown) => "État du serveur inconnu",
+        (Some(key), _) => t(key, &[]),
+        (_, State::Running) => t("tray.status.running", &[]),
+        (_, State::Starting) => t("tray.status.starting", &[]),
+        (_, State::Stopping) => t("tray.status.stopping", &[]),
+        (_, State::Stopped) => t("tray.status.stopped", &[]),
+        (_, State::Missing) => t("tray.status.missing", &[]),
+        (_, State::Unknown) => t("tray.status.unknown", &[]),
     };
     let live = s.console.as_ref().and_then(|c| c.live.as_ref()).and_then(|l| l["name"].as_str()).map(str::to_owned);
     let session = match (s.kyber, s.admin, &s.console) {
-        (State::Running, State::Running, Some(_)) if live.is_some() => format!("{} est connecté", live.unwrap_or_default()),
-        (State::Running, State::Running, Some(LocalState { session: true, user: Some(user), .. })) => format!("Session en cours ({user})"),
-        (State::Running, State::Running, Some(LocalState { session: true, user: None, .. })) => "Session en cours".into(),
-        (State::Running, State::Running, Some(_)) => "Aucune session en cours".into(),
-        (State::Running, State::Running, None) => "La console ne répond pas".into(),
-        (State::Running, _, _) => "Console arrêtée".into(),
-        (State::Stopped, _, _) => "Vos appareils ne peuvent pas se connecter".into(),
-        (State::Missing, _, _) => "Réinstallez KyberNow".into(),
-        _ => "Patientez…".into(),
+        (State::Running, State::Running, Some(_)) if live.is_some() => t("tray.session.connected", &[("name", &live.unwrap_or_default())]),
+        (State::Running, State::Running, Some(LocalState { session: true, user: Some(user), .. })) => t("tray.session.userSession", &[("user", user)]),
+        (State::Running, State::Running, Some(LocalState { session: true, user: None, .. })) => t("tray.session.session", &[]),
+        (State::Running, State::Running, Some(_)) => t("tray.session.none", &[]),
+        (State::Running, State::Running, None) => t("tray.session.consoleSilent", &[]),
+        (State::Running, _, _) => t("tray.session.consoleStopped", &[]),
+        (State::Stopped, _, _) => t("tray.session.cannotConnect", &[]),
+        (State::Missing, _, _) => t("tray.session.reinstall", &[]),
+        _ => t("tray.session.wait", &[]),
     };
     let in_session = s.console.as_ref().is_some_and(|c| c.session || c.live.is_some());
     let look = match s.kyber {
@@ -154,7 +155,7 @@ fn describe(s: &Snapshot, busy: Option<&str>) -> (String, String, Look) {
         State::Running => Look::Running,
         _ => Look::Stopped,
     };
-    (status.to_string(), session, look)
+    (status, session, look)
 }
 
 fn state_name(s: State) -> &'static str {
@@ -173,7 +174,7 @@ fn panel_state(s: &Snapshot, busy: Option<&str>, setup_code: Option<&str>) -> Va
     json!({
         "service": state_name(s.kyber),
         "adminMissing": s.admin == State::Missing,
-        "busy": busy,
+        "busy": busy.map(|key| t(key, &[])),
         "startWithComputer": s.start_with_computer,
         "setupCode": setup_code,
         "version": env!("CARGO_PKG_VERSION"),
@@ -261,14 +262,14 @@ pub fn run() -> Result<()> {
     };
 
     let status = MenuItem::new("KyberNow", false, None);
-    let session = MenuItem::new("Patientez…", false, None);
-    let open = MenuItem::new("Ouvrir la console", true, None);
-    let updates = MenuItem::new("Mises à jour…", true, None);
-    let toggle = MenuItem::new("Arrêter le serveur", false, None);
-    let restart = MenuItem::new("Redémarrer le serveur", false, None);
-    let start_with_computer = CheckMenuItem::new("Démarrer avec l'ordinateur", false, false, None);
-    let reset = MenuItem::new("Réinitialiser le mot de passe de la console…", true, None);
-    let quit = MenuItem::new("Fermer l'icône", true, None);
+    let session = MenuItem::new(t("tray.session.wait", &[]), false, None);
+    let open = MenuItem::new(t("tray.menu.openConsole", &[]), true, None);
+    let updates = MenuItem::new(t("tray.menu.updates", &[]), true, None);
+    let toggle = MenuItem::new(t("tray.menu.stopServer", &[]), false, None);
+    let restart = MenuItem::new(t("tray.menu.restartServer", &[]), false, None);
+    let start_with_computer = CheckMenuItem::new(t("tray.menu.startWithComputer", &[]), false, false, None);
+    let reset = MenuItem::new(t("tray.menu.resetPassword", &[]), true, None);
+    let quit = MenuItem::new(t("tray.menu.quit", &[]), true, None);
     let menu = Menu::new();
     menu.append_items(&[
         &status,
@@ -357,7 +358,7 @@ impl App {
         let idle = busy.is_none();
         self.status.set_text(&status);
         self.session.set_text(&session);
-        self.toggle.set_text(if snap.kyber.is_up() { "Arrêter le serveur" } else { "Démarrer le serveur" });
+        self.toggle.set_text(t(if snap.kyber.is_up() { "tray.menu.stopServer" } else { "tray.menu.startServer" }, &[]));
         self.toggle.set_enabled(idle && matches!(snap.kyber, State::Running | State::Stopped));
         self.restart.set_enabled(idle && matches!(snap.kyber, State::Running | State::Stopped));
         self.start_with_computer.set_checked(snap.start_with_computer == Some(true));
@@ -366,8 +367,8 @@ impl App {
         self.open.set_enabled(snap.admin != State::Missing);
         let update = snap.console.as_ref().and_then(|c| c.update.clone());
         self.updates.set_text(match &update {
-            Some(v) => format!("Installer la version {v}…"),
-            None => "Mises à jour…".to_string(),
+            Some(v) => t("tray.menu.installVersion", &[("version", v)]),
+            None => t("tray.menu.updates", &[]),
         });
         self.updates.set_enabled(snap.admin == State::Running);
         let _ = self.tray.set_tooltip(Some(format!("{TITLE}\n{status}\n{session}")));
@@ -399,7 +400,7 @@ impl App {
         }
     }
 
-    /// Lance une action longue dans son propre fil.
+    /// Lance une action longue dans son propre fil (`label` : clé de `tray.busy`).
     fn act(&mut self, label: &'static str, job: impl FnOnce(&SharedState) -> Result<()> + Send + 'static) {
         {
             let mut s = self.shared.lock().unwrap();
@@ -518,7 +519,7 @@ impl App {
                 alert(&format!("{e:#}"));
             }
         } else {
-            self.act("Démarrage de la console…", |_| {
+            self.act("tray.busy.startingConsole", |_| {
                 services::start(ADMIN)?;
                 services::wait(ADMIN, State::Running, Duration::from_secs(30))?;
                 std::thread::sleep(Duration::from_secs(1));
@@ -534,18 +535,18 @@ impl App {
     }
 
     fn pair_answer(&mut self, id: String, accept: bool) {
-        self.act(if accept { "Accès donné à l'appareil…" } else { "Accès refusé…" }, move |_| {
-            let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable."))?;
+        self.act(if accept { "tray.busy.granting" } else { "tray.busy.refusing" }, move |_| {
+            let port = console::port().ok_or_else(|| anyhow::anyhow!(t("tray.consolePortMissingShort", &[])))?;
             Client::new().pair_answer(port, &id, accept)
         });
     }
 
     fn end_session(&mut self) {
-        if !confirm("Mettre fin à la session en cours ? L'appareil connecté sera déconnecté.") {
+        if !confirm(&t("tray.confirm.endSession", &[])) {
             return;
         }
-        self.act("Fin de la session…", |_| {
-            let port = console::port().ok_or_else(|| anyhow::anyhow!("Le port de la console est introuvable."))?;
+        self.act("tray.busy.endingSession", |_| {
+            let port = console::port().ok_or_else(|| anyhow::anyhow!(t("tray.consolePortMissingShort", &[])))?;
             Client::new().end_session(port)
         });
     }
@@ -553,37 +554,34 @@ impl App {
     fn toggle_server(&mut self) {
         let (Some(snap), _, _) = self.snapshot() else { return };
         if snap.kyber.is_up() {
-            if self.in_session() && !confirm("Un appareil est connecté. Arrêter le serveur coupera sa session.\n\nArrêter le serveur ?") {
+            if self.in_session() && !confirm(&t("tray.confirm.stopInSession", &[])) {
                 return;
             }
-            self.act("Arrêt du serveur…", |_| services::stop_server());
+            self.act("tray.busy.stopping", |_| services::stop_server());
         } else {
-            self.act("Démarrage du serveur…", |_| services::start_server());
+            self.act("tray.busy.starting", |_| services::start_server());
         }
     }
 
     fn restart_server(&mut self) {
-        if self.in_session() && !confirm("Un appareil est connecté. Redémarrer le serveur coupera sa session.\n\nRedémarrer le serveur ?") {
+        if self.in_session() && !confirm(&t("tray.confirm.restartInSession", &[])) {
             return;
         }
-        self.act("Redémarrage du serveur…", |_| services::restart_server());
+        self.act("tray.busy.restarting", |_| services::restart_server());
     }
 
     fn switch_start_with_computer(&mut self) {
         let (Some(snap), _, _) = self.snapshot() else { return };
         let on = snap.start_with_computer != Some(true);
-        self.act("Réglage du démarrage…", move |_| startup::set(on).map(|_| ()));
+        self.act("tray.busy.startup", move |_| startup::set(on).map(|_| ()));
     }
 
     /// Efface le mot de passe de la console (invite UAC), montre le code et ouvre la console.
     fn reset_password(&mut self) {
-        if !confirm(
-            "Réinitialiser le mot de passe de la console ?\n\nVous en choisirez un nouveau avec un code d'initialisation. \
-             Vos appareils et leurs comptes ne changent pas.",
-        ) {
+        if !confirm(&t("tray.confirm.resetPassword", &[])) {
             return;
         }
-        self.act("Réinitialisation du mot de passe…", |shared| {
+        self.act("tray.busy.resetting", |shared| {
             if let Some(code) = password::reset()? {
                 shared.lock().unwrap().setup_code = Some(code);
                 open_console()?;
@@ -625,16 +623,10 @@ const STOP: i32 = 101;
 
 fn ask_quit(in_session: bool) -> QuitChoice {
     let title = wide(TITLE);
-    let instruction = wide("Fermer l'icône KyberNow ?");
-    let content = wide(if in_session {
-        "Un appareil est connecté. Le serveur peut rester en marche : la session continue, \
-         et vous pourrez rouvrir l'icône depuis le menu Démarrer."
-    } else {
-        "Le serveur peut rester en marche : vos appareils pourront toujours se connecter, \
-         et vous pourrez rouvrir l'icône depuis le menu Démarrer."
-    });
-    let keep = wide("Laisser le serveur en marche");
-    let stop = wide("Arrêter aussi le serveur");
+    let instruction = wide(&t("tray.quit.instruction", &[]));
+    let content = wide(&t(if in_session { "tray.quit.inSession" } else { "tray.quit.idle" }, &[]));
+    let keep = wide(&t("tray.quit.keep", &[]));
+    let stop = wide(&t("tray.quit.stop", &[]));
     let buttons = [
         TASKDIALOG_BUTTON { nButtonID: KEEP, pszButtonText: keep.as_ptr() },
         TASKDIALOG_BUTTON { nButtonID: STOP, pszButtonText: stop.as_ptr() },
@@ -655,7 +647,7 @@ fn ask_quit(in_session: bool) -> QuitChoice {
     let hr = unsafe { TaskDialogIndirect(&config, &mut pressed, null_mut(), null_mut()) };
     if hr < 0 {
         // Sans boîte de dialogue moderne : la question simple.
-        return if confirm("Fermer l'icône KyberNow et arrêter aussi le serveur ?\n\nNon : le serveur reste en marche.") {
+        return if confirm(&t("tray.quit.fallback", &[])) {
             QuitChoice::StopServer
         } else {
             QuitChoice::KeepServer

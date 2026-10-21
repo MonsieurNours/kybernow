@@ -15,11 +15,15 @@ struct SettingsView: View {
     @State private var section = 0
     @State private var confirmRemove = false
     @State private var link = "—"
+    /// Langue choisie ici ; celle du lancement reste affichée jusqu'à la relance.
+    @State private var language = LanguageChoice.current
+    private static let launchLanguage = LanguageChoice.current
     @FocusState private var focus: Target?
 
     enum Target: Hashable { case back, section(Int), profile(Int), row(String) }
 
     private var host: Host? { store.host(hostID) }
+    private var hostName: String { host?.name ?? "" }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -33,7 +37,7 @@ struct SettingsView: View {
         .defaultFocus($focus, .section(0))
         .onExitCommand { app.screen = .home }
         .onAppear(perform: watchLink)
-        .alert("Retirer \(host?.name ?? "") de cette Apple TV ?", isPresented: $confirmRemove) {
+        .alert("Retirer \(hostName) de cette Apple TV ?", isPresented: $confirmRemove) {
             Button("Retirer", role: .destructive) {
                 if let host { store.remove(host) }
                 app.selected = store.ordered.first?.id
@@ -63,7 +67,7 @@ struct SettingsView: View {
                 Text("Profil de \(host.name)").font(Theme.sans(20)).foregroundStyle(Theme.muted)
                 HStack(spacing: 6) {
                     ForEach(Array((Profile.allCases.map(Optional.some) + [nil]).enumerated()), id: \.offset) { i, p in
-                        Button(p?.label ?? "Personnalisé") { if let p { edit { $0.apply(p) } } }
+                        Button(p?.label ?? String(localized: "Personnalisé")) { if let p { edit { $0.apply(p) } } }
                             .buttonStyle(ChoiceButton(selected: host.settings.profile == p, height: 54))
                             .focused($focus, equals: .profile(i))
                             .disabled(p == nil && host.settings.profile != nil)
@@ -94,12 +98,13 @@ struct SettingsView: View {
         let s = host.settings
         let mode = TVDisplay.mode(for: s)
         let route = AudioRoute.current
+        let menu = [prefs.menuBack ? String(localized: "Retour") : nil, prefs.menuCombo ? String(localized: "combo") : nil].compactMap { $0 }.joined(separator: " + ")
         let items = [
-            ("Image", "\(TVDisplay.label(mode.width, mode.height)) · \(mode.refresh) Hz · \(s.bitrateMbps) Mbit/s"),
-            ("Son", s.audio == .off ? "Sur l'ordinateur" : "\(route.channelsLabel) · \(route.name)"),
-            ("Manettes et télécommande", [prefs.menuBack ? "Retour" : nil, prefs.menuCombo ? "combo" : nil].compactMap { $0 }.joined(separator: " + ") + (prefs.rumble ? " · vibrations" : "")),
-            ("Réseau", "\(s.transport.label) · \(link)"),
-            ("Compte et iCloud", prefs.icloudSync ? "\(host.username) · synchronisé" : host.username),
+            (String(localized: "Image"), "\(TVDisplay.label(mode.width, mode.height)) · \(mode.refresh) Hz · \(s.bitrateMbps) Mbit/s"),
+            (String(localized: "Son"), s.audio == .off ? String(localized: "Sur l'ordinateur") : "\(route.channelsLabel) · \(route.name)"),
+            (String(localized: "Manettes et télécommande"), prefs.rumble ? String(localized: "\(menu) · vibrations") : menu),
+            (String(localized: "Réseau"), "\(s.transport.label) · \(link)"),
+            (String(localized: "Compte et iCloud"), prefs.icloudSync ? String(localized: "\(host.username) · synchronisé") : host.username),
         ]
         return VStack(alignment: .leading, spacing: 12) {
             Text("Réglages").font(Theme.display(64, 660)).tracking(-64 * 0.035).padding(.bottom, 22)
@@ -133,19 +138,19 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 14) {
             switch section {
             case 0:
-                Theme.eyebrow("Image · au plus 4K à 60 Hz, la limite de l'Apple TV").padding(.bottom, 8)
+                Theme.eyebrow(String(localized: "Image · au plus 4K à 60 Hz, la limite de l'Apple TV")).padding(.bottom, 8)
                 imageRows(s)
             case 1:
-                Theme.eyebrow("Son · sortie détectée : \(AudioRoute.current.name), \(AudioRoute.current.channelsLabel)").padding(.bottom, 8)
+                Theme.eyebrow(String(localized: "Son · sortie détectée : \(AudioRoute.current.name), \(AudioRoute.current.channelsLabel)")).padding(.bottom, 8)
                 soundRows(s)
             case 2:
-                Theme.eyebrow("Manettes et télécommande").padding(.bottom, 8)
+                Theme.eyebrow(String(localized: "Manettes et télécommande")).padding(.bottom, 8)
                 inputRows(s)
             case 3:
-                Theme.eyebrow("Réseau · \(link)").padding(.bottom, 8)
+                Theme.eyebrow(String(localized: "Réseau · \(link)")).padding(.bottom, 8)
                 networkRows(s, host: host)
             default:
-                Theme.eyebrow("Compte et iCloud · \(host.username)").padding(.bottom, 8)
+                Theme.eyebrow(String(localized: "Compte et iCloud · \(host.username)")).padding(.bottom, 8)
                 accountRows(s, host: host)
             }
         }
@@ -159,7 +164,7 @@ struct SettingsView: View {
         let tv = TVDisplay.native
         let mode = TVDisplay.mode(for: s)
         let res = s.display == .custom ? TVDisplay.label(mode.width, mode.height) : "Auto"
-        seg("res", "Définition", "Auto : celle de ce téléviseur (\(tv.width) × \(tv.height))", ["Auto", "4K", "1440p", "1080p"], res) { v in
+        seg("res", String(localized: "Définition"), String(localized: "Auto : celle de ce téléviseur (\(tv.width) × \(tv.height))"), [("Auto", String(localized: "Auto"))] + plain(["4K", "1440p", "1080p"]), res) { v in
             edit { st in
                 switch v {
                 case "4K": st.display = .custom; st.customWidth = 3840; st.customHeight = 2160
@@ -171,7 +176,7 @@ struct SettingsView: View {
                 st.profile = st.profile
             }
         }
-        seg("hz", "Fréquence", "L'écran virtuel de l'ordinateur suit", ["60 Hz", "50 Hz", "30 Hz"], "\(mode.refresh) Hz") { v in
+        seg("hz", String(localized: "Fréquence"), String(localized: "L'écran virtuel de l'ordinateur suit"), plain(["60 Hz", "50 Hz", "30 Hz"]), "\(mode.refresh) Hz") { v in
             edit { st in
                 let hz = Int(v.prefix(2)) ?? 60
                 st.customRefresh = hz
@@ -181,71 +186,71 @@ struct SettingsView: View {
             }
         }
         rateRow(s)
-        seg("codec", "Compression", "AV1 : pas de décodage matériel sur cette Apple TV", ["HEVC", "H.264", "AV1"], s.codec == .h264 ? "H.264" : "HEVC", disabled: ["AV1"] + (DecoderCapabilities.current.hevc ? [] : ["HEVC"])) { v in
+        seg("codec", String(localized: "Compression"), String(localized: "AV1 : pas de décodage matériel sur cette Apple TV"), plain(["HEVC", "H.264", "AV1"]), s.codec == .h264 ? "H.264" : "HEVC", disabled: ["AV1"] + (DecoderCapabilities.current.hevc ? [] : ["HEVC"])) { v in
             edit { st in
                 st.codec = v == "H.264" ? .h264 : .hevc
                 st.profile = nil
             }
         }
-        toggle("yuv", "Texte net (4:4:4)", ConnectionSettings.decodes444(s.codec) ? "Pour le bureau ; testé au lancement sur cette Apple TV" : "Cette Apple TV ne le décode pas en matériel", s.yuv444 && ConnectionSettings.decodes444(s.codec)) {
+        toggle("yuv", String(localized: "Texte net (4:4:4)"), ConnectionSettings.decodes444(s.codec) ? String(localized: "Pour le bureau ; testé au lancement sur cette Apple TV") : String(localized: "Cette Apple TV ne le décode pas en matériel"), s.yuv444 && ConnectionSettings.decodes444(s.codec)) {
             edit { st in st.yuv444.toggle(); st.profile = nil }
         }
         .disabled(!ConnectionSettings.decodes444(s.codec))
-        toggle("match", "Caler le téléviseur sur la session", "Passe le téléviseur en \(mode.refresh) Hz le temps de la session, puis revient", prefs.matchFrameRate) {
+        toggle("match", String(localized: "Caler le téléviseur sur la session"), String(localized: "Passe le téléviseur en \(mode.refresh) Hz le temps de la session, puis revient"), prefs.matchFrameRate) {
             prefs.matchFrameRate.toggle()
         }
     }
 
     @ViewBuilder private func soundRows(_ s: ConnectionSettings) -> some View {
         let route = AudioRoute.current
-        let channels: [(String, AudioChoice)] = [("Auto", .auto), ("Stéréo", .stereo), ("5.1", .surround51), ("7.1", .surround71)]
-        seg("ch", "Canaux", "Auto : \(route.channelsLabel) sur cette sortie", channels.map(\.0), channels.first { $0.1 == s.audio }?.0 ?? "Auto") { v in
-            edit { st in st.audio = channels.first { $0.0 == v }?.1 ?? .auto }
+        let channels: [AudioChoice] = [.auto, .stereo, .surround51, .surround71]
+        seg("ch", String(localized: "Canaux"), String(localized: "Auto : \(route.channelsLabel) sur cette sortie"), channels.map { ($0.rawValue, $0.label) }, channels.contains(s.audio) ? s.audio.rawValue : AudioChoice.auto.rawValue) { v in
+            edit { st in st.audio = AudioChoice(rawValue: v) ?? .auto }
         }
         .disabled(s.audio == .off)
-        seg("where", "Le son joue", "Sur l'ordinateur : ses haut-parleurs ou son casque", ["Apple TV", "Ordinateur"], s.audio == .off ? "Ordinateur" : "Apple TV") { v in
-            edit { st in st.audio = v == "Ordinateur" ? .off : .auto }
+        seg("where", String(localized: "Le son joue"), String(localized: "Sur l'ordinateur : ses haut-parleurs ou son casque"), [("tv", "Apple TV"), ("host", String(localized: "Ordinateur"))], s.audio == .off ? "host" : "tv") { v in
+            edit { st in st.audio = v == "host" ? .off : .auto }
         }
-        toggle("spatial", "Audio spatial dans les AirPods", "Le 5.1 ou le 7.1 du jeu, autour de vous ; sans suivi de la tête", prefs.spatialAudio) {
+        toggle("spatial", String(localized: "Audio spatial dans les AirPods"), String(localized: "Le 5.1 ou le 7.1 du jeu, autour de vous ; sans suivi de la tête"), prefs.spatialAudio) {
             prefs.spatialAudio.toggle()
         }
-        toggle("latency", "Prévenir d'un son en retard", "AirPods, HomePod, AirPlay : alerte au-delà de 40 ms ajoutées", prefs.latencyAlert) {
+        toggle("latency", String(localized: "Prévenir d'un son en retard"), String(localized: "AirPods, HomePod, AirPlay : alerte au-delà de 40 ms ajoutées"), prefs.latencyAlert) {
             prefs.latencyAlert.toggle()
         }
-        value("delay", "Retard mesuré de la sortie", "Mis à jour à chaque changement de sortie", "\(route.latencyMs) ms")
+        value("delay", String(localized: "Retard mesuré de la sortie"), String(localized: "Mis à jour à chaque changement de sortie"), "\(route.latencyMs) ms")
     }
 
     @ViewBuilder private func inputRows(_ s: ConnectionSettings) -> some View {
-        toggle("back", "Menu avec le bouton Retour", "Télécommande : le bouton Retour ouvre le menu de session", prefs.menuBack) {
+        toggle("back", String(localized: "Menu avec le bouton Retour"), String(localized: "Télécommande : le bouton Retour ouvre le menu de session"), prefs.menuBack) {
             if prefs.menuBack, !prefs.menuCombo { return }
             prefs.menuBack.toggle()
         }
-        toggle("combo", "Menu avec L1 + R1 + Start + Select", "Comme sur Mac, quand la télécommande est loin", prefs.menuCombo) {
+        toggle("combo", String(localized: "Menu avec L1 + R1 + Start + Select"), String(localized: "Comme sur Mac, quand la télécommande est loin"), prefs.menuCombo) {
             if prefs.menuCombo, !prefs.menuBack { return }
             prefs.menuCombo.toggle()
         }
-        toggle("mouse", "Télécommande en souris", "Toujours active en profil Bureau", s.mouse == .desktop || s.profile == .bureau) {
+        toggle("mouse", String(localized: "Télécommande en souris"), String(localized: "Toujours active en profil Bureau"), s.mouse == .desktop || s.profile == .bureau) {
             edit { st in st.mouse = st.mouse == .desktop ? .auto : .desktop }
         }
-        seg("gamepad", "Manette vue par l'ordinateur", s.gamepad.hint, GamepadChoice.allCases.map(\.label), s.gamepad.label) { v in
-            edit { st in st.gamepad = GamepadChoice.allCases.first { $0.label == v } ?? .xbox360 }
+        seg("gamepad", String(localized: "Manette vue par l'ordinateur"), s.gamepad.hint, GamepadChoice.allCases.map { ($0.rawValue, $0.label) }, s.gamepad.rawValue) { v in
+            edit { st in st.gamepad = GamepadChoice(rawValue: v) ?? .xbox360 }
         }
-        toggle("rumble", "Vibrations", "Renvoyées par le jeu, sur chaque manette", prefs.rumble) {
+        toggle("rumble", String(localized: "Vibrations"), String(localized: "Renvoyées par le jeu, sur chaque manette"), prefs.rumble) {
             prefs.rumble.toggle()
         }
-        seg("padspeed", "Manette en souris : vitesse", "Stick gauche : pointeur, droit : molette · A clic, X clic droit, B milieu · L1 / R1 : Alt + Tab · LT précis, RT rapide", Preferences.PadMouseSpeed.allCases.map(\.rawValue), prefs.padMouseSpeed.rawValue) { v in
+        seg("padspeed", String(localized: "Manette en souris : vitesse"), String(localized: "Stick gauche : pointeur, droit : molette · A clic, X clic droit, B milieu · L1 / R1 : Alt + Tab · LT précis, RT rapide"), Preferences.PadMouseSpeed.allCases.map { ($0.rawValue, $0.label) }, prefs.padMouseSpeed.rawValue) { v in
             prefs.padMouseSpeed = Preferences.PadMouseSpeed(rawValue: v) ?? .normal
         }
-        seg("guide", "Bouton Guide", "Jeu : le bouton Home de la manette va au jeu (Steam, Game Bar) si tvOS le laisse, à vérifier dans Tester les manettes · Appui long : Menu ou Options tenus 0,6 s", Preferences.GuideChoice.allCases.map(\.rawValue), prefs.guideButton.rawValue) { v in
+        seg("guide", String(localized: "Bouton Guide"), String(localized: "Jeu : le bouton Home de la manette va au jeu (Steam, Game Bar) si tvOS le laisse, à vérifier dans Tester les manettes · Appui long : Menu ou Options tenus 0,6 s"), Preferences.GuideChoice.allCases.map { ($0.rawValue, $0.label) }, prefs.guideButton.rawValue) { v in
             prefs.guideButton = Preferences.GuideChoice(rawValue: v) ?? .game
         }
-        seg("order", "Ordre des joueurs", "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas", ["Allumage", "Fixe"], prefs.padOrderFixed ? "Fixe" : "Allumage") { v in
-            prefs.padOrderFixed = v == "Fixe"
+        seg("order", String(localized: "Ordre des joueurs"), String(localized: "Fixe : chaque modèle garde sa place ; deux manettes identiques ne se distinguent pas"), [("power", String(localized: "Allumage")), ("fixed", String(localized: "Fixe"))], prefs.padOrderFixed ? "fixed" : "power") { v in
+            prefs.padOrderFixed = v == "fixed"
         }
-        toggle("iso", "Clavier Apple ISO", "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur", prefs.appleISOKeyboard) {
+        toggle("iso", String(localized: "Clavier Apple ISO"), String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur"), prefs.appleISOKeyboard) {
             prefs.appleISOKeyboard.toggle()
         }
-        value("test", "Tester les manettes", padsSummary, GamepadBridge.shared.pads.map(\.label).joined(separator: " · ")) {
+        value("test", String(localized: "Tester les manettes"), padsSummary, GamepadBridge.shared.pads.map(\.label).joined(separator: " · ")) {
             app.screen = .gamepads
         }
     }
@@ -253,31 +258,39 @@ struct SettingsView: View {
     private var padsSummary: String {
         let n = GamepadBridge.shared.pads.count
         let waiting = GamepadBridge.shared.pads.filter(\.waiting).count
-        let remote = GamepadBridge.shared.remoteConnected ? ", 1 télécommande" : ""
-        let wait = waiting > 0 ? " (\(waiting) en attente : quatre au plus sur l'ordinateur)" : ""
-        return n == 0 ? "Aucune manette\(remote)" : "\(n) manette\(n > 1 ? "s" : "")\(wait)\(remote)"
+        var text = n == 0 ? String(localized: "Aucune manette") : n == 1 ? String(localized: "1 manette") : String(localized: "\(n) manettes")
+        if waiting > 0 { text += " " + String(localized: "(\(waiting) en attente : quatre au plus sur l'ordinateur)") }
+        if GamepadBridge.shared.remoteConnected { text += ", " + String(localized: "1 télécommande") }
+        return text
     }
 
     @ViewBuilder private func networkRows(_ s: ConnectionSettings, host: Host) -> some View {
-        seg("transport", "Transport", "Rapide : image perdue plutôt qu'attendue", ["Rapide", "Fiable"], s.transport.label) { v in
-            edit { st in st.transport = v == "Fiable" ? .reliable : .fast; st.profile = nil }
+        seg("transport", String(localized: "Transport"), String(localized: "Rapide : image perdue plutôt qu'attendue"), Transport.allCases.map { ($0.rawValue, $0.label) }, s.transport.rawValue) { v in
+            edit { st in st.transport = Transport(rawValue: v) ?? .fast; st.profile = nil }
         }
-        toggle("reconnect", "Se reconnecter tout seul", "Après une coupure, la session reprend où elle était", s.autoReconnect) {
+        toggle("reconnect", String(localized: "Se reconnecter tout seul"), String(localized: "Après une coupure, la session reprend où elle était"), s.autoReconnect) {
             edit { st in st.autoReconnect.toggle() }
         }
-        value("link", "Qualité du lien", "Pour la 4K60, l'Ethernet de l'Apple TV est plus stable",
+        value("link", String(localized: "Qualité du lien"), String(localized: "Pour la 4K60, l'Ethernet de l'Apple TV est plus stable"),
               host.lastLatencyMs.map { "\(link) · \(HomeView.ms($0)) ms" } ?? link)
     }
 
     @ViewBuilder private func accountRows(_ s: ConnectionSettings, host: Host) -> some View {
-        toggle("icloud", "Synchroniser avec iCloud", "Ordinateurs et accès suivent votre Mac et votre compte", prefs.icloudSync) {
+        toggle("icloud", String(localized: "Synchroniser avec iCloud"), String(localized: "Ordinateurs et accès suivent votre Mac et votre compte"), prefs.icloudSync) {
             prefs.icloudSync.toggle()
         }
-        toggle("keep", "Garder la dernière image", "Le fond de l'accueil, sur cette Apple TV seulement", s.keepLastImage) {
+        // Langue de l'app (docs/i18n.md) : prise en compte à la relance.
+        seg("language", String(localized: "Langue"),
+            language == Self.launchLanguage ? String(localized: "Auto : la langue de l'Apple TV ; pour KyberNow seulement") : String(localized: "Relancez KyberNow pour changer de langue."),
+            LanguageChoice.allCases.map { ($0.rawValue, $0.label) }, language.rawValue) { v in
+            language = LanguageChoice(rawValue: v) ?? .auto
+            LanguageChoice.current = language
+        }
+        toggle("keep", String(localized: "Garder la dernière image"), String(localized: "Le fond de l'accueil, sur cette Apple TV seulement"), s.keepLastImage) {
             edit { st in st.keepLastImage.toggle() }
             if let h = store.host(hostID), !h.settings.keepLastImage { store.imagery.forgetLast(h) }
         }
-        value("remove", "Retirer \(host.name) de cette Apple TV", "Ses accès sont effacés d'ici", "", danger: true) {
+        value("remove", String(localized: "Retirer \(host.name) de cette Apple TV"), String(localized: "Ses accès sont effacés d'ici"), "", danger: true) {
             confirmRemove = true
         }
     }
@@ -308,17 +321,23 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func seg(_ id: String, _ title: String, _ note: String, _ options: [String], _ current: String, disabled: [String] = [], pick: @escaping (String) -> Void) -> some View {
+    /// Options identiques à afficher telles quelles (définitions, fréquences, codecs).
+    private func plain(_ options: [String]) -> [(key: String, label: String)] {
+        options.map { ($0, $0) }
+    }
+
+    /// `options` : clé (comparée à `current`, `disabled`, rendue à `pick`) et texte affiché.
+    private func seg(_ id: String, _ title: String, _ note: String, _ options: [(key: String, label: String)], _ current: String, disabled: [String] = [], pick: @escaping (String) -> Void) -> some View {
         HStack(spacing: 24) {
             label(title, note)
             HStack(spacing: 8) {
-                ForEach(options, id: \.self) { o in
-                    Button { pick(o) } label: {
-                        Text(o).strikethrough(disabled.contains(o))
+                ForEach(options, id: \.key) { o in
+                    Button { pick(o.key) } label: {
+                        Text(o.label).strikethrough(disabled.contains(o.key))
                     }
-                    .buttonStyle(ChoiceButton(selected: current == o, height: 60, light: true))
-                    .disabled(disabled.contains(o))
-                    .focused($focus, equals: .row("\(id).\(o)"))
+                    .buttonStyle(ChoiceButton(selected: current == o.key, height: 60, light: true))
+                    .disabled(disabled.contains(o.key))
+                    .focused($focus, equals: .row("\(id).\(o.key)"))
                 }
             }
             .focusSection()
@@ -365,7 +384,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
                     Text("Débit").font(Theme.sans(24, .semibold))
-                    Text("\(rate) Mbit/s").font(Theme.mono(22)).foregroundStyle(Theme.accentLight)
+                    Text(verbatim: "\(rate) Mbit/s").font(Theme.mono(22)).foregroundStyle(Theme.accentLight)
                 }
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
@@ -403,7 +422,7 @@ struct SettingsView: View {
     private func watchLink() {
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { path in
-            let kind = path.usesInterfaceType(.wiredEthernet) ? "Ethernet" : path.usesInterfaceType(.wifi) ? "Wi-Fi" : "Réseau"
+            let kind = path.usesInterfaceType(.wiredEthernet) ? "Ethernet" : path.usesInterfaceType(.wifi) ? "Wi-Fi" : String(localized: "Réseau")
             DispatchQueue.main.async {
                 link = kind
                 monitor.cancel()

@@ -159,13 +159,14 @@ private struct Hero: View {
 
     private var eyebrow: String {
         switch picture?.source {
-        case .lastSession: return "Dernière image · \(Moment.describe(picture!.date))"
+        case .lastSession: return String(localized: "Dernière image · \(Moment.describe(picture!.date))")
         case .preview:
             let fresh = Date().timeIntervalSince(picture!.date) < 120
-            return "Aperçu · \(fresh ? "à l'instant" : Moment.describe(picture!.date)), depuis sa console"
+            let when = fresh ? String(localized: "à l'instant") : Moment.describe(picture!.date)
+            return String(localized: "Aperçu · \(when), depuis sa console")
         case nil:
-            if neverOpened { return "Nouvel ordinateur · jamais ouvert depuis ce Mac" }
-            return host.settings.keepLastImage ? "Sa signature · pas encore d'image" : "Sa signature · aucune image gardée"
+            if neverOpened { return String(localized: "Nouvel ordinateur · jamais ouvert depuis ce Mac") }
+            return host.settings.keepLastImage ? String(localized: "Sa signature · pas encore d'image") : String(localized: "Sa signature · aucune image gardée")
         }
     }
 
@@ -175,20 +176,20 @@ private struct Hero: View {
 
     private var screenLine: String {
         switch host.settings.display {
-        case .physical: return "Ses écrans tels quels, sans écran virtuel."
-        case .window: return "Un écran à la taille de cette fenêtre l'attend."
-        case .custom: return "Un écran de \(host.settings.customWidth) × \(host.settings.customHeight) à \(host.settings.customRefresh) Hz l'attend."
+        case .physical: return String(localized: "Ses écrans tels quels, sans écran virtuel.")
+        case .window: return String(localized: "Un écran à la taille de cette fenêtre l'attend.")
+        case .custom: return String(localized: "Un écran de \(host.settings.customWidth) × \(host.settings.customHeight) à \(host.settings.customRefresh) Hz l'attend.")
         case .match:
             let m = DisplayInfo.mode(for: NSScreen.main ?? NSScreen.screens[0], codec: host.settings.codec, limit4K: host.settings.limit4K)
-            return "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend, taillé pour cet écran."
+            return String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend, taillé pour cet écran.")
         }
     }
 
     private var statusText: String {
         switch online {
-        case nil: return "Recherche…"
-        case true?: return "En ligne"
-        case false?: return "Hors ligne"
+        case nil: return String(localized: "Recherche…")
+        case true?: return String(localized: "En ligne")
+        case false?: return String(localized: "Hors ligne")
         }
     }
 
@@ -222,7 +223,7 @@ private struct Hero: View {
             actions
                 .padding(.top, roomy ? 22 : 10)
                 .modifier(rise(4))
-            Text(host.settings.profile?.hint ?? "Personnalisé : vos propres réglages, dans Réglages.")
+            Text(host.settings.profile?.hint ?? String(localized: "Personnalisé : vos propres réglages, dans Réglages."))
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.muted)
                 .modifier(rise(4))
@@ -286,12 +287,12 @@ private struct ImageChain: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Theme.eyebrow("Image affichée")
-            step("Dernière session", detail: neverOpened ? ", aucune" : ", aucune gardée", state: .absent)
+            Theme.eyebrow(String(localized: "Image affichée"))
+            step(neverOpened ? String(localized: "Dernière session, aucune") : String(localized: "Dernière session, aucune gardée"), state: .absent)
             rule
-            step(fetching && source == nil ? "Aperçu, en cours…" : source == .preview ? "Aperçu de sa console" : "Aperçu", detail: "", state: source == .preview ? .on : fetching ? .loading : .absent)
+            step(fetching && source == nil ? String(localized: "Aperçu, en cours…") : source == .preview ? String(localized: "Aperçu de sa console") : String(localized: "Aperçu"), state: source == .preview ? .on : fetching ? .loading : .absent)
             rule
-            step("Signature", detail: "", state: source == nil ? .on : .absent)
+            step(String(localized: "Signature"), state: source == nil ? .on : .absent)
         }
         .padding(.horizontal, 16)
         .frame(height: 44)
@@ -306,7 +307,7 @@ private struct ImageChain: View {
 
     private var rule: some View { Rectangle().fill(Color.white.opacity(0.15)).frame(width: 18, height: 1) }
 
-    private func step(_ title: String, detail: String, state: State) -> some View {
+    private func step(_ title: String, state: State) -> some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(state == .on ? Theme.neonCore : state == .loading ? Theme.text2 : .clear)
@@ -314,7 +315,7 @@ private struct ImageChain: View {
                 .frame(width: 7, height: 7)
                 .neon(state == .on ? .lit : .off)
                 .opacity(state == .loading && pulse ? 0.35 : 1)
-            Text(title + detail).font(Theme.sans(13)).foregroundStyle(state == .absent ? Theme.ghost : Theme.text)
+            Text(title).font(Theme.sans(13)).foregroundStyle(state == .absent ? Theme.ghost : Theme.text)
         }
     }
 }
@@ -328,7 +329,7 @@ private struct LastSessionPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Theme.eyebrow("Dernière session")
+                Theme.eyebrow(String(localized: "Dernière session"))
                 Spacer()
                 if let duration { Text(Moment.duration(duration)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted) }
             }
@@ -353,7 +354,7 @@ private struct Welcome: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Theme.eyebrow("Bienvenue", color: Theme.muted).modifier(Rise(arrived: arrived, delay: 0.15))
+            Theme.eyebrow(String(localized: "Bienvenue"), color: Theme.muted).modifier(Rise(arrived: arrived, delay: 0.15))
             Text("Vos ordinateurs,\nici.")
                 .font(Theme.display(96, .bold)).tracking(-96 * 0.045)
                 .foregroundStyle(Theme.text)
@@ -403,7 +404,7 @@ private struct Shelf: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .firstTextBaseline) {
-                Theme.eyebrow(featured == nil ? "Sur ce réseau" : "Vos autres ordinateurs", color: Theme.muted)
+                Theme.eyebrow(featured == nil ? String(localized: "Sur ce réseau") : String(localized: "Vos autres ordinateurs"), color: Theme.muted)
                 Spacer()
                 Text("Windows, macOS ou Linux : ils s'ouvrent tous de la même façon.")
                     .font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
@@ -452,11 +453,11 @@ private struct HostCard: View {
 
     private var line: String {
         switch status?.online {
-        case nil: return "Recherche…"
-        case false?: return "Hors ligne"
+        case nil: return String(localized: "Recherche…")
+        case false?: return String(localized: "Hors ligne")
         case true?:
             let parts = [status?.info?.os, host.lastLatencyMs.map { Moment.ms($0) }].compactMap { $0 }
-            return parts.isEmpty ? "En ligne" : parts.joined(separator: " · ")
+            return parts.isEmpty ? String(localized: "En ligne") : parts.joined(separator: " · ")
         }
     }
 
@@ -606,27 +607,39 @@ struct Rise: ViewModifier {
 
 /// Dates, durées et mesures dites comme on les dit.
 enum Moment {
+    /// Français : « 14 h 05 », « le 3 octobre » ; anglais : heure et date
+    /// dans le format de la région du Mac.
+    private static var french: Bool { LanguageChoice.effective == "fr" }
+
     static func describe(_ date: Date, now: Date = Date()) -> String {
         let cal = Calendar.current
-        let time = date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "fr_FR")))
-            .replacingOccurrences(of: ":", with: " h ")
+        let time = french
+            ? date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits).locale(Locale(identifier: "fr_FR")))
+                .replacingOccurrences(of: ":", with: " h ")
+            : date.formatted(date: .omitted, time: .shortened)
         if cal.isDateInToday(date) {
-            return now.timeIntervalSince(date) < 120 ? "à l'instant" : "aujourd'hui, \(time)"
+            return now.timeIntervalSince(date) < 120 ? String(localized: "à l'instant") : String(localized: "aujourd'hui, \(time)")
         }
-        if cal.isDateInYesterday(date) { return "hier, \(time)" }
+        if cal.isDateInYesterday(date) { return String(localized: "hier, \(time)") }
         let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: now)).day ?? 0
-        if days < 7 { return "il y a \(days) jours" }
-        return "le " + date.formatted(.dateTime.day().month(.wide).locale(Locale(identifier: "fr_FR")))
+        if days < 7 { return String(localized: "il y a \(days) jours") }
+        let day = french
+            ? date.formatted(.dateTime.day().month(.wide).locale(Locale(identifier: "fr_FR")))
+            : date.formatted(.dateTime.day().month(.wide))
+        return String(localized: "le \(day)")
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
         let minutes = Int(seconds / 60)
         if minutes < 60 { return "\(max(1, minutes)) min" }
-        return "\(minutes / 60) h \(String(format: "%02d", minutes % 60))"
+        let rest = String(format: "%02d", minutes % 60)
+        return "\(minutes / 60) h \(rest)"
     }
 
+    /// Une décimale sous 100 ms, virgule en français, point en anglais.
     static func ms(_ value: Double, unit: Bool = true) -> String {
-        let text = value >= 100 ? String(Int(value.rounded())) : String(format: "%.1f", value).replacingOccurrences(of: ".", with: ",")
+        var text = value >= 100 ? String(Int(value.rounded())) : String(format: "%.1f", value)
+        if french { text = text.replacingOccurrences(of: ".", with: ",") }
         return unit ? "\(text) ms" : text
     }
 }

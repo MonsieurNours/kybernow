@@ -19,6 +19,7 @@
   import { errorText } from '../lib/store.svelte'
   import Mark from '../lib/Mark.svelte'
   import { diag, diagEnabled, installDiag } from './diag'
+  import { i18n, t, tn } from '../lib/i18n/index.svelte'
 
   let { hostname, prefs = $bindable(), onEnd }: { hostname: string; prefs: Prefs; onEnd: () => void } = $props()
 
@@ -52,7 +53,8 @@
   let noticeTimer: ReturnType<typeof setTimeout> | null = null
   /** Manettes vues par le moteur (et transmises à l'ordinateur). */
   let gamepads = $state<{ index: number; name: string }[]>([])
-  const gamepadText = $derived(gamepads.length === 1 ? '1 manette' : `${gamepads.length} manettes`)
+  const gamepadText = $derived(tn('session.gamepads.count', gamepads.length))
+  const gamepadAria = $derived(t('session.gamepads.aria', { count: gamepadText, names: gamepads.map((g) => g.name).join(', ') }))
   let diagText = $state('')
 
   let stage: HTMLElement
@@ -91,14 +93,14 @@
   /** Champs ajoutés aux corps du signal de vie et de la fin : cet appareil. */
   const extra = () => ({ device_id: deviceId() })
   /** La session de la console (le cookie et le jeton durent 12 h) a expiré. */
-  const EXPIRED = 'Votre connexion à la console a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.'
+  const expired = () => t('session.error.expired')
 
   // Signal de vie depuis un Worker : il continue dans un onglet masqué.
   const heartbeat = new Heartbeat((r) => {
     if (ended || phase === 'ended') return
-    if (r.status === 401) fail(EXPIRED)
+    if (r.status === 401) fail(expired())
     // Fin demandée depuis la console, ou un autre appareil prend la main.
-    else if (r.end) fail('La session a été reprise par un autre appareil, ou arrêtée depuis la console de l’ordinateur.')
+    else if (r.end) fail(t('session.error.taken'))
   })
 
   /** Jeton Kyber relu sur la console (reconnexion, puis toutes les heures),
@@ -112,12 +114,16 @@
       ticketToken = t.token
       engine?.updateCredentials(t.token, resume)
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) fail(EXPIRED)
+      if (e instanceof ApiError && e.status === 401) fail(expired())
     }
   }
 
+  // Valeur envoyée à la console (« Jeu », « Bureau ») : ne se traduit pas.
   const profileLabel = $derived(prefs.profile === 'jeu' ? 'Jeu' : 'Bureau')
-  const latencyText = $derived(latency ? `${latency.total.toFixed(latency.total < 10 ? 1 : 0).replace('.', ',')} ms` : '— ms')
+  const profileText = $derived(prefs.profile === 'jeu' ? t('session.profile.game') : t('session.profile.desktop'))
+  /** « 8,3 » en français, « 8.3 » en anglais. */
+  const decimal = (text: string) => (i18n.lang === 'fr' ? text.replace('.', ',') : text)
+  const latencyText = $derived(latency ? `${decimal(latency.total.toFixed(latency.total < 10 ? 1 : 0))} ms` : '— ms')
   const formatText = $derived(
     mode && plan ? `${mode.width} × ${mode.height} · ${mode.refresh} Hz · ${plan.codec === 'hevc' ? 'HEVC' : 'H.264'}${plan.yuv444 ? ' 4:4:4' : ''}` : '',
   )
@@ -132,15 +138,15 @@
   const parts = $derived(
     latency
       ? [
-          { label: 'Ordinateur', sub: 'Capture et encodage', v: latency.server, cls: 'a' },
-          { label: 'Réseau', sub: 'Jusqu’à cet appareil', v: latency.network, cls: 'b' },
-          { label: 'Ce navigateur', sub: 'Décodage et affichage', v: latency.client, cls: 'c' },
+          { label: t('session.metrics.computer'), sub: t('session.metrics.computerSub'), v: latency.server, cls: 'a' },
+          { label: t('session.metrics.network'), sub: t('session.metrics.networkSub'), v: latency.network, cls: 'b' },
+          { label: t('session.metrics.browser'), sub: t('session.metrics.browserSub'), v: latency.client, cls: 'c' },
         ]
       : [],
   )
 
   function ms(v: number): string {
-    return `${v.toFixed(1).replace('.', ',')} ms`
+    return `${decimal(v.toFixed(1))} ms`
   }
 
   /** Clavier de l'appareil ouvert : la zone visible (`visualViewport`, que le
@@ -245,7 +251,7 @@
       prepared = true
       await connect(preferredProtocol(), gen)
     } catch (e) {
-      if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? EXPIRED : errorText(e))
+      if (!stale(gen)) fail(e instanceof ApiError && e.status === 401 ? expired() : errorText(e))
     }
   }
 
@@ -279,7 +285,7 @@
   function noControlPlane(e: Engine) {
     connectWatch = null
     if (engine !== e || ended || phase !== 'connecting') return
-    fail(`Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`)
+    fail(t('session.error.noReply', { host: hostname }))
   }
 
   /** Kyber a démarré l'image (`streaming`) : elle doit arriver dans les 12 s
@@ -303,7 +309,7 @@
     if (engine !== e || phase !== 'connecting' || stale(gen)) return
     if (protocol === 'kymux') {
       console.warn('KyberNow : connecté, mais pas d’image en WebTransport ; essai par WebSocket')
-      reconnecting = 'Autre chemin pour l’image (WebSocket)…'
+      reconnecting = t('session.notice.otherPath')
       engine = null
       await retire(e)
       if (!stale(gen) && phase === 'connecting') {
@@ -312,9 +318,9 @@
         })
       }
     } else if (from === 'connected') {
-      fail(`Kyber sur ${hostname} n'a pas démarré l'image. Réessayez dans un instant.`)
+      fail(t('session.error.noImageStart', { host: hostname }))
     } else {
-      fail(`${hostname} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Avancé, ou Chrome ou Edge.`)
+      fail(t('session.error.noImageArrive', { host: hostname }))
     }
   }
 
@@ -342,7 +348,7 @@
     const was = before?.find((d) => d.id === id)
     if (!now || (was && (was.width !== now.width || was.height !== now.height))) {
       console.warn('KyberNow : écran suivi', id, now ? `passé en ${now.width} × ${now.height}` : 'disparu')
-      restartVideo('L’écran de l’ordinateur a changé : l’image reprend…')
+      restartVideo(t('session.notice.displayChanged'))
     }
   }
 
@@ -351,25 +357,25 @@
     console.warn('KyberNow : chaîne de l’ordinateur', kind, stage, event)
     if (event !== 'error' || phase !== 'live') return
     if (kind === 'audio') {
-      showNotice('Le son de l’ordinateur s’est interrompu.')
+      showNotice(t('session.notice.soundStopped'))
       return
     }
     if (kind !== 'video') return
     if (stableTimer) clearTimeout(stableTimer)
     stableTimer = null
     if (pipelineRestarts >= MAX_PIPELINE_RESTARTS) {
-      fail(`L'image de ${hostname} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré ${MAX_PIPELINE_RESTARTS} relances. Se reconnecter la redémarre.`)
+      fail(t('session.error.pipeline', { host: hostname, max: MAX_PIPELINE_RESTARTS }))
       return
     }
     pipelineRestarts++
     const n = pipelineRestarts
-    setTimeout(() => restartVideo(`L’image s’est interrompue sur l’ordinateur : relance (${n} sur ${MAX_PIPELINE_RESTARTS})…`), 1000)
+    setTimeout(() => restartVideo(t('session.notice.imageRestart', { n, max: MAX_PIPELINE_RESTARTS })), 1000)
   }
 
   function connectError(message: string): string {
-    if (message === 'unauthorized') return `Kyber sur ${hostname} refuse le jeton de la console. Rechargez la page ; si cela continue, vérifiez Kyber dans la console.`
-    if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return `Kyber sur ${hostname} n'a pas pu démarrer l'image. Réessayez dans un instant.`
-    return `Le serveur Kyber de ${hostname} ne répond pas. Vérifiez qu'il est en marche dans la console.`
+    if (message === 'unauthorized') return t('session.error.unauthorized', { host: hostname })
+    if (message === 'streaming_start_failed' || message.startsWith('start_streaming')) return t('session.error.startFailed', { host: hostname })
+    return t('session.error.noReply', { host: hostname })
   }
 
   function onEngine(e: import('./engine').EngineEvent, src: Engine, protocol: 'kymux' | 'websocket') {
@@ -383,7 +389,7 @@
         watchImage(src, protocol, 'connected')
         break
       case 'reconnecting':
-        reconnecting = `Connexion perdue, nouvelle tentative (${e.attempt} sur ${e.max})…`
+        reconnecting = t('session.notice.reconnecting', { attempt: e.attempt, max: e.max })
         refreshTicket()
         break
       case 'auth-required':
@@ -447,14 +453,14 @@
           // Le moteur a perdu sa toile en se reconnectant : on recommence proprement.
           restart()
         } else if (e.reason === 'decode_error') {
-          fail("Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Avancé.")
+          fail(t('session.error.decode'))
         } else if (e.reason === 'controlplane_closed') {
-          fail(`Kyber sur ${hostname} a fermé la connexion.`)
+          fail(t('session.error.closed', { host: hostname }))
         } else if (e.reason === 'requested') {
           // Arrêt demandé par ce client, sans que la page l'ait voulu.
-          fail('La session s’est arrêtée.')
+          fail(t('session.error.stopped'))
         } else {
-          fail(`La connexion à ${hostname} s'est interrompue.`)
+          fail(t('session.error.interrupted', { host: hostname }))
         }
         break
     }
@@ -517,7 +523,7 @@
     setMouseMode(mouseMode === 'auto' ? 'bureau' : mouseMode === 'bureau' ? 'jeu' : 'auto')
   }
 
-  const mouseLabel = $derived(mouseMode === 'auto' ? 'Souris auto' : mouseMode === 'jeu' ? 'Souris jeu' : 'Souris bureau')
+  const mouseLabel = $derived(mouseMode === 'auto' ? t('session.mouse.auto') : mouseMode === 'jeu' ? t('session.mouse.game') : t('session.mouse.desktop'))
 
   function showBar() {
     barVisible = true
@@ -818,7 +824,7 @@
   })
 </script>
 
-<div class="session" class:touch={isTouch} onpointermove={onPointerMove} role="application" aria-label="Session sur {hostname}">
+<div class="session" class:touch={isTouch} onpointermove={onPointerMove} role="application" aria-label={t('session.aria', { host: hostname })}>
   <div class="stage" class:kb={keyboardOpen} bind:this={stage} oncontextmenu={(e) => e.preventDefault()} role="presentation">
     <div class="canvas-box" bind:this={canvasBox}></div>
     <div class="touch-layer" class:active={hasTouchScreen && phase === 'live'} bind:this={touchLayer}></div>
@@ -832,25 +838,25 @@
       {#if phase === 'ended'}
         <div class="card">
           <Mark size={34} state="now" />
-          <h2 class="disp">Session terminée</h2>
+          <h2 class="disp">{t('session.start.ended')}</h2>
           <p>{error}</p>
           <div class="row">
-            <button type="button" class="primary" onclick={() => { ended = false; restart() }}>Se reconnecter</button>
-            <button type="button" class="ghost" onclick={quit}>Revenir à l'accueil</button>
+            <button type="button" class="primary" onclick={() => { ended = false; restart() }}>{t('session.start.reconnect')}</button>
+            <button type="button" class="ghost" onclick={quit}>{t('session.start.home')}</button>
           </div>
         </div>
       {:else}
         <div class="card">
           <Mark size={34} state="now" lit breathe />
-          <h2 class="disp">Vous entrez dans {hostname}</h2>
+          <h2 class="disp">{t('session.start.entering', { host: hostname })}</h2>
           <ul class="steps mono">
-            <li class:done={phase === 'connecting'}>{phase === 'preparing' ? 'Préparation de l’écran…' : `Écran ${mode?.width ?? ''} × ${mode?.height ?? ''} à ${mode?.refresh ?? ''} Hz`}</li>
+            <li class:done={phase === 'connecting'}>{phase === 'preparing' ? t('session.start.preparing') : t('session.start.display', { width: mode?.width, height: mode?.height, refresh: mode?.refresh })}</li>
             {#if phase === 'connecting'}
-              <li class:done={connectStep === 'image'}>{connectStep === 'image' ? 'Connecté à Kyber' : reconnecting || 'Connexion à Kyber…'}</li>
-              {#if connectStep === 'image'}<li>{reconnecting || 'Premières images…'}</li>{/if}
+              <li class:done={connectStep === 'image'}>{connectStep === 'image' ? t('session.start.connected') : reconnecting || t('session.start.connecting')}</li>
+              {#if connectStep === 'image'}<li>{reconnecting || t('session.start.firstImages')}</li>{/if}
             {/if}
           </ul>
-          <button type="button" class="ghost" onclick={quit}>Annuler</button>
+          <button type="button" class="ghost" onclick={quit}>{t('session.start.cancel')}</button>
         </div>
       {/if}
     </div>
@@ -863,20 +869,20 @@
   {#if phase === 'live' && soundBlocked && prefs.audio && !muted}
     <button type="button" class="sound glass" onpointerdown={(e) => e.preventDefault()} onclick={unlockSound}>
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M17 9a4 4 0 0 1 0 6" /><path d="M19.5 6.5a8 8 0 0 1 0 11" /></svg>
-      {isTouch ? 'Toucher pour le son' : 'Cliquer pour le son'}
+      {isTouch ? t('session.sound.tap') : t('session.sound.click')}
     </button>
   {/if}
 
   <!-- Barre de session (souris et clavier) -->
   {#if !isTouch && phase === 'live'}
     {#if !barVisible}
-      <button type="button" class="edge" aria-label="Afficher la barre de session" onclick={showBar}><span></span></button>
+      <button type="button" class="edge" aria-label={t('session.bar.show')} onclick={showBar}><span></span></button>
     {/if}
     <div class="bar glass" class:hidden={!barVisible} role="toolbar" tabindex="-1" aria-label="Session" onpointerenter={() => barTimer && clearTimeout(barTimer)} onpointerleave={scheduleBarHide}>
       <Mark size={22} state="now" lit breathe />
       <span class="host">{hostname}</span>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label="Mesures détaillées" onclick={() => { metricsOpen = !metricsOpen; keysOpen = false }}>
+      <button type="button" class="lat" aria-expanded={metricsOpen} aria-label={t('session.bar.metrics')} onclick={() => { metricsOpen = !metricsOpen; keysOpen = false }}>
         <span class="mono value">{latencyText}</span>
         <svg width="64" height="22" viewBox="0 0 64 22" aria-hidden="true"><path d={sparkPath} fill="none" stroke="#9A8CFF" stroke-width="1.5" stroke-linejoin="round" /></svg>
         <span class="mono fmt">{formatText}</span>
@@ -884,56 +890,56 @@
       <span class="sep" aria-hidden="true"></span>
       <span class="chip static">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
-        <span class="label">{profileLabel}</span>
+        <span class="label">{profileText}</span>
       </span>
-      <button type="button" class="chip" aria-label={mouseLabel} title="Auto : capturée seulement quand un jeu est en plein écran sur l'ordinateur" onclick={cycleMouse}>
+      <button type="button" class="chip" aria-label={mouseLabel} title={t('session.mouse.hint')} onclick={cycleMouse}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z" /></svg>
         <span class="label">{mouseLabel}</span>
       </button>
       {#if gamepads.length}
-        <span class="chip static" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+        <span class="chip static" title={gamepads.map((g) => g.name).join(', ')} aria-label={gamepadAria}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
           <span class="label">{gamepadText}</span>
         </span>
       {/if}
       {#if prefs.audio}
-        <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? 'Remettre le son' : 'Couper le son'} onclick={toggleMute}>
+        <button type="button" class="chip" aria-pressed={muted} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')} onclick={toggleMute}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
-          <span class="label">{muted ? 'Muet' : 'Son'}</span>
+          <span class="label">{muted ? t('session.sound.muted') : t('session.sound.on')}</span>
         </button>
       {/if}
-      <button type="button" class="chip" aria-label="Touches" aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false }}>
+      <button type="button" class="chip" aria-label={t('session.bar.keys')} aria-expanded={keysOpen} onclick={() => { keysOpen = !keysOpen; metricsOpen = false }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
-        <span class="label">Touches</span>
+        <span class="label">{t('session.bar.keys')}</span>
       </button>
       <span class="sep" aria-hidden="true"></span>
-      <button type="button" class="chip icon" aria-label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'} onclick={toggleFullscreen}>
+      <button type="button" class="chip icon" aria-label={fullscreen ? t('session.bar.exitFullscreen') : t('session.bar.fullscreen')} onclick={toggleFullscreen}>
         {#if fullscreen}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
         {:else}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
         {/if}
       </button>
-      <button type="button" class="quit" aria-label="Quitter" onclick={quit}>
+      <button type="button" class="quit" aria-label={t('session.bar.quit')} onclick={quit}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
-        <span class="label">Quitter</span>
+        <span class="label">{t('session.bar.quit')}</span>
       </button>
 
       {#if keysOpen}
-        <div class="menu glass" role="menu" aria-label="Touches">
-          <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>Ctrl + Alt + Suppr<span class="mono">verrouiller, changer</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>Touche ⊞ seule<span class="mono">menu Démarrer</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendCombo([{ key: 'Alt', code: 'AltLeft' }], { key: 'Tab', code: 'Tab' }); keysOpen = false }}>Alt + Tab<span class="mono">changer d'app</span></button>
-          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'PrintScreen', 'PrintScreen', new Set()); keysOpen = false }}>Impr. écran<span class="mono">capture</span></button>
+        <div class="menu glass" role="menu" aria-label={t('session.keys.title')}>
+          <button type="button" role="menuitem" onclick={() => { engine?.ctrlAltDel(); keysOpen = false }}>{t('session.keys.cad')}<span class="mono">{t('session.keys.cadSub')}</span></button>
+          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'Meta', 'MetaLeft', new Set()); keysOpen = false }}>{t('session.keys.win')}<span class="mono">{t('session.keys.winSub')}</span></button>
+          <button type="button" role="menuitem" onclick={() => { sendCombo([{ key: 'Alt', code: 'AltLeft' }], { key: 'Tab', code: 'Tab' }); keysOpen = false }}>{t('session.keys.altTab')}<span class="mono">{t('session.keys.altTabSub')}</span></button>
+          <button type="button" role="menuitem" onclick={() => { sendKey(canvas(), 'PrintScreen', 'PrintScreen', new Set()); keysOpen = false }}>{t('session.keys.print')}<span class="mono">{t('session.keys.printSub')}</span></button>
         </div>
       {/if}
     </div>
 
     {#if metricsOpen}
-      <section class="metrics glass" aria-label="Mesures détaillées">
+      <section class="metrics glass" aria-label={t('session.bar.metrics')}>
         <div class="mhead">
-          <span>De la capture à votre écran</span>
-          <span class="mono muted">médiane sur 3 s</span>
+          <span>{t('session.metrics.title')}</span>
+          <span class="mono muted">{t('session.metrics.median')}</span>
         </div>
         {#if latency}
           <div class="bars">
@@ -943,21 +949,21 @@
             {#each parts as p (p.cls)}<div><span class="lit-number">{ms(p.v)}</span><span class="muted">{p.sub}</span></div>{/each}
           </div>
         {:else}
-          <p class="muted">Les mesures arrivent avec les premières secondes d'image.</p>
+          <p class="muted">{t('session.metrics.waiting')}</p>
         {/if}
         <div class="mono foot">
-          <span>{fps} images/s</span><span>{plan?.mbps ?? '—'} Mbit/s</span><span>{plan?.reliable ? 'Fiable' : 'Rapide'}</span>
+          <span>{t('session.metrics.fps', { fps })}</span><span>{plan?.mbps ?? '—'} Mbit/s</span><span>{plan?.reliable ? t('session.metrics.reliable') : t('session.metrics.fast')}</span>
         </div>
-        <p class="muted small">Dans un navigateur, l'affichage attend le rafraîchissement de l'écran : comptez un peu plus que dans l'app.</p>
+        <p class="muted small">{t('session.metrics.browserNote')}</p>
       </section>
     {/if}
 
     {#if hintOn}
       <div class="hint glass" role="status">
         {#if keyboardLocked}
-          Toutes les touches vont à {hostname}. La barre : en haut de l'écran, ou <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">Maj</kbd>
+          {t('session.hint.locked', { host: hostname })} <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">{t('session.hint.shift')}</kbd>
         {:else}
-          La barre : en haut de l'écran, ou <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">Maj</kbd>. Les raccourcis système sont dans le menu Touches.
+          {t('session.hint.bar')} <kbd class="mono">Ctrl</kbd> + <kbd class="mono">Alt</kbd> + <kbd class="mono">{t('session.hint.shift')}</kbd>{t('session.hint.shortcuts')}
         {/if}
       </div>
     {/if}
@@ -966,7 +972,7 @@
   <!-- Tactile : languette, barre compacte, clavier -->
   {#if isTouch && phase === 'live'}
     {#if !touchBar}
-      <button type="button" class="tab glass" aria-label="Afficher la barre de session" onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = false }}>
+      <button type="button" class="tab glass" aria-label={t('session.bar.show')} onpointerdown={(e) => e.preventDefault()} onclick={() => { touchBar = true; guide = false }}>
         <span class="mono">{latencyText}</span>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
       </button>
@@ -975,59 +981,59 @@
         <Mark size={20} state="now" lit />
         <span class="mono tlat">{latencyText}</span>
         {#if gamepads.length}
-          <span class="tpad" title={gamepads.map((g) => g.name).join(', ')} aria-label="{gamepadText} : {gamepads.map((g) => g.name).join(', ')}">
+          <span class="tpad" title={gamepads.map((g) => g.name).join(', ')} aria-label={gamepadAria}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9A8CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
             {#if gamepads.length > 1}<span class="mono">{gamepads.length}</span>{/if}
           </span>
         {/if}
         <span class="sep" aria-hidden="true"></span>
-        <div class="tmodes" role="radiogroup" aria-label="Toucher">
-          <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>Pavé tactile</button>
-          <button type="button" role="radio" aria-checked={touchMode === 'direct'} onclick={() => setTouchMode('direct')}>Toucher direct</button>
+        <div class="tmodes" role="radiogroup" aria-label={t('session.touch.modes')}>
+          <button type="button" role="radio" aria-checked={touchMode === 'trackpad'} onclick={() => setTouchMode('trackpad')}>{t('session.touch.trackpad')}</button>
+          <button type="button" role="radio" aria-checked={touchMode === 'direct'} onclick={() => setTouchMode('direct')}>{t('session.touch.direct')}</button>
         </div>
-        <button type="button" class="tb" onclick={openKeyboard} aria-label="Clavier">
+        <button type="button" class="tb" onclick={openKeyboard} aria-label={t('session.touch.keyboard')}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
         </button>
         {#if prefs.audio}
-          <button type="button" class="tb" aria-pressed={muted} onclick={toggleMute} aria-label={muted ? 'Remettre le son' : 'Couper le son'}>
+          <button type="button" class="tb" aria-pressed={muted} onclick={toggleMute} aria-label={muted ? t('session.sound.unmute') : t('session.sound.mute')}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z" />{#if muted}<path d="M17 9l4 6M21 9l-4 6" />{:else}<path d="M17 9a4 4 0 0 1 0 6" />{/if}</svg>
           </button>
         {/if}
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="tb" onclick={() => (touchBar = false)} aria-label="Masquer la barre">
+        <button type="button" class="tb" onclick={() => (touchBar = false)} aria-label={t('session.touch.hideBar')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 15l6-6 6 6" /></svg>
         </button>
-        <button type="button" class="tb danger-tb" onclick={quit} aria-label="Quitter">
+        <button type="button" class="tb danger-tb" onclick={quit} aria-label={t('session.bar.quit')}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg>
         </button>
       </div>
     {/if}
 
     {#if !keyboardOpen}
-      <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label="Ouvrir le clavier">
+      <button type="button" class="fab glass" onpointerdown={(e) => e.preventDefault()} onclick={openKeyboard} aria-label={t('session.touch.openKeyboard')}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" /></svg>
       </button>
     {:else}
-      <div class="keys" role="toolbar" aria-label="Touches spéciales">
+      <div class="keys" role="toolbar" aria-label={t('session.touch.specialKeys')}>
         {#each SPECIAL_KEYS as k (k.code)}
           <button type="button" class="key" aria-pressed={k.sticky ? mods.has(k.key) : undefined} aria-label={k.aria} onpointerdown={(e) => e.preventDefault()} onclick={() => pressSpecial(k)}>{k.label}</button>
         {/each}
-        <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => engine?.ctrlAltDel()}>Ctrl+Alt+Suppr</button>
-        <button type="button" class="key close" aria-label="Fermer le clavier" onclick={closeKeyboard}>
+        <button type="button" class="key" onpointerdown={(e) => e.preventDefault()} onclick={() => engine?.ctrlAltDel()}>{t('session.touch.cad')}</button>
+        <button type="button" class="key close" aria-label={t('session.touch.closeKeyboard')} onclick={closeKeyboard}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       </div>
     {/if}
 
     {#if guide}
-      <section class="guide glass" aria-label="Les gestes">
-        <strong>{touchMode === 'trackpad' ? 'Pavé tactile' : 'Toucher direct'}</strong>
+      <section class="guide glass" aria-label={t('session.touch.gestures')}>
+        <strong>{touchMode === 'trackpad' ? t('session.touch.trackpad') : t('session.touch.direct')}</strong>
         {#if touchMode === 'trackpad'}
-          <p>Glissez pour déplacer le pointeur, touchez pour cliquer, à deux doigts pour le clic droit. Glissez à deux doigts pour défiler.</p>
+          <p>{t('session.touch.guideTrackpad')}</p>
         {:else}
-          <p>Touchez pour cliquer là où est le doigt, longuement pour le clic droit. Glissez à deux doigts pour défiler.</p>
+          <p>{t('session.touch.guideDirect')}</p>
         {/if}
-        <button type="button" onclick={closeGuide}>Compris</button>
+        <button type="button" onclick={closeGuide}>{t('session.touch.gotIt')}</button>
       </section>
     {/if}
   {/if}
@@ -1048,7 +1054,7 @@
     autocapitalize="off"
     autocomplete="off"
     spellcheck="false"
-    aria-label="Saisie vers l'ordinateur"
+    aria-label={t('session.textInput')}
   ></textarea>
 </div>
 

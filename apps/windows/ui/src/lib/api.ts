@@ -9,6 +9,7 @@ type Tauri = {
 }
 
 import { mockTauri } from './mock'
+import { i18n, t } from './i18n/index.svelte'
 
 // Dans un navigateur (développement), une imitation de l'app.
 const tauri: Tauri =
@@ -80,7 +81,8 @@ export type ThisPc = {
 
 export type Update = { version: string; channel: 'stable' | 'beta'; notes: string; page: string; file: string; size: number }
 
-export type AppInfo = { version: string; channel: 'stable' | 'beta'; update: Update | null; arch: string }
+/** `language` : choix des réglages ; `lang` : langue appliquée. */
+export type AppInfo = { version: string; channel: 'stable' | 'beta'; language: 'auto' | 'fr' | 'en'; lang: 'fr' | 'en'; update: Update | null; arch: string }
 
 /** Ce que l'ouverture demande (lien, barre des tâches, notification, installateur). */
 export type Action =
@@ -98,19 +100,33 @@ export type Summary = { error: string | null; median_ms: number | null; p95_ms: 
 
 export type Stats = { latency_ms: number | null; fps: number; width: number; height: number; decoder: string; relative: boolean; rtt_ms: number | null }
 
-/** « 8,9 » : nombres à la française. */
-export const ms = (v: number | null | undefined, digits = 1) => (v == null ? '—' : v.toFixed(digits).replace('.', ','))
+/** « 8,9 » en français, « 8.9 » en anglais. */
+export const ms = (v: number | null | undefined, digits = 1) => {
+  if (v == null) return '—'
+  const s = v.toFixed(digits)
+  return i18n.lang === 'fr' ? s.replace('.', ',') : s
+}
 
 export const duration = (s: number) => {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
-  return h > 0 ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min`
+  return h > 0 ? t('time.hours', { h, m: String(m).padStart(2, '0') }) : t('time.minutes', { m })
 }
 
 /** Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». */
 export const isCustom = (s: Settings) => s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
 
-export const profileLabel = (s: Settings) => (isCustom(s) ? 'Personnalisé' : { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }[s.profile])
+export const profileLabel = (s: Settings) => (isCustom(s) ? t('profiles.custom') : t(`profiles.${s.profile}`))
+
+/** Noms des profils tels que l'app les écrit (« Bureau · HEVC 4:4:4 », barre et dernière session). */
+const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Personnalisé: 'custom' }
+
+/** « Bureau · HEVC 4:4:4 » dans la langue de l'interface. */
+export const localLabel = (label: string) => {
+  const [first, ...rest] = label.split(' · ')
+  const key = profileNames[first]
+  return key ? [t(`profiles.${key}`), ...rest].join(' · ') : label
+}
 
 /** Teinte de la signature d'un ordinateur, tirée de l'empreinte de sa console. */
 export const hue = (fp: string | null, salt = 0) => {

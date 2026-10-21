@@ -15,6 +15,8 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::i18n::{self, Lang, tr};
+
 #[derive(Debug)]
 pub enum ConsoleError {
     /// Le certificat de la console n'est pas celui qu'on connaît.
@@ -25,16 +27,22 @@ pub enum ConsoleError {
     Invalid(String),
 }
 
+impl ConsoleError {
+    /// Le message dans une langue (`Display` : celle de l'app ; les journaux
+    /// prennent le français).
+    pub fn text(&self, lang: Lang) -> String {
+        match self {
+            Self::CertificateChanged { seen } => tr(lang, "console.certificate_changed", &[("seen", seen)]),
+            Self::Http { status, message } => tr(lang, "console.http", &[("message", message), ("status", &status.to_string())]),
+            Self::Network(e) => tr(lang, "console.network", &[("error", e)]),
+            Self::Invalid(e) => tr(lang, "console.invalid", &[("error", e)]),
+        }
+    }
+}
+
 impl std::fmt::Display for ConsoleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::CertificateChanged { seen } => {
-                write!(f, "le certificat de la console a changé (vu : {seen})")
-            }
-            Self::Http { status, message } => write!(f, "console : {message} ({status})"),
-            Self::Network(e) => write!(f, "console injoignable : {e}"),
-            Self::Invalid(e) => write!(f, "réponse de la console illisible : {e}"),
-        }
+        f.write_str(&self.text(i18n::current()))
     }
 }
 
@@ -315,6 +323,8 @@ impl Console {
             .timeout(timeout)
             .set("Authorization", &self.authorization)
             .set("x-kyber-admin", "1")
+            // La console répond dans la langue de l'app (messages d'erreur, refus).
+            .set("Accept-Language", i18n::current().code())
     }
 
     fn read<T: for<'de> Deserialize<'de>>(&self, r: std::result::Result<ureq::Response, ureq::Error>) -> Result<T> {
@@ -325,7 +335,7 @@ impl Console {
                     .into_json::<serde_json::Value>()
                     .ok()
                     .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(str::to_owned))
-                    .unwrap_or_else(|| format!("erreur HTTP {status}"));
+                    .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
                 Err(ConsoleError::Http { status, message })
             }
             Err(ureq::Error::Transport(t)) => {
@@ -411,7 +421,7 @@ impl Console {
         v.get("id")
             .and_then(|i| i.as_str())
             .map(str::to_owned)
-            .ok_or_else(|| ConsoleError::Invalid("identifiant de demande absent".into()))
+            .ok_or_else(|| ConsoleError::Invalid(tr(i18n::current(), "console.no_request_id", &[])))
     }
 
     pub fn pair_status(&self, id: &str) -> Result<PairStatus> {

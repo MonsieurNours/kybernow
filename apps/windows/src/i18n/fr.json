@@ -1,0 +1,55 @@
+{
+  "app": {
+    "start_failed": "L'app n'a pas pu démarrer : {error}",
+    "bar_title": "KyberNow — barre"
+  },
+  "errors": {
+    "session_open_install_later": "une session est ouverte : installez après",
+    "no_update": "aucune mise à jour à installer",
+    "installer_launch": "lancement de l'installateur : {error}",
+    "no_certificate": "aucun certificat vu",
+    "not_a_link": "ce n'est pas un lien kybernow://",
+    "bad_address": "adresse invalide",
+    "no_port": "port absent du lien",
+    "bad_port": "port invalide",
+    "password_store": "le mot de passe n'a pas pu être rangé dans le gestionnaire d'identifiants",
+    "unknown_computer": "ordinateur inconnu",
+    "session_already_open": "une session est déjà ouverte",
+    "this_pc": "c'est ce PC : KyberNow s'affiche sur un autre appareil que l'ordinateur partagé",
+    "password_missing": "mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur",
+    "no_session": "aucune session",
+    "unknown_profile": "profil inconnu",
+    "session_not_ready": "session pas encore prête",
+    "session_window": "fenêtre de session : {error}",
+    "video_thread": "le fil de l'image s'est arrêté"
+  },
+  "notify": {
+    "update_title": "KyberNow {version} est prête",
+    "update_body": "Elle s'installe en un clic depuis l'app.",
+    "stopped_title": "La session sur {name} s'est arrêtée",
+    "resume": "Reprendre",
+    "ended_title": "La session sur {name} est terminée",
+    "ended_body": "Un autre appareil a pris la main, ou la console y a mis fin.",
+    "take_back": "Reprendre la main"
+  },
+  "shell": {
+    "shortcut": "Votre ordinateur sur ce PC",
+    "connect_to": "Se connecter à {name}",
+    "computers": "Ordinateurs",
+    "add": "Ajouter un ordinateur",
+    "add_description": "Ajouter un ordinateur à KyberNow"
+  },
+  "window": {
+    "preparing": "préparation de l'écran",
+    "connecting": "connexion",
+    "first_images": "premières images",
+    "streaming": "{latency} · {width} × {height} · {decoder} · {fps} i/s",
+    "reconnecting": "reconnexion ({attempt}/{max})",
+    "ending": "fin de la session",
+    "ended": "session terminée"
+  },
+  "decoder": {
+    "hardware": "carte graphique",
+    "software": "processeur"
+  }
+}

@@ -216,9 +216,9 @@ enum CloudKeychain {
 
     static func message(_ status: OSStatus) -> String {
         switch status {
-        case errSecMissingEntitlement: return "Trousseau iCloud refusé : droit keychain-access-groups absent du profil."
-        case errSecInteractionNotAllowed: return "Trousseau verrouillé : les mots de passe partiront à son ouverture."
-        default: return "Trousseau iCloud : erreur \(status)."
+        case errSecMissingEntitlement: return String(localized: "Trousseau iCloud refusé : droit keychain-access-groups absent du profil.")
+        case errSecInteractionNotAllowed: return String(localized: "Trousseau verrouillé : les mots de passe partiront à son ouverture.")
+        default: return String(localized: "Trousseau iCloud : erreur \(status).")
         }
     }
 }

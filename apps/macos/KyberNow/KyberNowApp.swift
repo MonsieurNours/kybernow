@@ -40,7 +40,7 @@ final class AppModel: ObservableObject {
     func open(_ url: URL) {
         guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }
         if known(candidate) {
-            show("\(candidate.name) est déjà dans vos ordinateurs")
+            show(String(localized: "\(candidate.name) est déjà dans vos ordinateurs"))
             return
         }
         adding = false
@@ -61,11 +61,11 @@ final class AppModel: ObservableObject {
         // La console confirme la remise en état après le retour à l'accueil.
         session.onReport = { [weak self] host, closing in
             if closing.displayRestored == true, closing.audioRestored == true, closing.error == nil {
-                self?.show("\(host.name) a retrouvé ses écrans et son son")
+                self?.show(String(localized: "\(host.name) a retrouvé ses écrans et son son"))
             } else if closing.displayRestored == false {
-                self?.show("Les écrans de \(host.name) ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow", warning: true)
+                self?.show(String(localized: "Les écrans de \(host.name) ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow"), warning: true)
             } else {
-                self?.show("Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow", warning: true)
+                self?.show(String(localized: "Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow"), warning: true)
             }
         }
         self.session = session

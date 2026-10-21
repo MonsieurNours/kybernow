@@ -89,65 +89,76 @@ const ICONS = {
   boot: 'M12 3v9M5.6 7.6a8 8 0 1 0 12.8 0',
   key: 'M8 11a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM11 12l9-9M17 6l3 3M14.5 8.5l2 2',
 }
+// Langue de Windows et textes du panneau, posés par l'icône avant la page
+// (window.__knI18n, src/i18n.rs). Le français est la source et le repli.
+const LANG = window.__knLang === 'en' ? 'en' : 'fr'
+document.documentElement.lang = LANG
+const I18N = window.__knI18n || { strings: {}, fallback: {} }
+const lookup = (tree, key) => key.split('.').reduce((node, part) => (node && typeof node === 'object' ? node[part] : undefined), tree)
+function t(key, vars = {}) {
+  const text = lookup(I18N.strings, key) ?? lookup(I18N.fallback, key) ?? key
+  return String(text).replace(/\{(\w+)\}/g, (all, name) => (name in vars ? String(vars[name]) : all))
+}
 const send = (cmd, extra) => window.ipc && window.ipc.postMessage(JSON.stringify({ cmd, ...extra }))
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 const icon = (name, color = '#C9D3DC') => `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name]}"/></svg>`
 
 function ago(seconds) {
   const d = Date.now() / 1000 - seconds
-  if (d < 3600) return `il y a ${Math.max(1, Math.round(d / 60))} min`
+  if (d < 3600) return t('ago.minutes', { n: Math.max(1, Math.round(d / 60)) })
   const then = new Date(seconds * 1000), today = new Date()
   const days = Math.round((new Date(today.toDateString()) - new Date(then.toDateString())) / 86400000)
-  return days === 0 ? `aujourd'hui` : days === 1 ? 'hier' : days < 7 ? `il y a ${days} jours` : `le ${then.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+  return days === 0 ? t('ago.today') : days === 1 ? t('ago.yesterday') : days < 7 ? t('ago.days', { n: days }) : t('ago.date', { date: then.toLocaleDateString(LANG === 'fr' ? 'fr-FR' : 'en-US', { day: 'numeric', month: 'long' }) })
 }
 function since(seconds) {
   const m = Math.floor((Date.now() / 1000 - seconds) / 60)
-  return m < 1 ? 'Depuis moins d’une minute' : m < 60 ? `Depuis ${m} min` : `Depuis ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}`
+  return m < 1 ? t('since.lessThanMinute') : m < 60 ? t('since.minutes', { m }) : t('since.hours', { h: Math.floor(m / 60), mm: String(m % 60).padStart(2, '0') })
 }
-const ms = (v) => (v >= 100 ? `${Math.round(v)} ms` : `${v.toFixed(1).replace('.', ',')} ms`)
+const ms = (v) => (v >= 100 ? `${Math.round(v)} ms` : `${LANG === 'fr' ? v.toFixed(1).replace('.', ',') : v.toFixed(1)} ms`)
 
 let state = null
 
 // « donner l'accès à Apple TV et retirer l'accès de iPad » (comme la console).
 function accessReason(pending) {
-  const join = (names) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')} et ${names[names.length - 1]}`)
+  const and = ` ${t('access.and')} `
+  const join = (names) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')}${and}${names[names.length - 1]}`)
   const granted = pending.filter((p) => p.grant).map((p) => p.device)
   const revoked = pending.filter((p) => !p.grant).map((p) => p.device)
   const parts = []
-  if (granted.length) parts.push(`donner l'accès à ${join(granted)}`)
-  if (revoked.length) parts.push(`retirer l'accès de ${join(revoked)}`)
-  return parts.join(' et ') || 'appliquer les comptes'
+  if (granted.length) parts.push(t('access.grant', { names: join(granted) }))
+  if (revoked.length) parts.push(t('access.revoke', { names: join(revoked) }))
+  return parts.join(and) || t('access.apply')
 }
 
 function hero(s) {
   const live = s.console && s.console.live
   const session = s.console && s.console.session
-  const host = (s.console && s.console.hostname) || 'Cet ordinateur'
-  let tone = { color: '#C9F2DA', dot: '#4CD68A', eyebrow: 'En marche' }
-  let title = `${host} attend vos appareils`
-  let sub = s.console && s.console.last ? `Dernière session : ${s.console.last.name}, ${ago(s.console.last.ended_at)}` : 'Personne n’est connecté'
+  const host = (s.console && s.console.hostname) || t('hero.thisComputer')
+  let tone = { color: '#C9F2DA', dot: '#4CD68A', eyebrow: t('hero.running') }
+  let title = t('hero.waiting', { host })
+  let sub = s.console && s.console.last ? t('hero.lastSession', { name: s.console.last.name, when: ago(s.console.last.ended_at) }) : t('hero.nobody')
   if (s.busy) {
-    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: 'Un instant' }
+    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: t('hero.oneMoment') }
     title = s.busy
-    sub = 'Quelques secondes'
+    sub = t('hero.fewSeconds')
   } else if (s.service === 'starting' || s.service === 'stopping') {
-    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: s.service === 'starting' ? 'Démarrage' : 'Arrêt' }
-    title = s.service === 'starting' ? 'Le serveur démarre…' : 'Le serveur s’arrête…'
-    sub = 'Quelques secondes'
+    tone = { color: '#EAD7A8', dot: '#F5B841', eyebrow: s.service === 'starting' ? t('hero.starting') : t('hero.stopping') }
+    title = s.service === 'starting' ? t('hero.serverStarting') : t('hero.serverStopping')
+    sub = t('hero.fewSeconds')
   } else if (s.service !== 'running') {
-    tone = { color: '#FFC9C4', dot: '#FF8A80', eyebrow: s.service === 'missing' ? 'Introuvable' : 'Arrêté' }
-    title = s.service === 'missing' ? 'Le serveur n’est pas installé' : 'Le serveur est arrêté'
-    sub = s.service === 'missing' ? 'Réinstallez KyberNow' : 'Vos appareils ne peuvent pas se connecter'
+    tone = { color: '#FFC9C4', dot: '#FF8A80', eyebrow: s.service === 'missing' ? t('hero.notFound') : t('hero.stopped') }
+    title = s.service === 'missing' ? t('hero.notInstalled') : t('hero.serverStopped')
+    sub = s.service === 'missing' ? t('hero.reinstall') : t('hero.cannotConnect')
   } else if (live) {
-    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: 'En direct' }
+    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: t('hero.live') }
     title = live.name
-    sub = [since(live.started_at), live.latency_ms ? ms(live.latency_ms) : null, 'écrans éteints'].filter(Boolean).join(' · ')
+    sub = [since(live.started_at), live.latency_ms ? ms(live.latency_ms) : null, t('hero.screensOff')].filter(Boolean).join(' · ')
   } else if (session) {
-    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: 'En direct' }
-    title = 'Un appareil est connecté'
-    sub = s.console.user ? `Compte ${s.console.user}` : ''
+    tone = { color: '#D4CEFF', dot: '#9A8CFF', eyebrow: t('hero.live') }
+    title = t('hero.deviceConnected')
+    sub = s.console.user ? t('hero.account', { user: s.console.user }) : ''
   } else if (!s.console) {
-    sub = 'La console ne répond pas'
+    sub = t('hero.consoleSilent')
   }
   const lit = tone.dot === '#9A8CFF' || tone.dot === '#4CD68A'
   return `<section class="hero ${live || session ? 'live' : ''}">
@@ -170,36 +181,36 @@ function render() {
   const session = s.console && (s.console.session || s.console.live)
   const update = s.console && s.console.update
   const items = []
-  if (up && session) items.push(`<button class="item danger" data-cmd="endSession" ${idle ? '' : 'disabled'}>${icon('end', '#FF8A80')}Mettre fin à la session</button>`)
-  items.push(`<button class="item" data-cmd="openConsole" ${s.adminMissing ? 'disabled' : ''}>${icon('console')}Ouvrir la console</button>`)
-  if (update) items.push(`<button class="item signal" data-cmd="openUpdates">${icon('update', '#D4CEFF')}<span class="two"><span>Installer KyberNow ${esc(update)}</span><small>Environ une minute</small></span></button>`)
+  if (up && session) items.push(`<button class="item danger" data-cmd="endSession" ${idle ? '' : 'disabled'}>${icon('end', '#FF8A80')}${esc(t('endSession'))}</button>`)
+  items.push(`<button class="item" data-cmd="openConsole" ${s.adminMissing ? 'disabled' : ''}>${icon('console')}${esc(t('openConsole'))}</button>`)
+  if (update) items.push(`<button class="item signal" data-cmd="openUpdates">${icon('update', '#D4CEFF')}<span class="two"><span>${esc(t('installUpdate', { version: update }))}</span><small>${esc(t('aboutAMinute'))}</small></span></button>`)
   items.push('<div class="sep"></div>')
   const canToggle = idle && (s.service === 'running' || s.service === 'stopped')
-  items.push(`<button class="item" data-cmd="restart" ${canToggle ? '' : 'disabled'}>${icon('restart')}Redémarrer le serveur</button>`)
-  items.push(`<button class="item" data-cmd="toggleServer" ${canToggle ? '' : 'disabled'}>${icon(up ? 'stop' : 'play')}${up ? 'Arrêter le serveur' : 'Démarrer le serveur'}</button>`)
-  if (s.startWithComputer !== null) items.push(`<button class="item" role="switch" aria-checked="${s.startWithComputer}" data-cmd="startWithComputer" ${idle ? '' : 'disabled'}>${icon('boot')}Démarrer avec l'ordinateur<span class="switch ${s.startWithComputer ? 'on' : ''}"><i></i></span></button>`)
-  items.push(`<button class="item" data-cmd="resetPassword" ${idle && !s.adminMissing ? '' : 'disabled'}>${icon('key')}Réinitialiser le mot de passe de la console…</button>`)
+  items.push(`<button class="item" data-cmd="restart" ${canToggle ? '' : 'disabled'}>${icon('restart')}${esc(t('restart'))}</button>`)
+  items.push(`<button class="item" data-cmd="toggleServer" ${canToggle ? '' : 'disabled'}>${icon(up ? 'stop' : 'play')}${esc(up ? t('stop') : t('start'))}</button>`)
+  if (s.startWithComputer !== null) items.push(`<button class="item" role="switch" aria-checked="${s.startWithComputer}" data-cmd="startWithComputer" ${idle ? '' : 'disabled'}>${icon('boot')}${esc(t('startWithComputer'))}<span class="switch ${s.startWithComputer ? 'on' : ''}"><i></i></span></button>`)
+  items.push(`<button class="item" data-cmd="resetPassword" ${idle && !s.adminMissing ? '' : 'disabled'}>${icon('key')}${esc(t('resetPassword'))}</button>`)
   const code = s.setupCode
-    ? `<div class="code"><span>Code d'initialisation de la console : saisissez-le à l'ouverture de la console pour choisir un nouveau mot de passe.</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">Copier le code</button></div>`
+    ? `<div class="code"><span>${esc(t('setupCode'))}</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">${esc(t('copyCode'))}</button></div>`
     : ''
   // Appareils qui demandent l'accès par code (Apple TV) : le code ne passe
   // pas par l'icône, il se compare dans la console (Accès), qui accepte.
-  const pair = ((s.console && s.console.pairRequests) || []).map((r) => `<div class="pair" role="group" aria-label="${esc(r.name)} demande l'accès">
-      <span class="lbl">${esc(r.name)} demande l'accès</span>
-      <span class="hint">Comparez le code affiché sur l'appareil avec celui de la console avant d'accepter.</span>
-      <div class="row"><button class="accept" data-cmd="openPairing">Vérifier dans la console</button><button data-cmd="pairAnswer" data-id="${esc(r.id)}" ${idle ? '' : 'disabled'}>Refuser</button></div>
+  const pair = ((s.console && s.console.pairRequests) || []).map((r) => `<div class="pair" role="group" aria-label="${esc(t('pairRequest', { name: r.name }))}">
+      <span class="lbl">${esc(t('pairRequest', { name: r.name }))}</span>
+      <span class="hint">${esc(t('pairHint'))}</span>
+      <div class="row"><button class="accept" data-cmd="openPairing">${esc(t('verify'))}</button><button data-cmd="pairAnswer" data-id="${esc(r.id)}" ${idle ? '' : 'disabled'}>${esc(t('refuse'))}</button></div>
     </div>`).join('')
   // Accès donné (ou retiré) pendant une session : Kyber redémarre de lui-même
   // dès qu'elle finit, sans couper personne.
   const pending = (s.console && s.console.pendingAccess) || []
   const wait = pending.length ? `<div class="wait" role="status">
-      <span class="lbl">Redémarrage en attente</span>
-      <span class="hint">Pour ${esc(accessReason(pending))} : le serveur redémarrera tout seul dès la fin de la session en cours.</span>
+      <span class="lbl">${esc(t('waitTitle'))}</span>
+      <span class="hint">${esc(t('waitHint', { reason: accessReason(pending) }))}</span>
     </div>` : ''
   const version = (s.console && s.console.version) || s.version || ''
   const address = (s.console && s.console.address) || ''
   root.innerHTML = `${hero(s)}${pair}${wait}${code}<div class="items">${items.join('')}<div class="sep"></div>
-    <div class="foot"><span class="mono">${esc([version, address].filter(Boolean).join(' · '))}</span><button data-cmd="quit">Fermer l'icône</button></div></div>`
+    <div class="foot"><span class="mono">${esc([version, address].filter(Boolean).join(' · '))}</span><button data-cmd="quit">${esc(t('quit'))}</button></div></div>`
   requestAnimationFrame(() => send('size', { height: Math.ceil(root.getBoundingClientRect().height) }))
 }
 
@@ -209,7 +220,7 @@ document.addEventListener('click', (e) => {
   const cmd = b.dataset.cmd
   if (cmd === 'copyCode' && state && state.setupCode) {
     navigator.clipboard && navigator.clipboard.writeText(state.setupCode)
-    b.textContent = 'Copié'
+    b.textContent = t('copied')
     return
   }
   if (cmd === 'pairAnswer') {

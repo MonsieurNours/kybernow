@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::http;
+use crate::i18n::t;
 
 fn env_dir(var: &str, fallback: &str) -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(fallback))
@@ -108,7 +109,7 @@ impl Client {
 
     fn post(&self, port: u16, path: &str, timeout: Duration) -> anyhow::Result<http::Reply> {
         let Some(http) = self.http.as_ref() else {
-            anyhow::bail!("Le certificat de la console n'est pas encore connu de l'icône (kybernow.json) : réessayez dans quelques secondes.");
+            anyhow::bail!(t("tray.errors.certificateUnknown", &[]));
         };
         let token = local_token();
         http.call("POST", port, path, &[("x-kyber-admin", "1"), (LOCAL_HEADER, &token)], timeout)
@@ -146,9 +147,9 @@ impl Client {
 
     /// Met fin à la session en cours (route réservée à l'ordinateur lui-même).
     pub fn end_session(&self, port: u16) -> anyhow::Result<()> {
-        let reply = self.post(port, "/api/local/end", Duration::from_secs(10)).map_err(|e| anyhow::anyhow!("La console n'a pas pu mettre fin à la session ({e:#})."))?;
+        let reply = self.post(port, "/api/local/end", Duration::from_secs(10)).map_err(|e| anyhow::anyhow!(t("tray.errors.endSessionFailed", &[("error", &format!("{e:#}"))])))?;
         if reply.status >= 400 {
-            anyhow::bail!("La console n'a pas pu mettre fin à la session ({}).", describe(&reply));
+            anyhow::bail!(t("tray.errors.endSessionFailed", &[("error", &describe(&reply))]));
         }
         Ok(())
     }
@@ -156,11 +157,11 @@ impl Client {
     /// Accepte ou refuse une demande d'accès par code (route réservée à l'ordinateur lui-même).
     pub fn pair_answer(&self, port: u16, id: &str, accept: bool) -> anyhow::Result<()> {
         let action = if accept { "accept" } else { "refuse" };
-        let reply = self.post(port, &format!("/api/local/pair/{id}/{action}"), Duration::from_secs(15)).map_err(|e| anyhow::anyhow!("La console n'a pas pu répondre à la demande ({e:#})."))?;
+        let reply = self.post(port, &format!("/api/local/pair/{id}/{action}"), Duration::from_secs(15)).map_err(|e| anyhow::anyhow!(t("tray.errors.pairFailed", &[("error", &format!("{e:#}"))])))?;
         match reply.status {
             s if s < 400 => Ok(()),
-            410 => anyhow::bail!("Cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code."),
-            _ => anyhow::bail!("La console n'a pas pu répondre à la demande ({}).", describe(&reply)),
+            410 => anyhow::bail!(t("tray.errors.pairExpired", &[])),
+            _ => anyhow::bail!(t("tray.errors.pairFailed", &[("error", &describe(&reply))])),
         }
     }
 }

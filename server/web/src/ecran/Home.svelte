@@ -22,6 +22,7 @@
   import Mark from '../lib/Mark.svelte'
   import Icon from '../lib/Icon.svelte'
   import Settings from './Settings.svelte'
+  import { t } from '../lib/i18n/index.svelte'
 
   let {
     hostname,
@@ -46,17 +47,17 @@
   const hardware = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.hardware)
   const blocked = $derived(!isIsolated ? 'isolation' : codecError ? 'engine' : null)
 
-  const profiles: { value: Profile; label: string; icon: string }[] = [
-    { value: 'bureau', label: 'Bureau', icon: 'desk' },
-    { value: 'jeu', label: 'Jeu', icon: 'pad' },
-  ]
+  const profiles: { value: Profile; label: string; icon: string }[] = $derived([
+    { value: 'bureau', label: t('web.home.desktop'), icon: 'desk' },
+    { value: 'jeu', label: t('web.home.game'), icon: 'pad' },
+  ])
 
   const profileNote = $derived(
     prefs.profile === 'jeu'
-      ? 'Jeu : la latence la plus basse, et les manettes branchées ici passent sur l’ordinateur.'
+      ? t('web.home.noteGame')
       : plan?.yuv444
-        ? 'Bureau : un texte parfaitement net (4:4:4), aucune image perdue, le presse-papiers partagé.'
-        : 'Bureau : aucune image perdue, plus de débit pour le texte, le presse-papiers partagé.',
+        ? t('web.home.noteDesktop444')
+        : t('web.home.noteDesktop'),
   )
 
   async function loadPreview() {
@@ -103,7 +104,7 @@
   function previewAge(): string {
     if (!preview) return ''
     const s = Math.max(0, Math.round((now - preview.capturedAt) / 1000))
-    return s < 60 ? `il y a ${Math.max(s, 1)} s` : ago(preview.capturedAt / 1000)
+    return s < 60 ? t('web.home.secondsAgo', { n: Math.max(s, 1) }) : ago(preview.capturedAt / 1000)
   }
 </script>
 
@@ -121,11 +122,11 @@
     <nav>
       <a class="navlink" href="/">
         <Icon name="overview" size={16} />
-        <span>Console</span>
+        <span>{t('web.home.console')}</span>
       </a>
       <button type="button" class="navlink" onclick={signOut}>
         <Icon name="logout" size={16} />
-        <span>Se déconnecter</span>
+        <span>{t('web.home.signOut')}</span>
       </button>
     </nav>
   </header>
@@ -136,21 +137,21 @@
         {#if preview}<img src={preview.url} alt="" />{/if}
       </div>
     {/if}
-    {#if preview}<span class="lbl age">Aperçu · {previewAge()}</span>{/if}
+    {#if preview}<span class="lbl age">{t('web.home.preview', { age: previewAge() })}</span>{/if}
     <h1 class="disp">{hostname}</h1>
 
     {#if live}
-      <span class="pill busy"><span class="dot"></span>En session sur {live.name} · vous connecter y mettra fin</span>
+      <span class="pill busy"><span class="dot"></span>{t('web.home.live', { name: live.name })}</span>
     {:else}
-      <span class="pill"><span class="dot"></span>Libre · prêt pour vous</span>
+      <span class="pill"><span class="dot"></span>{t('web.home.free')}</span>
     {/if}
 
     <div class="actions">
       <button type="button" class="primary cta" onclick={connect} disabled={!!blocked}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-        {live ? 'Prendre la main' : 'Se connecter'}
+        {live ? t('web.home.takeOver') : t('web.home.connect')}
       </button>
-      <div class="seg" role="radiogroup" aria-label="Profil">
+      <div class="seg" role="radiogroup" aria-label={t('web.home.profile')}>
         {#each profiles as p (p.value)}
           <button type="button" role="radio" aria-checked={prefs.profile === p.value} onclick={() => (prefs.profile = p.value)}>
             {#if p.icon === 'desk'}
@@ -164,7 +165,7 @@
       </div>
       <button type="button" class="glassbtn" onclick={() => (sheet = true)}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
-        Réglages
+        {t('web.home.settings')}
       </button>
     </div>
     <p class="note">{profileNote}</p>
@@ -172,9 +173,9 @@
     {#if blocked}
       <p class="blocked" role="alert">
         {#if blocked === 'isolation'}
-          La page n'a pas pu s'isoler, ce dont l'image a besoin. Rechargez-la ; si cela persiste, mettez à jour KyberNow Server.
+          {t('web.home.blockedIsolation')}
         {:else}
-          Le moteur d'image de l'ordinateur n'a pas pu se charger. Le serveur Kyber est-il en marche ?
+          {t('web.home.blockedEngine')}
         {/if}
       </p>
     {/if}
@@ -182,33 +183,33 @@
     {#if isTouch}
       <div class="tips">
         {#if kind === 'phone'}
-          <p class="tip"><Icon name="phone" size={18} /><span><b>Tournez le téléphone.</b> L'ordinateur crée un écran à sa taille, en largeur.</span></p>
+          <p class="tip"><Icon name="phone" size={18} /><span><b>{t('web.home.rotateTitle')}</b> {t('web.home.rotate')}</span></p>
         {/if}
         {#if !isStandalone}
-          <p class="tip"><Icon name="plus" size={18} /><span><b>Ajoutez cette page à l'écran d'accueil.</b> Elle s'ouvre alors en plein écran, sans la barre du navigateur.</span></p>
+          <p class="tip"><Icon name="plus" size={18} /><span><b>{t('web.home.homeScreenTitle')}</b> {t('web.home.homeScreen')}</span></p>
         {/if}
       </div>
     {/if}
   </main>
 
   {#if kind !== 'phone'}
-    <section class="caps" aria-label="Ce navigateur">
+    <section class="caps" aria-label={t('web.home.browser')}>
       <div class="caps-title">
-        <span class="lbl">Ce navigateur</span>
-        <span class="strong">{blocked ? 'Il manque quelque chose' : 'Prêt, sans rien installer'}</span>
+        <span class="lbl">{t('web.home.browser')}</span>
+        <span class="strong">{blocked ? t('web.home.missing') : t('web.home.ready')}</span>
       </div>
       <span class="sep" aria-hidden="true"></span>
       <ul>
         {#if codecs}
-          <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? 'Image décodée par la carte graphique' : 'Image décodée par le processeur'}</li>
+          <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? t('web.home.hardware') : t('web.home.software')}</li>
         {/if}
-        <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? "Écran de l'ordinateur à la taille du vôtre" : "Écrans de l'ordinateur tels quels"}</li>
+        <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? t('web.home.virtualDisplay') : t('web.home.displaysAsIs')}</li>
         {#if protocol === 'websocket'}
-          <li class="off"><Icon name="info" size={14} stroke={2.4} />Image par WebSocket : un peu plus de latence qu'en WebTransport</li>
+          <li class="off"><Icon name="info" size={14} stroke={2.4} />{t('web.home.websocket')}</li>
         {/if}
-        <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? 'Toutes les touches en plein écran' : 'Raccourcis système par le menu Touches'}</li>
+        <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? t('web.home.allKeys') : t('web.home.keysMenu')}</li>
         {#if prefs.profile === 'bureau' && plan}
-          <li class:off={!plan.yuv444}><Icon name={plan.yuv444 ? 'check' : 'info'} size={14} stroke={2.4} />{plan.yuv444 ? 'Texte net (4:4:4)' : 'Texte net (4:4:4) : pas dans ce navigateur'}</li>
+          <li class:off={!plan.yuv444}><Icon name={plan.yuv444 ? 'check' : 'info'} size={14} stroke={2.4} />{plan.yuv444 ? t('web.home.text444') : t('web.home.text444Missing')}</li>
         {/if}
       </ul>
       <span class="mono mode">{mode.width} × {mode.height} · {mode.refresh} Hz</span>

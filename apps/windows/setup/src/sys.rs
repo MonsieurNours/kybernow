@@ -135,7 +135,7 @@ pub fn close_app(wait: Duration) -> Result<()> {
         std::thread::sleep(Duration::from_millis(200));
     }
     if app_running() {
-        bail!("KyberNow est encore ouverte et refuse de se fermer. Fermez-la, puis réessayez.");
+        return Err(crate::i18n::err("errors.appWontClose", &[]));
     }
     // Les fichiers se libèrent un peu après la fin du processus.
     std::thread::sleep(Duration::from_millis(500));

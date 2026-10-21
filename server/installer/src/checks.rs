@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde::Serialize;
 
 use crate::events::{BusyPort, CheckStatus, Emit, Event, Existing};
+use crate::i18n::t;
 use crate::ports;
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -45,79 +46,79 @@ fn running(emit: &Emit, id: &str, title: &str) {
 pub fn run(emit: &Emit) -> SystemInfo {
     let mut info = SystemInfo::default();
 
-    running(emit, "gpu", "Carte graphique");
+    running(emit, "gpu", &t("checks.gpu.title", &[]));
     let gpu = best_gpu(gpus());
     info.encoder = gpu.as_ref().map_or("x264", |g| g.vendor.encoder()).into();
     match &gpu {
-        Some(g) => emit_item(emit, Item { id: "gpu", status: CheckStatus::Ok, title: "Carte graphique".into(), detail: format!("{} · encodage matériel {}", g.name, g.vendor.encoder_name()) }),
-        None => emit_item(emit, Item { id: "gpu", status: CheckStatus::Warn, title: "Aucune carte graphique compatible".into(), detail: "L'encodage se fera par le processeur (x264) : plus lent et plus gourmand.".into() }),
+        Some(g) => emit_item(emit, Item { id: "gpu", status: CheckStatus::Ok, title: t("checks.gpu.title", &[]), detail: t("checks.gpu.detail", &[("name", &g.name), ("encoder", &g.vendor.encoder_name())]) }),
+        None => emit_item(emit, Item { id: "gpu", status: CheckStatus::Warn, title: t("checks.gpu.noneTitle", &[]), detail: t("checks.gpu.noneDetail", &[]) }),
     }
 
-    running(emit, "driver", "Pilote graphique");
+    running(emit, "driver", &t("checks.driver.title", &[]));
     match &gpu {
-        Some(Gpu { driver: Some(v), .. }) => emit_item(emit, Item { id: "driver", status: CheckStatus::Ok, title: "Pilote graphique".into(), detail: format!("Version {v}") }),
-        Some(_) => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: "Pilote graphique".into(), detail: "Version inconnue : pensez à mettre à jour le pilote de la carte graphique.".into() }),
-        None => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: "Pilote graphique".into(), detail: "Aucun pilote de carte graphique : installez celui du fabricant (NVIDIA, AMD ou Intel) pour profiter de l'encodage matériel.".into() }),
+        Some(Gpu { driver: Some(v), .. }) => emit_item(emit, Item { id: "driver", status: CheckStatus::Ok, title: t("checks.driver.title", &[]), detail: t("checks.driver.version", &[("version", v)]) }),
+        Some(_) => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: t("checks.driver.title", &[]), detail: t("checks.driver.unknown", &[]) }),
+        None => emit_item(emit, Item { id: "driver", status: CheckStatus::Warn, title: t("checks.driver.title", &[]), detail: t("checks.driver.none", &[]) }),
     }
 
-    running(emit, "network", "Réseau local");
+    running(emit, "network", &t("checks.network.title", &[]));
     info.lan_ip = lan_ip();
     let net = network(info.lan_ip.as_deref());
-    let ip = info.lan_ip.clone().unwrap_or_else(|| "adresse inconnue".into());
+    let ip = info.lan_ip.clone().unwrap_or_else(|| t("checks.network.unknownAddress", &[]));
     let (status, mut detail) = match net.as_ref().map(|n| n.media.as_str()) {
-        Some("ethernet") => (CheckStatus::Ok, format!("Ethernet · {ip}")),
-        Some("wifi") => (CheckStatus::Warn, format!("Wi-Fi · {ip} · un câble Ethernet évite les micro-coupures")),
+        Some("ethernet") => (CheckStatus::Ok, t("checks.network.ethernet", &[("ip", &ip)])),
+        Some("wifi") => (CheckStatus::Warn, t("checks.network.wifi", &[("ip", &ip)])),
         _ => (CheckStatus::Ok, ip.clone()),
     };
     let mut status = status;
     if let Some(n) = net.as_ref().filter(|n| n.public) {
         info.public_interface = Some(n.index);
         status = CheckStatus::Warn;
-        detail.push_str(" · réseau classé « Public » : nous le passerons en « Privé » pour que vos appareils puissent se connecter");
+        detail.push_str(&t("checks.network.public", &[]));
     }
-    emit_item(emit, Item { id: "network", status, title: "Réseau local".into(), detail });
+    emit_item(emit, Item { id: "network", status, title: t("checks.network.title", &[]), detail });
 
-    running(emit, "ports", "Ports réseau");
+    running(emit, "ports", &t("checks.ports.title", &[]));
     let excluded = ports::excluded_ranges();
     let busy = (!ports::is_free(ports::KYBER_DEFAULT_PORT, &excluded))
         .then(|| BusyPort { port: ports::KYBER_DEFAULT_PORT, process: ports::owner(ports::KYBER_DEFAULT_PORT) });
     info.stream_port = ports::pick_random(&excluded, &[]);
     info.console_port = ports::pick_random(&excluded, &[info.stream_port]);
     let reason = match &busy {
-        Some(b) => format!(
-            "Le port habituel 8080 est déjà utilisé{}. ",
-            b.process.as_ref().map(|p| format!(" par {p}")).unwrap_or_default()
-        ),
+        Some(b) => {
+            let by = b.process.as_ref().map(|p| t("ports.by", &[("process", p)])).unwrap_or_default();
+            t("checks.ports.defaultBusy", &[("by", &by)])
+        }
         None => String::new(),
     };
     emit_item(emit, Item {
         id: "ports",
         status: CheckStatus::Ok,
-        title: "Ports réseau".into(),
-        detail: format!("{reason}Tirés au hasard et vérifiés libres : stream {} · console {}", info.stream_port, info.console_port),
+        title: t("checks.ports.title", &[]),
+        detail: t("checks.ports.picked", &[("reason", &reason), ("stream", &info.stream_port), ("console", &info.console_port)]),
     });
 
-    running(emit, "display", "Écran principal");
+    running(emit, "display", &t("checks.display.title", &[]));
     match display_mode() {
-        Some((w, h, hz)) => emit_item(emit, Item { id: "display", status: CheckStatus::Ok, title: "Écran principal".into(), detail: format!("{w} × {h} · {hz} Hz") }),
-        None => emit_item(emit, Item { id: "display", status: CheckStatus::Warn, title: "Écran principal".into(), detail: "Aucun écran détecté : branchez un écran ou activez l'écran virtuel.".into() }),
+        Some((w, h, hz)) => emit_item(emit, Item { id: "display", status: CheckStatus::Ok, title: t("checks.display.title", &[]), detail: t("checks.display.mode", &[("width", &w), ("height", &h), ("hz", &hz)]) }),
+        None => emit_item(emit, Item { id: "display", status: CheckStatus::Warn, title: t("checks.display.title", &[]), detail: t("checks.display.none", &[]) }),
     }
 
-    running(emit, "power", "Mode d'alimentation");
+    running(emit, "power", &t("checks.power.title", &[]));
     let (plan, tuned) = power_plan();
     info.power_needs_tuning = !tuned;
     if tuned {
-        emit_item(emit, Item { id: "power", status: CheckStatus::Ok, title: format!("Mode d'alimentation : {plan}"), detail: "Le GPU garde toute sa puissance pendant le stream.".into() });
+        emit_item(emit, Item { id: "power", status: CheckStatus::Ok, title: t("checks.power.titleWithPlan", &[("plan", &plan)]), detail: t("checks.power.tuned", &[]) });
     } else {
-        emit_item(emit, Item { id: "power", status: CheckStatus::Warn, title: format!("Mode d'alimentation : {plan}"), detail: "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options.".into() });
+        emit_item(emit, Item { id: "power", status: CheckStatus::Warn, title: t("checks.power.titleWithPlan", &[("plan", &plan)]), detail: t("checks.power.notTuned", &[]) });
     }
 
-    running(emit, "audio", "Son à distance");
+    running(emit, "audio", &t("checks.audio.title", &[]));
     info.steam_speakers_inf = steam_speakers_inf();
     if info.steam_speakers_inf.is_some() {
-        emit_item(emit, Item { id: "audio", status: CheckStatus::Ok, title: "Son à distance".into(), detail: "Haut-parleurs virtuels de Steam disponibles : pendant le stream, l'ordinateur se tait et le son part en stéréo, 5.1 ou 7.1.".into() });
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Ok, title: t("checks.audio.title", &[]), detail: t("checks.audio.ok", &[]) });
     } else {
-        emit_item(emit, Item { id: "audio", status: CheckStatus::Warn, title: "Son à distance".into(), detail: "Steam n'est pas installé : le son sortira aussi des haut-parleurs de l'ordinateur, au format de Windows. Installez Steam puis relancez l'installation pour en profiter.".into() });
+        emit_item(emit, Item { id: "audio", status: CheckStatus::Warn, title: t("checks.audio.title", &[]), detail: t("checks.audio.missing", &[]) });
     }
 
     let (uninstaller, service) = existing_kyber();
@@ -125,16 +126,16 @@ pub fn run(emit: &Emit) -> SystemInfo {
     info.kyber_service_exists = service;
     info.existing = existing_kybernow();
     if let Some(existing) = &info.existing {
-        running(emit, "existing", "Installation existante");
+        running(emit, "existing", &t("checks.existing.title", &[]));
         let detail = if existing.settings {
-            "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro."
+            t("checks.existing.keepChoice", &[])
         } else {
-            "Ses réglages sont introuvables : l'installation repartira de zéro."
+            t("checks.existing.noSettings", &[])
         };
-        emit_item(emit, Item { id: "existing", status: CheckStatus::Ok, title: format!("KyberNow {} est installé", existing.version), detail: detail.into() });
+        emit_item(emit, Item { id: "existing", status: CheckStatus::Ok, title: t("checks.existing.installed", &[("version", &existing.version)]), detail });
     } else if uninstaller.is_some() || service {
-        running(emit, "existing", "Installation existante");
-        emit_item(emit, Item { id: "existing", status: CheckStatus::Warn, title: "Une installation de Kyber existe".into(), detail: "Elle sera retirée puis remplacée par celle de KyberNow (même moteur, réglé pour vous).".into() });
+        running(emit, "existing", &t("checks.existing.title", &[]));
+        emit_item(emit, Item { id: "existing", status: CheckStatus::Warn, title: t("checks.existing.kyberTitle", &[]), detail: t("checks.existing.kyberDetail", &[]) });
     }
 
     emit(Event::ChecksDone {
@@ -370,20 +371,20 @@ fn power_plan() -> (String, bool) {
     const ULTIMATE: &str = "e9a42b02-d5df-448d-aa00-03f14749eb61";
     const SAVER: &str = "a1841308-3541-4fab-bc81-f71556f20b4a";
     if !cfg!(windows) {
-        return ("Équilibré".into(), false);
+        return (t("checks.power.balanced", &[]), false);
     }
     let Ok(out) = crate::sys::run("powercfg", &["/getactivescheme"]) else {
-        return ("inconnu".into(), true);
+        return (t("checks.power.unknown", &[]), true);
     };
     let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
     if text.contains(HIGH) {
-        ("Performances élevées".into(), true)
+        (t("checks.power.high", &[]), true)
     } else if text.contains(ULTIMATE) {
-        ("Performances optimales".into(), true)
+        (t("checks.power.ultimate", &[]), true)
     } else if text.contains(SAVER) {
-        ("Économie d'énergie".into(), false)
+        (t("checks.power.saver", &[]), false)
     } else {
-        ("Équilibré".into(), false)
+        (t("checks.power.balanced", &[]), false)
     }
 }
 

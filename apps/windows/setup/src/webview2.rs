@@ -2,7 +2,7 @@
 //! installateur). Présent sur Windows 11 et la plupart des Windows 10 ; sinon
 //! installé pour cet utilisateur par l'installateur officiel de Microsoft.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
 use crate::sys;
@@ -48,14 +48,14 @@ pub fn install() -> Result<String> {
     if !exe.exists() {
         let why = out.map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string()).unwrap_or_else(|e| e.to_string());
         let _ = std::fs::remove_dir_all(&dir);
-        bail!("téléchargement de WebView2 impossible (connexion à Internet ?) : {why}");
+        return Err(crate::i18n::err("errors.webview2Download", &[("error", &why)]));
     }
     sys::log("installation de WebView2");
     let status = std::process::Command::new(&exe).args(["/silent", "/install"]).status();
     let _ = std::fs::remove_dir_all(&dir);
     match (status, version()) {
         (_, Some(v)) => Ok(v),
-        (Ok(s), None) => bail!("l'installateur de WebView2 a échoué (code {})", s.code().unwrap_or(-1)),
-        (Err(e), None) => bail!("l'installateur de WebView2 n'a pas démarré : {e}"),
+        (Ok(s), None) => Err(crate::i18n::err("errors.webview2Code", &[("code", &s.code().unwrap_or(-1))])),
+        (Err(e), None) => Err(crate::i18n::err("errors.webview2Start", &[("error", &e)])),
     }
 }
