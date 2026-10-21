@@ -2247,7 +2247,6 @@ dependencies = [
  "bindgen",
  "getrandom 0.2.17",
  "kybernow-core",
- "kynput-sys",
  "log",
  "mdns-sd",
  "serde",

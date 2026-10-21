@@ -27,6 +27,7 @@
 
 use std::ops::RangeInclusive;
 
+#[cfg(target_vendor = "apple")]
 use kynput_sys as sys;
 
 // Usages HID des touches de modification (0xE0 à 0xE7).
@@ -76,9 +77,19 @@ pub fn usage(hid: u16, command_as_control: bool, iso: impl FnOnce() -> bool) -> 
 }
 
 /// Scancode Windows (kynput) d'un usage HID ; `None` : touche inconnue de kynput.
+#[cfg(target_vendor = "apple")]
 pub fn scancode_of_usage(usage: u16) -> Option<u16> {
     let mut scancode: u16 = 0;
     unsafe { sys::kynput_keycode_usb_to_kyber(usage, &mut scancode) }.then_some(scancode)
+}
+
+/// Hors des systèmes d'Apple, kynput n'exporte pas sa table HID
+/// (`kynput_keycode_usb_to_kyber` n'existe que pour macOS, iOS, tvOS) : le
+/// lien de l'app Windows échouait dès que le module d'entrées y était
+/// utilisé. Windows envoie ses propres scancodes, sans passer par ici.
+#[cfg(not(target_vendor = "apple"))]
+pub fn scancode_of_usage(_usage: u16) -> Option<u16> {
+    None
 }
 
 /// Les deux en un : scancode à envoyer pour une touche donnée en usage HID.

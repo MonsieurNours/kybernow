@@ -201,6 +201,7 @@
     "print": "Print Screen",
     "print_hint": "screenshot",
     "info": "{width} × {height} · {fps} fps · {decoder}",
+    "audio": "Sound: {ms} ms to the output, {gaps} gaps filled this second",
     "session_profile": "Session profile",
     "profile": "Profile",
     "keys": "Special keys",

@@ -45,8 +45,10 @@ targets:
           - StreamView.swift
           # Le cœur Rust (docs/coeur-apple.md) : Mac seulement jusqu'au jalon 4 ;
           # l'Apple TV garde KyberClient, ConsoleClient et LatencyTracker.
+          - AudioPlayerCore.swift
           - CoreBridge.swift
           - ConsoleClientCore.swift
+          - InputCore.swift
           - SessionEngine.swift
       - path: KyberKitTV
     dependencies:

@@ -2,6 +2,12 @@
 //! vers l'ordinateur, pointeur de l'ordinateur, raccourcis de l'app
 //! (Ctrl+Alt+Maj + lettre, comme ⌃⌥⌘ sur Mac).
 //!
+//! Les entrées partent par le module d'entrées du cœur
+//! (`kybernow_core::input::InputPipeline`, une chaîne par démarrage de
+//! l'image, voir `host.rs`) ; le pointeur de l'ordinateur et le mode de la
+//! souris viennent de sa `PointerLayer` et de `MouseModeRules`. La fenêtre
+//! ne fait que capter les événements de Windows et dessiner le pointeur.
+//!
 //! | Ctrl+Alt+Maj+D | se déconnecter |
 //! | Ctrl+Alt+Maj+F | plein écran ou fenêtre |
 //! | Ctrl+Alt+Maj+M | souris des jeux (relative) ou du bureau |
@@ -9,9 +15,9 @@
 //! La fenêtre vit sur le fil de sa session (voir `host.rs`) : l'accueil de
 //! l'app garde le fil principal. Elle reste cachée jusqu'à la première image.
 
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -21,12 +27,12 @@ use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
-use kybernow_core::kynput_rs::{Cursor, CursorData, MouseButtonType};
 use kybernow_core::i18n::Lang;
+use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PointerLayer, Shape};
+use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::session::{Session, Status};
 
 use crate::i18n::t;
-use crate::input::Input;
 use crate::render::video_rect;
 use crate::video::Shared;
 
@@ -37,6 +43,12 @@ pub const WM_APP_MOUSE: u32 = WM_APP + 3;
 pub const WM_APP_FIRST_IMAGE: u32 = WM_APP + 4;
 /// Ordre de l'app (barre de session) : `wParam` = `Command`.
 pub const WM_APP_COMMAND: u32 = WM_APP + 5;
+
+/// Minuterie du recontrôle du mode de la souris (pointeur remontré en jeu).
+const TIMER_MOUSE: usize = 1;
+
+/// Auto : un jeu en plein écran qui cache son pointeur (comme sur Mac).
+const MOUSE_RULES: MouseModeRules = MouseModeRules { needs_hidden_pointer: true };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
@@ -65,11 +77,27 @@ mod sc {
 /// Envoie une combinaison : touches enfoncées dans l'ordre, relâchées à l'envers.
 fn send_combo(app: &App, keys: &[u16]) {
     for &k in keys {
-        app.input.key(k, true);
+        send_key(app, k, true);
     }
     for &k in keys.iter().rev() {
-        app.input.key(k, false);
+        send_key(app, k, false);
     }
+}
+
+/// Touche vers l'ordinateur. Le relâchement d'une touche dont l'appui n'est
+/// pas parti (raccourci de l'app, touche tenue avant la session ou avant une
+/// relance de l'image) ne part pas.
+fn send_key(app: &App, scancode: u16, pressed: bool) {
+    let Some(input) = app.input() else { return };
+    if !pressed && !input.held().lock().unwrap().is_held(scancode) {
+        return;
+    }
+    input.key(scancode, pressed);
+}
+
+/// La touche est-elle tenue sur l'ordinateur ?
+fn key_held(app: &App, scancode: u16) -> bool {
+    app.input().is_some_and(|i| i.held().lock().unwrap().is_held(scancode))
 }
 
 /// Touches dont l'enfoncement a été pris par le crochet (leur relâchement suit).
@@ -118,7 +146,7 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
         let mut grabbed = GRABBED.lock().unwrap();
         if let Some(i) = grabbed.iter().position(|&v| v == k.vkCode) {
             grabbed.remove(i);
-            app.input.key(code, false);
+            send_key(&app, code, false);
             return true;
         }
         return false;
@@ -151,8 +179,8 @@ fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
         grabbed.push(k.vkCode);
     }
     // Les répétitions de Windows ne partent pas (l'ordinateur répète lui-même).
-    if !app.input.is_held(code) {
-        app.input.key(code, true);
+    if !key_held(&app, code) {
+        send_key(&app, code, true);
     }
     true
 }
@@ -169,33 +197,37 @@ pub fn current_session() -> Option<Arc<Session>> {
     app().and_then(|a| a.session.get().cloned())
 }
 
+/// Pointeur de Windows fait de la forme annoncée par l'ordinateur.
 #[derive(Default)]
 struct CursorState {
-    pending: Option<Cursor>,
     current: isize,
-    host_visible: bool,
-    /// Forme du pointeur en place et l'échelle à laquelle il a été construit :
-    /// les paquets de position (jusqu'à 120 par seconde) ne le refont pas.
-    shape: Option<(u32, u32, u32, u32, Vec<u32>)>,
-    scale: f32,
-    /// Dernière position annoncée par l'ordinateur (pixels de son écran).
-    pos: (i32, i32),
+    /// Pixels de la forme en place et l'échelle à laquelle il a été construit :
+    /// les annonces de position (jusqu'à 120 par seconde) ne le refont pas.
+    built: Option<(Arc<[u32]>, f32)>,
 }
 
 pub struct App {
     pub hwnd: AtomicIsize,
     pub host_name: String,
-    pub input: Arc<Input>,
+    /// Chaîne d'entrées de l'image en cours (cœur) ; aucune entre deux images.
+    input: Mutex<Option<Arc<InputPipeline>>>,
+    /// Pointeur de l'ordinateur (cœur) : survit aux relances de l'image.
+    pub pointer: Arc<PointerLayer>,
+    pub clock: Arc<dyn Clock>,
+    /// Souris relative (jeux), appliquée à chaque nouvelle chaîne d'entrées.
+    relative: AtomicBool,
     pub shared: Arc<Shared>,
     pub session: OnceLock<Arc<Session>>,
     pub host_size: Mutex<(u32, u32)>,
+    /// Écran de l'ordinateur affiché (`Display::id`).
+    pub display_id: AtomicU32,
     pub status: Mutex<Option<Status>>,
     pub latency: Mutex<Option<f64>>,
     pub fps: Mutex<u64>,
     /// Un jeu en plein écran sur l'ordinateur (console).
     pub game: AtomicBool,
-    /// Choix forcé par Ctrl+Alt+Maj+M ; `None` : automatique.
-    pub mouse_choice: Mutex<Option<bool>>,
+    /// Auto, ou forcé par Ctrl+Alt+Maj+M et la barre (Jeu, Bureau).
+    pub mouse_mode: Mutex<MouseMode>,
     cursor: Mutex<CursorState>,
     saved_placement: Mutex<Option<(WINDOWPLACEMENT, isize)>>,
     pub closing: AtomicBool,
@@ -219,7 +251,7 @@ fn app() -> Option<Arc<App>> {
 impl App {
     pub fn new(
         host_name: String,
-        input: Arc<Input>,
+        clock: Arc<dyn Clock>,
         shared: Arc<Shared>,
         events: Arc<dyn crate::host::HostEvents>,
         fullscreen: bool,
@@ -227,16 +259,21 @@ impl App {
         let app = Arc::new(Self {
             hwnd: AtomicIsize::new(0),
             host_name,
-            input,
+            input: Mutex::new(None),
+            // La souris de Windows est celle du système : pas de position tenue.
+            pointer: Arc::new(PointerLayer::new(clock.clone(), false)),
+            clock,
+            relative: AtomicBool::new(false),
             shared,
             session: OnceLock::new(),
             host_size: Mutex::new((1920, 1080)),
+            display_id: AtomicU32::new(0),
             status: Mutex::new(None),
             latency: Mutex::new(None),
             fps: Mutex::new(0),
             game: AtomicBool::new(false),
-            mouse_choice: Mutex::new(None),
-            cursor: Mutex::new(CursorState { host_visible: true, ..Default::default() }),
+            mouse_mode: Mutex::new(MouseMode::Auto),
+            cursor: Mutex::new(CursorState::default()),
             saved_placement: Mutex::new(None),
             closing: AtomicBool::new(false),
             error: Mutex::new(None),
@@ -269,10 +306,35 @@ impl App {
         }
     }
 
-    /// Forme du pointeur annoncée par l'ordinateur (fil de kynput).
-    pub fn cursor_from_host(&self, c: Cursor) {
-        self.cursor.lock().unwrap().pending = Some(c);
-        self.post(WM_APP_CURSOR);
+    /// Chaîne d'entrées de l'image en cours.
+    pub fn input(&self) -> Option<Arc<InputPipeline>> {
+        self.input.lock().unwrap().clone()
+    }
+
+    /// Nouvelle chaîne d'entrées (début ou relance de l'image), au mode de
+    /// souris en cours ; rend la précédente, à arrêter.
+    pub fn attach_input(&self, input: Arc<InputPipeline>) -> Option<Arc<InputPipeline>> {
+        let mut current = self.input.lock().unwrap();
+        input.set_relative(self.relative());
+        current.replace(input)
+    }
+
+    /// Image arrêtée : plus de chaîne d'entrées ; rend celle qui était là, à arrêter.
+    pub fn detach_input(&self) -> Option<Arc<InputPipeline>> {
+        self.input.lock().unwrap().take()
+    }
+
+    /// Souris relative (jeux) en ce moment.
+    pub fn relative(&self) -> bool {
+        self.relative.load(Ordering::Relaxed)
+    }
+
+    fn set_relative(&self, on: bool) {
+        let current = self.input.lock().unwrap();
+        self.relative.store(on, Ordering::Relaxed);
+        if let Some(input) = current.as_ref() {
+            input.set_relative(on);
+        }
     }
 
     fn title(&self) -> String {
@@ -391,7 +453,7 @@ pub fn update_client_size(hwnd: HWND) {
     }
     if let Some(app) = app() {
         app.shared.set_client_size((r.right - r.left) as u32, (r.bottom - r.top) as u32);
-        if app.input.relative() {
+        if app.relative() {
             clip_cursor(hwnd, true);
         }
     }
@@ -497,17 +559,29 @@ fn clip_cursor(hwnd: HWND, on: bool) {
 }
 
 /// Souris relative quand on la force, ou (Auto) quand un jeu est en plein
-/// écran sur l'ordinateur et y cache son pointeur.
+/// écran sur l'ordinateur et y cache son pointeur (règles du cœur : un
+/// pointeur remontré moins de 0,6 s ne fait pas quitter le mode jeu, revu
+/// 0,7 s après).
 fn apply_mouse_mode(hwnd: HWND) {
     let Some(app) = app() else { return };
-    let auto = app.game.load(Ordering::Relaxed) && !app.cursor.lock().unwrap().host_visible;
-    let relative = app.mouse_choice.lock().unwrap().unwrap_or(auto);
+    let mode = *app.mouse_mode.lock().unwrap();
+    let pointer = app.pointer.state();
+    let visible_for = pointer.visible_for(app.clock.now());
+    let current = app.relative();
+    let relative = MOUSE_RULES.wants_relative(mode, app.game.load(Ordering::Relaxed), pointer.remote_hidden, visible_for, current);
+    if mode == MouseMode::Auto && current && relative && !pointer.remote_hidden {
+        // Pointeur remontré depuis peu : on reste en jeu, et on revoit à 0,7 s.
+        let left = MouseModeRules::RECHECK_DELAY.saturating_sub(visible_for).max(Duration::from_millis(10));
+        unsafe {
+            SetTimer(Some(hwnd), TIMER_MOUSE, left.as_millis() as u32, None);
+        }
+    }
     let focused = unsafe { GetForegroundWindow() } == hwnd;
-    if relative == app.input.relative() {
+    if relative == current {
         return;
     }
     log::info!("souris : {}", if relative { "jeu (relative)" } else { "bureau" });
-    app.input.set_relative(relative);
+    app.set_relative(relative);
     clip_cursor(hwnd, relative && focused);
     unsafe {
         if relative {
@@ -516,7 +590,8 @@ fn apply_mouse_mode(hwnd: HWND) {
             let cur = app.cursor.lock().unwrap().current;
             SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
         }
-    }    // Pointeur visible sur l'ordinateur (menus d'un jeu) : montré tout de suite.
+    }
+    // Pointeur visible sur l'ordinateur (menus d'un jeu) : montré tout de suite.
     if relative {
         draw_game_pointer(&app, hwnd);
     }
@@ -548,20 +623,19 @@ fn scaled(px: &[u32], w: u32, h: u32, scale: f32) -> (Vec<u32>, u32, u32) {
     (out, nw, nh)
 }
 
-/// Construit un pointeur Windows depuis l'image ARVB de l'ordinateur, à l'échelle de l'image.
-fn make_cursor(c: &Cursor, scale: f32) -> Option<HCURSOR> {
-    let CursorData::Raw(px) = &c.data else { return None };
-    if c.width == 0 || c.height == 0 || px.len() < (c.width * c.height) as usize {
+/// Construit un pointeur Windows depuis l'image ARVB de l'ordinateur (alpha
+/// non prémultiplié, comme dans les pointeurs de Windows), à l'échelle de
+/// l'image. Les formes vides ou entièrement transparentes sont déjà écartées
+/// par le cœur.
+fn make_cursor(shape: &Shape, scale: f32) -> Option<HCURSOR> {
+    let (width, height) = (shape.width, shape.height);
+    if width == 0 || height == 0 || shape.argb.len() < (width * height) as usize {
         return None;
     }
-    // Forme entièrement transparente (lecteurs vidéo) : on garde la précédente.
-    if px.iter().all(|p| p >> 24 == 0) {
-        return None;
-    }
-    let (px, w, h) = scaled(&px[..(c.width * c.height) as usize], c.width, c.height, scale);
+    let (px, w, h) = scaled(&shape.argb[..(width * height) as usize], width, height, scale);
     let (w, h) = (w as i32, h as i32);
-    let k = w as f32 / c.width as f32;
-    let (xhot, yhot) = (((c.xhot as f32) * k) as u32, ((c.yhot as f32) * k) as u32);
+    let k = w as f32 / width as f32;
+    let (xhot, yhot) = (((shape.hot_x as f32) * k) as u32, ((shape.hot_y as f32) * k) as u32);
     unsafe {
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -596,33 +670,24 @@ fn make_cursor(c: &Cursor, scale: f32) -> Option<HCURSOR> {
     }
 }
 
+/// Le pointeur de l'ordinateur a changé (`PointerLayer`, fil de kynput) :
+/// nouvelle forme ou nouvelle échelle de l'image, mode de la souris.
 fn update_cursor(hwnd: HWND) {
     let Some(app) = app() else { return };
-    let mut st = app.cursor.lock().unwrap();
-    let Some(c) = st.pending.take() else { return };
-    st.host_visible = c.visible;
-    st.pos = (c.x, c.y);
-    let scale = image_scale(&app);
-    // Comparée avant toute copie : la plupart des paquets ne portent qu'une position.
-    let same = match (&c.data, &st.shape) {
-        (CursorData::Raw(px), Some((w, h, xh, yh, old))) => *w == c.width && *h == c.height && *xh == c.xhot && *yh == c.yhot && old == px,
-        _ => false,
-    };
-    let raw = matches!(c.data, CursorData::Raw(_));
-    let changed = raw && (!same || (scale - st.scale).abs() > 0.01);
-    if changed {
-        let shape = match &c.data {
-            CursorData::Raw(px) => Some((c.width, c.height, c.xhot, c.yhot, px.clone())),
-            _ => None,
-        };
-        if let Some(new) = make_cursor(&c, scale) {
-            st.shape = shape;
-            st.scale = scale;
+    let pointer = app.pointer.state();
+    if let Some(shape) = &pointer.shape {
+        let scale = image_scale(&app);
+        let mut st = app.cursor.lock().unwrap();
+        // Le cœur ne livre une forme neuve que si elle a changé : les mêmes
+        // pixels sont le même tableau.
+        let same = st.built.as_ref().is_some_and(|(px, s)| Arc::ptr_eq(px, &shape.argb) && (scale - s).abs() <= 0.01);
+        if !same && let Some(new) = make_cursor(shape, scale) {
+            st.built = Some((shape.argb.clone(), scale));
             let old = std::mem::replace(&mut st.current, new.0 as isize);
             unsafe {
                 let mut p = POINT::default();
                 let _ = GetCursorPos(&mut p);
-                if WindowFromPoint(p) == hwnd && (!app.input.relative() || c.visible) {
+                if WindowFromPoint(p) == hwnd && (!app.relative() || !pointer.remote_hidden) {
                     SetCursor(Some(new));
                 }
                 if old != 0 {
@@ -631,7 +696,6 @@ fn update_cursor(hwnd: HWND) {
             }
         }
     }
-    drop(st);
     apply_mouse_mode(hwnd);
     draw_game_pointer(&app, hwnd);
 }
@@ -640,25 +704,35 @@ fn update_cursor(hwnd: HWND) {
 /// (menus d'un jeu) : le pointeur de ce PC le montre là où l'ordinateur
 /// l'annonce. Sinon, caché.
 fn draw_game_pointer(app: &App, hwnd: HWND) {
-    if !app.input.relative() || unsafe { GetForegroundWindow() } != hwnd {
+    if !app.relative() || unsafe { GetForegroundWindow() } != hwnd {
         return;
     }
+    let pointer = app.pointer.state();
     let st = app.cursor.lock().unwrap();
     unsafe {
-        if !st.host_visible || st.current == 0 {
+        let shown = pointer.remote_position.filter(|_| !pointer.remote_hidden && st.current != 0);
+        let Some((x, y)) = shown else {
             SetCursor(None);
             return;
-        }
+        };
         let host = *app.host_size.lock().unwrap();
         let r = video_rect(app.shared.client_size(), host);
-        let (vw, vh) = ((r.right - r.left) as i64, (r.bottom - r.top) as i64);
+        let (vw, vh) = (f64::from(r.right - r.left), f64::from(r.bottom - r.top));
         let mut p = POINT {
-            x: r.left + (st.pos.0 as i64 * vw / host.0.max(1) as i64) as i32,
-            y: r.top + (st.pos.1 as i64 * vh / host.1.max(1) as i64) as i32,
+            x: r.left + (x * vw / f64::from(host.0.max(1))) as i32,
+            y: r.top + (y * vh / f64::from(host.1.max(1))) as i32,
         };
         let _ = ClientToScreen(hwnd, &mut p);
         let _ = SetCursorPos(p.x, p.y);
         SetCursor(Some(HCURSOR(st.current as *mut _)));
+    }
+}
+
+/// Ctrl+Alt+Maj+M, ou la barre : souris des jeux ou du bureau, forcée.
+fn toggle_mouse(hwnd: HWND) {
+    if let Some(a) = app() {
+        *a.mouse_mode.lock().unwrap() = if a.relative() { MouseMode::Desktop } else { MouseMode::Game };
+        apply_mouse_mode(hwnd);
     }
 }
 
@@ -686,9 +760,10 @@ fn request_close(hwnd: HWND) {
 
 fn mouse_position(hwnd: HWND, lparam: LPARAM) {
     let Some(app) = app() else { return };
-    if app.input.relative() {
+    if app.relative() {
         return;
     }
+    let Some(input) = app.input() else { return };
     let x = (lparam.0 & 0xFFFF) as i16 as i32;
     let y = ((lparam.0 >> 16) & 0xFFFF) as i16 as i32;
     let host = *app.host_size.lock().unwrap();
@@ -696,7 +771,7 @@ fn mouse_position(hwnd: HWND, lparam: LPARAM) {
     let (vw, vh) = ((r.right - r.left).max(1), (r.bottom - r.top).max(1));
     let hx = ((x - r.left) as i64 * host.0 as i64 / vw as i64).clamp(0, host.0 as i64 - 1);
     let hy = ((y - r.top) as i64 * host.1 as i64 / vh as i64).clamp(0, host.1 as i64 - 1);
-    app.input.position(hx.min(i16::MAX as i64) as i16, hy.min(i16::MAX as i64) as i16);
+    input.mouse(hx.min(i16::MAX as i64) as i16, hy.min(i16::MAX as i64) as i16);
     let _ = hwnd;
 }
 
@@ -709,14 +784,20 @@ fn mouse_button(hwnd: HWND, button: MouseButtonType, pressed: bool) {
             let _ = ReleaseCapture();
         }
     }
-    app.input.button(button, pressed);
+    let Some(input) = app.input() else { return };
+    // Relâchement d'un bouton dont l'appui n'est pas parti : rien.
+    if !pressed && !input.held().lock().unwrap().mouse_buttons().contains(&button) {
+        return;
+    }
+    input.mouse_button(button, pressed);
 }
 
 fn raw_input(lparam: LPARAM) {
     let Some(app) = app() else { return };
-    if !app.input.relative() {
+    if !app.relative() {
         return;
     }
+    let Some(input) = app.input() else { return };
     unsafe {
         let mut raw = RAWINPUT::default();
         let mut size = std::mem::size_of::<RAWINPUT>() as u32;
@@ -731,8 +812,8 @@ fn raw_input(lparam: LPARAM) {
             return;
         }
         let m = raw.data.mouse;
-        if (m.usFlags.0 & MOUSE_MOVE_ABSOLUTE.0) == 0 {
-            app.input.motion(m.lLastX.clamp(-32768, 32767) as i16, m.lLastY.clamp(-32768, 32767) as i16);
+        if (m.usFlags.0 & MOUSE_MOVE_ABSOLUTE.0) == 0 && (m.lLastX != 0 || m.lLastY != 0) {
+            input.mouse_move(m.lLastX.clamp(-32768, 32767) as i16, m.lLastY.clamp(-32768, 32767) as i16);
         }
     }
 }
@@ -763,11 +844,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         }
                         b'M' => {
                             if !repeat {
-                                if let Some(a) = app() {
-                                    let now = a.input.relative();
-                                    *a.mouse_choice.lock().unwrap() = Some(!now);
-                                    apply_mouse_mode(hwnd);
-                                }
+                                toggle_mouse(hwnd);
                             }
                             true
                         }
@@ -786,7 +863,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     let extended = (lparam.0 >> 24) & 1 == 1;
                     let code = if extended { 0xE000 | sc } else { sc };
                     if sc != 0 {
-                        a.input.key(code, pressed);
+                        send_key(&a, code, pressed);
                     }
                 }
                 // Pas de menu système sur Alt ni F10 : tout part à l'ordinateur.
@@ -799,7 +876,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let y = ((lparam.0 >> 16) & 0xFFFF) as i16;
                 if y <= 1 {
                     // Pas en souris des jeux : regarder vers le haut y plaque le pointeur.
-                    if let Some(a) = app().filter(|a| !a.input.relative()) {
+                    if let Some(a) = app().filter(|a| !a.relative()) {
                         let mut last = a.last_edge.lock().unwrap();
                         if a.shown() && last.is_none_or(|t| t.elapsed().as_millis() > 400) {
                             *last = Some(Instant::now());
@@ -836,13 +913,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         let full = app().is_some_and(|a| a.saved_placement.lock().unwrap().is_some());
                         set_fullscreen(hwnd, !full);
                     }
-                    x if x == Command::MouseToggle as usize => {
-                        if let Some(a) = app() {
-                            let now = a.input.relative();
-                            *a.mouse_choice.lock().unwrap() = Some(!now);
-                            apply_mouse_mode(hwnd);
-                        }
-                    }
+                    x if x == Command::MouseToggle as usize => toggle_mouse(hwnd),
                     x if x == Command::Focus as usize => {
                         let _ = SetForegroundWindow(hwnd);
                     }
@@ -888,13 +959,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 LRESULT(1)
             }
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
-                if let Some(a) = app() {
+                if let Some(input) = app().and_then(|a| a.input()) {
                     let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as f32 / 120.0;
                     if msg == WM_MOUSEWHEEL {
-                        a.input.wheel(0.0, -delta);
+                        input.wheel(0.0, -delta);
                     } else {
                         // Comme le client de Kyber : les deux axes inversés.
-                        a.input.wheel(-delta, 0.0);
+                        input.wheel(-delta, 0.0);
                     }
                 }
                 LRESULT(0)
@@ -906,11 +977,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_SETCURSOR => {
                 if (lparam.0 & 0xFFFF) as u32 == HTCLIENT {
                     if let Some(a) = app() {
-                        let st = a.cursor.lock().unwrap();
-                        if a.input.relative() && !st.host_visible {
+                        if a.relative() && a.pointer.state().remote_hidden {
                             SetCursor(None);
                         } else {
-                            drop(st);
                             let cur = a.cursor.lock().unwrap().current;
                             SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
                         }
@@ -921,14 +990,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_KILLFOCUS => {
                 // Rien ne reste enfoncé sur l'ordinateur quand on change d'app.
-                if let Some(a) = app() {
-                    a.input.release_all();
+                if let Some(input) = app().and_then(|a| a.input()) {
+                    input.release_all();
                 }
                 clip_cursor(hwnd, false);
                 LRESULT(0)
             }
             WM_SETFOCUS => {
-                if app().is_some_and(|a| a.input.relative()) {
+                if app().is_some_and(|a| a.relative()) {
                     clip_cursor(hwnd, true);
                 }
                 LRESULT(0)
@@ -938,6 +1007,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 LRESULT(0)
             }
             WM_APP_MOUSE => {
+                apply_mouse_mode(hwnd);
+                LRESULT(0)
+            }
+            WM_TIMER if wparam.0 == TIMER_MOUSE => {
+                let _ = KillTimer(Some(hwnd), TIMER_MOUSE);
                 apply_mouse_mode(hwnd);
                 LRESULT(0)
             }

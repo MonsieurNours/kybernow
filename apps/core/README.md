@@ -23,7 +23,7 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 
 ## Module d'entrées partagé (`src/input/`)
 
-Le port en Rust de ce que KyberKit tenait dans `InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer` et `ClipboardBridge` (voir « Module d'entrées partagé » dans [apps/macos/README.md](../macos/README.md)), au-dessus de la chaîne kynput de Kyber (`kynput_rs`, `kynput_sys`). Mêmes seuils, mêmes délais, mêmes règles. Pas encore branché dans les apps.
+Le port en Rust de ce que KyberKit tenait dans `InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer` et `ClipboardBridge` (voir « Module d'entrées partagé » dans [apps/macos/README.md](../macos/README.md)), au-dessus de la chaîne kynput de Kyber (`kynput_rs`, `kynput_sys`). Mêmes seuils, mêmes délais, mêmes règles. Branché dans l'app Mac (par `apps/apple`, `InputCore.swift`) et dans l'app Windows depuis le jalon 2 ; l'Apple TV garde ses fichiers Swift jusqu'au jalon 4.
 
 | Module | Ce qu'il tient |
 |---|---|
@@ -35,6 +35,7 @@ Le port en Rust de ce que KyberKit tenait dans `InputPipeline`, `PacketQueue`, `
 | `release_all.rs` | `ReleaseAll` : ce que l'appareil tient enfoncé (scancodes, boutons, modificateurs dans l'identifiant de la plateforme), tout relâcher (boutons puis touches), oubli, modificateurs réellement tenus renvoyés au retour |
 | `pointer_layer.rs` | `PointerLayer` : position, forme (pixels ARGB tels que kynput les livre, `Shape::premultiplied` pour CGImage et Win32), point chaud et visibilité du pointeur de l'ordinateur ; position tenue par l'appareil (Apple TV, `holds_position`) que l'ordinateur reprend au repos des entrées (0,4 s), taille d'écran changée, renvoi après reconnexion ; `MouseMode`, `MouseModeRules` (Auto / Bureau / Jeu, 0,6 s de tolérance au pointeur remontré, recontrôle à 0,7 s) ; échelle et cadre du dessin |
 | `clipboard.rs` | `ClipboardBridge` sur le trait `Pasteboard` : texte dans les deux sens (annonce, demande immédiate, réponse, 60 Ko), le presse-papiers de l'appareil regardé deux fois par seconde, notre propre écriture ne repart pas ; fonctions C du correctif `kyber-patches/0002` |
+| `gamepad_gate.rs` | Manettes lues par kynput via SDL (Mac, Windows) : hook du routeur qui passe chaque paquet de manette à la combinaison et écarte, quand l'app a pris la manette (barre ouverte), appuis et axes en mouvement (touches de navigation rendues à l'app) ; relâchements et axes au repos passent toujours ; hors prise, axes immobiles au 1/512 écartés. `InputPipeline::install_gamepad_gate`, `set_gamepad_captured` (relâchements et six axes au repos envoyés à la prise) |
 | `pipeline.rs` | `InputPipeline` : assemble le tout au-dessus d'une chaîne kynput : clavier, souris absolue et relative, molette, texte Unicode, FlushKeys, manettes produites par l'app (branchement, touches, axes filtrés au 1/512 de la course et regroupés par 4 ms, retours au repos réessayés, remise au repos), tout relâcher ; réception du pointeur (forme dédoublonnée, forme entièrement transparente écartée), des vibrations et du presse-papiers |
 
 **Minuteries.** Aucun module ne crée de fil ni de file : chacun expose `poll()` et `next_deadline()`, et `InputPipeline::poll` les appelle tous (réessais, axes, combinaison, presse-papiers, paquets reçus). La plateforme appelle `poll()` au plus tard à l'échéance depuis la file qu'elle veut, ou laisse `InputPipeline::spawn_driver` tenir un fil (`kybernow-entrees`) qui dort jusqu'à l'échéance ou au réveil (`wake()`, tiré par tout ce qui crée une attente). Les tests avancent une `ManualClock` et appellent `poll()` eux-mêmes.
@@ -69,13 +70,13 @@ pub trait PacketSink: Send + Sync {
 }
 ```
 
-Et, en dehors des traits : la **capture des événements** (AppKit, GameController, Win32, Raw Input) traduite en appels à `InputPipeline` (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`) ; l'**usage HID** de chaque touche et la **disposition ISO** (`keymap::scancode(hid, command_as_control, || iso)`) ; le **dessin** du pointeur sur le fil principal depuis `PointerLayer::set_on_changed` ; la **règle du mode de souris** (`MouseModeRules { needs_hidden_pointer }`, `true` sur Mac et Windows, `false` sur Apple TV) ; les manettes SDL du Mac et de Windows restent lues par kynput (le hook du routeur qui les filtre, `GamepadGate.swift`, n'est pas porté : il reste à l'app, ou viendra avec le branchement).
+Et, en dehors des traits : la **capture des événements** (AppKit, GameController, Win32, Raw Input) traduite en appels à `InputPipeline` (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`) ; l'**usage HID** de chaque touche et la **disposition ISO** (`keymap::scancode(hid, command_as_control, || iso)`) ; le **dessin** du pointeur sur le fil principal depuis `PointerLayer::set_on_changed` ; la **règle du mode de souris** (`MouseModeRules { needs_hidden_pointer }`, `true` sur Mac et Windows, `false` sur Apple TV) ; les manettes SDL du Mac et de Windows restent lues par kynput, filtrées par le hook du routeur (`install_gamepad_gate`, port de `GamepadGate.swift`), qui rend les touches de navigation par `InputPlatform::navigate`.
 
 Création : `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` rend un `Arc` ; `kynput()` donne la chaîne à `session::Platform::input_pipeline` ; `start_clipboard()` une fois le réseau relié ; `stop()` en fin de session (FlushKeys direct, total des pertes au journal), `shutdown()` pour arrêter les gestionnaires de kynput.
 
 ## Moteur de son (`src/audio/`)
 
-Le port de `AudioPlayer.swift` sans la sortie : la plateforme (Core Audio, WASAPI) tire le son du moteur depuis son fil temps réel.
+Le port de `AudioPlayer.swift` sans la sortie : la plateforme (Core Audio, WASAPI) tire le son du moteur depuis son fil temps réel. Branché dans l'app Mac (`kn_audio_*`, `AudioPlayerCore.swift`) et dans l'app Windows depuis le jalon 3.
 
 | Module | Ce qu'il tient |
 |---|---|

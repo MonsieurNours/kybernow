@@ -28,6 +28,9 @@ use kybernow_core::profile::{Codec, Profile, StreamSettings};
 use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status};
 use kybernow_core::{Display, WindowHandle};
 
+pub mod audio;
+pub mod input;
+
 // MARK: - Chaînes
 
 fn text(p: *const c_char) -> String {

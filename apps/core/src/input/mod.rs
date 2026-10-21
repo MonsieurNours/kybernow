@@ -21,6 +21,7 @@
 
 pub mod clipboard;
 pub mod clock;
+mod gamepad_gate;
 pub mod keymap;
 pub mod packet;
 pub mod packet_queue;

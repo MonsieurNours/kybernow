@@ -24,7 +24,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -38,7 +38,8 @@ use super::clipboard::{ClipboardBridge, Pasteboard};
 use super::clock::Clock;
 use super::packet::{HOST, KynputSink, OwnedPacket, PacketSink};
 use super::packet_queue::{Hooks, PacketQueue};
-use super::pad_combo::{PadAxis, PadButton, PadCombo, PadId};
+use super::gamepad_gate::{GamepadGate, GateHook};
+use super::pad_combo::{PadAxis, PadButton, PadCombo, PadId, PadKey};
 use super::pointer_layer::{PointerLayer, RemoteCursor, Shape};
 use super::release_all::{Release, ReleaseAll};
 
@@ -65,6 +66,10 @@ pub trait InputPlatform: Send + Sync {
     /// Les entrées rejoignent l'ordinateur (début de session, reconnexion) :
     /// l'Apple TV y réannonce ses manettes. Sur le fil de `network_connected`.
     fn connected(&self) {}
+    /// Touche de navigation d'une manette SDL prise par l'app (barre ouverte,
+    /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil de kynput,
+    /// sous le verrou de son routeur : ne rien y envoyer.
+    fn navigate(&self, _key: PadKey) {}
 }
 
 pub struct Options {
@@ -112,6 +117,8 @@ pub struct InputPipeline {
     /// Paquets du presse-papiers reçus, à traiter hors du routeur.
     received: Mutex<VecDeque<OwnedPacket>>,
     driver: Arc<Driver>,
+    /// Manettes SDL lues par kynput (Mac, Windows) : combinaison et prise.
+    gate: OnceLock<GamepadGate>,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
@@ -174,6 +181,7 @@ impl InputPipeline {
                     woken: Mutex::new(false),
                     cvar: Condvar::new(),
                 }),
+                gate: OnceLock::new(),
             }
         });
         let weak = Arc::downgrade(&this);
@@ -257,6 +265,51 @@ impl InputPipeline {
     /// Ce que l'appareil tient sur l'ordinateur par nous (touches, clics).
     pub fn held(&self) -> &Mutex<ReleaseAll> {
         &self.held
+    }
+
+    /// Manettes lues par kynput via SDL (Mac, Windows) : chaque paquet de
+    /// manette passe par la combinaison L1 + R1 + Start + Select, et la
+    /// manette peut être prise par l'app ([`Self::set_gamepad_captured`]).
+    /// Une fois par chaîne ; sans effet avec `gamepads_from_app`.
+    pub fn install_gamepad_gate(self: &Arc<Self>) {
+        if self.gate.set(GamepadGate::default()).is_err() {
+            return;
+        }
+        let hook = GateHook {
+            pipeline: Arc::downgrade(self),
+        };
+        if let Err(e) = self.kynput.set_hook(Box::new(hook)) {
+            log::warn!("kynput : hook des manettes refusé ({e:?})");
+        }
+    }
+
+    pub(crate) fn gamepad_gate(&self) -> Option<&GamepadGate> {
+        self.gate.get()
+    }
+
+    pub(crate) fn navigate(&self, key: PadKey) {
+        self.platform.navigate(key);
+    }
+
+    /// L'app prend les manettes SDL (barre ouverte) ou les rend (barre
+    /// fermée). À la prise, tout est remis à zéro sur l'ordinateur : touches
+    /// tenues relâchées (les trois premières de la combinaison, une gâchette)
+    /// et les six axes au repos, pour chaque manette connue ; kynput ne dit
+    /// pas l'état des axes. Sans effet sans [`Self::install_gamepad_gate`].
+    pub fn set_gamepad_captured(&self, captured: bool) {
+        let Some(gate) = self.gate.get() else { return };
+        if !gate.set_captured(captured) {
+            return;
+        }
+        for id in self.combo.pads() {
+            for button in self.combo.pressed(id) {
+                self.reliably(Self::button_packet(id, button, false), "manette");
+            }
+            for axis in PadAxis::ALL {
+                gate.note_axis(id, axis.to_u32(), 0);
+                self.reliably(Self::axis_packet(id, axis, 0), "axe de manette");
+            }
+        }
     }
 
     /// Souris relative (jeux) : seuls les déplacements partent.

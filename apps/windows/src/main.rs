@@ -22,8 +22,6 @@ mod host;
 #[cfg(windows)]
 mod i18n;
 #[cfg(windows)]
-mod input;
-#[cfg(windows)]
 mod instance;
 #[cfg(windows)]
 mod pc;

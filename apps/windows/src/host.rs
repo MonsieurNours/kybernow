@@ -2,6 +2,10 @@
 //! image), fil de l'image, son, entrées et session du cœur. L'app (Tauri) ou
 //! la ligne de commande la lancent et en reçoivent les nouvelles par
 //! `HostEvents`.
+//!
+//! Entrées et son viennent du cœur : une `InputPipeline` par démarrage de
+//! l'image (pour l'écran affiché), arrêtée avec elle ; un `AudioEngine` pour
+//! la session, joué par WASAPI (`audio.rs`).
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -11,15 +15,16 @@ use serde::Serialize;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, PostMessageW};
 
+use kybernow_core::audio::AudioStats;
+use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::session::{Platform, Session, SessionParams, Status};
 use kybernow_core::{Display, WindowHandle};
 
-use crate::audio::{self, AudioHandler};
-use crate::input::Input;
+use crate::audio::{self, AudioOutput};
 use crate::video::{self, Shared, VideoHandler, VideoOptions};
-use crate::window::{self, App, Command, WM_APP_COMMAND, WM_APP_MOUSE, WM_APP_STATUS};
+use crate::window::{self, App, Command, WM_APP_COMMAND, WM_APP_CURSOR, WM_APP_MOUSE, WM_APP_STATUS};
 
 /// Mesures de la seconde écoulée (barre de session).
 #[derive(Debug, Clone, Serialize, Default)]
@@ -31,6 +36,10 @@ pub struct Stats {
     pub decoder: String,
     pub relative: bool,
     pub rtt_ms: Option<f64>,
+    /// Son : tampon avant la carte son plus latence de la sortie (ms), et
+    /// trous comblés dans la seconde ; `None` sans son ou sans mesure.
+    pub audio_ms: Option<f64>,
+    pub audio_gaps: Option<usize>,
 }
 
 /// Bilan d'une session terminée.
@@ -95,11 +104,29 @@ impl SessionHost {
     }
 }
 
+/// Rappels du module d'entrées : rien à faire sous Windows (manettes lues et
+/// vibrations jouées par kynput, pas de combinaison de manette).
+struct WinInputs;
+
+impl InputPlatform for WinInputs {}
+
+/// Une chaîne d'entrées remplacée ou finie : plus rien n'en part (FlushKeys,
+/// pertes au journal) et kynput arrête ses gestionnaires (manettes SDL).
+fn retire(input: Option<Arc<InputPipeline>>) {
+    if let Some(old) = input {
+        old.stop();
+        old.shutdown();
+    }
+}
+
 struct WinPlatform {
     app: Arc<App>,
     hwnd: isize,
     video: Arc<VideoHandler>,
-    audio: Option<Arc<AudioHandler>>,
+    audio: Option<Arc<AudioOutput>>,
+    /// Dernières mesures du son (le moteur en fait une par seconde, pas
+    /// forcément calée sur celles de la latence).
+    audio_stats: Mutex<Option<AudioStats>>,
     last_frames: Mutex<u64>,
     events: Arc<dyn HostEvents>,
     session: Mutex<Option<Arc<Session>>>,
@@ -113,10 +140,43 @@ impl Platform for WinPlatform {
         self.video.clone()
     }
     fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
-        self.audio.clone().map(|a| a as Arc<dyn PacketHandler>)
+        self.audio.as_ref().map(|a| a.engine().clone() as Arc<dyn PacketHandler>)
     }
+    /// Chaîne d'entrées neuve pour l'écran affiché (donné juste avant par
+    /// `on_display`) ; celle d'avant s'arrête (deux chaînes se disputeraient
+    /// les manettes SDL).
     fn input_pipeline(&self) -> Pipeline {
-        self.app.input.pipeline()
+        let input = InputPipeline::new(
+            Options {
+                display_id: self.app.display_id.load(Ordering::Relaxed),
+                host_size: *self.app.host_size.lock().unwrap(),
+                // Presse-papiers : celui de kynput sous Windows (voir README).
+                clipboard: None,
+                gamepads_from_app: false,
+            },
+            self.app.pointer.clone(),
+            Arc::new(WinInputs),
+            self.app.clock.clone(),
+        );
+        if let Err(e) = input.spawn_driver() {
+            log::error!("entrées : fil des réessais refusé ({e})");
+        }
+        let kynput = input.kynput();
+        retire(self.app.attach_input(input));
+        kynput
+    }
+    fn on_stream_started(&self) {
+        if let Some(input) = self.app.input() {
+            input.start_clipboard();
+        }
+    }
+    fn on_stream_stopped(&self) {
+        retire(self.app.detach_input());
+    }
+    fn on_input_connected(&self) {
+        if let Some(input) = self.app.input() {
+            input.network_connected();
+        }
     }
     fn on_status(&self, status: &Status) {
         if let Status::Ended { error: Some(e), .. } = status {
@@ -133,8 +193,10 @@ impl Platform for WinPlatform {
         self.events.status(status);
     }
     fn on_display(&self, display: &Display) {
-        *self.app.host_size.lock().unwrap() = (display.width as u32, display.height as u32);
-        self.app.input.display_id.store(display.id, Ordering::Relaxed);
+        let size = (display.width as u32, display.height as u32);
+        *self.app.host_size.lock().unwrap() = size;
+        self.app.display_id.store(display.id, Ordering::Relaxed);
+        self.app.pointer.set_host_size((f64::from(size.0), f64::from(size.1)));
     }
     fn on_latency(&self, ms: Option<f64>) {
         let frames = self.app.shared.frames.load(Ordering::Relaxed);
@@ -149,14 +211,23 @@ impl Platform for WinPlatform {
         self.app.post(WM_APP_STATUS);
         let (width, height) = *self.app.host_size.lock().unwrap();
         let rtt_ms = self.session.lock().unwrap().as_ref().and_then(|s| s.latency().rtt_ms());
+        let audio = {
+            let mut last = self.audio_stats.lock().unwrap();
+            if let Some(s) = self.audio.as_ref().and_then(|a| a.engine().take_stats()) {
+                *last = Some(s);
+            }
+            *last
+        };
         self.events.stats(&Stats {
             latency_ms: ms,
             fps,
             width,
             height,
             decoder: self.app.shared.decoder.lock().unwrap().clone(),
-            relative: self.app.input.relative(),
+            relative: self.app.relative(),
             rtt_ms,
+            audio_ms: audio.map(|a| a.buffer_ms + a.output_ms),
+            audio_gaps: audio.map(|a| a.gaps),
         });
     }
     fn on_game_fullscreen(&self, game: bool) {
@@ -173,16 +244,20 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     };
 
     let shared = Arc::new(Shared::default());
-    let cell: Arc<Mutex<Option<Arc<App>>>> = Arc::new(Mutex::new(None));
-    let c = cell.clone();
-    let input = Input::new(Box::new(move |cursor| {
-        if let Some(app) = c.lock().unwrap().as_ref() {
-            app.cursor_from_host(cursor);
+    let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
+    let app = App::new(host_name.clone(), clock.clone(), shared.clone(), events.clone(), opts.fullscreen);
+    *app.mouse_mode.lock().unwrap() = match opts.mouse {
+        None => MouseMode::Auto,
+        Some(true) => MouseMode::Game,
+        Some(false) => MouseMode::Desktop,
+    };
+    // Pointeur de l'ordinateur changé (fil de kynput) : la fenêtre redessine.
+    let weak = Arc::downgrade(&app);
+    app.pointer.set_on_changed(move |_, _| {
+        if let Some(app) = weak.upgrade() {
+            app.post(WM_APP_CURSOR);
         }
-    }));
-    let app = App::new(host_name.clone(), input, shared.clone(), events.clone(), opts.fullscreen);
-    *app.mouse_choice.lock().unwrap() = opts.mouse;
-    *cell.lock().unwrap() = Some(app.clone());
+    });
 
     let hwnd = match window::create(&format!("KyberNow — {host_name}"), opts.window_size) {
         Ok(h) => h,
@@ -209,13 +284,14 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
             return fail(&events, e);
         }
     };
-    let audio = (params.audio_channels > 0).then(audio::spawn);
+    let audio = (params.audio_channels > 0).then(|| Arc::new(audio::spawn(clock.clone())));
 
     let platform = Arc::new(WinPlatform {
         app: app.clone(),
         hwnd: hwnd.0 as isize,
         video: video_handler.clone(),
         audio: audio.clone(),
+        audio_stats: Mutex::new(None),
         last_frames: Mutex::new(0),
         events: events.clone(),
         session: Mutex::new(None),
@@ -236,13 +312,12 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
 
     session.stop();
     session.wait();
+    // Normalement déjà fait à l'arrêt de l'image.
+    retire(app.detach_input());
     // Le fil de l'image finit (il garde la dernière image) avant le résumé.
     video_handler.stop_and_wait(Duration::from_secs(2));
     if let Some(a) = &audio {
         a.stop();
-    }
-    if app.input.refused() > 0 {
-        log::info!("entrées : {} paquets refusés par kynput (réessayés)", app.input.refused());
     }
     let (median_ms, p95_ms) = session.latency().session();
     if let Some(m) = median_ms {
@@ -250,7 +325,6 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     }
     let error = app.error.lock().unwrap().clone();
     *platform.session.lock().unwrap() = None;
-    *cell.lock().unwrap() = None;
     App::clear();
     hwnd_out.store(0, Ordering::Relaxed);
     events.ended(&Summary {

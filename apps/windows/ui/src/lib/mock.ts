@@ -176,7 +176,7 @@ export function mockTauri() {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
         if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu' } }), 300)
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1 } }), 1000)
+          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0 } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

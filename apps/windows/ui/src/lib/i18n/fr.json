@@ -201,6 +201,7 @@
     "print": "Impr. écran",
     "print_hint": "capture",
     "info": "{width} × {height} · {fps} i/s · {decoder}",
+    "audio": "Son : {ms} ms jusqu'à la sortie, {gaps} trous comblés dans la seconde",
     "session_profile": "Profil de la session",
     "profile": "Profil",
     "keys": "Touches spéciales",

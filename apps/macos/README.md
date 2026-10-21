@@ -77,7 +77,7 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow les décode 
 - Fenêtre occultée (autre espace, réduite dans le Dock, recouverte, `NSWindow.occlusionState`) : plus de rendu (le décodeur continue, les références restent bonnes ; `nextDrawable` attendait jusqu'à 1 s par image) et débit ramené à 20 Mb/s ; au retour, rendu et débit du profil reviennent (journal `fenêtre occultée …` / `visible …`).
 - AV1 (puces M3 et suivantes) : l'en-tête de séquence est lu bit à bit pour construire la description `av1C` qu'attend VideoToolbox. Les échantillons sont débarrassés des délimiteurs temporels, et chaque OBU porte sa taille (`AV1.swift`). Mesuré sur M4 Max en 2560 × 1440 : 1 ms de décodage. Le 4:4:4 n'est pas proposé en AV1 : les décodeurs Apple ne lisent que le profil Main (4:2:0), un flux 4:4:4 (profil High) ne s'ouvrait pas et toutes les images étaient perdues jusqu'au repli. VLC ne sert plus que de secours (AV1 sur un Mac sans décodeur AV1 matériel, que les réglages ne proposent pas).
 
-**Son** (`AudioPlayer`)
+**Son** (le moteur de son du cœur Rust, `apps/core/src/audio`, depuis le jalon 3 ; la sortie Core Audio dans `AudioPlayerCore`)
 - libopus (multistream : stéréo, 5.1, 7.1), masquage des pertes par Opus. Le son voyage en non fiable avec correction d'erreurs (`UNRELIABLE_FEC`, le réglage par défaut de Kyber) : un paquet perdu au-delà de la correction est masqué par Opus au lieu d'être retransmis, et le retard ne s'accumule plus sur Wi-Fi comme en fiable (où le masquage ne servait jamais). L'ordinateur doit annoncer la taille de ses paquets (correctif serveur 0008).
 - Sortie Core Audio (`DefaultOutput` sur Mac, `RemoteIO` sur iOS/tvOS), demandes de 5 ms à la carte son, jusqu'à 4 096 images par demande acceptées (Bluetooth, AirPlay : sans quoi l'unité refusait et se taisait).
 - Tampon d'une vingtaine de millisecondes, contre 50 ms fixes chez VLC : sa marge grandit de 5 ms après un tampon vide, redescend d'une milliseconde toutes les deux secondes sans trou. Un tampon vide est comblé par une trame de masquage d'Opus (raccord plausible) plutôt que par du silence, et la lecture reprend dès que la marge est là (le premier départ attend la marge plus un paquet). La dérive entre les horloges du PC et du Mac est rattrapée en douceur : un échantillon sauté ou doublé sur 256 (0,4 %, un sur 128 au-delà de 6 ms d'écart) jusqu'à ce que le plus bas niveau du tampon retrouve la marge, au lieu d'une coupe sèche ; seule une avance de plus de 10 ms (démarrage, sortie restée arrêtée) est coupée d'un coup.
@@ -104,13 +104,14 @@ apps/macos/
 │   ├── LatencyReporting   # ce que le rendu dit au suivi de latence (cœur sur Mac, LatencyTracker sur Apple TV)
 │   ├── KyberClient / ConsoleClient / LatencyTracker   # Apple TV seulement (jusqu'au jalon 4)
 │   ├── VideoDecoder / VideoRenderer / VideoPipeline / DecoderCapabilities
-│   ├── AudioPlayer
+│   ├── AudioPlayerCore    # sortie Core Audio ; Opus, tampon adaptatif, dérive et mixage dans le cœur (jalon 3)
+│   ├── InputCore          # entrées par le cœur : chaîne d'entrées, pointeur, règles de souris, clavier (jalon 2)
+│   ├── AudioPlayer        # son en Swift, Apple TV seulement (jusqu'au jalon 4)
 │   ├── StreamView         # vue de session : événements AppKit, dessin du pointeur, souris relative
 │   ├── PointerLayer       # pointeur de l'ordinateur, règles Auto / Bureau / Jeu, file des entrées (partagé)
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé, sur le presse-papiers de la plateforme (partagé)
-│   ├── PasteboardMac      # NSPasteboard (Mac seulement ; iOS : UIPasteboard, tvOS : rien)
 │   ├── InputPipeline      # entrées via libkynput : paquets, filtrage et regroupement des axes (partagé)
 │   ├── PacketQueue        # file d'envoi vers kynput et file de secours des paquets qui ne se rattrapent pas (partagé)
 │   ├── ReleaseAll         # ce que l'appareil tient enfoncé, politique « tout relâcher », resynchronisation des modificateurs (partagé)
@@ -131,12 +132,16 @@ apps/macos/
 └── Vendor/                # SDK Kyber compilé, et le cœur Rust (libkybernow, CKyberNow) ; ignoré par git
 ```
 
-Déroulé d'une session : il est dans le cœur Rust (`apps/core/src/session.rs`, voir [docs/coeur-apple.md](../../docs/coeur-apple.md)), que `SessionEngine` pilote par l'API C de `apps/apple` : préparation par la console (écran virtuel à la taille de ce Mac, son au bon nombre de voies) → connexion à Kyber → attente que la liste d'écrans se stabilise → image → signal de vie toutes les quelques secondes → fin (l'ordinateur retrouve ses écrans et sa sortie audio, bilan dans l'état `ended`). Le cœur relance l'image (image clé perdue, erreur de l'ordinateur, écran disparu), redemande l'écran virtuel après une reconnexion, allège le flux sans image en 4 s (débit, puis 4:2:0), suit la taille de l'écran de l'ordinateur et propose « Remettre ». `SessionController` ne garde que l'interface : fenêtre, passage, barre, manette, capsules, mesures. Swift fournit au cœur la vue, un décodeur et un rendu par flux (`VideoPipeline`), le son (`AudioPlayer`), la chaîne d'entrées (`InputPipeline`, prêtée au cœur) et lui dit chaque image montrée (latence sur l'horloge de Kyber).
+Déroulé d'une session : il est dans le cœur Rust (`apps/core/src/session.rs`, voir [docs/coeur-apple.md](../../docs/coeur-apple.md)), que `SessionEngine` pilote par l'API C de `apps/apple` : préparation par la console (écran virtuel à la taille de ce Mac, son au bon nombre de voies) → connexion à Kyber → attente que la liste d'écrans se stabilise → image → signal de vie toutes les quelques secondes → fin (l'ordinateur retrouve ses écrans et sa sortie audio, bilan dans l'état `ended`). Le cœur relance l'image (image clé perdue, erreur de l'ordinateur, écran disparu), redemande l'écran virtuel après une reconnexion, allège le flux sans image en 4 s (débit, puis 4:2:0), suit la taille de l'écran de l'ordinateur et propose « Remettre ». `SessionController` ne garde que l'interface : fenêtre, passage, barre, manette, capsules, mesures. Swift fournit au cœur la vue, un décodeur et un rendu par flux (`VideoPipeline`), la sortie du son (`AudioPlayer`, qui tire les échantillons du moteur de son du cœur), la capture des entrées (vers la chaîne d'entrées du cœur, `InputCore`) et lui dit chaque image montrée (latence sur l'horloge de Kyber).
 
 
-### Module d'entrées partagé
+### Entrées sur le cœur (jalon 2)
 
-Les fichiers marqués « partagé » ci-dessus n'importent ni AppKit ni UIKit : l'Apple TV les compile tels quels (`apps/tvos/project.yml`), iOS fera de même. Ce qu'ils tiennent, une seule fois :
+Sur Mac, les entrées passent par le module d'entrées du cœur Rust (`apps/core/src/input`, voir [apps/core/README.md](../core/README.md)), par l'API C de `apps/apple` (`kn_input_*`, `kn_pointer_*`, `kn_keymap_*`) : chaîne kynput et file de secours, clavier (scancodes, « ⌘ envoyée comme Ctrl », échange ISO, verrouillages), tout relâcher et modificateurs tenus, pointeur de l'ordinateur et règles Auto / Bureau / Jeu, presse-papiers, et les manettes SDL (combinaison tenue 250 ms et prise par la barre, par un hook du routeur kynput : `gamepad_gate.rs`). `InputCore.swift` garde les noms qu'utilisent `StreamView` et `SessionEngine` (`InputPipeline`, `PointerLayer`, `Keymap`, `MouseModeRules`). Le Mac fournit la capture AppKit, le dessin du pointeur, la table kVK → HID et la disposition ISO (`KeymapMac`), et `NSPasteboard` par des rappels. Prise de la manette : appuis et axes en mouvement restent à l'app, relâchements et axes au repos passent toujours vers l'ordinateur (plus d'autorisations à réarmer à chaque réessai, comme dans `GamepadGate.swift`).
+
+### Module d'entrées en Swift (Apple TV, jusqu'au jalon 4)
+
+Les fichiers marqués « partagé » ci-dessus n'importent ni AppKit ni UIKit : l'Apple TV les compile tels quels (`apps/tvos/project.yml`) ; le Mac ne les compile plus depuis le jalon 2. Ce qu'ils tiennent, une seule fois :
 
 - `InputPipeline` et `PacketQueue` : la chaîne kynput (paquets clavier, souris, manettes produites par l'app, texte, FlushKeys), les refus comptés et la file de secours des paquets qui ne se rattrapent pas (3 ms, 200 ms, ordre gardé), le filtrage des axes de manette (au 1/512 de la course, regroupés par 4 ms, retours au repos réessayés), la réception du pointeur de l'ordinateur et des vibrations.
 - `Keymap` : usages HID → scancodes, « ⌘ envoyée comme Ctrl », échange des touches des claviers Apple ISO, touches de verrouillage (bascules : appui + relâchement, jamais resynchronisées).
@@ -184,6 +189,8 @@ apps/macos/tests/clipboard/run.sh   # presse-papiers privé : annonces, demandes
 apps/macos/tests/inputs/run.sh  # module d'entrées partagé : table du clavier (ISO ou non, Verr. maj.), combinaison de manette (brève, tenue, relâchée), file de secours, filtrage des axes
 apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
 ```
+
+Les tests `audio`, `clipboard` et `inputs` vérifient les versions Swift, que seule l'Apple TV compile encore ; celles du cœur, qu'utilise le Mac, sont vérifiées par `cargo test -p kybernow-core` ([apps/core/README.md](../core/README.md)).
 
 Mesuré sur M4 Max : 1 à 2 ms de décodage en 2560 × 1440 (4:2:0), 1,6 à 2,7 ms en 4:4:4 (le test soumet les images sans les espacer : avec le décodage asynchrone, le temps affiché inclut l'attente dans la file de VideoToolbox, 3 à 6 ms), couleurs à ±4 niveaux près ; son : 17 à 24 ms de tampon en paquets de 20 ms, 15 à 20 ms en paquets de 10 ms (serveur avec 0004), avec ± 8 ms d'à-coups simulés (le rattrapage en douceur laisse le tampon un peu plus haut que l'ancienne coupe sèche).
 

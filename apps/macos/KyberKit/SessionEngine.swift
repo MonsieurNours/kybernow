@@ -422,7 +422,7 @@ public final class SessionEngine: @unchecked Sendable {
         self.input = input
         lock.unlock()
         DispatchQueue.main.async { [self] in view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height)) }
-        return UnsafeMutableRawPointer(kynput_pipeline_ref(input.pipeline))
+        return input.kynputRef()
     }
 
     private func streamStarted() {

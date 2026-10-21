@@ -67,9 +67,8 @@ public final class StreamView: NSView {
     private var input: InputPipeline?
     private var layout: OpaquePointer?
     private var hostSize = CGSize(width: 1920, height: 1080)
-    /// Touches (scancodes), modificateurs (codes kVK) et boutons de souris
-    /// tenus sur l'ordinateur ; politique « tout relâcher » partagée.
-    private let held = ReleaseAll()
+    // Touches, modificateurs (codes kVK) et boutons de souris tenus sur
+    // l'ordinateur : tenus par la chaîne d'entrées du cœur (« tout relâcher »).
     private var cursor: NSCursor = .arrow
     private var tracking: NSTrackingArea?
     private var keyUpMonitor: Any?
@@ -127,7 +126,7 @@ public final class StreamView: NSView {
     func inputConnected() {
         guard let input else { return }
         input.setRelative(relative.active)
-        held.forgetModifiers()
+        input.forgetModifiers()
         resyncModifiers()
     }
 
@@ -149,7 +148,6 @@ public final class StreamView: NSView {
         keyUpMonitor = nil
         input?.flushKeys()
         input = nil
-        held.forget()
     }
 
     // MARK: - Mise en page
@@ -275,7 +273,7 @@ public final class StreamView: NSView {
     /// relâcherait aussi les manettes, qui, lues par SDL, continuent de parler
     /// à l'ordinateur sans la fenêtre et ne renverraient pas leur état.
     private func releaseEverything() {
-        held.release(into: input)
+        input?.releaseAll()
     }
 
     /// La fenêtre retrouve le clavier : les modificateurs tenus à cet instant
@@ -288,7 +286,8 @@ public final class StreamView: NSView {
 
     private func resyncModifiers() {
         guard input != nil, window?.isKeyWindow == true, window?.firstResponder === self else { return }
-        held.resyncModifiers(held: Keymap.heldModifierCodes(flags: NSEvent.modifierFlags)) { code in
+        guard let input else { return }
+        for code in input.resyncModifiers(held: Keymap.heldModifierCodes(flags: NSEvent.modifierFlags)) {
             send(keyCode: code, pressed: true)
         }
     }
@@ -358,7 +357,6 @@ public final class StreamView: NSView {
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
 
     private func mouseButton(_ button: InputPipeline.MouseButton, pressed: Bool) {
-        held.mouseButton(button, pressed: pressed)
         input?.mouseButton(button, pressed: pressed)
     }
 
@@ -402,7 +400,6 @@ public final class StreamView: NSView {
 
     private func send(keyCode: UInt16, pressed: Bool, keyboardType: Int64? = nil) {
         guard let scancode = Keymap.scancode(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType) else { return }
-        held.key(scancode: scancode, pressed: pressed)
         input?.key(scancode: scancode, pressed: pressed)
     }
 
@@ -441,10 +438,10 @@ public final class StreamView: NSView {
         if let side = Keymap.sideBit(code), raw & Keymap.sideBits(of: flag) != 0 {
             down = raw & side != 0
         } else {
-            down = flags.contains(flag) && !held.modifiers.contains(code)
+            down = flags.contains(flag) && !(input?.modifierHeld(code) ?? false)
         }
         if down {
-            guard held.modifier(code, pressed: true) else { return }
+            guard input?.modifier(code, pressed: true) == true else { return }
             send(keyCode: code, pressed: true)
             return
         }
@@ -453,10 +450,10 @@ public final class StreamView: NSView {
         // clavier, qui n'est pas forcément celui-ci).
         var codes: Set<UInt16> = [code]
         if !flags.contains(flag) {
-            codes.formUnion(held.modifiers.filter { Keymap.modifierFlags[$0] == flag })
+            codes.formUnion((input?.heldModifiers() ?? []).filter { Keymap.modifierFlags[$0] == flag })
         }
         for c in codes {
-            held.modifier(c, pressed: false)
+            input?.modifier(c, pressed: false)
             send(keyCode: c, pressed: false)
         }
     }

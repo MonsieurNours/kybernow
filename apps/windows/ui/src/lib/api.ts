@@ -98,7 +98,7 @@ export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_ima
 
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
-export type Stats = { latency_ms: number | null; fps: number; width: number; height: number; decoder: string; relative: boolean; rtt_ms: number | null }
+export type Stats = { latency_ms: number | null; fps: number; width: number; height: number; decoder: string; relative: boolean; rtt_ms: number | null; audio_ms: number | null; audio_gaps: number | null }
 
 /** « 8,9 » en français, « 8.9 » en anglais. */
 export const ms = (v: number | null | undefined, digits = 1) => {

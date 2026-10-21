@@ -114,7 +114,7 @@
 
 <div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
   <Mark size={20} state="now" lit />
-  <div class="lat">
+  <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
     <span class="mono">{ms(stats?.latency_ms)} ms</span>
     <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
   </div>
