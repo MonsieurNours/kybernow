@@ -52,6 +52,8 @@
 		BF0E0AE61204CEF8EE57A897 /* KyberNowTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5680458539B0010845C420CE /* KyberNowTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C061C90F011E8A35C9773AD7 /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */; };
 		C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */; };
+		C945E290D939B6612DF0D8F3 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC93031B0998E7980CE9060D /* ClipboardBridge.swift */; };
+		CC042219EB5EABB8FA119E12 /* Pasteboard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06D906228CE1C99971D8AF58 /* Pasteboard.swift */; };
 		D095A206CE4DA906F9E6D031 /* LatencyTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C923979E9305471ABFD9F333 /* LatencyTracker.swift */; };
 		D8F9F712112A4466654E81D9 /* ConsoleClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6314953C2B00FEB003112C2 /* ConsoleClient.swift */; };
 		E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AAACDD20D1A7BE25E7960F /* Discovery.swift */; };
@@ -111,6 +113,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		06D906228CE1C99971D8AF58 /* Pasteboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Pasteboard.swift; sourceTree = "<group>"; };
 		0C5E2A6702CE5C7966E801CC /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		12EDC65E3A8F60627A1FDE7A /* KyberNowTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberNowTVApp.swift; sourceTree = "<group>"; };
 		244CC1D072B43F4A58082CF6 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
@@ -146,6 +149,7 @@
 		9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddHostView.swift; sourceTree = "<group>"; };
 		9DDE02C40BEA58821FAA5E25 /* AudioPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPlayer.swift; sourceTree = "<group>"; };
 		A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AC93031B0998E7980CE9060D /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		B6D77E82DEC090B1E6892D2A /* TopShelfStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfStore.swift; sourceTree = "<group>"; };
 		BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
@@ -233,6 +237,7 @@
 				41FC50A907BD6DAF12DD33D8 /* GamepadBridge.swift */,
 				BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */,
 				7A5D35E1D1F39460ADA6CF27 /* MetalSurface.swift */,
+				06D906228CE1C99971D8AF58 /* Pasteboard.swift */,
 				244CC1D072B43F4A58082CF6 /* StreamView.swift */,
 			);
 			path = KyberKitTV;
@@ -301,6 +306,7 @@
 			children = (
 				9DDE02C40BEA58821FAA5E25 /* AudioPlayer.swift */,
 				967E9CA93E220D6FB480C877 /* AV1.swift */,
+				AC93031B0998E7980CE9060D /* ClipboardBridge.swift */,
 				E6314953C2B00FEB003112C2 /* ConsoleClient.swift */,
 				BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */,
 				5E369E1FBF4FF8FCE29CC030 /* GamepadGate.swift */,
@@ -528,6 +534,7 @@
 			files = (
 				A6DE0CF31474618CD510D114 /* AV1.swift in Sources */,
 				A2A60BBBBA182CC7EDAD2A8B /* AudioPlayer.swift in Sources */,
+				C945E290D939B6612DF0D8F3 /* ClipboardBridge.swift in Sources */,
 				D8F9F712112A4466654E81D9 /* ConsoleClient.swift in Sources */,
 				1AB34439677EAC1A6C4EAB50 /* DecoderCapabilities.swift in Sources */,
 				1B8B6FC97C02CA2457863DCB /* GamepadBridge.swift in Sources */,
@@ -541,6 +548,7 @@
 				00722BFAA10040A920BCD6D1 /* MetalSurface.swift in Sources */,
 				8AF781DAF0DEE25B5F632089 /* PacketQueue.swift in Sources */,
 				7F7002457D8145829336CB78 /* PadCombo.swift in Sources */,
+				CC042219EB5EABB8FA119E12 /* Pasteboard.swift in Sources */,
 				BC78B61A5BD1240E076C6BA9 /* PointerLayer.swift in Sources */,
 				4FD64EDD33FC0E2DCF3F112E /* ReleaseAll.swift in Sources */,
 				F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */,

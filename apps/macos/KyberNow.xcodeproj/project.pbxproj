@@ -19,6 +19,7 @@
 		252AAE5DE844FA53BF18B2E0 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 8EB2368866E8C3CB15143EE9 /* Sparkle */; };
 		2DE9B29C2785364D29FD4B56 /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF4EB6B53960D68B69DE19D /* StreamView.swift */; };
 		34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */; };
+		377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */; };
 		42631AFFADAEDE9836F312A0 /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78F7EAA3D887DF32857AA27 /* KyberClient.swift */; };
 		4A8070EFF696AFFAD71A40DC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94C101B09449F09428C0AF60 /* HomeView.swift */; };
 		4CFE95BEEB7F832B4C07FDD4 /* SessionStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87D53565DD3FA5B79DF1D652 /* SessionStats.swift */; };
@@ -119,6 +120,7 @@
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7E532750726326EB565F259 /* PadCombo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PadCombo.swift; sourceTree = "<group>"; };
 		CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseAll.swift; sourceTree = "<group>"; };
+		CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasteboardMac.swift; sourceTree = "<group>"; };
 		D171932E28609169E868FDC5 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		DF454DEFA73A7E4436050ACE /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		E407651AF402DB27D895B5B2 /* Passage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Passage.swift; sourceTree = "<group>"; };
@@ -203,6 +205,7 @@
 				1FCD44F7C3241E02C2160B90 /* MetalSurface.swift */,
 				598C5C0D68903426673112FD /* PacketQueue.swift */,
 				C7E532750726326EB565F259 /* PadCombo.swift */,
+				CEA2B7CF55993EEB86058F5C /* PasteboardMac.swift */,
 				53FAC72D17DD338280371600 /* PointerLayer.swift */,
 				8B7887298D6D4935E0FF18B9 /* RelativeMouse.swift */,
 				CCAA14A53B82A00FA37D144F /* ReleaseAll.swift */,
@@ -388,6 +391,7 @@
 				34087FBAE7FD774DDB4AC62B /* MetalSurface.swift in Sources */,
 				1602E2548702EB96F4AF7B7B /* PacketQueue.swift in Sources */,
 				FCBA53438A2C45744E3AA044 /* PadCombo.swift in Sources */,
+				377394508FF1F1A4660A11D1 /* PasteboardMac.swift in Sources */,
 				1BA4B2AB4CFECC0F494E0695 /* PointerLayer.swift in Sources */,
 				BCCAF3D8FF2DFA3D69052367 /* RelativeMouse.swift in Sources */,
 				936D927632C3509C0D38349A /* ReleaseAll.swift in Sources */,

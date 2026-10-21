@@ -8,7 +8,7 @@
 //
 // Sur l'Apple TV, kynput ne produit rien lui-même : manettes, clavier et
 // souris viennent de GameController (apps/tvos/KyberKitTV), sans presse-papiers
-// (tvOS n'en a pas).
+// (tvOS n'en a pas : `Pasteboard.general` y est nil).
 
 import CoreGraphics
 import Foundation
@@ -110,6 +110,16 @@ private final class RumbleSink {
     }
 }
 
+/// Presse-papiers partagé et la file où ses paquets sont traités.
+private final class ClipboardSink {
+    let bridge: ClipboardBridge
+    let queue: DispatchQueue
+    init(bridge: ClipboardBridge, queue: DispatchQueue) {
+        self.bridge = bridge
+        self.queue = queue
+    }
+}
+
 private final class CursorSink {
     weak var pointer: PointerLayer?
     /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
@@ -127,10 +137,8 @@ final class InputPipeline {
     let hostSize: CGSize
     /// Combinaison L1 + R1 + START + SELECT (manettes lues par kynput via SDL).
     let gamepad = GamepadGate()
-    #if os(macOS)
-    /// Presse-papiers partagé (nil : désactivé dans les réglages).
+    /// Presse-papiers partagé (nil : désactivé dans les réglages, ou plateforme sans presse-papiers).
     private(set) var clipboard: ClipboardBridge?
-    #endif
     /// Vibrations des manettes (Apple TV : kynput ne les gère pas lui-même).
     var onRumble: ((GamepadRumble) -> Void)? {
         get { rumble.onRumble }
@@ -175,32 +183,39 @@ final class InputPipeline {
         kynput_pipeline_plug_handler(pipeline, cursor)
         kynput_handler_unref(cursor)
 
-        #if os(macOS)
         // Presse-papiers : reçoit les paquets de l'ordinateur, produit les nôtres.
-        if shareClipboard {
-            let bridge = ClipboardBridge()
+        // Le routeur appelle `consume` sous son verrou : le paquet est copié et
+        // traité sur notre file, d'où la réponse repart sans réentrer dans le
+        // routeur (ClipboardBridge.received → send → consume).
+        if shareClipboard, let board = Pasteboard.general {
+            let bridge = ClipboardBridge(board: board)
+            let sink = ClipboardSink(bridge: bridge, queue: queue)
             let handler = kynput_handler_new(kynput_HandlerInterface(
                 start: nil,
                 stop: nil,
                 handled_types: clipboardTypes,
                 handled_types_count: 1,
                 consume: { packet, userdata in
-                    guard let packet, let userdata else { return }
-                    Unmanaged<ClipboardBridge>.fromOpaque(userdata).takeUnretainedValue().received(packet)
+                    guard let packet, let userdata, let copy = kynput_packet_clone(packet) else { return }
+                    let sink = Unmanaged<ClipboardSink>.fromOpaque(userdata).takeUnretainedValue()
+                    sink.queue.async {
+                        sink.bridge.received(copy)
+                        kynput_packet_unref(copy)
+                    }
                 },
                 produced_types: clipboardTypes,
                 produced_types_count: 1,
                 query_type_metadata: nil,
                 destroy: { userdata in
-                    if let userdata { Unmanaged<ClipboardBridge>.fromOpaque(userdata).release() }
+                    if let userdata { Unmanaged<ClipboardSink>.fromOpaque(userdata).release() }
                 },
-                userdata: Unmanaged.passRetained(bridge).toOpaque()
+                userdata: Unmanaged.passRetained(sink).toOpaque()
             ))
             kynput_pipeline_plug_handler(pipeline, handler)
             kynput_handler_unref(handler)
             clipboard = bridge
         }
-        #else
+        #if !os(macOS)
         // Vibrations : l'ordinateur les envoie, GameController les joue.
         let rumbleHandler = kynput_handler_new(kynput_HandlerInterface(
             start: nil,
@@ -316,9 +331,7 @@ final class InputPipeline {
     }
 
     func stop() {
-        #if os(macOS)
         clipboard?.stop()
-        #endif
         lock.lock()
         pendingAxes.removeAll()
         lock.unlock()
@@ -336,11 +349,9 @@ final class InputPipeline {
 
     /// À appeler une fois le pipeline branché au réseau.
     func startClipboard() {
-        #if os(macOS)
         guard let clipboard else { return }
         clipboard.send = { [weak self] packet in self?.send(packet, "presse-papiers") }
         clipboard.start()
-        #endif
     }
 
     // MARK: - Envoi
