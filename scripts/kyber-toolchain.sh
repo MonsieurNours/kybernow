@@ -1,12 +1,13 @@
 # Versions des outils avec lesquelles les binaires Kyber de KyberNow sont
 # compilés et vérifiés (voir docs/build-notes.md). Lu par
 # server/kyber-patches/build.sh, apps/macos/scripts/build-kyclient.sh,
-# apps/tvos/scripts/build-kyber-tvos.sh et apps/windows/scripts/*.sh : une version différente n'arrête pas
+# apps/tvos/scripts/build-kyber-tvos.sh, apps/windows/scripts/*.sh et
+# apps/core/scripts/build-apple.sh : une version différente n'arrête pas
 # la compilation, elle est signalée. Après une mise à jour vérifiée, changer la
 # valeur ici et dans docs/build-notes.md.
 
-KYBER_RUSTC=1.89.0            # Rust stable : serveur Windows et client macOS
-KYBER_NIGHTLY=2026-10-19      # date du Rust nightly : client Apple TV (-Zbuild-std)
+KYBER_RUSTC=1.89.0            # Rust stable : serveur Windows, client macOS, cœur client pour iOS
+KYBER_NIGHTLY=2026-10-19      # date du Rust nightly : client Apple TV et cœur client pour tvOS (-Zbuild-std)
 KYBER_CARGO_C=0.10.15         # cargo-c (cargo cinstall)
 KYBER_MINGW=14.0.0            # mingw-w64 (Homebrew), en-têtes et UCRT
 KYBER_MINGW_GCC=16.2.0        # x86_64-w64-mingw32-gcc

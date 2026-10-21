@@ -4,13 +4,13 @@
 
 ## Versions des outils
 
-Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac et Apple TV) sont compilés et vérifiés avec ces versions. Elles sont écrites dans `scripts/kyber-toolchain.sh`, que lisent les trois scripts de compilation : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Après une mise à jour vérifiée, changer les deux endroits.
+Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac et Apple TV) sont compilés et vérifiés avec ces versions. Elles sont écrites dans `scripts/kyber-toolchain.sh`, que lisent les scripts de compilation : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Après une mise à jour vérifiée, changer les deux endroits.
 
 | Outil | Version | Pour |
 |---|---|---|
-| Rust stable (`rustc`) | 1.89.0, cible `x86_64-pc-windows-gnu` | serveur Windows, client macOS |
-| Rust nightly | du 2026-10-19 (1.101.0), composant `rust-src` | client Apple TV (`-Zbuild-std`) |
-| cargo-c (`cargo cinstall`) | 0.10.15 | clients macOS et Apple TV |
+| Rust stable (`rustc`) | 1.89.0, cibles `x86_64-pc-windows-gnu`, `aarch64-apple-ios`, `aarch64-apple-ios-sim` | serveur Windows, client macOS, cœur client pour iOS |
+| Rust nightly | du 2026-10-19 (1.101.0), composant `rust-src` | client Apple TV et cœur client pour tvOS (`-Zbuild-std`) |
+| cargo-c (`cargo cinstall`) | 0.10.15 | clients macOS et Apple TV, libkynput pour iOS |
 | mingw-w64 (Homebrew) | 14.0.0, GCC 16.2.0, UCRT | serveur Windows |
 | meson | 1.11.2 | serveur Windows (dépendances, txproto) |
 | llvm-mingw | 20261006 (UCRT, macOS), clang 23.1.3 | client Windows ARM64, dans `third_party/toolchains` |
@@ -21,7 +21,7 @@ Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par 
 
 ## Scripts de compilation : échec réel
 
-`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh` et `apps/tvos/scripts/build-kyber-tvos.sh` s'arrêtent à la première erreur et ne remplacent alors rien (surcouche, `Vendor/`) :
+`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh` et `apps/core/scripts/build-apple.sh` s'arrêtent à la première erreur et ne remplacent alors rien (surcouche, `Vendor/`) :
 
 - **cargo** : sa sortie est filtrée (lignes de progression retirées) sans que le filtre décide du code de retour (`set -o pipefail`). Avant, `| grep … || true` masquait une compilation ratée et l'ancien binaire partait dans la surcouche.
 - **Binaire périmé** : `build.sh` refuse `kyavserver.exe`, `libtxproto-0.dll`, `kycontroller.exe`, `kynput.dll`, `kynputserver.exe` et `kyclient_wasm.wasm` s'ils sont plus anciens que son lancement (il remet les sources à l'origine à chaque fois, donc ils sont toujours recompilés). `cargo cinstall` garde la date de la bibliothèque déjà compilée : les scripts client (et `build.sh` pour `kynput.dll`) retirent plutôt la bibliothèque installée par un build précédent avant de compiler, et la copie échoue si ce build ne l'a pas réinstallée.
@@ -106,6 +106,18 @@ Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (We
 - **App Tauri** : Tauri **2.11.6** et tauri-build 2.6.3, compilés pour `windows-gnu` et `windows-gnullvm` depuis le Mac (comme `tao` et `wry` de l'installateur du serveur). Tauri 2.12 et ses briques demandent Rust 1.90 alors que KyberNow est vérifié en 1.89 : l'espace de travail `apps/` utilise le résolveur 3, qui choisit les versions compatibles avec `rust-version`. L'interface (`ui/`, Svelte et Vite, mêmes versions que la console) est construite par `build.sh` avant cargo et embarquée dans l'exécutable ; `WebView2Loader.dll` (celle de `webview2-com-sys`, x64 ou arm64) est copiée à côté. L'icône (`resources/kybernow.ico`, symbole « now ») vient de `resources/make-ico.py`.
 - **Installateur** (`apps/windows/setup`, plus de NSIS) : projet à part, avec son `Cargo.lock` copié de celui de l'installateur du serveur (`wry` 0.57, `tao` 0.37, `zstd`), construit pour x64 seulement (il tourne émulé sur ARM). L'interface est embarquée sans bibliothèque : `build.rs` écrit la liste des fichiers de `ui/dist` en `include_bytes!`. Le lanceur et le désinstalleur sont le même exécutable (sans son contenu pour `uninstall.exe`). `cmd /C` avec un chemin entre guillemets : la ligne doit passer par `raw_arg`, les arguments de Rust échappant les guillemets en `\"`, que cmd ne comprend pas (le désinstalleur du serveur ne pouvait pas effacer son dossier pour cette raison).
 - **Tests du cœur sur le Mac** : `cargo test -p kybernow-core` avec `PKG_CONFIG_PATH` vers `third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig` (libvlc et kynput du client macOS de Kyber).
+
+## Cœur client (apps/core) pour les cibles Apple, depuis macOS
+
+`apps/core/scripts/build-apple.sh` compile la crate `kybernow-core` pour `aarch64-apple-darwin` (référence : le Mac qui compile), `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-tvos` et `aarch64-apple-tvos-sim`, déploiement iOS 18 et tvOS 18 (`--target <cible>` pour une seule, `--check` pour `cargo check`). La crate est une rlib : le script vérifie que toute la chaîne de dépendances compile pour chaque cible et laisse `apps/target/<cible>/release/libkybernow_core.rlib` ; la bibliothèque statique et le xcframework viendront de la crate du pont C (`apps/apple`). Rien n'est branché dans les apps Mac et Apple TV.
+
+- **Cibles** : iOS est de rang 2 (`rustup target add aarch64-apple-ios aarch64-apple-ios-sim`, Rust stable 1.89) ; tvOS de rang 3 (Rust nightly du dépôt et `-Zbuild-std=std,panic_abort`, exactement comme `build-kyber-tvos.sh` compile libkyclient et libkynput).
+- **Ce que chaque cible a demandé** : rien dans les sources du cœur, `Cargo.toml` ni `Cargo.lock`. `kyvlcplayer` ne lie VLC que sur Android, Linux, macOS et Windows : sur iOS, tvOS et visionOS, `vlc-rs` est sans pkg-config, et les symboles `libvlc_*` que kyclient appelle restent à fournir au moment de lier une app, par des fonctions vides comme sur l'Apple TV et Windows. `kyclient` avec `kymux`, `rustls` et `ring`, `ureq`, `getrandom` 0.2 et `minisign-verify` compilent tels quels pour tvOS (kyclient y est déjà compilé pour l'app Apple TV) et pour iOS.
+- **kynput-sys** : `kynput-rs` lit l'API C de libkynput (bindgen sur `kynput.h`, trouvé par pkg-config), donc chaque cible a besoin d'un rootfs `third_party/kyber-desktop/rootfs-<cible>` avec `kynput.pc`, et de `PKG_CONFIG_ALLOW_CROSS=1`. Celui du Mac (`rootfs-arm64-macos`) vient de `vendor-kyber.sh` (il fournit aussi `libvlc.pc`, que `kyvlcplayer` lie sur macOS) ; ceux de l'Apple TV, de `build-kyber-tvos.sh` ; pour iOS, le script compile lui-même libkynput (`cargo cinstall -p kynput --library-type=staticlib`, sans la fonctionnalité `sdl2` : comme sur l'Apple TV, les manettes passeront par GameController), et ferait de même pour une cible tvOS pas encore construite. Pour une rlib, cargo ne lie rien : seuls `kynput.pc` et l'en-tête servent ici ; `libkynput.a` servira au pont C.
+- **Cible de déploiement** : une seule variable à la fois (`IPHONEOS_DEPLOYMENT_TARGET` ou `TVOS_DEPLOYMENT_TARGET`, posée par cible). Le clang de bindgen refuse d'en voir deux dans l'environnement (« conflicting deployment targets »), même pour la cible macOS.
+- **strip** : `CARGO_PROFILE_RELEASE_STRIP=false`, comme les autres scripts (voir « Client macOS Kyber 0.29 » plus haut).
+- **Durées** (`apps/target` vide, registre cargo déjà rempli) : macOS 19 s, iOS 17 s, simulateur iOS 17 s, tvOS 27 s, simulateur tvOS 26 s, soit 1 min 46 s pour les cinq ; libkynput pour iOS, 5 s.
+- **Vérifié avec** : `cargo test -p kybernow-core` sur le Mac (10 tests passés, 1 ignoré) et `cargo check` de `apps/windows` pour `x86_64-pc-windows-gnu` (interface `ui/dist` construite d'abord, sinon `tauri::generate_context!` échoue).
 
 ## Moteur du client web (kyclient_wasm), depuis macOS
 
