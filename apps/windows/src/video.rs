@@ -106,6 +106,9 @@ impl VideoHandler {
 pub struct VideoOptions {
     pub hardware: bool,
     pub vsync: bool,
+    /// Format demandé pour la session (`media::FOURCC_*`) : il sert si le
+    /// paquet qui annonce le format du flux s'est perdu.
+    pub codec: u32,
 }
 
 /// Démarre le fil de l'image, une fois l'appareil Direct3D et la chaîne
@@ -174,6 +177,9 @@ fn run(
     let mut hw_allowed = opts.hardware;
     let mut unsupported_logged = false;
     let mut last_request = Instant::now() - Duration::from_secs(1);
+    // Diagnostic : ce qui arrive vraiment (le journal disait seulement « rien »).
+    let (mut seen_codec, mut seen_config, mut seen_frame, mut seen_key) = (false, false, false, false);
+    let mut dropped: u64 = 0;
     let mut keyframe = |shared: &Shared, force: bool| {
         if force || last_request.elapsed() >= Duration::from_millis(300) {
             last_request = Instant::now();
@@ -214,6 +220,10 @@ fn run(
         match msg {
             VideoMsg::Stop => break,
             VideoMsg::Codec(c) => {
+                if !seen_codec {
+                    seen_codec = true;
+                    log::info!("image : format annoncé, {}", codec_name(c));
+                }
                 // Début d'un flux : décodeur neuf.
                 fourcc = c;
                 decoder.take();
@@ -223,6 +233,10 @@ fn run(
                 shared.first_image.store(false, Ordering::Relaxed);
             }
             VideoMsg::Config(d) => {
+                if !seen_config {
+                    seen_config = true;
+                    log::info!("image : paramètres du flux reçus ({} octets)", d.len());
+                }
                 // AV1 : un `av1C` (4 octets de résumé, puis les OBU) n'entre
                 // pas tel quel dans un flux d'OBU.
                 config = if fourcc == FOURCC_AV1 && d.len() > 4 && d[0] == 0x81 { d[4..].to_vec() } else { d };
@@ -232,6 +246,24 @@ fn run(
                 // D'autres images attendent derrière celle-ci : on la décode
                 // sans la montrer.
                 let newer_waiting = handler.pending.fetch_sub(1, Ordering::Relaxed) > 1;
+                if !seen_frame {
+                    seen_frame = true;
+                    log::info!("image : premières données ({} octets, image clé : {key})", data.len());
+                }
+                if key && !seen_key {
+                    seen_key = true;
+                    log::info!("image : première image clé ({} octets)", data.len());
+                }
+                // Le paquet qui annonce le format s'est perdu (transport rapide,
+                // avec pertes) : sans lui, aucun décodeur et un écran noir sans
+                // fin. On ouvre celui du format demandé pour la session.
+                if decoder.is_none() && fourcc == 0 && opts.codec != 0 {
+                    log::warn!("image : format jamais annoncé, décodeur {} ouvert d'office", codec_name(opts.codec));
+                    fourcc = opts.codec;
+                    decoder = open(fourcc, hw_allowed, &shared);
+                    send_config = true;
+                    waiting_key = true;
+                }
                 if handler.overflow.swap(false, Ordering::Relaxed) {
                     log::warn!("image : file pleine, reprise sur une image clé");
                     waiting_key = true;
@@ -243,7 +275,13 @@ fn run(
                 if key {
                     waiting_key = false;
                 }
-                let Some(dec) = decoder.as_mut() else { continue };
+                let Some(dec) = decoder.as_mut() else {
+                    dropped += 1;
+                    if dropped == 1 || dropped % 600 == 0 {
+                        log::warn!("image : {dropped} images reçues sans décodeur");
+                    }
+                    continue;
+                };
                 let sent = if send_config && !config.is_empty() {
                     send_config = false;
                     let mut buf = config.clone();

@@ -10,6 +10,15 @@ pub enum Codec {
 }
 
 impl Codec {
+    /// Code du format dans les paquets de Kyber (`media::FOURCC_*`).
+    pub fn fourcc(self) -> u32 {
+        match self {
+            Self::H264 => crate::media::FOURCC_H264,
+            Self::Hevc => crate::media::FOURCC_HEVC,
+            Self::Av1 => crate::media::FOURCC_AV1,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::H264 => "H.264",

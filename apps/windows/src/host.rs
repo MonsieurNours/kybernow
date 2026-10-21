@@ -188,7 +188,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
 
     let video_handler = match video::spawn(
         hwnd.0 as isize,
-        VideoOptions { hardware: opts.hardware, vsync: opts.vsync },
+        VideoOptions { hardware: opts.hardware, vsync: opts.vsync, codec: params.settings.codec.fourcc() },
         shared.clone(),
     ) {
         Ok(v) => v,

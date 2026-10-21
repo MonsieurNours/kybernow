@@ -207,7 +207,11 @@ fn build_jump_list(computers: &[(String, String)]) -> windows::core::Result<()> 
             // Refusée si « Afficher les éléments récemment ouverts » est coupé
             // dans Windows : les tâches restent, la liste est validée quand même.
             if let Err(e) = list.AppendCategory(&HSTRING::from("Ordinateurs"), &items.cast::<IObjectArray>()?) {
-                log::info!("liste de la barre des tâches : catégorie refusée ({e})");
+                // Une fois : la liste est refaite à chaque changement.
+                static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    log::info!("liste de la barre des tâches : catégorie refusée ({e}), « éléments récemment ouverts » coupé dans Windows ?");
+                }
             }
         }
         let tasks: IObjectCollection = CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
