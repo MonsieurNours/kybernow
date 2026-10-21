@@ -24,7 +24,8 @@ pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// plus démarrer et arrêter (RP, WP) pour les utilisateurs interactifs (IU),
 /// afin que l'icône pilote le serveur sans élévation. Suspendre (DT) ne sert
 /// pas : il n'est pas donné. Changer la configuration (DC) reste réservé aux
-/// administrateurs. Même chaîne dans `update.ps1`.
+/// administrateurs. Même chaîne dans `update.ps1` et dans l'applicateur de
+/// la console (`server/admin/src/update/apply.rs`).
 pub const SERVICE_SDDL: &str = "D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)\
     (A;;CCLCSWRPWPLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)";
 /// Réglages de Kyber, relatif au dossier d'installation.

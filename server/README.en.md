@@ -81,8 +81,9 @@ The `C:\ProgramData\KyberNow` folder is reserved to SYSTEM and Administrators: t
 | `C:\ProgramData\KyberNow\tls\` | the console's certificate |
 | `C:\ProgramData\KyberNow\backups\` | previous versions of `kyber_config.toml` |
 | `C:\ProgramData\KyberNow\display-session.json`, `audio-session.json`, `pointer-session.json` | what to restore at the end of the session, even after a crash |
-| `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, contents, `update.log` (the two latest versions) |
-| `C:\ProgramData\KyberNow\update\resultat.json` | failure of the last update (written by `update.ps1`, read by the console when it starts) |
+| `C:\ProgramData\KyberNow\update\<version>\` | downloaded package, signed manifest and its signature, the applicator's `update.log` and `lancement.log` output (the two latest versions) |
+| `C:\ProgramData\KyberNow\update\resultat.json` | result of the last update or rollback (written by the applicator or `update.ps1`, read by the console when it starts) |
+| `C:\Program Files\KyberNow\.staging\` | applicator (`kyber-admin-maj.exe`, a copy of the console) and the package extracted during an update |
 | `C:\ProgramData\KyberNow\preview\` | screen preview capture in progress (deleted as soon as it is read) |
 | `C:\ProgramData\KyberNow\devices.json`, `events.json` | known devices and last session, event feed of the Overview page |
 | `C:\ProgramData\KyberNow\display-watch\` | virtual display watch during a session (`run`: heartbeat, `state.json`: current mode and active displays) |
@@ -119,6 +120,6 @@ server/installer/build.sh          # tout → server/installer/dist/KyberNow-Set
 
 ## Updating a computer that is already installed
 
-In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release of its channel published on GitHub, verifies its manifest's signature (`kybernow-release.json`, minisign), the package's size and checksum, and launches `update.ps1`. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
+In one click: the console's **Updates** page (or “Install version X…” in the icon's menu). The console downloads the latest release of its channel published on GitHub, verifies its manifest's signature (`kybernow-release.json`, minisign), the package's size and checksum, and launches the applicator `kyber-admin update apply` (a detached copy of the console, as SYSTEM): it verifies everything again, extracts the package under `C:\Program Files\KyberNow\.staging\`, switches the folders by renaming (the previous version stays in `kyber.prev`, `admin.prev`, `tray.prev`) and checks that the console answers within 60 s with the new version, otherwise it puts the previous one back. `GET /api/session` gives the console's version for that check. Details, manual update and publishing a release: [docs/releases.en.md](../docs/releases.en.md).
 
-`server/installer/update.ps1` replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It prepares `kyber.new`, `admin.new` and `tray.new`, switches by renaming (the previous version stays in `kyber.prev`, `admin.prev`, `tray.prev`), then checks that the console answers within 60 s; otherwise it puts the previous version back. It also installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).
+`server/installer/update.ps1` is for the manual path (`irm | iex`, `SHA256SUMS` checksum only) and for consoles older than 0.2.6. It replaces the console, the icon and the Kyber overlay without reinstalling or changing the ports. It prepares `kyber.new`, `admin.new` and `tray.new`, switches by renaming (the previous version stays in `kyber.prev`, `admin.prev`, `tray.prev`), then checks that the console answers within 60 s; otherwise it puts the previous version back. It also installs Steam's speakers if they are missing and adds the Bonjour firewall rule. `server/installer/package-update.sh` builds its package (`dist/kybernow-update.zip`).

@@ -7,13 +7,15 @@
 //! (`kybernow-release.json`) est signé par la clé de KyberNow compilée ici,
 //! annonce le même numéro que GitHub et un canal suivi, et accepte la version
 //! installée (voir `manifest`). « Installer » télécharge `kybernow-update.zip`,
-//! vérifie sa taille et son empreinte contre le manifeste, puis lance PowerShell, détaché : il
-//! décompresse le paquet et exécute son `update.ps1`, qui arrête les
-//! services (la console comprise), bascule les dossiers par renommage et
-//! relance tout. Si la nouvelle console ne répond pas en 60 s, le script
+//! vérifie sa taille et son empreinte contre le manifeste, puis lance
+//! l'applicateur (`kyber-admin update apply`, voir `apply`), détaché, depuis
+//! une copie d'elle-même : il revérifie tout, extrait le paquet sous Program
+//! Files, arrête les services (la console comprise), bascule les dossiers par
+//! renommage et relance tout. Si la nouvelle console ne répond pas en 60 s, il
 //! remet les dossiers précédents et l'écrit dans `update/resultat.json`, que
 //! la console relit à son démarrage. L'icône de la zone de notification est
-//! relancée au démarrage de la console (`update/relaunch-tray`).
+//! relancée au démarrage de la console (`update/relaunch-tray`). Le même
+//! applicateur remet la version précédente à la demande (`update rollback`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -23,6 +25,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
 
 pub mod acl;
+pub mod apply;
 pub mod manifest;
 
 pub use manifest::Channel;
@@ -30,7 +33,7 @@ use manifest::{Manifest, Refusal};
 
 pub const REPO: &str = "MonsieurNours/kybernow";
 pub const PACKAGE: &str = "kybernow-update.zip";
-/// Résultat de la dernière installation, écrit par `update.ps1` quand elle échoue.
+/// Résultat de la dernière installation, écrit par l'applicateur (ou `update.ps1`).
 const RESULT: &str = "resultat.json";
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
 
@@ -64,19 +67,33 @@ struct State {
     latest: Option<Release>,
     error: Option<String>,
     installing: Option<String>,
-    /// PowerShell de l'installation en cours, suivi pour voir s'il s'arrête
+    /// Applicateur de l'installation en cours, suivi pour voir s'il s'arrête
     /// sans avoir remplacé la console.
     child: Option<std::process::Child>,
     /// Dernière installation qui n'a pas abouti (fin de son journal).
     install_error: Option<String>,
-    /// Échec signalé par `update.ps1` (`update/resultat.json`) : version,
+    /// Échec signalé par l'applicateur (`update/resultat.json`) : version,
     /// raison, retour à la version précédente, journal.
     last_failure: Option<Value>,
+    /// Version gardée dans les dossiers `.prev` (retour en arrière possible).
+    previous: Option<String>,
 }
 
 pub struct Updater {
     dir: PathBuf,
+    layout: apply::Layout,
     state: Mutex<State>,
+}
+
+/// Dossier d'installation : celui de la console (`<installation>\admin\kyber-admin.exe`).
+fn install_dir() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            let admin = exe.parent()?;
+            admin.file_name().is_some_and(|n| n.eq_ignore_ascii_case("admin")).then(|| admin.parent().map(Path::to_path_buf)).flatten()
+        })
+        .unwrap_or_else(apply::default_install_dir)
 }
 
 pub fn current() -> &'static str {
@@ -84,7 +101,7 @@ pub fn current() -> &'static str {
 }
 
 /// Numéro de version publiable : trois nombres (« 0.2.6 »). Il sert de nom
-/// de dossier et passe dans un script PowerShell : rien d'autre n'est accepté.
+/// de dossier et passe en argument à l'applicateur : rien d'autre n'est accepté.
 pub fn valid_version(v: &str) -> bool {
     let parts: Vec<&str> = v.split('.').collect();
     parts.len() == 3 && parts.iter().all(|p| !p.is_empty() && p.len() <= 9 && p.bytes().all(|b| b.is_ascii_digit()))
@@ -118,7 +135,9 @@ impl Updater {
         // Le canal est relu ici (le fichier vient d'être lu par la console) :
         // le démarrage n'a rien d'autre à transmettre.
         state.channel = crate::settings::Settings::load(data_dir).map(|s| s.update_channel).unwrap_or_default();
-        Self { dir, state: Mutex::new(state) }
+        let layout = apply::Layout { install: install_dir(), data: data_dir.to_path_buf() };
+        state.previous = apply::previous_version(&layout).filter(|v| v != current());
+        Self { dir, layout, state: Mutex::new(state) }
     }
 
     pub fn channel(&self) -> Channel {
@@ -160,13 +179,15 @@ impl Updater {
             "error": s.error,
             "installing": s.installing,
             "install_error": s.install_error,
-            // Échec écrit par update.ps1 : contrôle de santé raté, retour arrière.
+            // Échec écrit par l'applicateur : contrôle de santé raté, retour arrière.
             "last_failure": s.last_failure,
+            // Version des dossiers .prev : « Revenir à la version précédente ».
+            "rollback": s.previous,
             "repo": REPO,
         })
     }
 
-    /// PowerShell terminé alors que la console tourne encore : l'installation
+    /// Applicateur terminé alors que la console tourne encore : l'installation
     /// s'est arrêtée en route (sinon il aurait arrêté la console).
     fn reap(&self, s: &mut State) {
         let Some(child) = s.child.as_mut() else { return };
@@ -175,13 +196,13 @@ impl Updater {
         s.child = None;
         let dir = self.dir.join(&version);
         let log = dir.join("update.log");
-        // Sans journal, la sortie de PowerShell dit pourquoi il n'a pas démarré.
+        // Sans journal, sa sortie dit pourquoi il n'a pas démarré.
         let log = if log.exists() { log } else { dir.join("lancement.log") };
         let tail = std::fs::read_to_string(&log)
             .map(|t| t.lines().rev().filter(|l| !l.trim().is_empty()).take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"))
             .ok()
             .filter(|t| !t.trim().is_empty())
-            .unwrap_or_else(|| "aucune sortie : PowerShell s'est arrêté avant d'écrire".into());
+            .unwrap_or_else(|| "aucune sortie : l'applicateur s'est arrêté avant d'écrire".into());
         tracing::error!("mise à jour {version} interrompue ({exit}) :\n{tail}");
         s.install_error = Some(format!("L'installation de {version} s'est arrêtée ({exit}). Journal : {}\n{tail}", log.display()));
     }
@@ -309,7 +330,46 @@ impl Updater {
         std::fs::write(&zip, get(package_url, expected.size + 1)?)?;
         manifest.check_file(PACKAGE, &zip)?;
         tracing::info!("mise à jour {version} : paquet vérifié (signature, taille, empreinte), installation");
-        launch_installer(&dir, &zip).map(Some)
+        let args = vec!["update".into(), "apply".into(), zip.into_os_string(), "--version".into(), version.into()];
+        self.launch(&dir, args).map(Some)
+    }
+
+    /// Remet la version précédente (dossiers `.prev`) ; la console s'arrête
+    /// ensuite et revient dans cette version.
+    pub fn rollback(&self) -> Result<String> {
+        let previous = {
+            let mut s = self.state.lock().unwrap();
+            self.reap(&mut s);
+            if s.installing.is_some() {
+                bail!("une installation est déjà en cours");
+            }
+            let previous = s.previous.clone().context("aucune version précédente sur cet ordinateur")?;
+            s.installing = Some(previous.clone());
+            s.install_error = None;
+            s.last_failure = None;
+            previous
+        };
+        let _ = std::fs::remove_file(self.dir.join(RESULT));
+        let dir = self.dir.join(&previous);
+        let result = std::fs::create_dir_all(&dir).map_err(anyhow::Error::from).and_then(|_| self.launch(&dir, vec!["update".into(), "rollback".into()]));
+        let mut s = self.state.lock().unwrap();
+        match result {
+            Ok(child) => {
+                s.child = Some(child);
+                Ok(previous)
+            }
+            Err(e) => {
+                s.installing = None;
+                Err(e)
+            }
+        }
+    }
+
+    /// Lance l'applicateur, détaché, avec les dossiers de cet ordinateur.
+    fn launch(&self, log_dir: &Path, mut args: Vec<std::ffi::OsString>) -> Result<std::process::Child> {
+        args.extend(["--install-dir".into(), self.layout.install.clone().into_os_string()]);
+        args.extend(["--data-dir".into(), self.layout.data.clone().into_os_string()]);
+        launch_applicator(&self.layout, log_dir, &args)
     }
 }
 
@@ -403,63 +463,35 @@ fn fetch_latest(channel: Channel) -> Result<Release> {
 }
 
 
-/// Échec signalé par `update.ps1`, s'il y en a un. Un échec de la version qui
+/// Échec signalé par l'applicateur ou `update.ps1`, s'il y en a un. Un échec de la version qui
 /// tourne est périmé : elle a été installée depuis.
 fn read_failure(path: &Path) -> Option<Value> {
     let value: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
     (value["ok"].as_bool() == Some(false) && value["version"].as_str() != Some(current())).then_some(value)
 }
 
-/// Chaîne entre apostrophes pour PowerShell (une apostrophe se double).
-#[cfg_attr(not(windows), allow(dead_code))]
-fn ps_quote(path: &Path) -> String {
-    format!("'{}'", path.display().to_string().replace('\'', "''"))
-}
-
-/// PowerShell, détaché de la console (elle va s'arrêter) : décompresse et
-/// exécute le `update.ps1` du paquet.
-///
-/// Le script est écrit dans `lancement.ps1` (aucun guillemet à faire passer
-/// par la ligne de commande). PowerShell reçoit une console cachée et une
-/// sortie dans `lancement.log` : lancé depuis un service sans console ni
-/// sortie valide (DETACHED_PROCESS, console 0.2.0), il pouvait quitter avant
-/// d'écrire la moindre ligne.
+/// L'applicateur, détaché de la console (elle va s'arrêter) : une copie de
+/// cet exécutable, `<installation>\.staging\kyber-admin-maj.exe` (sous
+/// Program Files, lecture seule pour les utilisateurs), pour que le dossier
+/// `admin` puisse être renommé pendant qu'il tourne. Sa sortie va dans
+/// `lancement.log`, son journal dans `update.log`.
 #[cfg(windows)]
-fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
+fn launch_applicator(layout: &apply::Layout, log_dir: &Path, args: &[std::ffi::OsString]) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-    let out = dir.join("contenu");
-    let log = dir.join("update.log");
-    let launcher = dir.join("lancement.ps1");
-    // Sans barre de progression : Expand-Archive de PowerShell 5 en est
-    // plusieurs fois plus lent. Toute erreur finit dans le journal.
-    let script = format!(
-        "$ProgressPreference = 'SilentlyContinue'\r\n\
-         Start-Transcript -Path {log} -Force\r\n\
-         try {{\r\n\
-         \x20   Expand-Archive -Path {zip} -DestinationPath {out} -Force\r\n\
-         \x20   & {script} -Source {out}\r\n\
-         }} catch {{\r\n\
-         \x20   Write-Output \"ERREUR : $($_.Exception.Message)\"\r\n\
-         \x20   Write-Output $_.ScriptStackTrace\r\n\
-         \x20   exit 1\r\n\
-         }} finally {{\r\n\
-         \x20   Stop-Transcript\r\n\
-         }}\r\n",
-        log = ps_quote(&log),
-        zip = ps_quote(zip),
-        script = ps_quote(&out.join("update.ps1")),
-        out = ps_quote(&out),
-    );
-    std::fs::write(&launcher, script).context("écriture de lancement.ps1")?;
-    let output = std::fs::File::create(dir.join("lancement.log")).context("création de lancement.log")?;
+    let staging = layout.staging();
+    std::fs::create_dir_all(&staging).with_context(|| format!("création de {}", staging.display()))?;
+    let applicator = staging.join(apply::APPLICATOR);
+    let exe = std::env::current_exe().context("chemin de la console")?;
+    std::fs::copy(&exe, &applicator).with_context(|| format!("copie de la console dans {}", applicator.display()))?;
+    let output = std::fs::File::create(log_dir.join("lancement.log")).context("création de lancement.log")?;
     let spawn = |flags: u32| -> std::io::Result<std::process::Child> {
-        std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(&launcher)
+        std::process::Command::new(&applicator)
+            .args(args)
+            .current_dir(&staging)
             .stdin(Stdio::null())
             .stdout(output.try_clone()?)
             .stderr(output.try_clone()?)
@@ -469,19 +501,19 @@ fn launch_installer(dir: &Path, zip: &Path) -> Result<std::process::Child> {
     // Hors du « job » du service s'il y en a un : sinon l'arrêt de la console l'emporterait.
     let child = spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
         .or_else(|_| spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP))
-        .context("lancement de PowerShell")?;
-    tracing::info!("mise à jour : PowerShell lancé (processus {})", child.id());
+        .context("lancement de l'applicateur")?;
+    tracing::info!("mise à jour : applicateur lancé (processus {})", child.id());
     Ok(child)
 }
 
 #[cfg(not(windows))]
-fn launch_installer(dir: &Path, _zip: &Path) -> Result<std::process::Child> {
-    bail!("installation réservée à Windows (paquet vérifié dans {})", dir.display())
+fn launch_applicator(_: &apply::Layout, log_dir: &Path, _: &[std::ffi::OsString]) -> Result<std::process::Child> {
+    bail!("installation réservée à Windows (paquet vérifié dans {})", log_dir.display())
 }
 
 /// Au démarrage de la console : `C:\ProgramData\KyberNow` réservé à SYSTEM et
 /// aux Administrateurs (voir `acl`), avant d'y écrire ou d'y lancer quoi que
-/// ce soit, dont `update\<version>\lancement.ps1`. Un échec n'empêche pas
+/// ce soit, dont le paquet de `update\<version>\`. Un échec n'empêche pas
 /// la console de démarrer : il est journalisé.
 pub fn secure_data_dir(data_dir: &Path) {
     match acl::secure_dir(data_dir) {
@@ -571,8 +603,4 @@ mod tests {
         assert!(newer("v1.0.0", "0.99.99"));
     }
 
-    #[test]
-    fn powershell_quotes_are_doubled() {
-        assert_eq!(ps_quote(Path::new(r"C:\Program Files\K'N")), r"'C:\Program Files\K''N'");
-    }
 }

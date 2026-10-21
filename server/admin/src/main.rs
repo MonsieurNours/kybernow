@@ -90,6 +90,12 @@ enum Command {
         #[command(subcommand)]
         action: AgentAction,
     },
+    /// Mise à jour de l'ordinateur, lancée par la console (SYSTEM)
+    #[command(hide = true)]
+    Update {
+        #[command(subcommand)]
+        action: update::apply::Action,
+    },
     /// Gestion du service Windows kyber-admin
     #[cfg(windows)]
     Service {
@@ -318,6 +324,7 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Command::Init { user, kyber_port, encoder }) => init(&cli.run, &data_dir, &user, kyber_port, encoder),
         Some(Command::DisplayAgent { action }) => display_agent(action),
+        Some(Command::Update { action }) => update::apply::run(action, &data_dir),
         Some(Command::ResetPassword) => {
             let mut s = Settings::load(&data_dir)?;
             s.admin_password_hash = None;

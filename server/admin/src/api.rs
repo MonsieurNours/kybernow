@@ -98,6 +98,8 @@ async fn session(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
         "setup_code_file": s.data_dir.join(auth::SETUP_TOKEN_FILE),
         // Déjà annoncé sur le réseau (Bonjour) : l'écran de connexion le nomme.
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        // Contrôle de santé de l'applicateur de mises à jour (sans compte).
+        "version": crate::update::current(),
     }))
 }
 
