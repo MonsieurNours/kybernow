@@ -128,7 +128,7 @@ final class GamepadGate: @unchecked Sendable {
                 lastAxis[a.id, default: [:]][axis] = 0
                 return true
             }
-            guard Self.moved(from: lastAxis[a.id]?[axis], to: a.value) else { return false }
+            guard InputPipeline.axisMoved(from: lastAxis[a.id]?[axis], to: a.value) else { return false }
             lastAxis[a.id, default: [:]][axis] = a.value
             return true
         }
@@ -145,12 +145,5 @@ final class GamepadGate: @unchecked Sendable {
             DispatchQueue.main.async { [weak self] in self?.onNavigate?(key) }
         }
         return false
-    }
-
-    /// Changement au 1/512 de la course ; un retour exact au repos passe toujours.
-    static func moved(from last: Int16?, to value: Int16) -> Bool {
-        guard let last else { return true }
-        if value == 0 { return last != 0 }
-        return last >> 7 != value >> 7
     }
 }

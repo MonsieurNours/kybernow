@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.7
 
+- Mac and Apple TV apps, inputs: the retry backlog for packets refused by kynput (`PacketQueue`) and the gamepad axis filtering (unchanged axes dropped, batched per 4 ms, returns to rest retried) are now written once in the shared input chain; the Apple TV app no longer keeps a copy. Same thresholds, same delays.
 - Mac and Apple TV apps: a single “release everything” policy (`ReleaseAll`): held keys, modifiers and clicks are released when the Mac window loses the keyboard, when the Apple TV app goes to the background and at the end of the session, and the modifiers actually held are sent again on return. Same gestures as before, written once.
 - Mac and Apple TV apps, mouse: the state of the computer's pointer (position, shape, hot spot, visibility) and the Auto / Desktop / Game rules with the full-screen watch are a single shared piece of code (`PointerLayer`); on the Apple TV it is held on the gamepads' queue: in desktop mode, the position of the pointer moved with the remote, a gamepad or a mouse no longer goes through the app's main thread (one hop less per movement, clicks and wheel in the same order). Same rules, same delays as before.
 - Mac and Apple TV apps, gamepads: the L1 + R1 + Start + Select combination and the held buttons of each gamepad are tracked by a single shared piece of code (`PadCombo`); the Mac still forms it at the fourth button, the Apple TV still after 250 ms held. Nothing changes for the user.

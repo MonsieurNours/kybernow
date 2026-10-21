@@ -176,10 +176,6 @@ public final class GamepadBridge: ObservableObject {
         var active: Bool { player > 0 }
         var live = Live()
         var motors: Motors?
-        /// Dernière valeur partie de chaque axe, et celles qui attendent la
-        /// prochaine tranche de 4 ms.
-        var lastAxis: [PadAxis: Int16] = [:]
-        var pendingAxes: [PadAxis: Int16] = [:]
         /// Bouton Guide par appui long : Menu ou Options tenus, pas encore
         /// envoyés (minuterie de 600 ms), et ceux qui tiennent le Guide.
         var deferred: [PadButton: DispatchWorkItem] = [:]
@@ -695,12 +691,6 @@ public final class GamepadBridge: ObservableObject {
         requestMenu()
     }
 
-    /// Un axe ne part que s'il a bougé (au 1/512 de la course), et les axes
-    /// d'une tranche de 4 ms partent ensemble : GameController signale X et Y
-    /// d'un stick même si un seul a changé, et une DualSense en Bluetooth
-    /// produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
-    /// d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
-    /// relâchements. Les touches partent tout de suite, elles.
     /// Les glyphes de l'interface suivent la dernière manette utilisée.
     private func noteKind(_ kind: Kind) {
         guard kind != publishedKind else { return }
@@ -708,40 +698,13 @@ public final class GamepadBridge: ObservableObject {
         DispatchQueue.main.async { self.lastKind = kind }
     }
 
+    /// Axe d'une manette qui joue : InputPipeline le filtre (au 1/512 de la
+    /// course), regroupe par tranche de 4 ms et réessaie les retours au repos.
     private func axis(_ slot: Slot, _ axis: PadAxis, _ value: Int16) {
         onQueue()
         liveDirty = true
-        guard input != nil, !captured, !config.padMouse, slot.active else { return }
-        guard GamepadGate.moved(from: slot.lastAxis[axis], to: value) else { return }
-        slot.lastAxis[axis] = value
-        slot.pendingAxes[axis] = value
-        scheduleAxisFlush()
-    }
-
-    private var axisFlushScheduled = false
-
-    private func scheduleAxisFlush() {
-        guard !axisFlushScheduled else { return }
-        axisFlushScheduled = true
-        queue.asyncAfter(deadline: .now() + .milliseconds(4)) { [weak self] in self?.flushAxes() }
-    }
-
-    private func flushAxes() {
-        axisFlushScheduled = false
-        guard let input, !captured, !config.padMouse else {
-            for slot in slots.values { slot.pendingAxes.removeAll() }
-            return
-        }
-        var again = false
-        for slot in slots.values where !slot.pendingAxes.isEmpty {
-            for (axis, value) in slot.pendingAxes {
-                if input.gamepadAxis(id: slot.id, axis, value: value) { slot.pendingAxes[axis] = nil }
-            }
-            if !slot.pendingAxes.isEmpty { again = true }
-        }
-        // Refusé (file pleine, ou un retour au repos qui attend encore devant) :
-        // la valeur reste en attente de la tranche suivante.
-        if again { scheduleAxisFlush() }
+        guard let input, !captured, !config.padMouse, slot.active else { return }
+        input.gamepadAxis(id: slot.id, axis, value: value)
     }
 
     // MARK: - Manette en souris
@@ -924,11 +887,7 @@ public final class GamepadBridge: ObservableObject {
         guard slot.active else { return }
         dropLongPress(slot, input: input)
         for b in combo.pressed(slot.id) { input.gamepadButton(id: slot.id, b, pressed: false) }
-        slot.pendingAxes.removeAll()
-        for a in PadCombo.axes {
-            slot.lastAxis[a] = 0
-            input.gamepadAxis(id: slot.id, a, value: 0)
-        }
+        input.gamepadAxesRest(id: slot.id)
     }
 
     /// Axe de -1…1 vers l'entier signé de SDL (vers le bas : positif).

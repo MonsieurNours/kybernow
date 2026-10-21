@@ -106,7 +106,8 @@ apps/macos/
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé
-│   ├── InputPipeline      # entrées via libkynput
+│   ├── InputPipeline      # entrées via libkynput : paquets, filtrage et regroupement des axes (partagé)
+│   ├── PacketQueue        # file d'envoi vers kynput et file de secours des paquets qui ne se rattrapent pas (partagé)
 │   ├── ReleaseAll         # ce que l'appareil tient enfoncé, politique « tout relâcher », resynchronisation des modificateurs (partagé)
 │   ├── PadCombo           # combinaison L1 + R1 + Start + Select et touches tenues par manette (partagé)
 │   ├── GamepadGate        # manettes SDL du Mac : hook kynput, prise de la manette par la barre
