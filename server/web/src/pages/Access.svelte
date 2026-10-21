@@ -42,14 +42,18 @@
     try {
       const res = await api.pairAccept(r.id)
       devices = res.devices
-      if (app.status) app.status.pair_requests = res.pair_requests
+      if (app.status) {
+        app.status.pair_requests = res.pair_requests
+        app.status.pending_access = res.pending_access
+      }
       if (res.restart_pending) markRestartPending()
+      const waiting = res.pending_access.some((p) => p.grant && p.account === res.username)
       notify(
         'ok',
         res.restarted
           ? `${r.name} a reçu son accès. Le serveur redémarre quelques secondes pour en tenir compte.`
-          : res.restart_pending
-            ? `${r.name} a reçu son accès : il servira pour l'image après le redémarrage du serveur.`
+          : waiting
+            ? `${r.name} a reçu son accès. Une session est en cours : le serveur redémarrera tout seul dès qu'elle finira, et ${r.name} pourra alors se connecter.`
             : `${r.name} a reçu son accès.`,
       )
       api.users().then((u) => (users = u.users)).catch(() => {})
@@ -118,8 +122,14 @@
       devices = res.devices
       if (res.revoked) {
         if (res.restart_pending) markRestartPending()
+        if (app.status) app.status.pending_access = res.pending_access
         api.users().then((u) => (users = u.users)).catch(() => {})
-        notify('ok', `Accès de ${d.name} retiré.`)
+        notify(
+          'ok',
+          res.pending_access.some((p) => !p.grant && p.account === d.user)
+            ? `Accès de ${d.name} retiré. Le serveur redémarrera pour en tenir compte dès la fin de la session en cours.`
+            : `Accès de ${d.name} retiré.`,
+        )
       } else {
         notify('ok', `${d.name} oublié.`)
       }

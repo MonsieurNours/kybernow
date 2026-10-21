@@ -89,6 +89,14 @@ export interface Device {
   own_account: boolean
 }
 
+/** Accès d'un appareil que Kyber en marche ne connaît pas encore (il redémarre dès qu'il est libre). */
+export interface PendingAccess {
+  account: string
+  device: string
+  /** Vrai : accès donné ; faux : accès retiré. */
+  grant: boolean
+}
+
 /** Un appareil sans compte demande l'accès avec le code qu'il affiche. */
 export interface PairRequest {
   id: string
@@ -137,6 +145,7 @@ export interface Status {
   service: { state: ServiceState; simulated: boolean }
   controller: { port: number; reachable: boolean }
   restart_pending: boolean
+  pending_access: PendingAccess[]
   gpu: { driver?: string; devices: GpuDevice[] } | null
   activity: { live: LiveSession | null; last: LastSession | null }
   update_available: string | null
@@ -319,9 +328,16 @@ export const api = {
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),
   forgetDevice: (id: string) =>
-    request<{ devices: Device[]; revoked: boolean; restart_pending: boolean }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
+    request<{ devices: Device[]; revoked: boolean; restart_pending: boolean; pending_access: PendingAccess[] }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
   pairAccept: (id: string) =>
-    request<{ username: string; restarted: boolean; restart_pending: boolean; pair_requests: PairRequest[]; devices: Device[] }>(
+    request<{
+      username: string
+      restarted: boolean
+      restart_pending: boolean
+      pending_access: PendingAccess[]
+      pair_requests: PairRequest[]
+      devices: Device[]
+    }>(
       'POST',
       `/api/pair/accept/${encodeURIComponent(id)}`,
     ),

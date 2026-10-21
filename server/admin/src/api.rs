@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use axum::body::Bytes;
@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
 use crate::display::{Mode, Origin, PolicyChoice, Trigger, VdSettings};
+use crate::access::PendingAccess;
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
@@ -225,6 +226,7 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "service": { "state": service_state, "simulated": s.service.is_simulated() },
         "controller": { "port": port, "reachable": reachable },
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pending_access": s.pending_access.snapshot(),
         "gpu": gpu,
         "activity": s.activity.summary(),
         "update_available": s.updater.available(),
@@ -274,6 +276,7 @@ async fn local_state(
         "console_port": s.listen_port,
         "activity": s.activity.summary(),
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pending_access": s.pending_access.snapshot(),
         "update_available": s.updater.available(),
         "version": crate::update::current(),
         "pair_requests_count": requests.len(),
@@ -447,12 +450,14 @@ async fn delete_user(State(s): State<AppState>, Path(username): Path<String>) ->
         return Err(ApiError(StatusCode::BAD_REQUEST, "il doit rester au moins un utilisateur".into()));
     }
     s.kyber.delete_user(&username)?;
+    s.pending_access.forget(&username);
     s.restart_pending.store(true, Ordering::Relaxed);
     s.activity.event("info", format!("Compte {username} supprimé"));
     Ok(Json(json!({ "users": users_json(&s)?, "restart_pending": true })))
 }
 
 async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -> ApiResult<Json<Value>> {
+    let taken = s.pending_access.snapshot();
     match action.as_str() {
         "start" => s.service.start()?,
         "stop" => s.service.stop()?,
@@ -460,7 +465,9 @@ async fn service_action(State(s): State<AppState>, Path(action): Path<String>) -
         _ => return Err(ApiError(StatusCode::NOT_FOUND, format!("action inconnue : {action}"))),
     }
     if action != "stop" {
+        // Kyber relit sa configuration en démarrant : comptes compris.
         s.restart_pending.store(false, Ordering::Relaxed);
+        s.pending_access.applied(&taken);
     }
     tracing::info!("service kyber : {action}");
     s.activity.event("info", match action.as_str() {
@@ -713,9 +720,17 @@ async fn stream_prepare(
     Json(body): Json<PrepareBody>,
 ) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
+    let _preparing = Preparing::new(&s.preparing);
     let trigger = s.display.settings.lock().unwrap().trigger;
     let port = s.kyber.port();
     let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
+
+    // Compte accepté pendant la session d'un autre : Kyber ne le connaît pas encore.
+    if s.pending_access.waits_for(&user) {
+        tracing::info!("{device_name} se connecte avec un compte que Kyber n'a pas encore lu");
+        // Port de Kyber : 8080 par défaut (comme `status`).
+        grant_pending_access(&s, &user, &device_id, port.unwrap_or(8080)).await?;
+    }
 
     // Reprise de main : un autre appareil est en session. La console lui
     // demande de finir (il l'apprend à son signal de vie suivant, 5 s au plus)
@@ -917,58 +932,187 @@ async fn forget_device(State(s): State<AppState>, Path(id): Path<String>) -> Api
             s.activity.request_end();
         }
         s.activity.event("info", format!("Accès de {} retiré (compte {} supprimé)", device.name, device.user));
-        apply_accounts(&s, &format!("retirer l'accès de {}", device.name)).await;
+        apply_accounts(&s, &device.user, &device.name, false).await;
         revoked = true;
     }
     Ok(Json(json!({
         "devices": s.activity.devices(),
         "revoked": revoked,
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pending_access": s.pending_access.snapshot(),
     })))
 }
 
-/// Un compte ajouté ou retiré ne compte pour Kyber qu'à son redémarrage :
-/// tout de suite (en arrière-plan) si personne n'est connecté, sinon plus tard
-/// (bandeau de la console). Vrai si Kyber redémarre.
-async fn apply_accounts(s: &AppState, why: &str) -> bool {
-    static RESTARTING: AtomicBool = AtomicBool::new(false);
-    if s.service.state().ok() != Some(service::ServiceState::Running) {
-        // Arrêté (ou déjà en train de redémarrer) : il lira les comptes à son démarrage.
-        return RESTARTING.load(Ordering::Relaxed);
-    }
-    let (d, a) = (s.display.clone(), s.audio.clone());
-    let busy = s.activity.live().is_some()
-        || blocking(move || Ok(gpu::encoding() || !d.status()["session"].is_null() || !a.status()["session"].is_null()))
-            .await
-            .unwrap_or(true);
-    if busy {
-        s.restart_pending.store(true, Ordering::Relaxed);
-        return false;
-    }
-    if RESTARTING.swap(true, Ordering::SeqCst) {
+/// Intervalle de la surveillance des comptes en attente.
+const ACCESS_CHECK: Duration = Duration::from_secs(5);
+/// Dans `prepare`, temps laissé à Kyber pour se libérer (l'encodage d'une
+/// session qui vient de finir compte encore 15 s) avant d'y renoncer.
+const ACCESS_FREE_WAIT: Duration = Duration::from_secs(20);
+/// Puis temps laissé à Kyber redémarré pour rouvrir son port.
+const KYBER_UP_WAIT: Duration = Duration::from_secs(12);
+
+/// Kyber sert-il quelqu'un d'autre que l'appareil `except` ? Le redémarrer
+/// couperait cette connexion.
+async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
+    if s.activity.live().is_some_and(|l| Some(l.device_id.as_str()) != except) {
         return true;
     }
-    let (s, why) = (s.clone(), why.to_string());
+    // Une autre préparation en cours : son appareil va se connecter.
+    if s.preparing.load(Ordering::SeqCst) > usize::from(except.is_some()) {
+        return true;
+    }
+    let (d, a, except) = (s.display.clone(), s.audio.clone(), except.map(str::to_owned));
+    blocking(move || {
+        let display = !d.status()["session"].is_null() && !except.as_deref().is_some_and(|e| d.owned_by(e));
+        // Le son n'a pas de propriétaire : pour `except`, ce peut être le sien
+        // (tentative précédente) ; une autre connexion se voit à l'encodage.
+        let audio = except.is_none() && !a.status()["session"].is_null();
+        Ok(gpu::encoding() || display || audio)
+    })
+    .await
+    .unwrap_or(true)
+}
+
+/// Redémarre Kyber pour qu'il lise les comptes en attente, s'il ne sert
+/// personne d'autre que `except`. Vrai si Kyber connaît désormais tous les
+/// comptes qui attendaient. `context` complète l'événement du fil.
+async fn apply_pending_access(s: &AppState, except: Option<&str>, context: &str) -> bool {
+    let _one = s.kyber_restart.lock().await;
+    let taken = s.pending_access.snapshot();
+    if taken.is_empty() {
+        return true;
+    }
+    match s.service.state().ok() {
+        Some(service::ServiceState::Running) => {}
+        // Arrêté : il lira les comptes à son démarrage.
+        Some(service::ServiceState::Stopped | service::ServiceState::NotInstalled) => {
+            s.pending_access.applied(&taken);
+            return true;
+        }
+        // En train de démarrer ou de s'arrêter : on ne sait pas ce qu'il a lu.
+        _ => return false,
+    }
+    if kyber_busy(s, except).await {
+        return false;
+    }
+    let why = PendingAccess::reason(&taken);
+    match service::restart(s.service.as_ref()).await {
+        Ok(()) => {
+            s.pending_access.applied(&taken);
+            s.restart_pending.store(false, Ordering::Relaxed);
+            tracing::info!("Kyber redémarré pour {why}");
+            s.activity.event("info", format!("Serveur redémarré pour {why}{context}"));
+            true
+        }
+        Err(e) => {
+            tracing::warn!("redémarrage de Kyber pour {why} : {e:#}");
+            false
+        }
+    }
+}
+
+/// Un compte d'appareil ajouté ou retiré ne compte pour Kyber qu'à son
+/// redémarrage : tout de suite (en arrière-plan) si personne n'est connecté,
+/// sinon dès que Kyber redevient libre (`supervise_access`), ou à la première
+/// connexion de l'appareil (`stream_prepare`). Vrai si Kyber redémarre maintenant.
+async fn apply_accounts(s: &AppState, account: &str, device: &str, grant: bool) -> bool {
+    s.pending_access.add(account, device, grant);
+    let running = s.service.state().ok() == Some(service::ServiceState::Running);
+    if running && kyber_busy(s, None).await {
+        let why = PendingAccess::reason(&s.pending_access.snapshot());
+        s.activity.event("info", format!("Redémarrage du serveur en attente pour {why} : il se fera dès la fin de la session en cours"));
+        return false;
+    }
+    let s = s.clone();
+    tokio::spawn(async move { apply_pending_access(&s, None, "").await });
+    running
+}
+
+/// Surveillance des comptes en attente : Kyber redémarre dès qu'il ne sert
+/// plus personne (fin de session, plus de signal de vie ni d'encodage).
+pub fn supervise_access(s: AppState) {
     tokio::spawn(async move {
-        match service::restart(s.service.as_ref()).await {
-            Ok(()) => {
-                s.restart_pending.store(false, Ordering::Relaxed);
-                s.activity.event("info", format!("Serveur redémarré pour {why}"));
-            }
-            Err(e) => {
-                tracing::warn!("redémarrage de Kyber pour {why} : {e:#}");
-                s.restart_pending.store(true, Ordering::Relaxed);
+        let mut tick = tokio::time::interval(ACCESS_CHECK);
+        loop {
+            tick.tick().await;
+            if !s.pending_access.is_empty() {
+                apply_pending_access(&s, None, ", maintenant que personne n'est connecté").await;
             }
         }
-        RESTARTING.store(false, Ordering::SeqCst);
     });
-    true
+}
+
+/// Compte une préparation de session en cours, le temps de sa vie.
+struct Preparing<'a>(&'a AtomicUsize);
+
+impl<'a> Preparing<'a> {
+    fn new(count: &'a AtomicUsize) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Preparing(count)
+    }
+}
+
+impl Drop for Preparing<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// Le compte de cet appareil attend que Kyber le lise (accepté pendant la
+/// session d'un autre) : Kyber redémarre avant de répondre, si personne
+/// d'autre ne s'en sert. Sinon, un message clair plutôt qu'un refus de Kyber.
+async fn grant_pending_access(s: &AppState, user: &str, device_id: &str, port: u16) -> ApiResult<()> {
+    let busy = |name: Option<String>| {
+        let who = name.map(|n| format!("la session de {n}")).unwrap_or_else(|| "la connexion en cours".into());
+        ApiError(
+            StatusCode::CONFLICT,
+            format!(
+                "Cet appareil vient de recevoir son accès : le serveur doit redémarrer pour en tenir compte. \
+                 Il le fera dès la fin de {who} ; réessayez ensuite."
+            ),
+        )
+    };
+    let other_live = || s.activity.live().filter(|l| l.device_id != device_id);
+    // Ne jamais couper la session d'un autre appareil (ni la lui prendre :
+    // Kyber refuserait de toute façon ce compte tant qu'il n'a pas redémarré).
+    if let Some(live) = other_live() {
+        return Err(busy(Some(live.name)));
+    }
+    let deadline = tokio::time::Instant::now() + ACCESS_FREE_WAIT;
+    while s.pending_access.waits_for(user) {
+        if apply_pending_access(s, Some(device_id), ", qui se connecte").await {
+            break;
+        }
+        if let Some(live) = other_live() {
+            return Err(busy(Some(live.name)));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(busy(None));
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    if s.service.state().ok() != Some(service::ServiceState::Running) {
+        return Ok(());
+    }
+    // Kyber redémarré : son port rouvre en quelques secondes.
+    let deadline = tokio::time::Instant::now() + KYBER_UP_WAIT;
+    while tokio::time::Instant::now() < deadline {
+        let up = tokio::time::timeout(Duration::from_millis(500), tokio::net::TcpStream::connect(("127.0.0.1", port)))
+            .await
+            .is_ok_and(|r| r.is_ok());
+        if up {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    }
+    Ok(())
 }
 
 /// Supprime les comptes créés pour des demandes acceptées dont l'appareil
 /// n'est jamais venu chercher l'accès.
 fn delete_orphans(s: &AppState) {
     for user in s.pairing.take_orphans() {
+        s.pending_access.forget(&user);
         match s.kyber.delete_user(&user) {
             Ok(()) => tracing::info!("accès jamais livré, compte {user} supprimé"),
             Err(e) => tracing::warn!("suppression du compte {user} : {e:#}"),
@@ -1042,12 +1186,13 @@ async fn pair_accept(State(s): State<AppState>, Path(id): Path<String>) -> ApiRe
         }
     }
     tracing::info!("appairage de « {} » accepté : compte {username}", device.name);
-    let restarted = apply_accounts(&s, &format!("donner l'accès à {}", device.name)).await;
+    let restarted = apply_accounts(&s, &username, &device.name, true).await;
     Ok(Json(json!({
         "ok": true,
         "username": username,
         "restarted": restarted,
         "restart_pending": s.restart_pending.load(Ordering::Relaxed),
+        "pending_access": s.pending_access.snapshot(),
         "pair_requests": s.pairing.pending(),
         "devices": s.activity.devices(),
     })))
@@ -1087,7 +1232,9 @@ async fn end_session(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         Ok(())
     })
     .await?;
+    let taken = s.pending_access.snapshot();
     service::restart(s.service.as_ref()).await?;
+    s.pending_access.applied(&taken);
     s.activity.event("info", "Connexions coupées depuis la console (serveur redémarré)");
     Ok(Json(json!({ "ok": true, "method": "restart" })))
 }
@@ -1116,4 +1263,155 @@ async fn admin_preview(State(s): State<AppState>, Query(q): Query<PreviewQuery>)
         shot.jpeg,
     )
         .into_response())
+}
+
+#[cfg(all(test, not(windows)))]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+    use crate::service::{ServiceControl, ServiceState};
+
+    /// Faux service Kyber, en marche, qui compte ses arrêts (redémarrages).
+    struct FakeKyber {
+        running: Mutex<bool>,
+        stops: Arc<AtomicUsize>,
+    }
+
+    impl ServiceControl for FakeKyber {
+        fn state(&self) -> anyhow::Result<ServiceState> {
+            Ok(if *self.running.lock().unwrap() { ServiceState::Running } else { ServiceState::Stopped })
+        }
+        fn start(&self) -> anyhow::Result<()> {
+            *self.running.lock().unwrap() = true;
+            Ok(())
+        }
+        fn stop(&self) -> anyhow::Result<()> {
+            *self.running.lock().unwrap() = false;
+            self.stops.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    struct Console {
+        s: AppState,
+        restarts: Arc<AtomicUsize>,
+        dir: PathBuf,
+    }
+
+    impl Drop for Console {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn console() -> Console {
+        let dir = std::env::temp_dir().join(format!("kn-access-{}-{}", std::process::id(), rand::random::<u64>()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let restarts = Arc::new(AtomicUsize::new(0));
+        let service = FakeKyber { running: Mutex::new(true), stops: restarts.clone() };
+        Console { s: AppState::for_tests(dir.clone(), Box::new(service)), restarts, dir }
+    }
+
+    fn device(id: &str, name: &str) -> DeviceInfo {
+        DeviceInfo { id: id.into(), name: name.into(), kind: None, os: None, app: None }
+    }
+
+    fn restarted_event(s: &AppState) -> Option<String> {
+        s.activity.events(20).into_iter().map(|e| e.text).find(|t| t.starts_with("Serveur redémarré pour"))
+    }
+
+    #[tokio::test]
+    async fn accepted_during_a_session_is_applied_when_it_ends() {
+        let c = console();
+        c.s.activity.begin(Some(device("mac", "Mac")), "mac", None, None);
+        assert!(!apply_accounts(&c.s, "apple-tv", "Apple TV", true).await);
+        assert!(c.s.pending_access.waits_for("apple-tv"));
+        // Tant que le Mac est en session, personne ne redémarre Kyber.
+        assert!(!apply_pending_access(&c.s, None, "").await);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
+
+        c.s.activity.end("mac", Some("mac"), None);
+        assert!(apply_pending_access(&c.s, None, ", maintenant que personne n'est connecté").await);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
+        assert!(c.s.pending_access.is_empty());
+        assert_eq!(
+            restarted_event(&c.s).as_deref(),
+            Some("Serveur redémarré pour donner l'accès à Apple TV, maintenant que personne n'est connecté")
+        );
+        // Plus rien n'attend : pas de second redémarrage.
+        assert!(apply_pending_access(&c.s, None, "").await);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn accepted_when_free_restarts_right_away() {
+        let c = console();
+        assert!(apply_accounts(&c.s, "apple-tv", "Apple TV", true).await);
+        for _ in 0..100 {
+            if c.restarts.load(Ordering::SeqCst) == 1 && c.s.pending_access.is_empty() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("Kyber n'a pas redémarré");
+    }
+
+    #[tokio::test]
+    async fn another_preparation_holds_the_restart() {
+        let c = console();
+        c.s.pending_access.add("apple-tv", "Apple TV", true);
+        let other = Preparing::new(&c.s.preparing);
+        assert!(!apply_pending_access(&c.s, None, "").await);
+        drop(other);
+        assert!(apply_pending_access(&c.s, None, "").await);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn prepare_restarts_kyber_for_a_pending_account() {
+        let c = console();
+        let kyber = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = kyber.local_addr().unwrap().port();
+        c.s.pending_access.add("apple-tv", "Apple TV", true);
+        let _me = Preparing::new(&c.s.preparing);
+        if let Err(e) = grant_pending_access(&c.s, "apple-tv", "tv-1", port).await {
+            panic!("{}", e.1);
+        }
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 1);
+        assert!(!c.s.pending_access.waits_for("apple-tv"));
+        assert_eq!(restarted_event(&c.s).as_deref(), Some("Serveur redémarré pour donner l'accès à Apple TV, qui se connecte"));
+    }
+
+    #[tokio::test]
+    async fn prepare_never_cuts_another_session() {
+        let c = console();
+        c.s.activity.begin(Some(device("mac", "Mac")), "mac", None, None);
+        c.s.pending_access.add("apple-tv", "Apple TV", true);
+        let _me = Preparing::new(&c.s.preparing);
+        let err = grant_pending_access(&c.s, "apple-tv", "tv-1", 1).await.unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert!(err.1.contains("la session de Mac"), "{}", err.1);
+        assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
+        assert!(c.s.pending_access.waits_for("apple-tv"));
+        // Ni la reprise de main : le Mac reste en session.
+        assert_eq!(c.s.activity.live_device_id().as_deref(), Some("mac"));
+    }
+
+    #[tokio::test]
+    async fn stopped_kyber_reads_accounts_at_start() {
+        let c = console();
+        c.s.service.stop().unwrap();
+        c.restarts.store(0, Ordering::SeqCst);
+        assert!(!apply_accounts(&c.s, "apple-tv", "Apple TV", true).await);
+        for _ in 0..100 {
+            if c.s.pending_access.is_empty() {
+                assert_eq!(c.restarts.load(Ordering::SeqCst), 0);
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("l'accès attend encore alors que Kyber est arrêté");
+    }
 }

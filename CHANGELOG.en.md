@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.9
+
+- Console, pairing by code: a device accepted during another device's session received its account, but Kyber refused it ("User … is not authorized") until the server was restarted by hand, because Kyber only reads its accounts at start-up. The console now keeps these pending accesses and restarts Kyber by itself as soon as it serves nobody (end of session, no more heartbeat or encoding), with an event in the feed. If the device connects before that and nobody else is in a session, Kyber restarts while the session is prepared and the device gets in on the first try; if another device is in a session, it is neither cut off nor taken over, and the app shows "the server will restart as soon as …'s session ends". The console and the tray panel show "Server restart pending to give access to …" (also for a removed access). Affects the Apple TV and the Windows client.
+
 ## 0.2.8
 
 - Mac and Apple TV apps, console: after reinstalling the computer, the apps refused to connect ("connection impossible") because Kyber's certificate had changed and they had kept the old one from the first contact. The console now gives Kyber's certificate fingerprint when the session is prepared (`kyber_fingerprint`), and the apps require it instead of keeping the first certificate; with an older console, the previous behaviour remains.

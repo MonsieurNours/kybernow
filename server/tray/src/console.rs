@@ -76,6 +76,9 @@ pub struct LocalState {
     /// Appareils qui demandent l'accès par code (id, nom, type ; jamais le
     /// code, qui se compare dans la console).
     pub pair_requests: Vec<Value>,
+    /// Accès d'appareils que Kyber ne connaît pas encore : il redémarre de
+    /// lui-même dès la fin de la session en cours (compte, appareil, donné ou retiré).
+    pub pending_access: Vec<Value>,
 }
 
 /// Client épinglé sur le certificat de la console. Sans empreinte connue,
@@ -137,6 +140,7 @@ impl Client {
             live: some(&body["activity"]["live"]),
             last: some(&body["activity"]["last"]),
             pair_requests: body["pair_requests"].as_array().cloned().unwrap_or_default(),
+            pending_access: body["pending_access"].as_array().cloned().unwrap_or_default(),
         })
     }
 

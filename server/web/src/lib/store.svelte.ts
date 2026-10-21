@@ -1,6 +1,6 @@
 // État partagé entre les pages.
 
-import { api, type Field, type FieldValue, type Status } from './api'
+import { api, type Field, type FieldValue, type PendingAccess, type Status } from './api'
 
 export const app = $state({
   status: null as Status | null,
@@ -28,6 +28,18 @@ export async function refreshStatus() {
 /** À appeler après une modification qui demande un redémarrage de Kyber. */
 export function markRestartPending() {
   if (app.status) app.status.restart_pending = true
+}
+
+/** « donner l'accès à Apple TV et retirer l'accès de iPad » (comme le fil de la console). */
+export function accessReason(pending: PendingAccess[]): string {
+  const join = (names: string[]) =>
+    names.length <= 1 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} et ${names[names.length - 1]}`
+  const granted = pending.filter((p) => p.grant).map((p) => p.device)
+  const revoked = pending.filter((p) => !p.grant).map((p) => p.device)
+  const parts = []
+  if (granted.length) parts.push(`donner l'accès à ${join(granted)}`)
+  if (revoked.length) parts.push(`retirer l'accès de ${join(revoked)}`)
+  return parts.join(' et ') || 'appliquer les comptes'
 }
 
 export function errorText(e: unknown): string {

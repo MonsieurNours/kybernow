@@ -1,5 +1,6 @@
 //! kyber-admin : interface web d'administration d'un serveur Kyber.
 
+mod access;
 mod activity;
 mod api;
 mod assets;
@@ -29,7 +30,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -297,7 +298,15 @@ pub struct Inner {
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
     pub settings: Mutex<Settings>,
+    /// Réglages de Kyber modifiés, en attente d'un redémarrage (manuel).
     pub restart_pending: AtomicBool,
+    /// Comptes d'appareils que Kyber en marche ne connaît pas encore : il
+    /// redémarre de lui-même pour eux dès qu'il est libre.
+    pub pending_access: access::PendingAccess,
+    /// Un seul redémarrage de Kyber à la fois (comptes en attente).
+    pub kyber_restart: tokio::sync::Mutex<()>,
+    /// Préparations de session (`/api/stream/prepare`) en cours.
+    pub preparing: AtomicUsize,
     pub secure_cookies: bool,
     /// Empreinte du certificat de la console (appairage des apps).
     pub tls_fingerprint: Option<String>,
@@ -312,6 +321,37 @@ impl Deref for AppState {
     type Target = Inner;
     fn deref(&self) -> &Inner {
         &self.0
+    }
+}
+
+#[cfg(test)]
+impl AppState {
+    /// Console de test : dossier de données donné, réglages par défaut, service Kyber fourni.
+    pub fn for_tests(data_dir: PathBuf, service: Box<dyn service::ServiceControl>) -> Self {
+        let settings = Settings::default();
+        AppState(Arc::new(Inner {
+            auth: auth::Auth::new(data_dir.clone(), None),
+            kyber: KyberConfig::new(data_dir.join("kyber_config.toml"), data_dir.join("backups")),
+            display: display::Manager::new(data_dir.clone(), settings.virtual_display.clone()),
+            audio: audio::Router::new(data_dir.clone(), settings.virtual_audio.clone()),
+            foreground: foreground::Watcher::new(&data_dir),
+            preview: preview::Preview::new(&data_dir),
+            activity: Arc::new(activity::Activity::new(&data_dir)),
+            pairing: pairing::Pairing::new(),
+            local_token: local_token::LocalToken::new(&data_dir),
+            updater: Arc::new(update::Updater::new(&data_dir)),
+            service,
+            data_dir: data_dir.clone(),
+            kyber_dir: data_dir,
+            settings: Mutex::new(settings),
+            restart_pending: AtomicBool::new(false),
+            pending_access: access::PendingAccess::default(),
+            kyber_restart: tokio::sync::Mutex::new(()),
+            preparing: AtomicUsize::new(0),
+            secure_cookies: false,
+            tls_fingerprint: None,
+            listen_port: 0,
+        }))
     }
 }
 
@@ -554,10 +594,16 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         kyber_dir,
         settings: Mutex::new(settings),
         restart_pending: AtomicBool::new(false),
+        pending_access: access::PendingAccess::default(),
+        kyber_restart: tokio::sync::Mutex::new(()),
+        preparing: AtomicUsize::new(0),
         secure_cookies: !args.http,
         tls_fingerprint,
         listen_port: listen.port(),
     }));
+
+    // Comptes en attente : Kyber redémarre dès qu'il redevient libre.
+    api::supervise_access(state.clone());
 
     let on_shutdown = state.clone();
     let app = Router::new()
