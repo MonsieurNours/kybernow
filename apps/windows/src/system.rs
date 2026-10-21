@@ -53,14 +53,74 @@ impl log::Log for Logger {
     fn flush(&self) {}
 }
 
-/// Journal dans la console et dans %LOCALAPPDATA%\KyberNow\kybernow.log.
-pub fn init_logging() {
-    let path = data_dir("LOCALAPPDATA").join("kybernow.log");
+/// Journal dans la console et dans %LOCALAPPDATA%\KyberNow\<nom>.log ; celui
+/// du lancement précédent est gardé dans <nom>.prev.log.
+pub fn init_logging(name: &str) {
+    let dir = data_dir("LOCALAPPDATA");
+    let path = dir.join(format!("{name}.log"));
+    let _ = fs::rename(&path, dir.join(format!("{name}.prev.log")));
     let file = OpenOptions::new().create(true).write(true).truncate(true).open(&path).ok();
     let logger = Box::leak(Box::new(Logger { file: Mutex::new(file) }));
     let _ = log::set_logger(logger);
     log::set_max_level(log::LevelFilter::Info);
-    log::info!("KyberNow {} ({})", env!("CARGO_PKG_VERSION"), std::env::consts::ARCH);
+    log::info!(
+        "KyberNow {} ({}, {}) : {:?}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::ARCH,
+        os_version(),
+        std::env::args().skip(1).collect::<Vec<_>>()
+    );
+    install_crash_handlers();
+}
+
+/// Module (exécutable ou DLL) qui contient une adresse, et l'écart depuis son début.
+fn module_of(addr: usize) -> String {
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::LibraryLoader::{
+        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, GetModuleFileNameW,
+        GetModuleHandleExW,
+    };
+    let mut module = HMODULE::default();
+    let flags = GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT;
+    unsafe {
+        if GetModuleHandleExW(flags, PCWSTR(addr as *const u16), &mut module).is_err() {
+            return "?".into();
+        }
+        let mut buf = [0u16; 260];
+        let n = GetModuleFileNameW(Some(module), &mut buf) as usize;
+        let name = String::from_utf16_lossy(&buf[..n]);
+        let short = name.rsplit('\\').next().unwrap_or(&name).to_string();
+        format!("{short}+{:#x}", addr - module.0 as usize)
+    }
+}
+
+unsafe extern "system" fn on_crash(info: *const windows::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS) -> i32 {
+    unsafe {
+        if let Some(rec) = info.as_ref().and_then(|i| i.ExceptionRecord.as_ref()) {
+            let addr = rec.ExceptionAddress as usize;
+            log::error!(
+                "plantage : exception {:#010x} à {addr:#x} ({}), fil « {} »",
+                rec.ExceptionCode.0 as u32,
+                module_of(addr),
+                std::thread::current().name().unwrap_or("?")
+            );
+        }
+    }
+    0 // EXCEPTION_CONTINUE_SEARCH : Windows termine comme d'habitude.
+}
+
+/// Paniques et plantages notés dans le journal avant la fin du programme.
+fn install_crash_handlers() {
+    std::panic::set_hook(Box::new(|info| {
+        log::error!(
+            "panique dans le fil « {} » : {info}\n{}",
+            std::thread::current().name().unwrap_or("?"),
+            std::backtrace::Backtrace::force_capture()
+        );
+    }));
+    unsafe {
+        windows::Win32::System::Diagnostics::Debug::SetUnhandledExceptionFilter(Some(on_crash));
+    }
 }
 
 /// Lancée depuis un terminal (ligne de commande) : écrire dans le sien.

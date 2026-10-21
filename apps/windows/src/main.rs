@@ -22,6 +22,8 @@ mod host;
 #[cfg(windows)]
 mod input;
 #[cfg(windows)]
+mod pc;
+#[cfg(windows)]
 mod plan;
 #[cfg(windows)]
 mod render;
@@ -38,7 +40,8 @@ mod window;
 
 #[cfg(windows)]
 fn main() {
-    system::init_logging();
+    let probe = std::env::args().any(|a| a == "--probe-json");
+    system::init_logging(if probe { "kybernow-probe" } else { "kybernow" });
     system::dpi_aware();
     if std::env::args().len() > 1 {
         // Lancée depuis un terminal : on écrit dans le sien.

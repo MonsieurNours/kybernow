@@ -58,6 +58,7 @@ struct Args {
     audio: bool,
     physical: bool,
     probe: bool,
+    probe_json: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -78,6 +79,7 @@ fn parse_args() -> Result<Args, String> {
         audio: true,
         physical: false,
         probe: false,
+        probe_json: false,
     };
     let mut it = std::env::args().skip(1);
     let value = |name: &str, it: &mut dyn Iterator<Item = String>| {
@@ -113,6 +115,8 @@ fn parse_args() -> Result<Args, String> {
             "--no-audio" => a.audio = false,
             "--physical" => a.physical = true,
             "--probe" => a.probe = true,
+            // Processus de sonde lancé par l'app (pc.rs).
+            "--probe-json" => a.probe_json = true,
             s if s.starts_with('-') => return Err(format!("option inconnue : {s}")),
             s => {
                 let (h, p) = split_host(s);
@@ -121,7 +125,7 @@ fn parse_args() -> Result<Args, String> {
             }
         }
     }
-    if a.host.is_empty() && !a.probe {
+    if a.host.is_empty() && !a.probe && !a.probe_json {
         return Err(String::new());
     }
     Ok(a)
@@ -174,6 +178,13 @@ pub fn main() -> i32 {
             return 2;
         }
     };
+
+    if args.probe_json {
+        let gpu = crate::pc::probe_gpu();
+        println!("{}", serde_json::to_string(&gpu).unwrap_or_default());
+        log::info!("sonde : {gpu:?}");
+        return 0;
+    }
 
     if args.probe {
         return match system::probe_only() {

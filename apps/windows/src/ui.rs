@@ -15,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
-use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
 
 use kybernow_core::console::{Console, Info, PairStatus};
 use kybernow_core::profile::{Codec, Profile};
@@ -26,24 +25,8 @@ use crate::host::{HostEvents, HostOptions, SessionHost, Stats, Summary};
 use crate::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
-use crate::{audio, decoder, render, system};
-
-/// Ce que l'interface sait de ce PC (carte « Ce PC »).
-#[derive(Debug, Clone, Serialize, Default)]
-pub struct ThisPc {
-    pub name: String,
-    pub gpu: String,
-    pub h264: bool,
-    pub hevc: bool,
-    pub hevc444: bool,
-    pub av1: bool,
-    pub width: u32,
-    pub height: u32,
-    pub refresh: u32,
-    pub audio_channels: u16,
-    pub os: String,
-    pub on_battery: bool,
-}
+use crate::pc::{self, ThisPc};
+use crate::{audio, system};
 
 #[derive(Debug, Clone, Default)]
 struct Live {
@@ -125,35 +108,6 @@ pub struct Snapshot {
 fn emit_computers(app: &AppHandle) {
     let state = app.state::<UiState>();
     let _ = app.emit_to("main", "computers", state.views());
-}
-
-fn on_battery() -> bool {
-    let mut s = SYSTEM_POWER_STATUS::default();
-    unsafe { GetSystemPowerStatus(&mut s).is_ok() && s.ACLineStatus == 0 }
-}
-
-fn this_pc() -> ThisPc {
-    let mode = system::screen_mode();
-    let mut pc = ThisPc {
-        name: std::env::var("COMPUTERNAME").unwrap_or_default(),
-        width: mode.width,
-        height: mode.height,
-        refresh: mode.refresh,
-        audio_channels: audio::default_output_channels(),
-        os: system::os_version(),
-        on_battery: on_battery(),
-        ..Default::default()
-    };
-    if let Ok((device, _)) = render::create_device() {
-        pc.gpu = render::adapter_name(&device);
-        let p = decoder::probe(&device);
-        pc.h264 = p.h264;
-        pc.hevc = p.caps.hevc;
-        pc.hevc444 = p.caps.hevc444;
-        pc.av1 = p.caps.av1;
-    }
-    log::info!("ce PC : {pc:?}");
-    pc
 }
 
 fn console_for(c: &Computer) -> Console {
@@ -521,7 +475,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         match cached {
             Some(pc) => pc,
             None => {
-                let pc = this_pc();
+                let pc = pc::this_pc();
                 *state.this_pc.lock().unwrap() = Some(pc.clone());
                 pc
             }
@@ -536,7 +490,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         reliable: s.reliable,
         max_4k: s.max_4k,
         size: None,
-        lighten: s.battery == "alleger" && on_battery(),
+        lighten: s.battery == "alleger" && pc::on_battery(),
     };
     let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };
     let (settings, mode) = plan(&choices, caps, system::screen_mode());
@@ -657,9 +611,10 @@ pub fn run() {
                 .visible(false)
                 .build()?;
 
+            log::info!("app : fenêtres créées");
             let h = handle.clone();
             std::thread::spawn(move || {
-                let pc = this_pc();
+                let pc = pc::this_pc();
                 *h.state::<UiState>().this_pc.lock().unwrap() = Some(pc.clone());
                 let _ = h.emit_to("main", "this-pc", pc);
             });
@@ -670,6 +625,7 @@ pub fn run() {
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));
+            log::info!("app : prête");
             Ok(())
         })
         .on_window_event(|window, event| {
