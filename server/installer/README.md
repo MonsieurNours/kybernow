@@ -2,12 +2,12 @@
 
 [English](README.en.md) · Français
 
-`KyberNow-Setup.exe` : un seul fichier qui installe le serveur Kyber 0.29, la console d'administration, l'icône de la zone de notification, le pilote d'écran virtuel SudoVDA et le pilote de manettes ViGEmBus.
+`KyberNow-Server-Setup.exe` : un seul fichier qui installe le serveur Kyber 0.29, la console d'administration, l'icône de la zone de notification, le pilote d'écran virtuel SudoVDA et le pilote de manettes ViGEmBus.
 
 ## Architecture
 
 ```
-KyberNow-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
+KyberNow-Server-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
 ```
 
 - **Lanceur** (`src/bin/setup.rs`) : sans WebView2, droits administrateur. Il dépose l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup` (effacé ensuite), puis lance l'interface. Pas dans `%TEMP%` : l'interface y tournerait en administrateur à côté de fichiers que tout programme de l'utilisateur peut déposer (DLL chargée à sa place, contournement de l'UAC). Le dossier de données de WebView2 (profil, cache : aucun code) reste, lui, dans `%TEMP%` : les processus isolés de WebView2 ne peuvent pas écrire sous Program Files et Edge refuserait de démarrer. Avec `--uninstall`, il désinstalle (c'est aussi `uninstall.exe` une fois installé).
@@ -93,10 +93,10 @@ Compiler seule : `cd server/tray && cargo build --release --target x86_64-pc-win
 
 ## Construire (depuis le Mac)
 
-`build.sh` produit `dist/KyberNow-Setup.exe` ; `package-update.sh` produit ensuite le paquet de mise à jour d'un ordinateur déjà installé (`dist/kybernow-update.zip`, avec `update.ps1` et `version.txt`, plus `dist/SHA256SUMS`). Publication : [docs/releases.md](../../docs/releases.md). `update.ps1` se teste sans Windows avec `pwsh -NoProfile -File tests/update-bench.ps1`.
+`build.sh` produit `dist/KyberNow-Server-Setup.exe` ; `package-update.sh` produit ensuite le paquet de mise à jour d'un ordinateur déjà installé (`dist/kybernow-update.zip`, avec `update.ps1` et `version.txt`, plus `dist/SHA256SUMS`). Publication : [docs/releases.md](../../docs/releases.md). `update.ps1` se teste sans Windows avec `pwsh -NoProfile -File tests/update-bench.ps1`.
 
 ```bash
-server/installer/build.sh      # → server/installer/dist/KyberNow-Setup.exe
+server/installer/build.sh      # → server/installer/dist/KyberNow-Server-Setup.exe
 ```
 
 Prérequis : `brew install mingw-w64 zstd`, `rustup target add x86_64-pc-windows-gnu`, node, et les contenus extraits dans `third_party/payload/` (voir l'en-tête du script).

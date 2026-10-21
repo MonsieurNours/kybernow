@@ -77,14 +77,17 @@ OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
 # (www.kybernow.app/updates/appcast.xml) : toutes les versions, bêtas comprises.
 SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
-ASSETS=(KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
-    KyberNow-Windows-x64.exe KyberNow-Windows-arm64.exe
+# KyberNow-Setup.exe : ancien nom de KyberNow-Server-Setup.exe (même fichier),
+# publié encore quelques versions pour les liens existants (…/latest/download/).
+ASSETS=(KyberNow-Server-Setup.exe KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
+    KyberNow-Client-Setup.exe
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
     server/installer/Cargo.toml server/installer/Cargo.lock apps/macos/project.yml apps/macos/KyberNow.xcodeproj
     apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj
-    apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json)
+    apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json
+    apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock)
 
 # Exigences de la mise à jour, transmises à package-update.sh et au manifeste.
 UPDATE_FLAGS=()
@@ -216,7 +219,7 @@ if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
 else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
 
 # Outils et comptes.
-for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint makensis; do
+for tool in xcodegen xcodebuild npm cargo zstd x86_64-w64-mingw32-gcc zip ditto python3 xmllint; do
     command -v "$tool" > /dev/null || problem "$tool introuvable"
 done
 RELEASE_STATE=none
@@ -287,7 +290,7 @@ fi
 if [ "$RELAUNCH" = 1 ]; then
     echo "    déjà alignées (commit « KyberNow $VERSION »)"
 else
-    for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml; do
+    for f in server/admin/Cargo.toml server/tray/Cargo.toml server/installer/Cargo.toml apps/windows/setup/Cargo.toml; do
         sed -i '' -E "1,10s/^version = \".*\"/version = \"$VERSION\"/" "$f"
         (cd "$(dirname "$f")" && cargo update --workspace --offline --quiet)
     done
@@ -341,15 +344,17 @@ fi
     -destination 'generic/platform=tvOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 (cd apps/tvos/Vendor && ditto -c -k . "$OUT/KyberSDK-tvOS.zip")
 
-step "App Windows (x64 et ARM64) et ses installateurs"
+step "App Windows (x64 et ARM64) et son installateur"
 # Comme pour l'ordinateur : avec pipefail, un échec de build.sh arrête tout
 # (sinon l'exécutable d'un build précédent partirait dans la version).
 for arch in x64 arm64; do
     apps/windows/scripts/build.sh --arch "$arch" 2>&1 > /dev/null \
         | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
-    apps/windows/scripts/build-installer.sh --arch "$arch" > /dev/null
-    cp "apps/windows/dist/KyberNow-Windows-$arch.exe" "$OUT/"
 done
+# Un seul installateur pour les deux : il pose la version du processeur.
+apps/windows/scripts/build-installer.sh 2>&1 > /dev/null \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+cp apps/windows/dist/KyberNow-Client-Setup.exe "$OUT/"
 
 TREE_AFTER="$(git status --porcelain)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
@@ -373,7 +378,8 @@ else
 fi
 
 ditto -c -k --keepParent "$APP" "$OUT/KyberNow-macOS.zip"
-cp server/installer/dist/KyberNow-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
+cp server/installer/dist/KyberNow-Server-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
+cp "$OUT/KyberNow-Server-Setup.exe" "$OUT/KyberNow-Setup.exe"
 
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
 SPARKLE=$(ls -d apps/macos/build/SourcePackages/artifacts/*/*/bin | head -1)
@@ -416,8 +422,8 @@ else
 fi
 
 step "Empreintes et manifeste signé"
-(cd "$OUT" && shasum -a 256 KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip \
-    KyberNow-Windows-x64.exe KyberNow-Windows-arm64.exe > SHA256SUMS)
+(cd "$OUT" && shasum -a 256 KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip \
+    KyberNow-Client-Setup.exe > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

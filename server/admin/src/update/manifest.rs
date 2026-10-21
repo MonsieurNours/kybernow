@@ -65,7 +65,7 @@ pub struct Manifest {
 /// Pourquoi une version signée ne s'installe pas depuis la console.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    /// Il faut repasser par `KyberNow-Setup.exe` (version trop ancienne ici,
+    /// Il faut repasser par `KyberNow-Server-Setup.exe` (version trop ancienne ici,
     /// ou paquet qui l'exige).
     Setup(String),
     /// Paquet refusé (canal, version, fichier absent).
@@ -126,12 +126,12 @@ impl Manifest {
         }
         if super::newer(&self.min_installer_version, installed) {
             return Err(Refusal::Setup(format!(
-                "la version {} demande au moins la {} : réinstallez avec KyberNow-Setup.exe",
+                "la version {} demande au moins la {} : réinstallez avec KyberNow-Server-Setup.exe",
                 self.version, self.min_installer_version
             )));
         }
         if self.requires_setup {
-            return Err(Refusal::Setup(format!("la version {} s'installe avec KyberNow-Setup.exe : réinstallez avec lui", self.version)));
+            return Err(Refusal::Setup(format!("la version {} s'installe avec KyberNow-Server-Setup.exe : réinstallez avec lui", self.version)));
         }
         if !self.files.contains_key(super::PACKAGE) {
             return Err(Refusal::Rejected(format!("le manifeste de la version {} ne contient pas de paquet de mise à jour", self.version)));
@@ -203,7 +203,7 @@ pub mod tests {
     pub fn sample(version: &str, channel: Channel) -> Manifest {
         let mut files = BTreeMap::new();
         files.insert("kybernow-update.zip".to_string(), FileEntry { sha256: "ab".repeat(32), size: 42 });
-        files.insert("KyberNow-Setup.exe".to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
+        files.insert("KyberNow-Server-Setup.exe".to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
         Manifest {
             version: version.into(),
             channel,
@@ -237,7 +237,7 @@ pub mod tests {
   "min_installer_version": "0.2.5",
   "requires_setup": false,
   "files": {
-    "KyberNow-Setup.exe": { "sha256": "cd47d6ce8c25e5c92422bfc6e63ae848644460075916584426db7355a2d128a1", "size": 4 },
+    "KyberNow-Server-Setup.exe": { "sha256": "cd47d6ce8c25e5c92422bfc6e63ae848644460075916584426db7355a2d128a1", "size": 4 },
     "kybernow-update.zip": { "sha256": "257a4c075a4c2721970ffc7ef0380d0bf7329185de8f34ff9a6ac8336561c34c", "size": 4 }
   }
 }"#;
@@ -315,7 +315,7 @@ pub mod tests {
         let mut old = sample("0.3.0", Channel::Stable);
         old.min_installer_version = "0.2.10".into();
         match old.check("0.3.0", Channel::Stable, "0.2.9") {
-            Err(Refusal::Setup(msg)) => assert!(msg.contains("KyberNow-Setup.exe"), "{msg}"),
+            Err(Refusal::Setup(msg)) => assert!(msg.contains("KyberNow-Server-Setup.exe"), "{msg}"),
             other => panic!("{other:?}"),
         }
         assert_eq!(old.check("0.3.0", Channel::Stable, "0.2.10"), Ok(()));

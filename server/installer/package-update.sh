@@ -9,7 +9,7 @@
 #
 # --requires-setup : cette mise à jour exige l'installateur (pilotes, services
 # à recréer…) : la console refuse de l'installer en un clic et renvoie vers
-# KyberNow-Setup.exe. --min-installer : version minimale de KyberNow déjà
+# KyberNow-Server-Setup.exe. --min-installer : version minimale de KyberNow déjà
 # installée pour accepter le paquet. release.sh passe les mêmes options à
 # scripts/sign-manifest.sh, dont le manifeste signé fait foi ; le paquet en
 # garde une copie (requirements.json) pour la mise à jour à la main.

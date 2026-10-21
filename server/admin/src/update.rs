@@ -137,7 +137,7 @@ impl Updater {
                 format!("La version précédente ({}) a été remise en place.", current())
             } else if failure["undo_failed"].as_bool() == Some(true) {
                 format!(
-                    "Le retour à la version précédente n'a pas abouti : la version {} tourne peut-être à moitié remplacée. Vérifiez les dossiers kyber, admin et tray (et leurs .prev) dans {}, ou réinstallez avec KyberNow-Setup.exe.",
+                    "Le retour à la version précédente n'a pas abouti : la version {} tourne peut-être à moitié remplacée. Vérifiez les dossiers kyber, admin et tray (et leurs .prev) dans {}, ou réinstallez avec KyberNow-Server-Setup.exe.",
                     current(),
                     install_dir().display()
                 )
@@ -189,7 +189,7 @@ impl Updater {
             "page": latest.map(|r| r.page.clone()),
             // Manifeste signé vérifié, compatible, paquet présent.
             "installable": latest.is_some_and(Release::installable),
-            // Paquet refusé (signature, canal, version) ou à installer avec KyberNow-Setup.exe.
+            // Paquet refusé (signature, canal, version) ou à installer avec KyberNow-Server-Setup.exe.
             "verify_error": refusal.map(|r| r.message().to_string()),
             "requires_setup": matches!(refusal, Some(Refusal::Setup(_))),
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
@@ -602,7 +602,7 @@ mod tests {
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
         std::fs::write(dir.join("update").join(RESULT), failed(true)).unwrap();
         let error = Updater::new(&dir).status()["install_error"].as_str().unwrap().to_string();
-        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Setup.exe"), "{error}");
+        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Server-Setup.exe"), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -681,7 +681,7 @@ mod tests {
         let status = updater.status();
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], true);
-        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Setup.exe"));
+        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Server-Setup.exe"));
         // Signée : l'icône la signale (pour réinstaller).
         assert_eq!(updater.available().as_deref(), Some("99.0.0"));
         assert!(updater.install().is_err());

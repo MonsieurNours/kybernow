@@ -1,0 +1,66 @@
+[package]
+name = "kybernow-client-setup"
+version = "0.2.8"
+edition = "2024"
+rust-version = "1.89"
+description = "Installateur de l'app KyberNow pour Windows (x64 et ARM64), par utilisateur"
+license = "AGPL-3.0-or-later"
+authors = ["Les Lignes Claires"]
+
+# Projet à part (son propre Cargo.lock, mêmes versions que l'installateur du
+# serveur) : il se construit pour x64 seulement, et porte les deux versions de
+# l'app (x64 et ARM64). Sur un PC ARM, il tourne émulé et pose la version ARM64.
+[workspace]
+
+[lib]
+name = "knsetup"
+path = "src/lib.rs"
+
+# Lanceur : porte l'app à installer, installe WebView2 s'il manque, puis
+# démarre l'interface. Il sert aussi de désinstalleur et de mise à jour
+# silencieuse (/S /UPDATE), sans WebView2.
+[[bin]]
+name = "KyberNow-Client-Setup"
+path = "src/bin/setup.rs"
+
+# Interface de l'installateur (fenêtre WebView2, app Svelte de ui/).
+[[bin]]
+name = "kybernow-client-setup-ui"
+path = "src/bin/ui.rs"
+required-features = ["ui"]
+
+[features]
+ui = ["dep:wry", "dep:tao"]
+
+[dependencies]
+anyhow = "1.0.104"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tar = "0.4.46"
+zstd = "0.14.3"
+tao = { version = "0.37.1", optional = true }
+wry = { version = "0.57.0", optional = true }
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

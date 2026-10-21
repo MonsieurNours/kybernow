@@ -41,6 +41,22 @@ fn pipe_name() -> String {
     format!(r"\\.\pipe\KyberNow-{user}-{session}")
 }
 
+/// Attend (2 minutes au plus) que l'installateur de KyberNow ait fini : il
+/// tient `Local\KyberNow.Setup` pendant l'installation.
+pub fn wait_for_setup() {
+    use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(120) {
+        match unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, w!("Local\\KyberNow.Setup")) } {
+            Ok(h) => unsafe {
+                let _ = windows::Win32::Foundation::CloseHandle(h);
+            },
+            Err(_) => return,
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
 /// `true` : cette app est la première (elle garde le mutex jusqu'à sa fin).
 pub fn claim() -> bool {
     unsafe {

@@ -12,7 +12,7 @@ Serveur de streaming Windows clé en main et clients macOS / tvOS, construits su
 | `server/` | Tout ce qui tourne sur l'ordinateur partagé, voir [son README](server/README.md) |
 | `server/admin/`, `server/web/` | Console d'administration (service Windows, Rust) et son interface (Svelte) |
 | `server/tray/` | Icône de la zone de notification |
-| `server/installer/` | Installateur `KyberNow-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
+| `server/installer/` | Installateur `KyberNow-Server-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
 | `brand/` | Logo et déclinaisons ; identité v2 dans `brand/v2/` (charte, symbole, jetons) |

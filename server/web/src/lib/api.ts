@@ -219,7 +219,7 @@ export interface UpdateStatus {
   installable: boolean
   /** Pourquoi la version ne s'installe pas depuis la console (signature, canal, version). */
   verify_error: string | null
-  /** La version s'installe avec KyberNow-Setup.exe. */
+  /** La version s'installe avec KyberNow-Server-Setup.exe. */
   requires_setup: boolean
   /** Version gardée dans les dossiers .prev (retour en arrière possible). */
   rollback: string | null

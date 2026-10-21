@@ -1,4 +1,4 @@
-//! `KyberNow-Setup.exe` : lanceur de l'installation.
+//! `KyberNow-Server-Setup.exe` : lanceur de l'installation.
 //!
 //! Il porte le contenu à installer (accolé à la fin du fichier), dépose
 //! l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup`,
@@ -41,7 +41,7 @@ fn launch() -> anyhow::Result<()> {
     if !webview2_installed() {
         message(
             "KyberNow",
-            "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Setup.",
+            "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Server-Setup.",
             false,
         );
         let _ = std::process::Command::new("cmd")
@@ -61,7 +61,7 @@ fn launch() -> anyhow::Result<()> {
     std::fs::write(tmp.join("WebView2Loader.dll"), WEBVIEW2_LOADER)?;
 
     let webview_data: PathBuf =
-        std::env::temp_dir().join(format!("KyberNow-Setup-WebView-{}", std::process::id()));
+        std::env::temp_dir().join(format!("KyberNow-Server-Setup-WebView-{}", std::process::id()));
     let status = std::process::Command::new(&ui)
         .arg("--payload")
         .arg(&exe)

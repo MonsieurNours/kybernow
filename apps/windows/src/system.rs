@@ -70,7 +70,30 @@ pub fn init_logging(name: &str) {
         os_version(),
         std::env::args().skip(1).collect::<Vec<_>>()
     );
+    if emulated() {
+        log::warn!("version x64 émulée sur un Windows ARM64 : installez la version ARM64 (KyberNow-Client-Setup.exe la choisit)");
+    }
     install_crash_handlers();
+}
+
+/// L'adresse est-elle celle de ce PC ? (boucle locale, ou une adresse de ses
+/// cartes réseau : Windows n'accepte d'y ouvrir un port que si elle est à lui.)
+pub fn is_this_pc(host: &str) -> bool {
+    use std::net::{ToSocketAddrs, UdpSocket};
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    let Ok(addrs) = (host, 0u16).to_socket_addrs() else { return false };
+    addrs.into_iter().any(|a| a.ip().is_loopback() || UdpSocket::bind((a.ip(), 0)).is_ok())
+}
+
+/// Cette app x64 tourne-t-elle émulée sur un processeur ARM64 ?
+pub fn emulated() -> bool {
+    use windows::Win32::System::SystemInformation::{IMAGE_FILE_MACHINE, IMAGE_FILE_MACHINE_ARM64};
+    use windows::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2};
+    if cfg!(target_arch = "aarch64") {
+        return false;
+    }
+    let (mut process, mut native) = (IMAGE_FILE_MACHINE::default(), IMAGE_FILE_MACHINE::default());
+    unsafe { IsWow64Process2(GetCurrentProcess(), &mut process, Some(&mut native)) }.is_ok() && native == IMAGE_FILE_MACHINE_ARM64
 }
 
 /// Module (exécutable ou DLL) qui contient une adresse, et l'écart depuis son début.

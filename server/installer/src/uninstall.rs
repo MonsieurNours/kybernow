@@ -80,9 +80,11 @@ pub fn schedule_removal() {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let script = format!("ping 127.0.0.1 -n 4 > nul & rmdir /s /q \"{}\"", sys::install_dir().display());
+        // Ligne passée telle quelle : les arguments de Rust échapperaient les
+        // guillemets en \", que cmd ne comprend pas (le dossier restait).
+        let script = format!("/C ping 127.0.0.1 -n 4 > nul & rmdir /s /q \"{}\"", sys::install_dir().display());
         let _ = std::process::Command::new("cmd")
-            .args(["/C", &script])
+            .raw_arg(script)
             // Pas depuis le dossier à effacer.
             .current_dir(std::env::temp_dir())
             .creation_flags(0x0800_0000 | 0x0000_0008) // sans fenêtre, détaché

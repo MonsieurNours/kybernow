@@ -61,7 +61,7 @@ fn set_string(root: HKEY, path: &str, name: Option<&str>, value: &str) -> bool {
 
 /// Lien `kybernow://` et identité des notifications, pour cet utilisateur.
 /// Refait à chaque lancement : l'app a pu changer de dossier.
-pub fn register() {
+pub fn register() -> bool {
     let exe = exe();
     let exe_s = exe.display().to_string();
     let base = r"Software\Classes\kybernow";
@@ -76,6 +76,67 @@ pub fn register() {
         ok2 &= set_string(HKEY_CURRENT_USER, &aumid, Some("IconUri"), &png.display().to_string());
     }
     log::info!("intégration : lien kybernow:// {}, notifications {}", if ok { "inscrit" } else { "refusé" }, if ok2 { "inscrites" } else { "refusées" });
+    ok && ok2
+}
+
+/// Dossier connu de Windows (le Bureau peut être déplacé, dans OneDrive par exemple).
+fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{KF_FLAG_DEFAULT, SHGetKnownFolderPath};
+    unsafe {
+        let p = SHGetKnownFolderPath(id, KF_FLAG_DEFAULT, None).ok()?;
+        let dir = p.to_string().ok();
+        CoTaskMemFree(Some(p.0 as *const _));
+        dir.map(PathBuf::from)
+    }
+}
+
+/// Raccourci `KyberNow.lnk` vers l'app.
+fn save_shortcut(path: &std::path::Path) -> windows::core::Result<()> {
+    use windows::Win32::System::Com::IPersistFile;
+    unsafe {
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+        let exe = exe();
+        link.SetPath(&HSTRING::from(exe.as_os_str()))?;
+        if let Some(dir) = exe.parent() {
+            link.SetWorkingDirectory(&HSTRING::from(dir.as_os_str()))?;
+        }
+        link.SetDescription(&HSTRING::from("Votre ordinateur sur ce PC"))?;
+        link.SetIconLocation(&HSTRING::from(exe.as_os_str()), 0)?;
+        link.cast::<IPersistFile>()?.Save(&HSTRING::from(path.as_os_str()), true)
+    }
+}
+
+/// Installation (`kybernow.exe --setup-shell [--desktop]`, lancé par
+/// l'installateur) : lien `kybernow://`, notifications, raccourci du menu
+/// Démarrer et, si demandé, du Bureau.
+pub fn install(desktop: bool) -> bool {
+    use windows::Win32::UI::Shell::FOLDERID_Desktop;
+    let mut ok = register();
+    let start_menu = std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join(r"Microsoft\Windows\Start Menu\Programs"));
+    let desktop_dir = if desktop { known_folder(&FOLDERID_Desktop) } else { None };
+    let links: Vec<PathBuf> = [start_menu, desktop_dir].into_iter().flatten().map(|d| d.join("KyberNow.lnk")).collect();
+    ok &= std::thread::spawn(move || unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let mut ok = true;
+        for link in &links {
+            if let Some(dir) = link.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            match save_shortcut(link) {
+                Ok(()) => log::info!("raccourci : {}", link.display()),
+                Err(e) => {
+                    log::warn!("raccourci {} : {e}", link.display());
+                    ok = false;
+                }
+            }
+        }
+        CoUninitialize();
+        ok
+    })
+    .join()
+    .unwrap_or(false);
+    ok
 }
 
 /// Une fenêtre de cette app est-elle au premier plan ?

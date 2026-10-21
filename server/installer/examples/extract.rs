@@ -1,4 +1,4 @@
-//! Vérifie le contenu d'un KyberNow-Setup.exe : `cargo run --example extract -- <exe> <dossier>`
+//! Vérifie le contenu d'un KyberNow-Server-Setup.exe : `cargo run --example extract -- <exe> <dossier>`
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let (exe, dest) = (std::path::Path::new(&args[1]), std::path::Path::new(&args[2]));

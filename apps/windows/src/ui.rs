@@ -128,10 +128,9 @@ fn load_prefs() -> Prefs {
     std::fs::read_to_string(prefs_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
 }
 
-/// Installateur de cette architecture dans une version publiée.
-fn installer_name() -> &'static str {
-    if cfg!(target_arch = "aarch64") { "KyberNow-Windows-arm64.exe" } else { "KyberNow-Windows-x64.exe" }
-}
+/// Installateur publié : un seul pour x64 et ARM64, il pose la version du
+/// processeur (une app x64 émulée sur ARM passe ainsi à la version ARM64).
+const INSTALLER: &str = "KyberNow-Client-Setup.exe";
 
 impl UiState {
     fn with_store<T>(&self, f: impl FnOnce(&mut Store) -> T) -> T {
@@ -218,7 +217,7 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
 fn check_now(app: &AppHandle) -> Result<Option<Available>, String> {
     let state = app.state::<UiState>();
     let channel = state.prefs.lock().unwrap().channel;
-    let found = update::check(env!("CARGO_PKG_VERSION"), channel, installer_name())?;
+    let found = update::check(env!("CARGO_PKG_VERSION"), channel, INSTALLER)?;
     let fresh = found.is_some() && state.update.lock().unwrap().as_ref().map(|u| &u.version) != found.as_ref().map(|u| &u.version);
     *state.update.lock().unwrap() = found.clone();
     let _ = app.emit_to("main", "update", &found);
@@ -263,6 +262,12 @@ fn install_update(app: AppHandle) -> Result<(), String> {
     let dir = std::env::temp_dir().join("KyberNow");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("KyberNow-{}-{}", u.version, u.file));
+    // Installateurs des mises à jour précédentes.
+    for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        if e.path() != path && e.file_name().to_string_lossy().ends_with(".exe") {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
     let size = u.size.max(1);
     let a = app.clone();
     let last = std::sync::atomic::AtomicU64::new(u64::MAX);
@@ -278,7 +283,8 @@ fn install_update(app: AppHandle) -> Result<(), String> {
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     // Hors du « job » de l'app si on peut (un lanceur qui tue ses enfants à
     // la fermeture emporterait l'installateur), sinon tel quel.
-    let spawn = |flags: u32| std::process::Command::new(&path).args(["/S", "/UPDATE"]).creation_flags(flags).spawn();
+    // Pas le dossier de l'app comme dossier courant : l'installateur doit pouvoir le remplacer.
+    let spawn = |flags: u32| std::process::Command::new(&path).args(["/S", "/UPDATE"]).current_dir(&dir).creation_flags(flags).spawn();
     spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
         .or_else(|_| spawn(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP))
         .map_err(|e| format!("lancement de l'installateur : {e}"))?;
@@ -566,11 +572,15 @@ impl HostEvents for UiEvents {
         let _ = self.app.emit_to("bar", "stats", s);
     }
 
+    /// Première image à l'écran : l'accueil laisse la place à la session,
+    /// même si Windows a refusé le premier plan à celle-ci (l'accueil,
+    /// resté devant, montrait le passage ouvert sur du noir).
     fn visible(&self, foreground: bool) {
-        if foreground {
-            if let Some(w) = self.app.get_webview_window("main") {
-                let _ = w.hide();
-            }
+        if !foreground {
+            log::info!("session hors du premier plan : accueil caché quand même");
+        }
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.hide();
         }
     }
 
@@ -660,8 +670,9 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
     let host_name = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone()).map(|i| i.hostname).unwrap_or_default();
-    let local = ["127.0.0.1", "::1", "localhost"].contains(&c.host.as_str());
+    let local = system::is_this_pc(&c.host);
     if local || (!me.is_empty() && (host_name.eq_ignore_ascii_case(&me) || c.name.eq_ignore_ascii_case(&me))) {
+        log::warn!("session refusée : {} ({}) est ce PC", c.name, c.host);
         return Err("c'est ce PC : KyberNow s'affiche sur un autre appareil que l'ordinateur partagé".into());
     }
     let password = store::password(&id).ok_or("mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur")?;

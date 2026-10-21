@@ -254,6 +254,41 @@ pub fn update_client_size(hwnd: HWND) {
     }
 }
 
+/// Met la fenêtre au premier plan. Windows le refuse à un fil qui n'a pas
+/// reçu la dernière entrée (lancement par la barre des tâches, une
+/// notification, un lien, un outil à distance) : le fil se rattache alors un
+/// instant à celui de la fenêtre de premier plan, la manière admise de lui
+/// passer la main. Sinon, la fenêtre clignote dans la barre des tâches.
+fn bring_to_front(hwnd: HWND) -> bool {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    unsafe {
+        if SetForegroundWindow(hwnd).as_bool() && GetForegroundWindow() == hwnd {
+            return true;
+        }
+        let fg = GetForegroundWindow();
+        let fg_thread = if fg.0.is_null() { 0 } else { GetWindowThreadProcessId(fg, None) };
+        let me = GetCurrentThreadId();
+        let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        if attached {
+            let _ = AttachThreadInput(me, fg_thread, false);
+        }
+        if GetForegroundWindow() == hwnd {
+            return true;
+        }
+        let flash = FLASHWINFO {
+            cbSize: std::mem::size_of::<FLASHWINFO>() as u32,
+            hwnd,
+            dwFlags: FLASHW_ALL | FLASHW_TIMERNOFG,
+            uCount: 0,
+            dwTimeout: 0,
+        };
+        let _ = FlashWindowEx(&flash);
+        false
+    }
+}
+
 fn set_fullscreen(hwnd: HWND, on: bool) {
     let Some(app) = app() else { return };
     let mut saved = app.saved_placement.lock().unwrap();
@@ -561,14 +596,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 if let Some(a) = app() {
                     if !a.shown.swap(true, Ordering::Relaxed) {
                         let _ = ShowWindow(hwnd, SW_SHOW);
-                        let _ = SetForegroundWindow(hwnd);
                         if a.fullscreen {
                             set_fullscreen(hwnd, true);
                         }
                         update_client_size(hwnd);
-                        // Si Windows a refusé le premier plan (autre app passée
-                        // devant pendant la préparation), l'accueil reste là.
-                        a.events.visible(GetForegroundWindow() == hwnd);
+                        let front = bring_to_front(hwnd);
+                        if !front {
+                            log::warn!("Windows refuse le premier plan à la session : elle attend dans la barre des tâches");
+                        }
+                        // L'accueil se cache dans tous les cas : laissé devant, il
+                        // montrait le passage ouvert sur du noir.
+                        a.events.visible(front);
                     }
                 }
                 LRESULT(0)

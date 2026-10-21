@@ -5,7 +5,7 @@
 #
 # Le manifeste donne la version, le canal (stable ou beta), la date, la
 # version minimale déjà installée pour une mise à jour depuis la console,
-# s'il faut repasser par KyberNow-Setup.exe, et l'empreinte SHA-256 et la
+# s'il faut repasser par KyberNow-Server-Setup.exe, et l'empreinte SHA-256 et la
 # taille de chaque fichier publié présent dans le dossier. La console
 # (kyber-admin) refuse tout paquet dont le manifeste n'est pas signé par la
 # clé publique compilée en elle : server/admin/src/update/kybernow-release.pub.
@@ -46,8 +46,8 @@ KEY="${KYBERNOW_MINISIGN_KEY:-$HOME/Library/Application Support/KyberNow/minisig
 ITEM="${KYBERNOW_MINISIGN_ITEM:-kybernow-minisign}"
 if [ -n "${KYBERNOW_MINISIGN_KEY:-}" ]; then PUB="${KEY%.key}.pub"; else PUB="$REPO_PUB"; fi
 MANIFEST="kybernow-release.json"
-FILES=(KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
-    KyberNow-Windows-x64.exe KyberNow-Windows-arm64.exe)
+FILES=(KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip
+    KyberNow-Client-Setup.exe)
 
 if ! command -v minisign >/dev/null; then
     echo "==> minisign absent : installation (Homebrew)"

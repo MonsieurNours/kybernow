@@ -20,7 +20,7 @@ Key facts:
 
 ## Downloads and code
 
-- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Setup.exe (Windows server), KyberNow-macOS.zip (Mac app), release notes and SHA-256 checksums
+- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Server-Setup.exe (Windows server), KyberNow-macOS.zip (Mac app), release notes and SHA-256 checksums
 - [Installing the Apple TV app](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
 - [Source code](https://github.com/MonsieurNours/kybernow)
 - [Changes made to the Kyber engine](https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md)

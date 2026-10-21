@@ -125,7 +125,7 @@ export KYBERNOW_NATIVE_PREFIX="$ROOTFS"
 export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
 
 # Rien d'un build précédent ne doit survivre à un échec de celui-ci.
-rm -rf "$DIST" "$HERE/dist/KyberNow-Windows-$ARCH.exe"
+rm -rf "$DIST"
 
 # Interface (Svelte), embarquée dans l'exécutable par Tauri.
 echo "==> Interface (ui/)"

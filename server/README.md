@@ -9,12 +9,12 @@ Tout ce qui tourne sur l'ordinateur partagé : le serveur Kyber 0.29 (corrigé, 
 | `admin/` | Console `kyber-admin.exe` : service Windows (Rust, axum), HTTPS |
 | `web/` | Interface de la console (Svelte), embarquée dans le binaire |
 | `tray/` | Icône de la zone de notification `kybernow-tray.exe` |
-| `installer/` | `KyberNow-Setup.exe`, voir [installer/README.md](installer/README.md) |
+| `installer/` | `KyberNow-Server-Setup.exe`, voir [installer/README.md](installer/README.md) |
 | `kyber-patches/` | Correctifs de Kyber côté serveur et leur script de compilation |
 
 ## La console (`kyber-admin`)
 
-Installée par `KyberNow-Setup.exe`, en service Windows, sur un port tiré au hasard à l'installation (affiché à la fin, et dans l'icône de la zone de notification). Le compte est celui choisi pendant l'installation.
+Installée par `KyberNow-Server-Setup.exe`, en service Windows, sur un port tiré au hasard à l'installation (affiché à la fin, et dans l'icône de la zone de notification). Le compte est celui choisi pendant l'installation.
 
 Identité v2 (Archivo, Martian Mono, signal Spectre, symbole « console »), quatre espaces par intention, menu à gauche et onglets en bas sur téléphone. Les choix s'appliquent aussitôt ; ceux de Kyber demandent un redémarrage, proposé en haut de page. Les anciennes adresses (`#/dashboard`, `#/logs`…) mènent à l'espace qui les reprend.
 
@@ -46,7 +46,7 @@ Pourquoi pas un jeton JWT propre à l'appareil, signé par la console avec la cl
 - `GET /api/pairing` : lien d'appairage ;
 - `POST /api/pair/request`, `GET /api/pair/request/{id}` : appairage par code, sans compte (voir plus haut).
 
-**Mises à jour** (compte de la console) : `GET /api/update` (version installée, canal `channel`, dernière version du canal, préversion ou non, notes ; `installable` seulement si le manifeste signé est vérifié et compatible, sinon la raison dans `verify_error` et `requires_setup` s'il faut passer par `KyberNow-Setup.exe`), `PUT /api/update` (`{"channel": "stable" | "beta"}`, enregistré dans `update_channel`, renvoie l'état après une nouvelle vérification), `POST /api/update/check`, `POST /api/update/install`, `POST /api/update/rollback` (retour à la version des dossiers `.prev`, donnée dans `rollback` de `GET /api/update`, `null` s'il n'y en a pas). Ces deux dernières répondent 409 si un appareil est en session, sauf avec le corps `{"force": true}`. Signature et canaux : [docs/releases.md](../docs/releases.md#clé-de-signature-des-mises-à-jour-minisign). Si le PowerShell de l'installation s'arrête sans avoir remplacé la console, `GET /api/update` donne `install_error` (avec la fin du journal) et l'installation peut être relancée. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available`, `version`, le nom de l'ordinateur, son adresse et la session en cours (`activity`).
+**Mises à jour** (compte de la console) : `GET /api/update` (version installée, canal `channel`, dernière version du canal, préversion ou non, notes ; `installable` seulement si le manifeste signé est vérifié et compatible, sinon la raison dans `verify_error` et `requires_setup` s'il faut passer par `KyberNow-Server-Setup.exe`), `PUT /api/update` (`{"channel": "stable" | "beta"}`, enregistré dans `update_channel`, renvoie l'état après une nouvelle vérification), `POST /api/update/check`, `POST /api/update/install`, `POST /api/update/rollback` (retour à la version des dossiers `.prev`, donnée dans `rollback` de `GET /api/update`, `null` s'il n'y en a pas). Ces deux dernières répondent 409 si un appareil est en session, sauf avec le corps `{"force": true}`. Signature et canaux : [docs/releases.md](../docs/releases.md#clé-de-signature-des-mises-à-jour-minisign). Si le PowerShell de l'installation s'arrête sans avoir remplacé la console, `GET /api/update` donne `install_error` (avec la fin du journal) et l'installation peut être relancée. `GET /api/local/state` (réservé à l'ordinateur lui-même, pour l'icône) donne aussi `update_available`, `version`, le nom de l'ordinateur, son adresse et la session en cours (`activity`).
 
 **Empreinte de la console pour l'icône** (`tls.rs`, `publish_fingerprint`). `init` et chaque démarrage notent l'empreinte SHA-256 du certificat de la console dans `C:\Program Files\KyberNow\kybernow.json` (`console_fingerprint`), à côté de `kyber\`, si le fichier existe et qu'elle a changé : l'icône n'accepte que ce certificat (voir [server/installer/README.md](installer/README.md#icône-de-la-zone-de-notification-servertray)).
 
@@ -131,7 +131,7 @@ Client web contre le Kyber du PC : lancer la console en HTTPS (le moteur appelle
 ```bash
 server/build-windows.sh            # console seule → server/dist/kyber-admin.exe
 server/kyber-patches/build.sh      # Kyber corrigé → third_party/payload/kyber-overlay/
-server/installer/build.sh          # tout → server/installer/dist/KyberNow-Setup.exe
+server/installer/build.sh          # tout → server/installer/dist/KyberNow-Server-Setup.exe
 ```
 
 ## Mettre à jour un ordinateur déjà installé

@@ -12,7 +12,7 @@ Ready-to-install Windows streaming server and macOS / tvOS clients, built on [Ky
 | `server/` | Everything that runs on the shared computer, see [its README](server/README.en.md) |
 | `server/admin/`, `server/web/` | Administration console (Windows service, Rust) and its interface (Svelte) |
 | `server/tray/` | Notification area icon |
-| `server/installer/` | `KyberNow-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
+| `server/installer/` | `KyberNow-Server-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Patches to Kyber, described in [docs/kyber-changes.en.md](docs/kyber-changes.en.md) |
 | `site/` | www.kybernow.app website (static, no npm), see [its README](site/README.en.md) |
 | `brand/` | Logo and variants; v2 identity in `brand/v2/` (guidelines, symbol, tokens) |

@@ -10,12 +10,12 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 
 | File | What for |
 |---|---|
-| `KyberNow-Setup.exe` | First installation on a Windows computer |
+| `KyberNow-Server-Setup.exe` | KyberNow Server: first installation on the Windows computer to share (the name tells it apart from the app installer, `KyberNow-Client-Setup.exe`). A copy under the old name, `KyberNow-Setup.exe`, is still published for a few releases for existing links; the site should only go live with the new links once the release is published |
 | `kybernow-update.zip` | Update of a computer that is already installed: Kyber overlay, console, icon, `update.ps1` |
 | `update.ps1` | Manual update, without the console |
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
-| `KyberNow-Windows-x64.exe`, `KyberNow-Windows-arm64.exe` | The Windows app: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
+| `KyberNow-Client-Setup.exe` | The Windows app, x64 and ARM64 in a single file: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
 | `KyberSDK-tvOS.zip` | Kyber SDK built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
 | `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from the console, whether a reinstallation is needed, SHA-256 checksum and size of each file above |
 | `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by the console before any installation |
@@ -25,7 +25,7 @@ One version number for all of KyberNow: the console, the icon, the installer, th
 
 **The computer, in one click.**
 - The console checks for the latest release every 6 hours, on its **channel**: `stable` (default, published releases) or `beta` (GitHub prereleases too), chosen on the Updates page (`update_channel` setting in `kyber-admin.toml`). The **Updates** page shows it with its notes and an **Install** button; the notification area icon offers “Install version X…”, which opens that page.
-- **Nothing installs without a signature.** For a newer release, the console downloads `kybernow-release.json` and `kybernow-release.json.minisig` and verifies the signature with the public key compiled into it (see “Update signing key”). Then: the manifest must announce the same number as the GitHub release (`tag_name`), a channel the computer follows (a `beta` release is refused on `stable`), a `min_installer_version` lower than or equal to the installed version and no `requires_setup` (otherwise “reinstall with KyberNow-Setup.exe”). Any failure (missing manifest, invalid signature or another key's, channel, version) is shown on the page and in `GET /api/update` (`verify_error`), and the **Install** button does not appear; the icon only offers a release whose signature is good.
+- **Nothing installs without a signature.** For a newer release, the console downloads `kybernow-release.json` and `kybernow-release.json.minisig` and verifies the signature with the public key compiled into it (see “Update signing key”). Then: the manifest must announce the same number as the GitHub release (`tag_name`), a channel the computer follows (a `beta` release is refused on `stable`), a `min_installer_version` lower than or equal to the installed version and no `requires_setup` (otherwise “reinstall with KyberNow-Server-Setup.exe”). Any failure (missing manifest, invalid signature or another key's, channel, version) is shown on the page and in `GET /api/update` (`verify_error`), and the **Install** button does not appear; the icon only offers a release whose signature is good.
 - The installation downloads and verifies the manifest again, then downloads `kybernow-update.zip` (never more than the manifest's size) and checks its size and SHA-256 checksum against it. The published release number must look like `X.Y.Z`: it is used as a folder name, so any other number is refused. Manifest, signature and package stay in `C:\ProgramData\KyberNow\update\<version>\` (reserved to SYSTEM and Administrators).
 - The console then launches **the applicator**, `kyber-admin update apply <package> --version X`, as SYSTEM and detached (it survives the console stopping). It is a copy of the console, `C:\Program Files\KyberNow\.staging\kyber-admin-maj.exe`: it must be able to rename the `admin` folder while it runs. Nothing is run from a folder another account could change, and no script is launched: PowerShell is no longer involved.
 - The applicator verifies the signed manifest and the package again (nothing comes from the console that launched it), then extracts the package into `C:\Program Files\KyberNow\.staging\<version>\paquet` (permissions inherited from Program Files: read-only for users). It refuses any path that would leave the folder (`..`, absolute path, drive, NTFS stream), any name that would not be an ordinary file on Windows (`CON`, `NUL`, `COM1`…, a name ending with a dot or a space, `<>"|?*`) and any link. It also refuses a release that is not newer than the installed one (going back has its own path). The package must contain `kyber`, `admin`, `tray` and a `version.txt` equal to the expected version. A failure at this stage touches nothing: the console is still running and shows it.
@@ -88,7 +88,7 @@ Each release publishes a manifest, `kybernow-release.json`, signed with an ed255
 }
 ```
 
-`files` lists those of the published files that are present (`KyberNow-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
+`files` lists those of the published files that are present (`KyberNow-Server-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
 
 The manifest is written and signed with:
 
@@ -97,9 +97,9 @@ scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable            # or beta
 scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable --min-installer 0.2.6 --requires-setup
 ```
 
-`--min-installer X.Y.Z`: oldest version from which the console can install this package (0.2.0 by default). `--requires-setup`: this release only installs with `KyberNow-Setup.exe` (new driver, new service…). The script installs `minisign` with Homebrew if it is missing, then checks the signature against the repository's public key: a private key that does not match it is caught before publishing.
+`--min-installer X.Y.Z`: oldest version from which the console can install this package (0.2.0 by default). `--requires-setup`: this release only installs with `KyberNow-Server-Setup.exe` (new driver, new service…). The script installs `minisign` with Homebrew if it is missing, then checks the signature against the repository's public key: a private key that does not match it is caught before publishing.
 
-**The private key** is in `~/Library/Application Support/KyberNow/minisign.key`, encrypted with a random password kept in the Keychain (item `kybernow-minisign`). The script creates it if it is missing and writes the public key into the repository; if a public key is already in the repository, it refuses to create another one: a new key would make every console already installed refuse all updates, and they would have to be reinstalled with `KyberNow-Setup.exe`.
+**The private key** is in `~/Library/Application Support/KyberNow/minisign.key`, encrypted with a random password kept in the Keychain (item `kybernow-minisign`). The script creates it if it is missing and writes the public key into the repository; if a public key is already in the repository, it refuses to create another one: a new key would make every console already installed refuse all updates, and they would have to be reinstalled with `KyberNow-Server-Setup.exe`.
 
 **Offline backup** (USB stick, password vault), like the Sparkle key, never in the repository: the private key and its password, one without the other is useless.
 
@@ -144,7 +144,7 @@ scripts/release.sh X.Y.Z             # release
 7. tag `vX.Y.Z` on the version commit; 8. push of `main` (version commit and feed commit) and the tag, at once (`--atomic`): the Pages workflow publishes the feed;
 9. publication of the draft.
 
-The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
+The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Server-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
 
 **Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused. If the failure came after step 5, the feed commit is at the head with the version commit right below it: it is recognised, the app is rebuilt and the feed redone (the archive changed, and so did its signature); its commit is replaced if it has not been pushed yet, followed by a new one otherwise.
 
@@ -200,7 +200,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 What it does not cover:
 - **The Mac app.** It links Kyber's client SDK and VLC (`apps/macos/Vendor`, 88 MB, built from Kyber's sources by `build-kyclient.sh`), published nowhere. To build it in CI, each release would need a `KyberSDK-macOS.zip` (the contents of `apps/macos/Vendor`), like `KyberSDK-tvOS.zip` for the Apple TV.
 - **The Apple TV app when the client patches have changed** since the latest release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`): the published SDK no longer matches the code, so the build is skipped with a warning until the next release. This is the case until 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
-- **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
+- **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Server-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
 - **Nothing is signed or published**: releasing stays `scripts/release.sh`, on the author's Mac (notarisation, Sparkle and minisign keys). A CI that builds the Windows binaries would be the next step, to have them Authenticode-signed by SignPath (free programme for open-source projects, which requires a CI build).
 
 ## Signing and notarising the Mac app
@@ -240,7 +240,7 @@ By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-adm
 
 Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
 
-**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.
+**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Server-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.
 ## Keys, GitHub account and Windows signing
 
 ### Backing up the signing keys
@@ -313,7 +313,7 @@ gh api repos/MonsieurNours/kybernow/immutable-releases
 
 ### Windows signing (Authenticode): on hold
 
-Today `KyberNow-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1` are not signed: Windows shows “Unknown publisher” (SmartScreen, UAC). This signature would not replace minisign. Authenticode says who signed; minisign proves it is KyberNow's key, built into the console, which also protects against a compromised GitHub account.
+Today `KyberNow-Server-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1` are not signed: Windows shows “Unknown publisher” (SmartScreen, UAC). This signature would not replace minisign. Authenticode says who signed; minisign proves it is KyberNow's key, built into the console, which also protects against a compromised GitHub account.
 
 Decision of 2026-10-21: **postponed**, to be picked up when the Windows build is more mature. The intended option is SignPath Foundation (free).
 
@@ -345,7 +345,7 @@ What SignPath will require:
 
 Integration, whatever the option, in this order:
 1. sign `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1`;
-2. build `kybernow-update.zip` and `KyberNow-Setup.exe`, then sign the installer;
+2. build `kybernow-update.zip` and `KyberNow-Server-Setup.exe`, then sign the installer;
 3. compute `SHA256SUMS` and sign the minisign manifest, last, because the Authenticode signature changes the hashes.
 
 `jsign` (Homebrew) signs `.exe`, `.cab` and PowerShell scripts from the Mac. With SignPath, `release.sh` would fetch the files signed by the CI (`gh run download`) before step 3.

@@ -49,8 +49,17 @@ fn main() {
     // notification ou l'installateur. Le reste : la ligne de commande.
     let app = args.first().is_none_or(|a| a.starts_with("kybernow://") || ["--connect", "--add", "--updated"].contains(&a.as_str()));
     if !app {
-        let probe = args.iter().any(|a| a == "--probe-json");
-        system::init_logging(if probe { "kybernow-probe" } else { "kybernow" });
+        // Sonde et options de l'installateur : leur propre journal, celui de
+        // l'app (dernière session) reste intact.
+        let has = |f: &str| args.iter().any(|a| a == f);
+        let name = if has("--probe-json") {
+            "kybernow-probe"
+        } else if has("--setup-shell") || has("--clear-shell") || has("--forget-all") {
+            "kybernow-setup"
+        } else {
+            "kybernow"
+        };
+        system::init_logging(name);
         system::dpi_aware();
         // Lancée depuis un terminal : on écrit dans le sien.
         system::attach_console();
@@ -58,6 +67,9 @@ fn main() {
     }
     // Déjà ouverte : elle reçoit la demande, celle-ci s'arrête (sans toucher
     // à son journal), même si la transmission échoue (jamais deux apps).
+    // Mise à jour en cours (app rouverte pendant l'installation) : on attend
+    // qu'elle finisse plutôt que de verrouiller les fichiers qu'elle remplace.
+    instance::wait_for_setup();
     if !instance::claim() {
         let _ = instance::forward(&args);
         return;

@@ -420,7 +420,7 @@
             <pre class="install-error">{update.install_error}</pre>
           {/if}
         {:else if update.requires_setup || !update.verify_error}
-          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">Télécharger KyberNow-Setup.exe</a>
+          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">Télécharger KyberNow-Server-Setup.exe</a>
           <span>{update.verify_error ?? "Cette version s'installe avec l'installateur."} Vous avez {update.current}.</span>
         {:else}
           <!-- Manifeste absent, mal signé, ou d'un autre canal : rien n'est installé. -->

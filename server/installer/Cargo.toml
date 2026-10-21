@@ -14,7 +14,7 @@ path = "src/lib.rs"
 # Lanceur : porte le contenu à installer et démarre l'interface.
 # Il ne dépend pas de WebView2, pour pouvoir s'exécuter partout.
 [[bin]]
-name = "KyberNow-Setup"
+name = "KyberNow-Server-Setup"
 path = "src/bin/setup.rs"
 
 # Interface de l'installateur (fenêtre WebView2).

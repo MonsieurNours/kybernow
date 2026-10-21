@@ -61,6 +61,8 @@ struct Args {
     probe_json: bool,
     forget_all: bool,
     clear_shell: bool,
+    setup_shell: bool,
+    desktop: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -84,6 +86,8 @@ fn parse_args() -> Result<Args, String> {
         probe_json: false,
         forget_all: false,
         clear_shell: false,
+        setup_shell: false,
+        desktop: false,
     };
     let mut it = std::env::args().skip(1);
     let value = |name: &str, it: &mut dyn Iterator<Item = String>| {
@@ -121,6 +125,9 @@ fn parse_args() -> Result<Args, String> {
             "--probe" => a.probe = true,
             // Processus de sonde lancé par l'app (pc.rs).
             "--probe-json" => a.probe_json = true,
+            // Installation : lien kybernow://, notifications, raccourcis.
+            "--setup-shell" => a.setup_shell = true,
+            "--desktop" => a.desktop = true,
             // Désinstallation : mots de passe et liste de la barre des tâches.
             "--forget-all" => a.forget_all = true,
             "--clear-shell" => a.clear_shell = true,
@@ -132,7 +139,7 @@ fn parse_args() -> Result<Args, String> {
             }
         }
     }
-    if a.host.is_empty() && !a.probe && !a.probe_json && !a.forget_all && !a.clear_shell {
+    if a.host.is_empty() && !a.probe && !a.probe_json && !a.forget_all && !a.clear_shell && !a.setup_shell {
         return Err(String::new());
     }
     Ok(a)
@@ -185,6 +192,10 @@ pub fn main() -> i32 {
             return 2;
         }
     };
+
+    if args.setup_shell {
+        return if crate::shell::install(args.desktop) { 0 } else { 1 };
+    }
 
     if args.clear_shell {
         crate::shell::clear_jump_list();
