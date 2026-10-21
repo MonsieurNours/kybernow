@@ -113,8 +113,10 @@ targets:
         GCSupportsControllerUserInteraction: true
         GCSupportedGameControllers:
           - ProfileName: ExtendedGamepad
+        # Une seule fenêtre (une session à la fois, Stage Manager compris) ;
+        # l'écran externe a quand même sa scène, non interactive.
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: true
+          UIApplicationSupportsMultipleScenes: false
         ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: KyberNowIOS/KyberNowIOS.entitlements

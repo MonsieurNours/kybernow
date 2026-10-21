@@ -214,7 +214,10 @@ struct HomeProfilePicker: View {
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                                     .fill(Color.white.opacity(0.12))
                                     .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.white.opacity(0.1)))
-                                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                                    .overlay(alignment: .bottom) {
+                                        // Au-dessus du filet, pas sur lui.
+                                        Capsule().fill(Theme.accent).frame(height: 2).padding(.horizontal, 14).padding(.bottom, 4)
+                                    }
                                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                             }
                         }
@@ -330,18 +333,21 @@ struct HomeHostCard: View {
             Spacer(minLength: 0)
         }
         .frame(width: m.width, height: m.height, alignment: .topLeading)
-        .glass(m.radius)
-        .clipShape(RoundedRectangle(cornerRadius: m.radius, style: .continuous))
         .overlay(alignment: .bottom) {
+            // À l'intérieur de la carte, au-dessus de son filet : posé sur le
+            // bord, il le chevauchait.
             if selected {
-                UnevenRoundedRectangle(topLeadingRadius: 2, topTrailingRadius: 2)
+                Capsule()
                     .fill(Theme.accent)
                     .frame(height: 3)
                     .padding(.horizontal, m.padding)
+                    .padding(.bottom, 6)
                     .shadow(color: Theme.accentFill, radius: 5)
                     .transition(.opacity)
             }
         }
+        .glass(m.radius)
+        .clipShape(RoundedRectangle(cornerRadius: m.radius, style: .continuous))
         .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: m.radius, style: .continuous))
         .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: m.radius, style: .continuous))
     }

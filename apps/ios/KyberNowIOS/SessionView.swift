@@ -102,6 +102,12 @@ struct SessionView: View {
     @ViewBuilder
     private func chrome(size: CGSize) -> some View {
         ZStack {
+            // Pupitre : l'image est sur l'écran externe, l'appareil est le pavé.
+            if session.external {
+                ConsoleSurface(deviceIsPad: DeviceDisplay.isPad)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
             // Capsules en haut de l'image.
             VStack(spacing: 10) {
                 if isReconnecting {
@@ -523,6 +529,47 @@ struct Sparkline: View {
             ctx.stroke(p, with: .color(Theme.accent), style: StrokeStyle(lineWidth: 1.5, lineJoin: .round))
         }
         .accessibilityHidden(true)
+    }
+}
+
+// MARK: - Pupitre
+
+/// L'appareil quand l'image est sur l'écran externe : toute la surface est le
+/// pavé tactile ; une trame discrète et ce qu'on peut y faire.
+private struct ConsoleSurface: View {
+    let deviceIsPad: Bool
+
+    var body: some View {
+        ZStack {
+            Theme.background
+            // Trame du pavé : des points très discrets.
+            Canvas { ctx, size in
+                let step: CGFloat = 28
+                var y: CGFloat = step / 2
+                while y < size.height {
+                    var x: CGFloat = step / 2
+                    while x < size.width {
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - 1, y: y - 1, width: 2, height: 2)), with: .color(Color.white.opacity(0.06)))
+                        x += step
+                    }
+                    y += step
+                }
+            }
+            VStack(spacing: 14) {
+                Icon("television-simple", size: 34).foregroundStyle(Theme.accentLight)
+                Text("L'image est sur l'écran externe").font(Theme.sans(19, .semibold)).foregroundStyle(Theme.text)
+                Text(deviceIsPad
+                    ? "Tout l'iPad est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette. Le trackpad et le clavier vont aussi à l'ordinateur."
+                    : "Tout l'iPhone est le pavé tactile : un doigt déplace le pointeur, toucher clique, deux doigts pour le clic droit et la molette.")
+                    .font(Theme.sans(14))
+                    .foregroundStyle(Theme.muted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 460)
+            }
+            .padding(24)
+        }
+        .ignoresSafeArea()
+        .accessibilityElement(children: .combine)
     }
 }
 

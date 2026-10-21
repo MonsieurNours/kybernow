@@ -297,9 +297,10 @@ struct HomeScreen: View {
                             .padding(.top, 16)
                             .homeRise(revealed, 0.48)
                     }
+                    // Au-dessus de l'indicateur d'accueil, sans le toucher.
                     shelf(width: size.width, wide: false)
                         .padding(.top, 20)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 16)
                 }
                 .frame(minHeight: size.height - 44, alignment: .bottom)
             }

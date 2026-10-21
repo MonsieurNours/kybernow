@@ -40,6 +40,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         Self.orientationLock
     }
+
+    /// L'écran externe a sa scène à nous (ExternalDisplay) ; la fenêtre de
+    /// l'app reste celle de SwiftUI.
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession, options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if session.role == .windowExternalDisplayNonInteractive {
+            let config = UISceneConfiguration(name: "Écran externe", sessionRole: session.role)
+            config.delegateClass = ExternalSceneDelegate.self
+            return config
+        }
+        return UISceneConfiguration(name: nil, sessionRole: session.role)
+    }
 }
 
 enum Orientation {

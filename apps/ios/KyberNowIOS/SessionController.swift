@@ -6,6 +6,13 @@
 // l'écran, relances, reconnexions, repli, signal de vie, fin vérifiée) est
 // dans le cœur Rust, par `SessionEngine`, comme sur Mac et Apple TV
 // (docs/coeur-apple.md, jalon 5).
+//
+// Écran externe : l'image y passe, à sa définition, et l'appareil devient le
+// pupitre (pavé tactile sur toute la surface, barre permanente, mesures,
+// Touches et clavier sans jamais couvrir l'image) ; débranché, l'image
+// revient sur l'appareil sans couper la session. Stage Manager : la session
+// vit dans sa fenêtre ; perdre le premier plan relâche tout sur
+// l'ordinateur et ramène le débit, comme l'arrière-plan.
 
 import AVFoundation
 import Combine
@@ -65,6 +72,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var virtualDisplay = true
     /// Ce que dit la capsule de l'entrée (écran, son, manette).
     @Published private(set) var gamepadName: String?
+    /// L'image est sur l'écran externe : l'appareil est le pupitre.
+    @Published private(set) var external = false
 
     let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 874, height: 402))
     private let store: HostStore
@@ -74,6 +83,7 @@ final class SessionController: ObservableObject {
     private var engineStreaming = false
     private var streamStartedAt: Date?
     private var observers: [NSObjectProtocol] = []
+    private var externalWatch: AnyCancellable?
     private static let revealDelay: TimeInterval = 0.9
     /// Arrière-plan : débit plafonné, image figée (la session continue).
     private static let backgroundBitrate: UInt32 = 8_000_000
@@ -106,11 +116,15 @@ final class SessionController: ObservableObject {
             return
         }
         let settings = host.settings
-        let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first ?? UIScreen.main
-        let mode = DeviceDisplay.mode(for: settings, screen: screen)
+        // « Comme cet écran » : l'écran externe s'il est branché, sinon celui de l'appareil.
+        let mode = ExternalDisplay.shared.mode(for: settings) ?? DeviceDisplay.mode(for: settings, screen: deviceScreen)
         modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
         configureView()
         observeApp()
+        if ExternalDisplay.shared.scene != nil { useExternal(true, adapt: false) }
+        externalWatch = ExternalDisplay.shared.$scene.dropFirst().sink { [weak self] scene in
+            self?.useExternal(scene != nil, adapt: true)
+        }
 
         let engine = SessionEngine(view: streamView)
         engine.onPhase = { [weak self] in self?.phaseChanged($0) }
@@ -150,6 +164,40 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// L'écran de l'appareil (celui de la fenêtre de l'app).
+    private var deviceScreen: UIScreen {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.session.role == .windowApplication }?.screen ?? UIScreen.main
+    }
+
+    private var deviceName: String {
+        DeviceDisplay.isPad ? String(localized: "l'iPad") : String(localized: "l'iPhone")
+    }
+
+    /// L'image passe sur l'écran externe, ou revient sur l'appareil. En cours
+    /// de session (`adapt`), la console refait l'écran virtuel à la taille du
+    /// nouvel écran, puis l'image repart dessus (avis « adaptation »).
+    private func useExternal(_ on: Bool, adapt: Bool) {
+        guard on != external, phase != .ending, phase != .ended else { return }
+        let display = ExternalDisplay.shared
+        external = on
+        streamView.showImage(in: on ? display.imageHost : nil)
+        display.showingImage(on)
+        if on {
+            setBar(true)
+            if DeviceDisplay.isPad { statsSheet = true }
+        } else {
+            statsSheet = false
+        }
+        guard adapt else { return }
+        show(notice: on ? String(localized: "L'image passe sur l'écran externe") : String(localized: "L'image est revenue sur \(deviceName)"))
+        let mode = on ? display.mode(for: host.settings) : DeviceDisplay.mode(for: host.settings, screen: deviceScreen)
+        if let mode, virtualDisplay, host.settings.display != .custom {
+            engine?.setMode(SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh))
+        }
+    }
+
     private func configureView() {
         streamView.directTouch = prefs.directTouch
         streamView.pointerSpeed = prefs.pointerSpeed
@@ -164,23 +212,29 @@ final class SessionController: ObservableObject {
         gamepads.rumbleEnabled = prefs.rumble
     }
 
-    /// Arrière-plan (autre app, verrouillage, Stage Manager) : rien ne reste
-    /// enfoncé sur l'ordinateur, le débit est plafonné ; au retour, tout revient.
+    /// La fenêtre de la session perd le premier plan (autre app, verrouillage,
+    /// autre fenêtre dans Stage Manager) : rien ne reste enfoncé sur
+    /// l'ordinateur, le débit est plafonné, l'image se fige ; au retour, tout
+    /// revient. Suivi par scène : avec Stage Manager, l'app peut rester
+    /// visible sans avoir le clavier ni le toucher.
     private func observeApp() {
         let center = NotificationCenter.default
         observers = [
-            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
-                    guard let self, self.phase == .streaming else { return }
+                    guard let self, self.isSessionScene(note.object), self.phase == .streaming else { return }
                     self.streamView.releaseAll()
                     self.engine?.setBitrateCap(Self.backgroundBitrate)
-                    self.engine?.setOccluded(true)
+                    // Sur l'écran externe, l'image reste vivante : on la regarde encore.
+                    if !self.external { self.engine?.setOccluded(true) }
+                    self.show(notice: String(localized: "KyberNow continue en arrière-plan"), for: 4)
                 }
             },
-            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated {
-                    self?.engine?.setOccluded(false)
-                    self?.engine?.setBitrateCap(nil)
+                    guard let self, self.isSessionScene(note.object) else { return }
+                    self.engine?.setOccluded(false)
+                    self.engine?.setBitrateCap(nil)
                 }
             },
             center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -193,6 +247,12 @@ final class SessionController: ObservableObject {
                 }
             },
         ]
+    }
+
+    /// La scène de la fenêtre de la session (pas celle de l'écran externe).
+    private func isSessionScene(_ object: Any?) -> Bool {
+        guard let scene = object as? UIWindowScene, scene.session.role == .windowApplication else { return false }
+        return streamView.window?.windowScene.map { $0 === scene } ?? true
     }
 
     private func received(_ stats: VideoStats) {
@@ -296,13 +356,16 @@ final class SessionController: ObservableObject {
 
     func setBar(_ open: Bool) {
         guard phase == .streaming || !open else { return }
+        // Pupitre (image sur l'écran externe) : la barre reste.
+        if !open, external, phase == .streaming { return }
         if !open, padMode {
             padMode = false
             GamepadBridge.shared.setCaptured(false)
         }
         guard open != barOpen else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) { barOpen = open }
-        streamView.touchesSuspended = open
+        // Pupitre : tout l'écran reste le pavé tactile, barre ouverte ou non.
+        streamView.touchesSuspended = open && !external
     }
 
     func toggleBar() { setBar(!barOpen) }
@@ -384,6 +447,9 @@ final class SessionController: ObservableObject {
         phase = .starting
         configureView()
         streamView.startTestPattern()
+        externalWatch = ExternalDisplay.shared.$scene.sink { [weak self] scene in
+            DispatchQueue.main.async { self?.useExternal(scene != nil, adapt: true) }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             guard let self else { return }
             withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.2)) {
@@ -426,11 +492,21 @@ final class SessionController: ObservableObject {
             phase = .ending
             barOpen = false
         }
+        leaveExternal()
         streamView.detach()
         engine?.stop()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.finish() }
+    }
+
+    /// Fin de session : l'écran externe retrouve son image d'attente.
+    private func leaveExternal() {
+        externalWatch = nil
+        guard external else { return }
+        external = false
+        streamView.showImage(in: nil)
+        ExternalDisplay.shared.showingImage(false)
     }
 
     func finish() {
@@ -442,6 +518,7 @@ final class SessionController: ObservableObject {
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
         GamepadBridge.shared.onMenuRequest = nil
+        leaveExternal()
         streamView.detach()
         engine?.stop()
         observers.forEach(NotificationCenter.default.removeObserver)

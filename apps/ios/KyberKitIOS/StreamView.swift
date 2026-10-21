@@ -18,11 +18,37 @@
 // Clavier de l'écran : la vue est un `UIKeyInput` ; le texte part en Unicode
 // (accents, emoji), Retour, Effacer et les touches de la rangée au-dessus du
 // clavier (vue accessoire, fournie par l'app) partent en codes.
+//
+// Écran externe (USB-C, AirPlay ; iPhone et iPad) : l'image et le pointeur
+// de l'ordinateur passent dans une `ImageHostView` posée sur l'écran externe
+// (`showImage(in:)`) ; la vue reste sur l'appareil, qui devient le pupitre :
+// tout l'écran est le pavé tactile (le toucher direct n'a plus de sens), et
+// le trackpad de l'iPad déplace le pointeur en relatif.
 
 @_implementationOnly import CKyber
 import GameController
 import QuartzCore
 import UIKit
+
+/// Là où l'image se montre quand elle n'est pas dans la vue de session
+/// (l'écran externe).
+public final class ImageHostView: UIView {
+    var onLayout: (() -> Void)?
+
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        isUserInteractionEnabled = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
 
 public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Vue confiée au cœur comme fenêtre (jamais dessinée : l'image passe par Metal).
@@ -59,6 +85,10 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     public var onTopEdgeSwipe: (() -> Void)?
     /// La souris est-elle en mode brut (jeu) en ce moment.
     public private(set) var isRelative = false
+    /// L'image est sur un autre écran : l'appareil n'est plus que le pupitre.
+    public private(set) var imageHost: ImageHostView?
+    /// Dernière position du trackpad (image sur l'écran externe : en relatif).
+    private var lastHover: CGPoint?
 
     private let keyboardMouse = KeyboardMouse()
     private var input: InputPipeline?
@@ -112,11 +142,47 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
-        surface.frame = bounds
+        if imageHost == nil { surface.frame = bounds }
         videoView.frame = bounds
         rebuildLayout()
         updatePointerLayer()
     }
+
+    /// Les bornes de l'image : la vue elle-même, ou l'écran externe.
+    private var imageBounds: CGRect { imageHost?.bounds ?? bounds }
+
+    /// Montre l'image (et le pointeur de l'ordinateur) dans `host`, sur un
+    /// autre écran, ou de nouveau ici (`nil`). La surface Metal et son rendu
+    /// sont déplacés tels quels : le flux continue sans relance.
+    public func showImage(in host: ImageHostView?) {
+        guard host !== imageHost else { return }
+        imageHost?.onLayout = nil
+        imageHost = host
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let host {
+            host.addSubview(surface)
+            surface.frame = host.bounds
+            host.layer.addSublayer(pointerLayer)
+            host.onLayout = { [weak self, weak host] in
+                guard let self, let host else { return }
+                self.surface.frame = host.bounds
+                self.rebuildLayout()
+                self.updatePointerLayer()
+            }
+        } else {
+            insertSubview(surface, aboveSubview: videoView)
+            surface.frame = bounds
+            layer.addSublayer(pointerLayer)
+        }
+        CATransaction.commit()
+        lastHover = nil
+        rebuildLayout()
+        updatePointerLayer()
+    }
+
+    /// Le toucher direct n'a de sens que si l'image est sous le doigt.
+    private var direct: Bool { directTouch && imageHost == nil }
 
     // MARK: - Session
 
@@ -179,6 +245,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     }
 
     private func rebuildLayout() {
+        let bounds = imageBounds
         guard bounds.width > 0, bounds.height > 0 else { return }
         if let layout { kynput_video_layout_unref(layout) }
         var window = kynput_RectSize(width: bounds.width, height: bounds.height)
@@ -252,7 +319,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
             input.mouseMove(dx: Int16(clamping: Int((Double(t.x) * k).rounded())), dy: Int16(clamping: Int((Double(t.y) * k).rounded())))
             return
         }
-        if directTouch {
+        if direct {
             if let p = hostPoint(g.location(in: self)) {
                 input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
             }
@@ -269,7 +336,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
             return
         }
         guard let input else { return }
-        if directTouch, !isRelative, let p = hostPoint(g.location(in: self)) {
+        if direct, !isRelative, let p = hostPoint(g.location(in: self)) {
             input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
         }
         input.mouseButton(.left, pressed: true)
@@ -286,7 +353,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         guard !touchesSuspended, let input else { return }
         switch g.state {
         case .began:
-            if directTouch, !isRelative, let p = hostPoint(g.location(in: self)) {
+            if direct, !isRelative, let p = hostPoint(g.location(in: self)) {
                 input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
             }
             dragging = true
@@ -321,6 +388,15 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         if !mouseSeen {
             mouseSeen = true
             updatePointerLayer()
+        }
+        if imageHost != nil {
+            // L'image est ailleurs : le trackpad pousse le pointeur, en relatif.
+            let at = g.location(in: self)
+            defer { lastHover = g.state == .ended || g.state == .cancelled ? nil : at }
+            guard let last = lastHover else { return }
+            let k = pointerSpeed * Double(hostSize.width / max(bounds.width, 1))
+            pointer.move(dx: Double(at.x - last.x) * k, dy: Double(at.y - last.y) * k)
+            return
         }
         if let p = hostPoint(g.location(in: self)) {
             input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
@@ -417,7 +493,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Dessiné au pavé tactile, à la souris ou au trackpad (en toucher direct,
     /// le doigt suffit ; en jeu, le jeu a son propre curseur).
     private func updatePointerLayer() {
-        let visible = !isRelative && (!directTouch || mouseSeen)
+        let visible = !isRelative && (!direct || mouseSeen)
         guard visible, let host = pointerState.remotePosition, let layout else {
             pointerLayer.isHidden = true
             return
@@ -430,7 +506,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pointerLayer.contents = shape.image
-        pointerLayer.contentsScale = window?.screen.scale ?? 3
+        pointerLayer.contentsScale = (imageHost?.window ?? window)?.screen.scale ?? 3
         pointerLayer.frame = PointerLayer.frame(shape: shape, local: CGPoint(x: local.x, y: local.y), factor: factor)
         pointerLayer.isHidden = false
         CATransaction.commit()
