@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.7
 
+- Mac app: offline test of the shared input module (`apps/macos/tests/inputs/run.sh`): keyboard table (keys, ISO or not, Caps Lock), gamepad combination (brief, held, fully released), packet retry backlog and axis filtering.
 - Mac app, clipboard: the computer's packets are no longer handled under the lock of kynput's input router (the answer re-entered it on the same thread) but on the app's input queue; the pasteboard itself goes behind a small interface (`PlatformPasteboard`: NSPasteboard on the Mac, UIPasteboard to come on iOS, none on the Apple TV). Same exchanges as before.
 - Mac and Apple TV apps, inputs: the retry backlog for packets refused by kynput (`PacketQueue`) and the gamepad axis filtering (unchanged axes dropped, batched per 4 ms, returns to rest retried) are now written once in the shared input chain; the Apple TV app no longer keeps a copy. Same thresholds, same delays.
 - Mac and Apple TV apps: a single “release everything” policy (`ReleaseAll`): held keys, modifiers and clicks are released when the Mac window loses the keyboard, when the Apple TV app goes to the background and at the end of the session, and the modifiers actually held are sent again on return. Same gestures as before, written once.

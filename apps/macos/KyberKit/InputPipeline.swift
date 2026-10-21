@@ -51,53 +51,6 @@ public struct GamepadRumble: Sendable {
     public let durationMs: Int
 }
 
-/// Touches et axes de manette, dans le vocabulaire de kynput (celui de SDL).
-public enum PadButton: Sendable, CaseIterable {
-    case a, b, x, y, back, guide, start, leftStick, rightStick, leftShoulder, rightShoulder
-    case dpadUp, dpadDown, dpadLeft, dpadRight
-
-    var sdk: kynput_GamepadButton {
-        switch self {
-        case .a: return KYNPUT_GAMEPAD_BUTTON_A
-        case .b: return KYNPUT_GAMEPAD_BUTTON_B
-        case .x: return KYNPUT_GAMEPAD_BUTTON_X
-        case .y: return KYNPUT_GAMEPAD_BUTTON_Y
-        case .back: return KYNPUT_GAMEPAD_BUTTON_BACK
-        case .guide: return KYNPUT_GAMEPAD_BUTTON_GUIDE
-        case .start: return KYNPUT_GAMEPAD_BUTTON_START
-        case .leftStick: return KYNPUT_GAMEPAD_BUTTON_LEFT_STICK
-        case .rightStick: return KYNPUT_GAMEPAD_BUTTON_RIGHT_STICK
-        case .leftShoulder: return KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER
-        case .rightShoulder: return KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER
-        case .dpadUp: return KYNPUT_GAMEPAD_BUTTON_D_PAD_UP
-        case .dpadDown: return KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN
-        case .dpadLeft: return KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT
-        case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT
-        }
-    }
-
-    /// Touche d'un paquet kynput (manettes SDL du Mac).
-    init?(sdk: kynput_GamepadButton) {
-        guard let button = Self.allCases.first(where: { $0.sdk == sdk }) else { return nil }
-        self = button
-    }
-}
-
-public enum PadAxis: Sendable {
-    case leftX, leftY, rightX, rightY, leftTrigger, rightTrigger
-
-    var sdk: kynput_GamepadAxis {
-        switch self {
-        case .leftX: return KYNPUT_GAMEPAD_AXIS_LEFT_X
-        case .leftY: return KYNPUT_GAMEPAD_AXIS_LEFT_Y
-        case .rightX: return KYNPUT_GAMEPAD_AXIS_RIGHT_X
-        case .rightY: return KYNPUT_GAMEPAD_AXIS_RIGHT_Y
-        case .leftTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT
-        case .rightTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT
-        }
-    }
-}
-
 /// Reçoit les vibrations envoyées par l'ordinateur. Appelé sur le fil de
 /// kynput (Apple TV : le pont des manettes repasse sur sa propre file, sans
 /// détour par le fil principal) ; le rappel est réglé du fil principal.
@@ -146,11 +99,12 @@ final class InputPipeline {
     }
     private let rumble = RumbleSink()
 
+    /// `displayID`, `hostSize` : l'écran de l'ordinateur affiché (KyberDisplay) ;
     /// `pointer` : la couche de pointeur de la vue de session, qui reçoit les
     /// annonces de l'ordinateur sur sa file.
-    init(display: KyberDisplay, pointer: PointerLayer, clipboard shareClipboard: Bool) {
-        displayID = display.id
-        hostSize = CGSize(width: display.width, height: display.height)
+    init(displayID: UInt32, hostSize: CGSize, pointer: PointerLayer, clipboard shareClipboard: Bool) {
+        self.displayID = displayID
+        self.hostSize = hostSize
         pipeline = kynput_pipeline_new(kynput_get_client_config())
         sink = kynput_pipeline_get_input_sink(pipeline)
         packets = Self.makePackets(sink: sink, queue: queue)
@@ -249,7 +203,7 @@ final class InputPipeline {
         wanted += [KYNPUT_INPUT_TYPE_GAMEPAD_CONTROL, KYNPUT_INPUT_TYPE_GAMEPAD_EVENT, KYNPUT_INPUT_TYPE_UNICODE]
         #endif
         let missing = wanted.filter { !kynput_pipeline_produces_type(pipeline, $0) }
-        KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(display.id))")
+        KyberLog.app.notice("entrées : \(wanted.count - missing.count) types produits par kynput, \(missing.count) par l'app (écran \(displayID))")
         if !missing.isEmpty {
             // Le tableau doit vivre aussi longtemps que le gestionnaire : on le garde.
             let types = UnsafeMutablePointer<kynput_InputType>.allocate(capacity: missing.count)

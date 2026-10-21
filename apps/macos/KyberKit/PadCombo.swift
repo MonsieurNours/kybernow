@@ -23,6 +23,54 @@
 // la minuterie.
 
 import Foundation
+@_implementationOnly import CKyber
+
+/// Touches et axes de manette, dans le vocabulaire de kynput (celui de SDL).
+public enum PadButton: Sendable, CaseIterable {
+    case a, b, x, y, back, guide, start, leftStick, rightStick, leftShoulder, rightShoulder
+    case dpadUp, dpadDown, dpadLeft, dpadRight
+
+    var sdk: kynput_GamepadButton {
+        switch self {
+        case .a: return KYNPUT_GAMEPAD_BUTTON_A
+        case .b: return KYNPUT_GAMEPAD_BUTTON_B
+        case .x: return KYNPUT_GAMEPAD_BUTTON_X
+        case .y: return KYNPUT_GAMEPAD_BUTTON_Y
+        case .back: return KYNPUT_GAMEPAD_BUTTON_BACK
+        case .guide: return KYNPUT_GAMEPAD_BUTTON_GUIDE
+        case .start: return KYNPUT_GAMEPAD_BUTTON_START
+        case .leftStick: return KYNPUT_GAMEPAD_BUTTON_LEFT_STICK
+        case .rightStick: return KYNPUT_GAMEPAD_BUTTON_RIGHT_STICK
+        case .leftShoulder: return KYNPUT_GAMEPAD_BUTTON_LEFT_SHOULDER
+        case .rightShoulder: return KYNPUT_GAMEPAD_BUTTON_RIGHT_SHOULDER
+        case .dpadUp: return KYNPUT_GAMEPAD_BUTTON_D_PAD_UP
+        case .dpadDown: return KYNPUT_GAMEPAD_BUTTON_D_PAD_DOWN
+        case .dpadLeft: return KYNPUT_GAMEPAD_BUTTON_D_PAD_LEFT
+        case .dpadRight: return KYNPUT_GAMEPAD_BUTTON_D_PAD_RIGHT
+        }
+    }
+
+    /// Touche d'un paquet kynput (manettes SDL du Mac).
+    init?(sdk: kynput_GamepadButton) {
+        guard let button = Self.allCases.first(where: { $0.sdk == sdk }) else { return nil }
+        self = button
+    }
+}
+
+public enum PadAxis: Sendable {
+    case leftX, leftY, rightX, rightY, leftTrigger, rightTrigger
+
+    var sdk: kynput_GamepadAxis {
+        switch self {
+        case .leftX: return KYNPUT_GAMEPAD_AXIS_LEFT_X
+        case .leftY: return KYNPUT_GAMEPAD_AXIS_LEFT_Y
+        case .rightX: return KYNPUT_GAMEPAD_AXIS_RIGHT_X
+        case .rightY: return KYNPUT_GAMEPAD_AXIS_RIGHT_Y
+        case .leftTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_LEFT
+        case .rightTrigger: return KYNPUT_GAMEPAD_AXIS_TRIGGER_RIGHT
+        }
+    }
+}
 
 /// Touche de navigation pendant que la manette pilote l'app.
 public enum PadKey: Sendable {
