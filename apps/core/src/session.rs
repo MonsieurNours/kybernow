@@ -443,6 +443,8 @@ impl Worker {
 
     fn prepare_request(&self, mode: Mode, mode_policy: Option<&str>) -> PrepareRequest {
         let p = &self.params;
+        // Un seul verrou : le prendre deux fois dans la même expression bloquait le fil.
+        let (label, policy) = self.profile_label.lock().unwrap().clone();
         PrepareRequest {
             width: mode.width,
             height: mode.height,
@@ -450,8 +452,8 @@ impl Worker {
             audio_channels: p.audio_channels,
             virtual_display: p.virtual_display,
             device: p.device.clone(),
-            profile: Some(self.profile_label.lock().unwrap().0.clone()),
-            mode_policy: Some(mode_policy.unwrap_or(&self.profile_label.lock().unwrap().1).to_string()),
+            profile: Some(label),
+            mode_policy: Some(mode_policy.map_or(policy, str::to_string)),
         }
     }
 
