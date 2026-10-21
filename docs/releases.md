@@ -76,7 +76,7 @@ scripts/release.sh X.Y.Z             # publication
 7. tag `vX.Y.Z` sur le commit de version ; 8. push de `main` et du tag, en une fois (`--atomic`) ;
 9. publication du brouillon.
 
-Les fichiers restent dans `dist/vX.Y.Z/`.
+Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `KyberNow-Setup.exe`, `kybernow-ui.exe` et `kybernow-tray.exe` (Propriétés › Détails, manifestes) suit celle de `Cargo.toml` : leurs `build.rs` produisent les ressources depuis les gabarits `resources/*.rc.in` et `*.manifest.in`.
 
 **Relancer après un échec** : la même commande. Le commit « KyberNow X.Y.Z » déjà en tête est réutilisé (pas de second commit), un brouillon existant reçoit les nouveaux fichiers (`--clobber`), le tag est posé s'il manque. Seule une version déjà publiée est refusée.
 

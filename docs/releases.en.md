@@ -76,7 +76,7 @@ scripts/release.sh X.Y.Z             # release
 7. tag `vX.Y.Z` on the version commit; 8. push of `main` and the tag, at once (`--atomic`);
 9. publication of the draft.
 
-The files stay in `dist/vX.Y.Z/`.
+The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
 
 **Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused.
 

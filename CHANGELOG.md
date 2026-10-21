@@ -68,6 +68,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - App Apple TV : la molette d'une souris Bluetooth défile enfin dans le bon sens (elle défilait de côté), un cran pour un cran ; les boutons 4 et 5 (précédent, suivant) marchent.
 - App Apple TV : manette en souris, le stick droit vers le haut fait défiler vers le haut (c'était l'inverse) ; un clic de la souris, de la télécommande ou de la manette en souris ne tombe plus à côté du pointeur quand l'interface est occupée, et un clic tenu n'est plus oublié à l'ouverture du menu ou quand la manette se coupe.
 - Publication : `scripts/release.sh` refuse un arbre modifié ou une autre branche que `main`, vérifie les deux CHANGELOG, la surcouche Kyber (empreinte des correctifs écrite par `server/kyber-patches/build.sh`), `gh` et la notarisation avant de commencer, commite la version avant de construire (les binaires sont ceux du commit étiqueté), publie en brouillon puis tague, pousse et publie ; une relance après un échec reprend où il s'est arrêté. Nouveau : `--beta` (prerelease, canal bêta), `--dry-run` (essai complet sans rien publier), `--check`, `--min-installer` et `--requires-setup` (manifeste signé).
+- Windows : l'installateur, son interface et l'icône annoncent leur vraie version (Propriétés › Détails, manifestes), tirée de `Cargo.toml` à la compilation ; elle restait à 0.1.0.
 
 ## 0.2.5
 
