@@ -250,6 +250,25 @@ pub mod tests {
         assert!(serde_json::from_str::<Channel>("\"nightly\"").is_err());
     }
 
+    /// Manifeste écrit et signé par `scripts/sign-manifest.sh` et le binaire
+    /// `minisign` (clé d'essai jetable, dont seule la clé publique est gardée).
+    #[test]
+    fn a_manifest_signed_by_the_release_script_is_accepted() {
+        let json = include_bytes!("testdata/kybernow-release.json");
+        let sig = include_str!("testdata/kybernow-release.json.minisig");
+        let key = include_str!("testdata/essai.pub");
+        let m = verify(json, sig, key).unwrap();
+        assert_eq!((m.version.as_str(), m.channel, m.min_installer_version.as_str()), ("0.2.7", Channel::Beta, "0.2.6"));
+        assert_eq!(m.files["kybernow-update.zip"].size, 15);
+        assert!(m.files.contains_key("update.ps1"));
+        assert_eq!(m.check("0.2.7", Channel::Beta, "0.2.6"), Ok(()));
+        // Pas avec la clé de KyberNow, ni modifié d'un octet.
+        assert!(verify_release(json, sig).is_err());
+        let mut forged = json.to_vec();
+        forged[20] ^= 1;
+        assert!(verify(&forged, sig, key).is_err());
+    }
+
     #[test]
     fn a_good_signature_is_accepted() {
         let key = TestKey::new();

@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.2.6
 
+- Console, updates: automatic tests of the signed manifest (including a manifest produced by the release script), of the package extraction and of the switch on a fake installation folder (success, rollback, forged package, going back to the previous version).
 - Console, updates: installing (or going back) while a device is in session first asks for confirmation, since its session will be cut.
 - Console, updates: “Go back to the previous version” button on the Updates page, as long as the previous version is kept on the computer; same switch and same health check as an update, Kyber's settings kept.
 - Console, updates: installing no longer goes through PowerShell. The console launches a copy of itself (`kyber-admin update apply`) that verifies the signed manifest and the package again, extracts it under Program Files (never into a folder another account could change), refuses any escaping path and any link, switches the folders, checks that the new console answers with the right version and puts the old one back otherwise. `update.ps1` remains for manual updates, which only check the package's integrity.

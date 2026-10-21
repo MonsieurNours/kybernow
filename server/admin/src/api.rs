@@ -322,12 +322,10 @@ fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
     } else {
         serde_json::from_slice(body).map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("corps illisible : {e}")))?
     };
-    let live = &s.activity.summary()["live"];
-    if body.force || live.is_null() {
-        return Ok(());
+    match crate::update::session_conflict(&s.activity.summary()["live"], body.force) {
+        Some(message) => Err(ApiError(StatusCode::CONFLICT, message)),
+        None => Ok(()),
     }
-    let who = live["name"].as_str().map(|n| format!(" ({n})")).unwrap_or_default();
-    Err(ApiError(StatusCode::CONFLICT, format!("Un appareil est connecté{who} : l'installation coupera sa session")))
 }
 
 /// Télécharge et lance l'installation : la console s'arrête dans la minute

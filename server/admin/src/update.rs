@@ -100,6 +100,17 @@ pub fn current() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// Une mise à jour (ou un retour en arrière) coupe la session en cours :
+/// message du refus (409) si un appareil est connecté et que `force` n'est pas
+/// demandé. `live` : la session en cours d'`activity` (`null` sans session).
+pub fn session_conflict(live: &Value, force: bool) -> Option<String> {
+    if force || live.is_null() {
+        return None;
+    }
+    let who = live["name"].as_str().map(|n| format!(" ({n})")).unwrap_or_default();
+    Some(format!("Un appareil est connecté{who} : l'installation coupera sa session"))
+}
+
 /// Numéro de version publiable : trois nombres (« 0.2.6 »). Il sert de nom
 /// de dossier et passe en argument à l'applicateur : rien d'autre n'est accepté.
 pub fn valid_version(v: &str) -> bool {
@@ -413,7 +424,7 @@ fn agent() -> ureq::Agent {
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
     let mut resp = agent().get(url).call().with_context(|| format!("téléchargement de {url}"))?;
-    Ok(resp.body_mut().with_config().limit(limit).read_to_vec().with_context(|| format!("téléchargement de {url}"))?)
+    resp.body_mut().with_config().limit(limit).read_to_vec().with_context(|| format!("téléchargement de {url}"))
 }
 
 /// Version la plus récente du canal parmi les dernières publiées : en stable,
@@ -575,6 +586,88 @@ mod tests {
         assert!(error.contains("9.9.9") && error.contains("remise en place"), "{error}");
         std::fs::write(dir.join("update").join(RESULT), r#"{"version":"9.9.9","ok":true}"#).unwrap();
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_update_during_a_session_needs_force() {
+        assert_eq!(session_conflict(&Value::Null, false), None);
+        let live = json!({ "device_id": "abc", "name": "Apple TV du salon" });
+        let msg = session_conflict(&live, false).unwrap();
+        assert!(msg.contains("Apple TV du salon") && msg.contains("coupera sa session"), "{msg}");
+        assert_eq!(session_conflict(&live, true), None);
+        assert!(session_conflict(&json!({ "device_id": "abc" }), false).unwrap().starts_with("Un appareil est connecté :"));
+    }
+
+    #[test]
+    fn channel_setting_defaults_to_stable() {
+        let s: crate::settings::Settings = toml::from_str("listen = \"0.0.0.0:9443\"").unwrap();
+        assert_eq!(s.update_channel, Channel::Stable);
+        let s: crate::settings::Settings = toml::from_str("update_channel = \"beta\"").unwrap();
+        assert_eq!(s.update_channel, Channel::Beta);
+        assert!(toml::to_string(&s).unwrap().contains("update_channel = \"beta\""));
+        assert!(toml::from_str::<crate::settings::Settings>("update_channel = \"nightly\"").is_err());
+    }
+
+    fn release(version: &str) -> Release {
+        Release {
+            version: version.into(),
+            notes: String::new(),
+            published: String::new(),
+            page: String::new(),
+            prerelease: false,
+            package: Some("https://example.invalid/kybernow-update.zip".into()),
+            manifest_url: None,
+            signature_url: None,
+            manifest: None,
+            refusal: None,
+        }
+    }
+
+    #[test]
+    fn an_unsigned_release_is_shown_but_never_installed() {
+        let dir = std::env::temp_dir().join(format!("kybernow-update-unsigned-{}", std::process::id()));
+        let updater = Updater::new(&dir);
+        let mut r = release("99.0.0");
+        // Pas de manifeste publié : refusé sans rien télécharger.
+        verify_release(&mut r, Channel::Stable);
+        updater.state.lock().unwrap().latest = Some(r);
+        let status = updater.status();
+        assert_eq!(status["available"], true);
+        assert_eq!(status["installable"], false);
+        assert_eq!(status["requires_setup"], false);
+        assert!(status["verify_error"].as_str().unwrap().contains("pas signée"), "{status}");
+        assert_eq!(status["channel"], "stable");
+        assert!(status["rollback"].is_null());
+        // L'icône n'en parle pas, et l'installation est refusée avant tout téléchargement.
+        assert_eq!(updater.available(), None);
+        assert!(updater.install().unwrap_err().to_string().contains("pas signée"));
+        assert!(updater.state.lock().unwrap().installing.is_none());
+        assert!(updater.rollback().is_err());
+        // Changer de canal oublie la version connue.
+        updater.set_channel(Channel::Beta);
+        assert!(updater.status()["latest"].is_null());
+        assert_eq!(updater.channel(), Channel::Beta);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_signed_release_that_needs_the_installer_says_so() {
+        let dir = std::env::temp_dir().join(format!("kybernow-update-setup-{}", std::process::id()));
+        let updater = Updater::new(&dir);
+        let mut r = release("99.0.0");
+        let mut m = manifest::tests::sample("99.0.0", Channel::Stable);
+        m.requires_setup = true;
+        r.refusal = m.check("99.0.0", Channel::Stable, current()).err();
+        r.manifest = Some(m);
+        updater.state.lock().unwrap().latest = Some(r);
+        let status = updater.status();
+        assert_eq!(status["installable"], false);
+        assert_eq!(status["requires_setup"], true);
+        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Setup.exe"));
+        // Signée : l'icône la signale (pour réinstaller).
+        assert_eq!(updater.available().as_deref(), Some("99.0.0"));
+        assert!(updater.install().is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
