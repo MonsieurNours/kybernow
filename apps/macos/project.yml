@@ -10,8 +10,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.8"
-    CURRENT_PROJECT_VERSION: "202610211240"
+    MARKETING_VERSION: "0.2.9"
+    CURRENT_PROJECT_VERSION: "202610211729"
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: YES
     # Certificat de développement des Lignes Claires : une signature stable
