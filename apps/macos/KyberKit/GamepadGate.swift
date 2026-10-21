@@ -24,9 +24,10 @@ final class GamepadGate: @unchecked Sendable {
     var release: ((_ buttons: [(UInt32, kynput_GamepadButton)], _ axes: [(UInt32, kynput_GamepadAxis)]) -> Void)?
 
     private let lock = NSLock()
-    /// Combinaison et touches tenues de chaque manette vue passer. Sous le verrou.
-    /// Formée à la quatrième touche, qui n'atteint pas l'ordinateur.
-    private let combo = PadCombo(hold: .immediate)
+    /// Combinaison et touches tenues de chaque manette vue passer. Sous le
+    /// verrou ; la minuterie des 250 ms tourne sur la file des entrées et
+    /// prend le verrou (`exclusive`).
+    private let combo = PadCombo(on: InputQueue.device)
     private var captured = false
     /// Relâchements et axes au repos que nous injectons nous-mêmes : à
     /// laisser passer, une fois chacun, pendant que l'app a la manette.
@@ -40,8 +41,15 @@ final class GamepadGate: @unchecked Sendable {
     private var lastAxis: [UInt32: [UInt32: Int16]] = [:]
 
     init() {
+        combo.exclusive = { [lock] work in
+            lock.lock()
+            work()
+            lock.unlock()
+        }
         combo.onFormed = { [weak self] _ in
-            // La suite est au contrôleur de session : prendre la manette, ou la rendre.
+            // La suite est au contrôleur de session : prendre la manette (les
+            // quatre touches, parties au jeu, y sont alors relâchées), ou la rendre.
+            KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
             DispatchQueue.main.async { self?.onCombo?() }
         }
     }
@@ -138,8 +146,9 @@ final class GamepadGate: @unchecked Sendable {
         if !b.pressed, allowed[b.id]?.remove(b.type_.rawValue) != nil {
             return true
         }
-        // La quatrième touche de la combinaison n'atteint pas l'ordinateur.
-        if combo.button(b.id, button, pressed: b.pressed) { return false }
+        // Les touches de la combinaison partent au jeu comme les autres ; elle
+        // se forme après 250 ms tenues (PadCombo).
+        combo.button(b.id, button, pressed: b.pressed)
         guard captured else { return true }
         if b.pressed, let key = PadCombo.navigationKey(button) {
             DispatchQueue.main.async { [weak self] in self?.onNavigate?(key) }

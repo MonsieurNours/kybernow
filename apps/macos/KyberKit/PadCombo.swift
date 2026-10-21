@@ -9,18 +9,17 @@
 // six axes au repos, clics et touches de la manette en souris relâchés)
 // quand la barre ou le menu s'ouvre vraiment.
 //
-// Deux façons de la former, selon ce que la plateforme peut faire :
-// - `.immediate` (Mac) : formée à la quatrième touche, qui n'atteint pas
-//   l'ordinateur (`button` rend true : le hook écarte le paquet) ;
-// - `.after(250 ms, …)` (Apple TV) : les quatre touches partent au jeu
-//   comme les autres, la combinaison ne se forme qu'au bout de 250 ms tenues ;
-//   en dessous (un jeu qui les presse ensemble, un appui maladroit), rien ne
-//   change pour le jeu. Formée, les touches tenues seront relâchées pour
-//   l'ordinateur par la capture.
+// Les quatre touches partent au jeu comme les autres ; la combinaison ne se
+// forme qu'au bout de 250 ms tenues sans qu'aucune soit lâchée. En dessous
+// (un jeu qui les presse ensemble, un appui maladroit), rien ne change pour
+// le jeu. Formée, les touches tenues seront relâchées pour l'ordinateur par
+// la capture. (Jusqu'à la 0.2.6, le Mac la formait à la quatrième touche,
+// qu'il écartait ; les deux apps font maintenant pareil.)
 //
-// Fils : aucun verrou ici. Le Mac appelle sous le verrou de GamepadGate (le
-// hook de kynput), l'Apple TV sur sa file série des entrées, où tourne aussi
-// la minuterie.
+// Fils : aucun verrou ici. La minuterie tourne sur la file donnée ; `exclusive`
+// entoure son travail pour la plateforme qui protège l'état par un verrou
+// (Mac : celui de GamepadGate, le hook de kynput appelant d'un autre fil) ;
+// l'Apple TV appelle tout depuis sa file série, sans verrou.
 
 import Foundation
 @_implementationOnly import CKyber
@@ -78,27 +77,22 @@ public enum PadKey: Sendable {
 }
 
 final class PadCombo {
-    /// Quand la combinaison se forme.
-    enum Hold {
-        /// À la quatrième touche, qui est écartée.
-        case immediate
-        /// Après `delay` tenues sans qu'aucune soit lâchée ; la minuterie tourne sur `queue`.
-        case after(DispatchTimeInterval, on: DispatchQueue)
-    }
-
     static let buttons: Set<PadButton> = [.leftShoulder, .rightShoulder, .start, .back]
     /// Les six axes à remettre au repos à la capture (kynput ne dit pas leur état).
     static let axes: [PadAxis] = [.leftX, .leftY, .rightX, .rightY, .leftTrigger, .rightTrigger]
-    /// Durée tenue sur Apple TV.
+    /// Durée tenue avant que la combinaison se forme.
     static let holdDelay: DispatchTimeInterval = .milliseconds(250)
 
-    /// Combinaison formée pour cette manette. Appelé dans `button` (`.immediate`)
-    /// ou sur la file de la minuterie (`.after`).
+    /// Combinaison formée pour cette manette. Appelé sur la file de la
+    /// minuterie, dans `exclusive`.
     var onFormed: ((UInt32) -> Void)?
     /// Réglage « la combinaison ouvre le menu » (Apple TV) ; `false` : rien n'est armé.
     var enabled = true
+    /// Entoure le travail de la minuterie (prise du verrou de la plateforme).
+    var exclusive: (() -> Void) -> Void = { $0() }
 
-    private let hold: Hold
+    private let delay: DispatchTimeInterval
+    private let queue: DispatchQueue
     /// Manettes vues passer (branchées, ou dont une touche ou un axe est passé).
     private(set) var pads = Set<UInt32>()
     private var pressed: [UInt32: Set<PadButton>] = [:]
@@ -109,8 +103,10 @@ final class PadCombo {
     private var formedPads = Set<UInt32>()
     private var timers: [UInt32: DispatchWorkItem] = [:]
 
-    init(hold: Hold) {
-        self.hold = hold
+    /// `queue` : file série de la minuterie.
+    init(delay: DispatchTimeInterval = PadCombo.holdDelay, on queue: DispatchQueue) {
+        self.delay = delay
+        self.queue = queue
     }
 
     /// Touches tenues d'une manette, d'après ce qui est passé par ici.
@@ -143,44 +139,35 @@ final class PadCombo {
         pressed[id] = buttons
     }
 
-    /// Une touche change. `true` : elle ne doit pas atteindre l'ordinateur (la
-    /// quatrième touche, en `.immediate`).
-    @discardableResult
-    func button(_ id: UInt32, _ button: PadButton, pressed down: Bool) -> Bool {
+    /// Une touche change : les quatre tenues arment la minuterie, une lâchée
+    /// l'annule.
+    func button(_ id: UInt32, _ button: PadButton, pressed down: Bool) {
         pads.insert(id)
         if pressed[id, default: []].isDisjoint(with: Self.buttons) { formedPads.remove(id) }
         if down { pressed[id, default: []].insert(button) } else { pressed[id]?.remove(button) }
-        guard Self.buttons.contains(button) else { return false }
+        guard Self.buttons.contains(button) else { return }
         if down, enabled, pressed[id, default: []].isSuperset(of: Self.buttons) {
-            switch hold {
-            case .immediate:
-                form(id)
-                return true
-            case .after(let delay, let queue):
-                arm(id, after: delay, on: queue)
-            }
+            arm(id)
         } else if !down {
             timers[id]?.cancel()
             timers[id] = nil
         }
-        return false
     }
 
-    private func arm(_ id: UInt32, after delay: DispatchTimeInterval, on queue: DispatchQueue) {
+    private func arm(_ id: UInt32) {
         timers[id]?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self, self.timers[id] != nil else { return }
-            self.timers[id] = nil
-            guard self.enabled, self.pressed[id, default: []].isSuperset(of: Self.buttons) else { return }
-            self.form(id)
+            guard let self else { return }
+            self.exclusive {
+                guard self.timers[id] != nil else { return }
+                self.timers[id] = nil
+                guard self.enabled, self.pressed[id, default: []].isSuperset(of: Self.buttons) else { return }
+                self.formedPads.insert(id)
+                self.onFormed?(id)
+            }
         }
         timers[id] = item
         queue.asyncAfter(deadline: .now() + delay, execute: item)
-    }
-
-    private func form(_ id: UInt32) {
-        formedPads.insert(id)
-        onFormed?(id)
     }
 
     /// Croix et A / B pendant que l'app tient la manette.

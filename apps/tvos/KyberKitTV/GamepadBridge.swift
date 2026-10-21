@@ -8,7 +8,7 @@
 // L1 + R1 + Start + Select (comme sur Mac) ouvre aussi le menu : la manette
 // pilote alors KyberNow et le jeu ne reçoit plus rien. La combinaison et les
 // touches tenues de chaque manette sont suivies par PadCombo (partagé avec le
-// Mac), formée ici après 250 ms tenues. Le pont ne décide pas : il signale la
+// Mac), formée après 250 ms tenues. Le pont ne décide pas : il signale la
 // combinaison, et c'est le contrôleur de session qui prend la manette
 // (`setCaptured`) quand le menu s'ouvre vraiment. Hors session (connexion,
 // reconnexion), rien n'est pris et la manette reste au jeu.
@@ -192,7 +192,7 @@ public final class GamepadBridge: ObservableObject {
     // Sur la file seulement.
     private var slots: [ObjectIdentifier: Slot] = [:]
     /// Combinaison du menu et touches tenues, par manette (`slot.id`).
-    private let combo = PadCombo(hold: .after(PadCombo.holdDelay, on: GamepadBridge.queue))
+    private let combo = PadCombo(on: GamepadBridge.queue)
     private var nextID: UInt32 = 1
     private weak var input: InputPipeline?
     /// La manette pilote l'app (menu ouvert) : rien ne part vers l'ordinateur.

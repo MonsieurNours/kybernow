@@ -1,6 +1,7 @@
 // Test hors ligne du module d'entrées partagé de KyberKit, sans ordinateur ni
 // matériel : Keymap (quelques touches, clavier ISO ou non, Verr. maj.),
-// PadCombo (combinaison brève, tenue, relâchement complet), la file de secours
+// PadCombo (sous verrou comme sur Mac ; combinaison brève, tenue, relâchement
+// complet comme sur Apple TV), la file de secours
 // de PacketQueue (envoi à kynput remplacé par un envoi qui refuse à volonté)
 // et la règle de filtrage des axes d'InputPipeline.
 
@@ -42,41 +43,41 @@ check(Keymap.appleKeyboard(vendorName: nil) && Keymap.appleKeyboard(vendorName: 
 
 // MARK: - PadCombo
 
-print("— PadCombo, formée à la quatrième touche (Mac)")
+print("— PadCombo, sous un verrou (Mac : hook de kynput, minuterie sur une autre file)")
+let lock = NSLock()
 var formed: [UInt32] = []
-let immediate = PadCombo(hold: .immediate)
-immediate.onFormed = { formed.append($0) }
+let gate = PadCombo(on: DispatchQueue(label: "test.minuterie"))
+gate.exclusive = { work in lock.lock(); work(); lock.unlock() }
+gate.onFormed = { id in
+    // Appelé dans `exclusive` : le verrou est tenu (un second lock() bloquerait).
+    formed.append(id)
+}
 let pad: UInt32 = 1
-check(!immediate.button(pad, .leftShoulder, pressed: true) && !immediate.button(pad, .rightShoulder, pressed: true) && !immediate.button(pad, .start, pressed: true),
-      "les trois premières touches passent")
-check(formed.isEmpty && !immediate.formed(pad), "rien de formé avec trois touches")
-check(immediate.button(pad, .back, pressed: true), "la quatrième touche est écartée")
-check(formed == [pad] && immediate.formed(pad), "combinaison formée une fois")
-check(immediate.pressed(pad) == [.leftShoulder, .rightShoulder, .start, .back] && immediate.pads == [pad], "touches tenues et manette connues")
-check(!immediate.button(pad, .back, pressed: false) && immediate.formed(pad), "le relâchement passe, la combinaison reste formée tant qu'une touche est tenue")
-check(immediate.button(pad, .back, pressed: true) && formed.count == 2, "reformée si la touche revient")
-for b in PadCombo.buttons { immediate.button(pad, b, pressed: false) }
-check(immediate.pressed(pad).isEmpty && immediate.formed(pad), "tout relâché : formée encore pendant le dernier relâchement…")
-immediate.button(pad, .a, pressed: true)
-check(!immediate.formed(pad), "… et oubliée à l'événement suivant")
-check(!immediate.button(pad, .a, pressed: false), "A n'est pas écartée")
-immediate.enabled = false
-for b in PadCombo.buttons { immediate.button(pad, b, pressed: true) }
-check(formed.count == 2, "désactivée : rien ne se forme")
-immediate.forget(pad)
-check(immediate.pads.isEmpty && immediate.pressed(pad).isEmpty, "manette oubliée")
+func hook(_ button: PadButton, _ down: Bool) { lock.lock(); gate.button(pad, button, pressed: down); lock.unlock() }
+hook(.leftShoulder, true); hook(.rightShoulder, true); hook(.start, true); hook(.back, true)
+check(lock.withLock { gate.pressed(pad) } == [.leftShoulder, .rightShoulder, .start, .back] && lock.withLock { gate.pads } == [pad], "touches tenues et manette connues")
+sleep(ms: 350)
+check(formed == [pad] && lock.withLock { gate.formed(pad) }, "formée une fois après 250 ms, la minuterie a pris le verrou")
+for b in PadCombo.buttons { hook(b, false) }
+hook(.a, true); hook(.a, false)
+check(lock.withLock { gate.pressed(pad).isEmpty && !gate.formed(pad) }, "tout relâché : plus rien de formé ni de tenu")
+lock.withLock { gate.enabled = false }
+for b in PadCombo.buttons { hook(b, true) }
+sleep(ms: 350)
+check(formed.count == 1, "désactivée : rien ne se forme")
+lock.withLock { gate.forget(pad) }
+check(lock.withLock { gate.pads.isEmpty && gate.pressed(pad).isEmpty }, "manette oubliée")
 
 print("— PadCombo, formée après 250 ms (Apple TV)")
 let queue = DispatchQueue(label: "test.entrees")
 var held: [UInt32] = []
-let combo = PadCombo(hold: .after(PadCombo.holdDelay, on: queue))
+let combo = PadCombo(on: queue)
 combo.onFormed = { held.append($0) }
 func press(_ buttons: [PadButton], _ down: Bool) {
     queue.sync { for b in buttons { _ = combo.button(2, b, pressed: down) } }
 }
 // Brève : une touche lâchée avant 250 ms.
 press([.leftShoulder, .rightShoulder, .start, .back], true)
-check(queue.sync { !combo.button(2, .back, pressed: true) }, "la quatrième touche n'est pas écartée")
 sleep(ms: 100)
 press([.start], false)
 sleep(ms: 350)
