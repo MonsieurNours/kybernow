@@ -3,12 +3,17 @@
 # notification, et ce qui va avec (droits des services, haut-parleurs
 # virtuels de Steam, pare-feu).
 #
-# Trois facons de la lancer :
-#   - depuis la console (Mises a jour > Installer) : elle telecharge le
-#     paquet, verifie son empreinte, puis lance ce script avec -Source ;
-#   - a la main, dans PowerShell en administrateur, derniere version publiee
-#     (le paquet est verifie avec SHA256SUMS, comme dans la console) :
+# Depuis la 0.2.6, la console n'utilise plus ce script : son applicateur
+# (kyber-admin update apply) verifie le manifeste signe de la version et fait
+# la bascule lui-meme. Ce script reste pour :
+#   - les consoles 0.2.5 et plus anciennes, qui le lancent avec -Source apres
+#     avoir verifie l'empreinte du paquet (passage a la 0.2.6) ;
+#   - la mise a jour a la main, dans PowerShell en administrateur, derniere
+#     version publiee :
 #       irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex
+#     Integrite seulement, jusqu'a la signature Authenticode : SHA256SUMS dit
+#     que le paquet n'est pas abime, pas qu'il vient de KyberNow (il est publie
+#     au meme endroit). Voir docs/releases.md ;
 #   - pour tester un paquet servi depuis le Mac : definir KYBERNOW_UPDATE_BASE
 #     (ex. http://192.168.1.105:8000) avant la commande ci-dessus.
 #
@@ -152,6 +157,7 @@ try {
         if (-not $expected) { throw 'empreinte du paquet absente de SHA256SUMS' }
         $actual = (Get-FileHash "$pkg.zip" -Algorithm SHA256).Hash.ToLower()
         if ($actual -ne $expected) { throw 'empreinte du paquet incorrecte : telechargement abime ou falsifie' }
+        Write-Host '    integrite seulement : la signature de la version est verifiee par la console, pas par ce script'
         Expand-Archive "$pkg.zip" $pkg -Force
     }
     foreach ($p in $parts) {

@@ -1,0 +1,11 @@
+{
+  "version": "0.2.7",
+  "channel": "beta",
+  "published": "2026-10-21T07:59:29Z",
+  "min_installer_version": "0.2.6",
+  "requires_setup": false,
+  "files": {
+    "kybernow-update.zip": { "sha256": "1144c4092e8a1562b21638dd5dc4f24ace24e37e970b3f06d094f82b5f29447c", "size": 15 },
+    "update.ps1": { "sha256": "1d9945fa67f0bfae18a453e993a22d4dd2b93b1f299a40011c19b20945cbc131", "size": 9 }
+  }
+}

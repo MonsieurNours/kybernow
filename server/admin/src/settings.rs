@@ -23,6 +23,9 @@ pub struct Settings {
     /// Sortie audio virtuelle (déclenchement et nombre de canaux).
     #[serde(default)]
     pub virtual_audio: crate::audio::AudioSettings,
+    /// Canal des mises à jour : `stable` (défaut) ou `beta` (aussi les préversions).
+    #[serde(default)]
+    pub update_channel: crate::update::Channel,
 }
 
 impl Settings {

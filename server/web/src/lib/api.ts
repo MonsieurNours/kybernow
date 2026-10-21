@@ -202,20 +202,33 @@ export interface AudioStatus {
   last_error: string | null
 }
 
+export type UpdateChannel = 'stable' | 'beta'
+
 export interface UpdateStatus {
   current: string
+  /** Canal suivi : versions publiées, ou aussi les préversions. */
+  channel: UpdateChannel
   latest: string | null
   available: boolean
+  /** Préversion GitHub (canal bêta). */
+  prerelease: boolean
   notes: string | null
   published: string | null
   page: string | null
+  /** Manifeste signé vérifié, compatible avec cet ordinateur. */
   installable: boolean
+  /** Pourquoi la version ne s'installe pas depuis la console (signature, canal, version). */
+  verify_error: string | null
+  /** La version s'installe avec KyberNow-Setup.exe. */
+  requires_setup: boolean
+  /** Version gardée dans les dossiers .prev (retour en arrière possible). */
+  rollback: string | null
   checked_seconds_ago: number | null
   error: string | null
   installing: string | null
   /** Dernière installation arrêtée en route, avec la fin de son journal. */
   install_error?: string | null
-  /** Échec écrit par update.ps1 : console muette après la mise à jour, version précédente remise. */
+  /** Échec écrit par l'applicateur : console muette après la mise à jour, version précédente remise. */
   last_failure?: { version: string; message: string; rolled_back: boolean; log: string } | null
   repo: string
 }
@@ -298,7 +311,10 @@ export const api = {
   pairing: () => request<Pairing>('GET', '/api/pairing'),
   update: () => request<UpdateStatus>('GET', '/api/update'),
   updateCheck: () => request<UpdateStatus>('POST', '/api/update/check'),
-  updateInstall: () => request<{ ok: boolean; version: string }>('POST', '/api/update/install'),
+  updateChannel: (channel: UpdateChannel) => request<UpdateStatus>('PUT', '/api/update', { channel }),
+  /** 409 si un appareil est en session, sauf `force`. */
+  updateInstall: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/install', force ? { force } : undefined),
+  updateRollback: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/rollback', force ? { force } : undefined),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),

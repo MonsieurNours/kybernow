@@ -45,9 +45,10 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/display/stop", post(display_stop))
         .route("/api/audio", get(audio_status))
         .route("/api/audio/settings", put(audio_settings))
-        .route("/api/update", get(update_status))
+        .route("/api/update", get(update_status).put(update_channel))
         .route("/api/update/check", post(update_check))
         .route("/api/update/install", post(update_install))
+        .route("/api/update/rollback", post(update_rollback))
         .route("/api/devices", get(devices))
         .route("/api/devices/{id}", axum::routing::delete(forget_device))
         // Appairage par code (app Apple TV) : la demande et son état sans compte,
@@ -98,6 +99,8 @@ async fn session(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
         "setup_code_file": s.data_dir.join(auth::SETUP_TOKEN_FILE),
         // Déjà annoncé sur le réseau (Bonjour) : l'écran de connexion le nomme.
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
+        // Contrôle de santé de l'applicateur de mises à jour (sans compte).
+        "version": crate::update::current(),
     }))
 }
 
@@ -289,13 +292,63 @@ async fn update_check(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     Ok(Json(blocking(move || Ok(u.check())).await?))
 }
 
+#[derive(Deserialize)]
+struct UpdateChannelBody {
+    channel: crate::update::Channel,
+}
+
+/// Canal des mises à jour (`stable` ou `beta`) : enregistré, puis la
+/// dernière version de ce canal est recherchée.
+async fn update_channel(State(s): State<AppState>, Json(body): Json<UpdateChannelBody>) -> ApiResult<Json<Value>> {
+    s.update_settings(|st| st.update_channel = body.channel)?;
+    s.updater.set_channel(body.channel);
+    s.activity.event("info", format!("Mises à jour : canal {}", body.channel.as_str()));
+    let u = s.updater.clone();
+    Ok(Json(blocking(move || Ok(u.check())).await?))
+}
+
+#[derive(Deserialize, Default)]
+struct UpdateRunBody {
+    /// Installer même si un appareil est en session (sa session sera coupée).
+    #[serde(default)]
+    force: bool,
+}
+
+/// 409 si un appareil est en session, sauf `{"force": true}` : la mise à
+/// jour arrête le serveur et coupe sa session.
+fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
+    let body: UpdateRunBody = if body.iter().all(u8::is_ascii_whitespace) {
+        UpdateRunBody::default()
+    } else {
+        serde_json::from_slice(body).map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("corps illisible : {e}")))?
+    };
+    match crate::update::session_conflict(&s.activity.summary()["live"], body.force) {
+        Some(message) => Err(ApiError(StatusCode::CONFLICT, message)),
+        None => Ok(()),
+    }
+}
+
 /// Télécharge et lance l'installation : la console s'arrête dans la minute
-/// et revient dans la nouvelle version.
-async fn update_install(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+/// et revient dans la nouvelle version. 409 pendant une session, sauf
+/// `{"force": true}`.
+async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    session_guard(&s, &body)?;
     let u = s.updater.clone();
     let version = blocking(move || u.install()).await?;
     tracing::info!("mise à jour {version} lancée");
     s.activity.event("info", format!("Installation de KyberNow {version} lancée"));
+    Ok(Json(json!({ "ok": true, "version": version })))
+}
+
+/// Remet la version précédente (dossiers `.prev`) : la console s'arrête dans
+/// la minute et revient dans cette version. 409 pendant une session, comme
+/// l'installation.
+async fn update_rollback(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
+    session_guard(&s, &body)?;
+    let u = s.updater.clone();
+    let version = blocking(move || u.rollback()).await?;
+    tracing::info!("retour à la version {version} lancé");
+    s.activity.event("info", format!("Retour à KyberNow {version} lancé"));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
 
