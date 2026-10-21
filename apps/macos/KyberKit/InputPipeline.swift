@@ -319,7 +319,9 @@ final class InputPipeline {
     var droppedPackets: Int { packets.droppedPackets }
     private let lock = NSLock()
     /// File série des réessais, des axes regroupés et du presse-papiers.
-    private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.entrees")
+    /// `userInteractive` : les axes regroupés partaient de la file des
+    /// manettes de l'Apple TV, qui l'est aussi.
+    private let queue = DispatchQueue(label: "fr.leslignesclaires.kybernow.entrees", qos: .userInteractive)
     private let packets: PacketQueue
 
     private static func makePackets(sink: OpaquePointer, queue: DispatchQueue) -> PacketQueue {
