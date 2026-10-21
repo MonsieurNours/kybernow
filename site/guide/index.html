@@ -28,7 +28,7 @@
 <div class="veil" aria-hidden="true"></div>
 
 <header class="nav" id="nav">
-  <a class="nav-logo" href="/" aria-label="KyberNow, accueil"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"></a>
+  <a class="nav-logo" href="/" aria-label="KyberNow, version bêta, accueil"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Bêta</span></a>
   <nav class="nav-links" aria-label="Sections">
     <a href="/#pourquoi">Pourquoi</a>
     <a href="/#trajet">Le trajet</a>
@@ -108,6 +108,7 @@
           <h3>Vos appareils</h3>
           <ul class="ticks ticks-on">
             <li>Un Mac à puce Apple sous macOS 14 ou plus récent, pour l'app</li>
+            <li>Une Apple TV 4K de 2021 ou plus récente sous tvOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
             <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
           </ul>
@@ -161,6 +162,30 @@
         <li><p>Entrez le compte créé à l'installation. Il est gardé dans le Trousseau du Mac. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
       </ol>
 
+      <h3 id="apple-tv" class="sub">Sur l'Apple TV</h3>
+      <p>En attendant sa publication sur l'App Store, l'app s'installe depuis un Mac, signée avec votre propre compte Apple. Comptez dix minutes la première fois, une minute ensuite. Il faut une Apple TV 4K de 2021 ou plus récente, à jour, et un Mac sur le même réseau avec Xcode (gratuit sur l'App Store du Mac&#8239;; ouvrez-le une fois pour qu'il finisse de s'installer).</p>
+      <ol class="steps-doc">
+        <li><p>Sur le Mac, installez XcodeGen avec <a href="https://brew.sh" rel="noopener">Homebrew</a>, puis récupérez le code de KyberNow&#8239;:</p>
+          <pre><code>brew install xcodegen
+git clone https://github.com/MonsieurNours/kybernow.git
+cd kybernow</code></pre></li>
+        <li><p>Dans <b>Xcode › Réglages › Comptes</b>, ajoutez votre compte Apple. Notez l'identifiant de son équipe, dix caractères comme <code>ABCDE12345</code>&#8239;: Xcode le montre quand vous choisissez l'équipe qui signe une app.</p></li>
+        <li><p>Sur l'Apple TV, ouvrez <b>Réglages › Télécommandes et appareils › App Remote et appareils</b>. Sur le Mac, dans Xcode, ouvrez <b>Window › Devices and Simulators</b>, choisissez l'Apple TV, cliquez sur <b>Pair</b> et tapez le code affiché sur le téléviseur.</p></li>
+        <li><p>L'Apple TV réveillée, lancez l'installation depuis le dossier <code>kybernow</code>&#8239;:</p>
+          <pre><code>apps/tvos/scripts/sideload.sh --team ABCDE12345</code></pre>
+          <p>Avec un compte payant (Apple Developer Program), ajoutez <code>--full</code>&#8239;: ajout des ordinateurs depuis le Mac par iCloud, Top Shelf et profils par utilisateur de l'Apple TV.</p></li>
+        <li><p>Ouvrez KyberNow sur l'Apple TV, acceptez l'accès au réseau local, puis ajoutez l'ordinateur&#8239;:</p>
+          <ul class="ticks">
+            <li><b>Depuis votre Mac</b>&#8239;: les ordinateurs de l'app Mac arrivent par iCloud, avec leurs accès. Installation avec <code>--full</code> seulement.</li>
+            <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul&#8239;; tapez le compte, au besoin au clavier de l'iPhone.</li>
+            <li><b>Code à l'écran</b>&#8239;: acceptez-le dans la console, page <b>Accès</b>, rubrique Appareils.</li>
+            <li><b>Adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN.</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>Avec un compte Apple gratuit, l'app cesse de s'ouvrir au bout de 7&nbsp;jours&#8239;: relancez la même commande pour la renouveler, vos ordinateurs et réglages restent. Avec un compte payant, elle tient un an.</span></p>
+      <p class="muted">Procédure complète et dépannage&#8239;: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.md" rel="noopener">installer KyberNow sur votre Apple TV</a>.</p>
+
       <h3 id="navigateur" class="sub">Dans un navigateur</h3>
       <p>Sur n'importe quel appareil du même réseau (ou relié par VPN), ouvrez l'adresse de la console suivie de <code>/ecran</code>, par exemple <code>https://192.168.1.20:31415/ecran</code>. L'adresse exacte s'affiche à la fin de l'installation et sur la page Vue d'ensemble de la console. Acceptez l'avertissement de certificat, puis connectez-vous avec votre compte.</p>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg><span>Le client web convient pour dépanner, travailler depuis une tablette ou un ordinateur d'emprunt. Pour jouer, l'app native décode l'image plus vite.</span></p>
@@ -186,6 +211,13 @@
         <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>La manette pilote la barre de session</span></div>
       </div>
       <p class="muted">Les raccourcis <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> restent sur le Mac et ne partent jamais vers l'ordinateur. <kbd>⌘</kbd> + touche est envoyé comme <kbd>Ctrl</kbd> + touche.</p>
+      <h3 class="sub">Sur l'Apple TV</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session&#8239;: santé du flux, manettes, son, télécommande en souris, saisie de texte, déconnexion</span></div>
+        <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Tenus ensemble, ouvrent le même menu depuis la manette</span></div>
+        <div class="tr"><span class="th">Pavé tactile</span><span>En souris&#8239;: le doigt déplace le pointeur, un clic fait un clic gauche, Lecture/Pause un clic droit</span></div>
+      </div>
+      <p class="muted">Jusqu'à quatre manettes (Xbox, DualSense, DualShock), chacune un joueur sur l'ordinateur, avec les vibrations. Un clavier et une souris Bluetooth fonctionnent aussi.</p>
     </section>
 
     <section id="distance" class="doc-section">
@@ -203,6 +235,7 @@
       <h2>Mettre à jour</h2>
       <p><b>L'ordinateur</b>&#8239;: la console vérifie les nouvelles versions toutes les 6&nbsp;heures. Dans <b>Système › Mises à jour</b>, «&#8239;Installer maintenant&#8239;» télécharge le paquet, vérifie son empreinte et l'applique en une minute environ (une session en cours est coupée). L'icône de la zone de notification le propose aussi.</p>
       <p><b>L'app Mac</b>&#8239;: elle se met à jour toute seule, ou par <b>KyberNow › Rechercher des mises à jour…</b></p>
+      <p><b>L'app Apple TV</b>&#8239;: dans le dossier <code>kybernow</code>, faites <code>git pull</code> puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
       <p class="muted">Sans la console, depuis PowerShell en administrateur&#8239;:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
@@ -211,12 +244,14 @@
       <h2>Désinstaller</h2>
       <p><b>L'ordinateur</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow › Désinstaller. Services, console, écran virtuel et son certificat, règles de pare-feu et réglages sont retirés. Le pilote de manettes ViGEmBus reste installé, car d'autres logiciels s'en servent.</p>
       <p><b>Le Mac</b>&#8239;: glissez KyberNow d'Applications à la corbeille.</p>
+      <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app.</p>
     </section>
 
     <section id="faq" class="doc-section">
       <h2>Questions fréquentes</h2>
       <div class="faq">
         <details><summary>KyberNow est-il vraiment gratuit&#8239;?</summary><p>Oui. C'est un projet communautaire et non commercial, sous licence libre AGPL-3.0&#8239;: pas de compte en ligne, pas d'abonnement, pas de publicité. Le code est sur <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
+        <details><summary>Pourquoi «&#8239;bêta&#8239;»&#8239;?</summary><p>KyberNow n'est pas encore en version&nbsp;1.0. Les versions 0.x s'utilisent déjà au quotidien, mais des défauts subsistent, et réglages comme fonctions peuvent encore changer d'une version à l'autre. Gardez l'ordinateur et vos apps à jour, et signalez les problèmes sur <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
         <details><summary>Faut-il une carte graphique particulière&#8239;?</summary><p>Non. Kyber encode l'image avec toutes les cartes graphiques, NVIDIA, AMD ou Intel, y compris une carte externe (eGPU). Sans carte graphique, le processeur s'en charge. L'encodeur se choisit dans la console, page Système › Avancé.</p></details>
         <details><summary>Quelles définitions et quelles fréquences&#8239;?</summary><p>Celles de votre écran&#8239;: l'ordinateur crée un écran virtuel à sa mesure, 4K, 5K ou 6K, 60, 120 ou 160&nbsp;Hz. Nous l'avons utilisé en 3840&nbsp;×&nbsp;2160 à 160&nbsp;Hz et en 5K à 60&nbsp;Hz. L'option «&#8239;Au plus 4K&#8239;» allège l'encodage si votre réseau ou votre carte peinent.</p></details>
         <details><summary>Quelle latence attendre&#8239;?</summary><p>Sur un réseau local, nous mesurons 9,4&nbsp;ms en médiane de la capture à l'affichage, en 4K à 160&nbsp;Hz. Elle dépend surtout de la carte graphique, du réseau et de l'appareil. L'app l'affiche en direct dans sa barre de session.</p></details>
@@ -228,6 +263,7 @@
         <details><summary>L'image reste noire ou se fige.</summary><p>Mettez l'ordinateur et l'app à jour&#8239;: l'app redemande une image complète après une perte et allège le flux si l'image ne vient pas. Préférez un câble Ethernet sur l'ordinateur, et vérifiez qu'aucune autre app de streaming n'utilise l'encodeur.</p></details>
         <details><summary>J'ai oublié le mot de passe.</summary><p>Sur l'ordinateur, clic droit sur l'icône KyberNow › «&#8239;Réinitialiser le mot de passe de la console…&#8239;», puis suivez la console pour en choisir un nouveau.</p></details>
         <details><summary>L'app fonctionne-t-elle sur un Mac Intel&#8239;?</summary><p>Non, elle demande une puce Apple (M1 ou plus récente). Sur un Mac Intel, utilisez le client web dans le navigateur.</p></details>
+        <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel lien avec Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute un installateur, une console, des écrans et haut-parleurs virtuels et des apps. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
         <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune. Rien ne passe par un serveur à nous&#8239;: l'image va directement de l'ordinateur à vos appareils. La console interroge seulement GitHub pour savoir si une nouvelle version existe.</p></details>
       </div>

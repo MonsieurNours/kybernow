@@ -30,7 +30,7 @@
 <div class="veil" aria-hidden="true"></div>
 
 <header class="nav" id="nav">
-  <a class="nav-logo" href="/en/" aria-label="KyberNow, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"></a>
+  <a class="nav-logo" href="/en/" aria-label="KyberNow, beta version, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Beta</span></a>
   <nav class="nav-links" aria-label="Sections">
     <a href="/en/#pourquoi">Why</a>
     <a href="/en/#trajet">The path</a>
@@ -68,7 +68,7 @@
 <section class="hero" id="top" data-scene="hero">
   <div class="wrap hero-grid">
     <div class="hero-copy">
-      <p class="label" data-reveal>Computer streaming · next generation</p>
+      <p class="label" data-reveal>Computer streaming · next generation <span class="beta">Beta</span></p>
       <h1 class="display" data-split>Your computer,<br><strong>within reach anywhere,<br>anytime.</strong></h1>
       <p class="lede" data-reveal style="--d:.35s">The desktop, the games and the full power of your computer, on all your devices, in 9.4&nbsp;ms. In the app, or simply in the browser. Your own cloud: no subscription, no rented machine, just the one you already have.</p>
       <div class="hero-cta" data-reveal style="--d:.5s">
@@ -107,7 +107,7 @@
       <article class="pillar" data-reveal style="--d:.25s">
         <svg class="ic-lg"><use href="/assets/icons.svg#broadcast"/></svg>
         <h3>Everywhere</h3>
-        <p>An app for Mac, and any browser: computer, tablet, phone. Apple TV and iPhone next. At home, or from afar through your VPN.</p>
+        <p>Apps for Mac and Apple TV, and any browser: computer, tablet, phone. iPhone and iPad next. At home, or from afar through your VPN.</p>
       </article>
     </div>
 
@@ -119,7 +119,7 @@
       <div class="duo-link" aria-hidden="true"><span class="duo-line"><i></i></span><span class="mono-label">QUIC, encrypted</span></div>
       <div class="duo-part">
         <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="40" height="40">
-        <div><span class="role">Client</span><h3>KyberNow clients</h3><p>On each of your devices: the Mac app or the browser, then Apple TV, Android, Linux and more.</p></div>
+        <div><span class="role">Client</span><h3>KyberNow clients</h3><p>On each of your devices: the Mac app, the Apple TV app or the browser, then iPhone, Android, Linux and more.</p></div>
       </div>
     </div>
   </div>
@@ -207,7 +207,7 @@
         <ul class="ticks ticks-on">
           <li>KyberNow Server: installer, console and updates</li>
           <li>Virtual display and speakers for each session</li>
-          <li>Clients: a native app (decoding and display by the app) and a web client</li>
+          <li>Clients: native apps for Mac and Apple TV (decoding and display by the app) and a web client</li>
           <li>Engine fixes, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">published and documented</a></li>
         </ul>
       </div>
@@ -296,9 +296,17 @@
 
     <ol class="steps" data-reveal>
       <li><span>1</span>Install KyberNow Server on the computer you want to share.</li>
-      <li><span>2</span>On each device, open a client: the Mac app or the browser.</li>
+      <li><span>2</span>On each device, open a client: the Mac app, the Apple TV app or the browser.</li>
       <li><span>3</span>Connect: the computer is already there.</li>
     </ol>
+
+    <aside class="notice notice-beta" data-reveal>
+      <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>
+      <div>
+        <h3>KyberNow is in beta</h3>
+        <p>It has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the computer and your apps up to date, and report anything that goes wrong on <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</p>
+      </div>
+    </aside>
 
     <div class="dl-grid">
       <article class="dl-card" data-reveal data-os="windows">
@@ -317,7 +325,15 @@
         <ul class="specs"><li>Mac with Apple silicon, macOS 14 or later</li><li>Signed and notarised by Apple</li><li data-size="KyberNow-macOS.zip">40&nbsp;MB</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip"><svg class="ic"><use href="/assets/icons.svg#apple-logo"/></svg>Download the app</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.16s" data-os="web">
+      <article class="dl-card" data-reveal style="--d:.16s" data-os="tv">
+        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
+        <span class="role">Client</span>
+        <p class="mono-label">On your Apple TV</p>
+        <h3>KyberNow for Apple TV</h3>
+        <ul class="specs"><li>Apple TV 4K from 2021 or later, tvOS 18 or later</li><li>Up to four gamepads, Siri Remote as a mouse, 5.1 and 7.1 sound</li><li>Installed from a Mac with Xcode, until it reaches the App Store</li></ul>
+        <a class="btn btn-ghost" href="/en/guide/#apple-tv"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Install on Apple TV</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.24s" data-os="web">
         <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
         <span class="role">Client</span>
         <p class="mono-label">On all your devices</p>
@@ -330,7 +346,6 @@
     <div class="soon" data-reveal>
       <p class="mono-label">Upcoming clients</p>
       <ul>
-        <li><svg class="ic"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span class="tag tag-next">Soon</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone and iPad</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg><b>Windows</b><span class="tag">Planned</span></li>
@@ -340,7 +355,7 @@
       <p class="soon-note">Until then, all these devices can already open the web client.</p>
     </div>
 
-    <p class="release" data-reveal><span id="release-version">Version 0.2.0</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Release notes</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">SHA-256 checksums</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Source code</a></p>
+    <p class="release" data-reveal><span id="release-version">Version 0.2.5</span> <span class="beta">Beta</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Release notes</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">SHA-256 checksums</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Source code</a></p>
     <aside class="community" data-reveal>
       <svg class="ic-lg"><use href="/assets/icons.svg#discord-logo"/></svg>
       <div>
