@@ -26,7 +26,7 @@ use crate::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
-use crate::{audio, instance, shell, system};
+use crate::{audio, instance, shell, snapshot, system, window};
 use kybernow_core::update::{self, Available, Channel};
 
 #[derive(Debug, Clone, Default)]
@@ -35,6 +35,13 @@ struct Live {
     info: Option<Info>,
     preview: Option<String>,
     preview_at: Option<Instant>,
+    /// Dernière image de la dernière session (passe avant l'aperçu).
+    last: Option<String>,
+    last_loaded: bool,
+}
+
+fn data_url(jpeg: &[u8]) -> String {
+    format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,6 +51,8 @@ pub struct ComputerView {
     online: Option<bool>,
     info: Option<Info>,
     preview: Option<String>,
+    /// `last` : dernière image de votre session ; `preview` : aperçu de son écran.
+    preview_source: Option<&'static str>,
 }
 
 /// Un ordinateur à ajouter : adresse et port de sa console, empreinte
@@ -64,6 +73,7 @@ struct Pairing {
 struct Running {
     id: String,
     host: SessionHost,
+    bar: Arc<Mutex<BarLabel>>,
 }
 
 #[derive(Default)]
@@ -140,12 +150,25 @@ impl UiState {
 
     fn views(&self) -> Vec<ComputerView> {
         let computers = self.with_store(|s| s.computers.clone());
-        let live = self.live.lock().unwrap();
+        let mut live = self.live.lock().unwrap();
         computers
             .into_iter()
             .map(|c| {
-                let l = live.get(&c.id).cloned().unwrap_or_default();
-                ComputerView { computer: c, online: l.online, info: l.info, preview: l.preview }
+                let l = live.entry(c.id.clone()).or_default();
+                // Dernière image gardée sur le disque : lue une fois.
+                if !l.last_loaded {
+                    l.last_loaded = true;
+                    if c.settings.keep_last_image {
+                        l.last = snapshot::load(&c.id).map(|j| data_url(&j));
+                    }
+                }
+                let l = l.clone();
+                let (preview, preview_source) = match (l.last, l.preview) {
+                    (Some(last), _) => (Some(last), Some("last")),
+                    (None, Some(p)) => (Some(p), Some("preview")),
+                    (None, None) => (None, None),
+                };
+                ComputerView { computer: c, online: l.online, info: l.info, preview, preview_source }
             })
             .collect()
     }
@@ -314,7 +337,8 @@ fn poll(app: AppHandle) {
             let mut preview = None;
             let wants_preview = {
                 let live = state.live.lock().unwrap();
-                live.get(&c.id).and_then(|l| l.preview_at).is_none_or(|t| t.elapsed() > Duration::from_secs(60))
+                // Pas d'aperçu quand la dernière image de la session est là (comme sur Mac).
+                live.get(&c.id).is_none_or(|l| l.last.is_none() && l.preview_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)))
             };
             if info.is_some() && wants_preview {
                 if let Ok(jpeg) = console.preview(1280) {
@@ -508,6 +532,13 @@ fn pair_cancel(state: tauri::State<'_, UiState>) {
 #[tauri::command(async)]
 fn save_settings(app: AppHandle, id: String, settings: Settings) -> Result<(), String> {
     let state = app.state::<UiState>();
+    // « Garder la dernière image » coupé : effacée tout de suite.
+    if !settings.keep_last_image {
+        snapshot::forget(&id);
+        if let Some(l) = state.live.lock().unwrap().get_mut(&id) {
+            l.last = None;
+        }
+    }
     state.with_store(|s| {
         let c = s.get_mut(&id).ok_or("ordinateur inconnu")?;
         c.settings = settings;
@@ -538,13 +569,21 @@ fn remove_computer(app: AppHandle, id: String) {
     let state = app.state::<UiState>();
     state.with_store(|s| s.remove(&id));
     state.live.lock().unwrap().remove(&id);
+    snapshot::forget(&id);
     emit_computers(&app);
 }
 
 struct UiEvents {
     app: AppHandle,
     id: String,
+    /// Profil et format montrés dans la barre (le profil peut changer en session).
+    label: Arc<Mutex<BarLabel>>,
+}
+
+#[derive(Clone, Serialize)]
+struct BarLabel {
     label: String,
+    profile: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -594,7 +633,7 @@ impl HostEvents for UiEvents {
         }
         let r = mi.rcMonitor;
         let app = self.app.clone();
-        let label = self.label.clone();
+        let label = self.label.lock().unwrap().clone();
         // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
         let _ = self.app.run_on_main_thread(move || {
             let Some(bar) = app.get_webview_window("bar") else { return };
@@ -610,6 +649,12 @@ impl HostEvents for UiEvents {
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
         *state.session.lock().unwrap() = None;
+        // Dernière image : le fond de cet ordinateur sur l'accueil.
+        let keep = state.with_store(|st| st.get(&self.id).map(|c| c.settings.keep_last_image)).unwrap_or(false);
+        if let (true, Some(jpeg)) = (keep, &s.last_image) {
+            snapshot::save(&self.id, jpeg);
+            state.live.lock().unwrap().entry(self.id.clone()).or_default().last = Some(data_url(jpeg));
+        }
         if s.error.is_none() && s.seconds > 0 {
             let at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -621,7 +666,7 @@ impl HostEvents for UiEvents {
                         median_ms: s.median_ms,
                         p95_ms: s.p95_ms,
                         seconds: s.seconds,
-                        label: self.label.clone(),
+                        label: self.label.lock().unwrap().label.clone(),
                         at,
                     });
                     st.save();
@@ -661,6 +706,31 @@ impl HostEvents for UiEvents {
     }
 }
 
+/// Réglages de la session et mode de l'écran pour un ordinateur, d'après ses
+/// réglages et ce que ce PC sait décoder.
+fn session_plan(c: &Computer, pc: &ThisPc) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
+    let s = &c.settings;
+    let choices = Choices {
+        profile: Profile::parse(&s.profile),
+        codec: s.codec.as_deref().and_then(Codec::parse),
+        yuv444: s.yuv444,
+        mbps: s.mbps,
+        reliable: s.reliable,
+        max_4k: s.max_4k && s.custom.is_none(),
+        size: s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24),
+        lighten: s.battery == "alleger" && pc::on_battery(),
+    };
+    let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };
+    let (settings, mode) = plan(&choices, caps, system::screen_mode());
+    let label = format!(
+        "{} · {}{}",
+        settings.label(),
+        settings.codec.label(),
+        if settings.yuv444 { " 4:4:4" } else { "" }
+    );
+    (settings, mode, label)
+}
+
 /// Lance la session vers un ordinateur avec ses réglages.
 #[tauri::command(async)]
 fn connect(app: AppHandle, id: String) -> Result<(), String> {
@@ -690,24 +760,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         }
     };
     let s = &c.settings;
-    let choices = Choices {
-        profile: Profile::parse(&s.profile),
-        codec: s.codec.as_deref().and_then(Codec::parse),
-        yuv444: s.yuv444,
-        mbps: s.mbps,
-        reliable: s.reliable,
-        max_4k: s.max_4k && s.custom.is_none(),
-        size: s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24),
-        lighten: s.battery == "alleger" && pc::on_battery(),
-    };
-    let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };
-    let (settings, mode) = plan(&choices, caps, system::screen_mode());
-    let label = format!(
-        "{} · {}{}",
-        settings.label(),
-        settings.codec.label(),
-        if settings.yuv444 { " 4:4:4" } else { "" }
-    );
+    let (settings, mode, label) = session_plan(&c, &pc);
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -739,6 +792,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
     if running.is_some() {
         return Err("une session est déjà ouverte".into());
     }
+    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
     let host = SessionHost::start(
         c.name.clone(),
         params,
@@ -749,9 +803,9 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
             mouse,
             window_size: system::initial_window_size(mode),
         },
-        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label }),
+        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone() }),
     );
-    *running = Some(Running { id, host });
+    *running = Some(Running { id, host, bar });
     Ok(())
 }
 
@@ -761,10 +815,55 @@ fn session_command(state: tauri::State<'_, UiState>, command: String) {
         "disconnect" => Command::Disconnect,
         "fullscreen" => Command::Fullscreen,
         "mouse" => Command::MouseToggle,
+        "keys:ctrl-alt-del" => Command::CtrlAltDel,
+        "keys:win" => Command::WinKey,
+        "keys:alt-tab" => Command::AltTab,
+        "keys:print" => Command::PrintScreen,
         _ => return,
     };
     if let Some(r) = state.session.lock().unwrap().as_ref() {
         r.host.command(c);
+    }
+}
+
+/// Autre profil depuis la barre : enregistré pour cet ordinateur (comme
+/// depuis l'accueil) et appliqué tout de suite à la session.
+#[tauri::command(async)]
+fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    let Some((id, bar)) = state.session.lock().unwrap().as_ref().map(|r| (r.id.clone(), r.bar.clone())) else {
+        return Err("aucune session".into());
+    };
+    Profile::parse(&profile).ok_or("profil inconnu")?;
+    let c = state.with_store(|s| {
+        let c = s.get_mut(&id).ok_or("ordinateur inconnu")?;
+        c.settings.profile = profile.clone();
+        c.settings.codec = None;
+        c.settings.yuv444 = None;
+        c.settings.mbps = None;
+        c.settings.reliable = None;
+        let c = c.clone();
+        s.save();
+        Ok::<_, String>(c)
+    })?;
+    emit_computers(&app);
+    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
+    let (settings, _, label) = session_plan(&c, &pc);
+    let shown = BarLabel { label, profile };
+    *bar.lock().unwrap() = shown.clone();
+    let _ = app.emit_to("bar", "bar-label", &shown);
+    window::current_session().ok_or("session pas encore prête")?.set_settings(settings);
+    Ok(())
+}
+
+/// Un menu de la barre s'ouvre : la fenêtre grandit vers le bas le temps du
+/// menu (transparente, elle ne doit pas cacher la session le reste du temps).
+#[tauri::command(async)]
+fn bar_menu(app: AppHandle, open: bool) {
+    if let Some(bar) = app.get_webview_window("bar") {
+        let scale = bar.scale_factor().unwrap_or(1.0);
+        let h = if open { 300.0 } else { 76.0 };
+        let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((1040.0 * scale) as u32, (h * scale) as u32)));
     }
 }
 
@@ -799,6 +898,8 @@ pub fn run(args: Vec<String>) {
             connect,
             session_command,
             bar_hide,
+            bar_menu,
+            session_profile,
             take_action,
             app_info,
             check_update,

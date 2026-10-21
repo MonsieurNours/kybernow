@@ -19,6 +19,7 @@ const settings = {
   audio: 'auto',
   virtual_display: true,
   battery: 'alleger',
+  keep_last_image: true,
 }
 
 let computers = [
@@ -36,6 +37,7 @@ let computers = [
     online: true,
     info: null,
     preview: null,
+    preview_source: null,
   },
   {
     id: 'b2',
@@ -51,6 +53,7 @@ let computers = [
     online: false,
     info: null,
     preview: null,
+    preview_source: null,
   },
 ]
 
@@ -122,6 +125,11 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     return null
   },
   set_channel: async () => null,
+  bar_menu: () => null,
+  session_profile: async (a) => {
+    const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }
+    emit('bar-label', { label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
+  },
   install_update: async () => {
     for (let p = 0; p <= 100; p += 10) {
       emit('update-progress', p)
@@ -142,6 +150,7 @@ export function mockTauri() {
     event: {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
+        if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu' } }), 300)
         if (name === 'stats') {
           const t = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: 'HEVC · carte graphique', relative: false, rtt_ms: 2.1 } }), 1000)
           return () => clearInterval(t)

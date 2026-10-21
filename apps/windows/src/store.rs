@@ -36,6 +36,8 @@ pub struct Settings {
     pub virtual_display: bool,
     /// Sur batterie : `alleger` (30 Hz au plus) ou `garder`.
     pub battery: String,
+    /// Garder la dernière image de la session comme fond sur l'accueil.
+    pub keep_last_image: bool,
 }
 
 impl Default for Settings {
@@ -55,6 +57,7 @@ impl Default for Settings {
             audio: "auto".into(),
             virtual_display: true,
             battery: "alleger".into(),
+            keep_last_image: true,
         }
     }
 }

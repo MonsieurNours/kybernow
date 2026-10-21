@@ -43,6 +43,114 @@ pub enum Command {
     Fullscreen = 2,
     MouseToggle = 3,
     Focus = 4,
+    // Menu Touches de la barre : combinaisons que ce PC garderait pour lui.
+    CtrlAltDel = 10,
+    WinKey = 11,
+    AltTab = 12,
+    PrintScreen = 13,
+}
+
+/// Codes de touche (jeu 1, `0xE000` : touche étendue).
+mod sc {
+    pub const CTRL: u16 = 0x1D;
+    pub const ALT: u16 = 0x38;
+    pub const TAB: u16 = 0x0F;
+    pub const DEL: u16 = 0xE053;
+    pub const LWIN: u16 = 0xE05B;
+    pub const PRINT: u16 = 0xE037;
+}
+
+/// Envoie une combinaison : touches enfoncées dans l'ordre, relâchées à l'envers.
+fn send_combo(app: &App, keys: &[u16]) {
+    for &k in keys {
+        app.input.key(k, true);
+    }
+    for &k in keys.iter().rev() {
+        app.input.key(k, false);
+    }
+}
+
+/// Touches dont l'enfoncement a été pris par le crochet (leur relâchement suit).
+static GRABBED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+/// Crochet clavier de bas niveau : en plein écran et au premier plan, les
+/// raccourcis que Windows garderait pour ce PC partent à l'ordinateur (touche
+/// ⊞ et ses combinaisons, Alt+Tab, Alt+Échap, Ctrl+Échap, touche Menu).
+/// Ctrl+Alt+Suppr reste à Windows : menu Touches de la barre.
+pub fn install_keyboard_hook() -> Option<HHOOK> {
+    unsafe {
+        let module = GetModuleHandleW(None).ok()?;
+        SetWindowsHookExW(WH_KEYBOARD_LL, Some(ll_keyboard), Some(module.into()), 0).ok()
+    }
+}
+
+pub fn remove_keyboard_hook(hook: Option<HHOOK>) {
+    if let Some(h) = hook {
+        unsafe {
+            let _ = UnhookWindowsHookEx(h);
+        }
+    }
+    GRABBED.lock().unwrap().clear();
+}
+
+unsafe extern "system" fn ll_keyboard(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    unsafe {
+        if code == HC_ACTION as i32 {
+            let k = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+            // Touches simulées (par une autre app, ou par Windows) : pas les nôtres.
+            if (k.flags.0 & LLKHF_INJECTED.0) == 0 && grab_key(k, wparam.0 as u32) {
+                return LRESULT(1);
+            }
+        }
+        CallNextHookEx(None, code, wparam, lparam)
+    }
+}
+
+/// Vrai : la touche part à l'ordinateur et Windows ne la voit pas.
+fn grab_key(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
+    let down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+    let Some(app) = app() else { return false };
+    let sc = (k.scanCode & 0xFF) as u16;
+    let code = if (k.flags.0 & LLKHF_EXTENDED.0) != 0 { 0xE000 | sc } else { sc };
+    if !down {
+        let mut grabbed = GRABBED.lock().unwrap();
+        if let Some(i) = grabbed.iter().position(|&v| v == k.vkCode) {
+            grabbed.remove(i);
+            app.input.key(code, false);
+            return true;
+        }
+        return false;
+    }
+    let fullscreen = app.saved_placement.lock().unwrap().is_some();
+    if !fullscreen || unsafe { GetForegroundWindow() } != app.hwnd() {
+        return false;
+    }
+    let alt = (k.flags.0 & LLKHF_ALTDOWN.0) != 0;
+    let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
+    let vk = VIRTUAL_KEY(k.vkCode as u16);
+    let grab = match vk {
+        VK_LWIN | VK_RWIN | VK_APPS => true,
+        VK_TAB => alt,
+        VK_ESCAPE => alt || ctrl,
+        _ => false,
+    };
+    if !grab {
+        return false;
+    }
+    let mut grabbed = GRABBED.lock().unwrap();
+    if !grabbed.contains(&k.vkCode) {
+        grabbed.push(k.vkCode);
+    }
+    // Les répétitions de Windows ne partent pas (l'ordinateur répète lui-même).
+    if !app.input.is_held(code) {
+        app.input.key(code, true);
+    }
+    true
+}
+
+/// Session en cours, pour l'accueil (changement de profil).
+pub fn current_session() -> Option<Arc<Session>> {
+    app().and_then(|a| a.session.get().cloned())
 }
 
 #[derive(Default)]
@@ -50,6 +158,12 @@ struct CursorState {
     pending: Option<Cursor>,
     current: isize,
     host_visible: bool,
+    /// Forme du pointeur en place et l'échelle à laquelle il a été construit :
+    /// les paquets de position (jusqu'à 120 par seconde) ne le refont pas.
+    shape: Option<(u32, u32, u32, u32, Vec<u32>)>,
+    scale: f32,
+    /// Dernière position annoncée par l'ordinateur (pixels de son écran).
+    pos: (i32, i32),
 }
 
 pub struct App {
@@ -372,20 +486,52 @@ fn apply_mouse_mode(hwnd: HWND) {
             let cur = app.cursor.lock().unwrap().current;
             SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
         }
+    }    // Pointeur visible sur l'ordinateur (menus d'un jeu) : montré tout de suite.
+    if relative {
+        draw_game_pointer(&app, hwnd);
     }
 }
 
-/// Construit un pointeur Windows depuis l'image ARVB de l'ordinateur.
-fn make_cursor(c: &Cursor) -> Option<HCURSOR> {
+/// Échelle de l'image : pixels de ce PC par pixel de l'ordinateur. Le
+/// pointeur la suit, pour garder sa taille par rapport à l'image (bornée).
+fn image_scale(app: &App) -> f32 {
+    let host = *app.host_size.lock().unwrap();
+    let r = video_rect(app.shared.client_size(), host);
+    let s = (r.right - r.left) as f32 / host.0.max(1) as f32;
+    if s.is_finite() { s.clamp(0.5, 3.0) } else { 1.0 }
+}
+
+/// Image du pointeur agrandie ou réduite (au plus proche : il reste net).
+fn scaled(px: &[u32], w: u32, h: u32, scale: f32) -> (Vec<u32>, u32, u32) {
+    if (scale - 1.0).abs() < 0.05 {
+        return (px.to_vec(), w, h);
+    }
+    let (nw, nh) = (((w as f32 * scale).round() as u32).max(1), ((h as f32 * scale).round() as u32).max(1));
+    let mut out = Vec::with_capacity((nw * nh) as usize);
+    for y in 0..nh {
+        let sy = ((y as f32 + 0.5) / scale) as u32;
+        for x in 0..nw {
+            let sx = ((x as f32 + 0.5) / scale) as u32;
+            out.push(px[(sy.min(h - 1) * w + sx.min(w - 1)) as usize]);
+        }
+    }
+    (out, nw, nh)
+}
+
+/// Construit un pointeur Windows depuis l'image ARVB de l'ordinateur, à l'échelle de l'image.
+fn make_cursor(c: &Cursor, scale: f32) -> Option<HCURSOR> {
     let CursorData::Raw(px) = &c.data else { return None };
-    let (w, h) = (c.width as i32, c.height as i32);
-    if w <= 0 || h <= 0 || px.len() < (w * h) as usize {
+    if c.width == 0 || c.height == 0 || px.len() < (c.width * c.height) as usize {
         return None;
     }
     // Forme entièrement transparente (lecteurs vidéo) : on garde la précédente.
     if px.iter().all(|p| p >> 24 == 0) {
         return None;
     }
+    let (px, w, h) = scaled(&px[..(c.width * c.height) as usize], c.width, c.height, scale);
+    let (w, h) = (w as i32, h as i32);
+    let k = w as f32 / c.width as f32;
+    let (xhot, yhot) = (((c.xhot as f32) * k) as u32, ((c.yhot as f32) * k) as u32);
     unsafe {
         let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
@@ -408,8 +554,8 @@ fn make_cursor(c: &Cursor) -> Option<HCURSOR> {
         let mask = CreateBitmap(w, h, 1, 1, None);
         let info = ICONINFO {
             fIcon: false.into(),
-            xHotspot: c.xhot,
-            yHotspot: c.yhot,
+            xHotspot: xhot,
+            yHotspot: yhot,
             hbmMask: mask,
             hbmColor: color,
         };
@@ -425,23 +571,59 @@ fn update_cursor(hwnd: HWND) {
     let mut st = app.cursor.lock().unwrap();
     let Some(c) = st.pending.take() else { return };
     st.host_visible = c.visible;
-    if let Some(new) = make_cursor(&c) {
-        let old = std::mem::replace(&mut st.current, new.0 as isize);
-        unsafe {
-            if !app.input.relative() {
+    st.pos = (c.x, c.y);
+    let scale = image_scale(&app);
+    let shape = match &c.data {
+        CursorData::Raw(px) => Some((c.width, c.height, c.xhot, c.yhot, px.clone())),
+        _ => None,
+    };
+    let changed = shape.is_some() && (shape != st.shape || (scale - st.scale).abs() > 0.01);
+    if changed {
+        if let Some(new) = make_cursor(&c, scale) {
+            st.shape = shape;
+            st.scale = scale;
+            let old = std::mem::replace(&mut st.current, new.0 as isize);
+            unsafe {
                 let mut p = POINT::default();
                 let _ = GetCursorPos(&mut p);
-                if WindowFromPoint(p) == hwnd {
+                if WindowFromPoint(p) == hwnd && (!app.input.relative() || c.visible) {
                     SetCursor(Some(new));
                 }
-            }
-            if old != 0 {
-                let _ = DestroyCursor(HCURSOR(old as *mut _));
+                if old != 0 {
+                    let _ = DestroyCursor(HCURSOR(old as *mut _));
+                }
             }
         }
     }
     drop(st);
     apply_mouse_mode(hwnd);
+    draw_game_pointer(&app, hwnd);
+}
+
+/// Mode jeu (souris relative) avec un pointeur visible sur l'ordinateur
+/// (menus d'un jeu) : le pointeur de ce PC le montre là où l'ordinateur
+/// l'annonce. Sinon, caché.
+fn draw_game_pointer(app: &App, hwnd: HWND) {
+    if !app.input.relative() || unsafe { GetForegroundWindow() } != hwnd {
+        return;
+    }
+    let st = app.cursor.lock().unwrap();
+    unsafe {
+        if !st.host_visible || st.current == 0 {
+            SetCursor(None);
+            return;
+        }
+        let host = *app.host_size.lock().unwrap();
+        let r = video_rect(app.shared.client_size(), host);
+        let (vw, vh) = ((r.right - r.left) as i64, (r.bottom - r.top) as i64);
+        let mut p = POINT {
+            x: r.left + (st.pos.0 as i64 * vw / host.0.max(1) as i64) as i32,
+            y: r.top + (st.pos.1 as i64 * vh / host.1.max(1) as i64) as i32,
+        };
+        let _ = ClientToScreen(hwnd, &mut p);
+        let _ = SetCursorPos(p.x, p.y);
+        SetCursor(Some(HCURSOR(st.current as *mut _)));
+    }
 }
 
 fn shortcut_held() -> bool {
@@ -628,6 +810,26 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     x if x == Command::Focus as usize => {
                         let _ = SetForegroundWindow(hwnd);
                     }
+                    x if x == Command::CtrlAltDel as usize => {
+                        if let Some(a) = app() {
+                            send_combo(&a, &[sc::CTRL, sc::ALT, sc::DEL]);
+                        }
+                    }
+                    x if x == Command::WinKey as usize => {
+                        if let Some(a) = app() {
+                            send_combo(&a, &[sc::LWIN]);
+                        }
+                    }
+                    x if x == Command::AltTab as usize => {
+                        if let Some(a) = app() {
+                            send_combo(&a, &[sc::ALT, sc::TAB]);
+                        }
+                    }
+                    x if x == Command::PrintScreen as usize => {
+                        if let Some(a) = app() {
+                            send_combo(&a, &[sc::PRINT]);
+                        }
+                    }
                     _ => {}
                 }
                 LRESULT(0)
@@ -668,9 +870,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_SETCURSOR => {
                 if (lparam.0 & 0xFFFF) as u32 == HTCLIENT {
                     if let Some(a) = app() {
-                        if a.input.relative() {
+                        let st = a.cursor.lock().unwrap();
+                        if a.input.relative() && !st.host_visible {
                             SetCursor(None);
                         } else {
+                            drop(st);
                             let cur = a.cursor.lock().unwrap().current;
                             SetCursor(if cur != 0 { Some(HCURSOR(cur as *mut _)) } else { LoadCursorW(None, IDC_ARROW).ok() });
                         }

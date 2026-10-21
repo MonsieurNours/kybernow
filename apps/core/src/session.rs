@@ -84,6 +84,10 @@ enum Msg {
     Fail(String),
     KeyframeNeeded,
     NoImage,
+    /// La console dit l'écran virtuel parti (console redémarrée…).
+    DisplayGone,
+    /// Autre profil pendant la session.
+    Settings(StreamSettings),
 }
 
 struct Events(Mutex<Sender<Msg>>);
@@ -105,6 +109,7 @@ impl Session {
     pub fn start(params: SessionParams, platform: Arc<dyn Platform>) -> Arc<Session> {
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
+        let profile_label = Arc::new(Mutex::new(params.settings.label().to_string()));
         let worker = Worker {
             params,
             platform,
@@ -121,6 +126,8 @@ impl Session {
             start_at: None,
             retries: 0,
             no_image: 0,
+            last_restore: None,
+            profile_label,
             last_retry: None,
             reconnected_at: None,
             restored_after_reconnect: false,
@@ -166,6 +173,12 @@ impl Session {
         let _ = self.tx.lock().unwrap().send(Msg::NoImage);
     }
 
+    /// Change de profil pendant la session (barre) : nouveau débit sur-le-champ,
+    /// ou flux relancé si le format, le 4:4:4 ou le transport changent. Comme sur Mac.
+    pub fn set_settings(&self, settings: StreamSettings) {
+        let _ = self.tx.lock().unwrap().send(Msg::Settings(settings));
+    }
+
     pub fn latency(&self) -> Arc<LatencyTracker> {
         self.latency.clone()
     }
@@ -197,6 +210,10 @@ struct Worker {
     retries: u32,
     /// Relances faute d'image (jamais remis à zéro dans la session).
     no_image: u32,
+    /// Dernier écran redemandé parce que la console le disait parti.
+    last_restore: Option<Instant>,
+    /// Profil annoncé à la console par le signal de vie (il peut changer en session).
+    profile_label: Arc<Mutex<String>>,
     last_retry: Option<Instant>,
     reconnected_at: Option<Instant>,
     restored_after_reconnect: bool,
@@ -306,6 +323,7 @@ impl Worker {
             mode_policy: Some(self.params.settings.mode_policy().to_string()),
         };
         let latency = self.last_latency.clone();
+        let profile = self.profile_label.clone();
         let alive = self.alive.clone();
         std::thread::Builder::new()
             .name("kybernow-heartbeat".into())
@@ -314,11 +332,15 @@ impl Worker {
                     std::thread::sleep(Duration::from_secs(seconds));
                     let mut hb = hb.clone();
                     hb.latency_ms = latency.lock().unwrap().map(|l| (l * 10.0).round() / 10.0);
+                    hb.profile = Some(profile.lock().unwrap().clone());
                     match console.heartbeat(&hb) {
                         Ok(r) if r.end => {
                             info!("la console met fin à la session");
                             let _ = tx.send(Msg::Stop);
                             return;
+                        }
+                        Ok(r) if r.active == Some(false) => {
+                            let _ = tx.send(Msg::DisplayGone);
                         }
                         Ok(_) => {}
                         Err(e) => warn!("signal de vie : {e}"),
@@ -365,6 +387,34 @@ impl Worker {
                 Ok(Msg::KeyframeNeeded) => {
                     if let Some(c) = &self.client {
                         let _ = c.request_keyframe();
+                    }
+                }
+                Ok(Msg::Settings(s)) => {
+                    let before = std::mem::replace(&mut self.params.settings, s.clone());
+                    *self.profile_label.lock().unwrap() = s.label().to_string();
+                    let restart = before.codec != s.codec || before.yuv444 != s.yuv444 || before.reliable != s.reliable;
+                    info!("profil : {} ({})", s.label(), if restart { "flux relancé" } else { "débit seul" });
+                    if self.streaming.is_some() {
+                        if restart {
+                            self.stop_streaming();
+                            self.start_at = Some(Instant::now() + Duration::from_millis(300));
+                        } else if let Some(c) = &self.client {
+                            let mode = self.prepared.as_ref().and_then(|p| p.applied).unwrap_or(self.params.mode);
+                            let _ = c.set_bitrate(s.bitrate(mode.width, mode.height, mode.refresh));
+                        }
+                    }
+                }
+                Ok(Msg::DisplayGone) => {
+                    // Comme sur Mac : redemandé, au plus une fois par 30 s.
+                    let virtual_display = self.prepared.as_ref().is_some_and(|p| p.virtual_display);
+                    let recent = self.last_restore.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
+                    if virtual_display && self.streaming.is_some() && !recent {
+                        info!("la console n'a plus d'écran virtuel : redemandé");
+                        self.last_restore = Some(Instant::now());
+                        self.stop_streaming();
+                        if let Err(e) = self.restore_screen() {
+                            return Some(e);
+                        }
                     }
                 }
                 Ok(Msg::NoImage) => {

@@ -44,6 +44,8 @@ pub struct Shared {
     /// Flux démarré (heure, images montrées à ce moment) : sans nouvelle
     /// image en 4 s, il est relancé.
     pub watch: Mutex<Option<(Instant, u64)>>,
+    /// Dernière image de la session (JPEG), écrite à la fin du fil de l'image.
+    pub last_image: Mutex<Option<Vec<u8>>>,
 }
 
 impl Shared {
@@ -94,6 +96,7 @@ impl Shared {
 
 pub struct VideoHandler {
     tx: SyncSender<VideoMsg>,
+    thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     overflow: AtomicBool,
     /// Images en attente de décodage.
     pending: AtomicUsize,
@@ -133,6 +136,19 @@ impl VideoHandler {
     pub fn stop(&self) {
         let _ = self.tx.try_send(VideoMsg::Stop);
     }
+
+    /// Arrête le fil de l'image et attend sa fin (borné).
+    pub fn stop_and_wait(&self, timeout: Duration) {
+        self.stop();
+        let Some(t) = self.thread.lock().unwrap().take() else { return };
+        let started = Instant::now();
+        while !t.is_finished() && started.elapsed() < timeout {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if t.is_finished() {
+            let _ = t.join();
+        }
+    }
 }
 
 pub struct VideoOptions {
@@ -149,15 +165,17 @@ pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc
     let (tx, rx) = mpsc::sync_channel(240);
     let handler = Arc::new(VideoHandler {
         tx,
+        thread: Mutex::new(None),
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
     });
     let (ptx, prx) = mpsc::channel();
     let h = handler.clone();
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("kybernow-video".into())
         .spawn(move || run(hwnd, opts, shared, h, rx, ptx))
         .map_err(|e| e.to_string())?;
+    *handler.thread.lock().unwrap() = Some(thread);
     // La fenêtre est créée sur ce fil : ses messages doivent passer pendant que
     // le fil de l'image crée la chaîne d'échange (DXGI peut lui en envoyer).
     loop {
@@ -392,6 +410,12 @@ fn run(
                     keyframe(&shared, true);
                 }
             }
+        }
+    }
+    if let Some((px, w, h)) = renderer.take_snapshot() {
+        match crate::snapshot::jpeg(&px, w, h) {
+            Ok(j) => *shared.last_image.lock().unwrap() = Some(j),
+            Err(e) => log::warn!("dernière image : {e}"),
         }
     }
     log::info!("fil de l'image arrêté");

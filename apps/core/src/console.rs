@@ -211,8 +211,8 @@ pub struct Heartbeat {
 /// Réponse de `POST /api/stream/heartbeat`.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct HeartbeatReply {
-    #[serde(default)]
-    pub active: bool,
+    /// L'écran virtuel de la session existe encore (`None` : console qui ne le dit pas).
+    pub active: Option<bool>,
     /// La console demande la fin de la session.
     #[serde(default)]
     pub end: bool,

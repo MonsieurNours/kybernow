@@ -197,7 +197,13 @@ pub struct Renderer {
     tearing: bool,
     pub vsync: bool,
     present_failed: bool,
+    /// Copie réduite de l'image (accueil : dernière image de la session).
+    snap: Option<(ID3D11Texture2D, ID3D11RenderTargetView, u32, u32)>,
+    last_snap: Option<std::time::Instant>,
 }
+
+/// Largeur de la dernière image gardée pour l'accueil.
+const SNAP_WIDTH: u32 = 1280;
 
 /// L'image ne peut pas être montrée telle quelle (format de la carte non pris
 /// en charge) : il faut décoder par le processeur.
@@ -282,6 +288,8 @@ impl Renderer {
                 tearing,
                 vsync,
                 present_failed: false,
+                snap: None,
+                last_snap: None,
             };
             r.create_rtv()?;
             Ok(r)
@@ -322,6 +330,10 @@ impl Renderer {
     }
 
     fn texture(&self, w: u32, h: u32, format: DXGI_FORMAT) -> windows::core::Result<ID3D11Texture2D> {
+        self.texture_with(w, h, format, D3D11_BIND_SHADER_RESOURCE.0 as u32)
+    }
+
+    fn texture_with(&self, w: u32, h: u32, format: DXGI_FORMAT, bind: u32) -> windows::core::Result<ID3D11Texture2D> {
         let desc = D3D11_TEXTURE2D_DESC {
             Width: w,
             Height: h,
@@ -330,7 +342,7 @@ impl Renderer {
             Format: format,
             SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
             Usage: D3D11_USAGE_DEFAULT,
-            BindFlags: D3D11_BIND_SHADER_RESOURCE.0 as u32,
+            BindFlags: bind,
             ..Default::default()
         };
         let mut t = None;
@@ -476,7 +488,70 @@ impl Renderer {
                 self.present_failed = true;
             }
         }
+        // Après la présentation : rien ne retarde l'image à l'écran.
+        self.snapshot(fw as u32, fh as u32);
         Ok(())
+    }
+
+    /// Toutes les 2 s, l'image redessinée en petit dans une texture à part
+    /// (un tracé de plus, sans attente) : la dernière servira à l'accueil.
+    fn snapshot(&mut self, fw: u32, fh: u32) {
+        if self.last_snap.is_some_and(|t| t.elapsed().as_secs() < 2) || fw == 0 || fh == 0 {
+            return;
+        }
+        self.last_snap = Some(std::time::Instant::now());
+        let w = SNAP_WIDTH.min(fw);
+        let h = ((fh as u64 * w as u64 / fw as u64) as u32 / 2 * 2).max(2);
+        if self.snap.as_ref().is_none_or(|s| s.2 != w || s.3 != h) {
+            let made = (|| unsafe {
+                let t = self.texture_with(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET.0 as u32)?;
+                let mut rtv = None;
+                self.device.CreateRenderTargetView(&t, None, Some(&mut rtv))?;
+                Ok::<_, windows::core::Error>((t, rtv.unwrap()))
+            })();
+            match made {
+                Ok((t, rtv)) => self.snap = Some((t, rtv, w, h)),
+                Err(_) => return,
+            }
+        }
+        let Some((_, rtv, w, h)) = &self.snap else { return };
+        let viewport = D3D11_VIEWPORT { TopLeftX: 0.0, TopLeftY: 0.0, Width: *w as f32, Height: *h as f32, MinDepth: 0.0, MaxDepth: 1.0 };
+        unsafe {
+            self.ctx.OMSetRenderTargets(Some(&[Some(rtv.clone())]), None);
+            self.ctx.RSSetViewports(Some(&[viewport]));
+            self.ctx.Draw(3, 0);
+        }
+    }
+
+    /// Dernière image gardée, en BGRA (lue une fois, à la fin de la session).
+    pub fn take_snapshot(&mut self) -> Option<(Vec<u8>, u32, u32)> {
+        let (tex, _, w, h) = self.snap.take()?;
+        unsafe {
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: w,
+                Height: h,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+                Usage: D3D11_USAGE_STAGING,
+                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+                ..Default::default()
+            };
+            let mut staging = None;
+            self.device.CreateTexture2D(&desc, None, Some(&mut staging)).ok()?;
+            let staging = staging?;
+            self.ctx.CopyResource(&staging, &tex);
+            let mut map = D3D11_MAPPED_SUBRESOURCE::default();
+            self.ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut map)).ok()?;
+            let mut out = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h as usize {
+                let row = std::slice::from_raw_parts((map.pData as *const u8).add(y * map.RowPitch as usize), w as usize * 4);
+                out.extend_from_slice(row);
+            }
+            self.ctx.Unmap(&staging, 0);
+            Some((out, w, h))
+        }
     }
 
     /// Fond noir (avant la première image).

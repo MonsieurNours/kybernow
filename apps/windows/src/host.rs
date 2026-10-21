@@ -5,7 +5,7 @@
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -40,6 +40,9 @@ pub struct Summary {
     pub median_ms: Option<f64>,
     pub p95_ms: Option<f64>,
     pub seconds: u64,
+    /// Dernière image de la session (JPEG), pour l'accueil.
+    #[serde(skip)]
+    pub last_image: Option<Vec<u8>>,
 }
 
 pub trait HostEvents: Send + Sync {
@@ -223,11 +226,18 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     let _ = shared.latency.set(session.latency());
     let _ = app.session.set(session.clone());
 
+    // Raccourcis de Windows (⊞, Alt+Tab…) vers l'ordinateur en plein écran.
+    let hook = window::install_keyboard_hook();
+    if hook.is_none() {
+        log::warn!("raccourcis de Windows : crochet clavier refusé, ils restent à ce PC");
+    }
     window::run_loop();
+    window::remove_keyboard_hook(hook);
 
     session.stop();
     session.wait();
-    video_handler.stop();
+    // Le fil de l'image finit (il garde la dernière image) avant le résumé.
+    video_handler.stop_and_wait(Duration::from_secs(2));
     if let Some(a) = &audio {
         a.stop();
     }
@@ -248,5 +258,6 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         median_ms,
         p95_ms,
         seconds: started.elapsed().as_secs(),
+        last_image: shared.last_image.lock().unwrap().take(),
     });
 }

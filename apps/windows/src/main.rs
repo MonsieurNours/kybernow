@@ -30,6 +30,8 @@ mod plan;
 #[cfg(windows)]
 mod render;
 #[cfg(windows)]
+mod snapshot;
+#[cfg(windows)]
 mod shell;
 #[cfg(windows)]
 mod store;

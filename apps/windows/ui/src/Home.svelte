@@ -117,7 +117,7 @@
       </div>
       <div class="note">
         {#if profileLabel(selected.settings) === 'Personnalisé'}Profil personnalisé dans les réglages ·{/if}
-        {selected.preview ? 'Image affichée : aperçu de son écran' : 'Image affichée : sa signature'}
+        {selected.preview_source === 'last' ? 'Image affichée : la fin de votre dernière session' : selected.preview ? 'Image affichée : aperçu de son écran' : 'Image affichée : sa signature'}
       </div>
       {#if error}<div class="error" role="alert">{error}</div>{/if}
     {:else}

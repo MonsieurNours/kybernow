@@ -226,6 +226,11 @@ impl Input {
         self.pipeline.clone()
     }
 
+    /// La touche est-elle enfoncée sur l'ordinateur ?
+    pub fn is_held(&self, scancode: u16) -> bool {
+        self.held_keys.lock().unwrap().contains(&scancode)
+    }
+
     pub fn key(&self, scancode: u16, pressed: bool) {
         {
             let mut held = self.held_keys.lock().unwrap();

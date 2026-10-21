@@ -266,6 +266,13 @@
         </div>
         <span class="help">À la taille de cet écran, le temps de la session ; sinon les écrans de l’ordinateur tels quels.</span>
       </div>
+      <div class="line stack">
+        <div class="lr">
+          <span>Garder la dernière image</span>
+          <Switch label="Garder la dernière image" checked={s.keep_last_image} onchange={(v) => save({ keep_last_image: v })} />
+        </div>
+        <span class="help">La dernière image de votre session devient le fond de cet ordinateur sur l’accueil, gardée sur ce PC seulement.</span>
+      </div>
     </section>
 
     <section class="pc">

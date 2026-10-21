@@ -34,6 +34,7 @@ export type Settings = {
   audio: 'auto' | '2' | '6' | '8' | '0'
   virtual_display: boolean
   battery: 'alleger' | 'garder'
+  keep_last_image: boolean
 }
 
 export type Info = { hostname: string; os: string; gpu: string | null; av1: boolean; virtual_display: { available: boolean } }
@@ -54,6 +55,8 @@ export type Computer = {
   online: boolean | null
   info: Info | null
   preview: string | null
+  /** last : dernière image de votre session ; preview : aperçu de son écran. */
+  preview_source: 'last' | 'preview' | null
 }
 
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
