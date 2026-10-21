@@ -33,9 +33,9 @@ BUNDLE="${BUNDLE:-kybernow.$TEAM}"
 command -v xcodebuild >/dev/null || { echo "Xcode est nécessaire (App Store du Mac)" >&2; exit 1; }
 command -v xcodegen >/dev/null || { echo "XcodeGen est nécessaire : brew install xcodegen" >&2; exit 1; }
 
-# 1. SDK de Kyber pour tvOS : compilé sur place s'il est là, sinon celui de la version publiée.
-if [ ! -d "$HERE/Vendor/KyberSDK.xcframework" ]; then
-    echo "==> SDK de Kyber pour l'Apple TV (téléchargement)"
+# 1. SDK de Kyber et cœur KyberNow pour tvOS : compilés sur place s'ils sont là, sinon ceux de la version publiée.
+if [ ! -d "$HERE/Vendor/KyberSDK.xcframework" ] || [ ! -d "$HERE/Vendor/KyberNow.xcframework" ]; then
+    echo "==> SDK de Kyber et cœur KyberNow pour l'Apple TV (téléchargement)"
     if [ "$VERSION" = latest ]; then
         URL="https://github.com/$REPO/releases/latest/download/KyberSDK-tvOS.zip"
     else
@@ -46,7 +46,8 @@ if [ ! -d "$HERE/Vendor/KyberSDK.xcframework" ]; then
     mkdir -p "$HERE/Vendor"
     ditto -x -k "$TMP/KyberSDK-tvOS.zip" "$HERE/Vendor"
     rm -rf "$TMP"
-    [ -d "$HERE/Vendor/KyberSDK.xcframework" ] || { echo "Archive du SDK inattendue" >&2; exit 1; }
+    [ -d "$HERE/Vendor/KyberSDK.xcframework" ] || { echo "Archive du SDK inattendue (KyberSDK.xcframework absent)" >&2; exit 1; }
+    [ -d "$HERE/Vendor/KyberNow.xcframework" ] || { echo "Archive du SDK inattendue (KyberNow.xcframework absent : version antérieure à la 0.3.1 ?)" >&2; exit 1; }
 fi
 
 # 2. Projet à votre nom : équipe, identifiants, droits selon le compte.

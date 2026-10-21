@@ -2,7 +2,7 @@
 
 English · [Français](README.md)
 
-What KyberNow's clients have in common, written once in Rust: talking to the console, the Kyber session, profiles and bitrate, latency, updates, and since milestone 2 the shared input module and the sound engine of the Apple apps. The Windows app ([apps/windows](../windows/README.en.md)) is the first client using it; the Mac and Apple TV apps ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md)) are migrating to it, milestone 1 (the session, `apps/apple` crate and C bridge) first, then inputs and sound, which Windows adopts in the same milestone in place of its `input.rs` and `audio.rs`.
+What KyberNow's clients have in common, written once in Rust: talking to the console, the Kyber session, profiles and bitrate, latency, updates, and since milestone 2 the shared input module and the sound engine of the Apple apps. The Windows app ([apps/windows](../windows/README.en.md)) was its first client; the Mac, Apple TV, iPhone and iPad apps ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) rest on it since milestones 1 to 5 (C bridge `apps/apple`), inputs and sound included, which Windows adopted in the same milestones in place of its `input.rs` and `audio.rs`.
 
 The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core Audio. What the platform provides goes through traits (the window, decoders, sound output and inputs through `session::Platform`; the clock, pasteboard and callbacks to the interface through the input module's traits; the sound output pulls sound from the engine itself). Kyber 0.29's building blocks come from `third_party/kyber-desktop/kysdk` with KyberNow's patches (`apps/macos/kyber-patches`), see [apps/windows/README.en.md](../windows/README.en.md).
 
@@ -23,7 +23,7 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 
 ## Shared input module (`src/input/`)
 
-The Rust port of what KyberKit held in `InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer` and `ClipboardBridge` (see “Shared input module” in [apps/macos/README.en.md](../macos/README.en.md)), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`). Same thresholds, same delays, same rules. Wired into the Mac app (through `apps/apple`, `InputCore.swift`) and the Windows app since milestone 2; the Apple TV keeps its Swift files until milestone 4.
+The Rust port of what KyberKit held in `InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer` and `ClipboardBridge` (see “Inputs on the core (milestone 2)” in [apps/macos/README.en.md](../macos/README.en.md)), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`). Same thresholds, same delays, same rules. Wired into the Mac app (through `apps/apple`, `InputCore.swift`) and the Windows app since milestone 2, the Apple TV since milestone 4 and iPhone and iPad since milestone 5; the Swift files are gone.
 
 | Module | What it holds |
 |---|---|
@@ -70,13 +70,13 @@ pub trait PacketSink: Send + Sync {
 }
 ```
 
-And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac and Windows, `false` on Apple TV); the Mac's and Windows' SDL gamepads stay read by kynput, filtered by the router hook (`install_gamepad_gate`, port of `GamepadGate.swift`), which hands navigation keys back through `InputPlatform::navigate`.
+And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac and Windows, `false` on Apple TV, iPhone and iPad); the Mac's and Windows' SDL gamepads stay read by kynput, filtered by the router hook (`install_gamepad_gate`, port of `GamepadGate.swift`), which hands navigation keys back through `InputPlatform::navigate`.
 
 Creation: `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` returns an `Arc`; `kynput()` gives the chain to `session::Platform::input_pipeline`; `start_clipboard()` once the network is connected; `stop()` at the end of the session (direct FlushKeys, total losses logged), `shutdown()` to stop kynput's handlers.
 
 ## Sound engine (`src/audio/`)
 
-The port of `AudioPlayer.swift` without the output: the platform (Core Audio, WASAPI) pulls sound from the engine from its real-time thread. Wired into the Mac app (`kn_audio_*`, `AudioPlayerCore.swift`) and the Windows app since milestone 3.
+The port of `AudioPlayer.swift` without the output: the platform (Core Audio, WASAPI) pulls sound from the engine from its real-time thread. Wired into the Mac app (`kn_audio_*`, `AudioPlayerCore.swift`) and the Windows app since milestone 3, in the Apple TV (milestone 4) and iPhone and iPad (milestone 5).
 
 | Module | What it holds |
 |---|---|
@@ -103,4 +103,4 @@ On the Mac, with the Kyber SDK built for macOS (`third_party/kyber-desktop/rootf
 cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib cargo test -p kybernow-core
 ```
 
-The input tests take over those of `apps/macos/tests/inputs` (keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways), the sound tests the one of `apps/macos/tests/audio` (a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order), with a `ManualClock` advanced by hand: they last a second. `cargo test -p kybernow-core input` or `… audio` for one half.
+The input tests take over the former Swift tests of `apps/macos/tests/inputs` (keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways), the sound tests the one of `apps/macos/tests/audio` (a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order), with a `ManualClock` advanced by hand: they last a second. Those Swift tests (`apps/macos/tests/inputs` and `audio`) were removed in milestone 4. `cargo test -p kybernow-core input` or `… audio` for one half.

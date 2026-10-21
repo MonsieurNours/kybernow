@@ -6,7 +6,7 @@ Le client de streaming de KyberNow pour Windows 10 (22H2) et 11 : votre ordinate
 
 **Jalon 2 (l'app)** : l'app s'ouvre sur son accueil (Tauri 2, interface Svelte dans WebView2) : vos ordinateurs, leur ajout, leurs réglages, le passage vers la session et la barre de session. La session elle-même (jalon 1) reste une fenêtre Win32 en Direct3D 11 ; la ligne de commande demeure pour les essais.
 
-C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](../core), crate `kybernow-core`), qui pourra servir à Android et Linux ; les apps Apple restent en Swift.
+C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](../core), crate `kybernow-core`), qui pourra servir à Android et Linux ; les apps Mac, Apple TV, iPhone et iPad y reposent aussi depuis la 0.3.1 ([docs/coeur-apple.md](../../docs/coeur-apple.md)).
 
 ## Ce que fait l'app
 
@@ -46,8 +46,8 @@ C'est le premier client écrit sur le **cœur client en Rust** ([`apps/core`](..
 - **Console** : compte Basic, en-tête `x-kyber-admin`, certificat épinglé par son empreinte (`sha256:aa:bb:…`, SHA-256 du certificat). Sans empreinte donnée (`--fingerprint`), la première vue est affichée et retenue dans `%APPDATA%\KyberNow\consoles.txt` ; un certificat différent ensuite arrête la connexion.
 - **Profils** Jeu, Bureau et Max, ramenés à ce que la carte graphique décode, et **débit** selon les pixels par seconde : mêmes règles et mêmes valeurs que l'app Mac (testées dans `apps/core`). Une option de format, de couleurs ou de débit rend le profil « Personnalisé ».
 - **Image** : FFmpeg (celui de Kyber, lié en statique) décode par la carte graphique (**D3D11VA**, sans copie hors de la carte ; l'app donne à FFmpeg l'appareil Direct3D et ses interfaces vidéo, que FFmpeg 8.1 ne va pas chercher lui-même : sans elles il plantait à la création du décodeur ; sans interfaces vidéo, comme dans une machine virtuelle, décodage par le processeur) ; au lancement, l'app décode pour de bon une petite image de chaque format (H.264, HEVC, HEVC 4:4:4, AV1, dans `src/probe/`) pour savoir ce que la carte sait faire. Si la carte ne décode pas un format, ou le décode dans un format de texture qu'on ne sait pas montrer, l'app décode par le **processeur** (fils par tranches seulement : les fils par image ajoutent une image de retard chacun). Rendu Direct3D 11 : un shader convertit le YUV (NV12, AYUV 4:4:4 ou trois plans) en RVB selon l'espace et la plage de couleurs du flux, à la taille de la fenêtre en gardant les proportions ; chaîne d'échange « flip », une image en attente au plus ; chaque paquet est décodé mais seule l'image la plus récente est montrée (si d'autres attendent, celle-ci est sautée : le retard ne s'accumule pas derrière la synchro verticale). Synchro verticale par défaut ; `--no-vsync` présente chaque image dès qu'elle est décodée (déchirure permise quand Windows le permet, utile avec un écran G-SYNC ou FreeSync).
-- **Son** : le moteur de son du cœur (`kybernow_core::audio::AudioEngine`, le même que sur Mac et Apple TV : libopus, masquage des pertes, tampon adaptatif de 4 à 60 ms qui part à 8 ms, dérive des horloges rattrapée en douceur, voir [apps/core/README.md](../core/README.md)) ; WASAPI en mode partagé piloté par événement tire ses échantillons depuis son fil (`AudioEngine::fill`), aux voies du flux remises dans l'ordre de Windows (5.1, 7.1), et lui donne la latence de la sortie (son tampon plus ce que Windows annonce) ; Windows convertit au format de la sortie. La sortie est rouverte quand le flux change de nombre de voies ou qu'elle tombe en erreur. La barre donne au survol de la latence le son jusqu'à la sortie et les trous comblés dans la seconde.
-- **Entrées** : par le module d'entrées du cœur (`kybernow_core::input::InputPipeline`, le même que sur Mac et Apple TV), une chaîne par démarrage de l'image, créée pour l'écran affiché et arrêtée avec elle (FlushKeys, pertes au journal) ; la fenêtre capte les événements de Win32 et de Raw Input et les lui donne. Horloge : `Instant` (QueryPerformanceCounter).
+- **Son** : le moteur de son du cœur (`kybernow_core::audio::AudioEngine`, le même que sur Mac, Apple TV, iPhone et iPad : libopus, masquage des pertes, tampon adaptatif de 4 à 60 ms qui part à 8 ms, dérive des horloges rattrapée en douceur, voir [apps/core/README.md](../core/README.md)) ; WASAPI en mode partagé piloté par événement tire ses échantillons depuis son fil (`AudioEngine::fill`), aux voies du flux remises dans l'ordre de Windows (5.1, 7.1), et lui donne la latence de la sortie (son tampon plus ce que Windows annonce) ; Windows convertit au format de la sortie. La sortie est rouverte quand le flux change de nombre de voies ou qu'elle tombe en erreur. La barre donne au survol de la latence le son jusqu'à la sortie et les trous comblés dans la seconde.
+- **Entrées** : par le module d'entrées du cœur (`kybernow_core::input::InputPipeline`, le même que sur Mac, Apple TV, iPhone et iPad), une chaîne par démarrage de l'image, créée pour l'écran affiché et arrêtée avec elle (FlushKeys, pertes au journal) ; la fenêtre capte les événements de Win32 et de Raw Input et les lui donne. Horloge : `Instant` (QueryPerformanceCounter).
 - **Clavier** : les codes de touche de Windows tels quels (jeu 1, `0xE000` pour les touches étendues, comme le client de Kyber), sans les répétitions (l'ordinateur répète lui-même) ; Alt et F10 ne déclenchent pas de menu local. **Raccourcis de Windows** : en plein écran et au premier plan, un crochet clavier de bas niveau envoie à l'ordinateur ce que Windows garderait pour ce PC (touche ⊞ et ses combinaisons, Alt+Tab, Alt+Échap, Ctrl+Échap, touche Menu) ; en fenêtre, ils restent à ce PC. Ctrl+Alt+Suppr reste toujours à Windows : menu Touches de la barre.
 - **Souris** : position absolue ramenée aux pixels de l'ordinateur, boutons (dont les deux latéraux), molette. Souris des jeux (relative, déplacements bruts par Raw Input, pointeur caché et retenu dans la fenêtre) : automatique quand la console voit un jeu en plein écran et que l'ordinateur cache son pointeur, ou forcée par Ctrl+Alt+Maj+M. Règles Auto, Bureau, Jeu du cœur (`MouseModeRules`, comme sur Mac) : un pointeur remontré moins de 0,6 s (menus, clignotement) ne fait pas quitter la souris des jeux, revue 0,7 s après.
 - **Pointeur** : celui de l'ordinateur (forme et point chaud, reçus et dédoublonnés par la `PointerLayer` du cœur) devient le pointeur de Windows au-dessus de l'image, **à l'échelle de l'image** (pixels de ce PC par pixel de l'ordinateur, entre 0,5 et 3 : il garde sa taille par rapport à l'image) ; une forme entièrement transparente garde la précédente ; la forme n'est refaite que si elle ou l'échelle change (les paquets de position arrivent jusqu'à 120 fois par seconde). **En mode jeu**, quand l'ordinateur montre son pointeur (menus d'un jeu), celui de ce PC le dessine là où l'ordinateur l'annonce ; caché sinon.
@@ -116,6 +116,11 @@ kybernow <adresse>[:port] [--user <compte>] [--profile jeu|bureau|max] [options]
 | `apps/windows/src/audio.rs` | Sortie WASAPI qui tire le son du moteur du cœur |
 | `apps/windows/src/system.rs` | Journal, écran, identité de l'appareil, consoles connues |
 | `apps/windows/src/i18n.rs` | Langue de Windows, textes du côté Rust de l'app (`src/i18n/`) |
+| `apps/windows/src/shell.rs` | Intégration à Windows (HKCU) : lien `kybernow://`, ordinateurs au clic droit de l'icône de la barre des tâches, notifications |
+| `apps/windows/src/instance.rs` | Une seule app par utilisateur : une deuxième ouverture passe ses arguments à la première (tube nommé) ; mutex lu par l'installateur |
+| `apps/windows/src/snapshot.rs` | Dernière image d'une session pour l'accueil (JPEG par WIC, `%LOCALAPPDATA%\KyberNow\images`) |
+| `apps/windows/src/pc.rs` | Ce PC : écran, son, système, ce que la carte graphique décode (sonde dans un processus à part, `--probe-json`) |
+| `apps/windows/src/probe/` | Une image de chaque format (H.264, HEVC, HEVC 4:4:4, AV1) décodée par la sonde de la carte graphique |
 
 Le cœur ne dépend d'aucun système : une autre plateforme fournit sa fenêtre et ses décodeurs par `Platform`, la capture des entrées (vers `InputPipeline`) et la sortie du son (qui tire le son d'`AudioEngine`).
 
@@ -154,7 +159,7 @@ kybernow.exe --probe
 kybernow.exe 192.168.1.100:9443 --user <compte> --profile bureau
 ```
 
-L'interface demande le runtime WebView2 d'Edge, présent sur Windows 11 et sur la plupart des Windows 10 (l'installateur du jalon 3 le posera au besoin).
+L'interface demande le runtime WebView2 d'Edge, présent sur Windows 11 et sur la plupart des Windows 10 (l'installateur le pose au besoin).
 
 Au premier contact, l'empreinte de la console s'affiche : la comparer à celle de la console (Accès). Le journal est dans `%LOCALAPPDATA%\KyberNow\kybernow.log`.
 
@@ -171,5 +176,6 @@ Au premier contact, l'empreinte de la console s'affiche : la comparer à celle d
 
 ## Pas encore
 
+- **À essayer** : une session sur un ordinateur Windows depuis le passage des entrées et du son sur le cœur (0.3.1).
 - **Jalon 3, reste** : signature Authenticode (reportée, SignPath visé).
 - **Plus tard** : session sur plusieurs écrans de ce PC.

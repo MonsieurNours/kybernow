@@ -2,12 +2,14 @@
 
 [English](README.en.md) · Français
 
-Serveur de streaming Windows clé en main et clients macOS, Windows et tvOS, construits sur [Kyber](https://kyber.tech). Développé par [Les Lignes Claires](https://www.leslignesclaires.fr).
+Serveur de streaming Windows clé en main et clients macOS, tvOS, iOS/iPadOS et Windows, construits sur [Kyber](https://kyber.tech). Développé par [Les Lignes Claires](https://www.leslignesclaires.fr).
 
 | Dossier | Contenu |
 |---|---|
 | `PROJECT.md` | Cadrage et décisions |
-| `apps/macos/` | App macOS (SwiftUI, VideoToolbox, Metal, Core Audio), voir [son README](apps/macos/README.md) |
+| `apps/macos/` | App macOS (SwiftUI, VideoToolbox, Metal, Core Audio) sur le cœur Rust, voir [son README](apps/macos/README.md) |
+| `apps/apple/` | Pont C entre le cœur Rust et les apps Apple (`libkybernow`), voir [docs/coeur-apple.md](docs/coeur-apple.md) |
+| `apps/tvos/`, `apps/ios/` | Apps Apple TV et iPhone/iPad, voir leurs README ([Apple TV](apps/tvos/README.md), [iPhone et iPad](apps/ios/README.md)) |
 | `apps/core/`, `apps/windows/` | Cœur client en Rust (session, console, profils, latence, mises à jour, entrées et son partagés, voir [son README](apps/core/README.md)) et app Windows (Direct3D 11, FFmpeg, WASAPI), avec son installateur `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 et ARM64), voir [son README](apps/windows/README.md) |
 | `server/` | Tout ce qui tourne sur l'ordinateur partagé, voir [son README](server/README.md) |
 | `server/admin/`, `server/web/` | Console d'administration (service Windows, Rust) et son interface (Svelte) |

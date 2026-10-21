@@ -49,7 +49,7 @@ apps/tvos/scripts/sideload.sh --team ABCDE12345 --full
 ```
 
 The script:
-1. downloads the Kyber SDK already built for Apple TV (`KyberSDK-tvOS.zip`, attached to every published release);
+1. downloads the Kyber SDK and the KyberNow core already built for Apple TV (`KyberSDK-tvOS.zip`, attached to every published release; the core since 0.3.1);
 2. prepares the Xcode project in your name (app identifier `kybernow.<your team>`, change it with `--bundle` if needed);
 3. builds the app; Xcode creates the signing profile itself;
 4. installs it on the paired Apple TV (`--device "Apple TV name"` if there are several).
@@ -71,6 +71,6 @@ Run the same command again after a `git pull`. With a free account, do it before
 - **"Apple TV introuvable"** (not found): it is not paired, or Xcode cannot see it (same network, Apple TV awake). Check in Window › Devices and Simulators.
 - **Signing error**: open `apps/tvos/KyberNowTVSideload.xcodeproj` (made by the script) in Xcode, *Signing & Capabilities* tab of the KyberNowTV target: Xcode explains what is missing there. With a free account, do not use `--full`.
 - **The app does not find the computer**: the server must be on, on the same network, with KyberNow Server installed; otherwise use the address or the code. Over VPN, discovery does not get through: use the address.
-- **Building the Kyber SDK yourself** (developers): `apps/tvos/scripts/build-kyber-tvos.sh`, see [README.en.md](README.en.md).
+- **Building the Kyber SDK yourself** (developers): `apps/tvos/scripts/build-kyber-tvos.sh`, then the core: `apps/apple/scripts/build-apple-mobile.sh tvos`, see [README.en.md](README.en.md).
 
 KyberNow is based on [Kyber](https://kyber.tech) (AGPLv3), with no affiliation with the Kyber team.

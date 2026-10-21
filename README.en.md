@@ -2,12 +2,14 @@
 
 English · [Français](README.md)
 
-Ready-to-install Windows streaming server and macOS, Windows and tvOS clients, built on [Kyber](https://kyber.tech). Developed by [Les Lignes Claires](https://www.leslignesclaires.fr).
+Ready-to-install Windows streaming server and macOS, tvOS, iOS/iPadOS and Windows clients, built on [Kyber](https://kyber.tech). Developed by [Les Lignes Claires](https://www.leslignesclaires.fr).
 
 | Folder | Contents |
 |---|---|
 | `PROJECT.md` | Scope and decisions (in English: [PROJECT.en.md](PROJECT.en.md)) |
-| `apps/macos/` | macOS app (SwiftUI, VideoToolbox, Metal, Core Audio), see [its README](apps/macos/README.en.md) |
+| `apps/macos/` | macOS app (SwiftUI, VideoToolbox, Metal, Core Audio) on the Rust core, see [its README](apps/macos/README.en.md) |
+| `apps/apple/` | C bridge between the Rust core and the Apple apps (`libkybernow`), see [docs/coeur-apple.en.md](docs/coeur-apple.en.md) |
+| `apps/tvos/`, `apps/ios/` | Apple TV and iPhone/iPad apps, see their READMEs ([Apple TV](apps/tvos/README.en.md), [iPhone and iPad](apps/ios/README.en.md)) |
 | `apps/core/`, `apps/windows/` | Rust client core (session, console, profiles, latency, updates, shared inputs and sound, see [its README](apps/core/README.en.md)) and Windows app (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
 | `server/` | Everything that runs on the shared computer, see [its README](server/README.en.md) |
 | `server/admin/`, `server/web/` | Administration console (Windows service, Rust) and its interface (Svelte) |

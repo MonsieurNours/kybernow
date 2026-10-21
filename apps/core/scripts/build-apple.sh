@@ -1,11 +1,11 @@
 #!/bin/bash
 # Compile le cœur client (kybernow-core, apps/core) pour les cibles Apple, avec
 # les correctifs KyberNow de kyclient (apps/macos/kyber-patches), et laisse les
-# artefacts dans apps/target/<cible>/release. Rien n'est branché dans les apps :
-# la crate est une rlib, la bibliothèque statique et le xcframework viendront
-# de la crate du pont C (apps/apple). Ce script vérifie donc que toute la
-# chaîne de dépendances (kyclient avec kymux, kynput-rs, kyvlcplayer, rustls,
-# ureq…) compile pour chaque cible.
+# artefacts dans apps/target/<cible>/release. La crate est une rlib : la
+# bibliothèque statique et le xcframework des apps viennent de la crate du pont
+# C (apps/apple/scripts/build-apple-mobile.sh). Ce script sert à vérifier que
+# toute la chaîne de dépendances (kyclient avec kymux, kynput-rs, kyvlcplayer,
+# rustls, ureq…) compile pour chaque cible, et à construire libkynput pour iOS.
 #
 #   apps/core/scripts/build-apple.sh                      toutes les cibles
 #   apps/core/scripts/build-apple.sh --target <cible>     une seule
