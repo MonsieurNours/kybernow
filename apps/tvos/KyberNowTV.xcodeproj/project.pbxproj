@@ -53,6 +53,7 @@
 		E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AAACDD20D1A7BE25E7960F /* Discovery.swift */; };
 		EC84AD0272975FFB9EDD178A /* KyberClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A6A5701AECE3DAA9B83327B /* KyberClient.swift */; };
 		F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244CC1D072B43F4A58082CF6 /* StreamView.swift */; };
+		F5242106B30B5A4446E0B33B /* Keymap.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E3AABE821E9E90CC86A47BD /* Keymap.swift */; };
 		F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */; };
 /* End PBXBuildFile section */
 
@@ -121,6 +122,7 @@
 		4E56869493711B171A05A7A2 /* VideoPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPipeline.swift; sourceTree = "<group>"; };
 		5680458539B0010845C420CE /* KyberNowTopShelf.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = KyberNowTopShelf.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		5E369E1FBF4FF8FCE29CC030 /* GamepadGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadGate.swift; sourceTree = "<group>"; };
+		5E3AABE821E9E90CC86A47BD /* Keymap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keymap.swift; sourceTree = "<group>"; };
 		609D971655FAFD446DC66236 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		68E5FAAE774C0DD788031289 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		717AA2D038A1CC613B959D31 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
@@ -295,6 +297,7 @@
 				BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */,
 				5E369E1FBF4FF8FCE29CC030 /* GamepadGate.swift */,
 				C3E583396D00217D86376D9F /* InputPipeline.swift */,
+				5E3AABE821E9E90CC86A47BD /* Keymap.swift */,
 				4A6A5701AECE3DAA9B83327B /* KyberClient.swift */,
 				68E5FAAE774C0DD788031289 /* KyberLog.swift */,
 				C923979E9305471ABFD9F333 /* LatencyTracker.swift */,
@@ -519,6 +522,7 @@
 				ACCA30A4EA4BD37F763FDF71 /* GamepadGate.swift in Sources */,
 				76948C6A575225A678BD6425 /* InputPipeline.swift in Sources */,
 				335F4328B4ABA7B8BA98500B /* KeyboardMouse.swift in Sources */,
+				F5242106B30B5A4446E0B33B /* Keymap.swift in Sources */,
 				EC84AD0272975FFB9EDD178A /* KyberClient.swift in Sources */,
 				81A67CCB00E74282F95AAEE9 /* KyberLog.swift in Sources */,
 				D095A206CE4DA906F9E6D031 /* LatencyTracker.swift in Sources */,

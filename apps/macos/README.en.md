@@ -105,7 +105,9 @@ apps/macos/
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé
-│   ├── InputPipeline, Keymap, GamepadGate   # entrées via libkynput
+│   ├── InputPipeline, GamepadGate   # entrées via libkynput
+│   ├── Keymap             # clavier : usages HID → scancodes, échange ISO, verrouillages (partagé)
+│   ├── KeymapMac          # table kVK → HID, disposition du clavier, modificateurs AppKit (Mac seulement)
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
 │   ├── KyberNowApp, Model (ordinateurs, réglages, Trousseau)
@@ -119,7 +121,7 @@ apps/macos/
 └── Vendor/                # SDK Kyber compilé (ignoré par git)
 ```
 
-In English: `project.yml` is the XcodeGen project (KyberKit and KyberNow targets). `KyberKit/` is the framework, a Swift facade over the Kyber SDK: `KyberClient` (connection, session, events, options), `ConsoleClient` (console API: prepare, heartbeat, end, info; pinned fingerprint), the video classes, `AudioPlayer`, `LatencyTracker` (end-to-end latency from Kyber's metrics), `StreamView` (session view: keyboard, mouse, cursor), `MetalSurface` (view that holds the renderer's Metal layer), `RelativeMouse` (games mouse, GCMouse), `ClipboardBridge` (shared clipboard), `InputPipeline`, `Keymap`, `GamepadGate` (inputs through libkynput) and `KyberLog` (logs to the unified log). `KyberNow/` is the SwiftUI + AppKit app (`Model`: computers, settings, Keychain). `kyber-patches/` holds the KyberNow patches to libkyclient and libkynput, `tests/` the offline tests (video, sound), and `Vendor/` the built Kyber SDK (ignored by git).
+In English: `project.yml` is the XcodeGen project (KyberKit and KyberNow targets). `KyberKit/` is the framework, a Swift facade over the Kyber SDK: `KyberClient` (connection, session, events, options), `ConsoleClient` (console API: prepare, heartbeat, end, info; pinned fingerprint), the video classes, `AudioPlayer`, `LatencyTracker` (end-to-end latency from Kyber's metrics), `StreamView` (session view: keyboard, mouse, cursor), `MetalSurface` (view that holds the renderer's Metal layer), `RelativeMouse` (games mouse, GCMouse), `ClipboardBridge` (shared clipboard), `InputPipeline`, `GamepadGate` (inputs through libkynput), `Keymap` (keyboard: HID usages → scancodes, Apple ISO swap, lock keys; shared), `KeymapMac` (kVK → HID table, keyboard layout, AppKit modifiers; Mac only) and `KyberLog` (logs to the unified log). `KyberNow/` is the SwiftUI + AppKit app (`Model`: computers, settings, Keychain). `kyber-patches/` holds the KyberNow patches to libkyclient and libkynput, `tests/` the offline tests (video, sound), and `Vendor/` the built Kyber SDK (ignored by git).
 
 Flow of a session: `ConsoleClient.prepare` (virtual display at this Mac's size, sound with the right number of channels) → `KyberClient.connect` → wait for the display list to settle → `startStreaming` → heartbeat every few seconds → `ConsoleClient.end` (the computer gets its displays and its audio output back).
 
@@ -183,4 +185,4 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Towards iOS and Apple TV
 
-Reusable as they are: `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`. To adapt: `ClipboardBridge` (UIPasteboard instead of NSPasteboard). To write: a UIKit view that holds the Metal layer (equivalent of `MetalSurface`), touch and remote inputs, and building libkyclient, libkynput and libopus for iOS and tvOS (`kysdk/kyctl/build-ios.sh` is a starting point). There is neither VRR nor turning off sync on Apple TV.
+Reusable as they are: `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`, `Keymap` (the platform provides the key's HID usage, which GameController gives directly, and says whether the keyboard is ISO: on iOS, the Apple TV's setting and Apple heuristic). To adapt: `ClipboardBridge` (UIPasteboard instead of NSPasteboard). To write: a UIKit view that holds the Metal layer (equivalent of `MetalSurface`), touch and remote inputs, and building libkyclient, libkynput and libopus for iOS and tvOS (`kysdk/kyctl/build-ios.sh` is a starting point). There is neither VRR nor turning off sync on Apple TV.

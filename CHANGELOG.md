@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.7
+
+- Apps Mac et Apple TV, clavier : la table des touches (usages HID → scancodes), l'échange des touches `@#` et `<>` des claviers Apple ISO et le traitement des touches de verrouillage ne sont plus écrits qu'une fois (`Keymap`, partagé) ; le Mac y apporte sa table kVK et la disposition dite par le système, l'Apple TV son réglage « Clavier Apple ISO ». Rien ne change pour l'utilisateur.
+
 ## 0.2.6
 
 - Console, mises à jour : l'applicateur arrête aussi l'icône relancée par la nouvelle console avant de remettre l'ancienne version, suspend la relance automatique de Kyber pendant la bascule, joint la console à l'adresse de son réglage d'écoute, refuse les noms de fichiers réservés de Windows, et un retour arrière qui n'aboutit pas est affiché au lieu d'être masqué.

@@ -105,7 +105,9 @@ apps/macos/
 │   ├── MetalSurface       # vue qui porte la couche Metal du rendu
 │   ├── RelativeMouse      # souris des jeux (GCMouse)
 │   ├── ClipboardBridge    # presse-papiers partagé
-│   ├── InputPipeline, Keymap, GamepadGate   # entrées via libkynput
+│   ├── InputPipeline, GamepadGate   # entrées via libkynput
+│   ├── Keymap             # clavier : usages HID → scancodes, échange ISO, verrouillages (partagé)
+│   ├── KeymapMac          # table kVK → HID, disposition du clavier, modificateurs AppKit (Mac seulement)
 │   └── KyberLog           # journaux vers le journal unifié
 ├── KyberNow/              # app SwiftUI + AppKit
 │   ├── KyberNowApp, Model (ordinateurs, réglages, Trousseau)
@@ -177,4 +179,4 @@ log stream --predicate 'subsystem == "fr.leslignesclaires.kybernow" AND category
 
 ## Vers iOS et Apple TV
 
-Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`. À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.
+Réutilisables tels quels : `VideoDecoder`, `VideoRenderer`, `VideoPipeline`, `DecoderCapabilities`, `AudioPlayer`, `LatencyTracker`, `ConsoleClient`, `GamepadGate`, `Keymap` (la plateforme fournit l'usage HID de la touche, GameController le donne directement, et dit si le clavier est ISO : sur iOS, le réglage et l'heuristique Apple de l'Apple TV). À adapter : `ClipboardBridge` (UIPasteboard au lieu de NSPasteboard). À écrire : une vue UIKit qui porte la couche Metal (équivalent de `MetalSurface`), les entrées tactiles et télécommande, et la compilation de libkyclient, libkynput et libopus pour iOS et tvOS (`kysdk/kyctl/build-ios.sh` sert de point de départ). Il n'y a ni VRR ni synchro désactivable sur Apple TV.

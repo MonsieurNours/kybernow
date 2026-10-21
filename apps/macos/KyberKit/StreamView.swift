@@ -303,14 +303,8 @@ public final class StreamView: NSView {
 
     private func resyncModifiers() {
         guard input != nil, window?.isKeyWindow == true, window?.firstResponder === self else { return }
-        let flags = NSEvent.modifierFlags
-        let raw = flags.rawValue
-        for m in Keymap.heldModifiers where flags.contains(m.flag) {
-            var sides = [(m.left, m.leftBit), (m.right, m.rightBit)].filter { raw & $0.1 != 0 }.map(\.0)
-            if sides.isEmpty { sides = [m.left] }
-            for code in sides where pressedModifiers.insert(code).inserted {
-                send(keyCode: code, pressed: true)
-            }
+        for code in Keymap.heldModifierCodes(flags: NSEvent.modifierFlags) where pressedModifiers.insert(code).inserted {
+            send(keyCode: code, pressed: true)
         }
     }
 
@@ -426,8 +420,7 @@ public final class StreamView: NSView {
     // MARK: - Clavier
 
     private func send(keyCode: UInt16, pressed: Bool, keyboardType: Int64? = nil) {
-        guard let usage = Keymap.usage(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType),
-              let scancode = Keymap.scancode(usage: usage) else { return }
+        guard let scancode = Keymap.scancode(keyCode: keyCode, commandAsControl: commandAsControl, keyboardType: keyboardType) else { return }
         if pressed { heldScancodes.insert(scancode) } else { heldScancodes.remove(scancode) }
         input?.key(scancode: scancode, pressed: pressed)
     }
@@ -449,12 +442,10 @@ public final class StreamView: NSView {
 
     public override func flagsChanged(with event: NSEvent) {
         let code = event.keyCode
-        guard let flag = Keymap.modifiers[code] else { return }
-        if flag == .capsLock {
-            // Une bascule, pas une touche tenue : appui + relâchement, comme une
-            // frappe, et l'ordinateur bascule son verrouillage à l'appui. Jamais
-            // dans `pressedModifiers`, jamais resynchronisée : les deux côtés
-            // restent d'accord tant que chaque bascule est signalée une fois.
+        guard let flag = Keymap.modifierFlags[code] else { return }
+        if let hid = Keymap.hid(keyCode: code), Keymap.isLock(hid) {
+            // Verr. maj. : une bascule, pas une touche tenue (voir Keymap) :
+            // appui + relâchement, comme une frappe.
             send(keyCode: code, pressed: true)
             send(keyCode: code, pressed: false)
             return
@@ -481,7 +472,7 @@ public final class StreamView: NSView {
         // clavier, qui n'est pas forcément celui-ci).
         var codes: Set<UInt16> = [code]
         if !flags.contains(flag) {
-            codes.formUnion(pressedModifiers.filter { Keymap.modifiers[$0] == flag })
+            codes.formUnion(pressedModifiers.filter { Keymap.modifierFlags[$0] == flag })
         }
         for c in codes {
             pressedModifiers.remove(c)

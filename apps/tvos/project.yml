@@ -32,7 +32,7 @@ targets:
       - path: ../macos/KyberKit
         excludes:
           - ClipboardBridge.swift
-          - Keymap.swift
+          - KeymapMac.swift
           - MetalSurface.swift
           - RelativeMouse.swift
           - StreamView.swift

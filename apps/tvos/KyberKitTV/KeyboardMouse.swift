@@ -9,14 +9,10 @@
 // (`handlerQueue`), pas sur le fil principal ; `input` et les réglages n'y
 // sont lus que là.
 //
-// Clavier Apple ISO (européen) : la touche sous Échap (`@#` sur un AZERTY)
-// arrive comme usage 0x64 et celle près de ⇧ (`<>`) comme 0x35, à l'inverse
-// de ce qu'attend l'ordinateur (quirk hid-apple ; même échange que sur Mac,
-// où le système dit la disposition). tvOS ne la dit pas : réglage « Clavier
-// Apple ISO », appliqué aux claviers dont le fabricant est Apple, ou inconnu
-// (le clavier fusionné de GameController ne dit pas toujours le sien).
+// Clavier Apple ISO (européen) : même échange des usages 0x35 et 0x64 que sur
+// Mac (Keymap, partagé) ; tvOS ne dit pas la disposition : réglage « Clavier
+// Apple ISO », appliqué aux claviers Apple ou de fabricant inconnu.
 
-@_implementationOnly import CKyber
 import GameController
 
 final class KeyboardMouse {
@@ -83,8 +79,7 @@ final class KeyboardMouse {
         guard let input, let keys = GCKeyboard.coalesced?.keyboardInput else { return }
         let modifiers: [GCKeyCode] = [.leftShift, .rightShift, .leftControl, .rightControl, .leftAlt, .rightAlt, .leftGUI, .rightGUI]
         for code in modifiers where keys.button(forKeyCode: code)?.isPressed == true {
-            var scancode: UInt16 = 0
-            if Self.scancode(UInt16(truncatingIfNeeded: code.rawValue), &scancode) {
+            if let scancode = Keymap.scancode(usage: UInt16(truncatingIfNeeded: code.rawValue)) {
                 input.key(scancode: scancode, pressed: true)
             }
         }
@@ -92,15 +87,11 @@ final class KeyboardMouse {
 
     private func setUp(_ keyboard: GCKeyboard) {
         keyboard.handlerQueue = queue
-        let apple = keyboard.vendorName.map { $0.localizedCaseInsensitiveContains("Apple") } ?? true
+        let apple = Keymap.appleKeyboard(vendorName: keyboard.vendorName)
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             guard let self, let input = self.input else { return }
-            var usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
-            if apple, self.iso, usage == 0x35 || usage == 0x64 {
-                usage = usage == 0x35 ? 0x64 : 0x35
-            }
-            var scancode: UInt16 = 0
-            guard Self.scancode(usage, &scancode) else { return }
+            let usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
+            guard let scancode = Keymap.scancode(hid: usage, iso: apple && self.iso) else { return }
             input.key(scancode: scancode, pressed: pressed)
         }
     }
@@ -182,16 +173,4 @@ final class KeyboardMouse {
     }
 
     private var scrollLogged = 0
-
-    private static func scancode(_ usage: UInt16, _ out: inout UInt16) -> Bool {
-        Keymap.scancode(usage: usage).map { out = $0; return true } ?? false
-    }
-}
-
-/// Usages HID → scancodes (le reste de Keymap est propre au Mac).
-enum Keymap {
-    static func scancode(usage: UInt16) -> UInt16? {
-        var scancode: UInt16 = 0
-        return kynput_keycode_usb_to_kyber(usage, &scancode) ? scancode : nil
-    }
 }

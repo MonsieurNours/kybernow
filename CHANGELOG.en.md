@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.7
+
+- Mac and Apple TV apps, keyboard: the key table (HID usages → scancodes), the swap of the `@#` and `<>` keys of Apple ISO keyboards and the handling of lock keys are now written once (`Keymap`, shared); the Mac brings its kVK table and the layout reported by the system, the Apple TV its “Apple ISO keyboard” setting. Nothing changes for the user.
+
 ## 0.2.6
 
 - Console, updates: the applicator also stops the icon relaunched by the new console before putting the old version back, suspends Kyber's automatic restart during the switch, reaches the console at the address of its listen setting, refuses Windows' reserved file names, and a rollback that does not succeed is shown instead of hidden.
