@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.2.7
+
+- Installer: the installation window opened on "Microsoft Edge can't read and write to its data directory" (0.2.6): WebView2's data folder goes back to `%TEMP%`, the interface and its DLL stay under Program Files.
+- Console, web client: the relay to kycontroller refused (403 "origin refused") any request carrying an `Origin` that arrived over HTTP/2, which browsers negotiate with the console: HTTP/2 has no `Host` header, and the origin is now compared with the request's authority. The web client's login (`/session/login`) and the stream start went through it.
+- Console, virtual display: when Windows does not activate the freshly created virtual display by itself, the console activates it (extended desktop, then a supplied layout with that single display if Windows knows it without turning it on), once a second for 8 s instead of a single attempt at the start; and the message "the virtual display does not appear in the display configuration" now says what was seen and what Windows answered.
+
 ## 0.2.6
 
 - Console, updates: the applicator also stops the icon relaunched by the new console before putting the old version back, suspends Kyber's automatic restart during the switch, reaches the console at the address of its listen setting, refuses Windows' reserved file names, and a rollback that does not succeed is shown instead of hidden.

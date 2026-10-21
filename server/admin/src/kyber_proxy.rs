@@ -143,7 +143,7 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     // Une origine, si le navigateur en donne une, ne peut être que la
     // console elle-même : un autre site n'ouvre pas de WebSocket vers Kyber
     // par ici, même avec le cookie.
-    if !origin_is_own(req.headers()) {
+    if !origin_is_own(req.headers(), req.uri().authority().map(|a| a.as_str())) {
         return error(StatusCode::FORBIDDEN, "origine refusée");
     }
     let Some(addr) = target(&s) else {
@@ -185,13 +185,15 @@ pub async fn proxy(State(s): State<AppState>, req: Request) -> Response {
     }
 }
 
-/// Sans `Origin`, ou avec l'origine de la console (même hôte et port que
-/// `Host`, quel que soit le schéma).
-fn origin_is_own(headers: &HeaderMap) -> bool {
+/// Sans `Origin`, ou avec l'origine de la console : même hôte et port que
+/// `Host` (HTTP/1.1) ou, à défaut, que l'autorité de la requête (en HTTP/2,
+/// que les navigateurs négocient avec la console, `:authority` remplace
+/// `Host` et hyper la range dans l'URI), quel que soit le schéma.
+fn origin_is_own(headers: &HeaderMap, authority: Option<&str>) -> bool {
     let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) else { return true };
-    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()) else { return false };
-    let authority = origin.trim().split_once("://").map(|(_, rest)| rest).unwrap_or(origin.trim());
-    !authority.is_empty() && authority.eq_ignore_ascii_case(host.trim())
+    let Some(host) = headers.get(header::HOST).and_then(|v| v.to_str().ok()).or(authority) else { return false };
+    let origin = origin.trim().split_once("://").map(|(_, rest)| rest).unwrap_or(origin.trim());
+    !origin.is_empty() && origin.eq_ignore_ascii_case(host.trim())
 }
 
 /// En-têtes transmis à kycontroller : sans ceux de la connexion (sauf
@@ -560,21 +562,26 @@ mod tests {
     #[test]
     fn origin_must_be_the_console() {
         let mut h = HeaderMap::new();
-        assert!(origin_is_own(&h), "sans Origin (hors navigateur)");
+        assert!(origin_is_own(&h, None), "sans Origin (hors navigateur)");
         h.insert(header::HOST, "console.local:9443".parse().unwrap());
         h.insert(header::ORIGIN, "https://console.local:9443".parse().unwrap());
-        assert!(origin_is_own(&h));
+        assert!(origin_is_own(&h, None));
         h.insert(header::ORIGIN, "https://CONSOLE.local:9443".parse().unwrap());
-        assert!(origin_is_own(&h));
+        assert!(origin_is_own(&h, None));
         h.insert(header::ORIGIN, "https://evil.example".parse().unwrap());
-        assert!(!origin_is_own(&h));
+        assert!(!origin_is_own(&h, None));
         h.insert(header::ORIGIN, "https://console.local:9444".parse().unwrap());
-        assert!(!origin_is_own(&h));
+        assert!(!origin_is_own(&h, None));
         h.insert(header::ORIGIN, "null".parse().unwrap());
-        assert!(!origin_is_own(&h));
+        assert!(!origin_is_own(&h, None));
         let mut no_host = HeaderMap::new();
         no_host.insert(header::ORIGIN, "https://console.local:9443".parse().unwrap());
-        assert!(!origin_is_own(&no_host));
+        assert!(!origin_is_own(&no_host, None), "ni Host ni autorité");
+        // HTTP/2 : pas d'en-tête Host, l'autorité est dans l'URI.
+        assert!(origin_is_own(&no_host, Some("console.local:9443")));
+        assert!(origin_is_own(&no_host, Some("CONSOLE.LOCAL:9443")));
+        assert!(!origin_is_own(&no_host, Some("console.local:9444")));
+        assert!(!origin_is_own(&no_host, Some("evil.example")));
     }
 
     #[test]

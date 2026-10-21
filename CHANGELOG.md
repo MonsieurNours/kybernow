@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.2.7
+
+- Installateur : la fenêtre d'installation s'ouvrait sur « Microsoft Edge ne peut pas lire ni écrire dans son répertoire de données » (0.2.6) : le dossier de données de WebView2 revient dans `%TEMP%`, l'interface et sa DLL restent sous Program Files.
+- Console, client web : le relais vers kycontroller refusait (403 « origine refusée ») toute requête portant un `Origin` arrivée en HTTP/2, ce que les navigateurs négocient avec la console : en HTTP/2 il n'y a pas d'en-tête `Host`, et l'origine est maintenant comparée à l'autorité de la requête. La connexion du client web (`/session/login`) et le démarrage du flux passaient par là.
+- Console, écran virtuel : quand Windows n'active pas seul l'écran virtuel qui vient d'être créé, la console l'active elle-même (bureau étendu, puis disposition fournie avec ce seul écran si Windows le connaît sans l'allumer), une fois par seconde pendant 8 s au lieu d'une seule tentative au départ ; et le message « l'écran virtuel n'apparaît pas dans la configuration d'affichage » dit désormais ce qui a été vu et ce que Windows a répondu.
+
 ## 0.2.6
 
 - Console, mises à jour : l'applicateur arrête aussi l'icône relancée par la nouvelle console avant de remettre l'ancienne version, suspend la relance automatique de Kyber pendant la bascule, joint la console à l'adresse de son réglage d'écoute, refuse les noms de fichiers réservés de Windows, et un retour arrière qui n'aboutit pas est affiché au lieu d'être masqué.

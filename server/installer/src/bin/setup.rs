@@ -8,6 +8,12 @@
 //! depuis un dossier où tout programme de l'utilisateur peut écrire, et
 //! charger une DLL déposée à côté d'elle (contournement de l'UAC). Sous
 //! Program Files, seuls les administrateurs écrivent.
+//!
+//! Le dossier de données de WebView2 (profil, cache), lui, reste dans
+//! `%TEMP%` : les processus que WebView2 isole (rendu, réseau) tournent avec
+//! un jeton restreint qui ne peut pas écrire sous Program Files, et Edge
+//! refuse alors de démarrer (« ne peut pas lire ni écrire dans son répertoire
+//! de données »). Ce dossier ne contient aucun code exécuté par l'interface.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -54,18 +60,23 @@ fn launch() -> anyhow::Result<()> {
     std::fs::write(&ui, UI_EXE)?;
     std::fs::write(tmp.join("WebView2Loader.dll"), WEBVIEW2_LOADER)?;
 
+    let webview_data: PathBuf =
+        std::env::temp_dir().join(format!("KyberNow-Setup-WebView-{}", std::process::id()));
     let status = std::process::Command::new(&ui)
         .arg("--payload")
         .arg(&exe)
         .arg("--webview-data")
-        .arg(tmp.join("webview"))
+        .arg(&webview_data)
         .status();
 
-    for _ in 0..10 {
-        if std::fs::remove_dir_all(&tmp).is_ok() {
-            break;
+    // WebView2 relâche ses fichiers un peu après la fermeture de l'interface.
+    for dir in [&tmp, &webview_data] {
+        for _ in 0..10 {
+            if std::fs::remove_dir_all(dir).is_ok() || !dir.exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
         }
-        std::thread::sleep(std::time::Duration::from_millis(300));
     }
     status?;
     Ok(())

@@ -13,20 +13,22 @@
 //! L'entrée « écrans physiques seuls » n'est jamais touchée : une fois l'écran
 //! virtuel retiré, on la réapplique pour restaurer.
 
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
     DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
-    DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
-    QDC_ONLY_ACTIVE_PATHS, QueryDisplayConfig, SDC_ALLOW_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE, SDC_TOPOLOGY_EXTEND,
-    SDC_USE_DATABASE_CURRENT,
-    SDC_USE_SUPPLIED_DISPLAY_CONFIG, SetDisplayConfig,
+    DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo,
+    GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
+    QDC_ONLY_ACTIVE_PATHS, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
+    SDC_ALLOW_PATH_ORDER_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE, SDC_TOPOLOGY_EXTEND, SDC_TOPOLOGY_SUPPLIED,
+    SDC_USE_DATABASE_CURRENT, SDC_USE_SUPPLIED_DISPLAY_CONFIG, SetDisplayConfig,
 };
 use windows_sys::Win32::Graphics::Gdi::{
-    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH,
-    ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW,
+    CDS_UPDATEREGISTRY, ChangeDisplaySettingsExW, DEVMODEW, DISP_CHANGE_SUCCESSFUL, DISPLAYCONFIG_PATH_ACTIVE,
+    DISPLAYCONFIG_PATH_MODE_IDX_INVALID, DM_DISPLAYFREQUENCY, DM_PELSHEIGHT, DM_PELSWIDTH, ENUM_CURRENT_SETTINGS,
+    EnumDisplaySettingsW,
 };
 use serde::Serialize;
 
@@ -41,17 +43,25 @@ pub struct Applied {
 }
 
 fn active_config() -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>)> {
+    query(QDC_ONLY_ACTIVE_PATHS)
+}
+
+/// Tous les chemins que Windows connaît (actifs ou non) : un par couple
+/// source-cible possible, les cibles débranchées comprises.
+fn all_paths() -> Result<Vec<DISPLAYCONFIG_PATH_INFO>> {
+    query(QDC_ALL_PATHS).map(|(paths, _)| paths)
+}
+
+fn query(flags: QUERY_DISPLAY_CONFIG_FLAGS) -> Result<(Vec<DISPLAYCONFIG_PATH_INFO>, Vec<DISPLAYCONFIG_MODE_INFO>)> {
     for _ in 0..4 {
         let (mut np, mut nm) = (0u32, 0u32);
-        let err = unsafe { GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm) };
+        let err = unsafe { GetDisplayConfigBufferSizes(flags, &mut np, &mut nm) };
         if err != 0 {
             bail!("lecture de la configuration d'affichage (code {err})");
         }
         let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
         let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
-        let err = unsafe {
-            QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), null_mut())
-        };
+        let err = unsafe { QueryDisplayConfig(flags, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), null_mut()) };
         // ERROR_INSUFFICIENT_BUFFER (122) : la configuration a changé entre-temps.
         if err == 122 {
             continue;
@@ -84,29 +94,73 @@ fn gdi_name(path: &DISPLAYCONFIG_PATH_INFO) -> Option<String> {
     Some(String::from_utf16_lossy(&name.viewGdiDeviceName[..len]))
 }
 
+/// Pousse Windows à activer la cible de l'écran virtuel quand il ne le fait
+/// pas seul : extension du bureau au premier essai, puis, si la cible figure
+/// parmi les chemins qu'il connaît sans être active, disposition fournie avec
+/// ce seul chemin (les écrans physiques s'éteignent du même coup, mode choisi
+/// par Windows). Rend ce qui a été vu et tenté, pour le message d'erreur si
+/// rien n'y fait : sans cela, l'échec ne disait pas si la cible était absente
+/// ou présente mais inactive, ni ce que Windows avait répondu.
+fn activate(luid_low: u32, luid_high: i32, target: u32, attempt: u32, forced: &mut bool) -> String {
+    let extend = || unsafe { SetDisplayConfig(0, null(), 0, null(), SDC_APPLY | SDC_TOPOLOGY_EXTEND) };
+    if attempt == 0 {
+        return format!("extension du bureau : code {}", extend());
+    }
+    let known = match all_paths() {
+        Ok(paths) => paths,
+        Err(e) => return format!("{e:#}"),
+    };
+    let found = known
+        .iter()
+        .find(|p| is_target(p, luid_low, luid_high, target) && p.targetInfo.targetAvailable != 0)
+        .copied();
+    let Some(mut path) = found else {
+        return format!("cible absente des {} chemins connus de Windows ; extension du bureau : code {}", known.len(), extend());
+    };
+    path.flags = DISPLAYCONFIG_PATH_ACTIVE;
+    path.sourceInfo.Anonymous.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+    path.targetInfo.Anonymous.modeInfoIdx = DISPLAYCONFIG_PATH_MODE_IDX_INVALID;
+    let err = unsafe { SetDisplayConfig(1, &path, 0, null(), SDC_APPLY | SDC_TOPOLOGY_SUPPLIED | SDC_ALLOW_PATH_ORDER_CHANGES) };
+    if err == 0 {
+        *forced = true;
+    }
+    format!("cible connue de Windows mais inactive ; disposition fournie avec ce seul chemin : code {err}")
+}
+
 /// Ne garde actif que l'écran virtuel (adaptateur + cible), au mode demandé.
 pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u32, refresh: u32) -> Result<Applied> {
-    // 1. Attendre que Windows active le nouvel écran (en mode étendu par défaut).
+    // 1. Attendre que Windows active le nouvel écran. D'ordinaire il le fait
+    //    seul : bureau étendu à son arrivée, ou disposition « écran virtuel
+    //    seul » enregistrée par une session précédente. Sinon on l'y aide
+    //    (`activate`), une fois par seconde jusqu'à l'échéance.
     let deadline = Instant::now() + Duration::from_secs(8);
-    let mut extended = false;
+    let mut next_attempt = Instant::now();
+    let mut attempts = 0u32;
+    let mut forced = false;
+    let mut others_before = None;
+    let mut seen = String::new();
     let (paths, modes, vd) = loop {
         let (paths, modes) = active_config()?;
         if let Some(i) = paths.iter().position(|p| is_target(p, luid_low, luid_high, target)) {
             break (paths, modes, i);
         }
-        if !extended && Instant::now() + Duration::from_secs(5) < deadline {
-            // Il est branché mais pas activé : on étend le bureau à tous les écrans.
-            unsafe { SetDisplayConfig(0, std::ptr::null(), 0, std::ptr::null(), SDC_APPLY | SDC_TOPOLOGY_EXTEND) };
-            extended = true;
+        others_before.get_or_insert(paths.len());
+        let now = Instant::now();
+        if now > deadline {
+            bail!("l'écran virtuel n'apparaît pas dans la configuration d'affichage ({seen})");
         }
-        if Instant::now() > deadline {
-            bail!("l'écran virtuel n'apparaît pas dans la configuration d'affichage");
+        if now >= next_attempt {
+            seen = activate(luid_low, luid_high, target, attempts, &mut forced);
+            attempts += 1;
+            next_attempt = now + Duration::from_secs(1);
         }
         std::thread::sleep(Duration::from_millis(250));
     };
 
-    // 2. Ne fournir à Windows que le chemin de l'écran virtuel : les autres sont désactivés.
-    let disabled_others = paths.len() - 1;
+    // 2. Ne fournir à Windows que le chemin de l'écran virtuel : les autres sont
+    //    désactivés. Si c'est `activate` qui l'a allumé seul, les autres le
+    //    sont déjà, mais la disposition reste à enregistrer.
+    let disabled_others = if forced { others_before.unwrap_or(0) } else { paths.len() - 1 };
     let mut path = paths[vd];
     let mut new_modes = Vec::new();
     unsafe {
@@ -123,7 +177,7 @@ pub fn isolate(luid_low: u32, luid_high: i32, target: u32, width: u32, height: u
             }
         }
     }
-    if disabled_others > 0 {
+    if disabled_others > 0 || forced {
         let err = unsafe {
             SetDisplayConfig(
                 1,
@@ -177,7 +231,7 @@ pub fn set_mode(name: &str, width: u32, height: u32, refresh: u32) -> (u32, u32,
         mode.dmPelsHeight = height;
         mode.dmDisplayFrequency = refresh;
         mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY;
-        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY, std::ptr::null());
+        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY, null());
         if r != DISP_CHANGE_SUCCESSFUL {
             tracing::warn!("changement de mode refusé ({r}) : le mode préféré de l'écran est conservé");
         }
@@ -222,12 +276,12 @@ pub fn observe(luid_low: u32, luid_high: i32, target: u32) -> Result<Seen> {
 
 /// Réapplique la disposition habituelle des écrans physiques.
 pub fn restore() -> Result<()> {
-    let err = unsafe { SetDisplayConfig(0, std::ptr::null(), 0, std::ptr::null(), SDC_APPLY | SDC_USE_DATABASE_CURRENT) };
+    let err = unsafe { SetDisplayConfig(0, null(), 0, null(), SDC_APPLY | SDC_USE_DATABASE_CURRENT) };
     if err == 0 {
         return Ok(());
     }
     // Pas de disposition connue pour ces écrans : on les étend tous.
-    let err2 = unsafe { SetDisplayConfig(0, std::ptr::null(), 0, std::ptr::null(), SDC_APPLY | SDC_TOPOLOGY_EXTEND) };
+    let err2 = unsafe { SetDisplayConfig(0, null(), 0, null(), SDC_APPLY | SDC_TOPOLOGY_EXTEND) };
     if err2 != 0 {
         bail!("restauration des écrans (codes {err} puis {err2})");
     }
