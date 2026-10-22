@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.4.3</title>
+            <pubDate>Thu, 22 Oct 2026 13:17:11 +0200</pubDate>
+            <sparkle:version>202610221305</sparkle:version>
+            <sparkle:shortVersionString>0.4.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **Mac app: it is called KyberNow Link everywhere.** The bundle becomes “KyberNow Link.app” (Dock, Finder, Applications) and the archive `KyberNow-Link-macOS.zip`. An app already installed as “KyberNow.app” renames itself on the first launch of this version, then relaunches; settings, computers, passwords and permissions stay. `KyberNow-macOS.zip` is still published as a copy for existing links.
+- Mac, iPhone and iPad apps: the header and the top bar carry the signed KyberNow Link logo (“LINK” tag under the name), like the launch screen.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.4.3/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.4.3/KyberNow-Link-macOS.zip" length="47133994" type="application/octet-stream" sparkle:edSignature="vWHqbRaR2nbi9Y6W8MkPNS70hBGaet9ekHy3Zfi5mMhV70njp5JekC1sUsq9jYFN6EPOF7uM/yP0Lp+BOZ8LAg=="/>
+        </item>
+        <item>
             <title>0.4.2</title>
             <pubDate>Thu, 22 Oct 2026 12:37:23 +0200</pubDate>
             <sparkle:version>202610221231</sparkle:version>
