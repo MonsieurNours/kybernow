@@ -96,7 +96,11 @@ PW="$(password)" || { echo "mot de passe de la clé Android introuvable dans le 
 CERT="$(fingerprint "$PW")"
 [ -n "$CERT" ] || { echo "clé illisible avec le mot de passe du Trousseau : $STORE" >&2; exit 1; }
 if [ -z "${KYBERNOW_ANDROID_KEYSTORE:-}" ]; then
-    [ -s "$CERT_FILE" ] || { echo "$CERT_FILE absent : la clé existe mais son certificat n'est pas dans le dépôt ($CERT)" >&2; exit 1; }
+    if [ ! -s "$CERT_FILE" ]; then
+        # Clé créée avant que son empreinte soit écrite (premier essai interrompu) : on l'écrit.
+        printf '%s\n' "$CERT" > "$CERT_FILE"
+        echo "    certificat : $CERT (écrit dans ${CERT_FILE#"$ROOT"/}, à commiter)"
+    fi
     [ "$CERT" = "$(cat "$CERT_FILE")" ] || { echo "la clé $STORE n'est pas celle du dépôt (${CERT_FILE#"$ROOT"/})" >&2; exit 1; }
 fi
 
