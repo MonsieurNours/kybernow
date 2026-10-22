@@ -103,6 +103,9 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
 
     // MARK: - Vibrations
 
+    /** Manettes dont la première vibration est déjà dans le journal. */
+    private val rumbleLogged = java.util.Collections.synchronizedSet(mutableSetOf<Int>())
+
     /**
      * Vibration du jeu : intensités 0 à 65535 (gros moteur grave à gauche,
      * petit aigu à droite, comme XInput). Sans durée, 5 s au plus, comme
@@ -110,6 +113,9 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
      */
     fun rumble(deviceId: Int, large: Int, small: Int, durationMs: Int) {
         val d = InputDevice.getDevice(deviceId) ?: return
+        if (rumbleLogged.add(deviceId)) {
+            android.util.Log.i("KyberNow", "vibrations : première demande pour ${d.name} (${motors(d)} vibreur(s) donné(s) par Android, API ${Build.VERSION.SDK_INT})")
+        }
         val ms = (if (durationMs <= 0) 5000 else durationMs).toLong()
         val amp = { v: Int -> (v.coerceIn(0, 65535) * 255 / 65535) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

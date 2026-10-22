@@ -163,8 +163,17 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
         audioOutput.value = channels to bufferMs
     }
 
+    @Volatile private var rumbleSeen = false
+
     override fun onRumble(pad: Int, large: Int, small: Int, durationMs: Int) {
-        val p = gamepads.pads.value.firstOrNull { it.slot == pad } ?: return
+        if (!rumbleSeen) {
+            rumbleSeen = true
+            android.util.Log.i("KyberNow", "vibrations : première reçue de l'ordinateur (rang $pad, $large/$small, $durationMs ms)")
+        }
+        val p = gamepads.pads.value.firstOrNull { it.slot == pad } ?: run {
+            android.util.Log.w("KyberNow", "vibrations : aucune manette au rang $pad")
+            return
+        }
         gamepads.rumble(p.deviceId, large, small, durationMs)
     }
 
