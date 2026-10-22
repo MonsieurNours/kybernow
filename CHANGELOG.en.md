@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.1
+
+- Mac app: the menu bar still showed "KyberNow" instead of "KyberNow Link" (the name was lost at each build).
+
 ## 0.4.0
 
 - **KyberNow becomes three products, each with its own name and logo.** **KyberNow Station** is what you install on the Windows computer that streams the image (formerly KyberNow Server); **KyberNow Admin** is its administration in the browser (formerly the console); **KyberNow Link** is the apps that display the image on Mac, Apple TV, iPhone, iPad and Windows, and in the browser. The symbol keeps its three states (the upper half for the Station, the seam for Admin, the lower half for Link); the logos now carry the product name as a signature under “KyberNow”. The texts of the apps, Admin, the installers, the website and the documentation follow, in French and English.

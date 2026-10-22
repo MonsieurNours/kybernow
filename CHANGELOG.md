@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.1
+
+- App Mac : la barre des menus affichait encore « KyberNow » au lieu de « KyberNow Link » (le nom était perdu à chaque compilation).
+
 ## 0.4.0
 
 - **KyberNow devient trois produits, chacun avec son nom et son logo.** **KyberNow Station** est ce qu'on installe sur l'ordinateur Windows qui diffuse l'image (anciennement KyberNow Server) ; **KyberNow Admin** est son administration dans le navigateur (anciennement la console) ; **KyberNow Link**, ce sont les apps qui affichent l'image sur Mac, Apple TV, iPhone, iPad et Windows, et dans le navigateur. Le symbole garde ses trois états (la moitié haute pour la Station, la couture pour Admin, la moitié basse pour Link) ; les logos portent désormais le nom du produit en signature sous « KyberNow ». Les textes des apps, d'Admin, des installateurs, du site et de la documentation suivent, en français et en anglais.

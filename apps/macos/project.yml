@@ -72,6 +72,9 @@ targets:
     info:
       path: KyberNow/Info.plist
       properties:
+        # Nom de l'app dans la barre des menus : écrit ici, sinon xcodegen
+        # remet $(PRODUCT_NAME) (« KyberNow ») dans Info.plist à chaque build.
+        CFBundleName: KyberNow Link
         CFBundleURLTypes:
           - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
             CFBundleURLSchemes: [kybernow]
