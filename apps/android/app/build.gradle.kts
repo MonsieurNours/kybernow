@@ -7,6 +7,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // Captures des écrans sans appareil (Robolectric, rendu natif) : ./gradlew recordRoborazziDebug.
+    alias(libs.plugins.roborazzi)
 }
 
 // Même numéro de version que tout KyberNow (apps/Cargo.toml).
@@ -60,6 +62,9 @@ android {
     packaging {
         jniLibs.useLegacyPackaging = false
     }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 kotlin {
@@ -83,4 +88,16 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.zxing.core)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+}
+
+roborazzi {
+    outputDir.set(file("screenshots"))
 }

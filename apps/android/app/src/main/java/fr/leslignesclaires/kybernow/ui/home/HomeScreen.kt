@@ -51,6 +51,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -62,6 +63,8 @@ import fr.leslignesclaires.kybernow.KyberNowApp
 import fr.leslignesclaires.kybernow.R
 import fr.leslignesclaires.kybernow.core.FormFactor
 import fr.leslignesclaires.kybernow.model.Announced
+import fr.leslignesclaires.kybernow.model.Decoders
+import fr.leslignesclaires.kybernow.model.Gamepad
 import fr.leslignesclaires.kybernow.model.AudioOutput
 import fr.leslignesclaires.kybernow.model.Host
 import fr.leslignesclaires.kybernow.model.Profile
@@ -87,6 +90,9 @@ import java.util.Locale
 
 /** Ce que l'accueil demande à l'app. */
 class HomeActions(
+    val select: (String) -> Unit,
+    val setProfile: (String, Profile) -> Unit,
+    val remove: (String) -> Unit,
     val connect: (Host) -> Unit,
     val add: () -> Unit,
     val addAnnounced: (Announced) -> Unit,
@@ -96,13 +102,37 @@ class HomeActions(
     val wake: (Host) -> Unit,
 )
 
+/** « Prêt à jouer » : ce que l'appareil a de branché et ce qu'il sait faire. */
+data class ReadyInfo(val pads: List<Gamepad>, val audio: AudioOutput, val screen: Screen, val decoders: Decoders)
+
+/** Tout ce que l'accueil montre. */
+data class HomeState(
+    val hosts: List<Host>,
+    val selectedId: String?,
+    val status: Map<String, HostStatus>,
+    val images: Map<String, ImageBitmap>,
+    val announced: List<Announced>,
+    val ready: ReadyInfo,
+)
+
 @Composable
 fun HomeScreen(model: AppModel, actions: HomeActions) {
+    val app = KyberNowApp.instance
+    val context = LocalContext.current
     val hosts by model.hosts.collectAsState()
     val selectedId by model.selected.collectAsState()
     val status by model.status.collectAsState()
     val images by model.images.collectAsState()
     val announced by model.announced.collectAsState()
+    val pads by app.gamepads.pads.collectAsState()
+    val audio = remember { AudioOutput.current(context) }
+    val screen = remember { Screen.of(context) }
+    HomeContent(HomeState(hosts, selectedId, status, images, announced, ReadyInfo(pads, audio, screen, app.decoders)), actions)
+}
+
+@Composable
+fun HomeContent(state: HomeState, actions: HomeActions) {
+    val (hosts, selectedId, status, images, announced) = state
     val form = LocalForm.current
     val host = hosts.firstOrNull { it.id == selectedId } ?: hosts.firstOrNull()
 
@@ -115,9 +145,9 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
         val wide = maxWidth > maxHeight && maxWidth >= 720.dp
         Backdrop(images[host.id], st.online == false, wide)
         if (wide) {
-            WideHome(host, st, hosts, announced, images, status, model, actions, showReady = form != FormFactor.PHONE)
+            WideHome(host, st, state, actions, showReady = form != FormFactor.PHONE)
         } else {
-            TallHome(host, st, hosts, announced, images, status, model, actions)
+            TallHome(host, st, state, actions)
         }
     }
 }
@@ -173,7 +203,7 @@ private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
 }
 
 @Composable
-private fun Hero(host: Host, st: HostStatus, model: AppModel, actions: HomeActions, nameSize: Float, focus: FocusRequester?) {
+private fun Hero(host: Host, st: HostStatus, actions: HomeActions, nameSize: Float, focus: FocusRequester?) {
     val s = LocalScale.current
     Column(verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         StatusLine(host, st)
@@ -194,7 +224,7 @@ private fun Hero(host: Host, st: HostStatus, model: AppModel, actions: HomeActio
             }
             Spacer(Modifier.width(s.dp(8f)))
             Profile.entries.forEach { p ->
-                GlassButton(profileLabel(p), { model.setProfile(host.id, p) }, selected = host.settings.profile == p)
+                GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = host.settings.profile == p)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), modifier = Modifier.padding(top = s.dp(4f))) {
@@ -236,13 +266,9 @@ fun profileLabel(p: Profile) = stringResource(
 
 /** « Prêt à jouer » : manettes, sortie du son, écran, dernière session. */
 @Composable
-private fun ReadyPanel(host: Host, modifier: Modifier = Modifier) {
+private fun ReadyPanel(host: Host, ready: ReadyInfo, modifier: Modifier = Modifier) {
     val s = LocalScale.current
-    val context = LocalContext.current
-    val app = KyberNowApp.instance
-    val pads by app.gamepads.pads.collectAsState()
-    val audio = remember { AudioOutput.current(context) }
-    val screen = remember { Screen.of(context) }
+    val (pads, audio, screen) = ready
     Column(modifier.panel().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
         Eyebrow(stringResource(R.string.ready_title))
         ReadyRow(stringResource(R.string.ready_gamepads)) {
@@ -262,7 +288,7 @@ private fun ReadyPanel(host: Host, modifier: Modifier = Modifier) {
             val best = screen.bestRefresh(screen.current.width, screen.current.height)
             val refresh = if (LocalForm.current == FormFactor.TV) screen.bestRefresh(1920, 1080) else best
             Body("${screen.current.height}p · $refresh Hz" + if (screen.minimalPostProcessing) " · " + stringResource(R.string.ready_game_mode) else "", size = 15f)
-            val d = app.decoders
+            val d = ready.decoders
             Mono(
                 listOfNotNull(
                     if (d.hevc != null) "HEVC" else "H.264",
@@ -315,14 +341,14 @@ private fun audioLabel(a: AudioOutput): String {
 fun duration(seconds: Long): String = if (seconds >= 3600) "${seconds / 3600} h ${String.format(Locale.ROOT, "%02d", (seconds % 3600) / 60)}" else "${seconds / 60} min"
 
 @Composable
-private fun HostRow(hosts: List<Host>, announced: List<Announced>, images: Map<String, androidx.compose.ui.graphics.ImageBitmap>, status: Map<String, HostStatus>, model: AppModel, actions: HomeActions, card: Float) {
+private fun HostRow(state: HomeState, actions: HomeActions, card: Float) {
     val s = LocalScale.current
-    val selected by model.selected.collectAsState()
+    val (hosts, selected, status, images, announced) = state
     LazyRow(horizontalArrangement = Arrangement.spacedBy(s.dp(16f)), contentPadding = PaddingValues(horizontal = s.dp(4f), vertical = s.dp(10f))) {
         items(hosts, key = { it.id }) { h ->
             var menu by remember { mutableStateOf(false) }
             Column(Modifier.width(s.dp(card)), verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
-                FocusCard({ model.select(h.id) }, onLongClick = { menu = true }) {
+                FocusCard({ actions.select(h.id) }, onLongClick = { menu = true }) {
                     Box(
                         Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Kn.panel)
                             .border(BorderStroke(if (h.id == selected) 2.dp else 1.dp, if (h.id == selected) Kn.frost.copy(alpha = 0.6f) else Kn.line), RoundedCornerShape(16.dp)),
@@ -344,7 +370,7 @@ private fun HostRow(hosts: List<Host>, announced: List<Announced>, images: Map<S
                 }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text(stringResource(R.string.home_host_settings)) }, { menu = false; actions.hostSettings(h) })
-                    DropdownMenuItem({ Text(stringResource(R.string.home_remove)) }, { menu = false; model.remove(h.id) })
+                    DropdownMenuItem({ Text(stringResource(R.string.home_remove)) }, { menu = false; actions.remove(h.id) })
                 }
             }
         }
@@ -374,11 +400,7 @@ private fun HostRow(hosts: List<Host>, announced: List<Announced>, images: Map<S
 
 /** Téléviseur, tablette en paysage, téléphone en paysage. */
 @Composable
-private fun WideHome(
-    host: Host, st: HostStatus, hosts: List<Host>, announced: List<Announced>,
-    images: Map<String, androidx.compose.ui.graphics.ImageBitmap>, status: Map<String, HostStatus>,
-    model: AppModel, actions: HomeActions, showReady: Boolean,
-) {
+private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: HomeActions, showReady: Boolean) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(host.id) { if (s.tv) runCatching { focus.requestFocus() } }
@@ -386,23 +408,19 @@ private fun WideHome(
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
         TopBar(actions)
         Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Hero(host, st, model, actions, if (s.tv) 92f else 64f, focus) }
+            Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 92f else 64f, focus) }
             if (showReady) {
                 Spacer(Modifier.width(s.dp(28f)))
-                ReadyPanel(host, Modifier.width(s.dp(if (s.tv) 330f else 300f)))
+                ReadyPanel(host, state.ready, Modifier.width(s.dp(if (s.tv) 330f else 300f)))
             }
         }
-        HostRow(hosts, announced, images, status, model, actions, card = if (s.tv) 210f else 180f)
+        HostRow(state, actions, card = if (s.tv) 210f else 180f)
     }
 }
 
 /** Téléphone et tablette en portrait. */
 @Composable
-private fun TallHome(
-    host: Host, st: HostStatus, hosts: List<Host>, announced: List<Announced>,
-    images: Map<String, androidx.compose.ui.graphics.ImageBitmap>, status: Map<String, HostStatus>,
-    model: AppModel, actions: HomeActions,
-) {
+private fun TallHome(host: Host, st: HostStatus, state: HomeState, actions: HomeActions) {
     val s = LocalScale.current
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(s.dp(20f)),
@@ -410,11 +428,11 @@ private fun TallHome(
     ) {
         TopBar(actions)
         Spacer(Modifier.height(s.dp(150f)))
-        Hero(host, st, model, actions, 54f, null)
+        Hero(host, st, actions, 54f, null)
         Spacer(Modifier.height(s.dp(6f)))
         Eyebrow(stringResource(R.string.home_your_computers))
-        HostRow(hosts, announced, images, status, model, actions, card = 160f)
-        if (LocalForm.current == FormFactor.TABLET) ReadyPanel(host, Modifier.fillMaxWidth())
+        HostRow(state, actions, card = 160f)
+        if (LocalForm.current == FormFactor.TABLET) ReadyPanel(host, state.ready, Modifier.fillMaxWidth())
     }
 }
 

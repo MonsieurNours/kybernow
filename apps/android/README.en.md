@@ -93,10 +93,13 @@ cd apps/android
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease      # signed when KYBERNOW_ANDROID_KEYSTORE (and its passwords) is given
 ./gradlew lintDebug
+./gradlew recordRoborazziDebug  # screenshots of the main screens, no device needed → app/screenshots/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 `scripts/build-native.sh` applies the patches in `apps/macos/kyber-patches`, builds into `third_party/kyber-desktop/rootfs-<target>` libkynput without SDL (`cargo cinstall`) and libopus 1.6.1 (cmake and the NDK toolchain; sources from the Opus repository's `v1.6.1` tag, cloned into `third_party/opus-1.6.1`), lays down `libvlc.pc`, then builds `kybernow-android` with the NDK's clang for API 30 and copies `libkybernow.so`, without debug information, into `app/src/main/jniLibs/<abi>/` (outside git). Kyber 0.29's sources go in `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)). Versions: Android Gradle Plugin 8.13, Gradle 8.14, Kotlin 2.4, Compose (BOM 2026.06), Compose for TV 1.0; the app's version number is `apps/Cargo.toml`'s.
+
+Screenshots (`app/src/test/.../Screenshots.kt`): Robolectric with native rendering and Roborazzi, with demonstration data and a fake computer image, without the native library; home (`HomeContent`), the gamepad test (`GamepadsContent`) and the session interface (`SessionOverlay`) take their data as parameters for this. Robolectric downloads an Android image on first run (`android-all-instrumented`, 200 MB, Maven Central).
 
 Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`. Drawings: `scripts/brand-drawables.py`.
 

@@ -56,6 +56,9 @@ class MainActivity : AppCompatActivity() {
                     Route.Home -> HomeScreen(
                         model,
                         HomeActions(
+                            select = model::select,
+                            setProfile = model::setProfile,
+                            remove = model::remove,
                             connect = ::connect,
                             add = { route = Route.Add() },
                             addAnnounced = { a -> route = Route.Add(Target(a.address, a.port, a.name, a.fingerprint)) },

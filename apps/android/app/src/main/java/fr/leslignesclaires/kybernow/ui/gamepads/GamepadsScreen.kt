@@ -80,10 +80,16 @@ object PadMonitor {
 
 @Composable
 fun GamepadsScreen(onBack: () -> Unit) {
-    val s = LocalScale.current
     val app = KyberNowApp.instance
     val pads by app.gamepads.pads.collectAsState()
     val live by PadMonitor.live.collectAsState()
+    GamepadsContent(pads, live, app.gamepads::test, onBack)
+}
+
+/** `test(manette, moteur)` : vibration d'essai (0 gauche, 1 droit, 2 les deux). */
+@Composable
+fun GamepadsContent(pads: List<Gamepad>, live: PadLive?, test: (Int, Int) -> Unit, onBack: () -> Unit) {
+    val s = LocalScale.current
     var chosen by remember { mutableStateOf<Int?>(null) }
     val current = pads.firstOrNull { it.deviceId == (live?.deviceId ?: chosen) } ?: pads.firstOrNull()
 
@@ -108,11 +114,11 @@ fun GamepadsScreen(onBack: () -> Unit) {
                 if (wide) {
                     Row(horizontalArrangement = Arrangement.spacedBy(s.dp(28f))) {
                         Box(Modifier.weight(0.42f)) { list() }
-                        Box(Modifier.weight(0.58f)) { current?.let { LivePanel(it, live?.takeIf { l -> l.deviceId == it.deviceId }) } }
+                        Box(Modifier.weight(0.58f)) { current?.let { LivePanel(it, live?.takeIf { l -> l.deviceId == it.deviceId }, test) } }
                     }
                 } else {
                     list()
-                    current?.let { LivePanel(it, live?.takeIf { l -> l.deviceId == it.deviceId }) }
+                    current?.let { LivePanel(it, live?.takeIf { l -> l.deviceId == it.deviceId }, test) }
                 }
             }
         }
@@ -151,9 +157,8 @@ private fun PadCard(p: Gamepad, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LivePanel(p: Gamepad, live: PadLive?) {
+private fun LivePanel(p: Gamepad, live: PadLive?, test: (Int, Int) -> Unit) {
     val s = LocalScale.current
-    val app = KyberNowApp.instance
     val b = live?.buttons ?: emptySet()
     val a = live?.axes ?: PadAxes.REST
     Column(Modifier.panel().fillMaxWidth().padding(s.dp(22f)), verticalArrangement = Arrangement.spacedBy(s.dp(18f))) {
@@ -182,10 +187,10 @@ private fun LivePanel(p: Gamepad, live: PadLive?) {
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(s.dp(10f))) {
                 if (p.motors >= 2) {
-                    GlassButton(stringResource(R.string.gamepads_left_low), { app.gamepads.test(p.deviceId, 0) })
-                    GlassButton(stringResource(R.string.gamepads_right_high), { app.gamepads.test(p.deviceId, 1) })
+                    GlassButton(stringResource(R.string.gamepads_left_low), { test(p.deviceId, 0) })
+                    GlassButton(stringResource(R.string.gamepads_right_high), { test(p.deviceId, 1) })
                 }
-                GlassButton(stringResource(R.string.gamepads_both), { app.gamepads.test(p.deviceId, 2) })
+                GlassButton(stringResource(R.string.gamepads_both), { test(p.deviceId, 2) })
             }
             if (p.motors == 1) Body(stringResource(R.string.gamepads_one_motor_help), size = 13f, color = Kn.muted)
         }
