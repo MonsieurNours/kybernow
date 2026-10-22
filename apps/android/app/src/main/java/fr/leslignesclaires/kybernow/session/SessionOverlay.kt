@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -369,7 +370,7 @@ private fun TvMenu(ui: SessionUi) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     Box(Modifier.fillMaxSize().background(Kn.ink.copy(alpha = 0.72f))) {
-        Column(Modifier.fillMaxSize().padding(s.dp(48f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(20f))) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = s.dp(32f), vertical = s.dp(28f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(16f))) {
             Row(Modifier.panel(999.dp).padding(horizontal = s.dp(26f), vertical = s.dp(12f)), horizontalArrangement = Arrangement.spacedBy(s.dp(26f)), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(s.dp(8f)).clip(CircleShape).background(Kn.spectre))
                 Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 15f, color = Kn.frost)
@@ -388,8 +389,9 @@ private fun TvMenu(ui: SessionUi) {
 @Composable
 private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audio: Pair<Int, Double>?) {
     val s = LocalScale.current
-    FlowRow(Modifier.widthIn(max = s.dp(1100f)), horizontalArrangement = Arrangement.spacedBy(s.dp(18f)), verticalArrangement = Arrangement.spacedBy(s.dp(18f)), maxItemsInEachRow = 4) {
+    FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
+        Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null) { ui.actions.quit() }
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
@@ -399,22 +401,21 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audi
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), "Ctrl+Alt+Suppr, Alt+Tab…") { ui.keysOpen = true }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), decoder) { ui.statsOpen = !ui.statsOpen }
-        Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null) { ui.actions.quit() }
     }
 }
 
 @Composable
 private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, onClick: () -> Unit) {
     val s = LocalScale.current
-    FocusCard(onClick, modifier.width(s.dp(240f)).height(s.dp(150f)), shape = RoundedCornerShape(20.dp)) { focused ->
+    FocusCard(onClick, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
         Column(
-            Modifier.fillMaxSize().background(if (focused || primary && focused) Kn.neonCore else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(20f)),
+            Modifier.fillMaxSize().background(if (focused || primary && focused) Kn.neonCore else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            KnIcon(icon, tint = if (focused) Kn.ink else Kn.frost, size = 30f)
-            Column(verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
-                Body(title, size = 19f, weight = 600, color = if (focused) Kn.ink else Kn.frost, maxLines = 2)
-                detail?.let { Mono(it, size = 11f, color = if (focused) Kn.ink2 else Kn.frost2) }
+            KnIcon(icon, tint = if (focused) Kn.ink else Kn.frost, size = 22f)
+            Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
+                Body(title, size = 15f, weight = 600, color = if (focused) Kn.ink else Kn.frost, maxLines = 2)
+                detail?.let { Mono(it, size = 10f, color = if (focused) Kn.ink2 else Kn.frost2, maxLines = 1) }
             }
         }
     }
