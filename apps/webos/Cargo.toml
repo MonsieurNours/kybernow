@@ -1,0 +1,35 @@
+[package]
+name = "kybernow-webos"
+description = "KyberNow Link pour les téléviseurs LG (webOS) : app native sur le cœur Rust, image par le décodeur du téléviseur (NDL), son, manettes et télécommande par SDL"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "kybernow-webos"
+path = "src/main.rs"
+
+[dependencies]
+kybernow-core = { path = "../core", optional = true }
+kynput-sys = { version = "0.1.0", optional = true }
+keycode = { version = "1.0", optional = true }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
+fontdue = "0.9"
+zune-jpeg = "0.4"
+mdns-sd = { version = "0.13", default-features = false }
+getrandom = "0.2"
+
+[features]
+# L'app pour le téléviseur : cœur, décodeur NDL, SDL. Sans elle (--no-default-features),
+# seule l'interface se compile : captures des écrans sur l'ordinateur (scripts/preview.sh).
+default = ["device"]
+device = ["dep:kybernow-core", "dep:kynput-sys", "dep:keycode"]
+
+[build-dependencies]
+cc = "1"
+pkg-config = "0.3"

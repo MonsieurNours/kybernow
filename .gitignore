@@ -25,3 +25,6 @@ apps/android/.gradle/
 apps/android/app/build/
 apps/android/build/
 apps/android/local.properties
+
+# App webOS : paquets .ipk (scripts/package.sh)
+apps/webos/dist/
