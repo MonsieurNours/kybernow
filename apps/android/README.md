@@ -74,7 +74,7 @@ apps/android/
 - **Pont JNI** (`jni/`, l'équivalent de `apps/apple` pour Kotlin) : objet Kotlin `fr.leslignesclaires.kybernow.core.Native`, objets du cœur en `Long`, réponses d'Admin en JSON (`{"code": 0, "value": …}`), mêmes paramètres de session que `kn_session_start` des apps Apple, plus `combo`. Les rappels vers Kotlin (`SessionListener`) passent par une référence globale ; chaque fil du cœur s'attache à la JVM et travaille dans un cadre de références locales. Tout le chemin chaud (image, son, chaîne d'entrées) reste en Rust.
 - **VLC** : kyvlcplayer référence libvlc, jamais appelée (l'image et le son vont à l'app) : `jni/build.rs` compile une fonction vide par fonction `libvlc_*` de vlc-rs, comme sur iOS. Le script pose un `libvlc.pc` sans bibliothèque pour que vlc-rs le trouve.
 - **Certificats** : le cœur donne toujours l'empreinte du certificat de Kyber (celle qu'Admin annonce) : kyclient la vérifie lui-même, sans le vérificateur d'Android (`rustls-platform-verifier`), qui n'est donc pas initialisé.
-- **Dessins** : logo signé, symbole, icône adaptative et bannière d'Android TV convertis des SVG de `brand/v2` par `scripts/brand-drawables.py`, sans retouche. Polices Archivo et Martian Mono variables, de `brand/v2/fonts`.
+- **Dessins** : l'icône et la bannière d'Android TV sont celles de l'Apple TV (le symbole et son néon sur l'encre, la lueur Spectre et la couture en filigrane), produites par `scripts/app-icon.py` avec le dessin d'`apps/tvos/scripts/app-icon.py` ; logo signé, symbole et couche monochrome de l'icône convertis des SVG de `brand/v2` par `scripts/brand-drawables.py`, sans retouche. Polices Archivo et Martian Mono variables, de `brand/v2/fonts`.
 
 ## Compiler
 
@@ -101,7 +101,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Captures (`app/src/test/.../Screenshots.kt`) : Robolectric en rendu natif et Roborazzi, avec des données de démonstration et une fausse image d'ordinateur, sans la bibliothèque native ; l'accueil (`HomeContent`), le test des manettes (`GamepadsContent`) et l'interface de session (`SessionOverlay`) reçoivent leurs données en paramètres pour cela. Robolectric télécharge une image d'Android au premier lancement (`android-all-instrumented`, 200 Mo, Maven Central).
 
-Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml`. Dessins : `scripts/brand-drawables.py`.
+Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml`. Dessins : `scripts/app-icon.py` (icône, bannière ; Pillow) et `scripts/brand-drawables.py`.
 
 ## Reste à faire
 

@@ -74,7 +74,7 @@ apps/android/
 - **JNI bridge** (`jni/`, the Kotlin counterpart of `apps/apple`): Kotlin object `fr.leslignesclaires.kybernow.core.Native`, core objects as `Long`, Admin replies in JSON (`{"code": 0, "value": …}`), the same session parameters as the Apple apps' `kn_session_start`, plus `combo`. Callbacks to Kotlin (`SessionListener`) go through a global reference; each core thread attaches to the JVM and works inside a local reference frame. The whole hot path (image, sound, input chain) stays in Rust.
 - **VLC**: kyvlcplayer references libvlc, never called (image and sound go to the app): `jni/build.rs` compiles an empty function for each `libvlc_*` function of vlc-rs, as on iOS. The script lays down a `libvlc.pc` with no library so vlc-rs finds it.
 - **Certificates**: the core always gives the Kyber certificate's fingerprint (the one Admin announces): kyclient checks it itself, without Android's verifier (`rustls-platform-verifier`), which is therefore not initialised.
-- **Drawings**: signed logo, mark, adaptive icon and Android TV banner converted from `brand/v2`'s SVGs by `scripts/brand-drawables.py`, untouched. Variable Archivo and Martian Mono fonts from `brand/v2/fonts`.
+- **Drawings**: the icon and the Android TV banner are the Apple TV's (the mark and its neon on ink, the Spectre glow and the faint seam), produced by `scripts/app-icon.py` with the drawing code of `apps/tvos/scripts/app-icon.py`; signed logo, mark and the icon's monochrome layer converted from `brand/v2`'s SVGs by `scripts/brand-drawables.py`, untouched. Variable Archivo and Martian Mono fonts from `brand/v2/fonts`.
 
 ## Building
 
@@ -101,7 +101,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Screenshots (`app/src/test/.../Screenshots.kt`): Robolectric with native rendering and Roborazzi, with demonstration data and a fake computer image, without the native library; home (`HomeContent`), the gamepad test (`GamepadsContent`) and the session interface (`SessionOverlay`) take their data as parameters for this. Robolectric downloads an Android image on first run (`android-all-instrumented`, 200 MB, Maven Central).
 
-Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`. Drawings: `scripts/brand-drawables.py`.
+Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`. Drawings: `scripts/app-icon.py` (icon, banner; Pillow) and `scripts/brand-drawables.py`.
 
 ## To do
 

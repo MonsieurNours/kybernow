@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Dessins vectoriels de l'app Android depuis la charte (brand/v2), sans les
-retoucher : logo signé KyberNow Link, symbole, premier plan de l'icône
-adaptative et bannière du lanceur d'Android TV.
+retoucher : logo signé KyberNow Link, symbole, couche monochrome de l'icône
+adaptative. L'icône elle-même et la bannière d'Android TV : app-icon.py.
 
 Les SVG de la charte n'emploient que des groupes `translate(x y) scale(s)`,
 des tracés `d` et des remplissages : ils passent tels quels en
@@ -85,8 +85,7 @@ def main():
     inner, (_, _, w, h) = body(BRAND / "mark/kybernow-mark-now-dark.svg")
     write("kn_mark.xml", vector(48, 48, w, h, inner, "Symbole Relais, état now (charte v2)."))
 
-    # Icône adaptative : le symbole dans la zone sûre (66 sur 108), la couture
-    # en néon par-dessus, comme l'icône de l'app Mac (sans le flou).
+    # Couche monochrome de l'icône : le symbole dans la zone sûre (66 sur 108).
     mark, _ = body(BRAND / "mark/kybernow-mark-now-dark.svg", indent=2)
     s = 52 / 48
     fg = (
@@ -96,18 +95,7 @@ def main():
         f'        <path android:strokeColor="#F4F1FF" android:strokeWidth="0.9" android:strokeLineCap="round" android:pathData="M5.6,42.4 L42.4,5.6" />\n'
         f"    </group>\n"
     )
-    write("ic_launcher_foreground.xml", vector(108, 108, 108, 108, fg, "Premier plan de l'icône adaptative."))
-
-    # Bannière d'Android TV (320 × 180) : encre, logo signé au centre.
-    logo, (_, _, lw, lh) = body(BRAND / "logo/kybernow-link-dark.svg", indent=2)
-    scale = 240 / lw
-    banner = (
-        f'    <path android:fillColor="{INK}" android:pathData="M0,0 L320,0 L320,180 L0,180 Z" />\n'
-        f'    <group android:translateX="{(320 - 240) / 2}" android:translateY="{(180 - lh * scale) / 2:.2f}" android:scaleX="{scale:.5f}" android:scaleY="{scale:.5f}">\n'
-        f"{logo}    </group>\n"
-    )
-    write("tv_banner.xml", vector(320, 180, 320, 180, banner, "Bannière du lanceur d'Android TV."))
-
+    write("ic_launcher_monochrome.xml", vector(108, 108, 108, 108, fg, "Couche monochrome de l'icône adaptative (icônes à thème)."))
 
 if __name__ == "__main__":
     main()
