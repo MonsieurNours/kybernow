@@ -3,6 +3,19 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.4.1</title>
+            <pubDate>Thu, 22 Oct 2026 12:28:31 +0200</pubDate>
+            <sparkle:version>202610221222</sparkle:version>
+            <sparkle:shortVersionString>0.4.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- Mac app: the menu bar still showed "KyberNow" instead of "KyberNow Link" (the name was lost at each build).
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.4.1/KyberNow-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.4.1/KyberNow-macOS.zip" length="47123436" type="application/octet-stream" sparkle:edSignature="wbPIyQl1rEUu6sN/EQsevfkpyRrDsjxjXCAvvWohN9d4BMFaStHRyUsnjNfpM65HdcISpE4oFZQhCewE3YNeDQ=="/>
+        </item>
+        <item>
             <title>0.4.0</title>
             <pubDate>Thu, 22 Oct 2026 12:20:59 +0200</pubDate>
             <sparkle:version>202610221213</sparkle:version>
