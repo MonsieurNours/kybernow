@@ -293,9 +293,8 @@ if (document.querySelector('.dl-card')) {
   const touch = navigator.maxTouchPoints > 1;
   const isMac = /Macintosh|Mac OS X/.test(ua) && !touch;
   const isWindows = /Windows/.test(ua);
-  const isAndroid = /Android/.test(ua);
-  // Mac : l'app ; Windows : l'installateur ; Android : l'APK ; le reste : le navigateur
-  const target = isMac ? 'mac' : isWindows ? 'windows' : isAndroid ? 'android' : 'web';
+  // Mac : l'app ; Windows : l'installateur ; tablette, téléphone et le reste : le navigateur
+  const target = isMac ? 'mac' : isWindows ? 'windows' : 'web';
   const card = document.querySelector(`.dl-card[data-os="${target}"]`);
   if (card) {
     card.classList.add('is-primary');
