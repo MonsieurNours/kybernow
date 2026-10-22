@@ -256,6 +256,7 @@
     max-height: calc(100vh - 48px);
     display: flex;
     flex-direction: column;
+    overflow: auto;
     border-radius: var(--r-card);
     background: var(--card);
     box-shadow: inset 0 0 0 1px var(--line-2), 0 30px 80px rgb(0 0 0 / 0.6);
@@ -565,6 +566,13 @@
       width: 100%;
       max-height: 100vh;
       border-radius: 0;
+    }
+
+    /* Sur un téléphone, c'est le sélecteur entier qui défile, pied compris. */
+    .grid,
+    .list {
+      max-height: none;
+      overflow: visible;
     }
   }
 </style>

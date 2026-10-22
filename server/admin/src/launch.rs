@@ -1142,39 +1142,98 @@ mod platform {
 
     use super::*;
 
+    /// Une icône de démonstration : une tuile de couleur aux coins arrondis.
+    fn sim_icon(dir: &Path, id: &str, [r, g, b]: [u8; 3]) -> Option<String> {
+        let (w, h) = (64u32, 64u32);
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+                let (cx, cy) = (fx.clamp(12.0, 52.0), fy.clamp(12.0, 52.0));
+                let outside = ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() > 12.0;
+                let inner = (16..48).contains(&x) && (16..48).contains(&y);
+                let lift = |c: u8| if inner { c.saturating_add(60) } else { c };
+                rgba.extend_from_slice(&[lift(r), lift(g), lift(b), if outside { 0 } else { 255 }]);
+            }
+        }
+        let name = icon_name(id);
+        std::fs::write(dir.join(&name), encode_png(w, h, &rgba)).ok()?;
+        Some(name)
+    }
+
+    /// Un faux arbre de programmes pour l'explorateur « Autre… ».
+    fn sim_tree(dir: &Path) -> Vec<Root> {
+        let programs = dir.join("Programmes");
+        let desktop = dir.join("Bureau");
+        for (folder, file) in [
+            ("Steam", "steam.exe"),
+            ("Playnite", "Playnite.FullscreenApp.exe"),
+            ("Microsoft Office/root/Office16", "EXCEL.EXE"),
+            ("GOG Galaxy", "GalaxyClient.exe"),
+        ] {
+            let d = programs.join(folder);
+            let _ = std::fs::create_dir_all(&d);
+            let _ = std::fs::write(d.join(file), b"");
+        }
+        let _ = std::fs::create_dir_all(&desktop);
+        let _ = std::fs::write(desktop.join("Jeu du moment.lnk"), b"");
+        vec![
+            Root { id: "programs".into(), path: programs.display().to_string() },
+            Root { id: "desktop".into(), path: desktop.display().to_string() },
+        ]
+    }
+
     pub fn read_catalogue() -> Result<AgentCatalogue> {
         let dir = std::env::temp_dir().join("kybernow-apps-sim");
-        let _ = std::fs::create_dir_all(&dir);
-        Ok(AgentCatalogue {
-            user: Some("dev".into()),
-            apps: vec![
-                AppEntry { id: "Sim.Calculator".into(), name: "Calculatrice (simulée)".into(), icon: None, exe: None },
-                AppEntry { id: "Sim.Excel".into(), name: "Excel (simulé)".into(), icon: None, exe: Some(r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE".into()) },
-                AppEntry { id: "Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App".into(), name: "Xbox (simulé)".into(), icon: None, exe: None },
-            ],
-            suggestions: vec![
-                Suggestion {
-                    id: "steam-bigpicture".into(),
-                    name: "Steam Big Picture".into(),
-                    kind: LaunchKind::Uri,
-                    target: "steam://open/bigpicture".into(),
-                    close: Some("steam://close/bigpicture".into()),
-                    exe: None,
-                    icon: None,
-                },
-                Suggestion {
-                    id: "xbox".into(),
-                    name: "Xbox (simulé)".into(),
-                    kind: LaunchKind::App,
-                    target: "Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App".into(),
-                    close: None,
-                    exe: None,
-                    icon: None,
-                },
-            ],
-            roots: vec![Root { id: "programs".into(), path: "/Applications".into() }],
-            icons_dir: dir.display().to_string(),
-        })
+        let icons = dir.join("icons");
+        let _ = std::fs::create_dir_all(&icons);
+        let app = |id: &str, name: &str, exe: Option<&str>, rgb: [u8; 3]| AppEntry {
+            id: id.into(),
+            name: name.into(),
+            icon: sim_icon(&icons, id, rgb),
+            exe: exe.map(str::to_string),
+        };
+        let xbox_id = "Microsoft.GamingApp_8wekyb3d8bbwe!Microsoft.Xbox.App";
+        let apps = vec![
+            app("Sim.Calculator", "Calculatrice", None, [70, 80, 95]),
+            app("Sim.Edge", "Microsoft Edge", Some(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"), [0, 120, 180]),
+            app("Sim.Excel", "Excel", Some(r"C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE"), [29, 111, 66]),
+            app("Sim.Notepad", "Bloc-notes", Some(r"C:\Windows\System32\notepad.exe"), [120, 110, 70]),
+            app("Sim.Playnite", "Playnite", Some(r"C:\Users\dev\AppData\Local\Playnite\Playnite.DesktopApp.exe"), [40, 60, 120]),
+            app("Sim.Steam", "Steam", Some(r"C:\Program Files (x86)\Steam\steam.exe"), [27, 40, 56]),
+            app("Sim.VLC", "VLC media player", Some(r"C:\Program Files\VideoLAN\VLC\vlc.exe"), [220, 120, 20]),
+            app(xbox_id, "Xbox", None, [16, 124, 16]),
+        ];
+        let suggestions = vec![
+            Suggestion {
+                id: "steam-bigpicture".into(),
+                name: "Steam Big Picture".into(),
+                kind: LaunchKind::Uri,
+                target: "steam://open/bigpicture".into(),
+                close: Some("steam://close/bigpicture".into()),
+                exe: Some(r"C:\Program Files (x86)\Steam\steam.exe".into()),
+                icon: sim_icon(&icons, "steam-bigpicture", [27, 40, 56]),
+            },
+            Suggestion {
+                id: "playnite".into(),
+                name: "Playnite Fullscreen".into(),
+                kind: LaunchKind::Path,
+                target: r"C:\Users\dev\AppData\Local\Playnite\Playnite.FullscreenApp.exe".into(),
+                close: None,
+                exe: Some(r"C:\Users\dev\AppData\Local\Playnite\Playnite.FullscreenApp.exe".into()),
+                icon: sim_icon(&icons, "playnite", [40, 60, 120]),
+            },
+            Suggestion {
+                id: "xbox".into(),
+                name: "Xbox".into(),
+                kind: LaunchKind::App,
+                target: xbox_id.into(),
+                close: None,
+                exe: None,
+                icon: sim_icon(&icons, "xbox", [16, 124, 16]),
+            },
+        ];
+        Ok(AgentCatalogue { user: Some("dev".into()), apps, suggestions, roots: sim_tree(&dir), icons_dir: icons.display().to_string() })
     }
 
     pub fn launch(launch: &Launch) -> Result<Value> {
@@ -1249,7 +1308,8 @@ mod tests {
         let bp = Launch { kind: LaunchKind::Uri, target: "steam://open/bigpicture".into(), name: "Steam Big Picture".into(), icon: Some("x".into()), exe: None, close: None, close_at_end: true, skip_desktop: true };
         let v = l.validate(bp).unwrap();
         assert_eq!(v.close.as_deref(), Some("steam://close/bigpicture"));
-        assert_eq!(v.icon, None);
+        // L'icône vient du catalogue, jamais du client.
+        assert_eq!(v.icon, Some(icon_name("steam-bigpicture")));
         assert!(v.close_at_end && v.skip_desktop);
         // Une app du catalogue prend son exécutable.
         let app = Launch { kind: LaunchKind::App, target: "Sim.Excel".into(), name: "Excel".into(), icon: None, exe: None, close: None, close_at_end: false, skip_desktop: false };
