@@ -28,7 +28,7 @@ Kyber's repositories have no `rust-toolchain.toml`: rustup's default toolchain d
 - **Patch that does not apply**: the rejected hunk is shown (`patch -r -` for the server, `git apply --check` for the clients).
 - **Patch that adds a file**: `build.sh` resets each file of the server patches to the original, one by one; a file missing from the original is deleted instead of restored. No `git checkout -- .`: `kysdk/kyctl` and `kysdk/kymux` also carry the app patches.
 - **Worktree**: `third_party/` (outside git) can be a link there to the main checkout's. The scripts use its real path (`pwd -P`): meson and cargo record the sources' absolute paths, and another path makes them reconfigure and rebuild everything.
-- **App open**: `build-kyclient.sh` and `apps/apple/scripts/build-apple.sh` refuse to run while KyberNow is open (`pgrep -x KyberNow`); `build-kyclient.sh` checks it at the start and right before copying into `Vendor/` (see "Embedding the libraries in the app without crashing it" below).
+- **App open**: `build-kyclient.sh` and `apps/apple/scripts/build-apple.sh` refuse to run while KyberNow is open (`pgrep -x "KyberNow( Link)?"`); `build-kyclient.sh` checks it at the start and right before copying into `Vendor/` (see "Embedding the libraries in the app without crashing it" below).
 
 ## Kyber 0.29 macOS client (kyber-desktop) with Xcode 27
 

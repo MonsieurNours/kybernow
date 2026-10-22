@@ -110,7 +110,7 @@
 		9E65F421E347662BB777AEE6 /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		9E6C27264097C061402863DD /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A9C3C8E33B10A3AF4E22E16F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KyberNow.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B17A1FCFFE1D64692B3C08B6 /* KyberNow Link.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "KyberNow Link.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B26BF360224E6C12792A4710 /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		B5B2EC8B704608F092769F7C /* DisplayInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayInfo.swift; sourceTree = "<group>"; };
 		C060A812A5011BB6AEC276EC /* KyberKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = KyberKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -151,7 +151,7 @@
 			isa = PBXGroup;
 			children = (
 				C060A812A5011BB6AEC276EC /* KyberKit.framework */,
-				B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */,
+				B17A1FCFFE1D64692B3C08B6 /* KyberNow Link.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -262,7 +262,7 @@
 				8EB2368866E8C3CB15143EE9 /* Sparkle */,
 			);
 			productName = KyberNow;
-			productReference = B17A1FCFFE1D64692B3C08B6 /* KyberNow.app */;
+			productReference = B17A1FCFFE1D64692B3C08B6 /* KyberNow Link.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -543,7 +543,8 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
-				PRODUCT_NAME = KyberNow;
+				PRODUCT_MODULE_NAME = KyberNow;
+				PRODUCT_NAME = "KyberNow Link";
 				PROVISIONING_PROFILE_SPECIFIER = P6DB682S4K.fr.leslignesclaires.kybernow;
 				SDKROOT = macosx;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";
@@ -639,7 +640,8 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/Vendor/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = fr.leslignesclaires.kybernow;
-				PRODUCT_NAME = KyberNow;
+				PRODUCT_MODULE_NAME = KyberNow;
+				PRODUCT_NAME = "KyberNow Link";
 				PROVISIONING_PROFILE_SPECIFIER = fr.leslignesclaires.kybernow;
 				SDKROOT = macosx;
 				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Vendor/include";

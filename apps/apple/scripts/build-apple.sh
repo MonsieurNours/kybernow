@@ -31,7 +31,7 @@ TARGET=aarch64-apple-darwin
 [ -f "$ROOTFS/lib/pkgconfig/kynput.pc" ] || { echo "libkynput introuvable dans $ROOTFS : lancez apps/macos/scripts/build-kyclient.sh" >&2; exit 1; }
 
 # Vendor/ d'un autre checkout (worktree) que celui de l'app ouverte : KYBERNOW_IGNORE_RUNNING=1.
-if [ "${KYBERNOW_IGNORE_RUNNING:-0}" != 1 ] && pgrep -x KyberNow >/dev/null; then
+if [ "${KYBERNOW_IGNORE_RUNNING:-0}" != 1 ] && pgrep -x "KyberNow( Link)?" >/dev/null; then
     echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/)." >&2
     exit 1
 fi

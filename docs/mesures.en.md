@@ -45,7 +45,7 @@ grep -rn KN_PRESENT_STATS apps/macos/KyberNow apps/macos/KyberKit
 2. Quit KyberNow Link (⌘Q), then rebuild the development app. `pgrep` must print nothing.
 
 ```bash
-pgrep KyberNow
+pgrep -x "KyberNow( Link)?"
 cd ~/Sites/kyber-apps/apps/macos
 xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Debug -derivedDataPath build/dev build
 ```
@@ -67,13 +67,13 @@ Window 2, the app. Run one of the two commands, never both:
 
 ```bash
 cd ~/Sites/kyber-apps
-APP="$PWD/apps/macos/build/dev/Build/Products/Debug/KyberNow.app"
+APP="$PWD/apps/macos/build/dev/Build/Products/Debug/KyberNow Link.app"
 
 # Without the guard (default behavior)
-KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow"
+KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow Link"
 
 # With the guard (for comparison)
-KN_PRESENT_STATS=1 KN_INFLIGHT_GUARD=1 "$APP/Contents/MacOS/KyberNow"
+KN_PRESENT_STATS=1 KN_INFLIGHT_GUARD=1 "$APP/Contents/MacOS/KyberNow Link"
 ```
 
 The app stays attached to window 2. ⌘Q or ⌃C quits it. Always launch the binary as above: `open` does not pass the variables on.
@@ -130,7 +130,7 @@ It says whether the session's Metal layer is presented directly on screen or com
 1. Quit the app. Relaunch it with the HUD (and the stats, to get the p50 of the same minute):
 
 ```bash
-MTL_HUD_ENABLED=1 KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow"
+MTL_HUD_ENABLED=1 KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow Link"
 ```
 
 2. Open the session, go full screen (⌃⌥⌘F), start the scene. The HUD appears over the image (device, frames per second, frame time, GPU time…).

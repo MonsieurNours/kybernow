@@ -28,7 +28,7 @@ KyberNow est la marque ; elle regroupe trois produits, nommés comme dans le res
 
 - **KyberNow Station** : le logiciel installé sur l'ordinateur Windows qui diffuse l'image (`KyberNow-Station-Setup.exe`). Dans les textes, « la Station » après la première mention ; « l'ordinateur » reste quand on parle de la machine.
 - **KyberNow Admin** : l'administration de la Station dans le navigateur (« Admin », sans article, après la première mention).
-- **KyberNow Link** : les apps qui affichent l'image (Mac, Windows, Apple TV, iPhone et iPad) et leur version web `/ecran` (`KyberNow-Link-Setup.exe` pour Windows, `KyberNow-macOS.zip` pour le Mac).
+- **KyberNow Link** : les apps qui affichent l'image (Mac, Windows, Apple TV, iPhone et iPad) et leur version web `/ecran` (`KyberNow-Link-Setup.exe` pour Windows, `KyberNow-Link-macOS.zip` pour le Mac).
 
 L'accueil les présente dans la section « La famille KyberNow » (`#famille`, juste après « Pourquoi »), chacun avec son logo signé (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies de `brand/v2/logo/`). Les cartes de téléchargement et l'encart « Avant de commencer » du guide reprennent les logos de Station et de Link. Un logo signé ne descend pas sous 32 px de haut (en dessous, la signature n'est plus lisible) ; le site n'a qu'un thème sombre, seules les versions `-dark` sont copiées.
 

@@ -5,6 +5,11 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.3
+
+- **App Mac : elle s'appelle KyberNow Link partout.** Le paquet devient « KyberNow Link.app » (Dock, Finder, Applications) et l'archive `KyberNow-Link-macOS.zip`. Une app déjà installée sous « KyberNow.app » se renomme d'elle-même au premier lancement de cette version, puis se relance ; réglages, ordinateurs, mots de passe et autorisations restent. `KyberNow-macOS.zip` reste publié en copie pour les liens existants.
+- Apps Mac, iPhone et iPad : l'en-tête et la barre du haut portent le logo signé KyberNow Link (étiquette « LINK » sous le nom), comme l'écran de lancement.
+
 ## 0.4.2
 
 - App Mac : la barre des menus affiche enfin « KyberNow Link » ; la correction de la 0.4.1 était écrasée par Xcode, le nom passe désormais par le catalogue localisé d'Info.plist.

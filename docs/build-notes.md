@@ -28,7 +28,7 @@ Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par 
 - **Correctif inapplicable** : le hunk refusé est affiché (`patch -r -` côté serveur, `git apply --check` côté client).
 - **Correctif qui ajoute un fichier** : `build.sh` remet à l'origine chaque fichier des correctifs serveur, un par un ; un fichier absent de l'origine est supprimé au lieu d'être restauré. Pas de `git checkout -- .` : `kysdk/kyctl` et `kysdk/kymux` portent aussi les correctifs des apps.
 - **Worktree** : `third_party/` (hors git) peut y être un lien vers celui du dépôt principal. Les scripts en prennent le chemin réel (`pwd -P`) : meson et cargo enregistrent les chemins absolus des sources, et un autre chemin les fait tout reconfigurer et tout recompiler.
-- **App ouverte** : `build-kyclient.sh` et `apps/apple/scripts/build-apple.sh` refusent de tourner si KyberNow est ouvert (`pgrep -x KyberNow`) ; `build-kyclient.sh` le vérifie au début et juste avant de copier dans `Vendor/` (voir « Intégrer les bibliothèques dans l'app sans la faire planter » plus bas).
+- **App ouverte** : `build-kyclient.sh` et `apps/apple/scripts/build-apple.sh` refusent de tourner si KyberNow est ouvert (`pgrep -x "KyberNow( Link)?"`) ; `build-kyclient.sh` le vérifie au début et juste avant de copier dans `Vendor/` (voir « Intégrer les bibliothèques dans l'app sans la faire planter » plus bas).
 
 ## Client macOS Kyber 0.29 (kyber-desktop) avec Xcode 27
 

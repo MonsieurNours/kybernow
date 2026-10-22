@@ -1,6 +1,6 @@
 #!/bin/bash
 # Phase de build Xcode : copie les bibliothèques Kyber et les plugins VLC
-# dans KyberNow.app/Contents/Frameworks, signés avec l'identité de l'app.
+# dans KyberNow Link.app/Contents/Frameworks, signés avec l'identité de l'app.
 #
 # Les fichiers inchangés ne sont jamais réécrits dans l'app : on signe une
 # copie de travail (seulement ce qui a changé dans Vendor/), puis on ne

@@ -52,7 +52,7 @@ KEY="${KYBERNOW_MINISIGN_KEY:-$HOME/Library/Application Support/KyberNow/minisig
 ITEM="${KYBERNOW_MINISIGN_ITEM:-kybernow-minisign}"
 if [ -n "${KYBERNOW_MINISIGN_KEY:-}" ]; then PUB="${KEY%.key}.pub"; else PUB="$REPO_PUB"; fi
 MANIFEST="kybernow-release.json"
-FILES=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+FILES=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Link-macOS.zip KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe
     KyberNow-Server-Setup.exe KyberNow-Setup.exe KyberNow-Client-Setup.exe)
 

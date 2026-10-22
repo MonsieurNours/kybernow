@@ -99,8 +99,39 @@ final class UpdateChannels: NSObject, SPUUpdaterDelegate {
     }
 }
 
+/// Les Mac installés avant la 0.4.3 ont l'app sous « KyberNow.app » : Sparkle
+/// met à jour le paquet en place, sans le renommer. Au lancement, avant que
+/// Sparkle démarre, l'app prend son nom « KyberNow Link.app » et se relance
+/// depuis ce chemin. Seulement dans un dossier Applications (pas un build, une
+/// image disque ou un dossier translocalisé), si le dossier est modifiable et
+/// le nom libre ; en cas d'échec, l'app reprend son nom et continue.
+enum BundleRename {
+    static let ran: Void = run()
+
+    private static func run() {
+        let fm = FileManager.default
+        let old = Bundle.main.bundleURL
+        let dir = old.deletingLastPathComponent()
+        let new = dir.appendingPathComponent("KyberNow Link.app")
+        guard old.lastPathComponent == "KyberNow.app", dir.lastPathComponent == "Applications",
+              !fm.fileExists(atPath: new.path), fm.isWritableFile(atPath: dir.path) else { return }
+        do { try fm.moveItem(at: old, to: new) } catch { return }
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-n", new.path]
+        if (try? open.run()) != nil {
+            open.waitUntilExit()
+            if open.terminationStatus == 0 { exit(0) }
+        }
+        try? fm.moveItem(at: new, to: old)
+    }
+}
+
 @main
 struct KyberNowApp: App {
+    /// Avant toute autre propriété (Sparkle compris) : voir `BundleRename`.
+    private let renamed: Void = BundleRename.ran
+
     @ViewBuilder private var route: some View {
         switch app.route {
         case .home: HomeView()

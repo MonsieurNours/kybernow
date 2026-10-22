@@ -312,9 +312,10 @@ function size(asset) {
   const v = win ? Math.floor(asset.size / 1048576 * 10) / 10 : Math.round(asset.size / 1e6 * 10) / 10;
   return v.toLocaleString(EN ? 'en' : 'fr', { maximumFractionDigits: 1 }) + T.mb;
 }
-// Installateurs renommés en 0.4.0 : tant que la dernière version publiée ne
-// porte que l'ancien nom, liens et tailles retombent dessus.
-const LEGACY = { 'KyberNow-Station-Setup.exe': 'KyberNow-Server-Setup.exe', 'KyberNow-Link-Setup.exe': 'KyberNow-Client-Setup.exe' };
+// Fichiers renommés (installateurs en 0.4.0, archive Mac en 0.4.3) : tant que
+// la dernière version publiée ne porte que l'ancien nom, liens et tailles
+// retombent dessus.
+const LEGACY = { 'KyberNow-Station-Setup.exe': 'KyberNow-Server-Setup.exe', 'KyberNow-Link-Setup.exe': 'KyberNow-Client-Setup.exe', 'KyberNow-Link-macOS.zip': 'KyberNow-macOS.zip' };
 if ($('release-version') || document.querySelector('a[href*="/latest/download/"]')) {
   fetch('https://api.github.com/repos/MonsieurNours/kybernow/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
     .then(r => r.ok ? r.json() : Promise.reject())

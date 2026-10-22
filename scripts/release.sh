@@ -71,7 +71,11 @@ TAG="v$VERSION"
 OUT="$ROOT/dist/$TAG"
 CHANNEL=stable
 [ "$BETA" = 1 ] && CHANNEL=beta
-APP="apps/macos/build/Build/Products/Release/KyberNow.app"
+APP="apps/macos/build/Build/Products/Release/KyberNow Link.app"
+# Archive de l'app Mac (flux Sparkle, site) ; KyberNow-macOS.zip, son nom
+# jusqu'à la 0.4.2, est publié en copie pour les liens existants.
+MAC_ZIP=KyberNow-Link-macOS.zip
+LEGACY_MAC=(KyberNow-macOS.zip)
 OVERLAY="$ROOT/third_party/payload/kyber-overlay"
 OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
 # Flux cumulatif des mises à jour de l'app Mac, publié par le site
@@ -88,7 +92,7 @@ FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 # docs/releases.md, « Anciens noms des installateurs ».
 LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
-ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}"
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
@@ -257,7 +261,7 @@ fi
 # Aucune KyberNow ne doit tourner : le cœur Rust de l'app Mac
 # (apps/macos/Vendor/Frameworks/libkybernow.dylib) et les bibliothèques de
 # l'app Release sont réécrits (docs/build-notes.md, « App ouverte »).
-if pgrep -x KyberNow > /dev/null; then problem "quittez KyberNow (⌘Q) : le cœur Rust de l'app Mac est recompilé"; fi
+if pgrep -x "KyberNow( Link)?" > /dev/null; then problem "quittez KyberNow Link (⌘Q) : le cœur Rust de l'app Mac est recompilé"; fi
 
 if [ ${#PROBLEMS[@]} -gt 0 ]; then
     echo >&2
@@ -413,7 +417,8 @@ else
     act xcrun stapler staple "$APP"
 fi
 
-ditto -c -k --keepParent "$APP" "$OUT/KyberNow-macOS.zip"
+ditto -c -k --keepParent "$APP" "$OUT/$MAC_ZIP"
+for f in "${LEGACY_MAC[@]}"; do cp "$OUT/$MAC_ZIP" "$OUT/$f"; done
 cp server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
 for f in "${LEGACY_STATION[@]}"; do cp "$OUT/KyberNow-Station-Setup.exe" "$OUT/$f"; done
 
@@ -432,15 +437,15 @@ printf '%s\n\n<!-- en -->\n\n%s\n' "$NOTES_FR" "$NOTES_EN" > "$OUT/notes.md"
 # flux cumulatif gardent leurs propres notes).
 NOTES_DIR="site/updates/notes/$VERSION"
 FEED="$(mktemp -d)"
-cp "$OUT/KyberNow-macOS.zip" "$FEED/"
-printf '%s\n' "$NOTES_EN" > "$FEED/KyberNow-macOS.md"
-printf '%s\n' "$NOTES_FR" | python3 scripts/notes-html.py > "$FEED/KyberNow-macOS.fr.html"
+cp "$OUT/$MAC_ZIP" "$FEED/"
+printf '%s\n' "$NOTES_EN" > "$FEED/${MAC_ZIP%.zip}.md"
+printf '%s\n' "$NOTES_FR" | python3 scripts/notes-html.py > "$FEED/${MAC_ZIP%.zip}.fr.html"
 CHANNEL_FLAG=()
 [ "$BETA" = 1 ] && CHANNEL_FLAG=(--channel beta)
 "$SPARKLE/generate_appcast" --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
     --release-notes-url-prefix "https://www.kybernow.app/updates/notes/$VERSION/" \
     ${CHANNEL_FLAG[@]+"${CHANNEL_FLAG[@]}"} --embed-release-notes -o "$OUT/appcast.xml" "$FEED"
-mkdir -p "$OUT/notes" && cp "$FEED/KyberNow-macOS.fr.html" "$OUT/notes/"
+mkdir -p "$OUT/notes" && cp "$FEED/${MAC_ZIP%.zip}.fr.html" "$OUT/notes/"
 rm -rf "$FEED"
 
 step "Flux cumulatif du site ($SITE_FEED)"
@@ -451,12 +456,12 @@ BASE=()
 [ -f "$SITE_FEED" ] && BASE=(--base "$SITE_FEED")
 python3 scripts/merge-appcast.py -o "$OUT/appcast-site.xml" ${BASE[@]+"${BASE[@]}"} "--$CHANNEL" "$OUT/appcast.xml"
 xmllint --noout "$OUT/appcast-site.xml"
-if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED" && cmp -s "$OUT/notes/KyberNow-macOS.fr.html" "$NOTES_DIR/KyberNow-macOS.fr.html"; then
+if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED" && cmp -s "$OUT/notes/${MAC_ZIP%.zip}.fr.html" "$NOTES_DIR/${MAC_ZIP%.zip}.fr.html"; then
     echo "    $SITE_FEED déjà à jour"
 elif [ "$MODE" = release ]; then
     mkdir -p "$(dirname "$SITE_FEED")" "$NOTES_DIR"
     cp "$OUT/appcast-site.xml" "$SITE_FEED"
-    cp "$OUT/notes/KyberNow-macOS.fr.html" "$NOTES_DIR/"
+    cp "$OUT/notes/${MAC_ZIP%.zip}.fr.html" "$NOTES_DIR/"
     git add -- "$SITE_FEED" "$NOTES_DIR"
     # Relance : le commit du flux pas encore poussé est remplacé, pas doublé.
     if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && ! git merge-base --is-ancestor HEAD origin/main; then
@@ -473,7 +478,7 @@ fi
 
 step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
-(cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
+(cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then

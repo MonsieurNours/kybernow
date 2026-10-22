@@ -184,9 +184,9 @@ struct HomeScreen: View {
                     .position(x: markFrame.midX + (center.x - markFrame.midX) * flight,
                               y: markFrame.midY + (center.y - markFrame.midY) * flight)
                 // Agrandi depuis son bord haut : le haut du nom reste à 22 pt sous le symbole.
-                // La signature « LINK » du lancement s'efface pendant le vol : la barre
-                // porte le nom seul (trop petit pour la signature).
-                Wordmark(size: wordSize, signed: true, signatureOpacity: Double(flight))
+                // L'étiquette « LINK » passe de sa taille au lancement à celle de la barre
+                // (taille minimale) : affichée = taille × échelle du vol.
+                Wordmark(size: wordSize, tagSize: flightTagSize(wordScale: wordScale))
                     .fixedSize()
                     .scaleEffect(1 + (wordScale - 1) * flight, anchor: .top)
                     .position(x: wordFrame.midX + (wordTop.x - wordFrame.midX) * flight,
@@ -195,6 +195,15 @@ struct HomeScreen: View {
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .allowsHitTesting(false)
         }
+    }
+
+    /// Taille d'étiquette du nom volant, avant son agrandissement : de celle
+    /// du lancement (flight = 1) à celle de la barre (flight = 0).
+    private func flightTagSize(wordScale: CGFloat) -> CGFloat {
+        let bar = max(wordSize, Wordmark.minTagSize)
+        let launch = max(LaunchView.nameSize, Wordmark.minTagSize)
+        let shown = bar + (launch - bar) * flight
+        return shown / (1 + (wordScale - 1) * flight)
     }
 
     /// Vrai pendant le lancement et le vol : la barre cache son propre

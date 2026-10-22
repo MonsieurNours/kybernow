@@ -464,24 +464,25 @@ extension Color {
 
 /// Le nom : « Kyber » léger, « Now » gras, Archivo élargie.
 ///
-/// À partir de `signedFrom` points, le logo signé de KyberNow Link (charte :
-/// brand/v2/logo/kybernow-link-dark.svg, géométrie : brand/v2/tools/geometry.json,
-/// `signed.link`) : sous le nom, ferrée à droite sur le pied du « w »,
-/// l'étiquette « LINK » au coin gauche coupé à 45°. En dessous de cette
-/// taille, le nom seul : la signature ne se lirait plus. L'étiquette pend
-/// sous le nom sans compter dans sa taille : à côté du symbole, le nom reste
-/// centré sur lui, comme dans le logo signé.
+/// Le logo signé de KyberNow Link (charte : brand/v2/logo/kybernow-link-dark.svg,
+/// géométrie : brand/v2/tools/geometry.json, `signed.link`) : sous le nom,
+/// ferrée à droite sur le pied du « w », l'étiquette « LINK » au coin gauche
+/// coupé à 45°. Sous un petit nom (barre du haut, en-tête), l'étiquette garde
+/// une taille minimale (`minTagSize`) pour que « LINK » reste lisible.
+/// L'étiquette pend sous le nom sans compter dans sa taille : à côté du
+/// symbole, le nom reste centré sur lui, comme dans le logo signé.
 struct Wordmark: View {
     var size: CGFloat = 26
     var color: Color = Theme.text
-    /// Signature « LINK » : `nil`, selon la taille ; `true` la force (vol du
-    /// lancement sur iPhone et iPad, avec `signatureOpacity`).
-    var signed: Bool? = nil
+    /// Signature « LINK » : affichée sauf `false`.
+    var signed = true
     var signatureOpacity: Double = 1
+    /// Taille de l'étiquette (en corps de nom) ; par défaut, `size`, et au
+    /// moins `minTagSize`.
+    var tagSize: CGFloat? = nil
 
-    /// Corps du nom à partir duquel la signature s'affiche : le logo signé
-    /// fait alors 32 points de haut environ (1,35 corps).
-    static let signedFrom: CGFloat = 24
+    /// Plus petite étiquette : « LINK » en 7 points (0,26 corps).
+    static let minTagSize: CGFloat = 27
 
     var body: some View {
         let name = (Text(verbatim: "Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
@@ -489,12 +490,12 @@ struct Wordmark: View {
             .tracking(-size * 0.012)
             .foregroundStyle(color)
         Group {
-            if signed ?? (size >= Self.signedFrom) {
+            if signed {
                 name.overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextBaseline)) {
-                    SignatureTag(size: size)
+                    SignatureTag(size: tagSize ?? max(size, Self.minTagSize))
                         .opacity(signatureOpacity)
                         // Haut de l'étiquette à 0,13 corps sous la ligne de base…
-                        .alignmentGuide(.lastTextBaseline) { d in d[.top] - size * 0.13 }
+                        .alignmentGuide(.lastTextBaseline) { d in d[.top] - max(size * 0.13, 2) }
                         // … et son bord droit sur le pied du « w », à 0,22 corps de la fin du nom.
                         .alignmentGuide(.trailing) { d in d[.trailing] + size * 0.22 }
                 }

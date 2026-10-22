@@ -27,7 +27,7 @@ OUT="$HERE/Vendor"
 # Remplacer les bibliothèques sous l'app ouverte fait planter VLC à la
 # session suivante (docs/build-notes.md).
 app_closed() {
-    if pgrep -x KyberNow >/dev/null; then
+    if pgrep -x "KyberNow( Link)?" >/dev/null; then
         echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/)." >&2
         exit 1
     fi

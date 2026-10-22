@@ -1,6 +1,6 @@
 #!/bin/bash
 # Signature finale de la version diffusée, après xcodebuild (Release) :
-#   apps/macos/scripts/sign-release.sh apps/macos/build/Build/Products/Release/KyberNow.app
+#   apps/macos/scripts/sign-release.sh apps/macos/build/Build/Products/Release/"KyberNow Link.app"
 #
 # Xcode copie Sparkle (paquet Swift) dans l'app après les phases du projet,
 # avec la signature de Sparkle : la notarisation exige notre Developer ID, le
@@ -12,7 +12,7 @@
 # (iCloud), Xcode y ajoute l'identifiant d'app et l'équipe, que le fichier
 # .entitlements ne contient pas ; le profil reste dans Contents/.
 set -euo pipefail
-APP="${1:?usage : sign-release.sh KyberNow.app}"
+APP="${1:?usage : sign-release.sh "KyberNow Link.app"}"
 IDENTITY="Developer ID Application: Mathieu Requenna (P6DB682S4K)"
 FLAGS=(--force --sign "$IDENTITY" --options runtime --timestamp)
 ENTITLEMENTS="$(mktemp -d)/KyberNow.entitlements"

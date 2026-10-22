@@ -38,11 +38,12 @@ while read -r TAG PRERELEASE; do
     mkdir -p "$TMP/$TAG"
     if gh release download "$TAG" -R "$REPO" -p appcast.xml -D "$TMP/$TAG" > /dev/null 2>&1; then
         echo "  $TAG ($CHANNEL) : appcast.xml de la release"
-    elif gh release download "$TAG" -R "$REPO" -p KyberNow-macOS.zip -D "$TMP/$TAG/archives" > /dev/null 2>&1; then
+    elif gh release download "$TAG" -R "$REPO" -p KyberNow-Link-macOS.zip -D "$TMP/$TAG/archives" > /dev/null 2>&1 \
+        || gh release download "$TAG" -R "$REPO" -p KyberNow-macOS.zip -D "$TMP/$TAG/archives" > /dev/null 2>&1; then
         # Release sans flux : generate_appcast le refait (clé Sparkle du Trousseau).
         SPARKLE=$(ls -d apps/macos/build/SourcePackages/artifacts/*/*/bin 2> /dev/null | head -1)
         [ -n "$SPARKLE" ] || { echo "$TAG : outils Sparkle absents, compilez l'app Mac une fois (xcodebuild)" >&2; exit 1; }
-        gh release view "$TAG" -R "$REPO" --json body --jq .body > "$TMP/$TAG/archives/KyberNow-macOS.md"
+        gh release view "$TAG" -R "$REPO" --json body --jq .body > "$TMP/$TAG/archives/$(basename "$(ls "$TMP/$TAG/archives"/*.zip)" .zip).md"
         FLAGS=()
         [ "$CHANNEL" = beta ] && FLAGS=(--channel beta)
         "$SPARKLE/generate_appcast" --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \

@@ -13,7 +13,7 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | `KyberNow-Station-Setup.exe` | KyberNow Station : première installation sur l'ordinateur Windows qui diffusera son image (installation complète, ou réinstallation quand une mise à jour l'exige) |
 | `kybernow-update.zip` | Mise à jour d'une Station déjà installée : surcouche Kyber, Admin, icône, `update.ps1` |
 | `update.ps1` | Mise à jour à la main, sans Admin |
-| `KyberNow-macOS.zip` | L'app Mac (première installation : la glisser dans Applications) |
+| `KyberNow-Link-macOS.zip` | L'app Mac, « KyberNow Link.app » (première installation : la glisser dans Applications) ; archive du flux Sparkle |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
 | `KyberNow-Link-Setup.exe` | KyberNow Link pour Windows, x64 et ARM64 dans un seul fichier : installateur par utilisateur (première installation et mises à jour de l'app, voir [apps/windows/README.md](../apps/windows/README.md)) |
 | `KyberSDK-tvOS.zip` | SDK de Kyber et cœur KyberNow (`KyberNow.xcframework`) compilés pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
@@ -32,6 +32,7 @@ Les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `Kybe
 | `KyberNow-Server-Setup.exe` | `KyberNow-Station-Setup.exe` | Admin en 0.3.1 et avant renvoie vers ce nom (« réinstallez avec KyberNow-Server-Setup.exe ») ; liens existants vers `releases/latest/download/` (site, guide, messages) |
 | `KyberNow-Setup.exe` | `KyberNow-Station-Setup.exe` | Nom de l'installateur avant la 0.3.0 : liens existants |
 | `KyberNow-Client-Setup.exe` | `KyberNow-Link-Setup.exe` | L'app Windows en 0.3.1 et avant le cherche dans le manifeste signé et dans la release pour se mettre à jour ; liens existants |
+| `KyberNow-macOS.zip` | `KyberNow-Link-macOS.zip` | Nom de l'archive Mac jusqu'à la 0.4.2 : liens existants (le flux Sparkle, lui, pointe vers l'archive de chaque version) |
 
 Admin et l'app Windows cherchent d'abord le nouveau nom, puis l'ancien s'il manque (manifeste d'une version antérieure à la 0.4.0). Le manifeste signé et `SHA256SUMS` listent les deux noms, avec la même empreinte.
 
@@ -106,7 +107,7 @@ Chaque version publie un manifeste, `kybernow-release.json`, signé avec une cl�
 }
 ```
 
-`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
+`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-Link-macOS.zip`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
 
 Le manifeste s'écrit et se signe avec :
 

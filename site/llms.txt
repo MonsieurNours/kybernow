@@ -21,7 +21,7 @@ Key facts:
 
 ## Downloads and code
 
-- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Station-Setup.exe (KyberNow Station, Windows), KyberNow-Link-Setup.exe (KyberNow Link for Windows, x64 and ARM64), KyberNow-macOS.zip (KyberNow Link for Mac), release notes and SHA-256 checksums
+- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Station-Setup.exe (KyberNow Station, Windows), KyberNow-Link-Setup.exe (KyberNow Link for Windows, x64 and ARM64), KyberNow-Link-macOS.zip (KyberNow Link for Mac), release notes and SHA-256 checksums
 - [Installing KyberNow Link on Apple TV](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
 - [Installing KyberNow Link on iPhone and iPad](https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md)
 - [Source code](https://github.com/MonsieurNours/kybernow)

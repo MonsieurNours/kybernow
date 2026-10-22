@@ -4,6 +4,11 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.3
+
+- **Mac app: it is called KyberNow Link everywhere.** The bundle becomes “KyberNow Link.app” (Dock, Finder, Applications) and the archive `KyberNow-Link-macOS.zip`. An app already installed as “KyberNow.app” renames itself on the first launch of this version, then relaunches; settings, computers, passwords and permissions stay. `KyberNow-macOS.zip` is still published as a copy for existing links.
+- Mac, iPhone and iPad apps: the header and the top bar carry the signed KyberNow Link logo (“LINK” tag under the name), like the launch screen.
+
 ## 0.4.2
 
 - Mac app: the menu bar finally shows "KyberNow Link"; the 0.4.1 fix was overwritten by Xcode, the name now goes through Info.plist's localized catalog.
