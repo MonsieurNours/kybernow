@@ -158,10 +158,12 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
         fun isGamepad(d: InputDevice): Boolean {
             if (d.isVirtual) return false
             val s = d.sources
-            val pad = s and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD
-            val joy = s and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK
-            // Les télécommandes annoncent parfois SOURCE_GAMEPAD sans bouton A ni stick.
-            return (pad || joy) && (joy || d.hasKeys(KeyEvent.KEYCODE_BUTTON_A)[0])
+            // Une manette a des sticks (SOURCE_JOYSTICK, axes X et Y). Les
+            // télécommandes et les appareils virtuels d'Android
+            // (shield-ask-remote, virtual-search…) annoncent parfois
+            // SOURCE_GAMEPAD et le bouton A, sans stick.
+            if (s and InputDevice.SOURCE_JOYSTICK != InputDevice.SOURCE_JOYSTICK) return false
+            return d.getMotionRange(MotionEvent.AXIS_X) != null && d.getMotionRange(MotionEvent.AXIS_Y) != null
         }
 
         fun isGamepadEvent(event: KeyEvent): Boolean {

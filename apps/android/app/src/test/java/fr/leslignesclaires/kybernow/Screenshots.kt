@@ -76,7 +76,7 @@ class Screenshots {
     }
 
     private val atelier = Host(
-        id = "a", name = "Atelier", address = "192.168.1.20", port = 41234, fingerprint = "sha256:ab:cd:ef:01", user = "matthieu",
+        id = "a", name = "PC-DE-MATTHIEU", address = "192.168.1.20", port = 41234, fingerprint = "sha256:ab:cd:ef:01", user = "matthieu",
         os = "Windows 11 Pro 24H2", gpu = "NVIDIA GeForce RTX 3080 Ti", settings = fr.leslignesclaires.kybernow.model.HostSettings(profile = Profile.GAME),
         last = LastSession(8.3, 11.9, 4320, 0),
     )

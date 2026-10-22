@@ -127,9 +127,9 @@ fun Eyebrow(text: String, modifier: Modifier = Modifier, color: Color = Kn.muted
 }
 
 @Composable
-fun Mono(text: String, modifier: Modifier = Modifier, size: Float = 12f, color: Color = Kn.frost2, weight: Int = 400) {
+fun Mono(text: String, modifier: Modifier = Modifier, size: Float = 12f, color: Color = Kn.frost2, weight: Int = 400, maxLines: Int = Int.MAX_VALUE) {
     val s = LocalScale.current
-    Text(text, modifier, color = color, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(size), fontWeight = FontWeight(weight)))
+    Text(text, modifier, color = color, maxLines = maxLines, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = TextStyle(fontFamily = KnFonts.mono, fontSize = s.sp(size), fontWeight = FontWeight(weight)))
 }
 
 @Composable
@@ -142,6 +142,22 @@ fun Body(text: String, modifier: Modifier = Modifier, size: Float = 15f, color: 
 fun Title(text: String, modifier: Modifier = Modifier, size: Float = 26f, weight: Int = 720) {
     val s = LocalScale.current
     Text(text, modifier, color = Kn.frost, maxLines = 2, style = TextStyle(fontFamily = KnFonts.display, fontSize = s.sp(size), fontWeight = FontWeight(weight), letterSpacing = s.sp(-size / 40f), lineHeight = s.sp(size * 1.0f)))
+}
+
+/**
+ * Un titre sur une seule ligne qui rapetisse pour tenir (nom d'un ordinateur,
+ * « PC-DE-MATTHIEU ») : jamais coupé au milieu d'un mot ni sur deux lignes.
+ */
+@Composable
+fun FitTitle(text: String, modifier: Modifier = Modifier, size: Float = 26f, min: Float = 18f, weight: Int = 720) {
+    val s = LocalScale.current
+    androidx.compose.foundation.text.BasicText(
+        text,
+        modifier,
+        style = TextStyle(color = Kn.frost, fontFamily = KnFonts.display, fontWeight = FontWeight(weight), letterSpacing = s.sp(-size / 40f), lineHeight = s.sp(size * 1.05f)),
+        maxLines = 1,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = s.sp(min), maxFontSize = s.sp(size), stepSize = s.sp(2f)),
+    )
 }
 
 // MARK: - Focus et néon

@@ -146,7 +146,7 @@ fun HostSettingsScreen(hostId: String, onBack: () -> Unit, onRemoved: () -> Unit
     val host = hosts.firstOrNull { it.id == hostId } ?: return
     val set = host.settings
     val tv = LocalForm.current == FormFactor.TV
-    val screen = remember { Screen.of(context) }
+    val screen = remember { Screen.of(context) }.let { if (tv) it.copy(variableRefresh = false) else it }
     val d = app.decoders
     fun update(f: (HostSettings) -> HostSettings) = app.hosts.update(hostId) { it.copy(settings = f(it.settings)) }
 

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -84,6 +85,7 @@ import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
 import fr.leslignesclaires.kybernow.ui.Reach
 import fr.leslignesclaires.kybernow.ui.Title
+import fr.leslignesclaires.kybernow.ui.FitTitle
 import fr.leslignesclaires.kybernow.ui.fmt
 import fr.leslignesclaires.kybernow.ui.panel
 import java.util.Locale
@@ -202,16 +204,18 @@ private fun IconPill(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun Hero(host: Host, st: HostStatus, actions: HomeActions, nameSize: Float, focus: FocusRequester?) {
     val s = LocalScale.current
     Column(verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
         StatusLine(host, st)
-        Title(host.name, size = nameSize)
+        FitTitle(host.name, Modifier.fillMaxWidth(), size = nameSize, min = nameSize * 0.45f)
         val details = listOfNotNull(st.info?.os ?: host.os, st.info?.gpu ?: host.gpu, host.address).joinToString(" · ")
-        Mono(details, size = 12f)
-        Spacer(Modifier.height(s.dp(14f)))
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(s.dp(10f))) {
+        Mono(details, size = 12f, maxLines = 1)
+        Spacer(Modifier.height(s.dp(8f)))
+        // Une seule rangée qui passe à la ligne si l'écran est étroit : rien n'est écrasé.
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f)), itemVerticalAlignment = Alignment.CenterVertically) {
             if (st.online == false && host.mac != null) {
                 PrimaryButton(stringResource(R.string.home_wake), { actions.wake(host) }, Modifier.then(if (focus != null) Modifier.focusRequester(focus) else Modifier))
             } else {
@@ -222,12 +226,9 @@ private fun Hero(host: Host, st: HostStatus, actions: HomeActions, nameSize: Flo
                     enabled = st.online != false,
                 )
             }
-            Spacer(Modifier.width(s.dp(8f)))
             Profile.entries.forEach { p ->
                 GlassButton(profileLabel(p), { actions.setProfile(host.id, p) }, selected = host.settings.profile == p)
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(s.dp(10f)), modifier = Modifier.padding(top = s.dp(4f))) {
             GlassButton(stringResource(R.string.home_host_settings), { actions.hostSettings(host) }, leading = { KnIcon(KnIcons.settings, size = 16f); Spacer(Modifier.width(6.dp)) })
         }
         if (st.accountRefused) Body(stringResource(R.string.home_account_refused), color = Kn.warn, size = 13f)
@@ -293,7 +294,8 @@ private fun ReadyPanel(host: Host, ready: ReadyInfo, modifier: Modifier = Modifi
                 listOfNotNull(
                     if (d.hevc != null) "HEVC" else "H.264",
                     if (d.av1 != null) "AV1" else null,
-                    stringResource(if (screen.variableRefresh) R.string.ready_vrr_yes else R.string.ready_vrr_no),
+                    // Au téléviseur, plusieurs fréquences ne font pas du VRR : Android ne le pilote pas en HDMI.
+                    stringResource(if (screen.variableRefresh && LocalForm.current != FormFactor.TV) R.string.ready_vrr_yes else R.string.ready_vrr_no),
                 ).joinToString(" · "),
                 size = 11f,
             )
@@ -408,13 +410,13 @@ private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: Home
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
         TopBar(actions)
         Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 72f else 56f, focus) }
+            Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 64f else 52f, focus) }
             if (showReady) {
                 Spacer(Modifier.width(s.dp(28f)))
                 ReadyPanel(host, state.ready, Modifier.width(s.dp(if (s.tv) 330f else 300f)))
             }
         }
-        HostRow(state, actions, card = if (s.tv) 210f else 180f)
+        HostRow(state, actions, card = if (s.tv) 180f else 170f)
     }
 }
 
