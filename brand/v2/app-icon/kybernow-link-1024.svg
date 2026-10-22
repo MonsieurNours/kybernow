@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="KyberNow Client">
-<title>KyberNow Client</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="KyberNow Link">
+<title>KyberNow Link</title>
 <defs>
   <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1016"/><stop offset="1" stop-color="#05070A"/></linearGradient>
   <linearGradient id="ice" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F4FAFB"/><stop offset="1" stop-color="#B9CAD1"/></linearGradient>

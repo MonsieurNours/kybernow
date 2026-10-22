@@ -1,6 +1,7 @@
 // Assemble la charte (brand/v2/charte/index.html) depuis charte.src.html :
 //   <x-mark state="now|server|console" class="…"></x-mark>  → symbole en SVG (couleurs en CSS)
 //   <x-word class="…"></x-word>                             → nom vectorisé
+//   <x-signed product="station|admin|link"></x-signed>      → logo signé d'un produit
 //   <x-i n="qr-code" w="regular|bold|fill"></x-i>           → icône Phosphor en ligne
 //   /*GEOMETRY*/                                            → géométrie pour le script 3D
 //
@@ -30,6 +31,17 @@ const W = geo.wordmark;
 html = html.replace(/<x-word([^>]*)><\/x-word>/g, (_, a) => {
   const { class: cls = "" } = attrs(a);
   return `<svg class="word ${cls}" viewBox="0 -74 ${W.width.toFixed(1)} 96" role="img" aria-label="KyberNow"><path class="w-kyber" d="${W.kyber}"/><path class="w-now" transform="translate(${W.nowOffset.toFixed(2)} 0)" d="${W.now}"/></svg>`;
+});
+
+// Logos signés (Station, Admin, Link), géométrie calculée par generate.mjs.
+html = html.replace(/<x-signed([^>]*)><\/x-signed>/g, (_, a) => {
+  const { product, class: cls = "" } = attrs(a);
+  const s = geo.signed?.[product];
+  if (!s) throw new Error(`logo signé inconnu : ${product}`);
+  return `<svg class="signed ${cls}" viewBox="0 0 ${s.width} ${s.height}" role="img" aria-label="${s.name}">` +
+    `<svg class="mark" data-state="${s.state}" x="0" y="0" width="${s.mark}" height="${s.mark}" style="width:${s.mark}px;height:${s.mark}px" viewBox="0 0 48 48"><path class="m-src" d="${geo.source}"/><path class="m-dst" d="${geo.dest}"/><path class="m-beam" d="${geo.beam}"/></svg>` +
+    `<g class="s-word" transform="translate(${s.wordX} ${s.baseline})"><path d="${W.kyber}"/><path transform="translate(${W.nowOffset.toFixed(2)} 0)" d="${W.now}"/></g>` +
+    `<path class="s-tag" d="${s.tag}"/><path class="s-txt" transform="translate(${s.sigX} ${s.sigY}) scale(${s.sigScale})" d="${s.sig}"/></svg>`;
 });
 
 // Planche d'icônes : chaque icône dans les trois graisses, la page choisit laquelle afficher.

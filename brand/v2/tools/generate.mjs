@@ -69,14 +69,21 @@ const neonDefs = (wide = 3.2, soft = 0.7) =>
   `<filter id="kn-nw" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="${wide}"/></filter>` +
   `<filter id="kn-ns" filterUnits="userSpaceOnUse" x="-12" y="-12" width="72" height="72"><feGaussianBlur stdDeviation="${soft}"/></filter>`;
 
-/** Les trois états du symbole : chaque app allume une partie différente. */
+/** Les trois états du symbole : chaque app allume une partie différente.
+ *  Les clés gardent leurs noms d'origine (fichiers mark/, composants Mark des apps). */
 const STATES = {
-  // Écosystème et Client : le signal arrive chez vous.
+  // Écosystème et KyberNow Link : le signal arrive chez vous.
   now:     (ice, sig) => [[SOURCE, ice], [DEST, sig]],
-  // Server : le signal part de l'ordinateur.
+  // KyberNow Station : le signal part de l'ordinateur.
   server:  (ice, sig) => [[SOURCE, sig], [DEST, ice]],
-  // Console : le lien lui-même, sous surveillance.
+  // KyberNow Admin : le lien lui-même, sous surveillance.
   console: (ice, sig, dim) => [[SOURCE, dim], [DEST, dim], [BEAM, sig]],
+};
+/** Produits : état du symbole et signature (tools/signature.json). */
+const PRODUCTS = {
+  station: { state: "server",  name: "KyberNow Station" },
+  admin:   { state: "console", name: "KyberNow Admin" },
+  link:    { state: "now",     name: "KyberNow Link" },
 };
 
 function markGroup(state, { ice, sig, dim, x = 0, y = 0, size = G }) {
@@ -98,6 +105,52 @@ function wordmark(color, x, y, s = 1) {
   return `<g transform="translate(${+x.toFixed(3)} ${+y.toFixed(3)}) scale(${s})" fill="${color}">` +
     `<path d="${WM.kyber.d}"/>` +
     `<g transform="translate(${+(WM.kyber.advance - 1.2).toFixed(2)} 0)"><path d="${WM.now.d}"/></g></g>`;
+}
+
+// ── Signature ───────────────────────────────────────────────────────────────
+// Le produit sous le nom, en Martian Mono capitales (graisse 540), sur une
+// étiquette au coin gauche coupé à 45° comme la couture. Ferrée à droite sur
+// le pied du « w » de Now (et non sa pointe haute), 13 unités sous la ligne
+// de base, capitales à 0,26 de la taille du nom.
+const SIG = JSON.parse(readFileSync(join(here, "signature.json"), "utf8"));
+const W_FOOT = WM.kyber.advance - 1.2 + 251.7486;   // pied droit du « w »
+const W_RIGHT = WM.kyber.advance - 1.2 + 274.0531;  // pointe haute du « w »
+const SIG_S = 0.26, SIG_PX = 12, SIG_PY = 8, SIG_GAP = 13;
+const TAG = { dark: { fill: "#1E2832", text: "#C9D5DA" }, light: { fill: "#DCE3E7", text: "#2F3B45" } };
+const r3 = (n) => +n.toFixed(3);
+
+/** Étendue d'un tracé absolu (commandes M L H V Q C Z, sortie de outline.py). */
+function bounds(d) {
+  let cmd = "", k = 0, x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (const t of d.match(/[MLHVQCZ]|-?[\d.]+(?:e-?\d+)?/gi)) {
+    if (/[A-Z]/i.test(t)) { cmd = t.toUpperCase(); k = 0; continue; }
+    const v = +t;
+    if (cmd === "H" || (cmd !== "V" && k % 2 === 0)) { x0 = Math.min(x0, v); x1 = Math.max(x1, v); }
+    else y0 = Math.min(y0, v);
+    k++;
+  }
+  return { x0, x1, y0 };
+}
+
+const SIGNED = {};
+/** Logo horizontal signé : symbole, nom, étiquette du produit dessous. */
+function signedLogo(product, theme, col) {
+  const { state, name } = PRODUCTS[product];
+  const sig = SIG[product], b = bounds(sig.d), tag = TAG[theme];
+  const mh = CAP * 1.46, gap = mh * 0.36, x0 = mh + gap;
+  const baseline = (mh - CAP) / 2 + CAP;
+  const capH = -b.y0 * SIG_S * 0.98, textW = (b.x1 - b.x0) * SIG_S;
+  const h = capH + 2 * SIG_PY, top = baseline + SIG_GAP, B = top + h;
+  const R = x0 + W_FOOT, L = R - (textW + 2 * SIG_PX + h * 0.8);
+  const shape = `M${r3(L + h)} ${r3(top)} H${r3(R - 2)} Q${r3(R)} ${r3(top)} ${r3(R)} ${r3(top + 2)} V${r3(B - 2)} Q${r3(R)} ${r3(B)} ${r3(R - 2)} ${r3(B)} H${r3(L)} Z`;
+  // Pour la charte (build-charte.mjs) : même mise en page, couleurs en CSS.
+  SIGNED[product] = { name, state, width: r3(x0 + W_RIGHT + 1), height: r3(B + 1), mark: r3(mh), wordX: r3(x0), baseline: r3(baseline),
+    tag: shape, sigX: r3(R - SIG_PX - b.x1 * SIG_S), sigY: r3(top + SIG_PY + capH), sigScale: SIG_S, sig: sig.d };
+  return svg(x0 + W_RIGHT + 1, B + 1,
+    markGroup(state, { ...col, size: mh }) + wordmark(col.word, x0, baseline) +
+    `<path d="${shape}" fill="${tag.fill}"/>` +
+    `<g transform="translate(${r3(R - SIG_PX - b.x1 * SIG_S)} ${r3(top + SIG_PY + capH)}) scale(${SIG_S})" fill="${tag.text}"><path d="${sig.d}"/></g>`,
+    name);
 }
 
 // ── Fichiers ────────────────────────────────────────────────────────────────
@@ -130,6 +183,8 @@ for (const [t, col] of Object.entries(themes)) {
     markGroup("now", { ...col, size: smh, x: (sw - smh) / 2 }) + wordmark(col.word, 0, smh + sgap + CAP * 0.62, 0.62));
   // Nom seul.
   files[`logo/kybernow-wordmark-${t}.svg`] = svg(WM_W, CAP + DESC, wordmark(col.word, 0, CAP));
+  // Logos signés des produits : Station, Admin, Link.
+  for (const p of Object.keys(PRODUCTS)) files[`logo/kybernow-${p}-${t}.svg`] = signedLogo(p, t, col);
 }
 
 // Icônes d'application (1024, gabarit macOS : 824 utiles, rayon 185).
@@ -155,11 +210,9 @@ function appIcon(state, { tile = "#0B1016", tile2 = "#05070A" } = {}) {
     ${neonLayers()}
   </g>
   <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity="0.08" stroke-width="2"/>
-</g>`, `KyberNow ${state === "now" ? "Client" : state === "server" ? "Server" : "Console"}`);
+</g>`, Object.values(PRODUCTS).find((p) => p.state === state).name);
 }
-files["app-icon/kybernow-client-1024.svg"] = appIcon("now");
-files["app-icon/kybernow-server-1024.svg"] = appIcon("server");
-files["app-icon/kybernow-console-1024.svg"] = appIcon("console");
+for (const [p, { state }] of Object.entries(PRODUCTS)) files[`app-icon/kybernow-${p}-1024.svg`] = appIcon(state);
 
 // Favicon : symbole seul, sans dégradé, lisible à 16 px.
 files["favicon/kybernow-favicon.svg"] = svg(G, G,
@@ -170,5 +223,5 @@ for (const [p, content] of Object.entries(files)) {
   mkdirSync(dirname(join(out, p)), { recursive: true });
   writeFileSync(join(out, p), content);
 }
-writeFileSync(join(here, "geometry.json"), JSON.stringify({ grid: G, source: SOURCE, dest: DEST, beam: BEAM, wordmark: { kyber: WM.kyber.d, now: WM.now.d, nowOffset: WM.kyber.advance - 1.2, width: WM_W, cap: CAP } }, null, 1));
+writeFileSync(join(here, "geometry.json"), JSON.stringify({ grid: G, source: SOURCE, dest: DEST, beam: BEAM, wordmark: { kyber: WM.kyber.d, now: WM.now.d, nowOffset: WM.kyber.advance - 1.2, width: WM_W, cap: CAP }, signed: SIGNED }, null, 1));
 console.log(`piste ${piste} : ${Object.keys(files).length} fichiers`);

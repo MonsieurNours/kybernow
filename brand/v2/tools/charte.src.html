@@ -247,7 +247,10 @@ button { font: inherit; color: inherit; }
 .lockup { display: flex; align-items: center; gap: 12px; color: var(--fg); }
 .lockup .mark { width: 30px; height: 30px; }
 .lockup .word { height: 19px; }
-.lockup .prod { font-size: 19px; font-weight: 400; color: var(--muted); letter-spacing: -0.01em; padding-left: 12px; border-left: 1px solid var(--line-2); line-height: 1.1; }
+.lockup .signed { display: block; height: 40px; width: auto; overflow: visible; }
+.signed .s-word { fill: currentColor; }
+.signed .s-tag { fill: var(--line); }
+.signed .s-txt { fill: var(--fg-2); }
 .app ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; color: var(--fg-2); }
 .app li { display: flex; gap: 10px; }
 .app li .ic { color: var(--muted); font-size: 17px; margin-top: 2px; }
@@ -727,17 +730,17 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
           <div>
             <x-mark state="now" class="focus-src"></x-mark>
             <h3>L'ordinateur</h3>
-            <p>En haut à gauche, là où l'image naît. Une carte graphique, un écran virtuel à la taille du vôtre. C'est la partie qu'allume KyberNow Server.</p>
+            <p>En haut à gauche, là où l'image naît. Une carte graphique, un écran virtuel à la taille du vôtre. C'est la partie qu'allume KyberNow Station.</p>
           </div>
           <div>
             <x-mark state="console"></x-mark>
             <h3>Le lien</h3>
-            <p>La couture à 45°. Quatre unités de vide sur quarante-huit&#8239;: la latence, présente mais à peine visible. C'est ce que surveille la Console.</p>
+            <p>La couture à 45°. Quatre unités de vide sur quarante-huit&#8239;: la latence, présente mais à peine visible. C'est ce que surveille KyberNow Admin.</p>
           </div>
           <div>
             <x-mark state="now" class="focus-dst"></x-mark>
             <h3>Vous</h3>
-            <p>En bas à droite, là où l'image arrive, dans la couleur du signal. C'est l'instant «&#8239;Now&#8239;», et c'est la partie qu'allume l'app.</p>
+            <p>En bas à droite, là où l'image arrive, dans la couleur du signal. C'est l'instant «&#8239;Now&#8239;», et c'est la partie qu'allume KyberNow Link.</p>
           </div>
         </div>
         <div class="prose">
@@ -786,7 +789,7 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
               <div><dt class="k">Couture</dt><dd class="v" style="margin:0">4 u mesurées perpendiculairement, à 45° exacts, du coin bas-gauche au coin haut-droit.</dd></div>
               <div><dt class="k">Rayons</dt><dd class="v" style="margin:0">7 u aux deux angles droits (les coins d'un écran), 1,2 u aux pointes.</dd></div>
               <div><dt class="k">Protection</dt><dd class="v" style="margin:0">8 u tout autour (un sixième du symbole). Aucun texte ni bord dans cette zone.</dd></div>
-              <div><dt class="k">Taille mini</dt><dd class="v" style="margin:0">16 px à l'écran, 6 mm imprimé. En dessous de 24 px, pas de version Console (le trait du lien disparaît).</dd></div>
+              <div><dt class="k">Taille mini</dt><dd class="v" style="margin:0">16 px à l'écran, 6 mm imprimé. En dessous de 24 px, pas de version Admin (le trait du lien disparaît).</dd></div>
               <div><dt class="k">Couleurs</dt><dd class="v" style="margin:0">Givre pour l'ordinateur, signal pour vous. Sur fond clair, encre et signal foncé.</dd></div>
             </dl>
             <p class="note">Les coordonnées exactes sont dans <code class="mono">brand/v2/tools/geometry.json</code>. Le symbole se régénère avec <code class="mono">generate.mjs</code>.</p>
@@ -825,22 +828,22 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
         <div class="apps">
           <article class="app">
             <div class="app-top">
-              <div class="app-name"><b>KyberNow</b><span>Client · macOS, tvOS, iPadOS</span></div>
+              <div class="app-name"><b>KyberNow Link</b><span>Mac, Apple&nbsp;TV, iPhone, iPad, Windows</span></div>
               <div class="tile"><x-mark state="now" class="lit"></x-mark></div>
             </div>
-            <div class="lockup"><x-mark state="now"></x-mark><x-word></x-word></div>
+            <div class="lockup"><x-signed product="link"></x-signed></div>
             <ul>
               <li><x-i n="arrow-right" w="bold"></x-i>Le signal arrive chez vous&#8239;: la moitié basse est allumée.</li>
               <li><x-i n="apple-logo"></x-i>Dock, App Store, écran d'accueil de l'Apple&nbsp;TV.</li>
-              <li><x-i n="info"></x-i>C'est aussi le symbole de l'écosystème.</li>
+              <li><x-i n="info"></x-i>C'est aussi le symbole de l'écosystème, sans signature.</li>
             </ul>
           </article>
           <article class="app">
             <div class="app-top">
-              <div class="app-name"><b>KyberNow Server</b><span>Windows · installateur, zone de notification</span></div>
+              <div class="app-name"><b>KyberNow Station</b><span>Windows · installateur, service, zone de notification</span></div>
               <div class="tile"><x-mark state="server" class="lit"></x-mark></div>
             </div>
-            <div class="lockup"><x-mark state="server"></x-mark><x-word></x-word><span class="prod">Server</span></div>
+            <div class="lockup"><x-signed product="station"></x-signed></div>
             <ul>
               <li><x-i n="broadcast"></x-i>Le signal part de l'ordinateur&#8239;: la moitié haute est allumée.</li>
               <li><x-i n="windows-logo"></x-i>Installateur, menu Démarrer, icône de la zone de notification.</li>
@@ -849,13 +852,13 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
           </article>
           <article class="app">
             <div class="app-top">
-              <div class="app-name"><b>KyberNow Console</b><span>Web · administration de l'ordinateur</span></div>
+              <div class="app-name"><b>KyberNow Admin</b><span>Web · administration de la Station</span></div>
               <div class="tile"><x-mark state="console" class="lit"></x-mark></div>
             </div>
-            <div class="lockup"><x-mark state="console"></x-mark><x-word></x-word><span class="prod">Console</span></div>
+            <div class="lockup"><x-signed product="admin"></x-signed></div>
             <ul>
               <li><x-i n="graph"></x-i>Le lien lui-même&#8239;: les moitiés s'effacent, la couture s'allume.</li>
-              <li><x-i n="browser"></x-i>Favicon, en-tête de la console, page d'appairage.</li>
+              <li><x-i n="browser"></x-i>Favicon, en-tête d'Admin, page d'appairage.</li>
               <li><x-i n="info"></x-i>À 16 px (favicon), utiliser l'état «&#8239;Now&#8239;» : le trait du lien n'y tient pas.</li>
             </ul>
           </article>
@@ -913,9 +916,10 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
         <div>
           <h3 class="sub">Nommer les apps</h3>
           <div class="names">
-            <div><b>KyberNow</b><span>L'app Mac et Apple&nbsp;TV, telle qu'elle apparaît dans le Dock et l'App Store. «&#8239;Client&#8239;» reste un mot interne.</span></div>
-            <div><b>KyberNow Server</b><span>Ce qu'on installe sur l'ordinateur Windows. L'installateur&#8239;: KyberNow-Server-Setup.exe.</span></div>
-            <div><b>KyberNow Console</b><span>L'administration dans le navigateur. Dans une phrase&#8239;: «&#8239;la console de l'ordinateur&#8239;».</span></div>
+            <div><b>KyberNow Station</b><span>Ce qu'on installe sur l'ordinateur Windows qui diffuse l'image&#8239;: serveur, service, icône de la zone de notification.</span></div>
+            <div><b>KyberNow Admin</b><span>L'administration de la Station, dans le navigateur.</span></div>
+            <div><b>KyberNow Link</b><span>Les apps qui affichent l'image&#8239;: Mac, Apple&nbsp;TV, iPhone, iPad, Windows. «&#8239;Client&#8239;» reste un mot interne.</span></div>
+            <div><b>Signature</b><span>Dans les logos, le produit signe sous «&#8239;KyberNow&#8239;»&#8239;: Martian Mono en capitales, sur une étiquette au coin coupé à 45° comme la couture, ferrée à droite sur le pied du «&#8239;w&#8239;». Sous 32&nbsp;px de haut, le symbole et le nom seuls.</span></div>
           </div>
         </div>
         <div>
@@ -1053,7 +1057,7 @@ td.num, td .num { font-family: var(--font-mono); font-size: 12.5px; }
             <aside><b>Archivo · largeur 125</b><span>Titres, nom, gros chiffres. Une grotesque élargie, posée comme la sérigraphie d'un appareil de mesure. Graisses 560 à 700, approche serrée (−2 à −3,5&nbsp;%).</span><div class="axes"><span>wght 100–900</span><span>wdth 62–125</span></div></aside>
           </div>
           <div class="spec">
-            <p class="txt">Ajoutez un ordinateur équipé de KyberNow Server avec le QR code de sa console, un lien <span class="mono">kybernow://</span> ou son adresse. Par VPN, utilisez son adresse dans le VPN.</p>
+            <p class="txt">Ajoutez un ordinateur équipé de KyberNow Station avec le QR code de sa console, un lien <span class="mono">kybernow://</span> ou son adresse. Par VPN, utilisez son adresse dans le VPN.</p>
             <aside><b>Archivo · largeur 100</b><span>Texte courant, interface, boutons. La même famille à largeur normale&#8239;: un seul fichier de police pour les titres et le texte.</span><div class="axes"><span>16 px web</span><span>13 pt macOS</span></div></aside>
           </div>
           <div class="spec">
@@ -1592,7 +1596,8 @@ Button("Se connecter") { connect() }
           <div><code>logo/kybernow-logo-{dark,light}.svg</code><span>Horizontal</span></div>
           <div><code>logo/kybernow-logo-stacked-{dark,light}.svg</code><span>Vertical</span></div>
           <div><code>logo/kybernow-wordmark-{dark,light}.svg</code><span>Nom seul, vectorisé</span></div>
-          <div><code>app-icon/kybernow-{client,server,console}-1024.svg</code><span>Icônes d'app, gabarit macOS</span></div>
+          <div><code>logo/kybernow-{station,admin,link}-{dark,light}.svg</code><span>Logos signés des produits</span></div>
+          <div><code>app-icon/kybernow-{station,admin,link}-1024.svg</code><span>Icônes d'app, gabarit macOS</span></div>
           <div><code>favicon/kybernow-favicon.svg</code><span>S'adapte au thème du navigateur</span></div>
           <div><code>fonts/</code><span>Archivo et Martian Mono variables, licences OFL</span></div>
           <div><code>tokens/kybernow.css · tokens/Theme+Brand.swift</code><span>Jetons pour le web et SwiftUI</span></div>

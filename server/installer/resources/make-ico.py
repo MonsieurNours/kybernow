@@ -3,7 +3,7 @@
 
 - 16 à 32 px : le symbole seul (zone de notification, petites icônes) ;
 - 48 à 256 px : la tuile de l'app (fond sombre, halo, couture en néon),
-  comme brand/v2/app-icon/kybernow-server-1024.svg.
+  comme brand/v2/app-icon/kybernow-station-1024.svg.
 
 Usage : python3 make-ico.py  (écrit kybernow.ico à côté de ce script)
 """
