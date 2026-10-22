@@ -309,7 +309,10 @@ private fun CodePane(targets: List<Target>, onDone: (Host) -> Unit) {
             ConsoleClient(t.address, t.port, pinned = t.fingerprint).use { c ->
                 when (val r = c.pairRequest(code, app.device)) {
                     is Reply.Ok -> pending[t] = r.value
-                    is Reply.Failed -> if (r.unknownCall) message = R.string.add_code_update_station
+                    is Reply.Failed -> {
+                        android.util.Log.w("KyberNow", "code : ${t.address}:${t.port} refuse la demande (${r.code} ${r.message})")
+                        message = if (r.unknownCall) R.string.add_code_update_station else R.string.add_unreachable
+                    }
                 }
             }
         }
