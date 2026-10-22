@@ -177,6 +177,8 @@
     <string name="session_quit">Quitter</string>
     <string name="session_resume">Reprendre</string>
     <string name="session_disconnect">Se déconnecter</string>
+    <string name="session_leaving">Déconnexion…</string>
+    <string name="session_leaving_detail">L\'ordinateur retrouve son écran et son son</string>
     <string name="session_switch_profile">Changer de profil</string>
     <string name="session_sound">Son</string>
     <string name="session_sound_detail" formatted="true">%1$d voies · tampon %2$.0f ms</string>

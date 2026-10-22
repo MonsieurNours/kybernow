@@ -92,6 +92,8 @@ class SessionUi(
     var statsOpen by mutableStateOf(false)
     var typing by mutableStateOf(false)
     var passageDone by mutableStateOf(false)
+    /** « Se déconnecter » demandé : on attend la fin de la session. */
+    var leaving by mutableStateOf(false)
     var profile by mutableStateOf(Profile.GAME)
     var mouseMode by mutableStateOf(0)
     var directTouch by mutableStateOf(false)
@@ -101,7 +103,7 @@ class SessionUi(
     var sticky by mutableStateOf(emptySet<Int>())
 
     /** Quelque chose est à l'écran par-dessus l'image. */
-    val anything get() = !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing
+    val anything get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing
 }
 
 interface SessionActions {
@@ -137,6 +139,20 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
         val ended by ui.state.ended.collectAsState()
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
+        AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving() }
+    }
+}
+
+/** Pendant la fin de session : l'image s'efface, l'ordinateur se remet. */
+@Composable
+private fun Leaving() {
+    val s = LocalScale.current
+    Box(Modifier.fillMaxSize().background(Kn.ink.copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(14f))) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(s.dp(36f)), color = Kn.spectre, strokeWidth = s.dp(3f))
+            Body(stringResource(R.string.session_leaving), size = 20f, weight = 600)
+            Body(stringResource(R.string.session_leaving_detail), size = 14f, color = Kn.muted)
+        }
     }
 }
 
@@ -391,7 +407,6 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audi
     val s = LocalScale.current
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
-        Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null) { ui.actions.quit() }
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
@@ -401,20 +416,21 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audi
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), "Ctrl+Alt+Suppr, Alt+Tab…") { ui.keysOpen = true }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), decoder) { ui.statsOpen = !ui.statsOpen }
+        Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }
 }
 
 @Composable
-private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, onClick: () -> Unit) {
+private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, modifier: Modifier = Modifier, primary: Boolean = false, selected: Boolean = false, danger: Boolean = false, onClick: () -> Unit) {
     val s = LocalScale.current
     FocusCard(onClick, modifier.width(s.dp(160f)).height(s.dp(104f)), shape = RoundedCornerShape(16.dp)) { focused ->
         Column(
-            Modifier.fillMaxSize().background(if (focused || primary && focused) Kn.neonCore else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
+            Modifier.fillMaxSize().background(if (focused && danger) Kn.danger else if (focused) Kn.neonCore else if (danger) Kn.danger.copy(alpha = 0.22f) else if (selected) Kn.spectre.copy(alpha = 0.22f) else Kn.panel.copy(alpha = 0.92f)).padding(s.dp(14f)),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            KnIcon(icon, tint = if (focused) Kn.ink else Kn.frost, size = 22f)
+            KnIcon(icon, tint = if (focused) Kn.ink else if (danger) Kn.danger else Kn.frost, size = 22f)
             Column(verticalArrangement = Arrangement.spacedBy(s.dp(2f))) {
-                Body(title, size = 15f, weight = 600, color = if (focused) Kn.ink else Kn.frost, maxLines = 2)
+                Body(title, size = 15f, weight = 600, color = if (focused) Kn.ink else if (danger) Kn.danger else Kn.frost, maxLines = 2)
                 detail?.let { Mono(it, size = 10f, color = if (focused) Kn.ink2 else Kn.frost2, maxLines = 1) }
             }
         }

@@ -177,6 +177,8 @@
     <string name="session_quit">Quit</string>
     <string name="session_resume">Resume</string>
     <string name="session_disconnect">Disconnect</string>
+    <string name="session_leaving">Disconnecting…</string>
+    <string name="session_leaving_detail">The computer gets its display and sound back</string>
     <string name="session_switch_profile">Switch profile</string>
     <string name="session_sound">Sound</string>
     <string name="session_sound_detail" formatted="true">%1$d channels · %2$.0f ms buffer</string>

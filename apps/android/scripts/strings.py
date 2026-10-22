@@ -197,6 +197,8 @@ S = [
 ("session_quit", "Quitter", "Quit"),
 ("session_resume", "Reprendre", "Resume"),
 ("session_disconnect", "Se déconnecter", "Disconnect"),
+("session_leaving", "Déconnexion…", "Disconnecting…"),
+("session_leaving_detail", "L'ordinateur retrouve son écran et son son", "The computer gets its display and sound back"),
 ("session_switch_profile", "Changer de profil", "Switch profile"),
 ("session_sound", "Son", "Sound"),
 ("session_sound_detail", "%1$d voies · tampon %2$.0f ms", "%1$d channels · %2$.0f ms buffer"),

@@ -333,16 +333,30 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun quit() {
         if (quitting) return
         quitting = true
+        ui.menuOpen = false
+        ui.barOpen = false
+        ui.keysOpen = false
+        ui.typing = false
+        ui.statsOpen = false
+        pads.capture()
         val h = handle
         if (h == 0L || state.ended.value != null) {
             finishSession()
             return
         }
+        ui.leaving = true
+        // L'ordinateur remet son écran et son son avant de répondre ; au-delà de 6 s, on part
+        // quand même (la session finit en arrière-plan, voir onDestroy).
+        main.postDelayed({ finishSession() }, 6000)
         captureLastImage { Native.sessionStop(h) }
     }
 
     /** La dernière image de la session, pour l'accueil et la rangée d'Android TV. */
-    private fun captureLastImage(then: () -> Unit) {
+    private fun captureLastImage(next: () -> Unit) {
+        // Une seule fois : à la copie ou, si elle traîne, au bout de 800 ms.
+        val done = java.util.concurrent.atomic.AtomicBoolean(false)
+        val then = { if (!done.getAndSet(true)) next() }
+        main.postDelayed({ then() }, 800)
         val w = surfaceView.width
         val h = surfaceView.height
         if (w <= 0 || h <= 0 || state.firstImageAt.get() == 0L) { then(); return }

@@ -62,6 +62,7 @@ object Kn {
     val spectreFlat = Color(0xFF6D5BFF)
     val neonCore = Color(0xFFF4F1FF)
     val warn = Color(0xFFFFB86B)
+    val danger = Color(0xFFFF5A6E)
 }
 
 @OptIn(ExperimentalTextApi::class)
