@@ -120,7 +120,8 @@ rm -f "$APK"
 [ -f "$APK" ] || { echo "Gradle n'a pas produit $APK (APK non signé ?)" >&2; exit 1; }
 
 echo "==> Vérification de la signature"
-SIGNED="$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+# « Signer #1 certificate… » jusqu'à build-tools 36, « V2 Signer: certificate… » ensuite.
+SIGNED="$("$APKSIGNER" verify --print-certs "$APK" | sed -n -E 's/^(Signer #1|V[0-9]+ Signer:) certificate SHA-256 digest: //p' | head -1)"
 [ "$SIGNED" = "$CERT" ] || { echo "APK signé par $SIGNED au lieu de $CERT" >&2; exit 1; }
 for abi in arm64-v8a armeabi-v7a x86_64; do
     unzip -l "$APK" "lib/$abi/libkybernow.so" > /dev/null || { echo "libkybernow.so absente pour $abi" >&2; exit 1; }
