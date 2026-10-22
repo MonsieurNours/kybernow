@@ -77,6 +77,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var tv = false
     private var relative = false
     private var mouseSeen = false
+    /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
+    private val padDowns = mutableSetOf<Int>()
     private var quitting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -375,6 +377,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun toggleMenu() {
         if (tv) {
             if (ui.menuOpen) resume() else {
+                padDowns.clear()
                 ui.menuOpen = true
                 pads.capture()
             }
@@ -398,6 +401,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.menuOpen = false
         ui.keysOpen = false
         ui.typing = false
+        padDowns.clear()
         pads.release()
         surfaceView.requestFocus()
     }
@@ -422,6 +426,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.remoteMouse = on
         remote.asMouse = on
         if (on) Native.pointerMoveBy(handle, 0.0, 0.0)
+        placePointer(state.pointer.value)
         resume()
     }
 
@@ -430,6 +435,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         if (!on) pads.mouse.stop()
         pads.asMouse = on
         if (on) Native.pointerMoveBy(handle, 0.0, 0.0)
+        placePointer(state.pointer.value)
         resume()
     }
 
@@ -533,7 +539,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     private fun placePointer(p: PointerState) {
         val d = state.display.value
-        if (d == null || !p.visible || p.remoteHidden || relative || d.width == 0) {
+        // Manette ou télécommande en souris : toujours dessiné (Windows cache le sien sans souris branchée).
+        val forced = ui.padMouse || ui.remoteMouse
+        if (d == null || !p.visible || (p.remoteHidden && !forced) || relative || d.width == 0) {
             pointerView.place(0f, 0f, false)
             return
         }
@@ -554,10 +562,16 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         val fromPad = event.device?.let(Gamepads::isGamepad) == true
         if (Gamepads.isGamepadEvent(event) || (fromPad && (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_MENU))) {
             if (pads.captured || ui.anythingModal()) {
-                // Menu ouvert : la manette pilote l'app ; B ou Retour ferme.
-                if (code == KeyEvent.KEYCODE_BUTTON_B || code == KeyEvent.KEYCODE_BACK) { if (!down) closeTop(); return true }
-                if (code == KeyEvent.KEYCODE_BUTTON_A) return super.dispatchKeyEvent(KeyEvent(event.action, KeyEvent.KEYCODE_DPAD_CENTER))
-                return super.dispatchKeyEvent(event)
+                // Menu ouvert : la manette pilote l'app ; A valide, B ou Retour ferme.
+                // Le relâché d'un bouton enfoncé avant (L1 + R1 + Start + Select) ne compte pas,
+                // et les autres boutons sont avalés : Android en ferait OK ou Menu.
+                if (down) padDowns += code else if (!padDowns.remove(code)) return true
+                return when (code) {
+                    KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> { if (!down) closeTop(); true }
+                    KeyEvent.KEYCODE_BUTTON_A -> super.dispatchKeyEvent(KeyEvent(event.action, KeyEvent.KEYCODE_DPAD_CENTER))
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER -> super.dispatchKeyEvent(event)
+                    else -> true
+                }
             }
             if (pads.key(event)) return true
             return super.dispatchKeyEvent(event)
