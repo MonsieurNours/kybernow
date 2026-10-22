@@ -29,6 +29,17 @@ object Native {
     @JvmStatic external fun consolePairRequest(handle: Long, code: String, deviceJson: String): String?
     @JvmStatic external fun consolePairStatus(handle: Long, id: String): String?
 
+    // Mises à jour de l'app (réseau : jamais sur le fil principal).
+    /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
+    @JvmStatic external fun updateCheck(current: String, beta: Boolean): String
+    /** Télécharge et vérifie la version trouvée par [updateCheck] ; `null`, ou le message d'erreur. */
+    @JvmStatic external fun updateDownload(dest: String, progress: UpdateProgress?): String?
+
+    /** Octets reçus pendant [updateDownload]. */
+    interface UpdateProgress {
+        fun onProgress(received: Long)
+    }
+
     /** Réglages d'un profil (`jeu`, `bureau`, `max`) selon les décodeurs de l'appareil. */
     @JvmStatic external fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
 

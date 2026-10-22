@@ -5,3 +5,6 @@
 -keep class javax.jmdns.** { *; }
 -dontwarn javax.jmdns.**
 -dontwarn org.slf4j.**
+
+# Rappels du pont JNI implémentés hors de core (suivi de session, progression des mises à jour).
+-keep class * implements fr.leslignesclaires.kybernow.core.** { *; }

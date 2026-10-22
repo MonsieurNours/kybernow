@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Rangée « Reprendre sur un ordinateur » de l'accueil d'Android TV. -->
     <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+    <!-- Mises à jour de l'app : APK vérifié par le manifeste signé, installé par PackageInstaller
+         (Android 12 et après : sans confirmation quand l'app se met à jour elle-même). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -69,6 +73,11 @@
             android:resizeableActivity="true"
             android:theme="@style/Theme.KyberNow.Session"
             android:windowSoftInputMode="adjustNothing" />
+
+        <!-- Issue de l'installation d'une mise à jour. -->
+        <receiver
+            android:name=".update.InstallReceiver"
+            android:exported="false" />
 
         <!-- Dernière image de chaque ordinateur, prêtée au lanceur (rangée d'Android TV). -->
         <provider

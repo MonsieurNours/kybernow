@@ -106,6 +106,11 @@ class MainActivity : AppCompatActivity() {
         TvChannel.publish(this, KyberNowApp.instance.hosts.hosts.value)
     }
 
+    override fun onResume() {
+        super.onResume()
+        KyberNowApp.instance.updates.onResume()
+    }
+
     override fun onStop() {
         super.onStop()
         model.stopPolling()

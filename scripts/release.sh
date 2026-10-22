@@ -16,7 +16,7 @@
 #      KyberNow Link) et commit « KyberNow X.Y.Z » ;
 #   3. construction depuis ce commit : installateur de la Station, paquet de
 #      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
-#      SDK, app Windows et son installateur ; l'arbre doit rester propre (sinon
+#      SDK, app Windows et son installateur, app Android (APK signé) ; l'arbre doit rester propre (sinon
 #      les binaires ne correspondraient pas au commit) ;
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
 #   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
@@ -36,7 +36,8 @@
 # (server/kyber-patches/build.sh), SDK client de l'app Mac (apps/macos/Vendor,
 # build-kyclient.sh), gh connecté, clé Sparkle dans le Trousseau, certificat
 # Developer ID et profil de notarisation « kybernow », clé minisign de
-# sign-manifest.sh. Voir docs/releases.md.
+# sign-manifest.sh, clé de l'app Android (apps/android/scripts/release-apk.sh),
+# Android Studio (SDK et NDK 27.2.12479018) et cibles Rust Android. Voir docs/releases.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="MonsieurNours/kybernow"
@@ -100,7 +101,7 @@ FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
 ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
-    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}"
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -235,6 +236,10 @@ for f in third_party/rootfs-win64/lib/libavcodec.a third_party/rootfs-win64-kynp
     else problem "app Windows : $f absent (server/kyber-patches/build.sh, apps/windows/scripts/build-arm64-deps.sh, docs/build-notes.md)"; fi
 done
 
+# App Android : clé de publication (Trousseau) et outils (JDK, SDK, apksigner).
+if CHECK="$(apps/android/scripts/release-apk.sh --check 2>&1)"; then ok "app Android : ${CHECK##*$'\n'}"
+else problem "app Android : ${CHECK##*$'\n'}"; fi
+
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
 else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
@@ -287,7 +292,7 @@ if [ "$MODE" = check ]; then
 Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
   3. installateur de la Station, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac,
-     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur
+     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur, app Android
      (anciens noms des installateurs publiés en copie : ${LEGACY_STATION[*]} ${LEGACY_LINK[*]})
   4. notarisation de l'app Mac
   5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
@@ -403,6 +408,11 @@ apps/windows/scripts/build-installer.sh 2>&1 > /dev/null \
 cp apps/windows/dist/KyberNow-Link-Setup.exe "$OUT/"
 for f in "${LEGACY_LINK[@]}"; do cp "$OUT/KyberNow-Link-Setup.exe" "$OUT/$f"; done
 
+step "App Android (KyberNow Link, APK signé)"
+# Bibliothèque native des trois architectures, R8, signature vérifiée par apksigner.
+apps/android/scripts/release-apk.sh "$OUT/KyberNow-Link-Android.apk" 2>&1 \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
+
 TREE_AFTER="$(tree_state)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
     echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
@@ -486,7 +496,7 @@ fi
 step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
-    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" > SHA256SUMS)
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

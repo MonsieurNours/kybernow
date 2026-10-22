@@ -103,10 +103,14 @@ Captures (`app/src/test/.../Screenshots.kt`) : Robolectric en rendu natif et Rob
 
 Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml`. Dessins : `scripts/app-icon.py` (icône, bannière ; Pillow) et `scripts/brand-drawables.py`.
 
+## Mises à jour et publication
+
+L'app se met à jour seule depuis les versions publiées (`KyberNow-Link-Android.apk`, vérifié par le manifeste signé) : réglages de l'app › Mises à jour, canal stable ou bêta. L'APK publié est construit et signé par `scripts/release-apk.sh`, que lance `scripts/release.sh` ; clé de signature et sauvegarde : [docs/releases.md](../../docs/releases.md), « Clé de signature de l'app Android ». Une app installée depuis Android Studio (clé de débogage) ne peut pas recevoir ces mises à jour : la désinstaller une fois, puis installer l'APK publié (`adb install KyberNow-Link-Android.apk`).
+
 ## Reste à faire
 
-- Une session sur un vrai appareil (Shield, Redmi A5) : image, son, entrées, vibrations, 1080p à 120 Hz, mode jeu du téléviseur.
-- Sur la Shield : quelles manettes vibrent en Bluetooth sous Android 11.
+- Sur le Redmi A5 : une session (tactile, manette), et le 1080p à 120 Hz sur la Shield (la session en 4K60 marche).
+- Sur la Shield : la manette Xbox ne vibre pas en Bluetooth sous Android 11 (Android ne donne aucun vibreur) ; essayer la DualSense et la manette Shield.
 - Côté Station : relayer les ordinateurs du téléphone vers le téléviseur (code affiché au téléviseur).
-- Mises à jour de l'app par le manifeste signé ; APK joint aux versions publiées ; Play Store en test interne.
+- Première version publiée avec l'APK (mises à jour à essayer de bout en bout) ; Play Store en test interne.
 - Écran externe (image sur l'écran branché, appareil en pupitre), essais DeX et ChromeOS.

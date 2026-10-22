@@ -103,10 +103,14 @@ Screenshots (`app/src/test/.../Screenshots.kt`): Robolectric with native renderi
 
 Texts: `scripts/strings.py` (both languages in one file, French typography included) writes `res/values*/strings.xml`. Drawings: `scripts/app-icon.py` (icon, banner; Pillow) and `scripts/brand-drawables.py`.
 
+## Updates and publishing
+
+The app updates itself from published releases (`KyberNow-Link-Android.apk`, checked against the signed manifest): app settings › Updates, stable or beta channel. The published APK is built and signed by `scripts/release-apk.sh`, which `scripts/release.sh` runs; signing key and backup: [docs/releases.en.md](../../docs/releases.en.md), “Android app signing key”. An app installed from Android Studio (debug key) cannot receive these updates: uninstall it once, then install the published APK (`adb install KyberNow-Link-Android.apk`).
+
 ## To do
 
-- A session on a real device (Shield, Redmi A5): image, sound, inputs, rumble, 1080p at 120 Hz, TV game mode.
-- On the Shield: which gamepads vibrate over Bluetooth under Android 11.
+- On the Redmi A5: a session (touch, gamepad), and 1080p at 120 Hz on the Shield (the 4K60 session works).
+- On the Shield: the Xbox gamepad does not vibrate over Bluetooth under Android 11 (Android exposes no vibrator); try the DualSense and the Shield controller.
 - On the Station side: relay the phone's computers to the TV (code shown on the TV).
-- App updates through the signed manifest; APK attached to published releases; Play Store internal testing.
+- First published release with the APK (updates to try end to end); Play Store internal testing.
 - External display (image on the connected display, device as the desk), DeX and ChromeOS trials.

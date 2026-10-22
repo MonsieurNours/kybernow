@@ -151,6 +151,30 @@
     <string name="app_settings_decoders">Décodage matériel</string>
     <string name="app_settings_screen">Écran</string>
     <string name="app_settings_about">À propos</string>
+    <string name="updates_section">Mises à jour</string>
+    <string name="updates_channel">Versions proposées</string>
+    <string name="updates_channel_help">Les bêtas arrivent plus tôt, parfois avec des défauts.</string>
+    <string name="updates_stable">Stables</string>
+    <string name="updates_beta">Aussi les bêtas</string>
+    <string name="updates_title" formatted="true">KyberNow Link %1$s</string>
+    <string name="updates_signed">Chaque version est vérifiée par le manifeste signé de KyberNow avant d\'être installée.</string>
+    <string name="updates_idle">Pas encore vérifié</string>
+    <string name="updates_checking">Recherche d\'une nouvelle version…</string>
+    <string name="updates_up_to_date">À jour</string>
+    <string name="updates_available" formatted="true">Version %1$s disponible</string>
+    <string name="updates_downloading" formatted="true">Téléchargement de la %1$s : %2$s sur %3$s</string>
+    <string name="updates_ready" formatted="true">Version %1$s téléchargée et vérifiée</string>
+    <string name="updates_installing" formatted="true">Installation de la %1$s…</string>
+    <string name="updates_failed" formatted="true">Échec : %1$s</string>
+    <string name="updates_check">Rechercher maintenant</string>
+    <string name="updates_download">Télécharger et installer</string>
+    <string name="updates_install">Installer</string>
+    <string name="updates_notes">Notes de version</string>
+    <string name="updates_permission">Autorisez KyberNow Link à installer des applications, puis revenez ici : l\'installation reprendra.</string>
+    <string name="updates_permission_tv">Réglages d\'Android › Applications › Sécurité et restrictions › Sources inconnues : activez KyberNow Link, puis revenez ici.</string>
+    <string name="updates_conflict">L\'app installée n\'est pas signée par la clé de publication (version de développement) : désinstallez-la une fois, puis installez l\'APK de la version. Vos ordinateurs sont à rajouter.</string>
+    <string name="updates_install_failed" formatted="true">Android a refusé l\'installation (%1$s)</string>
+    <string name="updates_home" formatted="true">Version %1$s</string>
     <string name="app_settings_about_body">KyberNow Link, par Les Lignes Claires. Construit sur Kyber, sans affiliation.</string>
     <string name="app_settings_licenses">Licences</string>
     <string name="app_settings_licenses_body">KyberNow et Kyber : AGPL-3.0. Archivo et Martian Mono : SIL OFL 1.1. zxing : Apache 2.0.</string>

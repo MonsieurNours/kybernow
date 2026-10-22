@@ -56,6 +56,7 @@ import fr.leslignesclaires.kybernow.ui.Title
 import fr.leslignesclaires.kybernow.ui.add.shortFingerprint
 import fr.leslignesclaires.kybernow.ui.home.profileLabel
 import fr.leslignesclaires.kybernow.ui.panel
+import fr.leslignesclaires.kybernow.update.UpdateState
 
 @Composable
 private fun Page(title: String, eyebrow: String?, onBack: () -> Unit, content: @Composable () -> Unit) {
@@ -266,6 +267,57 @@ private fun MacRow(host: Host) {
     }
 }
 
+/** État de la mise à jour de l'app et son bouton (rechercher, télécharger, installer). */
+@Composable
+private fun UpdateRow() {
+    val s = LocalScale.current
+    val app = KyberNowApp.instance
+    val context = LocalContext.current
+    val st by app.updates.state.collectAsState()
+    val tv = LocalForm.current == FormFactor.TV
+    fun mb(b: Long) = android.text.format.Formatter.formatShortFileSize(context, b)
+    val status = when (val u = st) {
+        UpdateState.Idle -> stringResource(R.string.updates_idle)
+        UpdateState.Checking -> stringResource(R.string.updates_checking)
+        is UpdateState.UpToDate -> stringResource(R.string.updates_up_to_date)
+        is UpdateState.Available -> stringResource(R.string.updates_available, u.version) + " · " + mb(u.size)
+        is UpdateState.Downloading -> stringResource(R.string.updates_downloading, u.version, mb(u.received), mb(u.size))
+        is UpdateState.Ready -> stringResource(R.string.updates_ready, u.version)
+        is UpdateState.NeedsPermission -> stringResource(if (tv) R.string.updates_permission_tv else R.string.updates_permission)
+        is UpdateState.Installing -> stringResource(R.string.updates_installing, u.version)
+        is UpdateState.Failed -> stringResource(R.string.updates_failed, u.message)
+    }
+    val button = when (st) {
+        is UpdateState.Available -> stringResource(R.string.updates_download)
+        is UpdateState.Ready, is UpdateState.NeedsPermission -> stringResource(R.string.updates_install)
+        is UpdateState.Checking, is UpdateState.Downloading, is UpdateState.Installing -> null
+        else -> stringResource(R.string.updates_check)
+    }
+    Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(10f))) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
+                Body(stringResource(R.string.updates_title, BuildConfig.VERSION_NAME), size = 16f)
+                Body(status, size = 13f, color = if (st is UpdateState.Failed) Kn.warn else if (st.offered != null) Kn.spectre else Kn.muted)
+            }
+            if (st is UpdateState.Checking || st is UpdateState.Downloading || st is UpdateState.Installing) {
+                androidx.compose.material3.CircularProgressIndicator(Modifier.width(s.dp(22f)).height(s.dp(22f)), color = Kn.spectre, strokeWidth = s.dp(2f))
+            }
+        }
+        (st as? UpdateState.Downloading)?.let { d ->
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { if (d.size > 0) d.received.toFloat() / d.size else 0f },
+                modifier = Modifier.fillMaxWidth(), color = Kn.spectre, trackColor = Kn.line,
+            )
+        }
+        (st as? UpdateState.Available)?.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+            Eyebrow(stringResource(R.string.updates_notes))
+            Body(notes.trim(), size = 13f, color = Kn.frost2, maxLines = 12)
+        }
+        Body(stringResource(R.string.updates_signed), size = 12f, color = Kn.muted)
+        button?.let { GlassButton(it, { app.updates.act() }, selected = st.offered != null) }
+    }
+}
+
 @Composable
 private fun colors() = OutlinedTextFieldDefaults.colors(focusedBorderColor = Kn.spectre, unfocusedBorderColor = Kn.line, focusedLabelColor = Kn.spectre, cursorColor = Kn.spectre)
 
@@ -289,6 +341,14 @@ fun AppSettingsScreen(onBack: () -> Unit) {
         InfoRow(stringResource(R.string.app_settings_decoders), listOfNotNull("H.264".takeIf { d.h264 != null }, "HEVC".takeIf { d.hevc != null }, "AV1".takeIf { d.av1 != null }).joinToString(" · "), (d.hevc ?: d.h264)?.name)
         InfoRow(stringResource(R.string.app_settings_screen), "${screen.current.width} × ${screen.current.height} · ${screen.current.refresh} Hz", screen.modes.map { "${it.height}p${it.refresh}" }.distinct().joinToString(" · "))
         InfoRow(stringResource(R.string.settings_game_mode), stringResource(if (screen.minimalPostProcessing) R.string.settings_available else R.string.settings_unavailable))
+
+        Section(stringResource(R.string.updates_section))
+        UpdateRow()
+        val beta by app.updates.beta.collectAsState()
+        ChoiceRow(
+            stringResource(R.string.updates_channel), stringResource(R.string.updates_channel_help),
+            listOf(false to stringResource(R.string.updates_stable), true to stringResource(R.string.updates_beta)), beta,
+        ) { v -> app.updates.setBeta(v) }
 
         Section(stringResource(R.string.app_settings_about))
         InfoRow("KyberNow Link", BuildConfig.VERSION_NAME, stringResource(R.string.app_settings_about_body))

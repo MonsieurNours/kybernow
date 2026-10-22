@@ -581,8 +581,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 // Le relâché d'un bouton enfoncé avant (L1 + R1 + Start + Select) ne compte pas,
                 // et les autres boutons sont avalés : Android en ferait OK ou Menu.
                 if (down) padDowns += code else if (!padDowns.remove(code)) return true
+                if (code == KeyEvent.KEYCODE_BUTTON_B || code == KeyEvent.KEYCODE_BACK) { if (!down) closeTop(); return true }
                 return when (code) {
-                    KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BACK -> { if (!down) closeTop(); true }
                     KeyEvent.KEYCODE_BUTTON_A -> super.dispatchKeyEvent(KeyEvent(event.action, KeyEvent.KEYCODE_DPAD_CENTER))
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER -> super.dispatchKeyEvent(event)
                     else -> true

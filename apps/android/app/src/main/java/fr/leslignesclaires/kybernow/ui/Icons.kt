@@ -53,6 +53,7 @@ object KnIcons {
     val info = icon("info", "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18z", "M12 11v5M12 8h.01")
     val pulse = icon("pulse", "M3 12h4l2-6 4 12 2-6h6")
     val chevron = icon("chevron", "M9 5l7 7-7 7")
+    val download = icon("download", "M12 4v11", "M7 10l5 5 5-5", "M5 20h14")
 }
 
 @Composable

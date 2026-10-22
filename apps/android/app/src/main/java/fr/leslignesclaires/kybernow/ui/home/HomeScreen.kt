@@ -115,6 +115,8 @@ data class HomeState(
     val images: Map<String, ImageBitmap>,
     val announced: List<Announced>,
     val ready: ReadyInfo,
+    /** Nouvelle version de l'app proposée (pastille en haut, mène aux réglages de l'app). */
+    val update: String? = null,
 )
 
 @Composable
@@ -129,7 +131,8 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val pads by app.gamepads.pads.collectAsState()
     val audio = remember { AudioOutput.current(context) }
     val screen = remember { Screen.of(context) }
-    HomeContent(HomeState(hosts, selectedId, status, images, announced, ReadyInfo(pads, audio, screen, app.decoders)), actions)
+    val update by app.updates.state.collectAsState()
+    HomeContent(HomeState(hosts, selectedId, status, images, announced, ReadyInfo(pads, audio, screen, app.decoders), update.offered), actions)
 }
 
 @Composable
@@ -183,11 +186,15 @@ private fun Backdrop(image: androidx.compose.ui.graphics.ImageBitmap?, offline: 
 }
 
 @Composable
-private fun TopBar(actions: HomeActions, modifier: Modifier = Modifier) {
+private fun TopBar(actions: HomeActions, update: String?, modifier: Modifier = Modifier) {
     val s = LocalScale.current
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Image(painterResource(R.drawable.kn_logo_link), contentDescription = "KyberNow Link", modifier = Modifier.height(s.dp(if (s.tv) 40f else 26f)))
         Spacer(Modifier.weight(1f))
+        update?.let {
+            GlassButton(stringResource(R.string.updates_home, it), actions.appSettings, selected = true, leading = { KnIcon(KnIcons.download, size = 16f); Spacer(Modifier.width(6.dp)) })
+            Spacer(Modifier.width(s.dp(10f)))
+        }
         IconPill(KnIcons.gamepad, stringResource(R.string.home_gamepads), actions.gamepads)
         Spacer(Modifier.width(s.dp(10f)))
         IconPill(KnIcons.settings, stringResource(R.string.home_app_settings), actions.appSettings)
@@ -408,7 +415,7 @@ private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: Home
     LaunchedEffect(host.id) { if (s.tv) runCatching { focus.requestFocus() } }
     val pad = if (s.tv) 56f else 28f
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
-        TopBar(actions)
+        TopBar(actions, state.update)
         Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 64f else 52f, focus) }
             if (showReady) {
@@ -428,7 +435,7 @@ private fun TallHome(host: Host, st: HostStatus, state: HomeState, actions: Home
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(s.dp(20f)),
         verticalArrangement = Arrangement.spacedBy(s.dp(18f)),
     ) {
-        TopBar(actions)
+        TopBar(actions, state.update)
         Spacer(Modifier.height(s.dp(150f)))
         Hero(host, st, actions, 54f, null)
         Spacer(Modifier.height(s.dp(6f)))

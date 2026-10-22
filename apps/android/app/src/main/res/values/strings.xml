@@ -151,6 +151,30 @@
     <string name="app_settings_decoders">Hardware decoding</string>
     <string name="app_settings_screen">Display</string>
     <string name="app_settings_about">About</string>
+    <string name="updates_section">Updates</string>
+    <string name="updates_channel">Versions offered</string>
+    <string name="updates_channel_help">Betas arrive earlier, sometimes with rough edges.</string>
+    <string name="updates_stable">Stable</string>
+    <string name="updates_beta">Betas too</string>
+    <string name="updates_title" formatted="true">KyberNow Link %1$s</string>
+    <string name="updates_signed">Each version is checked against KyberNow\'s signed manifest before it is installed.</string>
+    <string name="updates_idle">Not checked yet</string>
+    <string name="updates_checking">Looking for a new version…</string>
+    <string name="updates_up_to_date">Up to date</string>
+    <string name="updates_available" formatted="true">Version %1$s available</string>
+    <string name="updates_downloading" formatted="true">Downloading %1$s: %2$s of %3$s</string>
+    <string name="updates_ready" formatted="true">Version %1$s downloaded and verified</string>
+    <string name="updates_installing" formatted="true">Installing %1$s…</string>
+    <string name="updates_failed" formatted="true">Failed: %1$s</string>
+    <string name="updates_check">Check now</string>
+    <string name="updates_download">Download and install</string>
+    <string name="updates_install">Install</string>
+    <string name="updates_notes">Release notes</string>
+    <string name="updates_permission">Allow KyberNow Link to install apps, then come back here: installation will resume.</string>
+    <string name="updates_permission_tv">Android Settings › Apps › Security &amp; restrictions › Unknown sources: turn on KyberNow Link, then come back here.</string>
+    <string name="updates_conflict">The installed app is not signed with the release key (development build): uninstall it once, then install the release APK. You will need to add your computers again.</string>
+    <string name="updates_install_failed" formatted="true">Android refused the installation (%1$s)</string>
+    <string name="updates_home" formatted="true">Version %1$s</string>
     <string name="app_settings_about_body">KyberNow Link, by Les Lignes Claires. Built on Kyber, not affiliated with it.</string>
     <string name="app_settings_licenses">Licences</string>
     <string name="app_settings_licenses_body">KyberNow and Kyber: AGPL-3.0. Archivo and Martian Mono: SIL OFL 1.1. zxing: Apache 2.0.</string>

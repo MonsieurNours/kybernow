@@ -23,6 +23,8 @@ class KyberNowApp : Application() {
         private set
     lateinit var form: FormFactor
         private set
+    lateinit var updates: fr.leslignesclaires.kybernow.update.Updates
+        private set
 
     /** Décodeurs matériels, vérifiés une fois au lancement. */
     val decoders: Decoders by lazy { Decoders.detect() }
@@ -36,6 +38,7 @@ class KyberNowApp : Application() {
         device = DeviceIdentity.of(this)
         form = DeviceIdentity.formFactor(this)
         Native.init(language())
+        updates = fr.leslignesclaires.kybernow.update.Updates(this).also { it.start() }
     }
 
     /** `fr` ou `en` : réglage de l'app (Auto / Français / English), sinon le système. */

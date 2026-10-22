@@ -16,6 +16,7 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | `KyberNow-Link-macOS.zip` | L'app Mac, « KyberNow Link.app » (première installation : la glisser dans Applications) ; archive du flux Sparkle |
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
 | `KyberNow-Link-Setup.exe` | KyberNow Link pour Windows, x64 et ARM64 dans un seul fichier : installateur par utilisateur (première installation et mises à jour de l'app, voir [apps/windows/README.md](../apps/windows/README.md)) |
+| `KyberNow-Link-Android.apk` | KyberNow Link pour Android et Android TV (arm64-v8a, armeabi-v7a, x86_64), signé par la clé de publication : première installation et mises à jour de l'app (voir [apps/android/README.md](../apps/android/README.md)) |
 | `KyberSDK-tvOS.zip` | SDK de Kyber et cœur KyberNow (`KyberNow.xcframework`) compilés pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
 | `KyberSDK-iOS.zip` | Cœur KyberNow, libkynput, libopus et leurs en-têtes compilés pour l'iPhone et l'iPad (`apps/ios/Vendor`, joint aux versions 0.4.0 et suivantes), que télécharge `apps/ios/scripts/sideload.sh` pour installer l'app sans TestFlight ni App Store ([SIDELOAD.md](../apps/ios/SIDELOAD.md)) |
 | `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe` | Anciens noms des installateurs, copies identiques : voir « Anciens noms des installateurs » ci-dessous |
@@ -78,6 +79,8 @@ Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_
 
 **L'app Windows (KyberNow Link).** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal (réglages de l'app : stables, ou aussi les bêtas), vérifie le manifeste signé comme Admin et l'installateur (`KyberNow-Link-Setup.exe`, ou `KyberNow-Client-Setup.exe` dans le manifeste d'une version antérieure à la 0.4.0) contre lui (taille, SHA-256), puis le lance en silence (`/S /UPDATE`) : il attend la fermeture de l'app, remplace ses fichiers et la relance. Une version sans installateur Windows n'est pas proposée.
 
+**L'app Android.** Elle cherche au lancement, au retour dans l'app puis toutes les 6 heures la dernière version de son canal qui publie `KyberNow-Link-Android.apk` (réglages de l'app › Mises à jour : stables, ou aussi les bêtas). Le cœur Rust vérifie le manifeste signé comme pour l'app Windows ; l'APK téléchargé doit avoir sa taille et son empreinte SHA-256. Un bouton le télécharge, puis l'app l'installe par PackageInstaller : Android demande une fois d'autoriser l'app à installer des applications (sur la Shield : Réglages › Applications › Sécurité et restrictions › Sources inconnues), puis confirme chaque installation, sauf à partir d'Android 12 où l'app se met à jour elle-même sans question. Android refuse un APK signé par une autre clé que l'app installée : une app compilée par Android Studio (clé de débogage) doit être désinstallée une fois avant d'installer l'APK publié.
+
 **L'app Mac.**
 - Sparkle vérifie chaque jour, et à la demande (menu KyberNow Link › Rechercher des mises à jour…). L'app télécharge l'archive, vérifie sa signature EdDSA avec la clé publique de l'app (`SUPublicEDKey`), la remplace et se relance.
 - L'app lit le flux cumulatif du site, `https://www.kybernow.app/updates/appcast.xml`, qui liste toutes les versions. Elle ne propose que les stables, sauf si « Recevoir les versions bêta » est coché dans KyberNow Link › Réglages… : voir « Flux des mises à jour de l'app Mac ».
@@ -107,7 +110,7 @@ Chaque version publie un manifeste, `kybernow-release.json`, signé avec une cl�
 }
 ```
 
-`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-Link-macOS.zip`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
+`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-Link-macOS.zip`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, `KyberNow-Link-Android.apk`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
 
 Le manifeste s'écrit et se signe avec :
 
@@ -139,6 +142,24 @@ security add-generic-password -a kybernow -s kybernow-minisign -w   # colle le m
 Puis un essai à blanc sur un dossier où l'on a mis un `update.ps1` quelconque (`scripts/sign-manifest.sh <dossier> 0.0.0 stable`, suivi de `minisign -V -p server/admin/src/update/kybernow-release.pub -m <dossier>/kybernow-release.json`) confirme que la clé correspond au dépôt.
 
 Le mot de passe n'est lisible que Mac déverrouillé, comme le profil de notarisation.
+
+## Clé de signature de l'app Android
+
+Android n'installe une mise à jour que si elle est signée par la même clé que l'app installée : cette clé ne doit jamais changer ni se perdre. `apps/android/scripts/release-apk.sh` (lancé par `release.sh`) la crée au premier appel :
+
+- `~/Library/Application Support/KyberNow/android-release.jks` (PKCS12, alias `kybernow`, RSA 4096, 100 ans), protégée par un mot de passe aléatoire gardé dans le Trousseau (élément `kybernow-android-keystore`) ;
+- l'empreinte SHA-256 de son certificat dans le dépôt, `apps/android/scripts/release-cert.sha256`, à commiter : le script refuse ensuite une autre clé, et vérifie avec `apksigner` que chaque APK publié est signé par ce certificat.
+
+Si l'empreinte est dans le dépôt et la clé absente, le script refuse d'en créer une autre : remettez la sauvegarde.
+
+**Sauvegarde hors ligne**, avec la clé minisign, sans jamais la mettre dans le dépôt :
+
+```bash
+cp ~/Library/Application\ Support/KyberNow/android-release.jks /Volumes/<sauvegarde>/
+security find-generic-password -s kybernow-android-keystore -w     # mot de passe, à recopier dans le coffre
+```
+
+**Remise sur un autre Mac** : recopier le fichier au même endroit (`chmod 600`), puis `security add-generic-password -a kybernow -s kybernow-android-keystore -w` (coller le mot de passe), et vérifier avec `apps/android/scripts/release-apk.sh --check`.
 
 ## Publier une version
 
