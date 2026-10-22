@@ -40,7 +40,7 @@ struct StatsPanel: View {
                 rule
                 details(stats)
             } else {
-                Text("Les mesures détaillées viennent du décodage par l'app : elles ne sont pas disponibles avec le lecteur VLC (Réglages, Avancé).")
+                Text("Les mesures détaillées s'affichent dès que l'image arrive.")
                     .font(Theme.sans(12.5))
                     .foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)

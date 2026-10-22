@@ -1,4 +1,4 @@
-// Décodage matériel de l'image (VideoToolbox), sans VLC.
+// Décodage matériel de l'image (VideoToolbox).
 //
 // Kyber remet les paquets tels qu'ils sortent de l'encodeur : flux Annex B
 // (codes de début 00 00 01), un paquet « config » avec les jeux de

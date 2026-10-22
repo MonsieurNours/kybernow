@@ -30,7 +30,7 @@ final class MetalSurface: NSView {
 
     override var isOpaque: Bool { true }
 
-    /// Branche le rendu (nil : VLC dessine, la surface se cache).
+    /// Branche le rendu (nil : fin de session, la surface se cache).
     func show(_ renderer: VideoRenderer?) {
         // L'ancien rendu (flux précédent, encore en vie quelques instants) retrouve une couche à lui.
         self.renderer?.attach(to: nil)

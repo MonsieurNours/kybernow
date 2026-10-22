@@ -348,7 +348,15 @@ impl KyberConfig {
                 "[year][month][day]-[hour][minute][second]-[subsecond digits:3]"
             ))
             .unwrap_or_default();
-        let dest = self.backup_dir.join(format!("kyber_config-{stamp}.toml"));
+        // Deux sauvegardes dans la même milliseconde : suffixe `_01`, `_02`… pour
+        // ne pas écraser la précédente. `_` se classe après `.`, donc le tri par
+        // nom ci-dessous garde l'ordre chronologique pour la rotation.
+        let mut dest = self.backup_dir.join(format!("kyber_config-{stamp}.toml"));
+        let mut n = 1;
+        while dest.exists() {
+            dest = self.backup_dir.join(format!("kyber_config-{stamp}_{n:02}.toml"));
+            n += 1;
+        }
         fs::copy(&self.path, &dest).with_context(|| format!("sauvegarde vers {}", dest.display()))?;
 
         let mut backups: Vec<_> = fs::read_dir(&self.backup_dir)?

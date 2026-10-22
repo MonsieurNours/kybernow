@@ -1,4 +1,4 @@
-// Chemin de l'image sans VLC : paquets de Kyber → VideoToolbox → Metal.
+// Chemin de l'image : paquets de Kyber → VideoToolbox → Metal.
 // (Le son suit le même principe : AudioPlayer.)
 //
 // Kyber appelle `handle` depuis son fil réseau, un paquet à la fois ; on
