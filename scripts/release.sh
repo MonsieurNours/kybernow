@@ -48,6 +48,13 @@ usage() {
     exit "${1:-1}"
 }
 
+# État de l'arbre de travail, sans les schémas partagés des projets Xcode :
+# Xcode ouvert les réécrit dans son format dès que xcodegen les régénère, et
+# ils n'entrent pas dans les binaires.
+tree_state() {
+    git status --porcelain "$@" | grep -v '\.xcodeproj/xcshareddata/xcschemes/' || true
+}
+
 VERSION="" BETA=0 MODE=release MIN_INSTALLER="" REQUIRES_SETUP=0
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -148,7 +155,7 @@ fi
 # Git : main, propre, à jour.
 BRANCH="$(git symbolic-ref -q --short HEAD || echo "(tête détachée)")"
 if [ "$BRANCH" = main ]; then ok "branche main"; else problem "branche « $BRANCH » : on ne publie que depuis main"; fi
-DIRTY="$(git status --porcelain --untracked-files=normal)"
+DIRTY="$(tree_state --untracked-files=normal)"
 if [ -z "$DIRTY" ]; then
     ok "arbre de travail propre"
 else
@@ -334,7 +341,7 @@ fi
 COMMIT="$(git rev-parse "$VERSION_REF")"
 # Tout ce qui est construit doit venir de ce commit : la construction ne doit
 # toucher à aucun fichier suivi.
-TREE_BEFORE="$(git status --porcelain)"
+TREE_BEFORE="$(tree_state)"
 
 # ---------------------------------------------------------------------------
 step "KyberNow Station : installateur et paquet de mise à jour"
@@ -396,7 +403,7 @@ apps/windows/scripts/build-installer.sh 2>&1 > /dev/null \
 cp apps/windows/dist/KyberNow-Link-Setup.exe "$OUT/"
 for f in "${LEGACY_LINK[@]}"; do cp "$OUT/KyberNow-Link-Setup.exe" "$OUT/$f"; done
 
-TREE_AFTER="$(git status --porcelain)"
+TREE_AFTER="$(tree_state)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
     echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
     diff <(printf '%s\n' "$TREE_BEFORE") <(printf '%s\n' "$TREE_AFTER") >&2 || true

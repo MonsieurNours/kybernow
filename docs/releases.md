@@ -171,7 +171,7 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 
 | Vérification | Si elle échoue |
 |---|---|
-| Branche `main`, arbre propre (`git status --porcelain` vide, fichiers ignorés exceptés), `origin/main` inclus | commiter, `git switch main`, `git pull` |
+| Branche `main`, arbre propre (`git status --porcelain` vide, fichiers ignorés exceptés, ainsi que les schémas partagés des projets Xcode, qu'Xcode ouvert réécrit dans son format), `origin/main` inclus | commiter, `git switch main`, `git pull` |
 | Section `## X.Y.Z` dans `CHANGELOG.md` et `CHANGELOG.en.md` | l'ajouter aux deux |
 | Surcouche Kyber compilée avec les correctifs du dépôt : empreinte de `server/kyber-patches/*.patch` et `build.sh` égale à `kyber-overlay.stamp` ; sans empreinte, surcouche plus récente que tous ces fichiers | `server/kyber-patches/build.sh` |
 | SDK de Kyber de l'app Mac (`apps/macos/Vendor`) présent | `apps/macos/scripts/build-kyclient.sh` |

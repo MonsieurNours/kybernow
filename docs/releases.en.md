@@ -171,7 +171,7 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Statio
 
 | Check | If it fails |
 |---|---|
-| Branch `main`, clean tree (`git status --porcelain` empty, ignored files excepted), `origin/main` included | commit, `git switch main`, `git pull` |
+| Branch `main`, clean tree (`git status --porcelain` empty, ignored files excepted, as well as the Xcode projects' shared schemes, which an open Xcode rewrites in its own format), `origin/main` included | commit, `git switch main`, `git pull` |
 | `## X.Y.Z` section in `CHANGELOG.md` and `CHANGELOG.en.md` | add it to both |
 | Kyber overlay compiled with the repository's patches: fingerprint of `server/kyber-patches/*.patch` and `build.sh` equal to `kyber-overlay.stamp`; without a fingerprint, overlay newer than all these files | `server/kyber-patches/build.sh` |
 | Kyber SDK of the Mac app (`apps/macos/Vendor`) present | `apps/macos/scripts/build-kyclient.sh` |
