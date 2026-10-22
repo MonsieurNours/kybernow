@@ -16,7 +16,7 @@ Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac, 
 | llvm-mingw | 20261006 (UCRT, macOS), clang 23.1.3 | client Windows ARM64, dans `third_party/toolchains` |
 | wasm-bindgen-cli | 0.2.100 (celle du `Cargo.lock` de kyber-web) | moteur du client web |
 | binaryen (`wasm-opt`) | 133 | moteur du client web |
-| NDK d'Android | r27c (27.2.12479018), vérifiée avec rustc 1.97.0 sur Linux ; cibles Rust `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | cœur client et pont JNI pour Android (`apps/android/scripts/build-native.sh`) |
+| NDK d'Android | r27c (27.2.12479018), vérifiée avec rustc 1.97.0 sur Linux (à défaut, `build-native.sh` prend le plus récent installé, avec un avertissement) ; cibles Rust `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | cœur client et pont JNI pour Android (`apps/android/scripts/build-native.sh`) |
 | SDK Android, Gradle | plateforme 36, Android Gradle Plugin 8.13, Gradle 8.14 (wrapper), Kotlin 2.4, JDK 17 ou plus | app Android (`apps/android`) |
 
 Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par défaut de rustup qui compile.

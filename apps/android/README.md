@@ -4,7 +4,7 @@
 
 KyberNow Link sur Android : une seule app pour le téléphone, la tablette, le téléviseur (Android TV, Google TV) et la console portable, qui retrouve l'ordinateur (KyberNow Station : serveur Kyber 0.29 + KyberNow Admin) en plein écran, au doigt, à la télécommande, au clavier et à la souris ou à la manette. Identité v2 ([charte](../../brand/v2/README.md)) ; maquettes : [Claude Design](https://claude.ai/artifact/Ug3n57UPSvsrA3Hd9UMawX) (accueil, menu de session, manettes et vibrations, réglages de l'image au téléviseur ; accueil, ajout et session au téléphone ; accueil à la tablette).
 
-**État (22/10/2026)** : l'app est écrite et se construit (APK de débogage et de publication, trois ABI) ; elle n'a pas encore tourné sur un appareil. La décision est dans [PROJECT.md](../../PROJECT.md) (« Android et Android TV »).
+**État (22/10/2026)** : l'app tourne sur la NVIDIA Shield TV 2019, vers un PC sous Windows en Ethernet : session en 4K à 60 Hz en HEVC (61 images par seconde, son 7.1), découverte et ajout, menu de session, manette Xbox en Bluetooth, télécommande et manette en souris, fin de session ; Halo jouable. Les vibrations de la manette Xbox n'arrivent pas sur la Shield (voir « Vibrations »). Pas encore essayés : le téléphone (Redmi A5), le 1080p à 120 Hz, les mises à jour de l'app sur une version publiée. La décision est dans [PROJECT.md](../../PROJECT.md) (« Android et Android TV »).
 
 ## Appareils
 
@@ -17,23 +17,24 @@ KyberNow Link sur Android : une seule app pour le téléphone, la tablette, le t
 ## Ce que fait l'app
 
 - **Accueil** (`ui/home`) : l'ordinateur choisi en plein cadre (sa dernière image, sinon l'aperçu d'Admin ; zoom très lent, désaturée hors ligne), son état (réseau local, VPN, à distance, hors ligne ; sondage d'Admin toutes les 8 s), système, carte graphique et adresse ; « Se connecter » et les profils Jeu, Bureau, Max ; colonne « Prêt à jouer » au téléviseur et à la tablette (manettes et leurs moteurs, sortie du son, mode de l'écran et fréquence possible, décodeurs, dernière session) ; les autres ordinateurs (appui long : Réglages, Retirer), ceux trouvés sur le réseau, et l'ajout. Hors ligne avec une adresse MAC connue : « Réveiller l'ordinateur » (Wake-on-LAN).
-- **Ajout** (`ui/add`) : sur le réseau (`_kybernow._tcp` par NsdManager, TXT `name`, `fp`, `kyber`), code à six chiffres présenté à chaque Station trouvée et accepté dans Admin (compte Kyber propre à l'appareil), adresse avec les quatre premiers groupes de l'empreinte à comparer, QR code à la caméra (CameraX et zxing, sans services Google) et lien `kybernow://` ouvert depuis une autre app. Mots de passe chiffrés par une clé du Keystore d'Android.
+- **Ajout** (`ui/add`) : sur le réseau (`_kybernow._tcp` par NsdManager, TXT `name`, `fp`, `kyber` ; quand Android ne donne qu'une adresse IPv6 de lien local, l'adresse IPv4 est demandée à JmDNS puis par une requête mDNS directe, `model/MdnsLookup.kt`), code à six chiffres présenté à chaque Station trouvée et accepté dans Admin (compte Kyber propre à l'appareil), adresse avec les quatre premiers groupes de l'empreinte à comparer, QR code à la caméra (CameraX et zxing, sans services Google) et lien `kybernow://` ouvert depuis une autre app. Mots de passe chiffrés par une clé du Keystore d'Android.
 - **Session** (`session/`) :
   - Le **passage** : l'accueil coupé le long de la couture à 45°, le néon, les moitiés qui s'écartent sur la première image ; capsule « Vous entrez dans… » avec l'étape en cours et Annuler.
   - **Image** plein cadre, à son format (bandes d'encre), sur une `SurfaceView`, dont le décodeur rend directement les images ; la vue d'interface et celle du pointeur sont retirées quand rien n'est à montrer.
-  - **Téléviseur** : menu par le bouton Retour de la télécommande (réglable) ou L1 + R1 + Start + Select : santé du flux en haut (latence, images par seconde, débit, mode, pertes), Reprendre, autres profils, Son, Télécommande en souris, Manette en souris, Taper du texte, Touches, Mesures, Se déconnecter. Pendant le menu, les manettes pilotent l'app et l'ordinateur relâche tout.
+  - **Téléviseur** : menu par le bouton Retour de la télécommande (réglable) ou L1 + R1 + Start + Select (aussi en manette en souris) : santé du flux en haut (latence, images par seconde, débit, mode, pertes), puis des tuiles qui tiennent toutes à l'écran (cinq par rangée) : Reprendre, autres profils, Son, Télécommande en souris, Manette en souris, Taper du texte, Touches, Mesures, et Se déconnecter en rouge, en dernier. Pendant le menu, les manettes pilotent l'app (A valide, B ferme, la croix déplace ; les autres boutons et le relâché du combo ne font rien) et l'ordinateur relâche tout.
   - **Téléphone et tablette** : languette (latence en direct) et barre (mesures, profils, pavé tactile ou toucher direct, souris Auto / Bureau / Jeu, clavier, Touches, Quitter) ; rangée de touches au-dessus du clavier de l'écran (Échap, Tab, Ctrl, Alt et ⊞ collants, flèches, F1 à F12, Ctrl + Alt + Suppr), texte envoyé en Unicode.
   - **États** en capsule, jamais en alerte : reconnexion (avec Quitter), image relancée, mode de l'ordinateur changé (« Remettre » en profil Bureau), repli, écran virtuel adapté, manette branchée.
-  - **Fin** : la dernière image est gardée (PixelCopy), la latence de la session (médiane, p95) et sa durée vont à l'accueil.
-- **Manettes** (`model/Gamepads.kt`, `session/Inputs.kt`) : quatre joueurs au plus dans l'ordre d'arrivée, une cinquième en attente ; annoncées à l'ordinateur à chaque reconnexion ; boutons, sticks, gâchettes (analogiques ou numériques) et croix en chapeau ; Retour et Menu d'une manette partent au jeu comme Select et Start ; bouton Guide (Jeu, Appui long : Start tenu 600 ms, Système) ; manette en souris (stick gauche pointeur, RT plus vite, LT plus précis, stick droit molette, A / X / B clics, croix flèches, Start ⊞, Select Échap, L1 / R1 Alt + Tab). Écran de test (`ui/gamepads`) : touches, sticks, gâchettes en direct, moteurs de chaque manette et vibration d'essai par moteur.
-- **Clavier, souris, toucher** : clavier physique en scancodes (code Linux de `KeyEvent.getScanCode()` converti par kynput) ; souris en position (pointeur de l'ordinateur dessiné par l'app) ou capturée en mouvements bruts quand un jeu le veut (souris Auto) ; pavé tactile (un doigt = pointeur, toucher = clic, deux doigts = clic droit et molette, maintenir = glisser) ou toucher direct ; télécommande en flèches et Entrée, ou en souris.
+  - **Fin** : « Se déconnecter » affiche aussitôt « Déconnexion… » pendant que l'ordinateur remet son écran et son son (quelques secondes) ; l'app revient à l'accueil au plus tard après 6 s. La dernière image est gardée (PixelCopy, 0,8 s au plus), la latence de la session (médiane, p95) et sa durée vont à l'accueil.
+- **Manettes** (`model/Gamepads.kt`, `session/Inputs.kt`) : quatre joueurs au plus dans l'ordre d'arrivée, une cinquième en attente ; annoncées à l'ordinateur à chaque reconnexion ; boutons, sticks, gâchettes (analogiques ou numériques) et croix en chapeau ; Retour et Menu d'une manette partent au jeu comme Select et Start ; bouton Guide (Jeu, Appui long : Start tenu 600 ms, Système) ; manette en souris (stick gauche pointeur, RT plus vite, LT plus précis, stick droit molette, A / X / B clics, croix flèches, Start ⊞, Select Échap, L1 / R1 Alt + Tab ; Start, Select, L1 et R1 agissent au relâché et seulement seuls, pour laisser passer le combo ; Retour et Menu d'une manette Xbox en Bluetooth valent Select et Start). Un appareil n'est une manette que s'il a un stick (les télécommandes et appareils virtuels de la Shield qui se disent manettes sont écartés). Écran de test (`ui/gamepads`) : touches, sticks, gâchettes en direct, moteurs de chaque manette et vibration d'essai par moteur.
+- **Clavier, souris, toucher** : clavier physique en scancodes (code Linux de `KeyEvent.getScanCode()` converti par kynput) ; souris en position (pointeur de l'ordinateur dessiné par l'app, toujours visible en télécommande ou manette en souris : Windows cache le sien sans souris branchée) ou capturée en mouvements bruts quand un jeu le veut (souris Auto) ; pavé tactile (un doigt = pointeur, toucher = clic, deux doigts = clic droit et molette, maintenir = glisser) ou toucher direct ; télécommande en flèches et Entrée, ou en souris.
 - **Presse-papiers** texte dans les deux sens (téléphone, tablette) : le texte de l'appareil n'est lu que quand l'ordinateur colle (Android 12 affiche un avis à chaque lecture).
 - **Arrière-plan** : tout est relâché sur l'ordinateur, le débit plafonné, l'image figée ; la surface retirée, le décodeur est refait au retour sur une image clé.
+- **Mises à jour de l'app** (`update/Updates.kt`) : recherche au lancement, au retour dans l'app et toutes les 6 heures ; pastille « Version X » sur l'accueil ; téléchargement vérifié par le manifeste signé, installation par PackageInstaller (voir « Mises à jour et publication »).
 - **Rangée « Reprendre sur un ordinateur »** de l'accueil d'Android TV (`tv/TvChannel.kt`) : chaque ordinateur avec sa dernière image, prêtée au seul lanceur de l'accueil ; un clic ouvre la session (`kybernow://connect/<id>`). Google TV ne montre pas ces rangées.
-- **Réglages** par ordinateur (`ui/settings`) : profil ; définition (comme cet écran, 4K, 1440p, 1080p, 720p), fréquence, format, débit, 4:4:4, caler l'écran sur la session, mode jeu du téléviseur, VRR (information) ; son ; manette vue par l'ordinateur, combinaison, Retour, Guide ; souris, toucher, presse-papiers ; transport fiable, reconnexion, adresse MAC ; compte, retirer l'ordinateur. Réglages de l'app : langue (Auto, Français, English), décodeurs et écran de l'appareil, licences.
+- **Réglages** par ordinateur (`ui/settings`) : profil ; définition (comme cet écran, 4K, 1440p, 1080p, 720p), fréquence, format, débit, 4:4:4, caler l'écran sur la session, mode jeu du téléviseur, VRR (information) ; son ; manette vue par l'ordinateur, combinaison, Retour, Guide ; souris, toucher, presse-papiers ; transport fiable, reconnexion, adresse MAC ; compte, retirer l'ordinateur. Réglages de l'app : langue (Auto, Français, English), décodeurs et écran de l'appareil, mises à jour (état, notes, canal stable ou bêta), licences.
 - **Langues** : français et anglais (`res/values-fr`, `res/values`, produits par `scripts/strings.py`) ; français si Android est en français, anglais sinon ; choix par app (Android 13 et après dans les réglages d'Android aussi).
 
-Hors première version : manette à l'écran, mise en page des pliables, mises à jour de l'app par le manifeste signé, envoi des ordinateurs du téléphone au téléviseur (à écrire côté Station).
+Hors première version : manette à l'écran, mise en page des pliables, envoi des ordinateurs du téléphone au téléviseur (à écrire côté Station).
 
 ## Image, fréquence et mode jeu
 
@@ -53,8 +54,9 @@ Opus décodé par le moteur du cœur (`apps/core/src/audio`), tiré directement 
 Les vibrations du jeu arrivent au cœur (`InputPlatform::rumble`) et sont jouées sur la manette du joueur (`Gamepads.rumble`) :
 
 - **Android 12 et après** : `InputDevice.getVibratorManager()`, deux moteurs (gros moteur grave à gauche, petit aigu à droite, comme XInput).
-- **Android 11 (Shield)** : `InputDevice.getVibrator()`, un seul vibreur à l'intensité la plus forte des deux moteurs ; beaucoup de manettes Bluetooth n'y vibrent pas.
+- **Android 11 (Shield)** : `InputDevice.getVibrator()`, un seul vibreur à l'intensité la plus forte des deux moteurs ; beaucoup de manettes Bluetooth n'y vibrent pas. Vérifié sur la Shield 2019 : la manette Xbox Wireless en Bluetooth est « sans vibration » (Android ne donne aucun vibreur), alors que l'ordinateur envoie bien les vibrations de Halo. Rien à faire côté app : la Shield « tube » n'a pas d'USB, et une app ne peut pas parler directement à une manette associée au système.
 - Sans durée, 5 s au plus (comme kynput sur Mac) ; (0, 0) arrête. L'écran de test dit pour chaque manette « 2 moteurs », « 1 moteur » ou « sans vibration ».
+- Journal (`adb logcat -s KyberNow`, lignes `vibrations :`) : première vibration reçue de l'ordinateur, manette introuvable à ce rang, nombre de vibreurs qu'Android donne pour la manette.
 
 ## Architecture
 
@@ -67,8 +69,10 @@ apps/android/
 │       ├── model/       ordinateurs et mots de passe, découverte, manettes, décodeurs, écran, son, Wake-on-LAN
 │       ├── ui/          thème de la charte, icônes, accueil, ajout, réglages, test des manettes
 │       ├── session/     SessionActivity, SessionState, entrées, interface de session, pointeur
-│       └── tv/          rangée de l'accueil d'Android TV
-└── scripts/             build-native.sh, strings.py (textes), brand-drawables.py (dessins de la charte)
+│       ├── tv/          rangée de l'accueil d'Android TV
+│       └── update/      mises à jour de l'app (recherche, téléchargement, PackageInstaller)
+└── scripts/             build-native.sh, release-apk.sh (APK publié), strings.py (textes),
+                         app-icon.py et brand-drawables.py (dessins de la charte)
 ```
 
 - **Pont JNI** (`jni/`, l'équivalent de `apps/apple` pour Kotlin) : objet Kotlin `fr.leslignesclaires.kybernow.core.Native`, objets du cœur en `Long`, réponses d'Admin en JSON (`{"code": 0, "value": …}`), mêmes paramètres de session que `kn_session_start` des apps Apple, plus `combo`. Les rappels vers Kotlin (`SessionListener`) passent par une référence globale ; chaque fil du cœur s'attache à la JVM et travaille dans un cadre de références locales. Tout le chemin chaud (image, son, chaîne d'entrées) reste en Rust.
@@ -92,6 +96,7 @@ apps/android/scripts/build-native.sh --target aarch64-linux-android
 cd apps/android
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease      # signée si KYBERNOW_ANDROID_KEYSTORE (et ses mots de passe) est donné
+                               # (l'APK publié : scripts/release-apk.sh, voir plus bas)
 ./gradlew lintDebug
 ./gradlew recordRoborazziDebug  # captures des écrans principaux, sans appareil → app/screenshots/
 adb install -r app/build/outputs/apk/debug/app-debug.apk
@@ -101,6 +106,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Captures (`app/src/test/.../Screenshots.kt`) : Robolectric en rendu natif et Roborazzi, avec des données de démonstration et une fausse image d'ordinateur, sans la bibliothèque native ; l'accueil (`HomeContent`), le test des manettes (`GamepadsContent`) et l'interface de session (`SessionOverlay`) reçoivent leurs données en paramètres pour cela. Robolectric télécharge une image d'Android au premier lancement (`android-all-instrumented`, 200 Mo, Maven Central).
 
+**Essayer sur un appareil** (Shield ou téléphone branché à Android Studio, débogage USB ou réseau activé) : `git pull`, `apps/android/scripts/build-native.sh` si `apps/core` ou `apps/android/jni` ont changé, puis ▶ Run dans Android Studio (projet `apps/android`). Sans la bibliothèque native, Gradle refuse de construire (`libkybernow.so absente…`) : une app installée sans elle mourrait au lancement (`UnsatisfiedLinkError`). Le script prend le NDK 27.2.12479018 ; à défaut, le plus récent installé, avec un avertissement. Journal : `adb logcat -s KyberNow` (cœur Rust et app).
+
 Textes : `scripts/strings.py` (les deux langues dans un seul fichier, typographie française comprise) écrit `res/values*/strings.xml`. Dessins : `scripts/app-icon.py` (icône, bannière ; Pillow) et `scripts/brand-drawables.py`.
 
 ## Mises à jour et publication
@@ -109,8 +116,9 @@ L'app se met à jour seule depuis les versions publiées (`KyberNow-Link-Android
 
 ## Reste à faire
 
-- Sur le Redmi A5 : une session (tactile, manette), et le 1080p à 120 Hz sur la Shield (la session en 4K60 marche).
-- Sur la Shield : la manette Xbox ne vibre pas en Bluetooth sous Android 11 (Android ne donne aucun vibreur) ; essayer la DualSense et la manette Shield.
+- Sur le Redmi A5 : une session (tactile, manette) ; sur la Shield : le 1080p à 120 Hz.
+- Vibrations sur la Shield : essayer la DualSense et la manette Shield (la Xbox n'en a pas).
+- Pertes de paquets du son sur la Shield en Ethernet 100 Mbit/s en 4K60 : vérifier en gigabit, ou à débit plus bas.
 - Côté Station : relayer les ordinateurs du téléphone vers le téléviseur (code affiché au téléviseur).
 - Première version publiée avec l'APK (mises à jour à essayer de bout en bout) ; Play Store en test interne.
 - Écran externe (image sur l'écran branché, appareil en pupitre), essais DeX et ChromeOS.
