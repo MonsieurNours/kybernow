@@ -68,9 +68,16 @@ done
 # Le NDK : variable, SDK déclaré, ou SDK d'Android Studio.
 find_ndk() {
     local candidate
+    local sdk
     for candidate in "${ANDROID_NDK_HOME:-}" "${ANDROID_HOME:+$ANDROID_HOME/ndk/$NDK_VERSION}" \
         "$HOME/Library/Android/sdk/ndk/$NDK_VERSION" "$HOME/Android/Sdk/ndk/$NDK_VERSION"; do
         [ -n "$candidate" ] && [ -f "$candidate/source.properties" ] && { echo "$candidate"; return 0; }
+    done
+    # Sinon le plus récent des NDK installés par Android Studio (version signalée plus bas).
+    for sdk in "${ANDROID_HOME:-}" "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
+        [ -n "$sdk" ] && [ -d "$sdk/ndk" ] || continue
+        candidate=$(find -L "$sdk/ndk" -mindepth 1 -maxdepth 1 -type d -exec test -f '{}/source.properties' ';' -print | sort -V | tail -1)
+        [ -n "$candidate" ] && { echo "$candidate"; return 0; }
     done
     return 1
 }
