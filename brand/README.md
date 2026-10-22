@@ -1,6 +1,6 @@
 # Logo KyberNow
 
-> Remplacé par l'identité [`v2/`](v2/README.md) (symbole « Relais », signal Spectre), adoptée le 20 octobre 2026. Ce dossier reste en place tant que les apps l'utilisent.
+> Logo précédent, gardé comme archive : ni les apps, ni Admin, ni les installateurs, ni le site ne s'en servent. L'identité en vigueur est [`v2/`](v2/README.md) (symbole « Relais », signal Spectre).
 
 Le K en ruban plié, traversé par trois lignes de signal qui pulsent dans son ouverture : l'image qui part du PC et arrive sur l'écran.
 

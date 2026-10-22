@@ -90,12 +90,12 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 - On a phone, the 3D symbol moves to the top of the screen, smaller (`MOBILE` in `scene.js`), so it never goes under the text.
 - A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/ecran`).
 - No resolution or refresh rate limit announced: the site talks about “your display's resolution and refresh rate”. The only numbers are those of a measurement, presented as such.
-- “Reduce motion”: the symbol no longer travels, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.
+- “Reduce motion”: the symbol stays in place, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.
 - Without WebGL: the lit symbol as SVG instead of the scene.
 
 ## Updating
 
 - Path figures: `docs/prototype-A-results.md` (`#trajet` section of `index.html`, total in `TOTAL` in `main.js`).
-- Download links: `releases/latest/download/<fichier>` on GitHub, nothing to change for each release.
+- Download links: `releases/latest/download/<fichier>` on GitHub, nothing to change for each release. A link to a new file name only reaches `main` once the release that contains that file is published (see [docs/releases.en.md](../docs/releases.en.md), “Old installer names”).
 - `updates/appcast.xml`: update feed of the Mac app (Sparkle), every release, betas included. Written and committed by `scripts/release.sh` on each release, rebuilt if needed by `scripts/rebuild-appcast.sh`; do not edit it by hand (see [docs/releases.en.md](../docs/releases.en.md), "Mac app update feed"). Its address is compiled into the app: do not move it.
 - Three.js: replace the files in `vendor/three/` with those of the same version on unpkg (`three@<version>/build/three.module.min.js`, `examples/jsm/...`).

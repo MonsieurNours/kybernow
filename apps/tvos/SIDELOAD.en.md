@@ -49,7 +49,7 @@ apps/tvos/scripts/sideload.sh --team ABCDE12345 --full
 ```
 
 The script:
-1. downloads the Kyber SDK and the KyberNow core already built for Apple TV (`KyberSDK-tvOS.zip`, attached to every published release; the core since 0.3.1);
+1. downloads the Kyber SDK and the KyberNow core already built for Apple TV (`KyberSDK-tvOS.zip`, attached to every published release; `--version X.Y.Z` for a specific one, 0.3.1 or later: older archives lack the core);
 2. prepares the Xcode project in your name (app identifier `kybernow.<your team>`, change it with `--bundle` if needed);
 3. builds the app; Xcode creates the signing profile itself;
 4. installs it on the paired Apple TV (`--device "Apple TV name"` if there are several).

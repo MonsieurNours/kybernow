@@ -90,12 +90,12 @@ Rien n'est chargé depuis un CDN. Seule requête externe : l'API GitHub, pour af
 - Sur téléphone, le symbole 3D se range en haut de l'écran, plus petit (`MOBILE` dans `scene.js`), pour ne jamais passer sous le texte.
 - Un seul bouton principal par vue ; au téléchargement, il suit le système du visiteur (Mac : l'app KyberNow Link, Windows : l'installateur de KyberNow Station, tablette, téléphone et le reste : Link dans le navigateur, `/ecran`).
 - Aucune limite de définition ou de fréquence annoncée : le site parle de « la définition et la fréquence de votre écran ». Les seuls chiffres sont ceux d'une mesure, présentés comme tels.
-- « Réduire les animations » : le symbole ne voyage plus, pas de grésillement ni de respiration, apparitions en simple fondu. « Réduire la transparence » : surfaces opaques, pas de halo.
+- « Réduire les animations » : le symbole reste en place, pas de grésillement ni de respiration, apparitions en simple fondu. « Réduire la transparence » : surfaces opaques, pas de halo.
 - Sans WebGL : symbole allumé en SVG à la place de la scène.
 
 ## Mettre à jour
 
 - Chiffres du trajet : `docs/prototype-A-results.md` (section `#trajet` de `index.html`, total dans `TOTAL` de `main.js`).
-- Liens de téléchargement : `releases/latest/download/<fichier>` sur GitHub, rien à changer à chaque version.
+- Liens de téléchargement : `releases/latest/download/<fichier>` sur GitHub, rien à changer à chaque version. Un lien vers un nouveau nom de fichier n'arrive sur `main` qu'une fois publiée la version qui contient ce fichier (voir [docs/releases.md](../docs/releases.md), « Anciens noms des installateurs »).
 - `updates/appcast.xml` : flux des mises à jour de l'app Mac (Sparkle), toutes les versions, bêtas comprises. Écrit et commité par `scripts/release.sh` à chaque publication, reconstruit au besoin par `scripts/rebuild-appcast.sh` ; ne pas le modifier à la main (voir [docs/releases.md](../docs/releases.md), « Flux des mises à jour de l'app Mac »). Son adresse est compilée dans l'app : ne pas le déplacer.
 - Three.js : remplacer les fichiers de `vendor/three/` par ceux de la même version sur unpkg (`three@<version>/build/three.module.min.js`, `examples/jsm/...`).

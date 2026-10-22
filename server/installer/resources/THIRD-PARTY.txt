@@ -23,7 +23,7 @@ ViGEmBus 1.21.442 - pilote de manettes virtuelles
   Nefarius Software Solutions - https://github.com/nefarius/ViGEmBus
   Licence : BSD-3-Clause
 
-Polices de l'interface : Bricolage Grotesque, IBM Plex Sans, IBM Plex Mono
+Polices de l'interface : Archivo, Martian Mono
   Licence : SIL Open Font License 1.1
 
 Interface et installateur : Svelte, wry, tao, axum et bibliothèques Rust/JavaScript

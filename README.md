@@ -23,11 +23,11 @@ KyberNow réunit trois produits :
 | `server/installer/` | Installateur `KyberNow-Station-Setup.exe` (Rust + WebView2 + Svelte), voir [son README](server/installer/README.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
-| `brand/` | Logo et déclinaisons ; identité v2 dans `brand/v2/` (charte, symbole, jetons) |
+| `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
 | `docs/` | Changements de Kyber, notes de compilation, prototype de référence, audit du 20 octobre 2026 et [mesures à faire sur le matériel](docs/mesures.md) |
 | `tools/latency/` | Mesure de latence |
 
-La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français). Chaque évolution met à jour les deux versions dans le même commit.
+La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français) ; chaque évolution met à jour les deux dans le même commit. Elle décrit le projet tel qu'il est ; l'historique est dans `CHANGELOG.md` et dans git. Règles d'écriture : [docs/i18n.md](docs/i18n.md#documentation).
 
 KyberNow utilise [Kyber](https://kyber.tech), un moteur de streaming libre (AGPL-3.0) conçu par des développeurs de VLC. KyberNow est un projet communautaire et non commercial, développé par Les Lignes Claires ; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié.
 

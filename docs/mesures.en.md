@@ -2,14 +2,14 @@
 
 English · [Français](mesures.md)
 
-Four measurements asked for by the audit of 20 October 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), in French only, section 16, row “Vérifications acceptées”, accepted checks). Each one is done on the author's hardware and settles a decision: without its result, the matching work item stays on hold. Nothing has been run yet.
+Four measurements asked for by the audit of 20 October 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), in French only, section 16, row “Vérifications acceptées”, accepted checks). Each one is done on the author's hardware and settles a decision: without its result, the matching work item stays on hold. None has a result yet.
 
 | # | Measurement | Where | Settles |
 |---|---|---|---|
 | 1 | Display latency of the Mac app | Mac, in a session | The “one frame in flight” guard; full screen presented directly or composited (§3) |
 | 2 | Windows permissions | Computer | Permissions of `ProgramData` (§7, work item 2); integrity level of the icon (§7) |
-| 3 | Saturated Wi-Fi | Mac on Wi-Fi, computer, a third device | The 8 MiB queue of patch 0007 (§3, §8) |
-| 4 | SudoVDA virtual display modes | Computer, in a session | The “follow / put back” policy (§15) |
+| 3 | Saturated Wi-Fi | Mac on Wi-Fi, computer, a third device | Default send policy: deep or short queue (patches 0007 and 0010; §3, §8) |
+| 4 | SudoVDA virtual display modes | Computer, in a session | Whether the “follow / put back” policy acts on the virtual display (§15) |
 
 Reference hardware: a Mac M4 Max; a Windows computer with an NVIDIA card, at 192.168.1.100 on the local network, with a 4K 160 Hz display.
 
@@ -31,11 +31,11 @@ Each measurement has its own table to fill in. Measurements 1 and 3 have the col
 
 **What the app writes.**
 - `KN_PRESENT_STATS=1`: every second, one line in the unified log (subsystem `fr.leslignesclaires.kybernow`, category `video`) with the p50 and p95 of “presentedTime − commit” (the time between handing the frame to Metal and its appearance on screen), the number of frames discarded by Core Animation and the number of frames rendered.
-- `KN_INFLIGHT_GUARD=1`: puts the old guard back, for comparison. Without this variable, the guard is lifted.
+- `KN_INFLIGHT_GUARD=1`: puts the guard back, for comparison. Without this variable, the guard is lifted.
 
 ### Prepare
 
-1. Check that your app contains these variables. They come from another work session: as long as the following command prints nothing, there is nothing to measure.
+1. Check that your repository is up to date: the following command must print lines from `VideoRenderer.swift`.
 
 ```bash
 cd ~/Sites/kyber-apps
@@ -50,7 +50,7 @@ cd ~/Sites/kyber-apps/apps/macos
 xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Debug -derivedDataPath build/dev build
 ```
 
-3. In the computer's settings (Mac app): **Game** profile, **vertical sync on** (without it, the guard plays no part), VLC player off (Settings, Advanced: VLC does not use the app's renderer).
+3. In the computer's settings (Mac app): **Game** profile, **vertical sync on** (without it, the guard plays no part).
 4. On the computer, start the scene (see “Before you start”).
 
 ### Launch the app with the variables
@@ -72,13 +72,13 @@ APP="$PWD/apps/macos/build/dev/Build/Products/Debug/KyberNow.app"
 # Without the guard (default behavior)
 KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow"
 
-# With the old guard (for comparison)
+# With the guard (for comparison)
 KN_PRESENT_STATS=1 KN_INFLIGHT_GUARD=1 "$APP/Contents/MacOS/KyberNow"
 ```
 
 The app stays attached to window 2. ⌘Q or ⌃C quits it. Always launch the binary as above: `open` does not pass the variables on.
 
-From the first frame of the session, one line per second appears in window 1: p50, p95, discarded, rendered (the exact wording is the app's). Nothing after 5 s: the app does not have the variables (step 1 of “Prepare”), or the player is VLC.
+From the first frame of the session, one line per second appears in window 1: p50, p95, discarded, rendered (the exact wording is the app's). Nothing after 5 s: the app does not have the variables (step 1 of “Prepare”).
 
 ### Protocol
 
@@ -156,7 +156,7 @@ The HUD costs a little GPU time: compare measurements with the HUD to measuremen
 
 ## 2. Windows permissions
 
-**Goal.** Check on the computer what phase 0 delivered (§17 of the audit): the folder `C:\ProgramData\KyberNow` is only accessible to administrators, and the icon relaunched by an Admin update does not run with an elevated token (§7, the point marked “to confirm”).
+**Goal.** Check on the computer that the folder `C:\ProgramData\KyberNow` is only accessible to administrators (§7, §17 of the audit), and that the icon relaunched by an Admin update does not run with an elevated token (§7, the point marked “to confirm”).
 
 ### The data folder
 
@@ -167,7 +167,7 @@ icacls C:\ProgramData\KyberNow
 icacls C:\ProgramData\KyberNow /T | Select-Object -First 40
 ```
 
-**Expected after phase 0**, on the folder itself (the names follow Windows' language):
+**Expected**, on the folder itself (the names follow Windows' language):
 
 ```text
 C:\ProgramData\KyberNow NT AUTHORITY\SYSTEM:(OI)(CI)(F)
@@ -199,7 +199,7 @@ New-Item -ItemType Directory C:\ProgramData\KyberNow\update\essai
 ```
 
 **Expected**: both commands are denied (“Access to the path … is denied”, “Accès refusé” on a French Windows). No file name is displayed.
-3. In the same session, click the KyberNow Station icon, then the entry that opens Admin: it still opens.
+3. In the same session, click the KyberNow Station icon, then the entry that opens Admin: it opens.
 
 Without a standard account, the same `dir` in a **non-elevated** PowerShell window of your administrator account must also be denied (the Administrators group is deny-only there). The proof is weaker: it does not cover another account.
 
@@ -240,14 +240,14 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
 
 ## 3. Saturated Wi-Fi
 
-**Goal.** Find out whether the 8 MiB queue of patch 0007 causes bufferbloat when the Wi-Fi saturates, then measure the “short queue” policy that will replace it. The audit (§3, §8) estimates that 0.7 to 2.2 s of stale frames are sent before being dropped: 8 MiB is 67 Mbit, i.e. 0.67 s at 100 Mbit/s and 2.2 s at 30 Mbit/s.
+**Goal.** Find out whether the deep queue (8 MiB, the default send policy) causes bufferbloat when the Wi-Fi saturates, and what the short queue (3 MiB) gives. The setting: [kyber-changes.en.md](kyber-changes.en.md#measuring-the-send-policy-0010). The audit (§3, §8) estimates that 0.7 to 2.2 s of stale frames are sent before being dropped: 8 MiB is 67 Mbit, i.e. 0.67 s at 100 Mbit/s and 2.2 s at 30 Mbit/s.
 
 ### Hardware and settings
 
 - The Mac on Wi-Fi, on the same access point as the computer. The computer preferably on Ethernet: the Wi-Fi is then the only bottleneck. Unplug the Mac's Ethernet and turn off any VPN.
 - A third device on Wi-Fi on the same access point (laptop, phone) with `iperf3`.
 - Note the Mac's Wi-Fi: Option-click on the Wi-Fi icon gives the channel, the band, the link rate and the signal.
-- The Mac app with the app's player (not VLC), **Game** profile, 4K resolution. Open the session, start the scene, go full screen, then open the **detailed measurements** panel (⌃⌥⌘S).
+- The Mac app in the **Game** profile, 4K resolution. Open the session, start the scene, go full screen, then open the **detailed measurements** panel (⌃⌥⌘S).
 
 ### Prepare the saturation
 
@@ -299,21 +299,17 @@ For the final table:
 
 ### The two series
 
-Do the complete series with:
-1. **the published 0.2.5 version** (8 MiB queue), the one the computer probably has today (check in “Installed apps”). To reinstall it if needed, in an administrator PowerShell:
+Do the complete series twice, with the same Mac app and the same Station version:
+1. **deep queue** (`datagram_send_queue = "deep"`, the default);
+2. **short queue** (`datagram_send_queue = "short"`).
 
-```powershell
-$env:KYBERNOW_UPDATE_BASE = 'https://github.com/MonsieurNours/kybernow/releases/download/v0.2.5'
-irm https://github.com/MonsieurNours/kybernow/releases/download/v0.2.5/update.ps1 | iex
-```
-
-2. **the new version with the “short queue” policy**, when it is available. It is set in `kyber_config.toml`: the name of the setting and its values will be in [kyber-changes.en.md](kyber-changes.en.md). Install the version, apply the setting, restart the service as described there, and note the value in the remark. The Mac app stays the same for both series.
+The policy is chosen in Admin (System › Advanced › Image send queue) or in `kyber_config.toml`. After each change, restart Kyber (Admin offers to) and check the `Datagram send queue: …` line in the controller log (see [kyber-changes.en.md](kyber-changes.en.md#measuring-the-send-policy-0010)).
 
 | Condition | p50 (ms) | p95 (ms) | Losses (frames / packets / keyframes) | Remark |
 |---|---|---|---|---|
-| 0.2.5, before | | | | |
-| 0.2.5, during | | | | |
-| 0.2.5, after | | | | |
+| Deep queue, before | | | | |
+| Deep queue, during | | | | |
+| Deep queue, after | | | | |
 | Short queue, before | | | | |
 | Short queue, during | | | | |
 | Short queue, after | | | | |
@@ -324,7 +320,7 @@ In the remark: the `-b` rate you kept and the rate iperf3 received, the Mac's Wi
 
 - **If the median latency “during” exceeds the one “before” by several hundred milliseconds, the deep queue causes bufferbloat.** That is what the audit predicts. A latency that stays high for a long time “after” is the same signature: the queue empties at the link's pace.
 - With the short queue, the latency “during” must stay close to the one “before”. The price is more losses and more keyframes requested again: compare them. As a rule of thumb, the short queue is the right one if the latency “during” stays within 100 ms of the one “before”, with no image freeze longer than a second.
-- No difference between 0.2.5 and “before”: the link was not saturated for the stream. Raise `-b` or move the Mac closer to the Wi-Fi limit.
+- No difference between “during” and “before” with the deep queue: the link was not saturated for the stream. Raise `-b` or move the Mac closer to the Wi-Fi limit.
 
 ---
 
@@ -481,8 +477,8 @@ For each `\\.\DISPLAYn`, it prints: the adapter, the monitor, whether it is acti
 
 ### Interpret
 
-- **A single mode** (the one Admin asked for when it created the display): a game cannot change the virtual display's resolution. The “mode changes” scenario of §15 then only exists on physical displays. Admin's “follow / put back” policy has no purpose for the virtual display: do not build it.
-- **A list**: a game can change the virtual display's resolution. The scenario of §15 is real: the image goes on at the new size (txproto engine) or the session is cut (libavconv engine), and the “follow / put back” policy (§15: let the game choose the mode, or freeze it) makes sense. Note whether the list contains your Mac display's resolution and 4K, and several rates for the same size.
+- **A single mode** (the one Admin asked for when it created the display): a game cannot change the virtual display's resolution. The “mode changes” scenario of §15 then only exists on physical displays, and Admin's “follow / put back” policy has nothing to do on the virtual display.
+- **A list**: a game can change the virtual display's resolution. The scenario of §15 is real: the image goes on at the new size (txproto engine) or the session is cut (libavconv engine), and Admin's “follow / put back” policy acts on it (let the game choose the mode, or put the device's back). Note whether the list contains your Mac display's resolution and 4K, and several rates for the same size.
 - Raw modes more numerous than the offered modes: the virtual monitor hides some. Note them: a game that enumerates modes the way the script does will see the driver's list.
 
 ---
@@ -494,6 +490,6 @@ In [audit-2026-10-20.md](audit-2026-10-20.md), **section 16** (“Décisions pri
 | Measurement | Who reads the result in the audit | Decision to write |
 |---|---|---|
 | 1. Display latency | §3, rows “Affichage” (display) and “Composition du plein écran” (full-screen composition) | Guard lifted or put back; direct Metal layer work item started or dropped |
-| 2. Windows permissions | §7 (permissions, icon at high integrity); §17, list “Mise à jour et installation” (update and installation) | Phase 0 validated or redone; `TokenLinkedToken` fix to do or not |
+| 2. Windows permissions | §7 (permissions, icon at high integrity); §17, list “Mise à jour et installation” (update and installation) | Folder permissions validated or to redo; `TokenLinkedToken` fix to do or not |
 | 3. Saturated Wi-Fi | §3, row “Envoi (serveur)” (sending, server); §8, patch 0007 | “Short queue” policy as default or not, and its value |
-| 4. SudoVDA modes | §15, “Questions propres à ce sujet” (questions specific to this topic) and “Choix de politique” (policy choice) | One or several modes; “follow / put back” policy built or not |
+| 4. SudoVDA modes | §15, “Questions propres à ce sujet” (questions specific to this topic) and “Choix de politique” (policy choice) | One or several modes; what the “follow / put back” policy does on the virtual display |

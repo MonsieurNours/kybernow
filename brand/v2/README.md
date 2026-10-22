@@ -2,7 +2,7 @@
 
 [English](README.en.md) · Français
 
-Adoptée le 20 octobre 2026, signal Spectre. Remplace le K en ruban de `brand/` ; les apps y passent au fil des évolutions. Charte complète : [`charte/index.html`](charte/index.html), à ouvrir dans un navigateur (version en ligne : https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt). Maquettes animées des apps (accueil, passage et session sur Mac, installateur, console) : https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8.
+L'identité de KyberNow (20 octobre 2026), signal Spectre, utilisée par les apps, Admin, les installateurs et le site. Charte complète : [`charte/index.html`](charte/index.html), à ouvrir dans un navigateur (version en ligne : https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt). Maquettes animées des apps (accueil, passage et session sur Mac, installateur, Admin) : https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8.
 
 ## En bref
 
@@ -10,7 +10,7 @@ Adoptée le 20 octobre 2026, signal Spectre. Remplace le K en ruban de `brand/` 
 - **Trois produits, trois états** : **KyberNow Link** (les apps Mac, Apple TV, iPhone, iPad et Windows, et l'écosystème : état `now`, la moitié basse en signal), **KyberNow Station** (le serveur sur l'ordinateur Windows : état `server`, la moitié haute), **KyberNow Admin** (l'administration de la Station dans le navigateur : état `console`, la couture seule). Les noms d'états restent ceux des fichiers et du code.
 - **Signature** : dans les logos, le produit signe sous « KyberNow » en Martian Mono capitales, sur une étiquette au coin coupé à 45° comme la couture, ferrée à droite sur le pied du « w ». Sous 32 px de haut, le symbole et le nom seuls.
 - **Nom** : Archivo largeur 125, « Kyber » en graisse 420, « Now » en 720, vectorisé.
-- **Couleurs** : encre `#05070A`, givre `#E3EDF0`, signal Spectre `#9A8CFF` (aplat `#6D5BFF`, sur fond clair `#5340E6`). Les pistes Givre et Tally ont été écartées ; `generate.mjs` sait encore les produire.
+- **Couleurs** : encre `#05070A`, givre `#E3EDF0`, signal Spectre `#9A8CFF` (aplat `#6D5BFF`, sur fond clair `#5340E6`). Les pistes Givre et Tally sont écartées ; `generate.mjs` sait les produire.
 - **Polices** : Archivo (titres en largeur 125, texte en largeur 100) et Martian Mono (données). Licences OFL dans `fonts/`.
 - **Lumière** : le signal est aussi un tube néon (cœur `#F4F1FF`, gaine `#9A8CFF`, halo `#6D5BFF`). Éteint au repos ; veille au survol, éclair au clic, allumé tant qu'une connexion, un flux ou une mesure en direct est en cours, allumage d'une seconde à l'apparition d'un écran. Jamais devant l'image en session.
 - **Icônes** : Phosphor (MIT). Regular à 20 px, Bold à 16 px et moins, Fill pour l'état actif.

@@ -2,7 +2,7 @@
 
 English · [Français](README.md)
 
-What the KyberNow Link apps have in common, written once in Rust: talking to KyberNow Admin, the Kyber session, profiles and bitrate, latency, updates, and since milestone 2 the shared input module and the sound engine of the Apple apps. The Windows app ([apps/windows](../windows/README.en.md)) was its first client; the Mac, Apple TV, iPhone and iPad apps ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) rest on it since milestones 1 to 5 (C bridge `apps/apple`), inputs and sound included, which Windows adopted in the same milestones in place of its `input.rs` and `audio.rs`.
+What the KyberNow Link apps have in common, written once in Rust: talking to KyberNow Admin, the Kyber session, profiles and bitrate, latency, updates, the input module and the sound engine. Every app rests on it: Windows ([apps/windows](../windows/README.en.md)) directly, Mac, Apple TV, iPhone and iPad ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) through the C bridge `apps/apple` ([docs/coeur-apple.en.md](../../docs/coeur-apple.en.md)).
 
 The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core Audio. What the platform provides goes through traits (the window, decoders, sound output and inputs through `session::Platform`; the clock, pasteboard and callbacks to the interface through the input module's traits; the sound output pulls sound from the engine itself). Kyber 0.29's building blocks come from `third_party/kyber-desktop/kysdk` with KyberNow's patches (`apps/macos/kyber-patches`), see [apps/windows/README.en.md](../windows/README.en.md).
 
@@ -16,14 +16,14 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second |
 | `src/latency.rs` | End-to-end latency, Kyber's clock |
-| `src/update.rs` | Updates: signed manifest (minisign), channel, download; installer looked up under its current name, then its former names (`KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe` from releases before the rename) |
+| `src/update.rs` | Updates: signed manifest (minisign), channel, download; installer looked up under its current name, then its former name (`KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe`, the only name in releases 0.3.1 and earlier) |
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |
 | `build.rs` | libopus through pkg-config when it knows it; otherwise the executable links it itself |
 
 ## Shared input module (`src/input/`)
 
-The Rust port of what KyberKit held in `InputPipeline`, `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer` and `ClipboardBridge` (see “Inputs on the core (milestone 2)” in [apps/macos/README.en.md](../macos/README.en.md)), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`). Same thresholds, same delays, same rules. Wired into the Mac app (through `apps/apple`, `InputCore.swift`) and the Windows app since milestone 2, the Apple TV since milestone 4 and iPhone and iPad since milestone 5; the Swift files are gone.
+The inputs of every app (Mac, Apple TV, iPhone and iPad through `apps/apple` and `InputCore.swift`; Windows directly), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`): chain and fallback queue, keyboard, gamepad combination, release everything, the computer's pointer, clipboard (see “Inputs” in [apps/macos/README.en.md](../macos/README.en.md)).
 
 | Module | What it holds |
 |---|---|
@@ -40,7 +40,7 @@ The Rust port of what KyberKit held in `InputPipeline`, `PacketQueue`, `Keymap`,
 
 **Timers.** No module creates a thread or a queue: each exposes `poll()` and `next_deadline()`, and `InputPipeline::poll` calls them all (retries, axes, combo, clipboard, received packets). The platform calls `poll()` by the deadline at the latest from whichever queue it wants, or lets `InputPipeline::spawn_driver` run a thread (`kybernow-entrees`) that sleeps until the deadline or a wake-up (`wake()`, triggered by anything that creates a wait). The tests advance a `ManualClock` and call `poll()` themselves.
 
-**Threads.** Every method can be called from any thread (state under locks). kynput's callbacks arrive on its network thread: the pointer goes to `PointerLayer`, which notifies the view outside its lock; rumble to `InputPlatform::rumble`; clipboard packets are copied and handled by `poll()`, outside the router's lock (the answer would re-enter it, which the Mac app already avoided with its queue).
+**Threads.** Every method can be called from any thread (state under locks). kynput's callbacks arrive on its network thread: the pointer goes to `PointerLayer`, which notifies the view outside its lock; rumble to `InputPlatform::rumble`; clipboard packets are copied and handled by `poll()`, outside the router's lock (the answer would re-enter it).
 
 ### What the platform provides
 
@@ -62,6 +62,7 @@ pub trait InputPlatform: Send + Sync {
     fn rumble(&self, rumble: GamepadRumble) {}  // kynput's network thread
     fn combo_formed(&self, pad: PadId) {}        // the thread calling poll()
     fn connected(&self) {}                       // the thread calling network_connected()
+    fn navigate(&self, key: PadKey) {}           // kynput's thread, under the router's lock
 }
 
 // Substituted sending (tests, benches).
@@ -70,13 +71,13 @@ pub trait PacketSink: Send + Sync {
 }
 ```
 
-And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac and Windows, `false` on Apple TV, iPhone and iPad); the Mac's and Windows' SDL gamepads stay read by kynput, filtered by the router hook (`install_gamepad_gate`, port of `GamepadGate.swift`), which hands navigation keys back through `InputPlatform::navigate`.
+And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac and Windows, `false` on Apple TV, iPhone and iPad); the Mac's and Windows' SDL gamepads stay read by kynput, filtered by the router hook (`install_gamepad_gate`), which hands navigation keys back through `InputPlatform::navigate`.
 
 Creation: `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` returns an `Arc`; `kynput()` gives the chain to `session::Platform::input_pipeline`; `start_clipboard()` once the network is connected; `stop()` at the end of the session (direct FlushKeys, total losses logged), `shutdown()` to stop kynput's handlers.
 
 ## Sound engine (`src/audio/`)
 
-The port of `AudioPlayer.swift` without the output: the platform (Core Audio, WASAPI) pulls sound from the engine from its real-time thread. Wired into the Mac app (`kn_audio_*`, `AudioPlayerCore.swift`) and the Windows app since milestone 3, in the Apple TV (milestone 4) and iPhone and iPad (milestone 5).
+The sound of every app, without the output: the platform (Core Audio, WASAPI) pulls sound from the engine from its real-time thread. Mac, Apple TV, iPhone and iPad go through `kn_audio_*` (`AudioPlayerCore.swift`), Windows directly (`apps/windows/src/audio.rs`).
 
 | Module | What it holds |
 |---|---|
@@ -85,7 +86,7 @@ The port of `AudioPlayer.swift` without the output: the platform (Core Audio, WA
 | `mix.rs` | Downmix (L + 0.7 C + 0.7 left surround and left rear, same on the right, LFE ignored; 7.1 → 5.1; mono = average) and `OutputOrder` (Opus, Windows, Core Audio 5.1 A / 7.1 C, or custom) |
 | `engine.rs` | `AudioEngine`: `configure` / `decode` / `conceal` (or `PacketHandler::packet`) from Kyber's network thread, `fill(&mut [f32], frames)` from the real-time thread; adaptive buffer; `AudioStats` once a second |
 
-Buffer: 8 ms margin at the start, growing by 5 ms after an empty buffer (60 ms at most) and coming back down by 1 ms every 2 s without a gap (4 ms at least); first start at the margin plus one packet, resume as soon as the margin is there; an empty buffer is filled with an Opus concealment frame (silence if the decoder is busy with the network thread at that instant); drift caught up by one sample skipped or doubled out of 256 (out of 128 beyond 6 ms of difference) until the second's lowest level is back at the margin; hard cut only beyond 10 ms ahead. A full buffer (output stopped for a second) drops what arrives; Swift kept the most recent, and the hard cut catches up on restart either way.
+Buffer: 8 ms margin at the start, growing by 5 ms after an empty buffer (60 ms at most) and coming back down by 1 ms every 2 s without a gap (4 ms at least); first start at the margin plus one packet, resume as soon as the margin is there; an empty buffer is filled with an Opus concealment frame (silence if the decoder is busy with the network thread at that instant); drift caught up by one sample skipped or doubled out of 256 (out of 128 beyond 6 ms of difference) until the second's lowest level is back at the margin; hard cut only beyond 10 ms ahead. A full buffer (output stopped for a second) drops what arrives; the hard cut catches up on restart.
 
 `fill` takes no blocking lock: the ring is lock-free, the decoder (concealment frame) and the stats are taken by try-lock, and a missed try gives silence for that request. The output's channel count is `out.len() / frames`: the platform changes it by changing its buffer size (AirPods plugged on a 5.1 stream), and gives its latency with `set_output_latency_ms` (the sound card's buffer plus what it reports) for the sound-to-image offset in the stats (`take_stats`).
 
@@ -103,4 +104,4 @@ On the Mac, with the Kyber SDK built for macOS (`third_party/kyber-desktop/rootf
 cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib cargo test -p kybernow-core
 ```
 
-The input tests take over the former Swift tests of `apps/macos/tests/inputs` (keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways), the sound tests the one of `apps/macos/tests/audio` (a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order), with a `ManualClock` advanced by hand: they last a second. Those Swift tests (`apps/macos/tests/inputs` and `audio`) were removed in milestone 4. `cargo test -p kybernow-core input` or `… audio` for one half.
+The input tests cover the keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways; the sound tests, a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order. They advance a `ManualClock` by hand: they last a second. `cargo test -p kybernow-core input` or `… audio` for one half.

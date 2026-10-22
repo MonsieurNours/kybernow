@@ -2,14 +2,14 @@
 
 [English](mesures.en.md) · Français
 
-Quatre mesures demandées par l'audit du 20 octobre 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), section 16, ligne « Vérifications acceptées »). Chacune se fait sur le matériel de l'auteur et tranche une décision : sans son résultat, le chantier correspondant reste en attente. Rien n'a encore été exécuté.
+Quatre mesures demandées par l'audit du 20 octobre 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), section 16, ligne « Vérifications acceptées »). Chacune se fait sur le matériel de l'auteur et tranche une décision : sans son résultat, le chantier correspondant reste en attente. Aucune n'a encore de résultat.
 
 | # | Mesure | Où | Tranche |
 |---|---|---|---|
 | 1 | Latence d'affichage de l'app Mac | Mac, en session | Garde « une image en vol » ; plein écran présenté directement ou composé (§3) |
 | 2 | Droits Windows | Ordinateur | Droits de `ProgramData` (§7, chantier 2) ; niveau d'intégrité de l'icône (§7) |
-| 3 | Wi-Fi saturé | Mac en Wi-Fi, ordinateur, un troisième appareil | File de 8 Mio du correctif 0007 (§3, §8) |
-| 4 | Modes de l'écran virtuel SudoVDA | Ordinateur, en session | Politique « suivre / remettre » (§15) |
+| 3 | Wi-Fi saturé | Mac en Wi-Fi, ordinateur, un troisième appareil | Politique d'envoi par défaut : file profonde ou courte (correctifs 0007 et 0010 ; §3, §8) |
+| 4 | Modes de l'écran virtuel SudoVDA | Ordinateur, en session | Si la politique « suivre / remettre » joue sur l'écran virtuel (§15) |
 
 Matériel de référence : un Mac M4 Max ; un ordinateur Windows avec une carte NVIDIA, à l'adresse 192.168.1.100 sur le réseau local, avec un écran 4K 160 Hz.
 
@@ -31,11 +31,11 @@ Chaque mesure a son tableau à remplir. Les mesures 1 et 3 ont les colonnes cond
 
 **Ce que l'app écrit.**
 - `KN_PRESENT_STATS=1` : chaque seconde, une ligne dans le journal unifié (sous-système `fr.leslignesclaires.kybernow`, catégorie `video`) avec le p50 et le p95 de « presentedTime − commit » (le temps entre l'envoi de l'image à Metal et son apparition à l'écran), le nombre d'images écartées par Core Animation et le nombre d'images rendues.
-- `KN_INFLIGHT_GUARD=1` : remet l'ancienne garde, pour comparer. Sans cette variable, la garde est levée.
+- `KN_INFLIGHT_GUARD=1` : remet la garde, pour comparer. Sans cette variable, la garde est levée.
 
 ### Préparer
 
-1. Vérifie que ton app contient ces variables. Elles viennent d'une autre session de travail : tant que la commande suivante ne répond rien, il n'y a rien à mesurer.
+1. Vérifie que ton dépôt est à jour : la commande suivante doit afficher des lignes de `VideoRenderer.swift`.
 
 ```bash
 cd ~/Sites/kyber-apps
@@ -50,7 +50,7 @@ cd ~/Sites/kyber-apps/apps/macos
 xcodebuild -project KyberNow.xcodeproj -scheme KyberNow -configuration Debug -derivedDataPath build/dev build
 ```
 
-3. Dans les réglages de l'ordinateur (app Mac) : profil **Jeu**, **synchro verticale activée** (sans elle, la garde ne joue aucun rôle), lecteur VLC désactivé (Réglages, Avancé : VLC n'utilise pas le rendu de l'app).
+3. Dans les réglages de l'ordinateur (app Mac) : profil **Jeu**, **synchro verticale activée** (sans elle, la garde ne joue aucun rôle).
 4. Sur l'ordinateur, lance la scène (voir « Avant de commencer »).
 
 ### Lancer l'app avec les variables
@@ -72,13 +72,13 @@ APP="$PWD/apps/macos/build/dev/Build/Products/Debug/KyberNow.app"
 # Sans garde (comportement par défaut)
 KN_PRESENT_STATS=1 "$APP/Contents/MacOS/KyberNow"
 
-# Avec l'ancienne garde (pour comparer)
+# Avec la garde (pour comparer)
 KN_PRESENT_STATS=1 KN_INFLIGHT_GUARD=1 "$APP/Contents/MacOS/KyberNow"
 ```
 
 L'app reste attachée à la fenêtre 2. ⌘Q ou ⌃C la quitte. Lance toujours le binaire comme ci-dessus : `open` ne transmet pas les variables.
 
-Dès la première image de la session, une ligne par seconde apparaît dans la fenêtre 1 : p50, p95, écartées, rendues (le libellé exact est celui de l'app). Rien après 5 s : l'app n'a pas les variables (étape 1 de « Préparer »), ou le lecteur est VLC.
+Dès la première image de la session, une ligne par seconde apparaît dans la fenêtre 1 : p50, p95, écartées, rendues (le libellé exact est celui de l'app). Rien après 5 s : l'app n'a pas les variables (étape 1 de « Préparer »).
 
 ### Protocole
 
@@ -156,7 +156,7 @@ Le HUD coûte un peu de temps GPU : compare des mesures avec HUD à des mesures 
 
 ## 2. Droits Windows
 
-**But.** Vérifier sur l'ordinateur ce que la phase 0 a livré (§17 de l'audit) : le dossier `C:\ProgramData\KyberNow` n'est plus accessible qu'aux administrateurs, et l'icône relancée par une mise à jour d'Admin ne tourne pas avec un jeton élevé (§7, point « à confirmer »).
+**But.** Vérifier sur l'ordinateur que le dossier `C:\ProgramData\KyberNow` n'est accessible qu'aux administrateurs (§7, §17 de l'audit), et que l'icône relancée par une mise à jour d'Admin ne tourne pas avec un jeton élevé (§7, point « à confirmer »).
 
 ### Le dossier de données
 
@@ -167,7 +167,7 @@ icacls C:\ProgramData\KyberNow
 icacls C:\ProgramData\KyberNow /T | Select-Object -First 40
 ```
 
-**Attendu après la phase 0**, sur le dossier lui-même (les noms suivent la langue de Windows) :
+**Attendu**, sur le dossier lui-même (les noms suivent la langue de Windows) :
 
 ```text
 C:\ProgramData\KyberNow NT AUTHORITY\SYSTEM:(OI)(CI)(F)
@@ -199,7 +199,7 @@ New-Item -ItemType Directory C:\ProgramData\KyberNow\update\essai
 ```
 
 **Attendu** : les deux commandes sont refusées (« Accès refusé » / « Access to the path … is denied »). Aucun nom de fichier ne s'affiche.
-3. Dans la même session, clique sur l'icône KyberNow Station puis sur l'entrée qui ouvre Admin : Admin s'ouvre toujours.
+3. Dans la même session, clique sur l'icône KyberNow Station puis sur l'entrée qui ouvre Admin : Admin s'ouvre.
 
 Sans compte standard, le même `dir` dans une fenêtre PowerShell **non élevée** de ton compte administrateur doit aussi être refusé (le groupe Administrateurs y est en refus seul). La preuve est plus faible : elle ne couvre pas un autre compte.
 
@@ -240,14 +240,14 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
 
 ## 3. Wi-Fi saturé
 
-**But.** Savoir si la file de 8 Mio du correctif 0007 fait du bufferbloat quand le Wi-Fi sature, puis mesurer la politique « file courte » qui la remplacera. L'audit (§3, §8) estime que 0,7 à 2,2 s d'images périmées partent avant d'être jetées : 8 Mio, c'est 67 Mbit, soit 0,67 s à 100 Mbit/s et 2,2 s à 30 Mbit/s.
+**But.** Savoir si la file profonde (8 Mio, la politique d'envoi par défaut) fait du bufferbloat quand le Wi-Fi sature, et ce que donne la file courte (3 Mio). Le réglage : [kyber-changes.md](kyber-changes.md#mesurer-la-politique-denvoi-0010). L'audit (§3, §8) estime que 0,7 à 2,2 s d'images périmées partent avant d'être jetées : 8 Mio, c'est 67 Mbit, soit 0,67 s à 100 Mbit/s et 2,2 s à 30 Mbit/s.
 
 ### Matériel et réglages
 
 - Le Mac en Wi-Fi, au même point d'accès que l'ordinateur. L'ordinateur de préférence en Ethernet : le Wi-Fi est alors le seul goulot. Débranche l'Ethernet du Mac et coupe tout VPN.
 - Un troisième appareil en Wi-Fi sur le même point d'accès (portable, téléphone) avec `iperf3`.
 - Note le Wi-Fi du Mac : Option-clic sur l'icône Wi-Fi donne le canal, la bande, le débit de liaison et le signal.
-- L'app Mac avec le lecteur de l'app (pas VLC), profil **Jeu**, définition 4K. Ouvre la session, lance la scène, passe en plein écran, puis ouvre le panneau des **mesures détaillées** (⌃⌥⌘S).
+- L'app Mac en profil **Jeu**, définition 4K. Ouvre la session, lance la scène, passe en plein écran, puis ouvre le panneau des **mesures détaillées** (⌃⌥⌘S).
 
 ### Préparer la saturation
 
@@ -299,21 +299,17 @@ Pour le tableau final :
 
 ### Les deux séries
 
-Fais la série complète avec :
-1. **la version 0.2.5 publiée** (file de 8 Mio), celle que l'ordinateur a sans doute aujourd'hui (vérifie dans « Applications installées »). Pour la réinstaller si besoin, en PowerShell administrateur :
+Fais la série complète deux fois, avec la même app Mac et la même version de la Station :
+1. **file profonde** (`datagram_send_queue = "deep"`, par défaut) ;
+2. **file courte** (`datagram_send_queue = "short"`).
 
-```powershell
-$env:KYBERNOW_UPDATE_BASE = 'https://github.com/MonsieurNours/kybernow/releases/download/v0.2.5'
-irm https://github.com/MonsieurNours/kybernow/releases/download/v0.2.5/update.ps1 | iex
-```
-
-2. **la nouvelle version avec la politique « file courte »**, quand elle sera disponible. Elle se règle dans `kyber_config.toml` : le nom du réglage et ses valeurs seront dans [kyber-changes.md](kyber-changes.md). Installe la version, applique le réglage, relance le service comme indiqué là, et note la valeur dans la remarque. L'app Mac reste la même pour les deux séries.
+La politique se choisit dans Admin (Système › Avancé › File d'envoi de l'image) ou dans `kyber_config.toml`. Après chaque changement, redémarre Kyber (Admin le propose) et vérifie la ligne `Datagram send queue: …` du journal du contrôleur (voir [kyber-changes.md](kyber-changes.md#mesurer-la-politique-denvoi-0010)).
 
 | Condition | p50 (ms) | p95 (ms) | Pertes (images / paquets / images clés) | Remarque |
 |---|---|---|---|---|
-| 0.2.5, avant | | | | |
-| 0.2.5, pendant | | | | |
-| 0.2.5, après | | | | |
+| File profonde, avant | | | | |
+| File profonde, pendant | | | | |
+| File profonde, après | | | | |
 | File courte, avant | | | | |
 | File courte, pendant | | | | |
 | File courte, après | | | | |
@@ -324,7 +320,7 @@ En remarque : le débit `-b` retenu et le débit reçu par iperf3, le Wi-Fi du M
 
 - **Si la latence médiane « pendant » dépasse de plusieurs centaines de millisecondes celle d'« avant », la file profonde fait du bufferbloat.** C'est ce que prévoit l'audit. Une latence qui reste haute longtemps « après » est la même signature : la file se vide au rythme du lien.
 - Avec la file courte, la latence « pendant » doit rester proche de celle d'« avant ». Le prix est plus de pertes et d'images clés redemandées : compare-les. À titre indicatif, la file courte est la bonne si la latence « pendant » reste à moins de 100 ms de celle d'« avant » sans gel d'image de plus d'une seconde.
-- Pas d'écart entre 0.2.5 et l'« avant » : le lien n'était pas saturé pour le flux. Monte `-b` ou rapproche le Mac de la limite du Wi-Fi.
+- Pas d'écart entre « pendant » et « avant » avec la file profonde : le lien n'était pas saturé pour le flux. Monte `-b` ou rapproche le Mac de la limite du Wi-Fi.
 
 ---
 
@@ -481,8 +477,8 @@ Il écrit, pour chaque `\\.\DISPLAYn` : la carte, le moniteur, s'il est actif, s
 
 ### Interpréter
 
-- **Un seul mode** (celui qu'Admin a demandé à la création de l'écran) : un jeu ne peut pas changer la définition de l'écran virtuel. Le scénario « le mode change » du §15 n'existe alors que sur les écrans physiques. La politique « suivre / remettre » d'Admin n'a pas d'objet pour l'écran virtuel : ne la construis pas.
-- **Une liste** : un jeu peut changer la définition de l'écran virtuel. Le scénario du §15 est réel : l'image continue à la nouvelle taille (moteur txproto) ou la session coupe (moteur libavconv), et la politique « suivre / remettre » (§15 : laisser le jeu choisir le mode, ou le figer) a un sens. Note si la liste contient la définition de ton écran Mac et la 4K, et plusieurs fréquences pour une même taille.
+- **Un seul mode** (celui qu'Admin a demandé à la création de l'écran) : un jeu ne peut pas changer la définition de l'écran virtuel. Le scénario « le mode change » du §15 n'existe alors que sur les écrans physiques, et la politique « suivre / remettre » d'Admin n'a rien à faire sur l'écran virtuel.
+- **Une liste** : un jeu peut changer la définition de l'écran virtuel. Le scénario du §15 est réel : l'image continue à la nouvelle taille (moteur txproto) ou la session coupe (moteur libavconv), et la politique « suivre / remettre » d'Admin y joue (laisser le jeu choisir le mode, ou remettre celui de l'appareil). Note si la liste contient la définition de ton écran Mac et la 4K, et plusieurs fréquences pour une même taille.
 - Les modes bruts plus nombreux que les modes proposés : le moniteur virtuel en cache. Note-les, un jeu qui énumère les modes comme le script verra la liste du pilote.
 
 ---
@@ -494,6 +490,6 @@ Dans [audit-2026-10-20.md](audit-2026-10-20.md), **section 16** (« Décisions p
 | Mesure | Qui lit le résultat dans l'audit | Décision à écrire |
 |---|---|---|
 | 1. Latence d'affichage | §3, lignes « Affichage » et « Composition du plein écran » | Garde levée ou remise ; chantier de la couche Metal directe lancé ou abandonné |
-| 2. Droits Windows | §7 (ACL, icône en haute intégrité) ; §17, liste « Mise à jour et installation » | Phase 0 validée ou reprise ; correction `TokenLinkedToken` à faire ou non |
+| 2. Droits Windows | §7 (ACL, icône en haute intégrité) ; §17, liste « Mise à jour et installation » | Droits du dossier validés ou à reprendre ; correction `TokenLinkedToken` à faire ou non |
 | 3. Wi-Fi saturé | §3, ligne « Envoi (serveur) » ; §8, correctif 0007 | Politique « file courte » par défaut ou non, et sa valeur |
-| 4. Modes SudoVDA | §15, « Questions propres à ce sujet » et « Choix de politique » | Un ou plusieurs modes ; politique « suivre / remettre » construite ou non |
+| 4. Modes SudoVDA | §15, « Questions propres à ce sujet » et « Choix de politique » | Un ou plusieurs modes ; ce que la politique « suivre / remettre » fait sur l'écran virtuel |

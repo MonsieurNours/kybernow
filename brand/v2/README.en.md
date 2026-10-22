@@ -2,7 +2,7 @@
 
 English · [Français](README.md)
 
-Adopted on 20 October 2026, Spectre signal. Replaces the ribbon K in `brand/`; the apps move to it as they evolve. Full guidelines: [`charte/index.html`](charte/index.html) (in French), to open in a browser (online version: https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt). Animated mock-ups of the apps (home, transition and session on the Mac, installer, console): https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8.
+KyberNow's identity (20 October 2026), Spectre signal, used by the apps, Admin, the installers and the website. Full guidelines: [`charte/index.html`](charte/index.html) (in French), to open in a browser (online version: https://claude.ai/artifact/R3mNbayaFan3XPCtbmzCFt). Animated mock-ups of the apps (home, transition and session on the Mac, installer, Admin): https://claude.ai/artifact/YGA7unwqztvuA26CMtdbv8.
 
 ## In short
 
@@ -10,7 +10,7 @@ Adopted on 20 October 2026, Spectre signal. Replaces the ribbon K in `brand/`; t
 - **Three products, three states**: **KyberNow Link** (the Mac, Apple TV, iPhone, iPad and Windows apps, and the ecosystem: state `now`, the lower half in signal colour), **KyberNow Station** (the server on the Windows computer: state `server`, the upper half), **KyberNow Admin** (the Station's administration in the browser: state `console`, the seam alone). The state names stay those of the files and the code.
 - **Signature**: in logos, the product signs under “KyberNow” in Martian Mono capitals, on a tag with its corner cut at 45° like the seam, right-aligned on the foot of the “w”. Below 32 px high, the symbol and the name only.
 - **Name**: Archivo width 125, “Kyber” at weight 420, “Now” at 720, outlined.
-- **Colours**: ink `#05070A`, frost `#E3EDF0`, Spectre signal `#9A8CFF` (flat `#6D5BFF`, on a light background `#5340E6`). The Frost and Tally directions were set aside; `generate.mjs` can still produce them.
+- **Colours**: ink `#05070A`, frost `#E3EDF0`, Spectre signal `#9A8CFF` (flat `#6D5BFF`, on a light background `#5340E6`). The Frost and Tally directions are set aside; `generate.mjs` can produce them.
 - **Fonts**: Archivo (titles at width 125, text at width 100) and Martian Mono (data). OFL licences in `fonts/`.
 - **Light**: the signal is also a neon tube (core `#F4F1FF`, sheath `#9A8CFF`, halo `#6D5BFF`). Off at rest; standby on hover, flash on click, lit while a connection, a stream or a live measurement is in progress, a one-second ignition when a screen appears. Never in front of the image during a session.
 - **Icons**: Phosphor (MIT). Regular at 20 px, Bold at 16 px and below, Fill for the active state.

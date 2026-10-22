@@ -17,7 +17,7 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | `appcast.xml` | Flux des mises à jour de l'app Mac (Sparkle), signé EdDSA |
 | `KyberNow-Link-Setup.exe` | KyberNow Link pour Windows, x64 et ARM64 dans un seul fichier : installateur par utilisateur (première installation et mises à jour de l'app, voir [apps/windows/README.md](../apps/windows/README.md)) |
 | `KyberSDK-tvOS.zip` | SDK de Kyber et cœur KyberNow (`KyberNow.xcframework`) compilés pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
-| `KyberSDK-iOS.zip` | Cœur KyberNow, libkynput, libopus et leurs en-têtes compilés pour l'iPhone et l'iPad (`apps/ios/Vendor`, depuis la 0.4.0), que télécharge `apps/ios/scripts/sideload.sh` pour installer l'app sans TestFlight ni App Store ([SIDELOAD.md](../apps/ios/SIDELOAD.md)) |
+| `KyberSDK-iOS.zip` | Cœur KyberNow, libkynput, libopus et leurs en-têtes compilés pour l'iPhone et l'iPad (`apps/ios/Vendor`, joint aux versions 0.4.0 et suivantes), que télécharge `apps/ios/scripts/sideload.sh` pour installer l'app sans TestFlight ni App Store ([SIDELOAD.md](../apps/ios/SIDELOAD.md)) |
 | `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe` | Anciens noms des installateurs, copies identiques : voir « Anciens noms des installateurs » ci-dessous |
 | `kybernow-release.json` | Manifeste de la version : numéro, canal (`stable` ou `beta`), date, version minimale déjà installée pour une mise à jour depuis Admin, réinstallation nécessaire ou non, empreinte SHA-256 et taille de chaque fichier ci-dessus (anciens noms compris) |
 | `kybernow-release.json.minisig` | Signature du manifeste (minisign, ed25519), vérifiée par Admin avant toute installation |
@@ -25,17 +25,19 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 
 ### Anciens noms des installateurs
 
-Depuis la 0.4.0, les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `KyberNow-Link-Setup.exe` (l'app Windows). Leurs anciens noms restent publiés, **à l'identique** (copies faites par `release.sh`, même empreinte) :
+Les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `KyberNow-Link-Setup.exe` (l'app Windows). Leurs noms jusqu'à la 0.3.1 sont aussi publiés, **à l'identique** (copies faites par `release.sh`, même empreinte) :
 
 | Ancien nom | Copie de | Pourquoi il reste |
 |---|---|---|
 | `KyberNow-Server-Setup.exe` | `KyberNow-Station-Setup.exe` | Admin en 0.3.1 et avant renvoie vers ce nom (« réinstallez avec KyberNow-Server-Setup.exe ») ; liens existants vers `releases/latest/download/` (site, guide, messages) |
-| `KyberNow-Setup.exe` | `KyberNow-Station-Setup.exe` | Nom d'avant la 0.3.0, gardé pour les liens existants |
+| `KyberNow-Setup.exe` | `KyberNow-Station-Setup.exe` | Nom de l'installateur avant la 0.3.0 : liens existants |
 | `KyberNow-Client-Setup.exe` | `KyberNow-Link-Setup.exe` | L'app Windows en 0.3.1 et avant le cherche dans le manifeste signé et dans la release pour se mettre à jour ; liens existants |
 
-Les nouvelles versions d'Admin et de l'app Windows cherchent d'abord le nouveau nom, puis l'ancien s'il manque (manifeste d'une version plus ancienne). Le manifeste signé et `SHA256SUMS` listent les deux noms, avec la même empreinte.
+Admin et l'app Windows cherchent d'abord le nouveau nom, puis l'ancien s'il manque (manifeste d'une version antérieure à la 0.4.0). Le manifeste signé et `SHA256SUMS` listent les deux noms, avec la même empreinte.
 
-**Quand les retirer.** Les copies peuvent disparaître (listes `LEGACY_STATION` et `LEGACY_LINK` de `release.sh`, `FILES` de `scripts/sign-manifest.sh`) une fois que les installations en 0.3.1 et avant sont passées à une version qui connaît les nouveaux noms : quelques versions, au moins deux ou trois stables après la première qui les publie, et une fois le site et la documentation passés aux nouveaux liens. Au-delà, une app Windows restée en 0.3.1 ne trouverait plus sa mise à jour, et Admin en 0.3.1 renverrait vers un fichier absent : il faut alors réinstaller à la main avec le nouveau fichier. Le site ne doit être mis en ligne avec des liens vers les nouveaux noms qu'une fois la version qui les publie sortie.
+**Quand les retirer.** Les copies peuvent disparaître (listes `LEGACY_STATION` et `LEGACY_LINK` de `release.sh`, `FILES` de `scripts/sign-manifest.sh`) une fois que les installations en 0.3.1 et avant sont passées à une version qui connaît les nouveaux noms : au moins deux ou trois versions stables après la 0.4.0. Au-delà, une app Windows restée en 0.3.1 ne trouverait plus sa mise à jour, et Admin en 0.3.1 renverrait vers un fichier absent : il faudrait réinstaller à la main avec le nouveau fichier.
+
+**Piège.** Le site est mis en ligne à chaque push sur `main` qui touche `site/` : un lien `releases/latest/download/` vers un nouveau nom de fichier ne mène à rien tant que la version qui contient ce fichier n'est pas publiée. Pour les installateurs renommés, `site/assets/main.js` (table `LEGACY`) retombe sur l'ancien nom tant que la dernière version ne publie que lui ; tout autre nouveau nom de fichier attend la publication.
 
 ## Mettre à jour
 
@@ -43,7 +45,7 @@ Les nouvelles versions d'Admin et de l'app Windows cherchent d'abord le nouveau 
 - Admin vérifie la dernière version toutes les 6 heures, sur son **canal** : `stable` (par défaut, versions publiées) ou `beta` (aussi les préversions GitHub), à choisir sur la page Mises à jour (réglage `update_channel` de `kyber-admin.toml`). La page **Mises à jour** l'affiche avec ses notes et un bouton **Installer** ; l'icône de la zone de notification propose « Installer la version X… », qui ouvre cette page.
 - **Rien ne s'installe sans signature.** Pour une version plus récente, Admin télécharge `kybernow-release.json` et `kybernow-release.json.minisig` et vérifie la signature avec la clé publique compilée dans son programme (voir « Clé de signature des mises à jour »). Puis : le manifeste annonce le même numéro que la version GitHub (`tag_name`), un canal que suit la Station (une version `beta` est refusée en `stable`), une `min_installer_version` inférieure ou égale à la version installée et pas de `requires_setup` (sinon « réinstallez avec KyberNow-Station-Setup.exe »). Tout échec (manifeste absent, signature invalide ou d'une autre clé, canal, version) est affiché sur la page et dans `GET /api/update` (`verify_error`), et le bouton **Installer** n'apparaît pas ; l'icône ne propose une version que si sa signature est bonne.
 - L'installation retélécharge et revérifie le manifeste, puis télécharge `kybernow-update.zip` (jamais plus que la taille du manifeste) et vérifie sa taille et son empreinte SHA-256 contre lui. Le numéro de la version publiée doit être de la forme `X.Y.Z` : il sert de nom de dossier, tout autre numéro est refusé. Manifeste, signature et paquet restent dans `C:\ProgramData\KyberNow\update\<version>\` (réservé à SYSTEM et aux Administrateurs).
-- Admin lance ensuite **l'applicateur**, `kyber-admin update apply <paquet> --version X`, en SYSTEM et détaché (il survit à l'arrêt d'Admin). C'est une copie d'Admin, `C:\Program Files\KyberNow\.staging\kyber-admin-maj.exe` : elle doit pouvoir renommer le dossier `admin` pendant qu'elle tourne. Rien n'est exécuté depuis un dossier qu'un autre compte pourrait modifier, et aucun script n'est lancé : PowerShell n'intervient plus.
+- Admin lance ensuite **l'applicateur**, `kyber-admin update apply <paquet> --version X`, en SYSTEM et détaché (il survit à l'arrêt d'Admin). C'est une copie d'Admin, `C:\Program Files\KyberNow\.staging\kyber-admin-maj.exe` : elle doit pouvoir renommer le dossier `admin` pendant qu'elle tourne. Rien n'est exécuté depuis un dossier qu'un autre compte pourrait modifier, et aucun script n'est lancé : PowerShell n'intervient pas.
 - L'applicateur revérifie le manifeste signé et le paquet (rien ne vient du processus Admin qui l'a lancé), puis extrait le paquet dans `C:\Program Files\KyberNow\.staging\<version>\paquet` (droits hérités de Program Files : lecture seule pour les utilisateurs). Il refuse tout chemin qui sortirait du dossier (`..`, chemin absolu, lecteur, flux NTFS), tout nom qui ne serait pas un fichier ordinaire sous Windows (`CON`, `NUL`, `COM1`…, nom finissant par un point ou une espace, `<>"|?*`) et tout lien. Il refuse aussi une version qui n'est pas plus récente que celle installée (le retour en arrière a son propre chemin). Le paquet doit contenir `kyber`, `admin`, `tray` et un `version.txt` égal à la version attendue. Un échec à ce stade ne touche à rien : Admin tourne toujours et l'affiche.
 - Il arrête l'icône, puis le serveur Kyber (`kyber` et ses processus), puis Admin (`kyber-admin` et ses agents), puis encore le serveur Kyber si Admin l'avait relancé entre-temps. La relance automatique de `kyber` après une panne (posée par l'installateur) est suspendue jusqu'au redémarrage, pour que Windows ne le relance pas au milieu des renommages. Il prépare chaque nouveau dossier dans `.staging\<version>\` (copie du dossier actuel, réglages et certificat de Kyber compris, puis les fichiers du paquet par-dessus), puis bascule par renommage : `kyber` devient `kyber.prev` et `.staging\<version>\kyber` devient `kyber`, de même pour `admin`, `tray` et `webclient` (s'il est dans le paquet ou déjà installé : chaque dossier présent a ainsi son `.prev`). Les journaux de Kyber (`kyber\log`) sont déplacés, pas copiés. Il remet ensuite les droits des services (`sc sdset`) et la règle de pare-feu Bonjour.
 - Il redémarre les services, puis contrôle la santé de la nouvelle version : en 60 s, Admin doit répondre à l'adresse de son réglage `listen` (127.0.0.1 s'il écoute partout, sans proxy) et `GET /api/session` donner la nouvelle version, et le serveur Kyber tourner. Sinon, il arrête tout (l'icône comprise, que la nouvelle version d'Admin a pu relancer), remet chaque dossier où il était (`kyber.prev` redevient `kyber`…), redémarre l'ancienne version et écrit la raison dans le journal et dans `C:\ProgramData\KyberNow\update\resultat.json`. Admin relit ce fichier à son démarrage : la page Mises à jour affiche l'échec, et `GET /api/update` le donne dans `install_error` et `last_failure` (version, raison, retour arrière, journal). Si un dossier résiste au retour arrière, l'applicateur remet les autres, garde `.staging\<version>`, l'écrit (`undo_failed`) et la page le dit, même si c'est la version en échec qui tourne.
@@ -54,8 +56,8 @@ Les nouvelles versions d'Admin et de l'app Windows cherchent d'abord le nouveau 
 - **Pendant une session.** Si un appareil est en session, `POST /api/update/install` (et `POST /api/update/rollback`) répond 409 avec « Un appareil est connecté (…) : l'installation coupera sa session » ; la page le demande avant de continuer, et renvoie alors `{"force": true}`.
 - Durée : environ une minute. Une session de streaming en cours est coupée. Journal : `C:\ProgramData\KyberNow\update\<version>\update.log` ; sortie de l'applicateur dans `lancement.log`, à lire si `update.log` n'existe pas.
 - Admin suit l'applicateur. Si celui-ci s'arrête alors qu'Admin tourne encore (vérification ou extraction refusée), Admin l'indique : page Mises à jour, fin du journal, et « Installer » redevient possible.
-- Les haut-parleurs virtuels de Steam et le raccourci du menu Démarrer, posés par l'installateur, ne sont plus refaits à chaque mise à jour ; `update.ps1` (à la main) le fait toujours.
-- **Passage à la 0.2.6.** La console (ancien nom d'Admin) en 0.2.5 ou avant ne connaît ni le manifeste ni l'applicateur : elle met à jour vers la 0.2.6 comme avant, avec `SHA256SUMS` et le `update.ps1` du paquet. Les versions publiées gardent donc `SHA256SUMS` et `update.ps1`. À partir de la 0.2.6, Admin n'installe plus qu'une version signée.
+- Les haut-parleurs virtuels de Steam, posés par l'installateur, ne sont pas refaits par l'applicateur ; `update.ps1` (à la main) les refait. Après une bascule réussie, l'applicateur pose les noms affichés de l'installateur (services, « Applications installées », raccourcis du menu Démarrer) : une Station installée en 0.3.1 ou avant prend ainsi les noms KyberNow Station et KyberNow Admin. Un échec à cette étape est seulement écrit dans le journal.
+- **Stations en 0.2.5 et avant.** Leur console (le nom d'Admin dans ces versions) ne connaît ni le manifeste ni l'applicateur : elle installe le paquet avec `SHA256SUMS` et le `update.ps1` qu'il contient. C'est une raison de plus pour que chaque version publie `SHA256SUMS` et `update.ps1`, dont le chemin manuel se sert aussi.
 
 **La Station, à la main** (PowerShell administrateur) :
 
@@ -65,7 +67,7 @@ irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps
 
 Le script télécharge `kybernow-update.zip` et `SHA256SUMS`, vérifie l'empreinte du paquet, puis fait la même bascule avec contrôle de santé. En cas d'échec, il le dit en rouge (« Mise a jour non installee… ») après avoir tout redémarré.
 
-**Chemin manuel : intégrité seulement, jusqu'à la signature Authenticode.** `update.ps1` vérifie que le paquet n'est pas abîmé (`SHA256SUMS`), pas qu'il vient de KyberNow : `SHA256SUMS` est publié au même endroit que le paquet, et vérifier le manifeste minisign demanderait un outil téléchargé lui aussi (`kyber-admin.exe` de la version), ce qui tourne en rond. Le script lui-même n'est pas signé. Il n'apporte donc pas les garanties d'Admin : à réserver au dépannage, sur une version dont vous connaissez la page GitHub. La signature Authenticode des `.exe` et de `update.ps1` est envisagée pour combler ce manque.
+**Chemin manuel : intégrité seulement, tant que rien n'est signé Authenticode.** `update.ps1` vérifie que le paquet n'est pas abîmé (`SHA256SUMS`), pas qu'il vient de KyberNow : `SHA256SUMS` est publié au même endroit que le paquet, et vérifier le manifeste minisign demanderait un outil téléchargé lui aussi (`kyber-admin.exe` de la version), ce qui tourne en rond. Le script lui-même n'est pas signé. Il n'apporte donc pas les garanties d'Admin : à réserver au dépannage, sur une version dont vous connaissez la page GitHub. La signature Authenticode des `.exe` et de `update.ps1` comblerait ce manque (voir « Signature Windows (Authenticode) : en attente »).
 
 Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_UPDATE_BASE = 'http://<adresse-du-Mac>:8000'`, puis la même commande, avec `python3 -m http.server 8000` lancé dans `server/installer/dist` (`package-update.sh` y écrit aussi `SHA256SUMS`).
 
@@ -73,7 +75,7 @@ Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_
 
 **Tester `update.ps1` sans Windows** : `pwsh -NoProfile -File server/installer/tests/update-bench.ps1` (`brew install powershell`). Le banc simule les services et Admin, et rejoue une mise à jour réussie, Admin muet (retour arrière), un paquet incomplet et un renommage bloqué.
 
-**L'app Windows (KyberNow Link).** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal (réglages de l'app : stables, ou aussi les bêtas), vérifie le manifeste signé comme Admin et l'installateur (`KyberNow-Link-Setup.exe`, ou `KyberNow-Client-Setup.exe` dans le manifeste d'une version plus ancienne) contre lui (taille, SHA-256), puis le lance en silence (`/S /UPDATE`) : il attend la fermeture de l'app, remplace ses fichiers et la relance. Une version sans installateur Windows n'est pas proposée.
+**L'app Windows (KyberNow Link).** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal (réglages de l'app : stables, ou aussi les bêtas), vérifie le manifeste signé comme Admin et l'installateur (`KyberNow-Link-Setup.exe`, ou `KyberNow-Client-Setup.exe` dans le manifeste d'une version antérieure à la 0.4.0) contre lui (taille, SHA-256), puis le lance en silence (`/S /UPDATE`) : il attend la fermeture de l'app, remplace ses fichiers et la relance. Une version sans installateur Windows n'est pas proposée.
 
 **L'app Mac.**
 - Sparkle vérifie chaque jour, et à la demande (menu KyberNow Link › Rechercher des mises à jour…). L'app télécharge l'archive, vérifie sa signature EdDSA avec la clé publique de l'app (`SUPublicEDKey`), la remplace et se relance.
@@ -188,11 +190,11 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 
 ## Flux des mises à jour de l'app Mac
 
-L'app Mac (depuis la 0.2.7) lit `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` dans `apps/macos/project.yml`) : le fichier `site/updates/appcast.xml` du dépôt, publié par le workflow Pages à chaque push sur `main` qui touche `site/`.
+L'app Mac lit `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` dans `apps/macos/project.yml`) : le fichier `site/updates/appcast.xml` du dépôt, publié par le workflow Pages à chaque push sur `main` qui touche `site/`.
 
 - **Toutes les versions publiées**, stables et bêtas, la plus récente en premier. Chaque entrée est celle du `appcast.xml` joint à sa release, recopiée telle quelle par `scripts/merge-appcast.py` : lien de téléchargement vers `releases/download/vX.Y.Z/KyberNow-macOS.zip`, longueur, signature EdDSA, notes. Rien n'est re-signé : l'app vérifie toujours l'archive avec `SUPublicEDKey`.
 - **Canaux.** Les entrées d'une bêta portent `<sparkle:channel>beta</sparkle:channel>`, les stables aucun canal. L'app (délégué Sparkle dans `KyberNowApp.swift`) demande le canal `beta` quand « Recevoir les versions bêta » est coché dans KyberNow Link › Réglages… (`UserDefaults`, clé `receiveBetaUpdates`), aucun sinon. Sparkle propose la plus récente des entrées permises : une stable plus récente qu'une bêta installée est proposée normalement, même case cochée ; décocher la case ne fait pas revenir à la stable précédente, l'app attend la stable suivante.
-- **Les anciennes apps continuent de marcher.** Les versions jusqu'à la 0.2.6 lisent `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière stable : chaque release garde son `appcast.xml`, elles reçoivent donc la 0.2.7 par là, puis lisent le flux du site.
+- **Apps Mac en 0.2.6 et avant.** Elles lisent `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière stable. Chaque release garde donc son `appcast.xml` : ces apps y trouvent la dernière stable, qui lit ensuite le flux du site.
 - **Délai.** GitHub Pages met en cache environ 10 minutes, et le flux arrive en ligne une minute ou deux après le push, alors que la release est publiée quelques secondes après : l'app ne voit en pratique jamais une entrée dont l'archive est encore en brouillon (sauf échec entre le push et la publication : relancer la même commande publie le brouillon).
 - **Reconstruire le flux** à partir des releases existantes (amorçage, ou flux abîmé) : `scripts/rebuild-appcast.sh` liste les releases publiées (`gh release list`, brouillons exclus), reprend l'`appcast.xml` de chacune, marque `beta` celles qui sont des prereleases, et repasse par `generate_appcast` (clé Sparkle du Trousseau) une release qui aurait l'app Mac sans flux. Il écrit `site/updates/appcast.xml` (ou `-o fichier`) et le vérifie avec `xmllint` ; il ne commite rien. Commiter le fichier sur `main` le publie.
 
@@ -215,7 +217,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 
 Ce qu'elle ne couvre pas :
 - **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part. Pour la compiler en CI, il faudrait joindre à chaque release un `KyberSDK-macOS.zip` (le contenu de `apps/macos/Vendor`), comme `KyberSDK-tvOS.zip` pour l'Apple TV.
-- **L'app Apple TV quand les correctifs client ou le cœur Rust ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante. C'est le cas jusqu'à la 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
+- **L'app Apple TV quand les correctifs client ou le cœur Rust ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante.
 - **Les binaires Windows liés et Kyber** : la CI vérifie le code, elle ne produit ni `KyberNow-Station-Setup.exe` ni la surcouche (correctifs de Kyber, `third_party/` absent), et ne lance rien sous Windows.
 - **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign). Une CI qui construit les binaires Windows serait l'étape suivante, pour les faire signer Authenticode par SignPath (programme gratuit pour les projets libres, qui exige une construction en CI).
 
@@ -241,12 +243,12 @@ La première notarisation d'un compte peut prendre plusieurs heures (vérificati
 
 ## Migrations des réglages
 
-Les réglages d'Admin (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent la version de leur format : `schema = 1` depuis la 0.2.6 (absent = 0). À chaque démarrage, et avant `init` ou `reset-password`, Admin amène le fichier au format qu'il connaît (`server/admin/src/migrate.rs`) :
+Les réglages d'Admin (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent la version de leur format, `schema` (absent = 0 : fichier écrit par Admin en 0.2.5 ou avant). À chaque démarrage, et avant `init` ou `reset-password`, Admin amène le fichier au format qu'il connaît (`server/admin/src/migrate.rs`) :
 
 - une migration par version (de N à N+1), dans l'ordre, chacune idempotente : la rejouer ne change plus rien ;
 - avant d'écrire, l'original est copié dans `backups\kyber-admin.toml.schema-<N>-<horodatage>` ; chaque changement est écrit dans le journal (`kyber-admin.log`) ; les commentaires du fichier sont gardés ;
 - un fichier d'une version **plus récente** d'Admin (après un retour arrière de la mise à jour) est laissé tel quel, et les réglages que cette version ne connaît pas sont gardés quand elle réécrit le fichier ;
-- une migration impossible (fichier illisible) n'empêche pas Admin de démarrer : le fichier est alors mis de côté comme avant (`kyber-admin.toml.invalide-…`).
+- une migration impossible (fichier illisible) n'empêche pas Admin de démarrer : le fichier est alors mis de côté (`kyber-admin.toml.invalide-…`).
 
 À la main : `kyber-admin.exe migrate --dry-run` affiche ce qui serait changé, `kyber-admin.exe migrate` le fait.
 
@@ -256,7 +258,8 @@ Les réglages d'Admin (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent la ve
 
 Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGRATIONS`, `CURRENT` passé à N, un test sur un fichier de la version N-1, et une ligne dans ce tableau.
 
-**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et Admin refuse alors « Installer » en renvoyant vers `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` pour Admin en 0.3.1 et avant, d'où sa copie). De même, `--min-installer A.B.C` refuse le paquet sur une Station installée avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`, pour une future vérification par `update.ps1`, qui n'a pas de manifeste), le manifeste signé fait foi.
+**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et Admin refuse alors « Installer » en renvoyant vers `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` pour Admin en 0.3.1 et avant, d'où sa copie). De même, `--min-installer A.B.C` refuse le paquet sur une Station installée avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`, que `update.ps1`, sans manifeste, ne vérifie pas encore) ; le manifeste signé fait foi.
+
 ## Clés, compte GitHub et signature Windows
 
 ### Sauvegarde des clés de signature
@@ -264,6 +267,7 @@ Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGR
 Deux clés privées ne doivent jamais se perdre : une nouvelle clé ferait refuser toutes les mises à jour par ce qui est déjà installé, qu'il faudrait réinstaller à la main.
 
 | Clé | Où elle vit | Clé publique attendue |
+|---|---|---|
 | Sparkle (app Mac, EdDSA) | Trousseau de session, élément créé par `generate_keys` | `SUPublicEDKey` dans `apps/macos/project.yml` |
 | minisign (versions Windows) | `~/Library/Application Support/KyberNow/minisign.key`, chiffrée par le mot de passe de l'élément `kybernow-minisign` du Trousseau | `server/admin/src/update/kybernow-release.pub` |
 
@@ -290,6 +294,7 @@ hdiutil detach /Volumes/KyberNow-Cles
 
 Vérifier une sauvegarde sans révéler la clé (image ouverte). La première commande recalcule la clé publique Sparkle, qui doit être égale à `SUPublicEDKey`. La seconde signe un fichier d'essai avec la clé et le mot de passe sauvegardés, puis vérifie la signature avec la clé publique du dépôt :
 
+```bash
 { printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x70\x04\x22\x04\x20'; base64 -d -i /Volumes/KyberNow-Cles/sparkle-kybernow.key; } \
   | openssl pkey -inform DER -pubout -outform DER | tail -c 32 | base64
 echo essai > /tmp/essai.txt
@@ -297,9 +302,11 @@ tr -d '\n' < /Volumes/KyberNow-Cles/minisign-motdepasse.txt | { read -r PW; prin
   | minisign -S -s /Volumes/KyberNow-Cles/kybernow-minisign.key -m /tmp/essai.txt -x /tmp/essai.txt.minisig >/dev/null 2>&1 \
   && minisign -V -q -p server/admin/src/update/kybernow-release.pub -m /tmp/essai.txt -x /tmp/essai.txt.minisig && echo minisign OK
 rm -f /tmp/essai.txt /tmp/essai.txt.minisig
+```
 
 Remettre les clés sur un autre Mac (image ouverte) :
 
+```bash
 $GK -f /Volumes/KyberNow-Cles/sparkle-kybernow.key && $GK -p      # doit afficher SUPublicEDKey
 mkdir -p ~/Library/Application\ Support/KyberNow
 cp /Volumes/KyberNow-Cles/kybernow-minisign.key ~/Library/Application\ Support/KyberNow/minisign.key
@@ -307,6 +314,7 @@ cp /Volumes/KyberNow-Cles/kybernow-minisign.pub ~/Library/Application\ Support/K
 chmod 600 ~/Library/Application\ Support/KyberNow/minisign.key
 printf 'add-generic-password -a kybernow -s kybernow-minisign -l kybernow-minisign -w %s\n' \
   "$(cat /Volumes/KyberNow-Cles/minisign-motdepasse.txt)" | security -i >/dev/null
+```
 
 `printf` est interne au shell : le mot de passe ne passe pas dans la liste des processus.
 
@@ -324,19 +332,21 @@ printf 'add-generic-password -a kybernow -s kybernow-minisign -l kybernow-minisi
 
 Relire les règles :
 
+```bash
 gh api repos/MonsieurNours/kybernow/rulesets --jq '.[].name'
 gh api repos/MonsieurNours/kybernow/immutable-releases
+```
 
 ### Signature Windows (Authenticode) : en attente
 
-Aujourd'hui, `KyberNow-Station-Setup.exe`, `KyberNow-Link-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` et `update.ps1` ne sont pas signés : Windows affiche « Éditeur inconnu » (SmartScreen, UAC). Cette signature ne remplacerait pas minisign. Authenticode dit qui a signé ; minisign prouve que c'est la clé de KyberNow, gravée dans Admin, ce qui protège aussi contre un compte GitHub compromis.
+`KyberNow-Station-Setup.exe`, `KyberNow-Link-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` et `update.ps1` ne sont pas signés : Windows affiche « Éditeur inconnu » (SmartScreen, UAC). Cette signature ne remplacerait pas minisign. Authenticode dit qui a signé ; minisign prouve que c'est la clé de KyberNow, gravée dans Admin, ce qui protège aussi contre un compte GitHub compromis.
 
 Décision du 2026-10-21 : **reportée**, à reprendre quand le build Windows sera plus mûr. L'option visée est SignPath Foundation (gratuite).
 
 À savoir avant d'y revenir (vérifié le 2026-10-21) :
 - **Nom affiché.** Le SIREN 510 178 577 figure dans SIRENE au nom de « MATTHIEU REQUENNA », sans nom commercial. Aucun certificat ne peut donc porter « Les Lignes Claires » tant que ce nom n'est pas déclaré au registre (guichet unique de l'INPI, à vérifier).
 - **Durée maximale** d'un certificat : 460 jours depuis le 2026-03-01.
-- **SmartScreen.** Aucun certificat, EV compris, ne donne plus de réputation immédiate. Elle se construit avec les installations et se garde tant que l'identité de signature ne change pas.
+- **SmartScreen.** Aucun certificat, EV compris, ne donne de réputation immédiate. Elle se construit avec les installations et se garde tant que l'identité de signature ne change pas.
 
 | Option | Prix (2026-10) | Éditeur affiché | Signature depuis le Mac | Remarques |
 |---|---|---|---|---|
