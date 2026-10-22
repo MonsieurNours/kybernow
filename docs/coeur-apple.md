@@ -2,7 +2,7 @@
 
 [English](coeur-apple.en.md) · Français
 
-Décidé le 21/10/2026 : les apps Mac, Apple TV et iPhone/iPad reposent sur le cœur client en Rust (`apps/core`, crate `kybernow-core`), celui du client Windows. Tout ce qui ne dépend pas de l'affichage y passe : la session (console, Kyber, reconnexion, image clé, écran, latence, profils), puis les entrées, puis le son. Seuls le décodage (VideoToolbox), le rendu (Metal), les vues et les API du système restent en Swift. Un seul code pour quatre apps, et une app iPhone qui part sur le cœur dès le premier jour.
+Décidé le 21/10/2026 : les apps Mac, Apple TV et iPhone/iPad reposent sur le cœur client en Rust (`apps/core`, crate `kybernow-core`), celui du client Windows. Tout ce qui ne dépend pas de l'affichage y passe : la session (dialogue avec Admin, Kyber, reconnexion, image clé, écran, latence, profils), puis les entrées, puis le son. Seuls le décodage (VideoToolbox), le rendu (Metal), les vues et les API du système restent en Swift. Un seul code pour quatre apps, et une app iPhone qui part sur le cœur dès le premier jour.
 
 ## Jalons
 
@@ -45,13 +45,13 @@ Une API C écrite à la main (préfixe `kn_`), en-tête `kybernow.h` produit par
 Règles de l'API :
 
 - **Objets opaques** (`KnConsole`, `KnSession`) créés et libérés par le cœur ; aucune structure Rust n'est exposée.
-- **Résultats composés en JSON** (`char *`, libéré par `kn_string_free`) : les réponses de la console, les réglages d'une session. Les mesures de chaque seconde (`KnSecond`) et les paquets (`KnPacket`) sont des structures C plates : chemin chaud, sans copie ni allocation.
+- **Résultats composés en JSON** (`char *`, libéré par `kn_string_free`) : les réponses d'Admin, les réglages d'une session. Les mesures de chaque seconde (`KnSecond`) et les paquets (`KnPacket`) sont des structures C plates : chemin chaud, sans copie ni allocation.
 - **Rappels** (`KnPlatform`) : des pointeurs de fonction et un `userdata` ; le cœur les appelle depuis ses propres fils (fil de session, fil réseau de Kyber pour les paquets). Swift remonte sur le fil principal ce qui touche l'interface ; les paquets vont directement au décodeur.
 - **Paquets** : `video_packet` et `audio_packet` reçoivent `KnPacket` (format, configuration ou image, image clé, pts, données en place, trou avec le nombre d'échantillons manquants) ; le dernier appel d'un flux porte `KN_PACKET_CLOSED`, après quoi le cœur ne rappelle plus : c'est là que Swift rend l'objet retenu (`PacketSinkLease`, inchangé).
 - **Chaîne d'entrées** (jalon 2) : `input_pipeline()` rend la chaîne kynput d'un `KnInput` (`kn_input_new`, sur la couche de pointeur `KnPointer` de la vue, `kn_input_kynput`) ; le cœur la passe à Kyber avec la session d'image. Swift ne fait que donner les événements captés (`kn_input_key`, `mouse`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, modificateurs tenus et resynchronisés) et dessiner le pointeur (`on_changed` de `KnPointerCallbacks`, forme en ARGB prémultiplié) ; les rappels d'interface (combinaison, touches de navigation, entrées reliées, vibrations, presse-papiers) passent par `KnInputCallbacks`.
 - **Son** (jalon 3) : un `KnAudio` par flux (`kn_audio_new`, ordre des voies de la sortie) reçoit les paquets (`configure`, `decode`, `conceal`) ; le fil temps réel de la sortie tire les échantillons par `kn_audio_fill` et les mesures par `kn_audio_take_stats`.
 - **Latence** : le rendu Metal dit au cœur chaque image montrée (`kn_session_frame_displayed`, instants en µs sur `CLOCK_MONOTONIC`, `kn_now_micros`), remplacée, les octets reçus et les trous ; le cœur rend chaque seconde un `KnSecond` (médiane, trajet d'une image, pertes, mesures rejetées, aller-retour, débit) par `on_second`.
-- **États** (`on_status`) : préparation, connexion, premières images, image, reconnexion (essai, maximum), fin, terminée (avec la raison si elle n'était pas voulue, et le compte rendu de la console : écrans et son rétablis).
+- **États** (`on_status`) : préparation, connexion, premières images, image, reconnexion (essai, maximum), fin, terminée (avec la raison si elle n'était pas voulue, et le compte rendu d'Admin : écrans et son rétablis).
 - **Avis** (`on_notice`) : ce que la session montre dans une capsule, sans texte (Swift le traduit) : image relancée, mode de l'ordinateur changé ou revenu (avec la taille), repli (niveau), adaptation à l'écran (demandée, faite, refusée), « Remettre » proposé ou retiré.
 - **Commandes** : arrêt, image clé perdue ou revenue, nouveaux réglages (profil depuis la barre), plafond de débit (fenêtre occultée), écran choisi, nouveau mode (adaptation à l'écran de l'appareil), remise du mode.
 - **Journal** : le cœur écrit par la crate `log` ; `kn_set_log_callback` l'envoie à `KyberLog` (journal unifié, catégorie `core`).

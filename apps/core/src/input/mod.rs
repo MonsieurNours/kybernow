@@ -1,4 +1,4 @@
-//! Module d'entrées partagé des clients KyberNow : ce que les apps Mac et
+//! Module d'entrées partagé des apps KyberNow Link : ce que les apps Mac et
 //! Apple TV tenaient dans KyberKit (`InputPipeline`, `PacketQueue`, `Keymap`,
 //! `PadCombo`, `ReleaseAll`, `PointerLayer`, `ClipboardBridge`), écrit une
 //! fois en Rust au-dessus de la chaîne kynput de Kyber, pour le Mac, l'Apple

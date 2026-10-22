@@ -2,7 +2,7 @@
 
 English · [Français](coeur-apple.md)
 
-Decided on 21/10/2026: the Mac, Apple TV and iPhone/iPad apps rest on the Rust client core (`apps/core`, crate `kybernow-core`), the one the Windows client uses. Everything that does not depend on display moves there: the session (console, Kyber, reconnection, keyframe, display, latency, profiles), then the inputs, then the sound. Only decoding (VideoToolbox), rendering (Metal), the views and the system APIs stay in Swift. One code for four apps, and an iPhone app that starts on the core from day one.
+Decided on 21/10/2026: the Mac, Apple TV and iPhone/iPad apps rest on the Rust client core (`apps/core`, crate `kybernow-core`), the one the Windows client uses. Everything that does not depend on display moves there: the session (talking to Admin, Kyber, reconnection, keyframe, display, latency, profiles), then the inputs, then the sound. Only decoding (VideoToolbox), rendering (Metal), the views and the system APIs stay in Swift. One code for four apps, and an iPhone app that starts on the core from day one.
 
 ## Milestones
 
@@ -45,13 +45,13 @@ A hand-written C API (`kn_` prefix), `kybernow.h` header produced by cbindgen th
 API rules:
 
 - **Opaque objects** (`KnConsole`, `KnSession`) created and freed by the core; no Rust structure is exposed.
-- **Composite results as JSON** (`char *`, freed by `kn_string_free`): console replies, a session's settings. Each second's measurements (`KnSecond`) and packets (`KnPacket`) are flat C structs: hot path, no copy, no allocation.
+- **Composite results as JSON** (`char *`, freed by `kn_string_free`): Admin's replies, a session's settings. Each second's measurements (`KnSecond`) and packets (`KnPacket`) are flat C structs: hot path, no copy, no allocation.
 - **Callbacks** (`KnPlatform`): function pointers and a `userdata`; the core calls them from its own threads (session thread, Kyber's network thread for packets). Swift hops to the main thread for what touches the interface; packets go straight to the decoder.
 - **Packets**: `video_packet` and `audio_packet` receive a `KnPacket` (format, configuration or frame, keyframe, pts, data in place, hole with the number of missing samples); the last call of a stream carries `KN_PACKET_CLOSED`, after which the core never calls again: that is where Swift releases the retained object (`PacketSinkLease`, unchanged).
 - **Input chain** (milestone 2): `input_pipeline()` returns the kynput chain of a `KnInput` (`kn_input_new`, on the view's `KnPointer` pointer layer, `kn_input_kynput`); the core passes it to Kyber with the picture session. Swift only hands over the captured events (`kn_input_key`, `mouse`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, held and resynced modifiers) and draws the pointer (`on_changed` of `KnPointerCallbacks`, shape in premultiplied ARGB); interface callbacks (combination, navigation keys, inputs connected, rumble, clipboard) go through `KnInputCallbacks`.
 - **Sound** (milestone 3): one `KnAudio` per stream (`kn_audio_new`, the output's channel order) receives the packets (`configure`, `decode`, `conceal`); the output's real-time thread pulls samples with `kn_audio_fill` and measurements with `kn_audio_take_stats`.
 - **Latency**: the Metal renderer tells the core each frame shown (`kn_session_frame_displayed`, instants in µs on `CLOCK_MONOTONIC`, `kn_now_micros`), replaced, the bytes received and the holes; every second the core returns a `KnSecond` (median, path of a frame, losses, rejected measurements, round trip, bitrate) through `on_second`.
-- **States** (`on_status`): preparing, connecting, first images, picture, reconnecting (attempt, maximum), ending, ended (with the reason when it was not wanted, and the console's report: displays and sound restored).
+- **States** (`on_status`): preparing, connecting, first images, picture, reconnecting (attempt, maximum), ending, ended (with the reason when it was not wanted, and Admin's report: displays and sound restored).
 - **Notices** (`on_notice`): what the session shows in a capsule, without text (Swift translates it): picture relaunched, computer's mode changed or back (with the size), fallback (level), adapting to the screen (requested, done, refused), “Restore” offered or withdrawn.
 - **Commands**: stop, keyframe lost or back, new settings (profile from the bar), bitrate cap (occluded window), chosen display, new mode (adapting to the device's screen), mode restore.
 - **Log**: the core writes through the `log` crate; `kn_set_log_callback` sends it to `KyberLog` (unified log, `core` category).

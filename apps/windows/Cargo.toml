@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-windows"
-description = "KyberNow pour Windows : session plein écran (Direct3D 11, FFmpeg, WASAPI)"
+description = "KyberNow Link pour Windows : session plein écran (Direct3D 11, FFmpeg, WASAPI)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

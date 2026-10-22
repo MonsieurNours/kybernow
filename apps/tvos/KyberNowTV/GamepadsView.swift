@@ -101,7 +101,7 @@ struct GamepadsView: View {
                 Icon("television-simple", size: 32).foregroundStyle(Theme.muted)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: "Siri Remote").font(Theme.sans(22, .semibold))
-                    Text("Pilote KyberNow · en session, souris si vous l'activez").font(Theme.sans(17)).foregroundStyle(Theme.muted)
+                    Text("Pilote KyberNow Link · en session, souris si vous l'activez").font(Theme.sans(17)).foregroundStyle(Theme.muted)
                 }
             }
             .padding(.horizontal, 26)

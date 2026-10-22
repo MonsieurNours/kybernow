@@ -532,7 +532,7 @@ private struct PadBanner: View {
         HStack(spacing: 16) {
             HStack(spacing: 7) {
                 Icon("game-controller", size: 16, bold: true)
-                Text("La manette pilote KyberNow")
+                Text("La manette pilote KyberNow Link")
             }
             .font(Theme.sans(12, .semibold))
             .foregroundStyle(Theme.accentLight)

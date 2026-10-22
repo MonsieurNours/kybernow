@@ -1,20 +1,20 @@
 {
   "setup": {
     "startFailed": "L'installation n'a pas pu démarrer :\n\n{error}",
-    "notAPayload": "ce fichier ne contient pas KyberNow. Téléchargez à nouveau l'installateur complet.",
-    "webview2Missing": "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Server-Setup."
+    "notAPayload": "ce fichier ne contient pas KyberNow Station. Téléchargez à nouveau l'installateur complet.",
+    "webview2Missing": "L'installateur a besoin de Microsoft Edge WebView2, présent sur Windows 11 et sur la plupart des Windows 10.\n\nLa page de téléchargement de Microsoft va s'ouvrir : installez-le, puis relancez KyberNow-Station-Setup."
   },
   "uninstall": {
-    "title": "Désinstaller KyberNow",
-    "confirm": "KyberNow va être retiré de cet ordinateur : serveur de streaming, console d'administration, icône, écran virtuel. Le mode d'alimentation et la catégorie du réseau d'avant KyberNow sont remis.\n\nLe pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
-    "keepData": "Garder les réglages de KyberNow sur cet ordinateur ?\n\nOui : C:\\ProgramData\\KyberNow reste (réglages et certificat de la console, appareils connus, journaux, copie des réglages de Kyber), lisible par les administrateurs seulement.\nNon : tout est effacé.",
-    "doneKept": "KyberNow a été désinstallé. Ses réglages restent dans C:\\ProgramData\\KyberNow.",
-    "done": "KyberNow a été désinstallé.",
+    "title": "Désinstaller KyberNow Station",
+    "confirm": "KyberNow Station va être retirée de cet ordinateur : serveur de streaming, KyberNow Admin, icône, écran virtuel. Le mode d'alimentation et la catégorie du réseau d'avant la Station sont remis.\n\nLe pilote de manettes ViGEmBus reste installé, car d'autres logiciels peuvent l'utiliser.\n\nContinuer ?",
+    "keepData": "Garder les réglages de KyberNow Station sur cet ordinateur ?\n\nOui : C:\\ProgramData\\KyberNow reste (réglages et certificat d'Admin, appareils connus, journaux, copie des réglages de Kyber), lisible par les administrateurs seulement.\nNon : tout est effacé.",
+    "doneKept": "KyberNow Station a été désinstallée. Ses réglages restent dans C:\\ProgramData\\KyberNow.",
+    "done": "KyberNow Station a été désinstallée.",
     "failed": "La désinstallation a rencontré un problème :\n\n{error}"
   },
   "ui": {
-    "windowTitle": "Installation de KyberNow",
-    "rebootReason": "Redémarrage pour terminer l'installation de KyberNow"
+    "windowTitle": "Installation de KyberNow Station",
+    "rebootReason": "Redémarrage pour terminer l'installation de KyberNow Station"
   },
   "checks": {
     "gpu": {
@@ -39,7 +39,7 @@
     "ports": {
       "title": "Ports réseau",
       "defaultBusy": "Le port habituel 8080 est déjà utilisé{by}. ",
-      "picked": "{reason}Tirés au hasard et vérifiés libres : stream {stream} · console {console}"
+      "picked": "{reason}Tirés au hasard et vérifiés libres : stream {stream} · Admin {console}"
     },
     "display": {
       "title": "Écran principal",
@@ -64,16 +64,16 @@
     },
     "existing": {
       "title": "Installation existante",
-      "installed": "KyberNow {version} est installé",
+      "installed": "KyberNow Station {version} est installée",
       "keepChoice": "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro.",
       "noSettings": "Ses réglages sont introuvables : l'installation repartira de zéro.",
       "kyberTitle": "Une installation de Kyber existe",
-      "kyberDetail": "Elle sera retirée puis remplacée par celle de KyberNow (même moteur, réglé pour vous)."
+      "kyberDetail": "Elle sera retirée puis remplacée par KyberNow Station (même moteur, réglé pour vous)."
     }
   },
   "ports": {
     "range": "Choisissez un port entre 1024 et 65535.",
-    "samePort": "Le stream et la console ont besoin de deux ports différents.",
+    "samePort": "Le stream et Admin ont besoin de deux ports différents.",
     "reservedByWindows": "Le port {port} est réservé par Windows.",
     "reservedBy": "Le port {port} est dans la plage de {owner} ({first}–{last}), que le logiciel prend souvent : choisissez-en un autre.",
     "inUse": "Le port {port} est déjà utilisé{by}.",
@@ -90,9 +90,9 @@
     "vigembusMissing": "installeur ViGEmBus absent du contenu",
     "initialConfiguration": "configuration initiale",
     "backup": "sauvegarde de {path}",
-    "serviceName": "KyberNow - serveur de streaming",
-    "serviceDescription": "Serveur de streaming Kyber, installé et géré par KyberNow.",
-    "trayShortcut": "KyberNow dans la zone de notification",
-    "consoleShortcut": "Console KyberNow"
+    "serviceName": "KyberNow Station - serveur de streaming",
+    "serviceDescription": "Serveur de streaming Kyber, installé et géré par KyberNow Station.",
+    "trayShortcut": "KyberNow Station dans la zone de notification",
+    "consoleShortcut": "KyberNow Admin"
   }
 }

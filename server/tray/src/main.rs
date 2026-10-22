@@ -1,7 +1,7 @@
-//! Icône KyberNow dans la zone de notification de Windows.
+//! Icône de KyberNow Station dans la zone de notification de Windows.
 //!
 //! Tourne dans la session de l'utilisateur, sans droits administrateur : accès à
-//! la console, état du serveur et de la session, démarrage et arrêt des services.
+//! KyberNow Admin, état de la Station et de la session, démarrage et arrêt des services.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 

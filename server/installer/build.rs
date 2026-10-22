@@ -23,7 +23,7 @@ fn main() {
         println!("cargo:rerun-if-changed=resources");
         let setup = version_resources("setup", "kybernow.ico");
         let ui = version_resources("ui", "kybernow.ico");
-        embed_resource::compile_for(&setup, ["KyberNow-Server-Setup"], embed_resource::NONE)
+        embed_resource::compile_for(&setup, ["KyberNow-Station-Setup"], embed_resource::NONE)
             .manifest_required()
             .unwrap();
         embed_resource::compile_for(&ui, ["kybernow-ui"], embed_resource::NONE)

@@ -70,7 +70,7 @@ struct SessionMenu: View {
                         .buttonStyle(GlassButton(radius: 18, scale: 1.05))
                         .focused($focus, equals: .restoreMode)
                     } else {
-                        Text("Pendant le menu, les manettes pilotent KyberNow ; le jeu ne reçoit rien.")
+                        Text("Pendant le menu, les manettes pilotent KyberNow Link ; le jeu ne reçoit rien.")
                     }
                 }
                 .font(Theme.sans(19))

@@ -1,4 +1,4 @@
-// KyberNow pour l'Apple TV : vos ordinateurs sur le téléviseur, à la
+// KyberNow Link pour l'Apple TV : vos ordinateurs sur le téléviseur, à la
 // télécommande ou à la manette. Maquette : https://claude.ai/artifact/RfGbfguTyAP1jjwFASVRyK
 
 import KyberKit

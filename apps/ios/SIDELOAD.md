@@ -1,4 +1,4 @@
-# Installer KyberNow sur votre iPhone ou votre iPad (sans l'App Store)
+# Installer KyberNow Link sur votre iPhone ou votre iPad (sans l'App Store)
 
 [English](SIDELOAD.en.md) · Français
 
@@ -11,7 +11,7 @@ En attendant TestFlight et l'App Store, l'app iPhone et iPad s'installe depuis u
 - Un **compte Apple** :
   - **gratuit** (votre identifiant Apple habituel) : ça marche, mais l'app cesse de s'ouvrir au bout de **7 jours** ; il suffit de relancer le script pour la renouveler. Sans iCloud ni Trousseau partagé (l'ajout « Depuis votre Mac » n'est pas proposé) ; trois apps installées ainsi au plus ;
   - **payant** (Apple Developer Program, 99 €/an) : l'app reste installée un an, avec toutes ses fonctions.
-- Un ordinateur avec **KyberNow Server** installé (version 0.3.1 ou plus récente).
+- Un ordinateur avec **KyberNow Station** installée (version 0.3.1 ou plus récente).
 
 ## 1. Préparer le Mac
 
@@ -49,7 +49,7 @@ apps/ios/scripts/sideload.sh --team ABCDE12345 --full
 ```
 
 Le script :
-1. télécharge le cœur KyberNow et ses bibliothèques déjà compilés pour iOS (`KyberSDK-iOS.zip`, joint aux versions publiées à partir de la 0.3.2 ; `--version X.Y.Z` pour une version précise) ;
+1. télécharge le cœur KyberNow et ses bibliothèques déjà compilés pour iOS (`KyberSDK-iOS.zip`, joint aux versions publiées à partir de la 0.4.0 ; `--version X.Y.Z` pour une version précise) ;
 2. prépare le projet Xcode à votre nom (identifiant de l'app `kybernow.<votre équipe>`, à changer avec `--bundle` si besoin) ;
 3. compile l'app ; Xcode crée lui-même le profil de signature ;
 4. l'installe sur l'appareil branché (`--device "Nom de l'iPad"` s'il y en a plusieurs).
@@ -58,7 +58,7 @@ Le script :
 
 - Avec un compte gratuit, iOS refuse d'abord d'ouvrir l'app : **Réglages › Général › VPN et gestion de l'appareil**, touchez votre compte sous « App de développeur », puis **Se fier**.
 - Ouvrez **KyberNow**, acceptez l'accès au **réseau local** : sans lui, l'app ne trouve pas vos ordinateurs.
-- Ajoutez votre ordinateur : **Sur le réseau** (son compte), **Code** (à accepter dans la console de l'ordinateur, espace Accès › Appareils), **QR code** (affiché par la console, à la caméra) ou **Adresse**. « Depuis votre Mac » (iCloud) demande l'installation avec `--full`.
+- Ajoutez votre ordinateur : **Sur le réseau** (son compte), **Code** (à accepter dans KyberNow Admin, espace Accès › Appareils), **QR code** (affiché par KyberNow Admin, à la caméra) ou **Adresse**. « Depuis votre Mac » (iCloud) demande l'installation avec `--full`.
 
 ## Renouveler ou mettre à jour
 
@@ -69,7 +69,7 @@ Relancez la même commande après un `git pull`. Avec un compte gratuit, faites-
 - **« iPhone ou iPad introuvable »** : il n'est pas branché, pas déverrouillé, ou Xcode ne le voit pas encore (Window › Devices and Simulators). Le mode développeur doit être activé.
 - **Erreur de signature** : ouvrez `apps/ios/KyberNowIOSSideload.xcodeproj` (produit par le script) dans Xcode, onglet *Signing & Capabilities* de la cible KyberNowIOS : Xcode y explique ce qui manque. Avec un compte gratuit, n'utilisez pas `--full`, et pas plus de trois apps installées de cette façon.
 - **« Développeur non approuvé »** à l'ouverture : voir « Premier lancement ».
-- **L'app ne trouve pas l'ordinateur** : le serveur doit être allumé, sur le même réseau, avec KyberNow Server installé ; sinon, passez par l'adresse, le code ou le QR code. Par VPN, la découverte ne passe pas : utilisez l'adresse.
+- **L'app ne trouve pas l'ordinateur** : l'ordinateur doit être allumé, sur le même réseau, avec KyberNow Station installée ; sinon, passez par l'adresse, le code ou le QR code. Par VPN, la découverte ne passe pas : utilisez l'adresse.
 - **Compiler soi-même le SDK** (développeurs) : `apps/core/scripts/build-apple.sh --target aarch64-apple-ios` (et `aarch64-apple-ios-sim`), puis `apps/apple/scripts/build-apple-mobile.sh ios`, voir [README.md](README.md).
 
 KyberNow est basé sur [Kyber](https://kyber.tech) (AGPLv3), sans affiliation avec l'équipe de Kyber.

@@ -172,7 +172,7 @@ struct HomeView: View {
                     .font(Theme.display(110, 680))
                     .tracking(-110 * 0.045)
                     .foregroundStyle(Theme.text)
-                Text("Ajoutez un ordinateur équipé de KyberNow : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur.")
+                Text("Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur.")
                     .font(Theme.sans(24)).foregroundStyle(Theme.text2)
                     .frame(width: 900, alignment: .leading)
             }

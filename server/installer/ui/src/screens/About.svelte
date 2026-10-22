@@ -1,9 +1,9 @@
-<!-- À propos : qui fait KyberNow, et les logiciels libres qu'il embarque. -->
+<!-- À propos : qui fait KyberNow Station, et les logiciels libres qu'elle embarque. -->
 <script lang="ts">
   import { send } from '../lib/backend'
   import { t } from '../lib/i18n/index.svelte'
   import { app, go } from '../lib/state.svelte'
-  import Mark from '../lib/Mark.svelte'
+  import Logo from '../lib/Logo.svelte'
 
   // [composant, clé du rôle (about.roles.*), licence]
   const licenses = $derived([
@@ -24,11 +24,8 @@
 
 <div class="about">
   <div class="head kn-enter">
-    <Mark size={48} state="server" />
-    <div>
-      <span class="disp name"><span>Kyber</span><b>Now</b> <i>Server</i></span>
-      <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
-    </div>
+    <Logo height={56} />
+    <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
   </div>
 
   <div class="panel dev kn-enter kn-d1">
@@ -69,34 +66,8 @@
 
   .head {
     display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .head > div {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .name {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-  }
-
-  .name span {
-    font-weight: 420;
-  }
-
-  .name b {
-    font-weight: 720;
-  }
-
-  .name i {
-    font-style: normal;
-    font-stretch: 100%;
-    font-weight: 400;
-    color: var(--faint);
+    align-items: flex-end;
+    gap: 20px;
   }
 
   .version {

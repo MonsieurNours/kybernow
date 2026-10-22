@@ -116,8 +116,7 @@
 
   <header>
     <div class="brand">
-      <Mark size={26} state="now" />
-      <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
+      <Mark product="link" size={26} />
     </div>
     <nav>
       <a class="navlink" href="/">
@@ -284,19 +283,6 @@
     display: flex;
     align-items: center;
     gap: 12px;
-  }
-
-  .wordmark {
-    font-size: 19px;
-    letter-spacing: -0.02em;
-  }
-
-  .wordmark span {
-    font-weight: 420;
-  }
-
-  .wordmark b {
-    font-weight: 720;
   }
 
   nav {

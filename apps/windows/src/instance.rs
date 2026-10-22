@@ -41,7 +41,7 @@ fn pipe_name() -> String {
     format!(r"\\.\pipe\KyberNow-{user}-{session}")
 }
 
-/// Attend (2 minutes au plus) que l'installateur de KyberNow ait fini : il
+/// Attend (2 minutes au plus) que l'installateur de KyberNow Link ait fini : il
 /// tient `Local\KyberNow.Setup` pendant l'installation.
 pub fn wait_for_setup() {
     use windows::Win32::System::Threading::{OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE};

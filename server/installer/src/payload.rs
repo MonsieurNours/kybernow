@@ -1,4 +1,4 @@
-//! Contenu à installer, accolé à la fin de `KyberNow-Server-Setup.exe`.
+//! Contenu à installer, accolé à la fin de `KyberNow-Station-Setup.exe`.
 //!
 //! Disposition : `[exécutable][archive tar.zst][pied de 32 octets]`.
 //! Le pied contient la taille de l'archive, la taille décompressée, le nombre

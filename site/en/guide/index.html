@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install KyberNow: remote gaming and desktop guide and FAQ</title>
-<meta name="description" content="Install KyberNow on the computer you share, connect all your devices, play remotely over a VPN: step-by-step guide and frequently asked questions.">
+<meta name="description" content="Install KyberNow Station on the computer you share, connect all your devices with KyberNow Link, play remotely over a VPN: step-by-step guide and frequently asked questions.">
 <link rel="canonical" href="https://www.kybernow.app/en/guide/">
 <meta name="theme-color" content="#05070A">
 <meta property="og:type" content="website">
@@ -12,7 +12,7 @@
 <meta property="og:locale" content="en_GB">
 <meta property="og:locale:alternate" content="fr_FR">
 <meta property="og:title" content="Install KyberNow, step by step">
-<meta property="og:description" content="Install KyberNow on the computer you share, connect all your devices, play remotely over a VPN: step-by-step guide and frequently asked questions.">
+<meta property="og:description" content="Install KyberNow Station on the computer you share, connect all your devices with KyberNow Link, play remotely over a VPN: step-by-step guide and frequently asked questions.">
 <meta property="og:url" content="https://www.kybernow.app/en/guide/">
 <meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
 <meta property="og:image:type" content="image/jpeg">
@@ -21,7 +21,7 @@
 <meta property="og:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Install KyberNow, step by step">
-<meta name="twitter:description" content="Install KyberNow on the computer you share, connect all your devices, play remotely over a VPN: step-by-step guide and frequently asked questions.">
+<meta name="twitter:description" content="Install KyberNow Station on the computer you share, connect all your devices with KyberNow Link, play remotely over a VPN: step-by-step guide and frequently asked questions.">
 <meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
 <meta name="twitter:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -59,7 +59,7 @@
    "name": "Why “beta”?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "KyberNow has not reached version 1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the computer and your apps up to date, and report problems on GitHub or on Discord."
+    "text": "KyberNow has not reached version 1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the Station and your apps up to date, and report problems on GitHub or on Discord."
    }
   },
   {
@@ -91,7 +91,7 @@
    "name": "Do I need a specific graphics card?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No. Kyber encodes the image with any graphics card, NVIDIA, AMD or Intel, including an external one (eGPU). Without a graphics card, the processor does the job. The encoder is chosen in the console, on the System › Advanced page."
+    "text": "No. Kyber encodes the image with any graphics card, NVIDIA, AMD or Intel, including an external one (eGPU). Without a graphics card, the processor does the job. The encoder is chosen in KyberNow Admin, on the System › Advanced page."
    }
   },
   {
@@ -123,7 +123,7 @@
    "name": "My displays turn off during the session. Is that normal?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Yes: the computer only shows the virtual display, at the size of your device. They turn back on at the end. If in doubt, the console offers “Turn my displays back on”, and the driver removes the virtual display on its own if it stops receiving a signal."
+    "text": "Yes: the computer only shows the virtual display, at the size of your device. They turn back on at the end. If in doubt, Admin offers “Turn my displays back on”, and the driver removes the virtual display on its own if it stops receiving a signal."
    }
   },
   {
@@ -131,7 +131,7 @@
    "name": "The sound still comes out of the computer's speakers.",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Remote sound uses Steam's virtual speakers. Install Steam on the computer, then run the KyberNow installer again: the “Remote sound” option becomes available."
+    "text": "Remote sound uses Steam's virtual speakers. Install Steam on the computer, then run the KyberNow Station installer again: the “Remote sound” option becomes available."
    }
   },
   {
@@ -155,7 +155,7 @@
    "name": "The image stays black or freezes.",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "Update the computer and the app: the app asks for a full image again after a loss, and lightens the stream if the image does not arrive. Prefer an Ethernet cable on the computer, and check that no other streaming app is using the encoder."
+    "text": "Update the Station and the app: the app asks for a full image again after a loss, and lightens the stream if the image does not arrive. Prefer an Ethernet cable on the computer, and check that no other streaming app is using the encoder."
    }
   },
   {
@@ -163,7 +163,7 @@
    "name": "I forgot the password.",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "On the computer, right-click the KyberNow icon › “Reset the console password…”, then follow the console to choose a new one."
+    "text": "On the computer, right-click the KyberNow Station icon › “Reset the Admin password…”, then follow Admin to choose a new one."
    }
   },
   {
@@ -171,15 +171,7 @@
    "name": "Does the app work on an Intel Mac?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "No, it requires Apple silicon (M1 or later). On an Intel Mac, use the web client in the browser."
-   }
-  },
-  {
-   "@type": "Question",
-   "name": "Why is the Apple TV app not on the App Store?",
-   "acceptedAnswer": {
-    "@type": "Answer",
-    "text": "Not yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see On Apple TV. It needs an Apple TV 4K from 2021 or later; older models cannot run the app."
+    "text": "No, it requires Apple silicon (M1 or later). On an Intel Mac, use KyberNow Link in the browser."
    }
   },
   {
@@ -192,10 +184,18 @@
   },
   {
    "@type": "Question",
+   "name": "Why is the Apple TV app not on the App Store?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Not yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see On Apple TV. It needs an Apple TV 4K from 2021 or later; older models cannot run the app."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "How is KyberNow related to Kyber?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "KyberNow uses Kyber, the open-source streaming engine built by VLC developers, and adds an installer, a console, virtual displays and speakers, and apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published."
+    "text": "KyberNow uses Kyber, the open-source streaming engine built by VLC developers, and adds KyberNow Station (installer, virtual displays and speakers), KyberNow Admin and the KyberNow Link apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published."
    }
   },
   {
@@ -203,7 +203,7 @@
    "name": "What data does KyberNow collect?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "None. Nothing goes through a server of ours: the image goes directly from the computer to your devices. The console only asks GitHub whether a new version exists."
+    "text": "None. Nothing goes through a server of ours: the image goes directly from the computer to your devices. KyberNow Admin only asks GitHub whether a new version exists."
    }
   }
  ]
@@ -256,7 +256,7 @@
     <h1 class="title page-title" data-split>Installing KyberNow, <strong>step by step.</strong></h1>
     <p class="lede" data-reveal style="--d:.3s">Three minutes on the computer you share, one on each device. This guide follows the screens in order, then answers frequently asked questions.</p>
     <ol class="quick" data-reveal style="--d:.45s">
-      <li><a href="#serveur"><span>1</span>Install KyberNow Server</a></li>
+      <li><a href="#serveur"><span>1</span>Install KyberNow Station</a></li>
       <li><a href="#appareil"><span>2</span>Connect a device</a></li>
       <li><a href="#session"><span>3</span>Play, work</a></li>
     </ol>
@@ -267,7 +267,7 @@
   <aside class="toc" aria-label="Table of contents">
     <p class="mono-label">Contents</p>
     <a href="#prerequis">Before you start</a>
-    <a href="#serveur">1 · KyberNow Server</a>
+    <a href="#serveur">1 · KyberNow Station</a>
     <a href="#appareil">2 · Connect a device</a>
     <a href="#session">3 · In a session</a>
     <a href="#distance">Away from home</a>
@@ -282,7 +282,7 @@
       <h2>Before you start</h2>
       <div class="req">
         <div class="req-card">
-          <span class="role">Server</span>
+          <img class="req-logo" src="/assets/img/kybernow-station-dark.svg" alt="KyberNow Station" width="196" height="36">
           <h3>The computer you share</h3>
           <ul class="ticks ticks-on">
             <li>Windows 10 or 11, with administrator rights</li>
@@ -292,7 +292,7 @@
           </ul>
         </div>
         <div class="req-card">
-          <span class="role">Client</span>
+          <img class="req-logo" src="/assets/img/kybernow-link-dark.svg" alt="KyberNow Link" width="197" height="36">
           <h3>Your devices</h3>
           <ul class="ticks ticks-on">
             <li>A Mac with Apple silicon on macOS 14 or later, for the app</li>
@@ -309,17 +309,17 @@
 
     <section id="serveur" class="doc-section">
       <p class="step-label">Step 1</p>
-      <h2>Install KyberNow Server</h2>
-      <p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Server-Setup.exe">KyberNow-Server-Setup.exe</a> on the computer you want to share and open it. Windows asks for administrator permission: the installer adds drivers and services. Nothing changes on the computer until you click “Install”.</p>
+      <h2>Install KyberNow Station</h2>
+      <p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Setup.exe">KyberNow-Station-Setup.exe</a> on the computer you want to share and open it. Windows asks for administrator permission: the installer adds drivers and services. Nothing changes on the computer until you click “Install”.</p>
       <ol class="steps-doc">
         <li>
           <h3>Welcome</h3>
           <p>The installer checks the computer while you read: graphics card and driver, network, ports, main display, power mode, remote sound. An orange dot explains what it recommends, without blocking you.</p>
-          <p>Two ports are picked at random, one for the stream, the other for the console, avoiding those used by Windows and Sunshine. “Change” lets you choose them. A network set to “Public” will switch to “Private”, otherwise your devices would not see the computer.</p>
+          <p>Two ports are picked at random, one for the stream, the other for KyberNow Admin, avoiding those used by Windows and Sunshine. “Change” lets you choose them. A network set to “Public” will switch to “Private”, otherwise your devices would not see the computer.</p>
         </li>
         <li>
           <h3>Your account</h3>
-          <p>A username and a password of at least 10&nbsp;characters. It is KyberNow's only account: it opens the console and connects your devices. It is stored only as a hash.</p>
+          <p>A username and a password of at least 10&nbsp;characters. It is KyberNow's only account: it opens Admin and connects your devices. It is stored only as a hash.</p>
         </li>
         <li>
           <h3>Options</h3>
@@ -327,11 +327,11 @@
         </li>
         <li>
           <h3>Installation, then Done</h3>
-          <p>Less than a minute. The final screen shows the computer's address, a QR code for its console and the web client's address. If the gamepads require it, a restart is offered.</p>
+          <p>Less than a minute. The final screen shows the computer's address, a QR code for Admin and the address of Link in the browser. If the gamepads require it, a restart is offered.</p>
         </li>
       </ol>
-      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>The first time you open the console, the browser reports an unknown certificate: this is expected, the computer created its own certificate. The KyberNow apps, for their part, verify its fingerprint.</span></p>
-      <p>A KyberNow icon appears in the notification area. It shows the state of KyberNow Server (green when running, purple during a session) and opens the console, where you will find four pages: <b>Overview</b>, <b>Picture and sound</b>, <b>Access</b> and <b>System</b>.</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>The first time you open Admin, the browser reports an unknown certificate: this is expected, the Station created its own certificate. The KyberNow Link apps, for their part, verify its fingerprint.</span></p>
+      <p>A KyberNow Station icon appears in the notification area. It shows the state of the Station (green when running, purple during a session) and opens Admin, where you will find four pages: <b>Overview</b>, <b>Picture and sound</b>, <b>Access</b> and <b>System</b>.</p>
     </section>
 
     <section id="appareil" class="doc-section">
@@ -340,33 +340,33 @@
 
       <h3 id="mac" class="sub">With the Mac app</h3>
       <ol class="steps-doc">
-        <li><p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip">KyberNow-macOS.zip</a>, open it and drag KyberNow into Applications. The app is signed and notarised by Apple.</p></li>
+        <li><p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip">KyberNow-macOS.zip</a>, open it and drag the app into Applications. The app is signed and notarised by Apple.</p></li>
         <li><p>Open it, then choose “Add a computer”:</p>
           <ul class="ticks">
             <li><b>On this network</b>: the computer shows up on its own (Bonjour).</li>
             <li><b>By address</b>: its IP address or name, for example over a VPN.</li>
-            <li><b>QR code or link</b>: in the console, on the <b>Access</b> page, “Add a device”. The link contains the address and the certificate fingerprint, never a password.</li>
+            <li><b>QR code or link</b>: in Admin, on the <b>Access</b> page, “Add a device”. The link contains the address and the certificate fingerprint, never a password.</li>
           </ul>
         </li>
-        <li><p>“Is this your computer?”: when it comes from a link or from Bonjour, the fingerprint is verified automatically. With a plain address, compare the first four groups with those shown in the console.</p></li>
+        <li><p>“Is this your computer?”: when it comes from a link or from Bonjour, the fingerprint is verified automatically. With a plain address, compare the first four groups with those shown in Admin.</p></li>
         <li><p>Enter the account created during installation. It is kept in the Mac's Keychain. Click the computer: the session opens.</p></li>
       </ol>
 
       <h3 id="windows" class="sub">With the Windows app</h3>
       <p>For a laptop or a modest PC that connects to a more powerful one. The image is decoded by the graphics card (H.264, HEVC, and AV1 when it can), displayed with Direct3D&nbsp;11: about 10&nbsp;ms of latency measured on a home network.</p>
       <ol class="steps-doc">
-        <li><p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Client-Setup.exe">KyberNow-Client-Setup.exe</a> and open it. A single installer for x64 and ARM64 PCs: it installs the right version by itself. The app is installed for you only, with no administrator rights.</p></li>
-        <li><p>Open KyberNow, then choose “Add a computer”:</p>
+        <li><p>Download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe">KyberNow-Link-Setup.exe</a> and open it. A single installer for x64 and ARM64 PCs: it installs the right version by itself. The app is installed for you only, with no administrator rights.</p></li>
+        <li><p>Open KyberNow Link, then choose “Add a computer”:</p>
           <ul class="ticks">
             <li><b>On the network</b>: the computer shows up on its own.</li>
-            <li><b>With the link</b>: in the console, on the <b>Access</b> page, “Add a device”. The <code>kybernow://</code> link opens the app with the computer and its fingerprint already verified.</li>
-            <li><b>By address</b>: its IP address or name, for example over a VPN. Compare the first four groups of the fingerprint with those shown in the console.</li>
+            <li><b>With the link</b>: in Admin, on the <b>Access</b> page, “Add a device”. The <code>kybernow://</code> link opens the app with the computer and its fingerprint already verified.</li>
+            <li><b>By address</b>: its IP address or name, for example over a VPN. Compare the first four groups of the fingerprint with those shown in Admin.</li>
           </ul>
         </li>
-        <li><p>To get access, accept the <b>six-digit code</b> shown by the app in the console, on the <b>Access</b> page, under Devices: nothing to type. Or enter the account created during installation, kept in Windows Credential Manager. Click the computer: the session opens.</p></li>
+        <li><p>To get access, accept the <b>six-digit code</b> shown by the app in Admin, on the <b>Access</b> page, under Devices: nothing to type. Or enter the account created during installation, kept in Windows Credential Manager. Click the computer: the session opens.</p></li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>During the beta, the app is not signed with Authenticode yet: on first launch, Windows SmartScreen shows a warning. Click “More info”, then “Run anyway”.</span></p>
-      <p class="muted">Your computers also appear when you right-click the KyberNow icon in the taskbar: one click starts the session.</p>
+      <p class="muted">Your computers also appear when you right-click the KyberNow Link icon in the taskbar: one click starts the session.</p>
 
       <h3 id="apple-tv" class="sub">On Apple TV</h3>
       <p>Until it is published on the App Store, the app is installed from a Mac, signed with your own Apple account. Allow ten minutes the first time, one minute after that. You need an Apple TV 4K from 2021 or later, up to date, and a Mac on the same network with Xcode (free on the Mac App Store; open it once so that it finishes installing).</p>
@@ -384,13 +384,13 @@ cd kybernow</code></pre></li>
           <ul class="ticks">
             <li><b>From your Mac</b>: the Mac app's computers arrive through iCloud, with their credentials. Only when installed with <code>--full</code>.</li>
             <li><b>On the network</b>: the computer shows up on its own; type the account, with the iPhone keyboard if you like.</li>
-            <li><b>Code on screen</b>: accept it in the console, on the <b>Access</b> page, under Devices.</li>
+            <li><b>Code on screen</b>: accept it in Admin, on the <b>Access</b> page, under Devices.</li>
             <li><b>Address</b>: its IP address or name, for example over a VPN.</li>
           </ul>
         </li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>With a free Apple account, the app stops opening after 7&nbsp;days: run the same command again to renew it, and your computers and settings stay. With a paid account, it lasts a year.</span></p>
-      <p class="muted">Full procedure and troubleshooting: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md" rel="noopener">installing KyberNow on your Apple TV</a>.</p>
+      <p class="muted">Full procedure and troubleshooting: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md" rel="noopener">installing KyberNow Link on your Apple TV</a>.</p>
 
       <h3 id="iphone" class="sub">On iPhone and iPad</h3>
       <p>Until TestFlight and the App Store, the app is installed from a Mac, signed with your own Apple account, as for the Apple TV. You need an iPhone or iPad on iOS&nbsp;18 or iPadOS&nbsp;18 or later, a cable to connect it to the Mac the first time, and Xcode on the Mac.</p>
@@ -408,17 +408,17 @@ cd kybernow</code></pre></li>
           <ul class="ticks">
             <li><b>From your Mac</b>: the Mac app's computers arrive through iCloud, with their credentials. Only when installed with <code>--full</code>.</li>
             <li><b>On the network</b>: the computer shows up on its own; type its account.</li>
-            <li><b>Code</b> or <b>QR code</b>: shown by the console, on the <b>Access</b> page, under Devices.</li>
+            <li><b>Code</b> or <b>QR code</b>: shown by Admin, on the <b>Access</b> page, under Devices.</li>
             <li><b>Address</b>: its IP address or name, for example over a VPN.</li>
           </ul>
         </li>
       </ol>
-      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>With a free Apple account, the app stops opening after 7&nbsp;days: run the same command again to renew it. The SDK the script downloads is attached to releases from 0.3.2 on.</span></p>
-      <p class="muted">Full procedure and troubleshooting: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md" rel="noopener">installing KyberNow on your iPhone or iPad</a>.</p>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>With a free Apple account, the app stops opening after 7&nbsp;days: run the same command again to renew it. The SDK the script downloads is attached to releases from 0.4.0 on.</span></p>
+      <p class="muted">Full procedure and troubleshooting: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md" rel="noopener">installing KyberNow Link on your iPhone or iPad</a>.</p>
 
       <h3 id="navigateur" class="sub">In a browser</h3>
-      <p>On any device on the same network (or linked by VPN), open the console's address followed by <code>/ecran</code>, for example <code>https://192.168.1.20:31415/ecran</code>. The exact address is shown at the end of the installation and on the console's Overview page. Accept the certificate warning, then sign in with your account.</p>
-      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg><span>The web client is good for troubleshooting, or for working from a tablet or a borrowed computer. For gaming, the native app decodes the image faster.</span></p>
+      <p>On any device on the same network (or linked by VPN), open Admin's address followed by <code>/ecran</code>, for example <code>https://192.168.1.20:31415/ecran</code>. The exact address is shown at the end of the installation and on Admin's Overview page. Accept the certificate warning, then sign in with your account.</p>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg><span>Link in the browser is good for troubleshooting, or for working from a tablet or a borrowed computer. For gaming, the native app decodes the image faster.</span></p>
     </section>
 
     <section id="session" class="doc-section">
@@ -462,7 +462,7 @@ cd kybernow</code></pre></li>
       <p>KyberNow goes through no third-party server: to reach the computer from afar, link your devices to it with a VPN. Tailscale is the simplest, WireGuard the lightest.</p>
       <ol class="steps-doc">
         <li><p>Install the same VPN on the computer and on the device, signed in to the same account or joined to the same network.</p></li>
-        <li><p>In the app, add the computer “By address”, using its VPN address (for example <code>100.x.y.z</code> with Tailscale), or scan the QR code from the console.</p></li>
+        <li><p>In the app, add the computer “By address”, using its VPN address (for example <code>100.x.y.z</code> with Tailscale), or scan the QR code from Admin.</p></li>
         <li><p>Choose the Game or Desktop profile depending on your connection: the Max profile's bitrate is designed for a local network.</p></li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg><span>Do not open KyberNow's ports to the Internet on your router: the VPN keeps the computer invisible to the rest of the world.</span></p>
@@ -470,19 +470,19 @@ cd kybernow</code></pre></li>
 
     <section id="mises-a-jour" class="doc-section">
       <h2>Updating</h2>
-      <p><b>The computer</b>: the console checks for new versions every 6&nbsp;hours. In <b>System › Updates</b>, “Install now” downloads the package, verifies its fingerprint and applies it in about a minute (a session in progress is ended). The icon in the notification area offers it too.</p>
-      <p><b>The Mac app</b>: it updates itself, or through <b>KyberNow › Check for Updates…</b></p>
+      <p><b>The Station</b>: Admin checks for new versions every 6&nbsp;hours. In <b>System › Updates</b>, “Install now” downloads the package, verifies its fingerprint and applies it in about a minute (a session in progress is ended). The icon in the notification area offers it too.</p>
+      <p><b>The Mac app</b>: it updates itself, or through <b>KyberNow Link › Check for Updates…</b></p>
       <p><b>The Windows app</b>: it updates itself, with signed updates. Its settings (the gear in the title bar) also offer beta versions.</p>
       <p><b>The Apple TV app</b>: in the <code>kybernow</code> folder, run <code>git pull</code>, then the installation command again. With a free Apple account, do it before the 7&nbsp;days are up.</p>
-      <p class="muted">Without the console, from PowerShell as administrator:</p>
+      <p class="muted">Without Admin, from PowerShell as administrator:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
 
     <section id="desinstaller" class="doc-section">
       <h2>Uninstalling</h2>
-      <p><b>The computer</b>: Windows Settings › Apps › Installed apps › KyberNow › Uninstall. Services, console, the virtual display and its certificate, firewall rules and settings are removed. The ViGEmBus gamepad driver stays installed, because other software uses it.</p>
-      <p><b>The Mac</b>: drag KyberNow from Applications to the Trash.</p>
-      <p><b>The Windows PC</b>: Windows Settings › Apps › Installed apps › KyberNow › Uninstall. The app offers to erase your computers, settings and passwords as well.</p>
+      <p><b>The Station</b>: Windows Settings › Apps › Installed apps › KyberNow Station › Uninstall. Services, Admin, the virtual display and its certificate, firewall rules and settings are removed. The ViGEmBus gamepad driver stays installed, because other software uses it.</p>
+      <p><b>The Mac</b>: drag KyberNow Link from Applications to the Trash.</p>
+      <p><b>The Windows PC</b>: Windows Settings › Apps › Installed apps › KyberNow Link › Uninstall. The app offers to erase your computers, settings and passwords as well.</p>
       <p><b>The Apple TV</b>: on the Home Screen, press and hold the touch surface on the KyberNow icon, then choose to delete the app.</p>
     </section>
 
@@ -490,25 +490,25 @@ cd kybernow</code></pre></li>
       <h2>Frequently asked questions</h2>
       <div class="faq">
         <details><summary>Is KyberNow really free?</summary><p>Yes. It is a community, non-commercial project under the AGPL-3.0 free software licence: no online account, no subscription, no ads. The code is on <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
-        <details><summary>Why “beta”?</summary><p>KyberNow has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the computer and your apps up to date, and report problems on <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
+        <details><summary>Why “beta”?</summary><p>KyberNow has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the Station and your apps up to date, and report problems on <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
         <details><summary>Can KyberNow replace Sunshine and Moonlight?</summary><p>Yes: your computer on all your devices, in the app or in the browser. KyberNow relies on the Kyber engine and on QUIC rather than on the GameStream protocol: the image is always encrypted, a single port to open, a built-in virtual display at the device's resolution, and pairing with no PIN to copy. It still lacks HDR: see the <a href="/en/#comparer">comparison</a>.</p></details>
         <details><summary>Is KyberNow cloud gaming?</summary><p>It is your own cloud. Instead of renting a computer in a data centre, KyberNow makes yours reachable from your other devices, at home or from afar through a VPN. No subscription and no queue: your games and software as they are installed, and the image goes through no third-party server.</p></details>
         <details><summary>Can I play my PC games on a Mac or an Apple TV?</summary><p>Yes: the game runs on the Windows computer, with its graphics card, and the image arrives on the Mac or the Apple TV. Any game or launcher, with a gamepad (Xbox, PlayStation), a keyboard and a mouse. The Mac app follows your screen's refresh rate, 120&nbsp;Hz or more; the Apple TV goes up to 4K at 60&nbsp;Hz.</p></details>
-        <details><summary>Do I need a specific graphics card?</summary><p>No. Kyber encodes the image with any graphics card, NVIDIA, AMD or Intel, including an external one (eGPU). Without a graphics card, the processor does the job. The encoder is chosen in the console, on the System › Advanced page.</p></details>
+        <details><summary>Do I need a specific graphics card?</summary><p>No. Kyber encodes the image with any graphics card, NVIDIA, AMD or Intel, including an external one (eGPU). Without a graphics card, the processor does the job. The encoder is chosen in KyberNow Admin, on the System › Advanced page.</p></details>
         <details><summary>Which resolutions and refresh rates?</summary><p>Those of your screen: the computer creates a virtual display to match it, 4K, 5K or 6K, 60, 120 or 160&nbsp;Hz. We have used it at 3840&nbsp;×&nbsp;2160 and 160&nbsp;Hz, and at 5K and 60&nbsp;Hz. The “4K at most” option lightens encoding if your network or your graphics card struggles.</p></details>
         <details><summary>What latency should I expect?</summary><p>On a local network, we measure a median of 9.4&nbsp;ms from capture to display, in 4K at 160&nbsp;Hz. It depends mostly on the graphics card, the network and the device. The app shows it live in its session bar.</p></details>
         <details><summary>What about HDR?</summary><p>Not yet: Kyber 0.29 captures the screen in 8&nbsp;bits. Keep Windows HDR turned off during sessions.</p></details>
-        <details><summary>My displays turn off during the session. Is that normal?</summary><p>Yes: the computer only shows the virtual display, at the size of your device. They turn back on at the end. If in doubt, the console offers “Turn my displays back on”, and the driver removes the virtual display on its own if it stops receiving a signal.</p></details>
-        <details><summary>The sound still comes out of the computer's speakers.</summary><p>Remote sound uses Steam's virtual speakers. Install Steam on the computer, then run the KyberNow installer again: the “Remote sound” option becomes available.</p></details>
+        <details><summary>My displays turn off during the session. Is that normal?</summary><p>Yes: the computer only shows the virtual display, at the size of your device. They turn back on at the end. If in doubt, Admin offers “Turn my displays back on”, and the driver removes the virtual display on its own if it stops receiving a signal.</p></details>
+        <details><summary>The sound still comes out of the computer's speakers.</summary><p>Remote sound uses Steam's virtual speakers. Install Steam on the computer, then run the KyberNow Station installer again: the “Remote sound” option becomes available.</p></details>
         <details><summary>My gamepad does not respond.</summary><p>Xbox and PlayStation gamepads go through the ViGEmBus driver, added during installation. Restarting the computer is sometimes needed after the first installation.</p></details>
         <details><summary>Can two devices connect at the same time?</summary><p>No: the second one takes over, the first one is disconnected and the virtual display is recreated at the size of the new device.</p></details>
-        <details><summary>The image stays black or freezes.</summary><p>Update the computer and the app: the app asks for a full image again after a loss, and lightens the stream if the image does not arrive. Prefer an Ethernet cable on the computer, and check that no other streaming app is using the encoder.</p></details>
-        <details><summary>I forgot the password.</summary><p>On the computer, right-click the KyberNow icon › “Reset the console password…”, then follow the console to choose a new one.</p></details>
-        <details><summary>Does the app work on an Intel Mac?</summary><p>No, it requires Apple silicon (M1 or later). On an Intel Mac, use the web client in the browser.</p></details>
+        <details><summary>The image stays black or freezes.</summary><p>Update the Station and the app: the app asks for a full image again after a loss, and lightens the stream if the image does not arrive. Prefer an Ethernet cable on the computer, and check that no other streaming app is using the encoder.</p></details>
+        <details><summary>I forgot the password.</summary><p>On the computer, right-click the KyberNow Station icon › “Reset the Admin password…”, then follow Admin to choose a new one.</p></details>
+        <details><summary>Does the app work on an Intel Mac?</summary><p>No, it requires Apple silicon (M1 or later). On an Intel Mac, use KyberNow Link in the browser.</p></details>
         <details><summary>What about the iPhone and iPad app?</summary><p>Not on the App Store or TestFlight yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see <a href="#iphone">On iPhone and iPad</a>. It needs iOS&nbsp;18 or iPadOS&nbsp;18 or later.</p></details>
         <details><summary>Why is the Apple TV app not on the App Store?</summary><p>Not yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see <a href="#apple-tv">On Apple TV</a>. It needs an Apple TV 4K from 2021 or later; older models cannot run the app.</p></details>
-        <details><summary>How is KyberNow related to Kyber?</summary><p>KyberNow uses <a href="https://kyber.tech">Kyber</a>, the open-source streaming engine built by VLC developers, and adds an installer, a console, virtual displays and speakers, and apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published.</p></details>
-        <details><summary>What data does KyberNow collect?</summary><p>None. Nothing goes through a server of ours: the image goes directly from the computer to your devices. The console only asks GitHub whether a new version exists.</p></details>
+        <details><summary>How is KyberNow related to Kyber?</summary><p>KyberNow uses <a href="https://kyber.tech">Kyber</a>, the open-source streaming engine built by VLC developers, and adds KyberNow Station (installer, virtual displays and speakers), KyberNow Admin and the KyberNow Link apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published.</p></details>
+        <details><summary>What data does KyberNow collect?</summary><p>None. Nothing goes through a server of ours: the image goes directly from the computer to your devices. KyberNow Admin only asks GitHub whether a new version exists.</p></details>
       </div>
     </section>
 

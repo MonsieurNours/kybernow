@@ -17,7 +17,7 @@ Chaque mesure a son tableau à remplir. Les mesures 1 et 3 ont les colonnes cond
 
 ## Avant de commencer
 
-- Note la date, la version de l'app Mac (KyberNow › À propos de KyberNow) et celle de la console (page **Mises à jour**, ou `C:\Program Files\KyberNow\kybernow.json`).
+- Note la date, la version de l'app Mac (KyberNow Link › À propos de KyberNow) et celle de la Station (page **Mises à jour** d'Admin, ou `C:\Program Files\KyberNow\kybernow.json`).
 - Une seule session à la fois. Ferme l'app Apple TV et le client web : un second appareil qui se connecte prend la main et coupe le premier.
 - Pour les mesures de latence, prépare sur l'ordinateur une scène qui bouge sans arrêt et que tu relances à l'identique : une démo de jeu en boucle, ou un test d'animation en plein écran. Pas d'écran fixe : Kyber n'envoie rien quand l'image ne change pas (§15).
 - Garde un minuteur sous la main (téléphone).
@@ -156,7 +156,7 @@ Le HUD coûte un peu de temps GPU : compare des mesures avec HUD à des mesures 
 
 ## 2. Droits Windows
 
-**But.** Vérifier sur l'ordinateur ce que la phase 0 a livré (§17 de l'audit) : le dossier `C:\ProgramData\KyberNow` n'est plus accessible qu'aux administrateurs, et l'icône relancée par une mise à jour de la console ne tourne pas avec un jeton élevé (§7, point « à confirmer »).
+**But.** Vérifier sur l'ordinateur ce que la phase 0 a livré (§17 de l'audit) : le dossier `C:\ProgramData\KyberNow` n'est plus accessible qu'aux administrateurs, et l'icône relancée par une mise à jour d'Admin ne tourne pas avec un jeton élevé (§7, point « à confirmer »).
 
 ### Le dossier de données
 
@@ -176,7 +176,7 @@ C:\ProgramData\KyberNow NT AUTHORITY\SYSTEM:(OI)(CI)(F)
 
 Avec `/T`, les sous-dossiers et les fichiers donnent les mêmes deux lignes, marquées héritées : `(I)(OI)(CI)(F)` pour un dossier, `(I)(F)` pour un fichier. C'est correct.
 
-La mesure échoue si une ligne cite `Utilisateurs` (`Users`), `Tout le monde` (`Everyone`), `Utilisateurs authentifiés` (`Authenticated Users`) ou `CREATEUR PROPRIETAIRE` (`CREATOR OWNER`), ou si un droit n'est pas `(F)`. Note alors le chemin concerné, puis `Restart-Service kyber-admin` (la console repose les droits à chaque démarrage) et recommence.
+La mesure échoue si une ligne cite `Utilisateurs` (`Users`), `Tout le monde` (`Everyone`), `Utilisateurs authentifiés` (`Authenticated Users`) ou `CREATEUR PROPRIETAIRE` (`CREATOR OWNER`), ou si un droit n'est pas `(F)`. Note alors le chemin concerné, puis `Restart-Service kyber-admin` (Admin repose les droits à chaque démarrage) et recommence.
 
 Trois vérifications de plus :
 
@@ -186,7 +186,7 @@ Trois vérifications de plus :
 Select-String -Path C:\ProgramData\KyberNow\kyber-admin.log -Pattern 'droits de' | Select-Object -Last 3
 ```
 
-Attendu : le propriétaire est `BUILTIN\Administrateurs` (`BUILTIN\Administrators`) ; `True` ; au moins une ligne « droits de C:\ProgramData\KyberNow : SYSTEM et Administrateurs seulement », datée du dernier démarrage de la console.
+Attendu : le propriétaire est `BUILTIN\Administrateurs` (`BUILTIN\Administrators`) ; `True` ; au moins une ligne « droits de C:\ProgramData\KyberNow : SYSTEM et Administrateurs seulement », datée du dernier démarrage d'Admin.
 
 ### Depuis un compte standard
 
@@ -199,16 +199,16 @@ New-Item -ItemType Directory C:\ProgramData\KyberNow\update\essai
 ```
 
 **Attendu** : les deux commandes sont refusées (« Accès refusé » / « Access to the path … is denied »). Aucun nom de fichier ne s'affiche.
-3. Dans la même session, clique sur l'icône KyberNow puis sur l'ouverture de la console : elle s'ouvre toujours.
+3. Dans la même session, clique sur l'icône KyberNow Station puis sur l'entrée qui ouvre Admin : Admin s'ouvre toujours.
 
 Sans compte standard, le même `dir` dans une fenêtre PowerShell **non élevée** de ton compte administrateur doit aussi être refusé (le groupe Administrateurs y est en refus seul). La preuve est plus faible : elle ne couvre pas un autre compte.
 
 ### L'icône après une mise à jour
 
-Une icône relancée par la console avec le jeton complet d'un administrateur tourne en haute intégrité. Le test n'a de sens que sur un compte **administrateur** : sur un compte standard, le jeton est déjà limité.
+Une icône relancée par Admin avec le jeton complet d'un administrateur tourne en haute intégrité. Le test n'a de sens que sur un compte **administrateur** : sur un compte standard, le jeton est déjà limité.
 
 1. Avant la mise à jour, mesure l'icône lancée à l'ouverture de session (référence) avec l'un des outils ci-dessous : elle doit être en intégrité moyenne.
-2. Lance une mise à jour depuis la console (page **Mises à jour › Installer**). S'il n'y a pas de version plus récente, sers un paquet depuis le Mac (voir [releases.md](releases.md), « Pour essayer un paquet servi depuis le Mac »). Attends environ une minute : l'icône réapparaît.
+2. Lance une mise à jour depuis Admin (page **Mises à jour › Installer**). S'il n'y a pas de version plus récente, sers un paquet depuis le Mac (voir [releases.md](releases.md), « Pour essayer un paquet servi depuis le Mac »). Attends environ une minute : l'icône réapparaît.
 3. Vérifie que tu regardes l'icône relancée par la mise à jour, pas l'ancienne :
 
 ```powershell
@@ -221,19 +221,19 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
    - **Process Explorer** (Sysinternals), lancé en administrateur. View › Select Columns, ajoute la colonne « Integrity Level ». Ou double-clique le processus, onglet Security : le groupe « Mandatory Label\… Mandatory Level ». C'est la méthode la plus sûre.
    - **Gestionnaire des tâches**, lancé en administrateur. Onglet Détails, clic droit sur un en-tête › Sélectionner les colonnes › « Élevé » (« Elevated » en anglais, « Niveau d'élévation » selon la version). La colonne dit « Oui » ou « Non » pour chaque processus.
 
-**Attendu : intégrité moyenne (Medium), colonne « Élevé » à « Non ».** Une intégrité haute (High) ou « Oui » confirme le problème du §7 : la console relance l'icône avec le jeton complet (`launch_as_user`, `server/admin/src/display/agent.rs`, via `WTSQueryUserToken`). La correction est de lui donner le jeton limité lié (`TokenLinkedToken`).
+**Attendu : intégrité moyenne (Medium), colonne « Élevé » à « Non ».** Une intégrité haute (High) ou « Oui » confirme le problème du §7 : Admin relance l'icône avec le jeton complet (`launch_as_user`, `server/admin/src/display/agent.rs`, via `WTSQueryUserToken`). La correction est de lui donner le jeton limité lié (`TokenLinkedToken`).
 
 | Condition | Attendu | Obtenu | Remarque |
 |---|---|---|---|
 | `icacls` sur le dossier | SYSTEM et Administrateurs, `(OI)(CI)(F)`, rien d'autre | | |
 | `icacls /T`, 40 premières lignes | les mêmes deux noms, héritage `(I)` ; aucune ligne Utilisateurs / Users | | |
 | Propriétaire, héritage protégé | Administrateurs ; `True` | | |
-| Journal « droits de » | une ligne par démarrage de la console | | |
+| Journal « droits de » | une ligne par démarrage d'Admin | | |
 | Compte standard, `dir` | refusé | | |
 | Compte standard, création d'un dossier | refusé | | |
-| Compte standard, icône → console | s'ouvre | | |
+| Compte standard, icône → Admin | s'ouvre | | |
 | Icône à l'ouverture de session (référence) | intégrité moyenne | | |
-| Icône après une mise à jour de la console | intégrité moyenne, « Élevé » : Non | | |
+| Icône après une mise à jour d'Admin | intégrité moyenne, « Élevé » : Non | | |
 | Fils `msedgewebview2.exe` du panneau | intégrité moyenne | | |
 
 ---
@@ -481,7 +481,7 @@ Il écrit, pour chaque `\\.\DISPLAYn` : la carte, le moniteur, s'il est actif, s
 
 ### Interpréter
 
-- **Un seul mode** (celui que la console a demandé à la création de l'écran) : un jeu ne peut pas changer la définition de l'écran virtuel. Le scénario « le mode change » du §15 n'existe alors que sur les écrans physiques. La politique « suivre / remettre » de la console n'a pas d'objet pour l'écran virtuel : ne la construis pas.
+- **Un seul mode** (celui qu'Admin a demandé à la création de l'écran) : un jeu ne peut pas changer la définition de l'écran virtuel. Le scénario « le mode change » du §15 n'existe alors que sur les écrans physiques. La politique « suivre / remettre » d'Admin n'a pas d'objet pour l'écran virtuel : ne la construis pas.
 - **Une liste** : un jeu peut changer la définition de l'écran virtuel. Le scénario du §15 est réel : l'image continue à la nouvelle taille (moteur txproto) ou la session coupe (moteur libavconv), et la politique « suivre / remettre » (§15 : laisser le jeu choisir le mode, ou le figer) a un sens. Note si la liste contient la définition de ton écran Mac et la 4K, et plusieurs fréquences pour une même taille.
 - Les modes bruts plus nombreux que les modes proposés : le moniteur virtuel en cache. Note-les, un jeu qui énumère les modes comme le script verra la liste du pilote.
 

@@ -4,17 +4,23 @@ English · [Français](README.md)
 
 Ready-to-install Windows streaming server and macOS, tvOS, iOS/iPadOS and Windows clients, built on [Kyber](https://kyber.tech). Developed by [Les Lignes Claires](https://www.leslignesclaires.fr).
 
+KyberNow brings together three products:
+
+- **KyberNow Station**: the server, installed on the Windows computer that streams its image (`KyberNow-Station-Setup.exe` installer, services, notification area icon, updates);
+- **KyberNow Admin**: the Station's administration, in the browser;
+- **KyberNow Link**: the apps that show the image (Mac, Apple TV, iPhone and iPad, Windows with `KyberNow-Link-Setup.exe`) and the web client served by Admin.
+
 | Folder | Contents |
 |---|---|
 | `PROJECT.md` | Scope and decisions (in English: [PROJECT.en.md](PROJECT.en.md)) |
-| `apps/macos/` | macOS app (SwiftUI, VideoToolbox, Metal, Core Audio) on the Rust core, see [its README](apps/macos/README.en.md) |
+| `apps/macos/` | KyberNow Link for Mac (SwiftUI, VideoToolbox, Metal, Core Audio) on the Rust core, see [its README](apps/macos/README.en.md) |
 | `apps/apple/` | C bridge between the Rust core and the Apple apps (`libkybernow`), see [docs/coeur-apple.en.md](docs/coeur-apple.en.md) |
-| `apps/tvos/`, `apps/ios/` | Apple TV and iPhone/iPad apps, see their READMEs ([Apple TV](apps/tvos/README.en.md), [iPhone and iPad](apps/ios/README.en.md)) |
-| `apps/core/`, `apps/windows/` | Rust client core (session, console, profiles, latency, updates, shared inputs and sound, see [its README](apps/core/README.en.md)) and Windows app (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Client-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
-| `server/` | Everything that runs on the shared computer, see [its README](server/README.en.md) |
-| `server/admin/`, `server/web/` | Administration console (Windows service, Rust) and its interface (Svelte) |
-| `server/tray/` | Notification area icon |
-| `server/installer/` | `KyberNow-Server-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
+| `apps/tvos/`, `apps/ios/` | KyberNow Link for Apple TV and for iPhone/iPad, see their READMEs ([Apple TV](apps/tvos/README.en.md), [iPhone and iPad](apps/ios/README.en.md)) |
+| `apps/core/`, `apps/windows/` | Rust client core of the KyberNow Link apps (session, talking to Admin, profiles, latency, updates, shared inputs and sound, see [its README](apps/core/README.en.md)) and KyberNow Link for Windows (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Link-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
+| `server/` | KyberNow Station: everything that runs on the computer that streams its image, see [its README](server/README.en.md) |
+| `server/admin/`, `server/web/` | KyberNow Admin (Windows service, Rust) and its interface (Svelte), which also serves the `/ecran` web client |
+| `server/tray/` | The Station's notification area icon |
+| `server/installer/` | `KyberNow-Station-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Patches to Kyber, described in [docs/kyber-changes.en.md](docs/kyber-changes.en.md) |
 | `site/` | www.kybernow.app website (static, no npm), see [its README](site/README.en.md) |
 | `brand/` | Logo and variants; v2 identity in `brand/v2/` (guidelines, symbol, tokens) |

@@ -155,7 +155,7 @@
       "help": "Presents every gamepad to the computer as an Xbox 360 gamepad.",
       "details": "By default, a PlayStation gamepad stays a PlayStation gamepad for the computer. Some older games only recognise Xbox 360 gamepads: this setting makes gamepads pass for one.",
       "advice": "Turn it on only if a game does not detect your gamepad.",
-      "caution": "Requires the ViGEmBus driver, installed with KyberNow."
+      "caution": "Requires the ViGEmBus driver, installed with KyberNow Station."
     },
     "input.clipboard_allow_copy": {
       "label": "Copy from the computer to the device",
@@ -185,7 +185,7 @@
     "auth.jwt_enabled": {
       "label": "Device tokens",
       "help": "Sign-in with a signed token, without typing the password again.",
-      "details": "A token is a kind of digital badge signed by this computer. The KyberNow apps for Mac and Apple TV will use it to reconnect without asking for your password again. The installer replaced Kyber’s demo key with a secret unique to this computer.",
+      "details": "A token is a kind of digital badge signed by this computer. The KyberNow Link apps for Mac and Apple TV will use it to reconnect without asking for your password again. The installer replaced Kyber’s demo key with a secret unique to this computer.",
       "advice": "Leave it on for the Mac and Apple TV apps."
     },
     "logs.controller": {

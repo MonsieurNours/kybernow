@@ -233,7 +233,7 @@
       <a href="#/systeme" class="tile">
         <span class="lbl">{t('overview.versionTile')}</span>
         <span class="state"><Icon name="check" size={16} stroke={2.4} />{t('overview.upToDate')}</span>
-        <span class="sub">KyberNow {status?.admin_version ?? ''}</span>
+        <span class="sub">KyberNow Station {status?.admin_version ?? ''}</span>
       </a>
     {/if}
   </section>

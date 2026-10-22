@@ -46,7 +46,7 @@ if [ ! -d "$HERE/Vendor/KyberNow.xcframework" ]; then
     fi
     TMP="$(mktemp -d)"
     if ! curl -fL --progress-bar "$URL" -o "$TMP/KyberSDK-iOS.zip"; then
-        echo "KyberSDK-iOS.zip introuvable pour cette version : il est joint aux versions publiées à partir de la 0.3.2" >&2
+        echo "KyberSDK-iOS.zip introuvable pour cette version : il est joint aux versions publiées à partir de la 0.4.0" >&2
         echo "(--version X.Y.Z pour une autre version, ou compilez le SDK vous-même : apps/ios/README.md)" >&2
         rm -rf "$TMP"
         exit 1

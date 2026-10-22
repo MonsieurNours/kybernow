@@ -1,10 +1,10 @@
 {
-  "documentTitle": "Installation de KyberNow",
+  "documentTitle": "Installation de KyberNow Station",
   "common": {
     "continue": "Continuer",
     "back": "Retour",
     "recommended": "recommandé",
-    "portsPair": "flux {stream} · console {console}"
+    "portsPair": "flux {stream} · Admin {console}"
   },
   "steps": {
     "welcome": "Bienvenue",
@@ -51,22 +51,22 @@
     "validate": "Valider",
     "edit": "Modifier",
     "stream": "Flux",
-    "console": "Console",
+    "console": "Admin",
     "problemOne": "Un point empêche un streaming correct : voyez le détail ci-dessus.",
     "problemMany": "{count} points empêchent un streaming correct : voyez le détail ci-dessus.",
     "analysing": "Analyse en cours…"
   },
   "reinstall": {
     "label": "Réinstallation",
-    "title": "KyberNow {version} est déjà là.",
+    "title": "KyberNow Station {version} est déjà là.",
     "lead": "Vos appareils connaissent déjà cet ordinateur. Que faisons-nous de ses réglages ?",
-    "group": "Réglages de KyberNow",
+    "group": "Réglages de la Station",
     "keep": "Conserver mes réglages",
-    "keepDetail": "Comptes, appareils appairés, certificat, réglages de la console et ports ({ports}) restent tels quels. Seuls les programmes, les pilotes et les correctifs de Kyber sont remplacés.",
+    "keepDetail": "Comptes, appareils appairés, certificat, réglages d'Admin et ports ({ports}) restent tels quels. Seuls les programmes, les pilotes et les correctifs de Kyber sont remplacés.",
     "keepImpossible": "Impossible ici : les réglages de cette installation sont introuvables.",
     "fresh": "Repartir de zéro",
     "freshDetail": "Nouveau compte, nouveaux ports, nouveau certificat, réglages par défaut.",
-    "freshWarning": "Tous vos appareils (Mac, Apple TV, navigateurs) perdront l'accès : il faudra les appairer de nouveau avec le nouveau compte. Les réglages de la console et de Kyber reviennent à ceux d'une première installation."
+    "freshWarning": "Tous vos appareils (Mac, Apple TV, navigateurs) perdront l'accès : il faudra les appairer de nouveau avec le nouveau compte. Les réglages d'Admin et de Kyber reviennent à ceux d'une première installation."
   },
   "account": {
     "label": "Votre compte",
@@ -91,13 +91,13 @@
     "uses": "Il vous servira à",
     "devices": "Vous connecter depuis vos appareils",
     "devicesDetail": "Ils peuvent le mémoriser.",
-    "console": "Ouvrir la console",
+    "console": "Ouvrir KyberNow Admin",
     "consoleDetail": "Pour l'écran virtuel, le son, les comptes. Vous pourrez y en ajouter d'autres."
   },
   "options": {
     "label": "Options",
     "title": "Tout est déjà réglé au mieux.",
-    "lead": "Tout se change plus tard dans la console.",
+    "lead": "Tout se change plus tard dans KyberNow Admin.",
     "virtualDisplay": "Écran virtuel adapté à chaque appareil",
     "virtualDisplayLabel": "Écran virtuel",
     "virtualDisplayDetail": "L'image arrive à la définition et à la fréquence de l'appareil. Le pilote libre SudoVDA n'est pas signé par Microsoft : son certificat sera ajouté aux autorités de confiance.",
@@ -107,7 +107,7 @@
     "audioDetail": "L'ordinateur se tait, le son part vers l'appareil, jusqu'au 7.1. Utilise les haut-parleurs de Steam, trouvés sur cet ordinateur.",
     "audioMissing": "Demande Steam, qui fournit des haut-parleurs virtuels signés. Sans lui, le son sort aussi de l'ordinateur.",
     "startWithWindows": "Démarrer avec l'ordinateur",
-    "startWithWindowsDetail": "Disponible avant même l'ouverture de votre session Windows. L'icône KyberNow s'affiche près de l'horloge.",
+    "startWithWindowsDetail": "Disponible avant même l'ouverture de votre session Windows. L'icône de KyberNow Station s'affiche près de l'horloge.",
     "maxPerformance": "Performances maximales",
     "maxPerformanceDetail": "Le processeur et la carte graphique ne ralentissent pas pendant une session : une latence stable.",
     "maxPerformanceAlready": "Déjà réglé : cet ordinateur est en mode Performances élevées.",
@@ -117,12 +117,12 @@
     "tasks": {
       "files": { "title": "Moteur de streaming Kyber 0.29", "text": "Le moteur, ses bibliothèques vidéo et le client web se posent dans C:\\Program Files\\KyberNow." },
       "cert": { "title": "Certificat de cet ordinateur", "text": "Il chiffre tout ce qui circule entre vos appareils et lui." },
-      "service": { "title": "Démarrage avec l’ordinateur", "text": "Le serveur devient un service : il démarre seul, avant même votre session Windows." },
-      "firewall": { "title": "Réseau", "text": "Ouverture des ports {stream} (flux) et {console} (console), sur votre réseau privé seulement." },
+      "service": { "title": "Démarrage avec l’ordinateur", "text": "La Station devient un service : elle démarre seule, avant même votre session Windows." },
+      "firewall": { "title": "Réseau", "text": "Ouverture des ports {stream} (flux) et {console} (Admin), sur votre réseau privé seulement." },
       "vdd": { "title": "Écran virtuel", "text": "Il prendra la taille de chaque appareil qui se connecte." },
       "gamepad": { "title": "Manettes", "text": "Pour jouer depuis n’importe quel appareil." },
       "audio": { "title": "Son à distance", "text": "Les haut-parleurs virtuels de Steam : l’ordinateur se tait, l’appareil reçoit le son." },
-      "admin": { "title": "Console d’administration", "text": "Elle démarre sur le port {port}.", "fact": "port {port}" },
+      "admin": { "title": "KyberNow Admin", "text": "L’administration dans le navigateur, sur le port {port}.", "fact": "port {port}" },
       "power": {
         "title": "Alimentation",
         "text": "Le mode Performances élevées évite les ralentissements pendant une session.",
@@ -135,8 +135,8 @@
     "titleFailed": "Quelque chose a bloqué.",
     "titleDone": "Tout est en place.",
     "titleRunning": "Cet ordinateur, bientôt sur tous vos écrans.",
-    "leadDone": "Le serveur, la console et les pilotes sont installés.",
-    "leadRunning": "KyberNow Server se met en place. Rien à faire : on vous montre ce qui se passe, au fur et à mesure.",
+    "leadDone": "Le moteur de streaming, Admin et les pilotes sont installés.",
+    "leadRunning": "KyberNow Station se met en place. Rien à faire : on vous montre ce qui se passe, au fur et à mesure.",
     "preparing": "Préparation…",
     "lastLineEmpty": "› préparation",
     "warnDefault": "à vérifier : voir le détail",
@@ -152,16 +152,16 @@
   "done": {
     "label": "Installation terminée",
     "title": "Cet ordinateur est prêt. Il est partout.",
-    "lead": "Ouvrez KyberNow sur n'importe lequel de vos appareils : cet ordinateur s'y trouve déjà. Sinon, son adresse :",
+    "lead": "Ouvrez KyberNow Link sur n'importe lequel de vos appareils : cet ordinateur s'y trouve déjà. Sinon, son adresse :",
     "noAppBefore": "Sans app ? Ouvrez",
     "noAppAfter": "dans un navigateur.",
     "reboot": "Les manettes fonctionneront après le prochain redémarrage. Le reste est déjà actif.",
     "rebootNow": "Redémarrer maintenant",
-    "qr": "QR code de la console : {url}",
-    "phone": "La console sur votre téléphone",
+    "qr": "QR code de KyberNow Admin : {url}",
+    "phone": "KyberNow Admin sur votre téléphone",
     "phoneNote": "Un avertissement de certificat s'affiche la première fois : c'est normal.",
     "close": "Fermer",
-    "openConsole": "Ouvrir la console",
+    "openConsole": "Ouvrir Admin",
     "unknownAddress": "adresse-du-pc"
   },
   "about": {
@@ -172,7 +172,7 @@
     "role": "Rôle",
     "license": "Licence",
     "roles": {
-      "kybernow": "Installateur et console d'administration",
+      "kybernow": "KyberNow Station (installateur, icône) et KyberNow Admin",
       "kyber": "Moteur de streaming (Kyber SAS)",
       "vlc": "Lecture audio et vidéo (VideoLAN)",
       "ffmpeg": "Capture et encodage",
@@ -191,14 +191,14 @@
   "simulation": {
     "gpu": "NVIDIA GeForce RTX (simulation) · encodage matériel NVENC",
     "driver": "Version 000.00 (simulation)",
-    "ports": "Le port habituel 8080 est déjà utilisé par httpd.exe. Tirés au hasard et vérifiés libres : stream {stream} · console {console}",
+    "ports": "Le port habituel 8080 est déjà utilisé par httpd.exe. Tirés au hasard et vérifiés libres : stream {stream} · Admin {console}",
     "power": "Mode d'alimentation : Équilibré",
     "powerDetail": "Le GPU ralentit pour économiser l'énergie, ce qui peut tripler le temps d'encodage. Nous proposerons de le régler à l'étape Options.",
     "audioDetail": "Haut-parleurs virtuels de Steam disponibles : pendant le stream, le PC se tait et le son part en stéréo, 5.1 ou 7.1.",
-    "existing": "KyberNow 0.2.5 est installé",
+    "existing": "KyberNow Station 0.2.5 est installée",
     "existingDetail": "À l'étape suivante, vous choisirez de garder vos réglages et vos appareils, ou de repartir de zéro.",
     "portRange": "Choisissez un port entre 1024 et 65535.",
-    "samePort": "Le stream et la console ont besoin de deux ports différents.",
+    "samePort": "Le stream et Admin ont besoin de deux ports différents.",
     "portInUse": "Le port 8080 est déjà utilisé par httpd.exe."
   }
 }

@@ -70,7 +70,7 @@
    "description": "Free, open-source game and remote desktop streaming: your computer on all your devices, in an app or in the browser. 9.4 ms median latency measured on a local network, encrypted QUIC transport, virtual display at the device's resolution. A next-gen alternative to Sunshine and Moonlight, built on the Kyber engine.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Game streaming and remote desktop",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, web browser",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -92,7 +92,7 @@
     "QUIC transport (RFC 9000), TLS 1.3 encryption, a single port",
     "Virtual display at the device's resolution and refresh rate (4K, 5K, 6K, 120 Hz and more)",
     "Opus sound up to 7.1, Xbox and PlayStation gamepads, rumble",
-    "Native apps and a web client served by the computer, on all your devices",
+    "Native KyberNow Link apps and their web version served by the Station, on all your devices",
     "Pairing through Bonjour, QR code or a code to accept, certificate fingerprint verified",
     "Encoding on any NVIDIA, AMD or Intel graphics card, or on the processor"
    ],
@@ -107,7 +107,77 @@
    "sameAs": [
     "https://github.com/MonsieurNours/kybernow",
     "https://discord.gg/sVy2mu5WdT"
+   ],
+   "hasPart": [
+    {
+     "@id": "https://www.kybernow.app/#station"
+    },
+    {
+     "@id": "https://www.kybernow.app/#link"
+    }
    ]
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://www.kybernow.app/#station",
+   "name": "KyberNow Station",
+   "url": "https://www.kybernow.app/en/#famille",
+   "description": "The software to install on the Windows computer that streams its image: Kyber engine, virtual display and speakers per session, gamepads, firewall, updates. It is managed in the browser with KyberNow Admin.",
+   "applicationCategory": "MultimediaApplication",
+   "operatingSystem": "Windows 10, Windows 11",
+   "softwareHelp": "https://www.kybernow.app/en/guide/#serveur",
+   "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Setup.exe",
+   "image": "https://www.kybernow.app/assets/img/kybernow-station-dark.svg",
+   "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+   },
+   "hasPart": {
+    "@type": "WebApplication",
+    "@id": "https://www.kybernow.app/#admin",
+    "name": "KyberNow Admin",
+    "description": "KyberNow Station's administration in the browser, served by the Station: picture and sound, authorised devices, updates.",
+    "applicationCategory": "UtilitiesApplication",
+    "browserRequirements": "A modern web browser",
+    "image": "https://www.kybernow.app/assets/img/kybernow-admin-dark.svg"
+   },
+   "isPartOf": {
+    "@id": "https://www.kybernow.app/#kybernow"
+   },
+   "publisher": {
+    "@id": "https://www.kybernow.app/#editeur"
+   }
+  },
+  {
+   "@type": "SoftwareApplication",
+   "@id": "https://www.kybernow.app/#link",
+   "name": "KyberNow Link",
+   "url": "https://www.kybernow.app/en/#famille",
+   "description": "The apps that display the computer's image on your devices, with hardware decoding: Mac, Windows, Apple TV, iPhone and iPad, plus a web version served by the Station.",
+   "applicationCategory": "MultimediaApplication",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, web browser",
+   "softwareHelp": "https://www.kybernow.app/en/guide/#appareil",
+   "downloadUrl": [
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip",
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe"
+   ],
+   "image": "https://www.kybernow.app/assets/img/kybernow-link-dark.svg",
+   "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+   "isAccessibleForFree": true,
+   "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "EUR"
+   },
+   "isPartOf": {
+    "@id": "https://www.kybernow.app/#kybernow"
+   },
+   "publisher": {
+    "@id": "https://www.kybernow.app/#editeur"
+   }
   }
  ]
 }
@@ -200,21 +270,37 @@
       </article>
     </div>
 
-    <div class="duo" data-reveal>
-      <div class="duo-part">
-        <img src="/assets/img/kybernow-mark-server-dark.svg" alt="" width="40" height="40">
-        <div><span class="role">Server</span><h3>KyberNow Server</h3><p>On the computer that shares its power. It captures the display and the sound, and receives your input. Windows today.</p></div>
-      </div>
-      <div class="duo-link" aria-hidden="true"><span class="duo-line"><i></i></span><span class="mono-label">QUIC, encrypted</span></div>
-      <div class="duo-part">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="40" height="40">
-        <div><span class="role">Client</span><h3>KyberNow clients</h3><p>On each of your devices: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app or the browser, then Android, Linux and more.</p></div>
-      </div>
+  </div>
+</section>
+
+<!-- 3 · The KyberNow family: Station, Admin, Link -->
+<section class="section famille" id="famille" data-scene="split">
+  <div class="wrap">
+    <p class="label" data-reveal>The KyberNow family</p>
+    <h2 class="title" data-split>Three pieces, <strong>one KyberNow.</strong></h2>
+    <p class="body-lg" data-reveal>KyberNow Station streams the computer's image, KyberNow Link displays it on your devices, KyberNow Admin manages the Station from the browser. Each one carries the symbol, lit in its own place: the upper half for the Station, the lower half for Link, the seam for Admin.</p>
+
+    <div class="fam">
+      <article class="fam-card" data-reveal style="--d:.05s">
+        <h3><img src="/assets/img/kybernow-station-dark.svg" alt="KyberNow Station" width="218" height="40"></h3>
+        <p class="mono-label">On the Windows computer</p>
+        <p>Installed on the computer that streams: it captures the display and the sound, encodes the image and receives your input. A single installer sets up the Kyber engine, the virtual display and sound, and the gamepads.</p>
+      </article>
+      <article class="fam-card" data-reveal style="--d:.15s">
+        <h3><img src="/assets/img/kybernow-admin-dark.svg" alt="KyberNow Admin" width="219" height="40"></h3>
+        <p class="mono-label">In the browser</p>
+        <p>The Station's administration, served by the Station itself: picture and sound, authorised devices, updates. It opens from the notification-area icon, or from a browser on your network.</p>
+      </article>
+      <article class="fam-card" data-reveal style="--d:.25s">
+        <h3><img src="/assets/img/kybernow-link-dark.svg" alt="KyberNow Link" width="219" height="40"></h3>
+        <p class="mono-label">On your devices</p>
+        <p>The apps that display the image, decoded by the device: Mac, Apple TV, iPhone, iPad and Windows. With nothing to install, Link also opens in any browser.</p>
+      </article>
     </div>
   </div>
 </section>
 
-<!-- 3 · The path of an image (pinned) -->
+<!-- 4 · The path of an image (pinned) -->
 <section class="trajet" id="trajet" data-scene="flow">
   <div class="trajet-sticky">
     <div class="wrap">
@@ -243,7 +329,7 @@
   </div>
 </section>
 
-<!-- 4 · QUIC -->
+<!-- 5 · QUIC -->
 <section class="section" id="quic" data-scene="side">
   <div class="wrap">
     <p class="label" data-reveal>The transport</p>
@@ -274,7 +360,7 @@
   </div>
 </section>
 
-<!-- 5 · Kyber -->
+<!-- 6 · Kyber -->
 <section class="section" id="kyber" data-scene="rest-r">
   <div class="wrap">
     <p class="label" data-reveal>The foundation</p>
@@ -294,9 +380,9 @@
       <div class="col" data-reveal style="--d:.1s">
         <p class="mono-label">What KyberNow adds</p>
         <ul class="ticks ticks-on">
-          <li>KyberNow Server: installer, console and updates</li>
+          <li>KyberNow Station: installer, administration in the browser (KyberNow Admin) and updates</li>
           <li>Virtual display and speakers for each session</li>
-          <li>Clients: native apps for Mac, Windows and Apple TV (decoding and display by the app) and a web client</li>
+          <li>KyberNow Link: native apps for Mac, Windows, Apple TV, iPhone and iPad (decoding and display by the app), and its web version</li>
           <li>Engine fixes, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">published and documented</a></li>
         </ul>
       </div>
@@ -313,7 +399,7 @@
   </div>
 </section>
 
-<!-- 6 · Comparison -->
+<!-- 7 · Comparison -->
 <section class="section" id="comparer" data-scene="rest-l">
   <div class="wrap">
     <p class="label" data-reveal>Compare</p>
@@ -329,7 +415,7 @@
       <div class="cmp-row" role="row"><span role="rowheader">Pairing</span><span class="yes" role="cell">Bonjour, QR code or link, fingerprint verified</span><span role="cell">PIN code to enter on Sunshine's web page</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">Sound</span><span class="yes" role="cell">Opus HD, up to 7.1 at 768&nbsp;kbit/s</span><span role="cell">Stereo, 5.1 and 7.1</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">On Mac</span><span class="yes" role="cell">Native app (SwiftUI, VideoToolbox, Metal)</span><span role="cell">Cross-platform (Qt)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the computer itself</span><span role="cell">No</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the Station itself</span><span role="cell">No</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">One installer: engine, virtual display and sound, gamepads, firewall</span><span role="cell">Sunshine, then the add-ons by hand</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Not yet (a limit of Kyber&nbsp;0.29)</span><span role="cell">Yes</span></div>
     </div>
@@ -337,7 +423,7 @@
   </div>
 </section>
 
-<!-- 7 · Features -->
+<!-- 8 · Features -->
 <section class="section" id="fonctions" data-scene="rest-r">
   <div class="wrap">
     <p class="label" data-reveal>In detail</p>
@@ -352,9 +438,9 @@
       </article>
       <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>HD sound, up to 7.1</h3><p>A virtual output in place of the computer's speakers, 10&nbsp;ms packets, about twenty milliseconds of buffer.</p></article>
       <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Variable refresh rate</h3><p>Each image is shown as soon as it is decoded: on a variable refresh rate screen, the screen follows the stream.</p></article>
-      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Pairing at a glance</h3><p>The computer shows up on its own on your network. Otherwise, use a QR code or a link from its console, and its fingerprint is verified.</p></article>
-      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Nothing to install</h3><p>The computer serves its own web client: open its address in a browser, on a computer, tablet or phone, with a trackpad or a finger.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>One-click updates</h3><p>From the console for the computer, from the app for your devices. Each package is verified before it is installed.</p></article>
+      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Pairing at a glance</h3><p>The computer shows up on its own on your network. Otherwise, use a QR code or a link from KyberNow Admin, and its fingerprint is verified.</p></article>
+      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Nothing to install</h3><p>The Station also serves a web version of Link: open its address in a browser, on a computer, tablet or phone, with a trackpad or a finger.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>One-click updates</h3><p>From Admin for the Station, from the app for your devices. Each package is verified before it is installed.</p></article>
     </div>
 
     <div class="profiles" data-reveal>
@@ -376,7 +462,7 @@
   </div>
 </section>
 
-<!-- 8 · Download -->
+<!-- 9 · Download -->
 <section class="section downloads" id="telecharger">
   <div class="scene-anchor" data-scene="assemble" aria-hidden="true"></div>
   <div class="wrap">
@@ -384,8 +470,8 @@
     <h2 class="title" data-split>Ready in <strong>three steps.</strong></h2>
 
     <ol class="steps" data-reveal>
-      <li><span>1</span>Install KyberNow Server on the computer you want to share.</li>
-      <li><span>2</span>On each device, open a client: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app or the browser.</li>
+      <li><span>1</span>Install KyberNow Station on the computer you want to share.</li>
+      <li><span>2</span>On each device, open KyberNow Link: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app or the browser.</li>
       <li><span>3</span>Connect: the computer is already there.</li>
     </ol>
 
@@ -393,69 +479,63 @@
       <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>
       <div>
         <h3>KyberNow is in beta</h3>
-        <p>It has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the computer and your apps up to date, and report anything that goes wrong on <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</p>
+        <p>It has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the Station and your apps up to date, and report anything that goes wrong on <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</p>
       </div>
     </aside>
 
     <div class="dl-grid">
       <article class="dl-card" data-reveal data-os="windows">
-        <img src="/assets/img/kybernow-mark-server-dark.svg" alt="" width="44" height="44">
-        <span class="role">Server</span>
+        <img class="dl-logo" src="/assets/img/kybernow-station-dark.svg" alt="" width="218" height="40">
         <p class="mono-label">On the computer you share</p>
-        <h3>KyberNow Server for Windows</h3>
-        <ul class="specs"><li>Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor</li><li>Kyber engine, console, virtual display and sound, gamepads</li><li data-size="KyberNow-Server-Setup.exe">77.3&nbsp;MB</li></ul>
-        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Server-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Download KyberNow Server</a>
+        <h3>KyberNow Station for Windows</h3>
+        <ul class="specs"><li>Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor</li><li>Kyber engine, KyberNow Admin, virtual display and sound, gamepads</li><li data-size="KyberNow-Station-Setup.exe">77.3&nbsp;MB</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Download KyberNow Station</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.08s" data-os="mac">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
-        <span class="role">Client</span>
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On your Mac</p>
-        <h3>KyberNow for Mac</h3>
+        <h3>KyberNow Link for Mac</h3>
         <ul class="specs"><li>Mac with Apple silicon, macOS 14 or later</li><li>Signed and notarised by Apple</li><li data-size="KyberNow-macOS.zip">43.2&nbsp;MB</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-macOS.zip"><svg class="ic"><use href="/assets/icons.svg#apple-logo"/></svg>Download the app</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.16s" data-os="windows-app">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
-        <span class="role">Client</span>
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On your PC</p>
-        <h3>KyberNow for Windows</h3>
-        <ul class="specs"><li>Windows 10 22H2 or Windows 11, x64 or ARM64 PC (Snapdragon)</li><li>No administrator rights needed, updates itself</li><li data-size="KyberNow-Client-Setup.exe">27.2&nbsp;MB</li></ul>
-        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Client-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Download the app</a>
+        <h3>KyberNow Link for Windows</h3>
+        <ul class="specs"><li>Windows 10 22H2 or Windows 11, x64 or ARM64 PC (Snapdragon)</li><li>No administrator rights needed, updates itself</li><li data-size="KyberNow-Link-Setup.exe">27.2&nbsp;MB</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Download the app</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.24s" data-os="tv">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
-        <span class="role">Client</span>
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On your Apple TV</p>
-        <h3>KyberNow for Apple TV</h3>
+        <h3>KyberNow Link for Apple TV</h3>
         <ul class="specs"><li>Apple TV 4K from 2021 or later, tvOS 18 or later</li><li>Up to four gamepads, Siri Remote as a mouse, 5.1 and 7.1 sound</li><li>Installed from a Mac with Xcode, until it reaches the App Store</li></ul>
         <a class="btn btn-ghost" href="/en/guide/#apple-tv"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Install on Apple TV</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.32s" data-os="ios">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
-        <span class="role">Client</span>
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On your iPhone or iPad</p>
-        <h3>KyberNow for iPhone and iPad</h3>
+        <h3>KyberNow Link for iPhone and iPad</h3>
         <ul class="specs"><li>iOS or iPadOS 18 or later</li><li>Trackpad or direct touch, the iPad's keyboard and trackpad, gamepads, external display</li><li>Installed from a Mac with Xcode, until TestFlight and the App Store</li></ul>
         <a class="btn btn-ghost" href="/en/guide/#iphone"><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg>Install on iPhone or iPad</a>
       </article>
       <article class="dl-card" data-reveal style="--d:.40s" data-os="web">
-        <img src="/assets/img/kybernow-mark-now-dark.svg" alt="" width="44" height="44">
-        <span class="role">Client</span>
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On all your devices</p>
-        <h3>KyberNow in the browser</h3>
-        <ul class="specs"><li>Computer, tablet or phone</li><li>Served by the computer, nothing to install</li><li class="addr">https://<i>computer</i>:<i>port</i>/ecran</li></ul>
+        <h3>KyberNow Link in the browser</h3>
+        <ul class="specs"><li>Computer, tablet or phone</li><li>Served by the Station, nothing to install</li><li class="addr">https://<i>computer</i>:<i>port</i>/ecran</li></ul>
         <a class="btn btn-ghost" href="/en/guide/#navigateur"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg>How to open it</a>
       </article>
     </div>
 
     <div class="soon" data-reveal>
-      <p class="mono-label">Upcoming clients</p>
+      <p class="mono-label">Upcoming Link apps</p>
       <ul>
         <li><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg><b>Linux</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Planned</span></li>
       </ul>
-      <p class="soon-note">Until then, all these devices can already open the web client.</p>
+      <p class="soon-note">Until then, all these devices can already open Link in the browser.</p>
     </div>
 
     <p class="release" data-reveal><span id="release-version">Version 0.2.5</span> <span class="beta">Beta</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Release notes</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">SHA-256 checksums</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Source code</a></p>

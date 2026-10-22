@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
+  import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
   import type { AppInfo, Update } from './lib/api'
   import { invoke } from './lib/api'
@@ -52,7 +53,7 @@
 <div class="veil" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="app-title">
     <button class="close" aria-label={t('common.close')} onclick={onclose}><Icon name="x" size={14} /></button>
-    <h2 id="app-title">KyberNow</h2>
+    <h2 id="app-title"><Mark product="link" size={40} /></h2>
     <div class="mono ver">{t('appsheet.version', { version: info?.version ?? '…', arch: info?.arch ?? '' })}</div>
 
     <div class="line">
@@ -86,7 +87,7 @@
       <div class="update">
         <div>
           <div class="eyebrow">{t('appsheet.update')}</div>
-          <div class="uv">KyberNow {update.version}{update.channel === 'beta' ? t('appsheet.beta_suffix') : ''}</div>
+          <div class="uv">KyberNow Link {update.version}{update.channel === 'beta' ? t('appsheet.beta_suffix') : ''}</div>
         </div>
         {#if progress !== null}
           <div class="bar" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style:width="{progress}%"></span></div>
@@ -151,9 +152,7 @@
 
   h2 {
     margin: 0;
-    font-size: 28px;
-    font-weight: 640;
-    font-stretch: 125%;
+    display: flex;
   }
 
   .ver {

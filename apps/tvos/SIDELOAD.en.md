@@ -1,4 +1,4 @@
-# Install KyberNow on your Apple TV (without the App Store)
+# Install KyberNow Link on your Apple TV (without the App Store)
 
 English · [Français](SIDELOAD.md)
 
@@ -11,7 +11,7 @@ Until it is published on the App Store, the Apple TV app is installed from a Mac
 - An **Apple account**:
   - **free** (your usual Apple ID): it works, but the app stops opening after **7 days**; just run the script again to renew it. No iCloud ("Depuis votre Mac" adding), no Top Shelf and no per-user profiles on the Apple TV;
   - **paid** (Apple Developer Program, 99/year): the app stays installed for a year, with all its features.
-- A computer with **KyberNow Server** installed (version 0.2.2 or later for code pairing).
+- A computer with **KyberNow Station** installed (version 0.2.2 or later for code pairing).
 
 ## 1. Prepare the Mac
 
@@ -60,7 +60,7 @@ The script:
 
 - Open **KyberNow** from the Apple TV home screen.
 - Allow **local network** access: without it, the app cannot find your computers.
-- Add your computer: **Code à l'écran** (accept it in the computer's console, Access › Devices), **Sur le réseau** (its account, typed on the iPhone keyboard), or **Adresse**.
+- Add your computer: **Code à l'écran** (accept it in KyberNow Admin, Access › Devices), **Sur le réseau** (its account, typed on the iPhone keyboard), or **Adresse**.
 
 ## Renewing or updating
 
@@ -70,7 +70,7 @@ Run the same command again after a `git pull`. With a free account, do it before
 
 - **"Apple TV introuvable"** (not found): it is not paired, or Xcode cannot see it (same network, Apple TV awake). Check in Window › Devices and Simulators.
 - **Signing error**: open `apps/tvos/KyberNowTVSideload.xcodeproj` (made by the script) in Xcode, *Signing & Capabilities* tab of the KyberNowTV target: Xcode explains what is missing there. With a free account, do not use `--full`.
-- **The app does not find the computer**: the server must be on, on the same network, with KyberNow Server installed; otherwise use the address or the code. Over VPN, discovery does not get through: use the address.
+- **The app does not find the computer**: the computer must be on, on the same network, with KyberNow Station installed; otherwise use the address or the code. Over VPN, discovery does not get through: use the address.
 - **Building the Kyber SDK yourself** (developers): `apps/tvos/scripts/build-kyber-tvos.sh`, then the core: `apps/apple/scripts/build-apple-mobile.sh tvos`, see [README.en.md](README.en.md).
 
 KyberNow is based on [Kyber](https://kyber.tech) (AGPLv3), with no affiliation with the Kyber team.

@@ -368,7 +368,7 @@ impl App {
             Some(Status::Ending) => t("window.ending", &[]),
             Some(Status::Ended { .. }) => t("window.ended", &[]),
         };
-        format!("KyberNow — {} · {detail}", self.host_name)
+        format!("{} — {} · {detail}", crate::shell::DISPLAY_NAME, self.host_name)
     }
 }
 

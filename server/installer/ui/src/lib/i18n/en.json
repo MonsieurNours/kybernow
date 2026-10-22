@@ -1,10 +1,10 @@
 {
-  "documentTitle": "KyberNow Setup",
+  "documentTitle": "KyberNow Station Setup",
   "common": {
     "continue": "Continue",
     "back": "Back",
     "recommended": "recommended",
-    "portsPair": "stream {stream} · console {console}"
+    "portsPair": "stream {stream} · Admin {console}"
   },
   "steps": {
     "welcome": "Welcome",
@@ -51,22 +51,22 @@
     "validate": "Apply",
     "edit": "Change",
     "stream": "Stream",
-    "console": "Console",
+    "console": "Admin",
     "problemOne": "One issue prevents proper streaming: see the details above.",
     "problemMany": "{count} issues prevent proper streaming: see the details above.",
     "analysing": "Analysing…"
   },
   "reinstall": {
     "label": "Reinstallation",
-    "title": "KyberNow {version} is already here.",
+    "title": "KyberNow Station {version} is already here.",
     "lead": "Your devices already know this computer. What should we do with its settings?",
-    "group": "KyberNow settings",
+    "group": "Station settings",
     "keep": "Keep my settings",
-    "keepDetail": "Accounts, paired devices, certificate, console settings and ports ({ports}) stay as they are. Only the programs, the drivers and Kyber's fixes are replaced.",
+    "keepDetail": "Accounts, paired devices, certificate, Admin settings and ports ({ports}) stay as they are. Only the programs, the drivers and Kyber's fixes are replaced.",
     "keepImpossible": "Not possible here: this installation's settings cannot be found.",
     "fresh": "Start from scratch",
     "freshDetail": "New account, new ports, new certificate, default settings.",
-    "freshWarning": "All your devices (Mac, Apple TV, browsers) will lose access: you will need to pair them again with the new account. The console and Kyber settings go back to those of a first installation."
+    "freshWarning": "All your devices (Mac, Apple TV, browsers) will lose access: you will need to pair them again with the new account. The Admin and Kyber settings go back to those of a first installation."
   },
   "account": {
     "label": "Your account",
@@ -91,13 +91,13 @@
     "uses": "You will use it to",
     "devices": "Connect from your devices",
     "devicesDetail": "They can remember it.",
-    "console": "Open the console",
+    "console": "Open KyberNow Admin",
     "consoleDetail": "For the virtual display, sound, accounts. You can add more accounts there."
   },
   "options": {
     "label": "Options",
     "title": "The best settings are already chosen.",
-    "lead": "You can change it all later in the console.",
+    "lead": "You can change it all later in KyberNow Admin.",
     "virtualDisplay": "Virtual display matched to each device",
     "virtualDisplayLabel": "Virtual display",
     "virtualDisplayDetail": "The picture arrives at the device's resolution and refresh rate. The free SudoVDA driver is not signed by Microsoft: its certificate will be added to the trusted authorities.",
@@ -107,7 +107,7 @@
     "audioDetail": "The computer goes silent, the sound goes to the device, up to 7.1. Uses Steam's speakers, found on this computer.",
     "audioMissing": "Requires Steam, which provides signed virtual speakers. Without it, sound also comes out of the computer.",
     "startWithWindows": "Start with the computer",
-    "startWithWindowsDetail": "Available even before you sign in to Windows. The KyberNow tray icon appears near the clock.",
+    "startWithWindowsDetail": "Available even before you sign in to Windows. The KyberNow Station tray icon appears near the clock.",
     "maxPerformance": "Maximum performance",
     "maxPerformanceDetail": "The processor and the graphics card do not slow down during a session: steady latency.",
     "maxPerformanceAlready": "Already set: this computer is in High performance mode.",
@@ -117,12 +117,12 @@
     "tasks": {
       "files": { "title": "Kyber 0.29 streaming engine", "text": "The engine, its video libraries and the web client go into C:\\Program Files\\KyberNow." },
       "cert": { "title": "This computer's certificate", "text": "It encrypts everything exchanged between your devices and this computer." },
-      "service": { "title": "Start with the computer", "text": "The server becomes a service: it starts on its own, even before you sign in to Windows." },
-      "firewall": { "title": "Network", "text": "Opening ports {stream} (stream) and {console} (console), on your private network only." },
+      "service": { "title": "Start with the computer", "text": "The Station becomes a service: it starts on its own, even before you sign in to Windows." },
+      "firewall": { "title": "Network", "text": "Opening ports {stream} (stream) and {console} (Admin), on your private network only." },
       "vdd": { "title": "Virtual display", "text": "It will take the size of each device that connects." },
       "gamepad": { "title": "Gamepads", "text": "To play from any device." },
       "audio": { "title": "Remote sound", "text": "Steam's virtual speakers: the computer goes silent, the device gets the sound." },
-      "admin": { "title": "Administration console", "text": "It starts on port {port}.", "fact": "port {port}" },
+      "admin": { "title": "KyberNow Admin", "text": "Administration in the browser, on port {port}.", "fact": "port {port}" },
       "power": {
         "title": "Power",
         "text": "High performance mode avoids slowdowns during a session.",
@@ -135,8 +135,8 @@
     "titleFailed": "Something got in the way.",
     "titleDone": "Everything is in place.",
     "titleRunning": "This computer, soon on all your screens.",
-    "leadDone": "The server, the console and the drivers are installed.",
-    "leadRunning": "KyberNow Server is setting up. Nothing to do: we show you each step as it happens.",
+    "leadDone": "The streaming engine, Admin and the drivers are installed.",
+    "leadRunning": "KyberNow Station is setting up. Nothing to do: we show you each step as it happens.",
     "preparing": "Preparing…",
     "lastLineEmpty": "› preparing",
     "warnDefault": "to check: see the details",
@@ -152,16 +152,16 @@
   "done": {
     "label": "Installation complete",
     "title": "This computer is ready. It is everywhere.",
-    "lead": "Open KyberNow on any of your devices: this computer is already there. Otherwise, its address:",
+    "lead": "Open KyberNow Link on any of your devices: this computer is already there. Otherwise, its address:",
     "noAppBefore": "No app? Open",
     "noAppAfter": "in a browser.",
     "reboot": "Gamepads will work after the next restart. Everything else is already active.",
     "rebootNow": "Restart now",
-    "qr": "Console QR code: {url}",
-    "phone": "The console on your phone",
+    "qr": "KyberNow Admin QR code: {url}",
+    "phone": "KyberNow Admin on your phone",
     "phoneNote": "A certificate warning appears the first time: that is normal.",
     "close": "Close",
-    "openConsole": "Open the console",
+    "openConsole": "Open Admin",
     "unknownAddress": "pc-address"
   },
   "about": {
@@ -172,7 +172,7 @@
     "role": "Role",
     "license": "Licence",
     "roles": {
-      "kybernow": "Installer and administration console",
+      "kybernow": "KyberNow Station (installer, tray icon) and KyberNow Admin",
       "kyber": "Streaming engine (Kyber SAS)",
       "vlc": "Audio and video playback (VideoLAN)",
       "ffmpeg": "Capture and encoding",
@@ -191,14 +191,14 @@
   "simulation": {
     "gpu": "NVIDIA GeForce RTX (simulation) · NVENC hardware encoding",
     "driver": "Version 000.00 (simulation)",
-    "ports": "The usual port 8080 is already in use by httpd.exe. Drawn at random and checked free: stream {stream} · console {console}",
+    "ports": "The usual port 8080 is already in use by httpd.exe. Drawn at random and checked free: stream {stream} · Admin {console}",
     "power": "Power mode: Balanced",
     "powerDetail": "The GPU slows down to save energy, which can triple the encoding time. We will offer to change it at the Options step.",
     "audioDetail": "Steam's virtual speakers are available: during the stream, the PC goes silent and the sound goes out in stereo, 5.1 or 7.1.",
-    "existing": "KyberNow 0.2.5 is installed",
+    "existing": "KyberNow Station 0.2.5 is installed",
     "existingDetail": "At the next step, you will choose to keep your settings and devices, or to start from scratch.",
     "portRange": "Choose a port between 1024 and 65535.",
-    "samePort": "The stream and the console need two different ports.",
+    "samePort": "The stream and Admin need two different ports.",
     "portInUse": "Port 8080 is already in use by httpd.exe."
   }
 }

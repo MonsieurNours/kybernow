@@ -228,7 +228,7 @@ final class SessionController: ObservableObject {
                     self.engine?.setBitrateCap(Self.backgroundBitrate)
                     // Sur l'écran externe, l'image reste vivante : on la regarde encore.
                     if !self.external { self.engine?.setOccluded(true) }
-                    self.show(notice: String(localized: "KyberNow continue en arrière-plan"), for: 4)
+                    self.show(notice: String(localized: "KyberNow Link continue en arrière-plan"), for: 4)
                 }
             },
             center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { [weak self] note in

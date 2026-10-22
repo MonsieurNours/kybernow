@@ -1,27 +1,29 @@
 # KyberNow
 
-> KyberNow is free, open-source (AGPL-3.0) game and remote desktop streaming: install KyberNow Server on your computer, then play and work on it from all your devices, in a native app or in any web browser. It is a next-generation alternative to Sunshine + Moonlight, built on the Kyber streaming engine (by VLC developers) and the QUIC protocol. Currently in beta (0.x versions, not yet 1.0).
+> KyberNow is free, open-source (AGPL-3.0) game and remote desktop streaming: install KyberNow Station on your computer, then play and work on it from all your devices with KyberNow Link, in a native app or in any web browser. It is a next-generation alternative to Sunshine + Moonlight, built on the Kyber streaming engine (by VLC developers) and the QUIC protocol. Currently in beta (0.x versions, not yet 1.0).
 
 Key facts:
 
 - **What it is**: self-hosted "your own cloud" streaming. Unlike cloud gaming services, nothing is rented and no third-party server sits between the computer and your devices. Reach it at home, or from afar through a VPN (Tailscale, WireGuard).
 - **Latency**: 9.4 ms median from capture to display, measured on 19 October 2026 (RTX 3080 Ti at 3840 × 2160, 160 Hz, to a MacBook Pro M4 Max, local network, H.264).
-- **Server**: Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor. One installer sets up the Kyber engine, a web console, a virtual display and virtual speakers per session, gamepad drivers and the firewall.
-- **Clients**: your computer on all your devices. A web client served by the computer itself works on any computer, tablet or phone with a modern browser; native apps (today for Mac, Windows and Apple TV) decode the image in hardware for the lowest latency.
-- **Versus Sunshine + Moonlight**: QUIC (RFC 9000) instead of GameStream; image always encrypted (TLS 1.3); a single port; virtual display at the device's resolution built in; pairing through Bonjour, QR code or an on-screen code instead of a PIN; Opus sound up to 7.1; browser client. Not yet: HDR.
+- **Three products**: KyberNow Station (on the Windows computer that streams), KyberNow Admin (the Station's administration, in the browser) and KyberNow Link (the apps that display the image on your devices). "KyberNow" alone is the name of the whole project. Former names: KyberNow Server (now Station), the KyberNow console (now Admin), the KyberNow apps or clients (now Link).
+- **KyberNow Station**: Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor. One installer (KyberNow-Station-Setup.exe) sets up the Kyber engine, KyberNow Admin, a virtual display and virtual speakers per session, gamepad drivers and the firewall.
+- **KyberNow Link**: your computer on all your devices. Native apps for Mac, Windows, Apple TV, iPhone and iPad decode the image in hardware for the lowest latency; a web version served by the Station itself works on any computer, tablet or phone with a modern browser.
+- **Versus Sunshine + Moonlight**: QUIC (RFC 9000) instead of GameStream; image always encrypted (TLS 1.3); a single port; virtual display at the device's resolution built in; pairing through Bonjour, QR code or an on-screen code instead of a PIN; Opus sound up to 7.1; works in the browser too. Not yet: HDR.
 - **Price**: free, no account, no subscription, no ads. Community, non-commercial project by Les Lignes Claires. Not affiliated with or endorsed by the Kyber team.
 
 ## Pages
 
-- [Home (English)](https://www.kybernow.app/en/): presentation, path of an image, QUIC, comparison with Sunshine + Moonlight, downloads
-- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing the server, connecting a Mac, a Windows PC, an Apple TV or a browser, sessions, VPN, updates, uninstalling, frequently asked questions
+- [Home (English)](https://www.kybernow.app/en/): presentation, the three products (Station, Admin, Link), path of an image, QUIC, comparison with Sunshine + Moonlight, downloads
+- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing KyberNow Station, connecting a Mac, a Windows PC, an Apple TV, an iPhone or iPad, or a browser with KyberNow Link, sessions, VPN, updates, uninstalling, frequently asked questions
 - [Accueil (français)](https://www.kybernow.app/): the same presentation in French
 - [Guide et FAQ (français)](https://www.kybernow.app/guide/): the same guide in French
 
 ## Downloads and code
 
-- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Server-Setup.exe (Windows server), KyberNow-Client-Setup.exe (Windows app, x64 and ARM64), KyberNow-macOS.zip (Mac app), release notes and SHA-256 checksums
-- [Installing the Apple TV app](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
+- [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Station-Setup.exe (KyberNow Station, Windows), KyberNow-Link-Setup.exe (KyberNow Link for Windows, x64 and ARM64), KyberNow-macOS.zip (KyberNow Link for Mac), release notes and SHA-256 checksums
+- [Installing KyberNow Link on Apple TV](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
+- [Installing KyberNow Link on iPhone and iPad](https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md)
 - [Source code](https://github.com/MonsieurNours/kybernow)
 - [Changes made to the Kyber engine](https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md)
 - [Kyber](https://kyber.tech), the underlying streaming engine

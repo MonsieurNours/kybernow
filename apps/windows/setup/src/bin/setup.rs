@@ -1,4 +1,4 @@
-//! `KyberNow-Client-Setup.exe` : installateur de l'app KyberNow pour Windows.
+//! `KyberNow-Link-Setup.exe` : installateur de KyberNow Link, l'app Windows.
 //!
 //! Il porte les deux versions de l'app (x64 et ARM64) et pose celle du
 //! processeur. Sans option : installe WebView2 s'il manque, dépose
@@ -13,7 +13,7 @@
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("KyberNow-Client-Setup ne tourne que sous Windows.");
+    eprintln!("KyberNow-Link-Setup ne tourne que sous Windows.");
 }
 
 #[cfg(windows)]
@@ -33,7 +33,7 @@ mod windows {
 
     const UI_EXE: &[u8] = include_bytes!(env!("KYBERNOW_SETUP_UI_EXE"));
     const WEBVIEW2_LOADER: &[u8] = include_bytes!(env!("KYBERNOW_WEBVIEW2_LOADER"));
-    const TITLE: &str = "KyberNow";
+    const TITLE: &str = sys::DISPLAY_NAME;
 
     pub fn main() {
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -71,7 +71,7 @@ mod windows {
         let emit: Emit = Arc::new(|_| {});
         // L'app se ferme d'elle-même juste après avoir lancé la mise à jour.
         let wait = Duration::from_secs(if update { 20 } else { 5 });
-        let desktop = sys::desktop_shortcut().is_some_and(|p| p.exists());
+        let desktop = sys::has_desktop_shortcut();
         match install::run_install(exe, desktop, wait, &emit) {
             Ok(()) => {
                 if update {
@@ -102,7 +102,7 @@ mod windows {
         }
 
         let pid = std::process::id();
-        let tmp: PathBuf = std::env::temp_dir().join(format!("KyberNow-Client-Setup-{pid}"));
+        let tmp: PathBuf = std::env::temp_dir().join(format!("KyberNow-Link-Setup-{pid}"));
         if std::fs::symlink_metadata(&tmp).is_ok() {
             std::fs::remove_dir_all(&tmp)?;
         }
@@ -110,7 +110,7 @@ mod windows {
         let ui = tmp.join("kybernow-client-setup-ui.exe");
         std::fs::write(&ui, UI_EXE)?;
         std::fs::write(tmp.join("WebView2Loader.dll"), WEBVIEW2_LOADER)?;
-        let webview_data = std::env::temp_dir().join(format!("KyberNow-Client-Setup-WebView-{pid}"));
+        let webview_data = std::env::temp_dir().join(format!("KyberNow-Link-Setup-WebView-{pid}"));
 
         let status = std::process::Command::new(&ui).arg("--payload").arg(exe).arg("--webview-data").arg(&webview_data).status();
 

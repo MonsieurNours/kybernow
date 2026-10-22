@@ -465,18 +465,18 @@
         }
       }
     },
-    "la console a répondu %lld" : {
+    "la Station a répondu %lld" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "the console answered %lld"
+            "value" : "the Station answered %lld"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "la console a répondu %lld"
+            "value" : "la Station a répondu %lld"
           }
         }
       }
@@ -497,18 +497,18 @@
         }
       }
     },
-    "le certificat de la console a changé : ce n'est peut-être pas votre ordinateur" : {
+    "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "the console's certificate has changed: this may not be your computer"
+            "value" : "the Station's certificate has changed: this may not be your computer"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "le certificat de la console a changé : ce n'est peut-être pas votre ordinateur"
+            "value" : "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur"
           }
         }
       }
@@ -529,18 +529,18 @@
         }
       }
     },
-    "réponse inattendue de la console" : {
+    "réponse inattendue de la Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "unexpected response from the console"
+            "value" : "unexpected response from the Station"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "réponse inattendue de la console"
+            "value" : "réponse inattendue de la Station"
           }
         }
       }

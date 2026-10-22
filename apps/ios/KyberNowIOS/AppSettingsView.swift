@@ -143,10 +143,10 @@ private struct AppSettingsContent: View {
 
     private var languageRow: some View {
         // Langue de l'app (docs/i18n.md) : prise en compte à la relance.
-        SettingsChoiceRow(title: String(localized: "Langue de KyberNow"),
+        SettingsChoiceRow(title: String(localized: "Langue de KyberNow Link"),
                           note: language == Self.launchLanguage
-                              ? (isPad ? String(localized: "Auto : la langue de l'iPad ; pour KyberNow seulement.") : String(localized: "Auto : la langue de l'iPhone ; pour KyberNow seulement."))
-                              : String(localized: "Relancez KyberNow pour changer de langue."),
+                              ? (isPad ? String(localized: "Auto : la langue de l'iPad ; pour KyberNow Link seulement.") : String(localized: "Auto : la langue de l'iPhone ; pour KyberNow Link seulement."))
+                              : String(localized: "Relancez KyberNow Link pour changer de langue."),
                           warn: language != Self.launchLanguage,
                           options: LanguageChoice.allCases.map { ($0.rawValue, $0.label) },
                           current: language.rawValue) { v in
@@ -196,7 +196,7 @@ private struct AppSettingsContent: View {
         SettingsToggleRow(title: String(localized: "Sessions en données mobiles"),
                           note: prefs.allowCellular
                               ? String(localized: "Une session peut consommer plusieurs gigaoctets par heure sur votre forfait.")
-                              : String(localized: "Hors Wi-Fi, KyberNow prévient avant de se connecter."),
+                              : String(localized: "Hors Wi-Fi, KyberNow Link prévient avant de se connecter."),
                           warn: prefs.allowCellular,
                           on: prefs.allowCellular) { prefs.allowCellular.toggle() }
     }
@@ -206,7 +206,7 @@ private struct AppSettingsContent: View {
         let version = info?["CFBundleShortVersionString"] as? String ?? "—"
         let build = info?["CFBundleVersion"] as? String ?? ""
         return SettingsValueRow(title: String(localized: "Version"),
-                                note: String(localized: "KyberNow pour l'iPhone et l'iPad"),
+                                note: String(localized: "KyberNow Link pour l'iPhone et l'iPad"),
                                 value: build.isEmpty ? version : "\(version) (\(build))")
     }
 }

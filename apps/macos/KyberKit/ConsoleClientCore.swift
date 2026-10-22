@@ -1,4 +1,4 @@
-// Dialogue avec la console KyberNow de l'ordinateur, hors session : info,
+// Dialogue avec KyberNow Admin (kyber-admin) sur l'ordinateur, hors session : info,
 // aperçu de l'écran, empreinte, appairage par code. Le cœur Rust fait les
 // appels (certificat épinglé, `Accept-Language`) ; ici la même façade
 // qu'avant le cœur, en Swift asynchrone. La préparation, le signal de vie et la fin de session sont
@@ -42,8 +42,8 @@ public enum ConsoleError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case let .http(code, message): return message.isEmpty ? String(localized: "la console a répondu \(code)", bundle: .kyberKit) : message
-        case .certificateChanged: return String(localized: "le certificat de la console a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
+        case let .http(code, message): return message.isEmpty ? String(localized: "la Station a répondu \(code)", bundle: .kyberKit) : message
+        case .certificateChanged: return String(localized: "le certificat de la Station a changé : ce n'est peut-être pas votre ordinateur", bundle: .kyberKit)
         case let .network(message): return message
         }
     }
@@ -147,7 +147,7 @@ public final class ConsoleClient: @unchecked Sendable {
         }()
         let v = ProcessInfo.processInfo.operatingSystemVersion
         let version = v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
-        let app = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "KyberNow \($0)" } ?? "KyberNow"
+        let app = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String).map { "KyberNow Link \($0)" } ?? "KyberNow Link"
         #if os(macOS)
         let name = Host.current().localizedName ?? "Mac"
         return ["id": id, "name": name, "kind": "mac", "os": "macOS \(version)", "app": app]
@@ -197,7 +197,7 @@ public final class ConsoleClient: @unchecked Sendable {
             var error: UnsafeMutablePointer<CChar>?
             try Self.check(kn_console_pair_request(console, code, device, &out, &error), error)
             guard let id = Core.take(out), !id.isEmpty else {
-                throw ConsoleError.network(String(localized: "réponse inattendue de la console", bundle: .kyberKit))
+                throw ConsoleError.network(String(localized: "réponse inattendue de la Station", bundle: .kyberKit))
             }
             return id
         }

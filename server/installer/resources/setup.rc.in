@@ -11,9 +11,9 @@ BEGIN
     BLOCK "040C04B0"
     BEGIN
       VALUE "CompanyName", "Les Lignes Claires"
-      VALUE "FileDescription", "Installation de KyberNow"
+      VALUE "FileDescription", "Installation de KyberNow Station"
       VALUE "FileVersion", "@VERSION@"
-      VALUE "ProductName", "KyberNow"
+      VALUE "ProductName", "KyberNow Station"
       VALUE "ProductVersion", "@VERSION@"
       VALUE "LegalCopyright", "Les Lignes Claires - AGPL-3.0-or-later"
     END

@@ -1,30 +1,30 @@
 {
   "setup": {
-    "notInstaller": "This file does not contain KyberNow ({error}). Download the full installer again.",
+    "notInstaller": "This file does not contain KyberNow Link ({error}). Download the full installer again.",
     "cannotStart": "Setup could not start:\n\n{error}",
-    "updateFailed": "The KyberNow update did not go through:\n\n{error}\n\nKyberNow is reopening. Details are in %LOCALAPPDATA%\\KyberNow\\setup.log.",
-    "webview2Ask": "Setup and the KyberNow app are displayed with WebView2, Microsoft's display engine (the one in Edge). It is missing on this PC.\n\nDownload and install it now? (about 2 MB, then Microsoft's installer)",
+    "updateFailed": "The KyberNow Link update did not go through:\n\n{error}\n\nKyberNow Link is reopening. Details are in %LOCALAPPDATA%\\KyberNow\\setup.log.",
+    "webview2Ask": "Setup and the KyberNow Link app are displayed with WebView2, Microsoft's display engine (the one in Edge). It is missing on this PC.\n\nDownload and install it now? (about 2 MB, then Microsoft's installer)",
     "webview2Failed": "WebView2 could not be installed: {error}\n\nMicrosoft's page will open: install “Microsoft Edge WebView2 Runtime”, then run this installer again.",
-    "windowTitle": "KyberNow Setup"
+    "windowTitle": "KyberNow Link Setup"
   },
   "uninstall": {
-    "title": "Uninstall KyberNow",
-    "confirm": "KyberNow will be removed from this PC: the app, its shortcuts and its kybernow:// link.\n\nYour computers themselves do not change.\n\nContinue?",
-    "erase": "Also erase your list of computers, their settings and their passwords?\n\nNo: they will still be there if you reinstall KyberNow.",
-    "done": "KyberNow has been uninstalled."
+    "title": "Uninstall KyberNow Link",
+    "confirm": "KyberNow Link will be removed from this PC: the app, its shortcuts and its kybernow:// link.\n\nYour computers themselves do not change.\n\nContinue?",
+    "erase": "Also erase your list of computers, their settings and their passwords?\n\nNo: they will still be there if you reinstall KyberNow Link.",
+    "done": "KyberNow Link has been uninstalled."
   },
   "checks": {
     "windows": {
       "title": "Windows",
-      "old": "Build {build}: KyberNow is designed for Windows 10 22H2 (19045) or later. Install the Windows updates.",
+      "old": "Build {build}: KyberNow Link is designed for Windows 10 22H2 (19045) or later. Install the Windows updates.",
       "build": "Build {build}"
     },
     "arch": {
       "title": "Processor",
       "arm64Title": "ARM64 processor",
-      "arm64": "The ARM64 version of KyberNow will be installed: it runs without emulation, with the chip's video decoding.",
+      "arm64": "The ARM64 version of KyberNow Link will be installed: it runs without emulation, with the chip's video decoding.",
       "x64Title": "x64 processor",
-      "x64": "The x64 version of KyberNow will be installed."
+      "x64": "The x64 version of KyberNow Link will be installed."
     },
     "gpu": {
       "title": "Graphics card",
@@ -35,34 +35,34 @@
     },
     "display": {
       "title": "Display",
-      "unknown": "Unknown size: KyberNow will fit the window.",
+      "unknown": "Unknown size: KyberNow Link will fit the window.",
       "ok": "{width} × {height} · {hz} Hz: your computer can take exactly this size during the session."
     },
     "network": {
       "title": "Local network",
-      "ok": "{ip}: a computer on this network shows up in KyberNow on its own.",
+      "ok": "{ip}: a computer on this network shows up in KyberNow Link on its own.",
       "none": "No network for now: join one before connecting to a computer."
     },
     "webview": {
       "title": "Display engine",
       "fullTitle": "WebView2 display engine",
-      "ok": "Version {version}, by Microsoft: it draws the KyberNow interface.",
+      "ok": "Version {version}, by Microsoft: it draws the KyberNow Link interface.",
       "missing": "Missing: it will be downloaded and installed (about 2 MB)."
     },
     "existing": {
       "label": "Installed version",
-      "title": "KyberNow {version} is installed",
+      "title": "KyberNow Link {version} is installed",
       "detail": "It will be updated. Your computers, their passwords and your settings stay."
     },
     "running": {
-      "title": "KyberNow is open",
+      "title": "KyberNow Link is open",
       "detail": "It will be closed during installation: a session in progress will stop."
     }
   },
   "install": {
     "log": {
-      "start": "installing KyberNow {version} ({arch}) in {dir}",
-      "closing": "closing KyberNow",
+      "start": "installing KyberNow Link {version} ({arch}) in {dir}",
+      "closing": "closing KyberNow Link",
       "files": "{count} files in place",
       "webviewPresent": "WebView2 {version} present",
       "webviewInstalled": "WebView2 {version} installed",
@@ -72,7 +72,7 @@
     }
   },
   "errors": {
-    "appWontClose": "KyberNow is still open and will not close. Close it, then try again.",
+    "appWontClose": "KyberNow Link is still open and will not close. Close it, then try again.",
     "placeFiles": "could not put the files in {dir}",
     "placeFilesOld": "could not put the files in place, and the previous version was left in {dir}",
     "replaceFiles": "replacing the files",
@@ -80,7 +80,7 @@
     "incomplete": "incomplete installer",
     "noApp": "the app cannot be found in the installer (damaged file?)",
     "damaged": "damaged installer",
-    "noArch": "this installer does not contain the {arch} version of KyberNow",
+    "noArch": "this installer does not contain the {arch} version of KyberNow Link",
     "contentIncomplete": "incomplete content: {count} files out of {total}",
     "webview2Download": "could not download WebView2 (Internet connection?): {error}",
     "webview2Code": "the WebView2 installer failed (code {code})",

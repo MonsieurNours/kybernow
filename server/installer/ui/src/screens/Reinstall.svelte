@@ -1,5 +1,5 @@
 <!--
-  Étape 2 quand KyberNow est déjà installé : garder ses réglages (comptes,
+  Étape 2 quand KyberNow Station est déjà installée : garder ses réglages (comptes,
   appareils appairés, ports, certificat) ou repartir de zéro. « Repartir de
   zéro » passe ensuite par « Votre compte », comme une première installation.
 -->

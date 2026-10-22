@@ -107,7 +107,13 @@ pub fn run_install(setup: &Path, desktop: bool, wait_app: Duration, emit: &Emit)
         }
         match run_app(&dir, &args, Duration::from_secs(20)) {
             Ok(()) => {
-                if !desktop && let Some(link) = sys::desktop_shortcut() {
+                // L'app a posé `KyberNow Link.lnk` : plus d'ancien `KyberNow.lnk`
+                // (0.3.1 et avant), ni de raccourci sur le Bureau s'il est décoché.
+                let mut gone = sys::old_shortcuts();
+                if !desktop {
+                    gone.extend(sys::desktop_shortcuts());
+                }
+                for link in gone {
                     let _ = std::fs::remove_file(link);
                 }
                 Ok(TaskStatus::Done)
@@ -257,7 +263,7 @@ fn register(dir: &Path) -> Result<()> {
     let key = sys::UNINSTALL_KEY;
     let exe = dir.join(sys::APP_EXE).display().to_string();
     let uninstall = dir.join(sys::UNINSTALLER).display().to_string();
-    sys::reg_set(key, Some("DisplayName"), "KyberNow")?;
+    sys::reg_set(key, Some("DisplayName"), sys::DISPLAY_NAME)?;
     sys::reg_set(key, Some("DisplayVersion"), env!("CARGO_PKG_VERSION"))?;
     sys::reg_set(key, Some("Publisher"), "Les Lignes Claires")?;
     sys::reg_set(key, Some("URLInfoAbout"), "https://www.kybernow.app")?;

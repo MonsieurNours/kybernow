@@ -497,18 +497,18 @@
         }
       }
     },
-    "Ajoutez un ordinateur équipé de KyberNow Server, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran." : {
+    "Ajoutez un ordinateur équipé de KyberNow Station, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add a computer running KyberNow Server, whether it is on Windows, macOS or Linux. On this network, it shows up on its own at the bottom of the screen."
+            "value" : "Add a computer running KyberNow Station, whether it is on Windows, macOS or Linux. On this network, it shows up on its own at the bottom of the screen."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez un ordinateur équipé de KyberNow Server, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran."
+            "value" : "Ajoutez un ordinateur équipé de KyberNow Station, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran."
           }
         }
       }
@@ -545,34 +545,34 @@
         }
       }
     },
-    "Aperçu de sa console" : {
+    "Aperçu demandé à la Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Preview from its console"
+            "value" : "Preview from the Station"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aperçu de sa console"
+            "value" : "Aperçu demandé à la Station"
           }
         }
       }
     },
-    "Aperçu · %@, depuis sa console" : {
+    "Aperçu · %@, depuis la Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Preview · %@, from its console"
+            "value" : "Preview · %@, from the Station"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aperçu · %@, depuis sa console"
+            "value" : "Aperçu · %@, depuis la Station"
           }
         }
       }
@@ -673,18 +673,18 @@
         }
       }
     },
-    "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse." : {
+    "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa Station n'est pas encore à jour : passez par l'onglet Par adresse." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No computer found yet. It may be on another network (VPN), or its console is not up to date yet: use the By address tab."
+            "value" : "No computer found yet. It may be on another network (VPN), or its Station is not up to date yet: use the By address tab."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse."
+            "value" : "Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa Station n'est pas encore à jour : passez par l'onglet Par adresse."
           }
         }
       }
@@ -753,18 +753,18 @@
         }
       }
     },
-    "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow." : {
+    "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow Link." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto: the language of macOS. This choice only applies to KyberNow."
+            "value" : "Auto: the language of macOS. This choice only applies to KyberNow Link."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow."
+            "value" : "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow Link."
           }
         }
       }
@@ -913,18 +913,18 @@
         }
       }
     },
-    "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**." : {
+    "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This is the account created during installation on the computer. More accounts can be added in the console, under **Accounts**."
+            "value" : "This is the account created during installation on the computer. More accounts can be added in KyberNow Admin, on the **Access** page, under **Accounts**."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**."
+            "value" : "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**."
           }
         }
       }
@@ -993,18 +993,18 @@
         }
       }
     },
-    "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients." : {
+    "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de KyberNow Admin, qui ne reste qu'un défaut pour les autres appareils." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This choice overrides the “All gamepads as Xbox 360” option in the computer's console, which only remains a default for other clients."
+            "value" : "This choice overrides the “All gamepads as Xbox 360” option in KyberNow Admin, which only remains a default for other devices."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients."
+            "value" : "Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de KyberNow Admin, qui ne reste qu'un défaut pour les autres appareils."
           }
         }
       }
@@ -1014,7 +1014,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This is not a KyberNow link."
+            "value" : "This is not a kybernow:// link."
           }
         },
         "fr" : {
@@ -1030,7 +1030,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This fingerprint does not match the one in the link or announcement. Someone may be impersonating your computer: decline."
+            "value" : "This fingerprint does not match the one in the pairing link or announcement. Someone may be impersonating your computer: decline."
           }
         },
         "fr" : {
@@ -1041,18 +1041,18 @@
         }
       }
     },
-    "Cette version de KyberNow n'est pas signée pour iCloud : rien n'est publié." : {
+    "Cette version de KyberNow Link n'est pas signée pour iCloud : rien n'est publié." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This build of KyberNow is not signed for iCloud: nothing is published."
+            "value" : "This build of KyberNow Link is not signed for iCloud: nothing is published."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cette version de KyberNow n'est pas signée pour iCloud : rien n'est publié."
+            "value" : "Cette version de KyberNow Link n'est pas signée pour iCloud : rien n'est publié."
           }
         }
       }
@@ -1073,18 +1073,34 @@
         }
       }
     },
-    "Collez le lien copié depuis la console" : {
+    "Chaque ordinateur équipé de KyberNow Station s'annonce sur le réseau local (Bonjour)." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paste the link copied from the console"
+            "value" : "Each computer running KyberNow Station announces itself on the local network (Bonjour)."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Collez le lien copié depuis la console"
+            "value" : "Chaque ordinateur équipé de KyberNow Station s'annonce sur le réseau local (Bonjour)."
+          }
+        }
+      }
+    },
+    "Collez le lien copié depuis KyberNow Admin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paste the pairing link copied from KyberNow Admin"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collez le lien copié depuis KyberNow Admin"
           }
         }
       }
@@ -1137,18 +1153,18 @@
         }
       }
     },
-    "Connexion à la console…" : {
+    "Connexion à la Station…" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connecting to the console…"
+            "value" : "Connecting to the Station…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connexion à la console…"
+            "value" : "Connexion à la Station…"
           }
         }
       }
@@ -1217,18 +1233,18 @@
         }
       }
     },
-    "Dans la console de l'ordinateur, ouvrez " : {
+    "Dans KyberNow Admin, ouvrez " : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In the computer's console, open "
+            "value" : "In KyberNow Admin, open "
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dans la console de l'ordinateur, ouvrez "
+            "value" : "Dans KyberNow Admin, ouvrez "
           }
         }
       }
@@ -1457,18 +1473,18 @@
         }
       }
     },
-    "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur." : {
+    "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la Station, ou la signature de l'ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When off, the image is deleted right away: the home screen shows a preview requested from the console, or the computer's signature."
+            "value" : "When off, the image is deleted right away: the home screen shows a preview requested from the Station, or the computer's signature."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur."
+            "value" : "Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la Station, ou la signature de l'ordinateur."
           }
         }
       }
@@ -1510,7 +1526,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Fingerprint verified by the link"
+            "value" : "Fingerprint verified by the pairing link"
           }
         },
         "fr" : {
@@ -2001,18 +2017,34 @@
         }
       }
     },
-    "KyberNow" : {
+    "KyberNow Admin peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow"
+            "value" : "KyberNow Admin can block it in either direction (Settings › Keyboard, gamepads and clipboard)."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow"
+            "value" : "KyberNow Admin peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)."
+          }
+        }
+      }
+    },
+    "KyberNow Link" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link"
           }
         }
       }
@@ -2225,66 +2257,34 @@
         }
       }
     },
-    "La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour)." : {
+    "La Station ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Each computer's KyberNow console announces itself on the local network (Bonjour)."
+            "value" : "The Station at %@:%u is not responding. Check the address, the port, and that the computer is on."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour)."
+            "value" : "La Station ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé."
           }
         }
       }
     },
-    "La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)." : {
+    "La manette pilote KyberNow Link" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The computer's console can block it in either direction (Settings › Keyboard, gamepads and clipboard)."
+            "value" : "The gamepad controls KyberNow Link"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers)."
-          }
-        }
-      }
-    },
-    "La console ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The console at %@:%u is not responding. Check the address, the port, and that the computer is on."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La console ne répond pas à %@:%u. Vérifiez l'adresse, le port, et que l'ordinateur est allumé."
-          }
-        }
-      }
-    },
-    "La manette pilote KyberNow" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The gamepad controls KyberNow"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "La manette pilote KyberNow"
+            "value" : "La manette pilote KyberNow Link"
           }
         }
       }
@@ -2422,7 +2422,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The link contains the computer's address, port and certificate fingerprint: the connection is secure from the very first time, no questions asked."
+            "value" : "The pairing link contains the computer's address, port and certificate fingerprint: the connection is secure from the very first time, no questions asked."
           }
         },
         "fr" : {
@@ -2438,7 +2438,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The computer's link or announcement contained its certificate fingerprint, and it matches the certificate it presents."
+            "value" : "The computer's pairing link or announcement contained its certificate fingerprint, and it matches the certificate it presents."
           }
         },
         "fr" : {
@@ -2513,34 +2513,34 @@
         }
       }
     },
-    "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN." : {
+    "Le port d'Admin s'affiche à la fin de l'installation de KyberNow Station sur l'ordinateur, et dans KyberNow Admin lui-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The console port is shown at the end of the installation on the computer, and in the console itself. The app reads everything else from there: stream port, name and graphics card. Over a VPN (Tailscale, WireGuard…), use the computer's address on the VPN."
+            "value" : "The Admin port is shown at the end of the KyberNow Station installation on the computer, and in KyberNow Admin itself. The app reads everything else from there: stream port, name and graphics card. Over a VPN (Tailscale, WireGuard…), use the computer's address on the VPN."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."
+            "value" : "Le port d'Admin s'affiche à la fin de l'installation de KyberNow Station sur l'ordinateur, et dans KyberNow Admin lui-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."
           }
         }
       }
     },
-    "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow" : {
+    "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@'s sound is not restored yet: it will come back the next time KyberNow starts"
+            "value" : "%@'s sound is not restored yet: it will come back the next time KyberNow Station starts"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow"
+            "value" : "Le son de %@ n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station"
           }
         }
       }
@@ -2625,18 +2625,18 @@
         }
       }
     },
-    "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante." : {
+    "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow Link attend la stable suivante." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "New features before everyone else, sometimes less stable. A newer stable version is always offered; turning this off does not roll back, KyberNow waits for the next stable version."
+            "value" : "New features before everyone else, sometimes less stable. A newer stable version is always offered; turning this off does not roll back, KyberNow Link waits for the next stable version."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante."
+            "value" : "Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow Link attend la stable suivante."
           }
         }
       }
@@ -2673,18 +2673,18 @@
         }
       }
     },
-    "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow" : {
+    "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%@'s displays are not responding yet: they will come back the next time KyberNow starts"
+            "value" : "%@'s displays are not responding yet: they will come back the next time KyberNow Station starts"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow"
+            "value" : "Les écrans de %@ ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow Station"
           }
         }
       }
@@ -3201,18 +3201,18 @@
         }
       }
     },
-    "Port de la console" : {
+    "Port d'Admin" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Console port"
+            "value" : "Admin port"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Port de la console"
+            "value" : "Port d'Admin"
           }
         }
       }
@@ -3345,18 +3345,18 @@
         }
       }
     },
-    "QR code de sa console" : {
+    "QR code d'appairage" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "QR code from its console"
+            "value" : "Pairing QR code"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "QR code de sa console"
+            "value" : "QR code d'appairage"
           }
         }
       }
@@ -3553,18 +3553,18 @@
         }
       }
     },
-    "Relancez KyberNow pour changer de langue." : {
+    "Relancez KyberNow Link pour changer de langue." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Relaunch KyberNow to change the language."
+            "value" : "Relaunch KyberNow Link to change the language."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Relancez KyberNow pour changer de langue."
+            "value" : "Relancez KyberNow Link pour changer de langue."
           }
         }
       }
@@ -4689,18 +4689,18 @@
         }
       }
     },
-    "Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**." : {
+    "Votre ordinateur prouve son identité avec un certificat que KyberNow Station a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche KyberNow Admin, dans **Appareils**." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your computer proves its identity with a certificate KyberNow created during installation. Compare its fingerprint with the one shown in the computer's console, under **Devices**."
+            "value" : "Your computer proves its identity with a certificate KyberNow Station created during installation. Compare its fingerprint with the one shown in KyberNow Admin, under **Devices**."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**."
+            "value" : "Votre ordinateur prouve son identité avec un certificat que KyberNow Station a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche KyberNow Admin, dans **Appareils**."
           }
         }
       }

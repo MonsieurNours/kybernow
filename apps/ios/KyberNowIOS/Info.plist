@@ -52,9 +52,9 @@
 		<string>_kybernow._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>KyberNow lit le QR code affiché par la console de votre ordinateur.</string>
+	<string>KyberNow Link lit le QR code affiché dans KyberNow Admin.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
+	<string>KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

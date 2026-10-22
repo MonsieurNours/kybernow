@@ -35,7 +35,8 @@ use crate::panel::Panel;
 use crate::services::{self, ADMIN, KYBER, State};
 use crate::{password, startup};
 
-const TITLE: &str = "KyberNow";
+/// Nom affiché : infobulle, boîtes de message, première ligne du menu.
+pub const TITLE: &str = "KyberNow Station";
 
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -261,7 +262,7 @@ pub fn run() -> Result<()> {
         }
     };
 
-    let status = MenuItem::new("KyberNow", false, None);
+    let status = MenuItem::new(TITLE, false, None);
     let session = MenuItem::new(t("tray.session.wait", &[]), false, None);
     let open = MenuItem::new(t("tray.menu.openConsole", &[]), true, None);
     let updates = MenuItem::new(t("tray.menu.updates", &[]), true, None);

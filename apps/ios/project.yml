@@ -1,4 +1,4 @@
-# Projet Xcode de l'app KyberNow pour l'iPhone et l'iPad (généré par
+# Projet Xcode de l'app KyberNow Link pour l'iPhone et l'iPad (généré par
 # XcodeGen : `xcodegen generate`). Avant le premier build :
 # ../core/scripts/build-apple.sh --target aarch64-apple-ios (et
 # --target aarch64-apple-ios-sim : libkynput pour iOS), puis
@@ -92,8 +92,8 @@ targets:
           - CFBundleURLName: fr.leslignesclaires.kybernow.pairing
             CFBundleURLSchemes: [kybernow]
         NSBonjourServices: [_kybernow._tcp]
-        NSLocalNetworkUsageDescription: KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.
-        NSCameraUsageDescription: KyberNow lit le QR code affiché par la console de votre ordinateur.
+        NSLocalNetworkUsageDescription: KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.
+        NSCameraUsageDescription: KyberNow Link lit le QR code affiché dans KyberNow Admin.
         UIUserInterfaceStyle: Dark
         UIRequiredDeviceCapabilities: [arm64]
         UILaunchScreen:

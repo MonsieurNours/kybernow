@@ -1,7 +1,8 @@
-# Vérifications de chaque push et pull request vers main : console, icône et
-# installateur (tests sur macOS, compilation pour Windows), interfaces Svelte,
-# scripts (shellcheck, banc de update.ps1), app Apple TV (simulateur, sans
-# signature). Voir docs/releases.md, « Intégration continue ».
+# Vérifications de chaque push et pull request vers main : KyberNow Admin,
+# icône et installateur de la Station (tests sur macOS, compilation pour
+# Windows), interfaces Svelte, scripts (shellcheck, banc de update.ps1), app
+# Apple TV (simulateur, sans signature). Voir docs/releases.md, « Intégration
+# continue ».
 #
 # L'app Mac n'est pas compilée ici : elle lie le SDK client de Kyber et VLC
 # (apps/macos/Vendor, 88 Mo, compilés depuis les sources de Kyber par
@@ -33,7 +34,7 @@ env:
 
 jobs:
   rust:
-    name: Console, icône, installateur
+    name: Admin, icône, installateur
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +51,7 @@ jobs:
             server/admin
             server/installer
             server/tray
-      - name: Tests de la console
+      - name: Tests d'Admin
         working-directory: server/admin
         run: cargo test --locked
       - name: Tests de l'installateur
@@ -58,7 +59,7 @@ jobs:
         run: cargo test --locked
       # Sans server/web/dist ni ui/dist (allow_missing) : on vérifie le code
       # Windows, pas l'interface embarquée (job web).
-      - name: Console pour Windows
+      - name: Admin pour Windows
         working-directory: server/admin
         run: cargo check --locked --target x86_64-pc-windows-gnu
       - name: Installateur pour Windows (avec l'interface)

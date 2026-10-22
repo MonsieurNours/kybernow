@@ -1,7 +1,7 @@
 //! Mises à jour d'une app : la dernière version publiée sur GitHub, sur son
 //! canal (stable, ou bêta : aussi les préversions), vérifiée par le manifeste
 //! signé de la version (`kybernow-release.json` et sa signature minisign),
-//! comme la console (`server/admin/src/update`), avec la même clé publique.
+//! comme la Station (`server/admin/src/update`), avec la même clé publique.
 //!
 //! Rien n'est proposé sans signature valide, et le fichier téléchargé doit
 //! avoir exactement la taille et l'empreinte SHA-256 du manifeste.
@@ -122,9 +122,37 @@ fn verify(json: &[u8], minisig: &str) -> Result<Manifest, String> {
     Ok(m)
 }
 
+/// Le premier nom de `files` (du plus récent au plus ancien) qui remplit
+/// `ok` : un installateur renommé reste publié sous son ancien nom pendant
+/// quelques versions, et une version plus ancienne n'a que l'ancien.
+fn pick<'a>(files: &[&'a str], ok: impl Fn(&str) -> bool) -> Option<&'a str> {
+    files.iter().copied().find(|f| ok(f))
+}
+
+fn version_of(r: &serde_json::Value) -> String {
+    r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string()
+}
+
+fn has_asset(r: &serde_json::Value, name: &str) -> bool {
+    r["assets"].as_array().is_some_and(|a| a.iter().any(|x| x["name"] == name))
+}
+
+/// La version la plus récente du canal qui publie l'un des noms de `files`
+/// (une version sans lui, serveur seulement par exemple, ne masque pas la
+/// précédente).
+fn latest<'a>(list: &'a [serde_json::Value], channel: Channel, files: &[&str]) -> Option<&'a serde_json::Value> {
+    list.iter()
+        .filter(|r| r["draft"].as_bool() != Some(true))
+        .filter(|r| channel == Channel::Beta || r["prerelease"].as_bool() != Some(true))
+        .filter(|r| valid_version(&version_of(r)))
+        .filter(|r| pick(files, |f| has_asset(r, f)).is_some())
+        .reduce(|best, r| if newer(&version_of(r), &version_of(best)) { r } else { best })
+}
+
 /// La version la plus récente du canal, si elle est plus récente que
-/// `current` et publie `file` ; vérifiée par le manifeste signé.
-pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Available>, String> {
+/// `current` et publie l'un des noms de `files` (le nom actuel d'abord, puis
+/// les anciens) ; vérifiée par le manifeste signé.
+pub fn check(current: &str, channel: Channel, files: &[&str]) -> Result<Option<Available>, String> {
     let url = format!("https://api.github.com/repos/{REPO}/releases?per_page=30");
     let resp = agent()
         .get(&url)
@@ -137,18 +165,7 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
         .read_to_end(&mut body)
         .map_err(|e| e.to_string())?;
     let list: Vec<serde_json::Value> = serde_json::from_slice(&body).map_err(|e| t("update.github_invalid", &[("error", &e.to_string())]))?;
-    let version_of = |r: &serde_json::Value| r["tag_name"].as_str().unwrap_or("").trim_start_matches('v').to_string();
-    let has_file = |r: &serde_json::Value| r["assets"].as_array().is_some_and(|a| a.iter().any(|x| x["name"] == file));
-    // La plus récente qui publie l'installateur de cette plateforme (une
-    // version sans lui, serveur seulement par exemple, ne masque pas la précédente).
-    let best = list
-        .iter()
-        .filter(|r| r["draft"].as_bool() != Some(true))
-        .filter(|r| channel == Channel::Beta || r["prerelease"].as_bool() != Some(true))
-        .filter(|r| valid_version(&version_of(r)))
-        .filter(|r| has_file(r))
-        .reduce(|best, r| if newer(&version_of(r), &version_of(best)) { r } else { best });
-    let Some(release) = best else { return Ok(None) };
+    let Some(release) = latest(&list, channel, files) else { return Ok(None) };
     let version = version_of(release);
     if !newer(&version, current) {
         return Ok(None);
@@ -161,7 +178,7 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
     let (Some(murl), Some(surl)) = (asset(MANIFEST), asset(SIGNATURE)) else {
         return Err(t("update.no_manifest", &[("version", &version)]));
     };
-    let Some(furl) = asset(file) else {
+    let Some(published) = pick(files, |f| asset(f).is_some()) else {
         // Version sans app pour cette plateforme : rien à proposer.
         return Ok(None);
     };
@@ -172,7 +189,13 @@ pub fn check(current: &str, channel: Channel, file: &str) -> Result<Option<Avail
     if manifest.channel == Channel::Beta && channel == Channel::Stable {
         return Ok(None);
     }
-    let entry = manifest.files.get(file).ok_or_else(|| t("update.file_missing", &[("file", file), ("version", &version)]))?;
+    // Le nom actuel s'il est publié et signé, sinon l'ancien (manifeste d'une
+    // version d'avant le renommage).
+    let file = pick(files, |f| asset(f).is_some() && manifest.files.contains_key(f))
+        .ok_or_else(|| t("update.file_missing", &[("file", published), ("version", &version)]))?;
+    let (Some(furl), Some(entry)) = (asset(file), manifest.files.get(file)) else {
+        return Err(t("update.file_missing", &[("file", file), ("version", &version)]));
+    };
     let body = release["body"].as_str().unwrap_or("").to_string();
     Ok(Some(Available {
         version,
@@ -239,6 +262,62 @@ mod tests {
     fn signature_refusee() {
         assert!(verify(b"{}", "nimporte quoi").is_err());
     }
+
+    const NOMS: &[&str] = &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe"];
+
+    fn release(tag: &str, assets: &[&str]) -> serde_json::Value {
+        let assets: Vec<serde_json::Value> = assets.iter().map(|n| serde_json::json!({ "name": n })).collect();
+        serde_json::json!({ "tag_name": tag, "draft": false, "prerelease": false, "assets": assets })
+    }
+
+    #[test]
+    fn nouveau_nom_d_abord() {
+        // Version de transition : les deux noms, on prend le nouveau.
+        let both = ["KyberNow-Client-Setup.exe", "KyberNow-Link-Setup.exe"];
+        assert_eq!(pick(NOMS, |f| both.contains(&f)), Some("KyberNow-Link-Setup.exe"));
+        // Version d'avant le renommage : l'ancien seulement.
+        assert_eq!(pick(NOMS, |f| f == "KyberNow-Client-Setup.exe"), Some("KyberNow-Client-Setup.exe"));
+        // Version sans app Windows.
+        assert_eq!(pick(NOMS, |f| f == "KyberNow-Station-Setup.exe"), None);
+        assert_eq!(pick(&[], |_| true), None);
+    }
+
+    #[test]
+    fn repli_sur_l_ancien_nom() {
+        // Le nouveau nom est publié mais absent d'un manifeste plus ancien :
+        // on retombe sur l'ancien, s'il est signé.
+        let assets = ["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe"];
+        let signed = ["KyberNow-Client-Setup.exe"];
+        let ok = |f: &str| assets.contains(&f) && signed.contains(&f);
+        assert_eq!(pick(NOMS, ok), Some("KyberNow-Client-Setup.exe"));
+    }
+
+    #[test]
+    fn version_la_plus_recente_sous_l_un_des_noms() {
+        let list = vec![
+            release("v0.3.0", &["KyberNow-Client-Setup.exe", "kybernow-release.json"]),
+            release("v0.3.2", &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe", "kybernow-release.json"]),
+            release("v0.3.1", &["KyberNow-Client-Setup.exe", "kybernow-release.json"]),
+            // Serveur seulement : ne masque pas les précédentes.
+            release("v0.3.3", &["KyberNow-Station-Setup.exe", "kybernow-release.json"]),
+        ];
+        assert_eq!(latest(&list, Channel::Stable, NOMS).map(version_of).as_deref(), Some("0.3.2"));
+        // Une installation qui ne connaît que l'ancien nom trouve aussi la 0.3.2.
+        assert_eq!(latest(&list, Channel::Stable, &["KyberNow-Client-Setup.exe"]).map(version_of).as_deref(), Some("0.3.2"));
+        // Plus tard, l'ancien nom n'est plus publié : la nouvelle app la trouve encore.
+        let later = vec![release("v0.5.0", &["KyberNow-Link-Setup.exe"]), release("v0.3.1", &["KyberNow-Client-Setup.exe"])];
+        assert_eq!(latest(&later, Channel::Stable, NOMS).map(version_of).as_deref(), Some("0.5.0"));
+        assert_eq!(latest(&later, Channel::Stable, &["KyberNow-Station-Setup.exe"]), None);
+    }
+
+    #[test]
+    fn preversions_sur_le_canal_beta_seulement() {
+        let mut beta = release("v0.4.0", &["KyberNow-Link-Setup.exe"]);
+        beta["prerelease"] = serde_json::json!(true);
+        let list = vec![beta, release("v0.3.1", &["KyberNow-Client-Setup.exe"])];
+        assert_eq!(latest(&list, Channel::Stable, NOMS).map(version_of).as_deref(), Some("0.3.1"));
+        assert_eq!(latest(&list, Channel::Beta, NOMS).map(version_of).as_deref(), Some("0.4.0"));
+    }
 }
 
 #[cfg(test)]
@@ -247,9 +326,9 @@ mod live {
     #[test]
     #[ignore]
     fn derniere_version_signee() {
-        let a = super::check("0.0.1", super::Channel::Stable, "KyberNow-macOS.zip").unwrap().unwrap();
+        let a = super::check("0.0.1", super::Channel::Stable, &["KyberNow-macOS.zip"]).unwrap().unwrap();
         assert!(super::valid_version(&a.version));
         assert_eq!(a.sha256.len(), 64);
-        assert!(super::check(&a.version, super::Channel::Stable, "KyberNow-macOS.zip").unwrap().is_none());
+        assert!(super::check(&a.version, super::Channel::Stable, &["KyberNow-macOS.zip"]).unwrap().is_none());
     }
 }

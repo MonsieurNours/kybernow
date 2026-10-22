@@ -169,7 +169,7 @@ private struct NetworkTab: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("La console KyberNow de chaque ordinateur s'annonce sur le réseau local (Bonjour).")
+                Text("Chaque ordinateur équipé de KyberNow Station s'annonce sur le réseau local (Bonjour).")
                     .font(Theme.sans(13)).foregroundStyle(Theme.muted)
             }
             ForEach(discovery.found.filter { resolved[$0.id] != nil }) { f in
@@ -194,7 +194,7 @@ private struct NetworkTab: View {
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(known ? Theme.line : Theme.accentLine))
             }
             if resolved.isEmpty, searched {
-                Text("Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa console n'est pas encore à jour : passez par l'onglet Par adresse.")
+                Text("Aucun ordinateur trouvé pour l'instant. Il est peut-être sur un autre réseau (VPN), ou sa Station n'est pas encore à jour : passez par l'onglet Par adresse.")
                     .font(Theme.sans(13)).foregroundStyle(Theme.faint).padding(.top, 6)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -224,9 +224,9 @@ private struct AddressTab: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 14) {
                 LabeledField(label: String(localized: "Adresse de l'ordinateur"), text: $address, prompt: String(localized: "ex. 192.168.1.100"), mono: true)
-                LabeledField(label: String(localized: "Port de la console"), text: $port, prompt: String(localized: "ex. 37462"), mono: true).frame(width: 170)
+                LabeledField(label: String(localized: "Port d'Admin"), text: $port, prompt: String(localized: "ex. 37462"), mono: true).frame(width: 170)
             }
-            Notice(kind: .info, text: String(localized: "Le port de la console s'affiche à la fin de l'installation sur l'ordinateur, et dans la console elle-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."))
+            Notice(kind: .info, text: String(localized: "Le port d'Admin s'affiche à la fin de l'installation de KyberNow Station sur l'ordinateur, et dans KyberNow Admin lui-même. L'app y lit tout le reste : port du flux, nom et carte graphique. Par VPN (Tailscale, WireGuard…), utilisez l'adresse de l'ordinateur dans le VPN."))
             Spacer(minLength: 0)
             HStack {
                 Spacer()
@@ -264,7 +264,7 @@ private struct LinkTab: View {
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.line))
             VStack(alignment: .leading, spacing: 14) {
-                (Text("Dans la console de l'ordinateur, ouvrez ") + Text("Appareils").fontWeight(.semibold).foregroundColor(Theme.text) + Text(", puis présentez le QR code devant la caméra."))
+                (Text("Dans KyberNow Admin, ouvrez ") + Text("Appareils").fontWeight(.semibold).foregroundColor(Theme.text) + Text(", puis présentez le QR code devant la caméra."))
                     .font(Theme.sans(15)).foregroundStyle(Theme.text2)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
@@ -272,7 +272,7 @@ private struct LinkTab: View {
                     Text("OU").font(Theme.sans(12)).tracking(1).foregroundStyle(Theme.faint)
                     Rectangle().fill(Theme.line).frame(height: 1)
                 }
-                LabeledField(label: String(localized: "Collez le lien copié depuis la console"), text: $link, prompt: "kybernow://192.168.1.100:37462?fp=sha256:…", mono: true)
+                LabeledField(label: String(localized: "Collez le lien copié depuis KyberNow Admin"), text: $link, prompt: "kybernow://192.168.1.100:37462?fp=sha256:…", mono: true)
                     .onSubmit(useLink)
                 if invalid {
                     Text("Ce n'est pas un lien KyberNow.").font(Theme.sans(12)).foregroundStyle(Theme.warn)
@@ -469,10 +469,10 @@ private struct VerifyAndAccount: View {
         if !probed {
             HStack(spacing: 10) {
                 ProgressView().controlSize(.small)
-                Text("Connexion à la console…").font(Theme.sans(14)).foregroundStyle(Theme.muted)
+                Text("Connexion à la Station…").font(Theme.sans(14)).foregroundStyle(Theme.muted)
             }
         } else if seen == nil {
-            Notice(kind: .danger, text: String(localized: "La console ne répond pas à \(candidate.address):\(candidate.port). Vérifiez l'adresse, le port, et que l'ordinateur est allumé."))
+            Notice(kind: .danger, text: String(localized: "La Station ne répond pas à \(candidate.address):\(candidate.port). Vérifiez l'adresse, le port, et que l'ordinateur est allumé."))
             Spacer()
             HStack { Spacer(); Button("Retour") { step = .find }.buttonStyle(GhostButton(height: 44)) }
         } else if verified {
@@ -485,7 +485,7 @@ private struct VerifyAndAccount: View {
             Spacer()
             actions(primary: String(localized: "Continuer")) { step = .account }
         } else {
-            Text("Votre ordinateur prouve son identité avec un certificat que KyberNow a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche la console de l'ordinateur, dans **Appareils**.")
+            Text("Votre ordinateur prouve son identité avec un certificat que KyberNow Station a créé pendant l'installation. Comparez son empreinte avec celle qu'affiche KyberNow Admin, dans **Appareils**.")
                 .font(Theme.sans(15)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             FingerprintBox(fingerprint: seen ?? "")
             if mismatch {
@@ -501,7 +501,7 @@ private struct VerifyAndAccount: View {
     // Étape 2 : le compte.
     @ViewBuilder private var account: some View {
         Text("Votre compte KyberNow").font(Theme.display(28)).foregroundStyle(Theme.text)
-        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans la console, page **Accès**, section **Comptes**.")
+        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**.")
             .font(Theme.sans(15)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
         LabeledField(label: String(localized: "Identifiant"), text: $username)
         LabeledField(label: String(localized: "Mot de passe"), text: $password, secure: true)

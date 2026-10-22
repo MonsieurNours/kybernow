@@ -1,7 +1,8 @@
 <!--
   Symbole KyberNow v2, en trois états (brand/v2/mark) : « console » (la
-  couture seule, ici par défaut), « server » (la moitié haute en signal),
-  « now » (la moitié basse). `lit` allume la couture en néon.
+  couture seule, ici par défaut ; KyberNow Admin), « server » (la moitié
+  haute en signal ; KyberNow Station), « now » (la moitié basse ; KyberNow
+  Link). `lit` allume la couture en néon.
 -->
 <script lang="ts">
   let {

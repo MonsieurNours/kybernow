@@ -1,4 +1,4 @@
-//! Client de la console KyberNow (kyber-admin) : les routes `/api/stream/*`
+//! Client de KyberNow Admin (kyber-admin) : les routes `/api/stream/*`
 //! que les apps appellent pendant une session, comme `ConsoleClient.swift`.
 //!
 //! Compte : Basic, le même que pour Kyber. Certificat : auto-signé, épinglé
@@ -151,7 +151,7 @@ pub struct AudioInfo {
     pub speakers: bool,
 }
 
-/// L'appareil qui se présente à la console.
+/// L'appareil qui se présente à Admin (`app` : « KyberNow Link 0.3.1 »).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceInfo {
     pub id: String,

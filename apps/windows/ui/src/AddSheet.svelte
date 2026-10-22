@@ -1,7 +1,7 @@
 <!--
-  Ajouter un ordinateur : le trouver (réseau, lien de la console, adresse),
-  puis y avoir accès (code à accepter dans la console, ou compte et mot de passe).
-  Pas de QR code à la caméra : sur un PC, le lien de la console suffit.
+  Ajouter un ordinateur : le trouver (réseau, lien d'Admin, adresse),
+  puis y avoir accès (code à accepter dans Admin, ou compte et mot de passe).
+  Pas de QR code à la caméra : sur un PC, le lien d'Admin suffit.
 -->
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
@@ -42,7 +42,7 @@
   // Code.
   let code = $state<string | null>(null)
   let pairState = $state<'pending' | 'refused' | 'expired'>('pending')
-  // Interrogation de la console : un appel à la fois, relancé 1,5 s après
+  // Interrogation d'Admin : un appel à la fois, relancé 1,5 s après
   // la réponse ; `round` invalide une interrogation dépassée.
   let timer: ReturnType<typeof setTimeout> | null = null
   let round = 0

@@ -37,7 +37,7 @@ pub struct Client {
 impl Client {
     /// `fingerprint` : « sha256:aa:bb:… » (format de `kybernow.json` et de l'appairage).
     pub fn pinned(fingerprint: &str) -> Result<Self> {
-        let fingerprint = parse_fingerprint(fingerprint).context("empreinte de la console illisible")?;
+        let fingerprint = parse_fingerprint(fingerprint).context("empreinte du certificat d'Admin illisible")?;
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let config = rustls::ClientConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
@@ -72,7 +72,7 @@ impl Client {
             Ok(_) => {}
             // Fin de connexion sans close_notify : fréquent, le corps est entier avec Connection: close.
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {}
-            Err(e) => return Err(e).context("lecture de la réponse de la console"),
+            Err(e) => return Err(e).context("lecture de la réponse d'Admin"),
         }
         parse_reply(&raw)
     }

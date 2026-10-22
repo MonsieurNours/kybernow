@@ -245,7 +245,7 @@ private struct SettingsContent: View {
                 InfoTip(label: String(localized: "Pourquoi garder la dernière image ?")) {
                     Text("Le fond de l'accueil").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("À la fin de chaque session, l'app garde une petite image de l'écran de l'ordinateur, sur ce Mac seulement. Elle sert de fond à l'accueil.")
-                    Text("Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la console, ou la signature de l'ordinateur.")
+                    Text("Désactivé, l'image est effacée tout de suite : l'accueil montre un aperçu demandé à la Station, ou la signature de l'ordinateur.")
                 }
                 Spacer()
                 Switch(isOn: Binding(get: { s.keepLastImage }, set: { v in
@@ -385,7 +385,7 @@ private struct SettingsContent: View {
                     InfoTip(label: String(localized: "Manette vue par l'ordinateur")) {
                         Text("Xbox 360 ou fidèle").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                         Text("Xbox 360 : toutes les manettes, PlayStation comprises, passent pour des manettes Xbox 360, celles que tous les jeux reconnaissent. Fidèle : une manette Sony reste une DualShock 4, avec son pavé tactile et sa barre lumineuse pour les jeux qui s'en servent ; certains jeux anciens ne la voient pas.")
-                        Text("Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de la console de l'ordinateur, qui ne reste qu'un défaut pour les autres clients.")
+                        Text("Ce choix prime sur l'option « Toutes les manettes en Xbox 360 » de KyberNow Admin, qui ne reste qu'un défaut pour les autres appareils.")
                     }
                 }
                 Segmented(
@@ -401,7 +401,7 @@ private struct SettingsContent: View {
                 InfoTip(label: String(localized: "Presse-papiers partagé")) {
                     Text("Copier ici, coller là-bas").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
                     Text("Le texte copié sur le Mac se colle sur l'ordinateur, et inversement, jusqu'à 60 Ko. Les images et les fichiers restent de leur côté.")
-                    Text("La console de l'ordinateur peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers).")
+                    Text("KyberNow Admin peut l'interdire dans un sens ou dans l'autre (Réglages › Clavier, manettes et presse-papiers).")
                 }
                 Spacer()
                 Switch(isOn: Binding(get: { s.clipboard }, set: { v in update { $0.clipboard = v } }), label: String(localized: "Presse-papiers partagé"))

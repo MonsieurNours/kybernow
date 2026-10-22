@@ -1,4 +1,4 @@
-<!-- Terminé : l'ordinateur est prêt ; la console sur le téléphone en un scan. -->
+<!-- Terminé : l'ordinateur est prêt ; KyberNow Admin sur le téléphone en un scan. -->
 <script lang="ts">
   import qrcode from 'qrcode-generator'
   import { send } from '../lib/backend'

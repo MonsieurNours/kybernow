@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-core"
-description = "Cœur des clients KyberNow : console, session Kyber, profils, latence, entrées, son"
+description = "Cœur des apps KyberNow Link : Admin, session Kyber, profils, latence, entrées, son"
 build = "build.rs"
 version.workspace = true
 edition.workspace = true

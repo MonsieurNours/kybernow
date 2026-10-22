@@ -78,7 +78,7 @@ mod ui {
         let _ = std::env::set_current_dir(std::env::temp_dir());
         sys::init_log("setup-ui");
         let payload = arg("--payload");
-        let webview_data = arg("--webview-data").unwrap_or_else(|| std::env::temp_dir().join("KyberNow-Client-Setup-WebView"));
+        let webview_data = arg("--webview-data").unwrap_or_else(|| std::env::temp_dir().join("KyberNow-Link-Setup-WebView"));
 
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
         let proxy = event_loop.create_proxy();

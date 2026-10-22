@@ -1,5 +1,6 @@
 <!--
-  Colonne de gauche : le symbole server, et les quatre étapes. Le symbole
+  Colonne de gauche : le logo signé de KyberNow Station, et les quatre
+  étapes. Le symbole
   immense, en filigrane, se remplit de néon le long de la couture au fil
   des étapes (et de la progression pendant l'installation).
 -->
@@ -7,7 +8,7 @@
   import { send } from './backend'
   import { t } from './i18n/index.svelte'
   import { app, go, stepIndex, STEPS } from './state.svelte'
-  import Mark from './Mark.svelte'
+  import Logo from './Logo.svelte'
 
   const index = $derived(stepIndex())
   const finished = $derived(app.screen === 'done')
@@ -37,11 +38,8 @@
   </div>
 
   <div class="brand">
-    <Mark size={38} state="server" />
-    <div>
-      <span class="disp name"><span>Kyber</span><b>Now</b> <i>Server</i></span>
-      <span class="version">{t('rail.version', { version: __APP_VERSION__ })}</span>
-    </div>
+    <Logo height={46} />
+    <span class="version">{t('rail.version', { version: __APP_VERSION__ })}</span>
   </div>
 
   <ol>
@@ -99,34 +97,9 @@
   .brand {
     position: relative;
     display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .brand > div {
-    display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  .name {
-    font-size: 20px;
-    letter-spacing: -0.01em;
-  }
-
-  .name span {
-    font-weight: 420;
-  }
-
-  .name b {
-    font-weight: 720;
-  }
-
-  .name i {
-    font-style: normal;
-    font-stretch: 100%;
-    font-weight: 400;
-    color: var(--faint);
+    align-items: flex-start;
+    gap: 12px;
   }
 
   .version {

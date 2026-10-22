@@ -1,4 +1,4 @@
-// KyberNow pour macOS.
+// KyberNow Link pour macOS.
 
 import Sparkle
 import KyberKit
@@ -65,9 +65,9 @@ final class AppModel: ObservableObject {
             if closing.displayRestored == true, closing.audioRestored == true, closing.error == nil {
                 self?.show(String(localized: "\(host.name) a retrouvé ses écrans et son son"))
             } else if closing.displayRestored == false {
-                self?.show(String(localized: "Les écrans de \(host.name) ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow"), warning: true)
+                self?.show(String(localized: "Les écrans de \(host.name) ne répondent pas encore : ils reviendront au prochain démarrage de KyberNow Station"), warning: true)
             } else {
-                self?.show(String(localized: "Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow"), warning: true)
+                self?.show(String(localized: "Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station"), warning: true)
             }
         }
         self.session = session
@@ -91,7 +91,7 @@ final class AppModel: ObservableObject {
 /// toujours (sans canal, elle est permise à tous).
 final class UpdateChannels: NSObject, SPUUpdaterDelegate {
     static let shared = UpdateChannels()
-    /// Réglage de l'app (KyberNow › Réglages…), dans `UserDefaults`.
+    /// Réglage de l'app (KyberNow Link › Réglages…), dans `UserDefaults`.
     static let betaKey = "receiveBetaUpdates"
 
     func allowedChannels(for updater: SPUUpdater) -> Set<String> {
@@ -121,7 +121,7 @@ struct KyberNowApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("KyberNow") {
+        WindowGroup("KyberNow Link") {
             Group {
                 #if DEBUG
                 if ProcessInfo.processInfo.environment["KN_STATS_PREVIEW"] != nil {

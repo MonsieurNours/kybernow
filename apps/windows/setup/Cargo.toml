@@ -3,7 +3,7 @@ name = "kybernow-client-setup"
 version = "0.3.1"
 edition = "2024"
 rust-version = "1.89"
-description = "Installateur de l'app KyberNow pour Windows (x64 et ARM64), par utilisateur"
+description = "Installateur de KyberNow Link, l'app Windows (x64 et ARM64), par utilisateur"
 license = "AGPL-3.0-or-later"
 authors = ["Les Lignes Claires"]
 
@@ -20,7 +20,7 @@ path = "src/lib.rs"
 # démarre l'interface. Il sert aussi de désinstalleur et de mise à jour
 # silencieuse (/S /UPDATE), sans WebView2.
 [[bin]]
-name = "KyberNow-Client-Setup"
+name = "KyberNow-Link-Setup"
 path = "src/bin/setup.rs"
 
 # Interface de l'installateur (fenêtre WebView2, app Svelte de ui/).

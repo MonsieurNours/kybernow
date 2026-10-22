@@ -49,7 +49,7 @@
 		<string>_kybernow._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
+	<string>KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

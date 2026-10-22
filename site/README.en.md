@@ -14,19 +14,29 @@ python3 -m http.server 5200 --directory site
 
 | French | English | Contents |
 |---|---|---|
-| `/` | `/en/` | Presentation and downloads |
-| `/guide/` | `/en/guide/` | Step-by-step guide (server, devices: Mac, Windows, Apple TV, iPhone and iPad, browser; VPN, updates, uninstalling) and FAQ |
+| `/` | `/en/` | Presentation, the KyberNow family (Station, Admin, Link) and downloads |
+| `/guide/` | `/en/guide/` | Step-by-step guide (KyberNow Station, then devices with KyberNow Link: Mac, Windows, Apple TV, iPhone and iPad, browser; VPN, updates, uninstalling) and FAQ |
 | `/mentions-legales/` | `/en/legal/` | Publisher, hosting, intellectual property, privacy, credits |
 
 Each page declares its two versions (`<link rel="alternate" hreflang>`). `assets/lang.js`, loaded in `<head>`, sends a visitor whose browser is not in French to the English version (and the other way round), unless they have chosen a language with the selector: that choice is kept in `localStorage` (`kn-lang`). Robots are never redirected. The texts produced by `main.js` (path, simulation, profiles) follow `<html lang>`.
 
 Both languages are written by hand: a text change is carried over to both files.
 
+## Products and logos
+
+KyberNow is the brand; it covers three products, named as in the rest of the repository:
+
+- **KyberNow Station**: the software installed on the Windows computer that streams the image (`KyberNow-Station-Setup.exe`). In the texts, “the Station” after the first mention; “the computer” stays when talking about the machine itself.
+- **KyberNow Admin**: the Station's administration in the browser (“Admin”, with no article, after the first mention).
+- **KyberNow Link**: the apps that display the image (Mac, Windows, Apple TV, iPhone and iPad) and their `/ecran` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-macOS.zip` for the Mac).
+
+The home page presents them in the “The KyberNow family” section (`#famille`, right after “Why”), each with its signed logo (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies from `brand/v2/logo/`). The download cards and the guide's “Before you start” box reuse the Station and Link logos. A signed logo never goes below 32 px high (below that, the signature is no longer legible); the site only has a dark theme, so only the `-dark` versions are copied.
+
 ## Beta
 
 Until KyberNow reaches 1.0, the site says so throughout: a “Beta” badge next to the logo on every page and at the top of the home page (`.beta` class), a “KyberNow is in beta” box in the Download section (`.notice-beta`, `flask` icon), a badge after the version number, and a “Why beta?” FAQ question. At 1.0, remove these elements in both languages.
 
-The Apple TV app has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). Likewise for the iPhone and iPad app: card to “On iPhone and iPad” (`/en/guide/#iphone`), which sums up [apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md). To be revisited once the apps are on TestFlight or the App Store.
+The KyberNow Link app for Apple TV has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). Likewise for the Link app for iPhone and iPad: card to “On iPhone and iPad” (`/en/guide/#iphone`), which sums up [apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md). To be revisited once the apps are on TestFlight or the App Store.
 
 ## Publishing
 
@@ -45,7 +55,7 @@ Goal: a search for remote gaming, remote desktop, self-hosted cloud gaming or an
 - **Platform-agnostic message**: presentation and sharing texts (image, descriptions, structured data, `llms.txt`) say “your computer on all your devices”, never a list of platforms. The actual platforms only appear where you install: the Download section and the guide.
 - **Each page's head**: title and description with the searched words, canonical URL, full Open Graph (type, site name, language and alternate language, 1200 × 630 image with alt text) and a `summary_large_image` Twitter card; `apple-touch-icon.png` for the iPhone and iPad home screen. The legal notice stays `noindex`.
 - **Share images**: `assets/og/kybernow-fr.jpg` and `kybernow-en.jpg`, laid out in HTML in `scripts/site-og/card.html` (the site's fonts, logo and lit symbol) and rendered by `scripts/site-seo.py images` with headless Chrome. Redo them when the message, the measured latency or the platforms change.
-- **Structured data** (JSON-LD): on the home page, `SoftwareApplication` (category, systems, free of charge, licence, download, features, `isBasedOn` Kyber), `WebSite` and `Organization` (Les Lignes Claires), written by hand in both languages; on the guides, `FAQPage`, produced by `scripts/site-seo.py faq` from the visible questions. **Run `scripts/site-seo.py faq` again after any change to the FAQ.**
+- **Structured data** (JSON-LD): on the home page, the “KyberNow” `SoftwareApplication` (category, systems, free of charge, licence, download, features, `isBasedOn` Kyber) with its parts `#station` (KyberNow Station, Windows, which contains the KyberNow Admin `WebApplication`) and `#link` (KyberNow Link, macOS, Windows, tvOS, iOS, iPadOS, browser), `WebSite` and `Organization` (Les Lignes Claires), written by hand in both languages; on the guides, `FAQPage`, produced by `scripts/site-seo.py faq` from the visible questions. **Run `scripts/site-seo.py faq` again after any change to the FAQ.**
 - **Robots**: `robots.txt` opens everything, AI assistants included, and points to `sitemap.xml` (home page and guide, with their language versions; move the `lastmod` date forward when the text changes). `llms.txt` sums KyberNow up for AI assistants (in English, with the measured facts and the comparison): keep it in line with the home page.
 - **Texts**: the Compare section is titled “KyberNow, the alternative to Sunshine + Moonlight”; the FAQ answers “can it replace Sunshine and Moonlight”, “is it cloud gaming”, “playing PC games on a Mac or an Apple TV”. `lang.js` never redirects a robot.
 
@@ -67,7 +77,7 @@ KyberNow Discord server, permanent invitation: https://discord.gg/sVy2mu5WdT (op
 | `assets/icons.svg` | Phosphor 2.1.1 icons (MIT, `assets/PHOSPHOR-LICENSE`) as a sprite |
 | `assets/og/` | Share images, French and English (see “Search and sharing”) |
 | `apple-touch-icon.png`, `robots.txt`, `sitemap.xml`, `llms.txt` | iPhone and iPad icon, robots, sitemap, summary for AI assistants |
-| `assets/img/` | Logo and symbols (copies from `brand/v2/`) |
+| `assets/img/` | Copies from `brand/v2/`: logo (`kybernow-logo-dark.svg`), signed logos of the three products (`kybernow-{station,admin,link}-dark.svg`), symbols (`kybernow-mark-now-dark.svg` for the iPhone and iPad icon, `kybernow-mark-now-lit-dark.svg` without WebGL and for the share image) |
 | `fonts/` | Archivo and Martian Mono (OFL) |
 | `vendor/three/` | Three.js r170 (MIT): `three.module.min.js` and the few example modules used (bloom, SVGLoader, RoomEnvironment) |
 | `updates/appcast.xml` | Update feed of the Mac app (see "Updating") |
@@ -78,7 +88,7 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 
 - Neon lit only in active moments: one-second ignition on arrival, image stream, path measurement, re-ignition on download. Off in the reading sections.
 - On a phone, the 3D symbol moves to the top of the screen, smaller (`MOBILE` in `scene.js`), so it never goes under the text.
-- A single main button per view; in the download section, it follows the visitor's system (Mac: the app, Windows: the installer, tablet, phone and everything else: the `/ecran` web client).
+- A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/ecran`).
 - No resolution or refresh rate limit announced: the site talks about “your display's resolution and refresh rate”. The only numbers are those of a measurement, presented as such.
 - “Reduce motion”: the symbol no longer travels, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.
 - Without WebGL: the lit symbol as SVG instead of the scene.

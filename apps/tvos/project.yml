@@ -1,4 +1,4 @@
-# Projet Xcode de l'app KyberNow pour l'Apple TV (généré par XcodeGen :
+# Projet Xcode de l'app KyberNow Link pour l'Apple TV (généré par XcodeGen :
 # `xcodegen generate`). Avant le premier build : scripts/build-kyber-tvos.sh
 # (SDK client de Kyber compilé pour tvOS, dans Vendor/), puis
 # ../apple/scripts/build-apple-mobile.sh tvos (le cœur Rust, KyberNow.xcframework).
@@ -85,7 +85,7 @@ targets:
           - CFBundleURLName: fr.leslignesclaires.kybernow.tv
             CFBundleURLSchemes: [kybernow-tv]
         NSBonjourServices: [_kybernow._tcp]
-        NSLocalNetworkUsageDescription: KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte.
+        NSLocalNetworkUsageDescription: KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte.
         UIUserInterfaceStyle: Dark
         UIRequiredDeviceCapabilities: [arm64]
         GCSupportsControllerUserInteraction: true

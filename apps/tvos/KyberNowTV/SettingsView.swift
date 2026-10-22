@@ -281,7 +281,7 @@ struct SettingsView: View {
         }
         // Langue de l'app (docs/i18n.md) : prise en compte à la relance.
         seg("language", String(localized: "Langue"),
-            language == Self.launchLanguage ? String(localized: "Auto : la langue de l'Apple TV ; pour KyberNow seulement") : String(localized: "Relancez KyberNow pour changer de langue."),
+            language == Self.launchLanguage ? String(localized: "Auto : la langue de l'Apple TV ; pour KyberNow Link seulement") : String(localized: "Relancez KyberNow Link pour changer de langue."),
             LanguageChoice.allCases.map { ($0.rawValue, $0.label) }, language.rawValue) { v in
             language = LanguageChoice(rawValue: v) ?? .auto
             LanguageChoice.current = language

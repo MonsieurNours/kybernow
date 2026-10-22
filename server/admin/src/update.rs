@@ -195,9 +195,12 @@ impl Updater {
             "page": latest.map(|r| r.page.clone()),
             // Manifeste signé vérifié, compatible, paquet présent.
             "installable": latest.is_some_and(Release::installable),
-            // Paquet refusé (signature, canal, version) ou à installer avec KyberNow-Server-Setup.exe.
+            // Paquet refusé (signature, canal, version) ou à installer avec l'installateur.
             "verify_error": refusal.map(|r| r.message().render(lang)),
             "requires_setup": matches!(refusal, Some(Refusal::Setup(_))),
+            // Nom de l'installateur à télécharger : celui que liste le manifeste
+            // signé (l'ancien nom pour une version publiée avant le renommage).
+            "setup": latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::SETUP, Manifest::setup_installer),
             "checked_seconds_ago": s.checked.map(|t| t.elapsed().as_secs()),
             "error": s.error.as_ref().map(|e| i18n::error_text(lang, e)),
             "installing": s.installing,
@@ -621,7 +624,7 @@ mod tests {
         assert!(Updater::new(&dir).status()["last_failure"].is_null());
         std::fs::write(dir.join("update").join(RESULT), failed(true)).unwrap();
         let error = Updater::new(&dir).status()["install_error"].as_str().unwrap().to_string();
-        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Server-Setup.exe"), "{error}");
+        assert!(error.contains("n'a pas abouti") && error.contains("KyberNow-Station-Setup.exe"), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -674,6 +677,7 @@ mod tests {
         assert_eq!(status["available"], true);
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], false);
+        assert_eq!(status["setup"], manifest::SETUP);
         assert!(status["verify_error"].as_str().unwrap().contains("pas signée"), "{status}");
         assert_eq!(status["channel"], "stable");
         assert!(status["rollback"].is_null());
@@ -702,10 +706,22 @@ mod tests {
         let status = updater.status();
         assert_eq!(status["installable"], false);
         assert_eq!(status["requires_setup"], true);
-        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Server-Setup.exe"));
+        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Station-Setup.exe"));
+        assert_eq!(status["setup"], "KyberNow-Station-Setup.exe");
         // Signée : l'icône la signale (pour réinstaller).
         assert_eq!(updater.available().as_deref(), Some("99.0.0"));
         assert!(updater.install().is_err());
+        // Manifeste d'avant le renommage : l'ancien nom de l'installateur.
+        let mut r = release("99.0.0");
+        let mut m = manifest::tests::sample("99.0.0", Channel::Stable);
+        m.files.remove(manifest::SETUP);
+        m.requires_setup = true;
+        r.refusal = m.check("99.0.0", Channel::Stable, current()).err();
+        r.manifest = Some(m);
+        updater.state.lock().unwrap().latest = Some(r);
+        let status = updater.status();
+        assert_eq!(status["setup"], "KyberNow-Server-Setup.exe");
+        assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Server-Setup.exe"), "{status}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

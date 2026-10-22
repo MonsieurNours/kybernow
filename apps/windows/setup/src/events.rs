@@ -32,7 +32,7 @@ pub enum Event {
     Check { id: String, status: CheckStatus, title: String, detail: String },
     ChecksDone {
         arch: Arch,
-        /// Version de KyberNow déjà installée (mise à jour).
+        /// Version de KyberNow Link déjà installée (mise à jour).
         existing: Option<String>,
         /// L'app est ouverte : elle sera fermée au moment d'installer.
         running: bool,

@@ -1,4 +1,4 @@
-//! Icônes de la zone de notification, tirées de `kybernow.ico` à la taille
+//! Icônes de KyberNow Station dans la zone de notification, tirées de `kybernow.ico` à la taille
 //! demandée par Windows, avec une pastille selon l'état.
 
 use anyhow::{Context, Result};
@@ -16,13 +16,13 @@ const BUSY: [u8; 3] = [0xf5, 0xb9, 0x42];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Look {
-    /// Serveur en marche, aucune session.
+    /// Station en marche, aucune session.
     Running,
     /// Un appareil est connecté.
     Session,
     /// Démarrage, arrêt ou redémarrage en cours.
     Busy,
-    /// Serveur arrêté : icône grisée.
+    /// Station arrêtée : icône grisée.
     Stopped,
 }
 
@@ -142,7 +142,7 @@ fn badge(px: &mut [u8], size: u32, color: [u8; 3]) {
     }
 }
 
-/// Serveur arrêté : niveaux de gris, estompé.
+/// Station arrêtée : niveaux de gris, estompé.
 fn grey(px: &mut [u8]) {
     for p in px.chunks_mut(4) {
         let l = (p[0] as f32 * 0.299 + p[1] as f32 * 0.587 + p[2] as f32 * 0.114) as u8;

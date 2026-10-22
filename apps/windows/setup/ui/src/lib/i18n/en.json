@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "KyberNow Setup"
+    "title": "KyberNow Link Setup"
   },
   "steps": {
     "welcome": "Welcome",
@@ -37,7 +37,7 @@
   },
   "welcome": {
     "updateLabel": "Update",
-    "updateTitle": "A new version of KyberNow.",
+    "updateTitle": "A new version of KyberNow Link.",
     "updateLead": "You are going from version {from} to {to}. Your computers, their passwords and your settings stay where they are.",
     "label": "Welcome",
     "title": "Your computer, on this PC.",
@@ -46,21 +46,21 @@
     "install": "Install",
     "update": "Update",
     "desktop": "Desktop shortcut",
-    "desktopNote": "KyberNow is in the Start menu either way.",
+    "desktopNote": "KyberNow Link is in the Start menu either way.",
     "looking": "Looking at this PC…",
     "seen": "What we found",
     "rerun": "Run again",
-    "willClose": "KyberNow will be closed during installation.",
+    "willClose": "KyberNow Link will be closed during installation.",
     "analysing": "Analysing…"
   },
   "install": {
     "rows": {
       "close": {
-        "title": "Closing KyberNow",
+        "title": "Closing KyberNow Link",
         "text": "The open app closes for the duration of the installation."
       },
       "files": {
-        "title": "The KyberNow {version} app",
+        "title": "The KyberNow Link {version} app",
         "text": "Its files go into your own folder, without touching the rest of the PC.",
         "fact": "{arch} version"
       },
@@ -71,12 +71,12 @@
       },
       "shortcuts": {
         "title": "Start menu and kybernow:// link",
-        "text": "The link or QR code from a computer's console opens KyberNow directly.",
-        "warn": "to redo: open KyberNow once and it registers itself again"
+        "text": "The pairing link or QR code from KyberNow Admin opens KyberNow Link directly.",
+        "warn": "to redo: open KyberNow Link once and it registers itself again"
       },
       "register": {
         "title": "Installed apps",
-        "text": "KyberNow updates itself, and uninstalls like any other app."
+        "text": "KyberNow Link updates itself, and uninstalls like any other app."
       }
     },
     "preparing": "preparing",
@@ -89,7 +89,7 @@
     "failedTitle": "Something got in the way.",
     "finishedTitle": "Everything is in place.",
     "title": "Your computer is coming to this PC.",
-    "installed": "KyberNow {version} is installed.",
+    "installed": "KyberNow Link {version} is installed.",
     "lead": "Nothing to do: we show you each step as it happens.",
     "checkDetail": "to check: see the details",
     "failed": "failed",
@@ -102,9 +102,9 @@
   "done": {
     "updateLabel": "Update complete",
     "installLabel": "Installation complete",
-    "title": "KyberNow is ready.",
+    "title": "KyberNow Link is ready.",
     "updateLead": "Your computers are waiting for you on the home screen, with their settings.",
-    "lead": "Open it: a computer on the same network shows up on its own. Otherwise, add it with the link or QR code from its console, or by its address.",
+    "lead": "Open it: a computer on the same network shows up on its own. Otherwise, add it with the pairing link or QR code from KyberNow Admin, or by its address.",
     "where": "It is also waiting for you in the Start menu. Right-click its icon in the taskbar: your computers, one click away.",
     "whereDesktop": "It is also waiting for you in the Start menu and on the desktop. Right-click its icon in the taskbar: your computers, one click away.",
     "session": "During a session",
@@ -116,7 +116,7 @@
     },
     "bar": "Moving the mouse to the top of the screen shows the session bar.",
     "close": "Close",
-    "open": "Open KyberNow"
+    "open": "Open KyberNow Link"
   },
   "about": {
     "version": "version {version}",
@@ -143,17 +143,17 @@
   },
   "mock": {
     "arm64Title": "ARM64 processor",
-    "arm64": "The ARM64 version of KyberNow will be installed: it runs without emulation, with the chip's video decoding.",
+    "arm64": "The ARM64 version of KyberNow Link will be installed: it runs without emulation, with the chip's video decoding.",
     "x64Title": "x64 processor",
-    "x64": "The x64 version of KyberNow will be installed.",
+    "x64": "The x64 version of KyberNow Link will be installed.",
     "gpu": "{name}: it decodes the picture, for lower latency and longer battery life.",
     "display": "2560 × 1600 · 120 Hz: your computer can take exactly this size during the session.",
-    "network": "192.168.1.20: a computer on this network shows up in KyberNow on its own.",
+    "network": "192.168.1.20: a computer on this network shows up in KyberNow Link on its own.",
     "webviewTitle": "WebView2 display engine",
-    "webview": "Version 141.0.3537.71, by Microsoft: it draws the KyberNow interface.",
-    "existingTitle": "KyberNow 0.2.7 is installed",
+    "webview": "Version 141.0.3537.71, by Microsoft: it draws the KyberNow Link interface.",
+    "existingTitle": "KyberNow Link 0.2.7 is installed",
     "existing": "It will be updated. Your computers, their passwords and your settings stay.",
-    "runningTitle": "KyberNow is open",
+    "runningTitle": "KyberNow Link is open",
     "running": "It will be closed during installation: a session in progress will stop.",
     "failed": "Could not put the files in C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
     "finished": "installation complete"

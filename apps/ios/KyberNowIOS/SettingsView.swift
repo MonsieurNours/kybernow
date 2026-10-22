@@ -785,7 +785,7 @@ private struct SettingsPane: View {
                        : String(localized: "Mot de passe introuvable : retirez puis ajoutez de nouveau l'ordinateur."),
                    host.username, noteColor: hasPassword ? Theme.muted : Theme.warnText)
         rows.value(String(localized: "Adresse"),
-                   host.consoleFingerprint == nil ? String(localized: "Console de l'ordinateur.") : String(localized: "Console de l'ordinateur ; certificat retenu au premier contact."),
+                   host.consoleFingerprint == nil ? String(localized: "Adresse de KyberNow Admin.") : String(localized: "Adresse de KyberNow Admin ; certificat retenu au premier contact."),
                    "\(host.address):\(host.consolePort)")
         rows.value(DeviceDisplay.isPad ? String(localized: "Retirer \(host.name) de cet iPad") : String(localized: "Retirer \(host.name) de cet iPhone"),
                    String(localized: "Ses accès sont effacés d'ici."), "", color: Theme.dangerText) {

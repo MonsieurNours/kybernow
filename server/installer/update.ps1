@@ -1,7 +1,8 @@
-# Mise a jour de KyberNow sur cet ordinateur, sans reinstaller ni changer
-# les ports : Kyber corrige (surcouche), console, icone de la zone de
-# notification, et ce qui va avec (droits des services, haut-parleurs
-# virtuels de Steam, pare-feu).
+# Mise a jour de KyberNow Station sur cet ordinateur, sans reinstaller ni
+# changer les ports : Kyber corrige (surcouche), KyberNow Admin (la console),
+# icone de la zone de notification, et ce qui va avec (droits des services,
+# haut-parleurs virtuels de Steam, pare-feu, raccourcis du menu Demarrer et
+# noms affiches des services).
 #
 # Depuis la 0.2.6, la console n'utilise plus ce script : son applicateur
 # (kyber-admin update apply) verifie le manifeste signe de la version et fait
@@ -118,6 +119,36 @@ function Get-PackageVersion([string]$Package) {
     throw "version du paquet illisible ($text)"
 }
 
+# Langue de l'installation : celle que l'installateur a donnee au nom affiche
+# du service kyber (langue de Windows a l'installation), sinon celle de Windows.
+function Test-French {
+    $current = [string](Get-Service kyber -ErrorAction SilentlyContinue).DisplayName
+    if ($current -match 'serveur') { return $true }
+    if ($current -match 'server') { return $false }
+    return ((Get-UICulture).Name -like 'fr*')
+}
+
+# Noms affiches de KyberNow Station : services (le nom technique kyber /
+# kyber-admin ne change pas) et Applications installees (la cle Uninstall\KyberNow
+# non plus). L'installateur les pose a la creation des services ; une mise a
+# jour ne recree pas les services, d'ou ce rattrapage. Jamais bloquant.
+function Set-DisplayNames([bool]$French) {
+    $eacute = [char]0xE9
+    if ($French) {
+        $kyberName = 'KyberNow Station - serveur de streaming'
+        $kyberDescription = "Serveur de streaming Kyber, install${eacute} et g${eacute}r${eacute} par KyberNow Station."
+    } else {
+        $kyberName = 'KyberNow Station - streaming server'
+        $kyberDescription = 'Kyber streaming server, installed and managed by KyberNow Station.'
+    }
+    sc.exe config kyber DisplayName= $kyberName | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "nom affiche du service kyber inchange (code $LASTEXITCODE)" }
+    sc.exe description kyber $kyberDescription | Out-Null
+    sc.exe config kyber-admin DisplayName= 'KyberNow Admin' | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "nom affiche du service kyber-admin inchange (code $LASTEXITCODE)" }
+    if (Test-Path $uninstallKey) { Set-ItemProperty $uninstallKey -Name DisplayName -Value 'KyberNow Station' }
+}
+
 # Demande a la console qui demarre de relancer l'icone dans la session de l'utilisateur.
 function Request-TrayRelaunch {
     New-Item -ItemType Directory -Force $updates | Out-Null
@@ -164,9 +195,10 @@ try {
         if (-not (Test-Path (Join-Path $pkg $p))) { throw "paquet incomplet : dossier $p absent" }
     }
     $version = Get-PackageVersion $pkg
-    Write-Host "==> KyberNow $version"
+    Write-Host "==> KyberNow Station $version"
+    $french = Test-French
 
-    Write-Host '==> Arret du serveur, de la console, puis de l''icone'
+    Write-Host '==> Arret du serveur Kyber, de KyberNow Admin, puis de l''icone'
     $stopped = $true
     Stop-KyberNow
     $trayWasRunning = [bool](Get-Process kybernow-tray -ErrorAction SilentlyContinue)
@@ -224,11 +256,28 @@ try {
     }
 
     Write-Host '==> Menu Demarrer'
-    $lnk = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\KyberNow\KyberNow.lnk'
-    New-Item -ItemType Directory -Force (Split-Path $lnk) | Out-Null
+    # Le dossier KyberNow reste. Raccourcis renommes avec KyberNow Station :
+    # KyberNow.lnk -> KyberNow Station.lnk (icone), Console KyberNow.url et
+    # KyberNow console.url -> KyberNow Admin.url (meme adresse, ecrite par
+    # l'installateur avec le port de la console).
+    $menu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\KyberNow'
+    New-Item -ItemType Directory -Force $menu | Out-Null
+    $adminUrl = Join-Path $menu 'KyberNow Admin.url'
+    foreach ($old in 'Console KyberNow.url', 'KyberNow console.url') {
+        $oldUrl = Join-Path $menu $old
+        if (-not (Test-Path -LiteralPath $oldUrl)) { continue }
+        if (Test-Path -LiteralPath $adminUrl) {
+            Remove-Item -LiteralPath $oldUrl -Force -ErrorAction SilentlyContinue
+        } else {
+            Move-Item -LiteralPath $oldUrl -Destination $adminUrl -ErrorAction SilentlyContinue
+        }
+    }
+    Remove-Item -LiteralPath (Join-Path $menu 'KyberNow.lnk') -Force -ErrorAction SilentlyContinue
+    $lnk = Join-Path $menu 'KyberNow Station.lnk'
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
     $shortcut.TargetPath = $tray
-    $shortcut.Description = 'KyberNow dans la zone de notification'
+    $trayDescription = if ($french) { 'KyberNow Station dans la zone de notification' } else { 'KyberNow Station in the notification area' }
+    $shortcut.Description = $trayDescription
     $shortcut.Save()
     if (-not $asSystem) {
         # Lancement a l'ouverture de session (HKCU de l'utilisateur, pas celui du systeme).
@@ -240,7 +289,7 @@ try {
         }
     }
 
-    Write-Host '==> Pare-feu : annonce Bonjour de la console (UDP 5353)'
+    Write-Host '==> Pare-feu : annonce Bonjour de KyberNow Admin (UDP 5353)'
     netsh advfirewall firewall delete rule name=KyberNow-bonjour-UDP | Out-Null
     netsh advfirewall firewall add rule name=KyberNow-bonjour-UDP dir=in action=allow protocol=UDP localport=5353 "program=$dir\admin\kyber-admin.exe" profile=private,domain | Out-Null
 
@@ -251,12 +300,12 @@ try {
     # Un echec precedent ne doit pas s'afficher dans la nouvelle console.
     Remove-Item (Join-Path $updates 'resultat.json') -Force -ErrorAction SilentlyContinue
 
-    Write-Host '==> Redemarrage et controle de sante (la console doit repondre en 60 s)'
+    Write-Host '==> Redemarrage et controle de sante (KyberNow Admin doit repondre en 60 s)'
     Start-Service kyber-admin, kyber
     $port = Get-ConsolePort
     if (-not (Test-Console $port 60)) { throw "la nouvelle console ne repond pas sur le port $port apres 60 s" }
     if ((Get-Service kyber).Status -ne 'Running') { throw 'le serveur Kyber ne demarre pas' }
-    Write-Host "    console en ligne sur le port $port"
+    Write-Host "    KyberNow Admin en ligne sur le port $port"
 
     # La nouvelle version tourne : la suite ne doit plus la defaire.
     $swapped.Clear()
@@ -271,6 +320,12 @@ try {
         if (Test-Path $uninstallKey) { Set-ItemProperty $uninstallKey -Name DisplayVersion -Value $version }
     } catch {
         Write-Warning "version non enregistree ($($_.Exception.Message))"
+    }
+    Write-Host '==> Noms affiches (KyberNow Station, KyberNow Admin)'
+    try {
+        Set-DisplayNames $french
+    } catch {
+        Write-Warning "noms affiches inchanges ($($_.Exception.Message))"
     }
     Remove-Item (Join-Path $updates 'resultat.json') -Force -ErrorAction SilentlyContinue
 } catch {
@@ -335,4 +390,4 @@ if ($failure) {
     $what = if ($rolledBack) { 'version precedente remise en place' } else { 'rien n''a ete remplace' }
     throw "Mise a jour non installee ($what) : $failure"
 }
-Write-Host "Mise a jour terminee : KyberNow $version."
+Write-Host "Mise a jour terminee : KyberNow Station $version."

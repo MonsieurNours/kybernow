@@ -1,7 +1,7 @@
 <!--
-  Client web KyberNow (/ecran/) : l'accueil de l'ordinateur, ses réglages, et
-  la session dans le navigateur. Servi par la console, avec sa session : un
-  seul mot de passe, celui de la console.
+  KyberNow Link web (/ecran/) : l'accueil de l'ordinateur, ses réglages, et
+  la session dans le navigateur. Servi par Admin, avec sa session : un
+  seul mot de passe, celui d'Admin.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -22,7 +22,7 @@
   async function load() {
     try {
       session = await backend.session()
-      if (session.hostname) document.title = `${session.hostname} · KyberNow`
+      if (session.hostname) document.title = `${session.hostname} · KyberNow Link`
     } catch {
       loadError = true
     }

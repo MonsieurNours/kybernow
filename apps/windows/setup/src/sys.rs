@@ -17,7 +17,14 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2, 
 
 use crate::payload::Arch;
 
+/// Dossiers de l'app et de ses données : inchangés depuis la première version.
 pub const PRODUCT: &str = "KyberNow";
+/// Nom affiché (« Applications installées », fenêtres et messages).
+pub const DISPLAY_NAME: &str = "KyberNow Link";
+/// Raccourcis du menu Démarrer et du Bureau (posés par l'app, `--setup-shell`).
+const SHORTCUT: &str = "KyberNow Link.lnk";
+/// Nom des raccourcis jusqu'à la 0.3.1 : retiré à l'installation et à la désinstallation.
+const OLD_SHORTCUT: &str = "KyberNow.lnk";
 /// Mutex de l'app ouverte (apps/windows/src/instance.rs).
 const APP_MUTEX: &str = r"Local\KyberNow.App";
 /// Tenu pendant l'installation : l'app rouverte entre-temps attend sa fin.
@@ -51,13 +58,37 @@ pub fn data_dirs() -> [PathBuf; 3] {
     ]
 }
 
-/// Raccourci du menu Démarrer (posé par l'app, `--setup-shell`).
-pub fn start_menu_shortcut() -> PathBuf {
-    env_dir("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs\KyberNow.lnk")
+fn start_menu_dir() -> PathBuf {
+    env_dir("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs")
 }
 
-/// Raccourci du Bureau (le Bureau peut être déplacé, dans OneDrive par exemple).
-pub fn desktop_shortcut() -> Option<PathBuf> {
+/// Menu Démarrer et Bureau.
+fn shortcut_dirs() -> impl Iterator<Item = PathBuf> {
+    [Some(start_menu_dir()), desktop_dir()].into_iter().flatten()
+}
+
+/// Raccourcis du menu Démarrer et du Bureau, sous le nom actuel et l'ancien.
+pub fn shortcuts() -> Vec<PathBuf> {
+    shortcut_dirs().flat_map(|d| [d.join(SHORTCUT), d.join(OLD_SHORTCUT)]).collect()
+}
+
+/// Raccourcis sous l'ancien nom (`KyberNow.lnk`), au menu Démarrer et sur le Bureau.
+pub fn old_shortcuts() -> Vec<PathBuf> {
+    shortcut_dirs().map(|d| d.join(OLD_SHORTCUT)).collect()
+}
+
+/// Raccourcis du Bureau, sous le nom actuel et l'ancien.
+pub fn desktop_shortcuts() -> Vec<PathBuf> {
+    desktop_dir().map(|d| vec![d.join(SHORTCUT), d.join(OLD_SHORTCUT)]).unwrap_or_default()
+}
+
+/// Un raccourci de l'app est-il sur le Bureau (sous l'un ou l'autre nom) ?
+pub fn has_desktop_shortcut() -> bool {
+    desktop_shortcuts().iter().any(|p| p.exists())
+}
+
+/// Le Bureau (il peut être déplacé, dans OneDrive par exemple).
+fn desktop_dir() -> Option<PathBuf> {
     use windows_sys::Win32::System::Com::CoTaskMemFree;
     use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, SHGetKnownFolderPath};
     unsafe {
@@ -68,7 +99,7 @@ pub fn desktop_shortcut() -> Option<PathBuf> {
         let len = (0..).take_while(|&i| *p.add(i) != 0).count();
         let dir = String::from_utf16_lossy(std::slice::from_raw_parts(p, len));
         CoTaskMemFree(p.cast());
-        Some(PathBuf::from(dir).join("KyberNow.lnk"))
+        Some(PathBuf::from(dir))
     }
 }
 
@@ -168,7 +199,7 @@ pub fn launch_app(args: &[&str]) -> Result<()> {
         .current_dir(&dir)
         .creation_flags(DETACHED_PROCESS)
         .spawn()
-        .context("ouverture de KyberNow")?;
+        .context("ouverture de KyberNow Link")?;
     Ok(())
 }
 
@@ -267,7 +298,7 @@ pub fn reg_subkeys(root: HKEY, path: &str) -> Vec<String> {
     out
 }
 
-/// Version de KyberNow déjà installée pour cet utilisateur.
+/// Version de KyberNow Link déjà installée pour cet utilisateur.
 pub fn installed_version() -> Option<String> {
     reg_get(HKEY_CURRENT_USER, UNINSTALL_KEY, "DisplayVersion")
 }
@@ -284,7 +315,7 @@ pub fn init_log(name: &str) {
     let path = dir.join(format!("{name}.log"));
     let _ = std::fs::rename(&path, dir.join(format!("{name}.prev.log")));
     *LOG.lock().unwrap() = std::fs::File::create(path).ok();
-    log(&format!("installateur de KyberNow {}, Windows {}", env!("CARGO_PKG_VERSION"), native_arch().label()));
+    log(&format!("installateur de KyberNow Link {}, Windows {}", env!("CARGO_PKG_VERSION"), native_arch().label()));
 }
 
 /// Ferme le journal (avant d'effacer son dossier).

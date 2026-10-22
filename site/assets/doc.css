@@ -40,13 +40,14 @@
 
 .req { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .req-card { padding: 22px; border-radius: var(--kn-r-card); background: var(--kn-ink-1); box-shadow: inset 0 0 0 1px var(--kn-line); }
-.req-card h3 { margin: 14px 0 4px; }
+.req-card .req-logo { height: 36px; width: auto; max-width: 100%; }
+.req-card h3 { margin: 18px 0 4px; }
 .req-card .ticks { margin-top: 14px; gap: 10px; }
 .req-card .ticks li { font-size: 15px; }
 @media (max-width: 700px) { .req { grid-template-columns: 1fr; } }
 
 .steps-doc { list-style: none; counter-reset: s; margin: 24px 0 0; padding: 0; display: grid; gap: 4px; }
-.steps-doc > li { counter-increment: s; position: relative; padding: 0 0 20px 52px; }
+.steps-doc > li { counter-increment: s; position: relative; padding: 0 0 20px 52px; min-width: 0; }
 .steps-doc > li::before {
   content: counter(s); position: absolute; left: 0; top: 0; width: 32px; height: 32px; display: grid; place-items: center;
   border-radius: 50%; font: 500 13px/1 var(--kn-font-mono); color: var(--kn-frost); box-shadow: inset 0 0 0 1px var(--kn-line-2);

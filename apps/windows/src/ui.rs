@@ -152,7 +152,9 @@ pub fn load_prefs() -> Prefs {
 
 /// Installateur publié : un seul pour x64 et ARM64, il pose la version du
 /// processeur (une app x64 émulée sur ARM passe ainsi à la version ARM64).
-const INSTALLER: &str = "KyberNow-Client-Setup.exe";
+/// Son nom actuel d'abord, puis celui d'avant le renommage en KyberNow Link
+/// (publié aussi pendant quelques versions ; seul nom des versions 0.3.1 et avant).
+const INSTALLER: &[&str] = &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe"];
 
 impl UiState {
     fn with_store<T>(&self, f: impl FnOnce(&mut Store) -> T) -> T {
@@ -973,7 +975,7 @@ pub fn run(args: Vec<String>) {
             let lang_script = format!("window.__KN_LANG = '{}';", i18n::lang().code());
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .initialization_script(&lang_script)
-                .title("KyberNow")
+                .title(shell::DISPLAY_NAME)
                 .inner_size(1280.0, 800.0)
                 .min_inner_size(960.0, 600.0)
                 .decorations(false)

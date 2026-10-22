@@ -90,7 +90,7 @@ const notesFor = (lang: string) => {
   return (lang === 'en' ? lines.slice(at + 1) : lines.slice(0, at)).join('\n').trim()
 }
 let language: 'auto' | 'fr' | 'en' = 'auto'
-const update = () => ({ version: '0.2.9', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Windows-x64.exe', size: 1 })
+const update = () => ({ version: '0.2.9', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Link-Setup.exe', size: 1 })
 
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   snapshot: () => ({ computers, discovered, this_pc: thisPc, session: null, version: 'dev' }),

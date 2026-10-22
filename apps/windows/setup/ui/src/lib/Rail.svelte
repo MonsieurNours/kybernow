@@ -1,5 +1,5 @@
 <!--
-  Colonne de gauche : le symbole « now » de l'app, et les trois étapes. Le
+  Colonne de gauche : le logo signé de KyberNow Link, et les trois étapes. Le
   symbole immense, en filigrane, se remplit de néon le long de la couture au
   fil des étapes (et de la progression pendant l'installation).
 -->
@@ -37,9 +37,8 @@
   </div>
 
   <div class="brand">
-    <Mark size={38} state="now" />
+    <Mark product="link" size={38} />
     <div>
-      <span class="disp name"><span>Kyber</span><b>Now</b></span>
       <span class="version">{t('rail.version', { version: __APP_VERSION__ })}{app.checksDone ? ` · ${app.arch === 'arm64' ? 'ARM64' : 'x64'}` : ''}</span>
     </div>
   </div>
@@ -99,27 +98,9 @@
   .brand {
     position: relative;
     display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .brand > div {
-    display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  .name {
-    font-size: 20px;
-    letter-spacing: -0.01em;
-  }
-
-  .name span {
-    font-weight: 420;
-  }
-
-  .name b {
-    font-weight: 720;
+    align-items: flex-start;
+    gap: 10px;
   }
 
   .version {
@@ -130,7 +111,7 @@
   ol {
     position: relative;
     list-style: none;
-    margin: 170px 0 0;
+    margin: 148px 0 0;
     padding: 0;
     display: flex;
     flex-direction: column;

@@ -1,4 +1,4 @@
-<!-- C'est prêt : ouvrir KyberNow, et les raccourcis à connaître pendant une session. -->
+<!-- C'est prêt : ouvrir KyberNow Link, et les raccourcis à connaître pendant une session. -->
 <script lang="ts">
   import { send } from '../lib/backend'
   import { t } from '../lib/i18n/index.svelte'

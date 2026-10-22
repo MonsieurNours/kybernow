@@ -3,7 +3,7 @@ name = "kybernow-setup"
 version = "0.3.1"
 edition = "2024"
 rust-version = "1.89"
-description = "Installateur de KyberNow (serveur de streaming Kyber pour Windows)"
+description = "Installateur de KyberNow Station (serveur de streaming Kyber pour Windows)"
 license = "AGPL-3.0-or-later"
 authors = ["Les Lignes Claires"]
 
@@ -14,7 +14,7 @@ path = "src/lib.rs"
 # Lanceur : porte le contenu à installer et démarre l'interface.
 # Il ne dépend pas de WebView2, pour pouvoir s'exécuter partout.
 [[bin]]
-name = "KyberNow-Server-Setup"
+name = "KyberNow-Station-Setup"
 path = "src/bin/setup.rs"
 
 # Interface de l'installateur (fenêtre WebView2).

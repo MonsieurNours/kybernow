@@ -28,8 +28,7 @@
 
 <div class="gate">
   <header>
-    <Mark size={26} state="now" />
-    <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
+    <Mark product="link" size={26} />
   </header>
 
   <main>
@@ -65,19 +64,6 @@
     align-items: center;
     gap: 12px;
     padding: 28px max(24px, 5vw);
-  }
-
-  .wordmark {
-    font-size: 18px;
-    letter-spacing: -0.01em;
-  }
-
-  .wordmark span {
-    font-weight: 420;
-  }
-
-  .wordmark b {
-    font-weight: 720;
   }
 
   main {

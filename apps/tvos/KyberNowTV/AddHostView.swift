@@ -29,7 +29,7 @@ struct AddHostView: View {
     private let methods: [(icon: String, title: String, sub: String, badge: String?)] = [
         ("cloud", String(localized: "Depuis votre Mac"), String(localized: "Synchronisés par iCloud, avec leurs accès"), String(localized: "Conseillé")),
         ("wifi-high", String(localized: "Sur le réseau"), String(localized: "Compte à saisir, au clavier de l'iPhone"), nil),
-        ("number-square-one", String(localized: "Code à l'écran"), String(localized: "À accepter dans la console de l'ordinateur"), nil),
+        ("number-square-one", String(localized: "Code à l'écran"), String(localized: "À accepter dans KyberNow Admin"), nil),
         ("globe-hemisphere-west", String(localized: "Adresse"), String(localized: "VPN ou réseau sans découverte"), nil),
     ]
 
@@ -149,12 +149,12 @@ private struct CloudPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
             paneTitle(String(localized: "Trousseau iCloud"), String(localized: "Vos ordinateurs suivent votre Mac"))
-            Text("Ceux que vous avez ajoutés dans KyberNow sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul.")
+            Text("Ceux que vous avez ajoutés dans KyberNow Link sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul.")
                 .font(Theme.sans(23)).foregroundStyle(Theme.text2).lineSpacing(8)
                 .frame(maxWidth: 860, alignment: .leading)
             VStack(alignment: .leading, spacing: 14) {
                 if cloud.hosts.isEmpty {
-                    Text("Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow sur le Mac, avec le même compte iCloud.")
+                    Text("Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow Link sur le Mac, avec le même compte iCloud.")
                         .font(Theme.sans(21)).foregroundStyle(Theme.muted)
                         .padding(.horizontal, 28)
                         .frame(height: 84, alignment: .leading)
@@ -231,7 +231,7 @@ private struct NetworkPane: View {
                                 .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surface))
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(found.name).font(Theme.display(34, 640)).tracking(-0.7)
-                                Text(resolving == found.id ? "Recherche de son adresse…" : "Annoncé par sa console KyberNow")
+                                Text(resolving == found.id ? "Recherche de son adresse…" : "Annoncé par KyberNow Station")
                                     .font(Theme.mono(17)).foregroundStyle(Theme.muted)
                             }
                             Spacer()
@@ -243,7 +243,7 @@ private struct NetworkPane: View {
                     }
                     .buttonStyle(GlassButton(radius: 22, scale: 1.04, fill: Theme.accentFill.opacity(0.14)))
                 }
-                Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow ouvert. Par VPN, passez par le code ou l'adresse.")
+                Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse.")
                     .font(Theme.sans(21)).foregroundStyle(Theme.muted).lineSpacing(7)
                     .frame(maxWidth: 860, alignment: .leading)
                 Spacer(minLength: 0)
@@ -276,7 +276,7 @@ private struct LoginForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
             Text("Le compte de \(candidate.name)").font(Theme.display(48, 640)).tracking(-48 * 0.03)
-            Text("Celui choisi à l'installation de KyberNow sur cet ordinateur.")
+            Text("Celui choisi à l'installation de KyberNow Station sur cet ordinateur.")
                 .font(Theme.sans(22)).foregroundStyle(Theme.text2)
             field(String(localized: "Identifiant")) {
                 TextField("Identifiant", text: $username)
@@ -299,7 +299,7 @@ private struct LoginForm: View {
             if let error {
                 Text(error).font(Theme.sans(21)).foregroundStyle(Theme.dangerText)
             } else if let seen, candidate.expected == nil {
-                Text("Empreinte de la console : \(Self.groups(seen)) — à comparer à celle de sa page Accès.")
+                Text("Empreinte de la Station : \(Self.groups(seen)) — à comparer à celle de la page Accès de KyberNow Admin.")
                     .font(Theme.mono(16)).foregroundStyle(Theme.muted)
             }
             HStack(spacing: 20) {
@@ -339,7 +339,7 @@ private struct LoginForm: View {
             defer { checking = false }
             // L'empreinte annoncée (Bonjour, lien) doit être celle vue.
             if let expected = candidate.expected, let seen, expected.lowercased() != seen.lowercased() {
-                error = String(localized: "Le certificat de la console ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur.")
+                error = String(localized: "Le certificat de la Station ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur.")
                 return
             }
             let console = ConsoleClient(host: candidate.address, port: candidate.port, username: username, password: password, fingerprint: seen)
@@ -393,7 +393,7 @@ private struct CodePane: View {
                     .padding(.vertical, 10)
                     .accessibilityLabel("Code \(code)")
                 VStack(alignment: .leading, spacing: 14) {
-                    step(1, String(localized: "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge)."))
+                    step(1, String(localized: "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)."))
                     step(2, String(localized: "Appareils › « \(deviceName) » demande l'accès › Accepter."))
                     step(3, String(localized: "C'est tout : l'Apple TV reçoit son propre accès, révocable à tout moment."))
                 }
@@ -401,7 +401,7 @@ private struct CodePane: View {
                 HStack(spacing: 14) {
                     if unsupported {
                         Icon("warning", size: 24).foregroundStyle(Theme.warn)
-                        Text("Les ordinateurs trouvés n'ont pas encore la console qui accepte les codes : mettez KyberNow à jour sur l'ordinateur.")
+                        Text("Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur.")
                             .font(Theme.sans(20)).foregroundStyle(Theme.warnText)
                             .fixedSize(horizontal: false, vertical: true)
                     } else if let refused {
@@ -426,7 +426,7 @@ private struct CodePane: View {
                         .padding(22)
                         .background(RoundedRectangle(cornerRadius: 22).fill(Theme.text))
                 }
-                Text("Ou ouvrez la console depuis votre téléphone")
+                Text("Ou ouvrez KyberNow Admin depuis votre téléphone")
                     .font(Theme.sans(19)).foregroundStyle(Theme.muted)
                     .multilineTextAlignment(.center)
             }
@@ -529,7 +529,7 @@ private struct AddressPane: View {
                 LoginForm(candidate: candidate) { self.candidate = nil }
             } else {
                 paneTitle(String(localized: "VPN, autre réseau"), String(localized: "Son adresse et son port"))
-                Text("Affichés dans la console de l'ordinateur, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
+                Text("Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
                     .font(Theme.sans(22)).foregroundStyle(Theme.text2).lineSpacing(7)
                     .frame(maxWidth: 860, alignment: .leading)
                 HStack(spacing: 20) {
@@ -543,7 +543,7 @@ private struct AddressPane: View {
                             .frame(width: 560)
                     }
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Port de la console").font(Theme.sans(19)).foregroundStyle(Theme.muted)
+                        Text("Port d'Admin").font(Theme.sans(19)).foregroundStyle(Theme.muted)
                         TextField(String("31877"), text: $port)
                             .font(Theme.mono(26))
                             .keyboardType(.numberPad)

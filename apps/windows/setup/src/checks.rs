@@ -49,7 +49,7 @@ pub fn run(emit: &Emit) {
     if running {
         check("running", &t(l, "checks.running.title"), &|l| (CheckStatus::Warn, t(l, "checks.running.title"), t(l, "checks.running.detail")));
     }
-    let desktop = sys::desktop_shortcut().is_some_and(|p| p.exists());
+    let desktop = sys::has_desktop_shortcut();
     emit(Event::ChecksDone { arch, existing, running, desktop, dir: sys::install_dir().display().to_string() });
 }
 

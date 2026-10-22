@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Génère kybernow.ico (identité v2, symbole « server ») avec Pillow.
+"""Génère kybernow.ico, l'icône de KyberNow Station (identité v2, symbole à l'état « server ») avec Pillow.
 
 - 16 à 32 px : le symbole seul (zone de notification, petites icônes) ;
 - 48 à 256 px : la tuile de l'app (fond sombre, halo, couture en néon),

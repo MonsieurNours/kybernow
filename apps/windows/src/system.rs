@@ -64,14 +64,14 @@ pub fn init_logging(name: &str) {
     let _ = log::set_logger(logger);
     log::set_max_level(log::LevelFilter::Info);
     log::info!(
-        "KyberNow {} ({}, {}) : {:?}",
+        "KyberNow Link {} ({}, {}) : {:?}",
         env!("CARGO_PKG_VERSION"),
         std::env::consts::ARCH,
         os_version(),
         std::env::args().skip(1).collect::<Vec<_>>()
     );
     if emulated() {
-        log::warn!("version x64 émulée sur un Windows ARM64 : installez la version ARM64 (KyberNow-Client-Setup.exe la choisit)");
+        log::warn!("version x64 émulée sur un Windows ARM64 : installez la version ARM64 (KyberNow-Link-Setup.exe la choisit)");
     }
     install_crash_handlers();
 }
@@ -163,7 +163,7 @@ pub fn error_box(text: &str) {
     log::error!("{text}");
     let t: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     unsafe {
-        MessageBoxW(None, PCWSTR(t.as_ptr()), w!("KyberNow"), MB_OK | MB_ICONERROR);
+        MessageBoxW(None, PCWSTR(t.as_ptr()), w!("KyberNow Link"), MB_OK | MB_ICONERROR);
     }
 }
 
@@ -251,7 +251,7 @@ pub fn device_info() -> DeviceInfo {
         name: std::env::var("COMPUTERNAME").unwrap_or_else(|_| "PC".into()),
         kind: "windows".into(),
         os: os_version(),
-        app: format!("KyberNow {}", env!("CARGO_PKG_VERSION")),
+        app: format!("KyberNow Link {}", env!("CARGO_PKG_VERSION")),
     }
 }
 

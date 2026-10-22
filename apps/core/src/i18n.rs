@@ -8,7 +8,7 @@
 //! Ceux du cœur sont dans `src/i18n/` ; l'app Windows a les siens et se sert
 //! du même [`Catalog`].
 //!
-//! La langue choisie est aussi celle envoyée à la console (`Accept-Language`)
+//! La langue choisie est aussi celle envoyée à Admin (`Accept-Language`)
 //! et celle des notes de version ([`release_notes`]).
 
 use std::sync::OnceLock;
@@ -135,7 +135,7 @@ impl Catalog {
 
 static CORE: Catalog = Catalog::new(include_str!("i18n/fr.json"), include_str!("i18n/en.json"));
 
-/// Texte du cœur (erreurs de la console, de la session, des mises à jour).
+/// Texte du cœur (erreurs d'Admin, de la session, des mises à jour).
 pub fn tr(lang: Lang, key: &str, params: &[(&str, &str)]) -> String {
     CORE.tr(lang, key, params)
 }

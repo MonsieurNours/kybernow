@@ -7,13 +7,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow reads the QR code shown by your computer's console."
+            "value" : "KyberNow Link reads the QR code shown in KyberNow Admin."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow lit le QR code affiché par la console de votre ordinateur."
+            "value" : "KyberNow Link lit le QR code affiché dans KyberNow Admin."
           }
         }
       }
@@ -24,13 +24,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow finds your computers on this network and connects to them."
+            "value" : "KyberNow Link finds your computers on this network and connects to them."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "KyberNow trouve vos ordinateurs sur ce réseau et s'y connecte."
+            "value" : "KyberNow Link trouve vos ordinateurs sur ce réseau et s'y connecte."
           }
         }
       }

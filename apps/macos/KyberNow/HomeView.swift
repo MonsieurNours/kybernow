@@ -163,7 +163,7 @@ private struct Hero: View {
         case .preview:
             let fresh = Date().timeIntervalSince(picture!.date) < 120
             let when = fresh ? String(localized: "à l'instant") : Moment.describe(picture!.date)
-            return String(localized: "Aperçu · \(when), depuis sa console")
+            return String(localized: "Aperçu · \(when), depuis la Station")
         case nil:
             if neverOpened { return String(localized: "Nouvel ordinateur · jamais ouvert depuis ce Mac") }
             return host.settings.keepLastImage ? String(localized: "Sa signature · pas encore d'image") : String(localized: "Sa signature · aucune image gardée")
@@ -290,7 +290,7 @@ private struct ImageChain: View {
             Theme.eyebrow(String(localized: "Image affichée"))
             step(neverOpened ? String(localized: "Dernière session, aucune") : String(localized: "Dernière session, aucune gardée"), state: .absent)
             rule
-            step(fetching && source == nil ? String(localized: "Aperçu, en cours…") : source == .preview ? String(localized: "Aperçu de sa console") : String(localized: "Aperçu"), state: source == .preview ? .on : fetching ? .loading : .absent)
+            step(fetching && source == nil ? String(localized: "Aperçu, en cours…") : source == .preview ? String(localized: "Aperçu demandé à la Station") : String(localized: "Aperçu"), state: source == .preview ? .on : fetching ? .loading : .absent)
             rule
             step(String(localized: "Signature"), state: source == nil ? .on : .absent)
         }
@@ -359,7 +359,7 @@ private struct Welcome: View {
                 .font(Theme.display(96, .bold)).tracking(-96 * 0.045)
                 .foregroundStyle(Theme.text)
                 .modifier(Rise(arrived: arrived, delay: 0.25))
-            Text("Ajoutez un ordinateur équipé de KyberNow Server, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran.")
+            Text("Ajoutez un ordinateur équipé de KyberNow Station, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran.")
                 .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: 560, alignment: .leading)
                 .modifier(Rise(arrived: arrived, delay: 0.35))
@@ -551,7 +551,7 @@ private struct AddCard: View {
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("QR code de sa console")
+                    Text("QR code d'appairage")
                     Text("Lien kybernow://")
                     Text("Adresse et port")
                 }

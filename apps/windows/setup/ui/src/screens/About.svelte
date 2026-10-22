@@ -1,4 +1,4 @@
-<!-- À propos : qui fait KyberNow, et les logiciels libres qu'il embarque. -->
+<!-- À propos : qui fait KyberNow Link, et les logiciels libres qu'il embarque. -->
 <script lang="ts">
   import { send } from '../lib/backend'
   import { app, go } from '../lib/state.svelte'
@@ -6,7 +6,7 @@
   import { t } from '../lib/i18n/index.svelte'
 
   const licenses = $derived([
-    ['KyberNow', t('about.roles.kybernow'), 'AGPL-3.0'],
+    ['KyberNow Link', t('about.roles.kybernow'), 'AGPL-3.0'],
     ['Kyber 0.29', t('about.roles.kyber'), 'AGPL-3.0'],
     ['FFmpeg', t('about.roles.ffmpeg'), 'LGPL-2.1+'],
     ['Opus', t('about.roles.opus'), 'BSD-3-Clause'],
@@ -19,11 +19,8 @@
 
 <div class="about">
   <div class="head kn-enter">
-    <Mark size={48} state="now" />
-    <div>
-      <span class="disp name"><span>Kyber</span><b>Now</b></span>
-      <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
-    </div>
+    <Mark product="link" size={48} />
+    <span class="mono version">{t('about.version', { version: __APP_VERSION__ })}</span>
   </div>
 
   <div class="panel dev kn-enter kn-d1">
@@ -64,27 +61,9 @@
 
   .head {
     display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .head > div {
-    display: flex;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  .name {
-    font-size: 26px;
-    letter-spacing: -0.02em;
-  }
-
-  .name span {
-    font-weight: 420;
-  }
-
-  .name b {
-    font-weight: 720;
+    align-items: flex-start;
+    gap: 10px;
   }
 
   .version {

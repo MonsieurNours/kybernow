@@ -87,7 +87,7 @@
     void space
   })
 
-  // Titre de l'onglet, dans la langue de la console.
+  // Titre de l'onglet (« KyberNow Admin »), dans la langue d'Admin.
   $effect(() => {
     document.title = t('app.title')
   })
@@ -142,8 +142,7 @@
   <div class="shell">
     <aside>
       <div class="brand">
-        <Mark size={26} lit={!!live} breathe={!!live} />
-        <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
+        <Mark product="admin" size={26} lit={!!live} breathe={!!live} />
       </div>
 
       <div class="host">
@@ -264,19 +263,6 @@
     align-items: center;
     gap: 11px;
     padding: 0 8px;
-  }
-
-  .wordmark {
-    font-size: 16px;
-    letter-spacing: -0.01em;
-  }
-
-  .wordmark span {
-    font-weight: 420;
-  }
-
-  .wordmark b {
-    font-weight: 720;
   }
 
   .host {

@@ -1,17 +1,17 @@
 {
   "console": {
-    "certificate_changed": "le certificat de la console a changé (vu : {seen})",
-    "http": "console : {message} ({status})",
+    "certificate_changed": "le certificat d'Admin a changé (vu : {seen})",
+    "http": "Admin : {message} ({status})",
     "http_status": "erreur HTTP {status}",
-    "network": "console injoignable : {error}",
-    "invalid": "réponse de la console illisible : {error}",
+    "network": "Admin injoignable : {error}",
+    "invalid": "réponse d'Admin illisible : {error}",
     "no_request_id": "identifiant de demande absent"
   },
   "session": {
     "internal": "erreur interne de la session",
-    "no_image": "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir le journal de sa console, Système › Journaux)",
-    "unauthorized": "le serveur de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans la console, redémarrez le serveur (Système), puis réessayez",
-    "tls": "le certificat du serveur de l'ordinateur ne correspond pas à celui que donne la console",
+    "no_image": "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir son journal dans Admin, Système › Journaux)",
+    "unauthorized": "le serveur Kyber de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans Admin, redémarrez le serveur (Système), puis réessayez",
+    "tls": "le certificat du serveur Kyber de l'ordinateur ne correspond pas à celui que donne Admin",
     "connect_failed": "connexion à Kyber impossible ({reason})",
     "stream_failed": "connexion au flux impossible",
     "image_refused": "l'ordinateur refuse l'image",

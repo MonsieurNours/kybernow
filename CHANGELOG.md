@@ -5,6 +5,14 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.0
+
+- **KyberNow devient trois produits, chacun avec son nom et son logo.** **KyberNow Station** est ce qu'on installe sur l'ordinateur Windows qui diffuse l'image (anciennement KyberNow Server) ; **KyberNow Admin** est son administration dans le navigateur (anciennement la console) ; **KyberNow Link**, ce sont les apps qui affichent l'image sur Mac, Apple TV, iPhone, iPad et Windows, et dans le navigateur. Le symbole garde ses trois états (la moitié haute pour la Station, la couture pour Admin, la moitié basse pour Link) ; les logos portent désormais le nom du produit en signature sous « KyberNow ». Les textes des apps, d'Admin, des installateurs, du site et de la documentation suivent, en français et en anglais.
+- Installateurs : `KyberNow-Station-Setup.exe` (la Station) et `KyberNow-Link-Setup.exe` (l'app Windows). Leurs anciens noms, `KyberNow-Server-Setup.exe` (et `KyberNow-Setup.exe`) et `KyberNow-Client-Setup.exe`, restent publiés à l'identique pendant quelques versions : les liens existants et les mises à jour des versions précédentes continuent de marcher.
+- Sur l'ordinateur, la mise à jour renomme ce que Windows affiche, sans rien déplacer : « KyberNow Station » dans les applications installées et le menu Démarrer, « KyberNow Admin » pour le raccourci de l'administration et le service `kyber-admin`, « KyberNow Station - serveur de streaming » pour le service `kyber`. Dossiers, réglages, comptes et appareils autorisés ne changent pas.
+- Sur Mac, l'app s'appelle KyberNow Link (Dock, Finder, menus) ; sur iPhone, iPad et Apple TV, l'écran d'accueil garde « KyberNow ». L'app Windows s'appelle KyberNow Link dans les applications installées et le menu Démarrer ; l'ancien raccourci est remplacé. Réglages, ordinateurs enregistrés et mots de passe sont conservés.
+- Site : une section présente la famille KyberNow, et chaque téléchargement porte le logo de son produit.
+
 ## 0.3.1
 
 - **App Mac : la session passe sur le cœur Rust.** Le déroulé d'une session (préparation par la console, connexion à Kyber, choix de l'écran, relances de l'image, reconnexions, repli sans image, signal de vie, fin vérifiée, latence de bout en bout) est désormais celui du cœur client en Rust (`apps/core`), le même que l'app Windows, par un pont C (`apps/apple`, `libkybernow`). L'app ne garde en Swift que le décodage (VideoToolbox), le rendu (Metal), la capture des événements, la sortie du son et l'interface. Mêmes réglages, mêmes capsules, mêmes mesures qu'en 0.3.0. Premier jalon du passage des apps Apple sur le cœur ([docs/coeur-apple.md](docs/coeur-apple.md)), suivi des entrées, du son, de l'Apple TV et de l'iPhone et l'iPad (ci-dessous). Le lecteur VLC de secours (AV1 sur un Mac sans décodeur AV1) n'est plus embarqué dans la session : l'app ne proposait déjà l'AV1 qu'aux Mac qui le décodent.

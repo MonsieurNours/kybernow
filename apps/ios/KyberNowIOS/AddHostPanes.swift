@@ -208,10 +208,10 @@ struct AddHostCloudPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "Trousseau iCloud"), compactTitle: String(localized: "Depuis votre Mac"), wideTitle: String(localized: "Vos ordinateurs suivent votre Mac"))
-            AddHostParagraph(String(localized: "Les ordinateurs ajoutés dans KyberNow sur votre Mac arrivent ici avec leurs accès, par iCloud. Rien à taper, et un mot de passe changé sur le Mac suit tout seul."))
+            AddHostParagraph(String(localized: "Les ordinateurs ajoutés dans KyberNow Link sur votre Mac arrivent ici avec leurs accès, par iCloud. Rien à taper, et un mot de passe changé sur le Mac suit tout seul."))
             VStack(spacing: 10) {
                 if cloud.hosts.isEmpty {
-                    Text("Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow sur le Mac, avec le même compte iCloud.")
+                    Text("Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow Link sur le Mac, avec le même compte iCloud.")
                         .font(Theme.sans(wide ? 15 : 14)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 16).padding(.vertical, 16)
@@ -316,7 +316,7 @@ struct AddHostNetworkPane: View {
                 Button { pick(found) } label: { row(found) }
                     .buttonStyle(AddHostPressStyle())
             }
-            Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow installé. Par VPN, passez par le code ou l'adresse.")
+            Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par le code ou l'adresse.")
                 .font(Theme.sans(wide ? 15 : 13.5)).foregroundStyle(Theme.muted)
                 .lineSpacing(3)
                 .frame(maxWidth: wide ? 600 : .infinity, alignment: .leading)
@@ -362,8 +362,8 @@ struct AddHostNetworkPane: View {
 
     private func detail(_ found: Discovery.Found) -> String {
         if resolving == found.id { return String(localized: "Recherche de son adresse…") }
-        guard let c = resolved[found.id] else { return String(localized: "Annoncé par sa console KyberNow") }
-        return String(localized: "\(c.address) · console \(String(c.port))")
+        guard let c = resolved[found.id] else { return String(localized: "Annoncé par KyberNow Station") }
+        return String(localized: "\(c.address) · port \(String(c.port))")
     }
 
     private func pick(_ found: Discovery.Found) {
@@ -418,11 +418,11 @@ struct AddHostCodePane: View {
                 .padding(.vertical, wide ? 6 : 10)
                 .accessibilityLabel(Text("Code \(code.map(String.init).joined(separator: " "))"))
             VStack(alignment: .leading, spacing: 10) {
-                step(1, String(localized: "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge)."))
+                step(1, String(localized: "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)."))
                 step(2, String(localized: "Accès › Appareils › « \(deviceName) » demande l'accès › Accepter."))
                 step(3, DeviceDisplay.isPad
-                    ? String(localized: "L'iPad reçoit son propre accès, révocable à tout moment depuis la console.")
-                    : String(localized: "L'iPhone reçoit son propre accès, révocable à tout moment depuis la console."))
+                    ? String(localized: "L'iPad reçoit son propre accès, révocable à tout moment depuis Admin.")
+                    : String(localized: "L'iPhone reçoit son propre accès, révocable à tout moment depuis Admin."))
             }
             .frame(maxWidth: wide ? 600 : .infinity, alignment: .leading)
             status.padding(.top, 10)
@@ -445,14 +445,14 @@ struct AddHostCodePane: View {
 
     @ViewBuilder private var status: some View {
         if unsupported {
-            AddHostNotice(kind: .warn, text: String(localized: "Les ordinateurs trouvés n'ont pas encore la console qui accepte les codes : mettez KyberNow à jour sur l'ordinateur, ou passez par l'adresse."))
+            AddHostNotice(kind: .warn, text: String(localized: "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur, ou passez par l'adresse."))
         } else if let refused {
             AddHostNotice(kind: .warn, text: refused)
         } else {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 let waiting = HStack(spacing: 10) {
                     AddHostWaitingDots(size: 7)
-                    Text(discovery.found.isEmpty ? String(localized: "Aucune console sur ce réseau pour l'instant…") : String(localized: "En attente d'un ordinateur…"))
+                    Text(discovery.found.isEmpty ? String(localized: "Aucune Station sur ce réseau pour l'instant…") : String(localized: "En attente d'un ordinateur…"))
                         .font(Theme.sans(wide ? 15 : 13.5)).foregroundStyle(Theme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -565,7 +565,7 @@ struct AddHostAddressPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "VPN, autre réseau"), title: String(localized: "Son adresse et son port"))
-            AddHostParagraph(String(localized: "Affichés dans la console de l'ordinateur, espace Accès. Le port a été tiré au hasard à l'installation."))
+            AddHostParagraph(String(localized: "Affichés dans KyberNow Admin, espace Accès. Le port a été tiré au hasard à l'installation."))
             if wide {
                 HStack(alignment: .top, spacing: 16) {
                     addressField.frame(maxWidth: 400)
@@ -594,7 +594,7 @@ struct AddHostAddressPane: View {
     }
 
     private var portField: some View {
-        AddHostField(label: String(localized: "Port de la console"), text: $port, prompt: "31877", mono: true, keyboard: .numberPad, submit: .continue, onSubmit: next)
+        AddHostField(label: String(localized: "Port d'Admin"), text: $port, prompt: "31877", mono: true, keyboard: .numberPad, submit: .continue, onSubmit: next)
     }
 
     private var caption: some View {
@@ -639,18 +639,18 @@ struct AddHostVerifyPane: View {
             if !probed {
                 HStack(spacing: 12) {
                     ProgressView().tint(Theme.accent)
-                    Text("Connexion à la console de \(candidate.name)…")
+                    Text("Connexion à la Station de \(candidate.name)…")
                         .font(Theme.sans(wide ? 16 : 14.5)).foregroundStyle(Theme.muted)
                 }
                 .padding(.top, 6)
             } else if seen == nil {
-                AddHostNotice(kind: .warn, text: String(localized: "La console ne répond pas à \(candidate.address):\(String(candidate.port)). Vérifiez l'adresse, le port, et que l'ordinateur est allumé."))
+                AddHostNotice(kind: .warn, text: String(localized: "La Station ne répond pas à \(candidate.address):\(String(candidate.port)). Vérifiez l'adresse, le port, et que l'ordinateur est allumé."))
                 actions {
                     Button("Réessayer") { attempt += 1 }.addHostPrimary()
                     Button("Retour") { _ = flow.back() }.buttonStyle(GlassButton(height: 50, fontSize: 15))
                 }
             } else if mismatch {
-                AddHostNotice(kind: .danger, text: String(localized: "Le certificat de la console ne correspond pas à celui annoncé : ce n'est peut-être pas votre ordinateur. Ne l'ajoutez pas."))
+                AddHostNotice(kind: .danger, text: String(localized: "Le certificat de la Station ne correspond pas à celui annoncé : ce n'est peut-être pas votre ordinateur. Ne l'ajoutez pas."))
                 actions {
                     Button("Retour") { _ = flow.back() }.buttonStyle(AddHostDangerButton()).frame(maxWidth: wide ? 260 : .infinity)
                 }
@@ -677,7 +677,7 @@ struct AddHostVerifyPane: View {
 
     @ViewBuilder private func manual(_ fp: String) -> some View {
         let groups = AddHostFingerprint.groups(fp)
-        AddHostParagraph(String(localized: "Comparez ces quatre groupes avec ceux de la console (Accès › Cette console). Ils sont l'empreinte de son certificat."))
+        AddHostParagraph(String(localized: "Comparez ces quatre groupes avec ceux de KyberNow Admin (Accès › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."))
         HStack(spacing: wide ? 12 : 8) {
             ForEach(Array(groups.prefix(4).enumerated()), id: \.offset) { _, g in
                 Text(verbatim: g)
@@ -748,8 +748,8 @@ struct AddHostAccountPane: View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "Dernière étape"), title: named ? String(localized: "Le compte de \(candidate.name)") : String(localized: "Le compte de l'ordinateur"))
             AddHostParagraph(DeviceDisplay.isPad
-                ? String(localized: "Celui choisi à l'installation de KyberNow sur cet ordinateur. Il est gardé dans le Trousseau de cet iPad.")
-                : String(localized: "Celui choisi à l'installation de KyberNow sur cet ordinateur. Il est gardé dans le Trousseau de cet iPhone."))
+                ? String(localized: "Celui choisi à l'installation de KyberNow Station sur cet ordinateur. Il est gardé dans le Trousseau de cet iPad.")
+                : String(localized: "Celui choisi à l'installation de KyberNow Station sur cet ordinateur. Il est gardé dans le Trousseau de cet iPhone."))
             if verified {
                 HStack(spacing: 10) {
                     Icon("check", size: 18, bold: true).foregroundStyle(Theme.ok)
@@ -790,7 +790,7 @@ struct AddHostAccountPane: View {
     }
 
     private var caption: some View {
-        Text("Vérifié auprès de la console avant d'être gardé.")
+        Text("Vérifié auprès de la Station avant d'être gardé.")
             .font(Theme.sans(wide ? 14 : 12.5)).foregroundStyle(Theme.faint)
     }
 

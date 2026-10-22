@@ -6,7 +6,8 @@
 //   0 → 0,2 s    rien ne bouge (le temps que la vue soit prête) ;
 //   0,2 → 0,6 s  allumage de la charte : le symbole grésille (trois éclairs)
 //                puis reste allumé ;
-//   0,8 → 1,1 s  le nom KyberNow apparaît, centré sous le symbole ;
+//   0,8 → 1,1 s  le nom KyberNow et sa signature « LINK » apparaissent,
+//                centrés sous le symbole ;
 //   → 1,8 s      la scène tient, allumée ;
 //   1,8 → 2,4 s  l'accueil prend la main, sans fondu : son propre symbole
 //                et son nom partent d'ici et filent à leur place en haut à
@@ -55,7 +56,7 @@ struct LaunchView: View {
                 .opacity(handedOver ? 0 : 1)
         }
         .accessibilityElement()
-        .accessibilityLabel(Text(verbatim: "KyberNow"))
+        .accessibilityLabel(Text(verbatim: "KyberNow Link"))
         .task { await run() }
     }
 

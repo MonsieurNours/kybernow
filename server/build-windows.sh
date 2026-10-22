@@ -1,5 +1,5 @@
 #!/bin/bash
-# Compile l'interface Svelte puis kyber-admin.exe pour Windows (depuis macOS ou Linux).
+# Compile l'interface Svelte puis kyber-admin.exe (KyberNow Admin) pour Windows (depuis macOS ou Linux).
 # Prérequis : node, rustup target x86_64-pc-windows-gnu, mingw-w64 (brew install mingw-w64).
 # Sortie : server/dist/kyber-admin.exe
 set -euo pipefail

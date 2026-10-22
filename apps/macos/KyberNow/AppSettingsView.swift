@@ -30,7 +30,7 @@ struct AppSettingsView: View {
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Recevoir les versions bêta").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
-                    Text("Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow attend la stable suivante.")
+                    Text("Les nouveautés avant tout le monde, parfois moins stables. Une version stable plus récente vous est toujours proposée ; décocher ne fait pas revenir en arrière, KyberNow Link attend la stable suivante.")
                         .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -47,8 +47,8 @@ struct AppSettingsView: View {
                     if let choice { LanguageChoice.current = choice }
                 }
             Text(language != Self.launchLanguage
-                 ? "Relancez KyberNow pour changer de langue."
-                 : "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow.")
+                 ? "Relancez KyberNow Link pour changer de langue."
+                 : "Auto : la langue de macOS. Ce choix ne vaut que pour KyberNow Link.")
                 .font(Theme.sans(12))
                 .foregroundStyle(language != Self.launchLanguage ? Theme.warnText : Theme.faint)
                 .fixedSize(horizontal: false, vertical: true)
@@ -81,7 +81,7 @@ struct AppSettingsView: View {
         case .off:
             return nil
         case .unavailable:
-            return (String(localized: "Cette version de KyberNow n'est pas signée pour iCloud : rien n'est publié."), true)
+            return (String(localized: "Cette version de KyberNow Link n'est pas signée pour iCloud : rien n'est publié."), true)
         case .failed(let message):
             return (message, true)
         case .published(let n):

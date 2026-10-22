@@ -165,9 +165,9 @@ mod tests {
 
     #[test]
     fn substitution_and_fallback() {
-        assert_eq!(tr(Lang::Fr, "uninstall.title", &[]), "Désinstaller KyberNow");
-        assert_eq!(tr(Lang::En, "uninstall.title", &[]), "Uninstall KyberNow");
-        assert_eq!(tr(Lang::En, "checks.existing.title", &[("version", &"0.2.7")]), "KyberNow 0.2.7 is installed");
+        assert_eq!(tr(Lang::Fr, "uninstall.title", &[]), "Désinstaller KyberNow Link");
+        assert_eq!(tr(Lang::En, "uninstall.title", &[]), "Uninstall KyberNow Link");
+        assert_eq!(tr(Lang::En, "checks.existing.title", &[("version", &"0.2.7")]), "KyberNow Link 0.2.7 is installed");
         assert_eq!(tr(Lang::En, "pas.une.cle", &[]), "pas.une.cle");
     }
 

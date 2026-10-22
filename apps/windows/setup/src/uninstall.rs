@@ -22,7 +22,7 @@ pub fn run_uninstall(erase_data: bool) {
             sys::log(&format!("mots de passe : {e:#}"));
         }
     }
-    for link in [Some(sys::start_menu_shortcut()), sys::desktop_shortcut()].into_iter().flatten() {
+    for link in sys::shortcuts() {
         let _ = std::fs::remove_file(link);
     }
     // Restes d'une mise à jour interrompue, à côté du dossier de l'app.

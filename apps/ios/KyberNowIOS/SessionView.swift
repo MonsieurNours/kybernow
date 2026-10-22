@@ -355,7 +355,7 @@ struct EnteringCapsule: View {
 
     private var status: String {
         switch session.phase {
-        case .preparing: return String(localized: "La console prépare l'écran et le son.")
+        case .preparing: return String(localized: "La Station prépare l'écran et le son.")
         case .connecting: return String(localized: "Connexion à l'ordinateur…")
         case .starting: return String(localized: "Les premières images arrivent.")
         default: return String(localized: "Barre : languette en haut, ou glisser depuis le bord haut.")
@@ -484,7 +484,7 @@ struct SessionBar: View {
         .glass(16, tint: 0.55)
         .overlay(alignment: .bottom) {
             if session.padMode {
-                Text("Pendant la barre, la manette pilote KyberNow ; le jeu ne reçoit rien.")
+                Text("Pendant la barre, la manette pilote KyberNow Link ; le jeu ne reçoit rien.")
                     .font(Theme.sans(12)).foregroundStyle(Theme.muted)
                     .offset(y: 28)
             }

@@ -312,11 +312,20 @@ function size(asset) {
   const v = win ? Math.floor(asset.size / 1048576 * 10) / 10 : Math.round(asset.size / 1e6 * 10) / 10;
   return v.toLocaleString(EN ? 'en' : 'fr', { maximumFractionDigits: 1 }) + T.mb;
 }
-if ($('release-version')) {
+// Installateurs renommés en 0.4.0 : tant que la dernière version publiée ne
+// porte que l'ancien nom, liens et tailles retombent dessus.
+const LEGACY = { 'KyberNow-Station-Setup.exe': 'KyberNow-Server-Setup.exe', 'KyberNow-Link-Setup.exe': 'KyberNow-Client-Setup.exe' };
+if ($('release-version') || document.querySelector('a[href*="/latest/download/"]')) {
   fetch('https://api.github.com/repos/MonsieurNours/kybernow/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
     .then(r => r.ok ? r.json() : Promise.reject())
     .then(rel => {
-      $('release-version').textContent = T.version + rel.tag_name.replace(/^v/, '');
+      const has = (name) => rel.assets.some(a => a.name === name);
+      for (const [name, old] of Object.entries(LEGACY)) {
+        if (has(name) || !has(old)) continue;
+        for (const a of document.querySelectorAll(`a[href$="/latest/download/${name}"]`)) a.href = a.href.replace(name, old);
+        for (const li of document.querySelectorAll(`[data-size="${name}"]`)) li.dataset.size = old;
+      }
+      if ($('release-version')) $('release-version').textContent = T.version + rel.tag_name.replace(/^v/, '');
       for (const li of document.querySelectorAll('[data-size]')) {
         const asset = rel.assets.find(a => a.name === li.dataset.size);
         if (asset) li.textContent = size(asset);

@@ -1,4 +1,4 @@
-<!-- Étape 2 · Le compte unique : pour se connecter depuis les appareils et ouvrir la console. -->
+<!-- Étape 2 · Le compte unique : pour se connecter depuis les appareils et ouvrir KyberNow Admin. -->
 <script lang="ts">
   import { t } from '../lib/i18n/index.svelte'
   import { app, go } from '../lib/state.svelte'

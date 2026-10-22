@@ -1,5 +1,5 @@
 //! Intégration à Windows, sans droits d'administrateur (tout dans HKCU) :
-//! - le lien `kybernow://` (lien et QR code de la console, actions des
+//! - le lien `kybernow://` (lien et QR code d'Admin, actions des
 //!   notifications) ouvre l'app ;
 //! - vos ordinateurs au clic droit de l'icône de la barre des tâches (et du
 //!   menu Démarrer pour l'app épinglée) : un clic lance la session ;
@@ -29,7 +29,14 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThre
 use windows::core::{HSTRING, Interface, PCWSTR};
 
 /// Identité des notifications (inscrite dans HKCU\Software\Classes\AppUserModelId).
+/// Elle ne change pas : seul son nom affiché ([`DISPLAY_NAME`]) a changé.
 pub const AUMID: &str = "LesLignesClaires.KyberNow";
+/// Nom affiché de l'app : notifications, lien `kybernow://`, raccourcis.
+pub const DISPLAY_NAME: &str = "KyberNow Link";
+/// Raccourcis du menu Démarrer et du Bureau.
+const SHORTCUT: &str = "KyberNow Link.lnk";
+/// Nom des raccourcis jusqu'à la 0.3.1 : retiré quand les nouveaux sont posés.
+const OLD_SHORTCUT: &str = "KyberNow.lnk";
 
 fn exe() -> PathBuf {
     std::env::current_exe().unwrap_or_default()
@@ -67,12 +74,12 @@ pub fn register() -> bool {
     let exe = exe();
     let exe_s = exe.display().to_string();
     let base = r"Software\Classes\kybernow";
-    let ok = set_string(HKEY_CURRENT_USER, base, None, "URL:KyberNow")
+    let ok = set_string(HKEY_CURRENT_USER, base, None, &format!("URL:{DISPLAY_NAME}"))
         && set_string(HKEY_CURRENT_USER, base, Some("URL Protocol"), "")
         && set_string(HKEY_CURRENT_USER, &format!(r"{base}\DefaultIcon"), None, &format!("\"{exe_s}\",0"))
         && set_string(HKEY_CURRENT_USER, &format!(r"{base}\shell\open\command"), None, &format!("\"{exe_s}\" \"%1\""));
     let aumid = format!(r"Software\Classes\AppUserModelId\{AUMID}");
-    let mut ok2 = set_string(HKEY_CURRENT_USER, &aumid, Some("DisplayName"), "KyberNow");
+    let mut ok2 = set_string(HKEY_CURRENT_USER, &aumid, Some("DisplayName"), DISPLAY_NAME);
     let png = exe.with_file_name("kybernow.png");
     if png.exists() {
         ok2 &= set_string(HKEY_CURRENT_USER, &aumid, Some("IconUri"), &png.display().to_string());
@@ -93,7 +100,7 @@ fn known_folder(id: &windows::core::GUID) -> Option<PathBuf> {
     }
 }
 
-/// Raccourci `KyberNow.lnk` vers l'app.
+/// Raccourci `KyberNow Link.lnk` vers l'app.
 fn save_shortcut(path: &std::path::Path) -> windows::core::Result<()> {
     use windows::Win32::System::Com::IPersistFile;
     unsafe {
@@ -111,22 +118,31 @@ fn save_shortcut(path: &std::path::Path) -> windows::core::Result<()> {
 
 /// Installation (`kybernow.exe --setup-shell [--desktop]`, lancé par
 /// l'installateur) : lien `kybernow://`, notifications, raccourci du menu
-/// Démarrer et, si demandé, du Bureau.
+/// Démarrer et, si demandé, du Bureau. L'ancien raccourci `KyberNow.lnk`
+/// (0.3.1 et avant) est retiré là où le nouveau a été posé.
 pub fn install(desktop: bool) -> bool {
     use windows::Win32::UI::Shell::FOLDERID_Desktop;
     let mut ok = register();
     let start_menu = std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join(r"Microsoft\Windows\Start Menu\Programs"));
     let desktop_dir = if desktop { known_folder(&FOLDERID_Desktop) } else { None };
-    let links: Vec<PathBuf> = [start_menu, desktop_dir].into_iter().flatten().map(|d| d.join("KyberNow.lnk")).collect();
+    let dirs: Vec<PathBuf> = [start_menu, desktop_dir].into_iter().flatten().collect();
     ok &= std::thread::spawn(move || unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let mut ok = true;
-        for link in &links {
-            if let Some(dir) = link.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            match save_shortcut(link) {
-                Ok(()) => log::info!("raccourci : {}", link.display()),
+        for dir in &dirs {
+            let _ = std::fs::create_dir_all(dir);
+            let link = dir.join(SHORTCUT);
+            match save_shortcut(&link) {
+                Ok(()) => {
+                    log::info!("raccourci : {}", link.display());
+                    let old = dir.join(OLD_SHORTCUT);
+                    if old.exists() {
+                        match std::fs::remove_file(&old) {
+                            Ok(()) => log::info!("ancien raccourci retiré : {}", old.display()),
+                            Err(e) => log::warn!("ancien raccourci {} : {e}", old.display()),
+                        }
+                    }
+                }
                 Err(e) => {
                     log::warn!("raccourci {} : {e}", link.display());
                     ok = false;

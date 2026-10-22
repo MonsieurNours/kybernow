@@ -5,7 +5,7 @@
   import { currentWindow } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
-  let { title = 'KyberNow', onback, onapp, badge = false }: { title?: string; onback?: () => void; onapp?: () => void; badge?: boolean } = $props()
+  let { title = 'KyberNow Link', onback, onapp, badge = false }: { title?: string; onback?: () => void; onapp?: () => void; badge?: boolean } = $props()
 </script>
 
 <header data-tauri-drag-region>

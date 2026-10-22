@@ -66,7 +66,7 @@ impl Panel {
         // Sans WebView2, pas de panneau : le menu sert au clic gauche.
         wry::webview_version().context("WebView2 introuvable")?;
         let window = WindowBuilder::new()
-            .with_title("KyberNow")
+            .with_title(crate::app::TITLE)
             .with_inner_size(LogicalSize::new(WIDTH, 440.0))
             .with_resizable(false)
             .with_decorations(false)

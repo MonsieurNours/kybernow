@@ -1,7 +1,7 @@
 //! Droits du dossier de données de KyberNow (`C:\ProgramData\KyberNow`).
 //!
 //! ProgramData laisse par défaut tout compte y créer des dossiers et en
-//! devenir propriétaire : sur un ordinateur partagé, un compte standard
+//! devenir propriétaire : sur un ordinateur à plusieurs comptes, un compte standard
 //! pourrait déposer un fichier dans `update\` entre la vérification du paquet
 //! et son extraction par PowerShell, qui tourne en SYSTEM. Le dossier ne garde
 //! donc que SYSTEM et Administrateurs (contrôle total), sans héritage de
@@ -18,7 +18,7 @@
 //! par un autre compte avec ses propres droits n'arrête pas la pose.
 //!
 //! Même fichier dans `server/installer/src/acl.rs` (installation) et
-//! `server/admin/src/update/acl.rs` (chaque démarrage de la console) : gardez
+//! `server/admin/src/update/acl.rs` (chaque démarrage de KyberNow Admin) : gardez
 //! les deux identiques.
 
 use std::path::Path;

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Paquet de mise à jour d'un ordinateur déjà installé : surcouche Kyber,
-# console, icône et update.ps1 (installé par la console en un clic, ou à la
+# Paquet de mise à jour d'une KyberNow Station déjà installée : surcouche Kyber,
+# KyberNow Admin (la console), icône et update.ps1 (installé par Admin en un clic, ou à la
 # main). À lancer après build.sh. Sortie : dist/kybernow-update.zip,
 # dist/update.ps1 et dist/SHA256SUMS (pour essayer la mise à jour à la main
 # depuis le Mac, voir docs/releases.md ; release.sh recalcule les siennes).
@@ -8,8 +8,8 @@
 #   package-update.sh [--min-installer A.B.C] [--requires-setup]
 #
 # --requires-setup : cette mise à jour exige l'installateur (pilotes, services
-# à recréer…) : la console refuse de l'installer en un clic et renvoie vers
-# KyberNow-Server-Setup.exe. --min-installer : version minimale de KyberNow déjà
+# à recréer…) : Admin refuse de l'installer en un clic et renvoie vers
+# KyberNow-Station-Setup.exe. --min-installer : version minimale de KyberNow déjà
 # installée pour accepter le paquet. release.sh passe les mêmes options à
 # scripts/sign-manifest.sh, dont le manifeste signé fait foi ; le paquet en
 # garde une copie (requirements.json) pour la mise à jour à la main.

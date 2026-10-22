@@ -1,7 +1,7 @@
 {
   "app": {
     "start_failed": "The app could not start: {error}",
-    "bar_title": "KyberNow — bar"
+    "bar_title": "KyberNow Link — bar"
   },
   "errors": {
     "session_open_install_later": "a session is open: install after it ends",
@@ -15,7 +15,7 @@
     "password_store": "the password could not be saved in the Windows Credential Manager",
     "unknown_computer": "unknown computer",
     "session_already_open": "a session is already open",
-    "this_pc": "that computer is this PC: use KyberNow from another device to reach the shared computer",
+    "this_pc": "that computer is this PC: use KyberNow Link from another device to reach the Station",
     "password_missing": "password not found: remove this computer, then add it again",
     "no_session": "no session",
     "unknown_profile": "unknown profile",
@@ -24,12 +24,12 @@
     "video_thread": "the picture thread stopped"
   },
   "notify": {
-    "update_title": "KyberNow {version} is ready",
+    "update_title": "KyberNow Link {version} is ready",
     "update_body": "Install it in one click from the app.",
     "stopped_title": "The session on {name} stopped",
     "resume": "Resume",
     "ended_title": "The session on {name} has ended",
-    "ended_body": "Another device took over, or the console ended it.",
+    "ended_body": "Another device took over, or Admin ended it.",
     "take_back": "Take back control"
   },
   "shell": {
@@ -37,7 +37,7 @@
     "connect_to": "Connect to {name}",
     "computers": "Computers",
     "add": "Add a computer",
-    "add_description": "Add a computer to KyberNow"
+    "add_description": "Add a computer to KyberNow Link"
   },
   "window": {
     "preparing": "preparing the display",

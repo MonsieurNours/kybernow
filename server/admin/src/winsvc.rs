@@ -16,6 +16,11 @@ use windows_service::{define_windows_service, service_dispatcher};
 use crate::settings;
 
 pub const SERVICE_NAME: &str = "kyber-admin";
+/// Nom affiché du service (le nom technique `kyber-admin` ne change pas).
+/// Repris par l'applicateur des mises à jour (`update::apply`) pour les
+/// installations faites avant le renommage.
+pub const DISPLAY_NAME: &str = "KyberNow Admin";
+pub const DESCRIPTION: &str = "Administration web de KyberNow Station";
 
 #[derive(Subcommand)]
 pub enum Action {
@@ -40,7 +45,7 @@ fn install() -> Result<()> {
     .context("connexion au gestionnaire de services (lancez en administrateur)")?;
     let info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
-        display_name: OsString::from("KyberNow Console"),
+        display_name: OsString::from(DISPLAY_NAME),
         service_type: ServiceType::OWN_PROCESS,
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
@@ -53,7 +58,7 @@ fn install() -> Result<()> {
     let service = manager
         .create_service(&info, ServiceAccess::CHANGE_CONFIG | ServiceAccess::START)
         .context("création du service")?;
-    service.set_description("Console d'administration web de KyberNow")?;
+    service.set_description(DESCRIPTION)?;
     service.start::<&str>(&[]).context("démarrage du service")?;
     println!("Service {SERVICE_NAME} installé et démarré.");
     Ok(())

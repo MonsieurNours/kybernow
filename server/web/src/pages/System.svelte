@@ -88,7 +88,7 @@
     await startUpdate(api.updateRollback)
   }
 
-  // La console s'arrête, remplace ses fichiers et repart : on la guette.
+  // La Station s'arrête (Admin compris), remplace ses fichiers et repart : on la guette.
   function waitForRestart(version: string) {
     const started = Date.now()
     const timer = setInterval(async () => {
@@ -393,7 +393,7 @@
 
 <header class="space-head with-tabs">
   <div>
-    <span class="lbl">KyberNow Server {status?.admin_version ?? ''} · Kyber 0.29</span>
+    <span class="lbl">KyberNow Station {status?.admin_version ?? ''} · Kyber 0.29</span>
     <h1>{t('system.title')}</h1>
     <p>{t('system.intro')}</p>
     <nav class="tabs" aria-label={t('system.sections')}>
@@ -411,7 +411,7 @@
     <section id="maj" class="card feature update" aria-live="polite">
       <div class="update-text">
         <span class="lbl signal">{t('system.update.installing')}</span>
-        <h2 class="disp big">KyberNow {installing}</h2>
+        <h2 class="disp big">KyberNow Station {installing}</h2>
         <p class="lead">{t('system.update.installingLead')}</p>
       </div>
       <div class="progress" aria-hidden="true"><span></span></div>
@@ -420,7 +420,7 @@
     <section id="maj" aria-labelledby="t-maj" class="card feature update">
       <div class="update-text">
         <span class="lbl signal">{update.prerelease ? t('system.update.prerelease') : t('system.update.newVersion')} · {publishedLabel}</span>
-        <h2 id="t-maj" class="disp big">KyberNow {update.latest}</h2>
+        <h2 id="t-maj" class="disp big">KyberNow Station {update.latest}</h2>
         {#if notes.length}
           <ul>{#each notes as n}<li>{n}</li>{/each}</ul>
         {/if}
@@ -434,7 +434,7 @@
             <pre class="install-error">{update.install_error}</pre>
           {/if}
         {:else if update.requires_setup || !update.verify_error}
-          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">{t('system.update.download')}</a>
+          <a class="ghost" href={update.page ?? '#'} target="_blank" rel="noreferrer">{t('system.update.download', { file: update.setup ?? 'KyberNow-Station-Setup.exe' })}</a>
           <span>{update.verify_error ?? t('system.update.needsSetup')} {t('system.update.youHave', { current: update.current })}</span>
         {:else}
           <!-- Manifeste absent, mal signé, ou d'un autre canal : rien n'est installé. -->

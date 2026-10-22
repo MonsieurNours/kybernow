@@ -255,15 +255,87 @@ struct Mark: View {
 }
 
 /// Le nom : « Kyber » léger, « Now » gras, Archivo élargie.
+///
+/// À partir de `signedFrom` points, le logo signé de KyberNow Link (charte :
+/// brand/v2/logo/kybernow-link-dark.svg, géométrie : brand/v2/tools/geometry.json,
+/// `signed.link`) : sous le nom, ferrée à droite sur le pied du « w »,
+/// l'étiquette « LINK » au coin gauche coupé à 45°. En dessous de cette
+/// taille, le nom seul : la signature ne se lirait plus. L'étiquette pend
+/// sous le nom sans compter dans sa taille : à côté du symbole, le nom reste
+/// centré sur lui, comme dans le logo signé.
 struct Wordmark: View {
     var size: CGFloat = 28
+    /// Signature « LINK » : `nil`, selon la taille ; `true` la force (vol du
+    /// lancement sur iPhone et iPad, avec `signatureOpacity`).
+    var signed: Bool? = nil
+    var signatureOpacity: Double = 1
+
+    /// Corps du nom à partir duquel la signature s'affiche : le logo signé
+    /// fait alors 32 points de haut environ (1,35 corps).
+    static let signedFrom: CGFloat = 24
 
     var body: some View {
-        (Text(verbatim: "Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
+        let name = (Text(verbatim: "Kyber").font(Font(Theme.variable("Archivo", size, weight: 420, width: 125)))
             + Text(verbatim: "Now").font(Font(Theme.variable("Archivo", size, weight: 720, width: 125))))
             .tracking(-size * 0.012)
             .foregroundStyle(Theme.text)
-            .accessibilityLabel(Text(verbatim: "KyberNow"))
+        Group {
+            if signed ?? (size >= Self.signedFrom) {
+                name.overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextBaseline)) {
+                    SignatureTag(size: size)
+                        .opacity(signatureOpacity)
+                        // Haut de l'étiquette à 0,13 corps sous la ligne de base…
+                        .alignmentGuide(.lastTextBaseline) { d in d[.top] - size * 0.13 }
+                        // … et son bord droit sur le pied du « w », à 0,22 corps de la fin du nom.
+                        .alignmentGuide(.trailing) { d in d[.trailing] + size * 0.22 }
+                }
+            } else {
+                name
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "KyberNow Link"))
+    }
+}
+
+/// L'étiquette du logo signé : coin gauche coupé à 45°, coins droits à peine
+/// arrondis, « LINK » en Martian Mono capitales (graisse 540). Proportions en
+/// corps du nom, d'après brand/v2/tools/generate.mjs (`signedLogo`) : hauteur
+/// 0,364, largeur 1,268, texte de 0,26 (approche 0,08 du sien), marge de 0,12
+/// à droite et ligne de base à 0,08 du bas. Couleurs du thème sombre de la
+/// charte : fond #1E2832, texte #C9D5DA.
+private struct SignatureTag: View {
+    let size: CGFloat
+
+    var body: some View {
+        SignatureTagShape()
+            .fill(Theme.rgb(0x1E2832))
+            .frame(width: size * 1.268, height: size * 0.364)
+            .alignmentGuide(.lastTextBaseline) { d in d[.bottom] - size * 0.08 }
+            .overlay(alignment: Alignment(horizontal: .trailing, vertical: .lastTextBaseline)) {
+                Text(verbatim: "LINK")
+                    .font(Font(Theme.variable("Martian Mono", size * 0.26, weight: 540, width: 100)))
+                    .tracking(size * 0.26 * 0.08)
+                    .foregroundStyle(Theme.rgb(0xC9D5DA))
+                    .fixedSize()
+                    // 0,12 jusqu'à l'encre du « K », moins l'approche ajoutée après lui.
+                    .padding(.trailing, size * 0.1)
+            }
+    }
+}
+
+private struct SignatureTagShape: Shape {
+    func path(in r: CGRect) -> Path {
+        let radius = r.height * 0.055
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + r.height, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX - radius, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.minY + radius), control: CGPoint(x: r.maxX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - radius))
+        p.addQuadCurve(to: CGPoint(x: r.maxX - radius, y: r.maxY), control: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 

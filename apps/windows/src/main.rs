@@ -1,4 +1,4 @@
-//! KyberNow pour Windows. Sans argument : l'app (accueil, ajout, réglages,
+//! KyberNow Link pour Windows. Sans argument : l'app (accueil, ajout, réglages,
 //! session). Avec une adresse : une session directe en ligne de commande
 //! (`kybernow --help`). Voir apps/windows/README.md.
 
@@ -6,7 +6,7 @@
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("KyberNow pour Windows ne se compile que pour Windows (apps/windows/scripts/build.sh).");
+    eprintln!("KyberNow Link pour Windows ne se compile que pour Windows (apps/windows/scripts/build.sh).");
 }
 
 #[cfg(windows)]

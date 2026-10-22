@@ -146,7 +146,7 @@
 </script>
 
 <TitleBar
-  title={settingsFor ? t('app.title_settings') : 'KyberNow'}
+  title={settingsFor ? t('app.title_settings') : 'KyberNow Link'}
   onback={settingsFor ? () => (settingsId = null) : undefined}
   onapp={() => (appSheet = true)}
   badge={update !== null}

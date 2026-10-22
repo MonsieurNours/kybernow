@@ -17,7 +17,7 @@ Each measurement has its own table to fill in. Measurements 1 and 3 have the col
 
 ## Before you start
 
-- Note the date, the version of the Mac app (KyberNow › About KyberNow) and that of the console (the **Updates** page, or `C:\Program Files\KyberNow\kybernow.json`).
+- Note the date, the version of the Mac app (KyberNow Link › About KyberNow) and that of the Station (Admin's **Updates** page, or `C:\Program Files\KyberNow\kybernow.json`).
 - One session at a time. Close the Apple TV app and the web client: a second device that connects takes over and cuts the first.
 - For the latency measurements, prepare a scene on the computer that moves all the time and that you can replay identically: a game demo on a loop, or an animation test in full screen. No still screen: Kyber sends nothing when the image does not change (§15).
 - Keep a timer at hand (phone).
@@ -42,7 +42,7 @@ cd ~/Sites/kyber-apps
 grep -rn KN_PRESENT_STATS apps/macos/KyberNow apps/macos/KyberKit
 ```
 
-2. Quit KyberNow (⌘Q), then rebuild the development app. `pgrep` must print nothing.
+2. Quit KyberNow Link (⌘Q), then rebuild the development app. `pgrep` must print nothing.
 
 ```bash
 pgrep KyberNow
@@ -156,7 +156,7 @@ The HUD costs a little GPU time: compare measurements with the HUD to measuremen
 
 ## 2. Windows permissions
 
-**Goal.** Check on the computer what phase 0 delivered (§17 of the audit): the folder `C:\ProgramData\KyberNow` is only accessible to administrators, and the icon relaunched by a console update does not run with an elevated token (§7, the point marked “to confirm”).
+**Goal.** Check on the computer what phase 0 delivered (§17 of the audit): the folder `C:\ProgramData\KyberNow` is only accessible to administrators, and the icon relaunched by an Admin update does not run with an elevated token (§7, the point marked “to confirm”).
 
 ### The data folder
 
@@ -176,7 +176,7 @@ C:\ProgramData\KyberNow NT AUTHORITY\SYSTEM:(OI)(CI)(F)
 
 With `/T`, the subfolders and files give the same two lines, marked inherited: `(I)(OI)(CI)(F)` for a folder, `(I)(F)` for a file. That is correct.
 
-The measurement fails if a line names `Users` (`Utilisateurs` on a French Windows), `Everyone` (`Tout le monde`), `Authenticated Users` (`Utilisateurs authentifiés`) or `CREATOR OWNER` (`CREATEUR PROPRIETAIRE`), or if a right is not `(F)`. Then note the path concerned, run `Restart-Service kyber-admin` (the console sets the permissions again at each start) and start over.
+The measurement fails if a line names `Users` (`Utilisateurs` on a French Windows), `Everyone` (`Tout le monde`), `Authenticated Users` (`Utilisateurs authentifiés`) or `CREATOR OWNER` (`CREATEUR PROPRIETAIRE`), or if a right is not `(F)`. Then note the path concerned, run `Restart-Service kyber-admin` (Admin sets the permissions again at each start) and start over.
 
 Three more checks:
 
@@ -186,7 +186,7 @@ Three more checks:
 Select-String -Path C:\ProgramData\KyberNow\kyber-admin.log -Pattern 'droits de' | Select-Object -Last 3
 ```
 
-Expected: the owner is `BUILTIN\Administrators` (`BUILTIN\Administrateurs` on a French Windows); `True`; at least one line “droits de C:\ProgramData\KyberNow : SYSTEM et Administrateurs seulement” (the console logs in French), dated from the console's last start.
+Expected: the owner is `BUILTIN\Administrators` (`BUILTIN\Administrateurs` on a French Windows); `True`; at least one line “droits de C:\ProgramData\KyberNow : SYSTEM et Administrateurs seulement” (Admin logs in French), dated from Admin's last start.
 
 ### From a standard account
 
@@ -199,16 +199,16 @@ New-Item -ItemType Directory C:\ProgramData\KyberNow\update\essai
 ```
 
 **Expected**: both commands are denied (“Access to the path … is denied”, “Accès refusé” on a French Windows). No file name is displayed.
-3. In the same session, click the KyberNow icon, then the entry that opens the console: it still opens.
+3. In the same session, click the KyberNow Station icon, then the entry that opens Admin: it still opens.
 
 Without a standard account, the same `dir` in a **non-elevated** PowerShell window of your administrator account must also be denied (the Administrators group is deny-only there). The proof is weaker: it does not cover another account.
 
 ### The icon after an update
 
-An icon relaunched by the console with an administrator's full token runs at high integrity. The test only makes sense on an **administrator** account: on a standard account, the token is already limited.
+An icon relaunched by Admin with an administrator's full token runs at high integrity. The test only makes sense on an **administrator** account: on a standard account, the token is already limited.
 
 1. Before the update, measure the icon started at sign-in (reference) with one of the tools below: it must be at medium integrity.
-2. Start an update from the console (page **Updates › Install**). If there is no newer version, serve a package from the Mac (see [releases.en.md](releases.en.md), “To try a package served from the Mac”). Wait about a minute: the icon reappears.
+2. Start an update from Admin (page **Updates › Install**). If there is no newer version, serve a package from the Mac (see [releases.en.md](releases.en.md), “To try a package served from the Mac”). Wait about a minute: the icon reappears.
 3. Check that you are looking at the icon relaunched by the update, not the old one:
 
 ```powershell
@@ -221,19 +221,19 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
    - **Process Explorer** (Sysinternals), run as administrator. View › Select Columns, add the “Integrity Level” column. Or double-click the process, Security tab: the group “Mandatory Label\… Mandatory Level”. This is the most reliable method.
    - **Task Manager**, run as administrator. Details tab, right-click a header › Select columns › “Elevated” (“Élevé” or “Niveau d'élévation” on a French Windows, depending on the version). The column says “Yes” or “No” for each process.
 
-**Expected: medium integrity (Medium), “Elevated” column at “No”.** High integrity or “Yes” confirms the problem of §7: the console relaunches the icon with the full token (`launch_as_user`, `server/admin/src/display/agent.rs`, through `WTSQueryUserToken`). The fix is to give it the linked limited token (`TokenLinkedToken`).
+**Expected: medium integrity (Medium), “Elevated” column at “No”.** High integrity or “Yes” confirms the problem of §7: Admin relaunches the icon with the full token (`launch_as_user`, `server/admin/src/display/agent.rs`, through `WTSQueryUserToken`). The fix is to give it the linked limited token (`TokenLinkedToken`).
 
 | Condition | Expected | Obtained | Remark |
 |---|---|---|---|
 | `icacls` on the folder | SYSTEM and Administrators, `(OI)(CI)(F)`, nothing else | | |
 | `icacls /T`, first 40 lines | the same two names, inheritance `(I)`; no Users line | | |
 | Owner, protected inheritance | Administrators; `True` | | |
-| “droits de” log line | one line per console start | | |
+| “droits de” log line | one line per Admin start | | |
 | Standard account, `dir` | denied | | |
 | Standard account, creating a folder | denied | | |
-| Standard account, icon → console | opens | | |
+| Standard account, icon → Admin | opens | | |
 | Icon at sign-in (reference) | medium integrity | | |
-| Icon after a console update | medium integrity, “Elevated”: No | | |
+| Icon after an Admin update | medium integrity, “Elevated”: No | | |
 | `msedgewebview2.exe` children of the panel | medium integrity | | |
 
 ---
@@ -481,7 +481,7 @@ For each `\\.\DISPLAYn`, it prints: the adapter, the monitor, whether it is acti
 
 ### Interpret
 
-- **A single mode** (the one the console asked for when it created the display): a game cannot change the virtual display's resolution. The “mode changes” scenario of §15 then only exists on physical displays. The console's “follow / put back” policy has no purpose for the virtual display: do not build it.
+- **A single mode** (the one Admin asked for when it created the display): a game cannot change the virtual display's resolution. The “mode changes” scenario of §15 then only exists on physical displays. Admin's “follow / put back” policy has no purpose for the virtual display: do not build it.
 - **A list**: a game can change the virtual display's resolution. The scenario of §15 is real: the image goes on at the new size (txproto engine) or the session is cut (libavconv engine), and the “follow / put back” policy (§15: let the game choose the mode, or freeze it) makes sense. Note whether the list contains your Mac display's resolution and 4K, and several rates for the same size.
 - Raw modes more numerous than the offered modes: the virtual monitor hides some. Note them: a game that enumerates modes the way the script does will see the driver's list.
 

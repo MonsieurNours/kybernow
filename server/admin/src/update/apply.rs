@@ -115,6 +115,12 @@ pub trait System {
     fn health(&mut self, address: &str, version: &str, timeout: Duration) -> Result<()>;
     /// « Applications installées » (`DisplayVersion`).
     fn register_version(&mut self, version: &str) -> Result<()>;
+    /// Noms affichés de KyberNow Station, Admin et Link (0.4.0) sur une
+    /// installation faite avant le renommage : noms des services, « Applications
+    /// installées », raccourcis du menu Démarrer (comme l'installateur, voir
+    /// `server/installer/src/install.rs`). Rien n'est bloquant : renvoie ce
+    /// qui n'a pas pu être fait, pour le journal.
+    fn rebrand(&mut self, layout: &Layout) -> Vec<String>;
     /// Version d'une console, lue sur l'exécutable (`--version`).
     fn exe_version(&mut self, exe: &Path) -> Result<String>;
 }
@@ -445,7 +451,7 @@ pub fn verify_package(layout: &Layout, zip: &Path, version: &str, checks: &Check
 /// mise à jour n'a pas abouti ; le résultat est aussi écrit pour la console.
 pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, checks: &Checks) -> Result<()> {
     let mut log = Journal::open(layout.updates().join(if valid_version(version) { version } else { "invalide" }).join("update.log"));
-    log.line(format!("==> KyberNow {version} : vérification du manifeste signé et du paquet"));
+    log.line(format!("==> KyberNow Station {version} : vérification du manifeste signé et du paquet"));
     if let Err(e) = verify_package(layout, zip, version, checks) {
         log.line(format!("ERREUR : {e:#}"));
         return Err(e);
@@ -498,6 +504,14 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
     }, "prev", |layout| {
         move_kyber_log(&layout.with_suffix("kyber", "prev"), &layout.part("kyber"));
     });
+    if result.is_ok() {
+        // Installation d'avant le renommage (0.3.1 et avant) : noms affichés
+        // comme ceux de l'installateur. Un échec est seulement journalisé.
+        log.line("==> Noms affichés : KyberNow Station, KyberNow Admin, raccourcis");
+        for failure in sys.rebrand(layout) {
+            log.line(format!("    non fait : {failure}"));
+        }
+    }
     if undo_failed {
         // Les dossiers de la nouvelle version y sont peut-être encore : gardés.
         log.line(format!("    {} gardé pour remettre les dossiers à la main", staged.display()));
@@ -518,7 +532,7 @@ pub fn rollback(layout: &Layout, sys: &mut dyn System) -> Result<String> {
         bail!("version précédente illisible : {previous}");
     }
     let mut log = Journal::open(layout.updates().join(&previous).join("update.log"));
-    log.line(format!("==> Retour à KyberNow {previous} (version précédente)"));
+    log.line(format!("==> Retour à KyberNow Station {previous} (version précédente)"));
     // Un dossier sans .prev a été apporté par la version qu'on quitte : retiré.
     let plan: Plan = PARTS
         .iter()
@@ -581,7 +595,7 @@ fn run_switch(
     })();
     match steps {
         Ok(()) => {
-            log.line(format!("    KyberNow {version} en ligne"));
+            log.line(format!("    KyberNow Station {version} en ligne"));
             if let Err(e) = record_version(layout, version) {
                 log.line(format!("    kybernow.json non mis à jour : {e:#}"));
             }
@@ -589,7 +603,7 @@ fn run_switch(
                 log.line(format!("    DisplayVersion non mise à jour : {e:#}"));
             }
             write_result(layout, json!({ "version": version, "ok": true, "log": log.path }));
-            log.line(format!("Terminé : KyberNow {version}."));
+            log.line(format!("Terminé : KyberNow Station {version}."));
             (Ok(()), false)
         }
         Err(e) => {
@@ -681,6 +695,21 @@ mod windows {
     const KYBER_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/30000"];
     const NO_RECOVERY: [&str; 6] = ["failure", "kyber", "reset=", "0", "actions=", ""];
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    /// Noms affichés posés par l'installateur (`server/installer/i18n`,
+    /// `install.serviceName`, `install.serviceDescription`,
+    /// `install.trayShortcut`), repris ici pour les installations d'avant le
+    /// renommage, mises à jour en un clic.
+    const DISPLAY_NAME: &str = "KyberNow Station";
+    const KYBER_DISPLAY_FR: &str = "KyberNow Station - serveur de streaming";
+    const KYBER_DISPLAY_EN: &str = "KyberNow Station - streaming server";
+    const KYBER_DESCRIPTION_FR: &str = "Serveur de streaming Kyber, installé et géré par KyberNow Station.";
+    const KYBER_DESCRIPTION_EN: &str = "Kyber streaming server, installed and managed by KyberNow Station.";
+    const TRAY_SHORTCUT_FR: &str = "KyberNow Station dans la zone de notification";
+    const TRAY_SHORTCUT_EN: &str = "KyberNow Station in the notification area";
+    /// Raccourci d'Admin (`install.consoleShortcut`, le même dans les deux langues).
+    const ADMIN_SHORTCUT: &str = "KyberNow Admin.url";
+    /// Raccourcis des versions 0.3.1 et précédentes (`LEGACY_SHORTCUTS` de l'installateur).
+    const LEGACY_SHORTCUTS: [&str; 3] = ["KyberNow.lnk", "Console KyberNow.url", "KyberNow console.url"];
 
     pub struct WindowsSystem;
 
@@ -693,6 +722,81 @@ mod windows {
     fn run(tool: &str, args: &[&str]) -> Result<std::process::Output> {
         use std::os::windows::process::CommandExt;
         Command::new(system32(tool)).args(args).creation_flags(CREATE_NO_WINDOW).output().with_context(|| format!("lancement de {tool}"))
+    }
+
+    fn run_ok(tool: &str, args: &[&str]) -> Result<()> {
+        let out = run(tool, args)?;
+        if !out.status.success() {
+            bail!("{tool} {} a échoué ({})", args.first().copied().unwrap_or_default(), out.status);
+        }
+        Ok(())
+    }
+
+    /// L'installation est-elle en français ? Comme l'installateur l'a nommée :
+    /// le nom affiché de `kyber` (« … serveur de streaming » ou « … streaming
+    /// server »), sinon la langue d'affichage de Windows.
+    fn french() -> bool {
+        if let Ok(out) = run("sc.exe", &["qc", "kyber"]) {
+            let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            // La ligne DISPLAY_NAME (tout le texte si elle n'est pas trouvée).
+            let name = text.lines().find(|l| l.contains("display_name")).and_then(|l| l.split_once(':')).map_or(text.as_str(), |(_, n)| n);
+            if name.contains("serveur") {
+                return true;
+            }
+            if name.contains("server") {
+                return false;
+            }
+        }
+        // LANGID : langue principale dans les 10 bits du bas (LANG_FRENCH = 0x0C).
+        let id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
+        id & 0x3FF == 0x0C
+    }
+
+    /// Menu Démarrer (dossier `KyberNow`, commun à tous les utilisateurs) :
+    /// « KyberNow Station.lnk » vers l'icône, « KyberNow Admin.url », et les
+    /// raccourcis d'avant le renommage retirés.
+    fn shortcuts(layout: &Layout, tray_description: &str) -> Result<()> {
+        let dir = PathBuf::from(std::env::var_os("ProgramData").context("ProgramData absent")?).join(r"Microsoft\Windows\Start Menu\Programs\KyberNow");
+        std::fs::create_dir_all(&dir).with_context(|| format!("création de {}", dir.display()))?;
+        // L'ancien raccourci d'Admin est renommé (son adresse et son port
+        // gardés) ; sans aucun raccourci, il est écrit avec le port d'Admin.
+        let admin = dir.join(ADMIN_SHORTCUT);
+        for old in LEGACY_SHORTCUTS.iter().filter(|o| o.ends_with(".url")) {
+            let old = dir.join(old);
+            if !old.exists() {
+                continue;
+            }
+            if admin.exists() {
+                let _ = std::fs::remove_file(&old);
+            } else {
+                // En cas d'échec, le nouveau raccourci est écrit plus bas.
+                let _ = std::fs::rename(&old, &admin);
+            }
+        }
+        if !admin.exists() {
+            let port = super::console_address(layout).rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok()).unwrap_or(9443);
+            std::fs::write(&admin, format!("[InternetShortcut]\r\nURL=https://localhost:{port}/\r\n"))
+                .with_context(|| format!("écriture de {ADMIN_SHORTCUT}"))?;
+        }
+        let tray = layout.part("tray").join("kybernow-tray.exe");
+        let lnk = dir.join(format!("{DISPLAY_NAME}.lnk"));
+        let mut result = Ok(());
+        if tray.exists() && !lnk.exists() {
+            let quote = |p: &Path| p.display().to_string().replace('\'', "''");
+            let script = format!(
+                "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Description = '{}'; $s.Save()",
+                quote(&lnk),
+                quote(&tray),
+                tray_description.replace('\'', "''")
+            );
+            result = run_ok(r"WindowsPowerShell\v1.0\powershell.exe", &["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
+                .with_context(|| format!("création de {}", lnk.display()));
+        }
+        // L'ancien raccourci de l'icône ne part que si le nouveau est là.
+        if lnk.exists() {
+            let _ = std::fs::remove_file(dir.join("KyberNow.lnk"));
+        }
+        result
     }
 
     /// Sans `/T` : l'applicateur est un enfant de la console, il ne doit pas
@@ -844,6 +948,31 @@ mod windows {
             Ok(())
         }
 
+        fn rebrand(&mut self, layout: &Layout) -> Vec<String> {
+            let mut failures = Vec::new();
+            let mut step = |what: &str, result: Result<()>| {
+                if let Err(e) = result {
+                    failures.push(format!("{what} : {e:#}"));
+                }
+            };
+            // Langue de l'installation : celle du nom que l'installateur a donné à `kyber`.
+            let fr = french();
+            let (kyber_name, kyber_description, tray_description) = if fr {
+                (KYBER_DISPLAY_FR, KYBER_DESCRIPTION_FR, TRAY_SHORTCUT_FR)
+            } else {
+                (KYBER_DISPLAY_EN, KYBER_DESCRIPTION_EN, TRAY_SHORTCUT_EN)
+            };
+            step("nom du service kyber", run_ok("sc.exe", &["config", "kyber", "DisplayName=", kyber_name]));
+            step("description du service kyber", run_ok("sc.exe", &["description", "kyber", kyber_description]));
+            step("nom du service kyber-admin", run_ok("sc.exe", &["config", "kyber-admin", "DisplayName=", crate::winsvc::DISPLAY_NAME]));
+            step("description du service kyber-admin", run_ok("sc.exe", &["description", "kyber-admin", crate::winsvc::DESCRIPTION]));
+            if run("reg.exe", &["query", UNINSTALL_KEY]).is_ok_and(|o| o.status.success()) {
+                step("DisplayName", run_ok("reg.exe", &["add", UNINSTALL_KEY, "/v", "DisplayName", "/t", "REG_SZ", "/d", DISPLAY_NAME, "/f"]));
+            }
+            step("raccourcis du menu Démarrer", shortcuts(layout, tray_description));
+            failures
+        }
+
         fn exe_version(&mut self, exe: &Path) -> Result<String> {
             exe_version(exe)
         }
@@ -925,6 +1054,10 @@ mod tests {
         fn register_version(&mut self, version: &str) -> Result<()> {
             self.registered = Some(version.into());
             Ok(())
+        }
+        fn rebrand(&mut self, _: &Layout) -> Vec<String> {
+            self.calls.push("rebrand".into());
+            Vec::new()
         }
         fn exe_version(&mut self, exe: &Path) -> Result<String> {
             // Les faux exécutables contiennent « kyber-admin X.Y.Z ».
@@ -1077,7 +1210,7 @@ mod tests {
         let mut sys = Fake { tray_running: true, ..Fake::default() };
         bench.apply(&mut sys, &zip, "0.2.6").unwrap();
 
-        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.6"]);
+        assert_eq!(sys.calls, ["stop_tray", "stop_server", "stop_console", "rights", "start", "health 127.0.0.1:9555 0.2.6", "rebrand"]);
         // Nouveaux fichiers, réglages de Kyber gardés, journaux déplacés.
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.6");
         assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 30000");
@@ -1155,6 +1288,8 @@ mod tests {
         let mut sys = Fake { unhealthy: vec!["0.2.6".into()], ..Fake::default() };
         let e = bench.apply(&mut sys, &zip, "0.2.6").unwrap_err().to_string();
         assert!(e.contains("ne répond pas"), "{e}");
+        // Les noms affichés ne changent qu'après une mise à jour réussie.
+        assert!(!sys.calls.iter().any(|c| c == "rebrand"), "{:?}", sys.calls);
 
         assert_eq!(bench.read("kyber/kyavserver.exe"), "kyavserver 0.2.5");
         assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.5");

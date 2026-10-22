@@ -545,18 +545,18 @@
         }
       }
     },
-    "Affichés dans la console de l'ordinateur, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation." : {
+    "Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shown in the computer's console, Access page, “Add a device”. The port was picked at random during installation."
+            "value" : "Shown in KyberNow Admin, Access page, “Add a device”. The port was picked at random during installation."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Affichés dans la console de l'ordinateur, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation."
+            "value" : "Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation."
           }
         }
       }
@@ -625,18 +625,18 @@
         }
       }
     },
-    "Ajoutez un ordinateur équipé de KyberNow : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur." : {
+    "Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add a computer running KyberNow: from your Mac through iCloud, on this network, or with a code to accept on the computer."
+            "value" : "Add a computer running KyberNow Station: from your Mac through iCloud, on this network, or with a code to accept on the computer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez un ordinateur équipé de KyberNow : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur."
+            "value" : "Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur."
           }
         }
       }
@@ -705,18 +705,18 @@
         }
       }
     },
-    "Annoncé par sa console KyberNow" : {
+    "Annoncé par KyberNow Station" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Announced by its KyberNow console"
+            "value" : "Announced by KyberNow Station"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Annoncé par sa console KyberNow"
+            "value" : "Annoncé par KyberNow Station"
           }
         }
       }
@@ -865,18 +865,18 @@
         }
       }
     },
-    "Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow sur le Mac, avec le même compte iCloud." : {
+    "Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow Link sur le Mac, avec le même compte iCloud." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No computer published by your Mac yet. Open KyberNow on the Mac, with the same iCloud account."
+            "value" : "No computer published by your Mac yet. Open KyberNow Link on the Mac, with the same iCloud account."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow sur le Mac, avec le même compte iCloud."
+            "value" : "Aucun ordinateur publié par votre Mac pour l'instant. Ouvrez KyberNow Link sur le Mac, avec le même compte iCloud."
           }
         }
       }
@@ -961,18 +961,18 @@
         }
       }
     },
-    "Auto : la langue de l'Apple TV ; pour KyberNow seulement" : {
+    "Auto : la langue de l'Apple TV ; pour KyberNow Link seulement" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto: the Apple TV's language; for KyberNow only"
+            "value" : "Auto: the Apple TV's language; for KyberNow Link only"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : la langue de l'Apple TV ; pour KyberNow seulement"
+            "value" : "Auto : la langue de l'Apple TV ; pour KyberNow Link seulement"
           }
         }
       }
@@ -1233,18 +1233,18 @@
         }
       }
     },
-    "Celui choisi à l'installation de KyberNow sur cet ordinateur." : {
+    "Celui choisi à l'installation de KyberNow Station sur cet ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The one chosen when KyberNow was installed on this computer."
+            "value" : "The one chosen when KyberNow Station was installed on this computer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Celui choisi à l'installation de KyberNow sur cet ordinateur."
+            "value" : "Celui choisi à l'installation de KyberNow Station sur cet ordinateur."
           }
         }
       }
@@ -1265,18 +1265,18 @@
         }
       }
     },
-    "Ceux que vous avez ajoutés dans KyberNow sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul." : {
+    "Ceux que vous avez ajoutés dans KyberNow Link sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The ones you added in KyberNow on your Mac arrive here with their credentials. Nothing to type, and a password changed on the Mac follows automatically."
+            "value" : "The ones you added in KyberNow Link on your Mac arrive here with their credentials. Nothing to type, and a password changed on the Mac follows automatically."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ceux que vous avez ajoutés dans KyberNow sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul."
+            "value" : "Ceux que vous avez ajoutés dans KyberNow Link sur votre Mac arrivent ici avec leurs accès. Rien à taper, et un mot de passe changé sur le Mac suit tout seul."
           }
         }
       }
@@ -1793,18 +1793,18 @@
         }
       }
     },
-    "Empreinte de la console : %@ — à comparer à celle de sa page Accès." : {
+    "Empreinte de la Station : %@ — à comparer à celle de la page Accès de KyberNow Admin." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Console fingerprint: %@ — compare it with the one on its Access page."
+            "value" : "Station fingerprint: %@ — compare it with the one on the Access page of KyberNow Admin."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Empreinte de la console : %@ — à comparer à celle de sa page Accès."
+            "value" : "Empreinte de la Station : %@ — à comparer à celle de la page Accès de KyberNow Admin."
           }
         }
       }
@@ -2529,18 +2529,18 @@
         }
       }
     },
-    "Le certificat de la console ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur." : {
+    "Le certificat de la Station ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The console's certificate does not match its announcement: this may not be your computer."
+            "value" : "The Station's certificate does not match its announcement: this may not be your computer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Le certificat de la console ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur."
+            "value" : "Le certificat de la Station ne correspond pas à l'annonce : ce n'est peut-être pas votre ordinateur."
           }
         }
       }
@@ -2689,18 +2689,18 @@
         }
       }
     },
-    "Les ordinateurs trouvés n'ont pas encore la console qui accepte les codes : mettez KyberNow à jour sur l'ordinateur." : {
+    "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The computers found do not have a console that accepts codes yet: update KyberNow on the computer."
+            "value" : "The computers found do not have the version of KyberNow Station that accepts codes yet: update it on the computer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les ordinateurs trouvés n'ont pas encore la console qui accepte les codes : mettez KyberNow à jour sur l'ordinateur."
+            "value" : "Les ordinateurs trouvés n'ont pas encore la version de KyberNow Station qui accepte les codes : mettez-la à jour sur l'ordinateur."
           }
         }
       }
@@ -3025,18 +3025,18 @@
         }
       }
     },
-    "Ou ouvrez la console depuis votre téléphone" : {
+    "Ou ouvrez KyberNow Admin depuis votre téléphone" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Or open the console from your phone"
+            "value" : "Or open KyberNow Admin from your phone"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ou ouvrez la console depuis votre téléphone"
+            "value" : "Ou ouvrez KyberNow Admin depuis votre téléphone"
           }
         }
       }
@@ -3105,18 +3105,18 @@
         }
       }
     },
-    "Pendant le menu, les manettes pilotent KyberNow ; le jeu ne reçoit rien." : {
+    "Pendant le menu, les manettes pilotent KyberNow Link ; le jeu ne reçoit rien." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "While the menu is open, gamepads control KyberNow; the game receives nothing."
+            "value" : "While the menu is open, gamepads control KyberNow Link; the game receives nothing."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pendant le menu, les manettes pilotent KyberNow ; le jeu ne reçoit rien."
+            "value" : "Pendant le menu, les manettes pilotent KyberNow Link ; le jeu ne reçoit rien."
           }
         }
       }
@@ -3153,18 +3153,18 @@
         }
       }
     },
-    "Pilote KyberNow · en session, souris si vous l'activez" : {
+    "Pilote KyberNow Link · en session, souris si vous l'activez" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Controls KyberNow · in a session, a mouse if you turn it on"
+            "value" : "Controls KyberNow Link · in a session, a mouse if you turn it on"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pilote KyberNow · en session, souris si vous l'activez"
+            "value" : "Pilote KyberNow Link · en session, souris si vous l'activez"
           }
         }
       }
@@ -3201,18 +3201,18 @@
         }
       }
     },
-    "Port de la console" : {
+    "Port d'Admin" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Console port"
+            "value" : "Admin port"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Port de la console"
+            "value" : "Port d'Admin"
           }
         }
       }
@@ -3350,7 +3350,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Link quality"
+            "value" : "Connection quality"
           }
         },
         "fr" : {
@@ -3441,18 +3441,18 @@
         }
       }
     },
-    "Relancez KyberNow pour changer de langue." : {
+    "Relancez KyberNow Link pour changer de langue." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Relaunch KyberNow to change the language."
+            "value" : "Relaunch KyberNow Link to change the language."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Relancez KyberNow pour changer de langue."
+            "value" : "Relancez KyberNow Link pour changer de langue."
           }
         }
       }
@@ -4145,18 +4145,18 @@
         }
       }
     },
-    "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge)." : {
+    "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "On the computer, open the KyberNow console (from its tray icon)."
+            "value" : "On the computer, open KyberNow Admin (from the KyberNow Station tray icon)."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sur l'ordinateur, ouvrez la console KyberNow (icône près de l'horloge)."
+            "value" : "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)."
           }
         }
       }
@@ -4497,18 +4497,18 @@
         }
       }
     },
-    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow ouvert. Par VPN, passez par le code ou l'adresse." : {
+    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow open. Over VPN, use the code or the address."
+            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow Station running. Over VPN, use the code or the address."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow ouvert. Par VPN, passez par le code ou l'adresse."
+            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse."
           }
         }
       }
@@ -5025,18 +5025,18 @@
         }
       }
     },
-    "À accepter dans la console de l'ordinateur" : {
+    "À accepter dans KyberNow Admin" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "To accept in the computer's console"
+            "value" : "To accept in KyberNow Admin"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "À accepter dans la console de l'ordinateur"
+            "value" : "À accepter dans KyberNow Admin"
           }
         }
       }

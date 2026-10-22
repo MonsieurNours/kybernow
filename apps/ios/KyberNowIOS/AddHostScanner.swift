@@ -133,8 +133,8 @@ struct AddHostQRPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
-            AddHostHeader(eyebrow: String(localized: "Caméra"), title: String(localized: "Visez le QR code de la console"))
-            AddHostParagraph(String(localized: "Il est dans l'espace Accès de la console de l'ordinateur. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."))
+            AddHostHeader(eyebrow: String(localized: "Caméra"), title: String(localized: "Visez le QR code d'appairage"))
+            AddHostParagraph(String(localized: "Il est dans l'espace Accès de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."))
             viewer
             if let notice {
                 AddHostNotice(kind: .warn, text: notice)
@@ -146,7 +146,7 @@ struct AddHostQRPane: View {
                 }
                 .tint(Theme.accentFill)
                 .frame(minHeight: 44)
-                Text("Ou collez le lien kybernow:// copié depuis la console.")
+                Text("Ou collez le lien kybernow:// copié depuis KyberNow Admin.")
                     .font(Theme.sans(13)).foregroundStyle(Theme.faint)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -169,7 +169,7 @@ struct AddHostQRPane: View {
                 AddHostViewfinder(size: wide ? 220 : 180, corner: wide ? 40 : 30)
             case .denied:
                 VStack(spacing: 14) {
-                    Text("KyberNow n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou collez le lien de la console.")
+                    Text("KyberNow Link n'a pas accès à la caméra. Autorisez-la dans les Réglages, ou collez le lien copié depuis KyberNow Admin.")
                         .font(Theme.sans(14)).foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -180,7 +180,7 @@ struct AddHostQRPane: View {
                 }
                 .padding(24)
             case .unavailable:
-                Text("Pas de caméra disponible sur cet appareil. Collez le lien de la console.")
+                Text("Pas de caméra disponible sur cet appareil. Collez le lien copié depuis KyberNow Admin.")
                     .font(Theme.sans(14)).foregroundStyle(Theme.text2)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

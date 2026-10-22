@@ -251,7 +251,7 @@ pub fn fields() -> Vec<Field> {
             help: "Présente chaque manette à l'ordinateur comme une manette Xbox 360.",
             details: "Par défaut, une manette PlayStation reste une manette PlayStation pour l'ordinateur. Certains jeux anciens ne reconnaissent que les manettes Xbox 360 : ce réglage les fait passer pour telles.",
             advice: "Activez-le seulement si un jeu ne détecte pas votre manette.",
-            caution: Some("Nécessite le pilote ViGEmBus, installé avec KyberNow."),
+            caution: Some("Nécessite le pilote ViGEmBus, installé avec KyberNow Station."),
             unit: None,
         },
         Field {
@@ -309,7 +309,7 @@ pub fn fields() -> Vec<Field> {
             default: json!(true),
             label: "Jetons d'appareil",
             help: "Connexion par jeton signé, sans retaper de mot de passe.",
-            details: "Un jeton est une sorte de badge numérique signé par cet ordinateur. Les apps KyberNow pour Mac et Apple TV s'en serviront pour se reconnecter sans vous redemander le mot de passe. L'installateur a remplacé la clé de démonstration de Kyber par un secret propre à cet ordinateur.",
+            details: "Un jeton est une sorte de badge numérique signé par cet ordinateur. Les apps KyberNow Link pour Mac et Apple TV s'en serviront pour se reconnecter sans vous redemander le mot de passe. L'installateur a remplacé la clé de démonstration de Kyber par un secret propre à cet ordinateur.",
             advice: "Laissez activé pour les apps Mac et Apple TV.",
             caution: None,
             unit: None,

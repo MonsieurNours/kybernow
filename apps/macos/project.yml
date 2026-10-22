@@ -1,4 +1,4 @@
-# Projet Xcode de l'app KyberNow pour macOS (généré par XcodeGen :
+# Projet Xcode de l'app KyberNow Link pour macOS (généré par XcodeGen :
 # `xcodegen generate`). Avant le premier build : scripts/vendor-kyber.sh,
 # scripts/build-kyclient.sh (libkyclient avec les correctifs KyberNow), puis
 # ../apple/scripts/build-apple.sh (le cœur Rust, libkybernow).
@@ -87,11 +87,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: fr.leslignesclaires.kybernow
         PRODUCT_NAME: KyberNow
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: KyberNow
+        INFOPLIST_KEY_CFBundleDisplayName: KyberNow Link
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 Les Lignes Claires · AGPL-3.0"
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "KyberNow se connecte à vos ordinateurs sur le réseau local."
-        INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow lit le QR code affiché par la console de votre ordinateur."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "KyberNow Link se connecte à vos ordinateurs sur le réseau local."
+        INFOPLIST_KEY_NSCameraUsageDescription: "KyberNow Link lit le QR code affiché dans KyberNow Admin."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_INCLUDE_PATHS: $(SRCROOT)/Vendor/include
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/Frameworks

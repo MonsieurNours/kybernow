@@ -12,11 +12,12 @@
 #   1. vérifications préalables (branche main, arbre propre et à jour avec
 #      origin, CHANGELOG.md et CHANGELOG.en.md, surcouche Kyber compilée avec
 #      les correctifs du dépôt, gh connecté, profil notarytool, sign-manifest.sh) ;
-#   2. alignement des versions (console, icône, installateur, apps Mac et
-#      Apple TV) et commit « KyberNow X.Y.Z » ;
-#   3. construction depuis ce commit : installateur, paquet de mise à jour, app
-#      Mac (Developer ID), app Apple TV et son SDK de Kyber ; l'arbre doit
-#      rester propre (sinon les binaires ne correspondraient pas au commit) ;
+#   2. alignement des versions (Admin, icône, installateur de la Station, apps
+#      KyberNow Link) et commit « KyberNow X.Y.Z » ;
+#   3. construction depuis ce commit : installateur de la Station, paquet de
+#      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
+#      SDK, app Windows et son installateur ; l'arbre doit rester propre (sinon
+#      les binaires ne correspondraient pas au commit) ;
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
 #   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
 #      SHA256SUMS, manifeste signé (scripts/sign-manifest.sh, minisign) ;
@@ -77,10 +78,18 @@ OVERLAY_STAMP="$OVERLAY.stamp"   # écrit par server/kyber-patches/build.sh
 # (www.kybernow.app/updates/appcast.xml) : toutes les versions, bêtas comprises.
 SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
-# KyberNow-Setup.exe : ancien nom de KyberNow-Server-Setup.exe (même fichier),
-# publié encore quelques versions pour les liens existants (…/latest/download/).
-ASSETS=(KyberNow-Server-Setup.exe KyberNow-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
-    KyberNow-Client-Setup.exe
+# Installateurs : KyberNow-Station-Setup.exe (la Station) et
+# KyberNow-Link-Setup.exe (app Windows). Leurs anciens noms sont publiés à
+# l'identique (copies) quelques versions encore : l'app Windows en 0.3.1 et
+# avant cherche KyberNow-Client-Setup.exe dans le manifeste et la release,
+# Admin en 0.3.1 et avant renvoie vers KyberNow-Server-Setup.exe, et les liens
+# existants (…/latest/download/) mènent à KyberNow-Setup.exe (nom d'avant la
+# 0.3.0), KyberNow-Server-Setup.exe ou KyberNow-Client-Setup.exe. Voir
+# docs/releases.md, « Anciens noms des installateurs ».
+LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
+LEGACY_LINK=(KyberNow-Client-Setup.exe)
+ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}"
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -243,7 +252,7 @@ fi
 if [ -x scripts/sign-manifest.sh ]; then
     ok "scripts/sign-manifest.sh (manifeste signé minisign)"
 else
-    problem "scripts/sign-manifest.sh absent : sans manifeste signé, la console refuse la mise à jour (phase 2 « signature et updater » à fusionner)"
+    problem "scripts/sign-manifest.sh absent : sans manifeste signé, Admin refuse la mise à jour (phase 2 « signature et updater » à fusionner)"
 fi
 # Aucune KyberNow ne doit tourner : le cœur Rust de l'app Mac
 # (apps/macos/Vendor/Frameworks/libkybernow.dylib) et les bibliothèques de
@@ -266,7 +275,9 @@ if [ "$MODE" = check ]; then
 
 Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
-  3. installateur, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac, app Apple TV et son SDK
+  3. installateur de la Station, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac,
+     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur
+     (anciens noms des installateurs publiés en copie : ${LEGACY_STATION[*]} ${LEGACY_LINK[*]})
   4. notarisation de l'app Mac
   5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
      $SITE_FEED mis à jour, commit « $FEED_SUBJECT »
@@ -322,7 +333,7 @@ COMMIT="$(git rev-parse "$VERSION_REF")"
 TREE_BEFORE="$(git status --porcelain)"
 
 # ---------------------------------------------------------------------------
-step "Ordinateur : installateur et paquet de mise à jour"
+step "KyberNow Station : installateur et paquet de mise à jour"
 # Sortie de cargo sans les lignes de progression ; avec pipefail, le code de
 # retour reste celui de build.sh.
 server/installer/build.sh 2>&1 > /dev/null \
@@ -368,8 +379,8 @@ apps/apple/scripts/build-apple-mobile.sh ios 2>&1 > /dev/null \
     -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCC|FAIL)")
 (cd apps/ios/Vendor && ditto -c -k . "$OUT/KyberSDK-iOS.zip")
 
-step "App Windows (x64 et ARM64) et son installateur"
-# Comme pour l'ordinateur : avec pipefail, un échec de build.sh arrête tout
+step "App Windows (KyberNow Link, x64 et ARM64) et son installateur"
+# Comme pour la Station : avec pipefail, un échec de build.sh arrête tout
 # (sinon l'exécutable d'un build précédent partirait dans la version).
 for arch in x64 arm64; do
     apps/windows/scripts/build.sh --arch "$arch" 2>&1 > /dev/null \
@@ -378,7 +389,8 @@ done
 # Un seul installateur pour les deux : il pose la version du processeur.
 apps/windows/scripts/build-installer.sh 2>&1 > /dev/null \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
-cp apps/windows/dist/KyberNow-Client-Setup.exe "$OUT/"
+cp apps/windows/dist/KyberNow-Link-Setup.exe "$OUT/"
+for f in "${LEGACY_LINK[@]}"; do cp "$OUT/KyberNow-Link-Setup.exe" "$OUT/$f"; done
 
 TREE_AFTER="$(git status --porcelain)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
@@ -402,14 +414,14 @@ else
 fi
 
 ditto -c -k --keepParent "$APP" "$OUT/KyberNow-macOS.zip"
-cp server/installer/dist/KyberNow-Server-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
-cp "$OUT/KyberNow-Server-Setup.exe" "$OUT/KyberNow-Setup.exe"
+cp server/installer/dist/KyberNow-Station-Setup.exe server/installer/dist/kybernow-update.zip server/installer/dist/update.ps1 "$OUT/"
+for f in "${LEGACY_STATION[@]}"; do cp "$OUT/KyberNow-Station-Setup.exe" "$OUT/$f"; done
 
 step "Flux de mises à jour de l'app (Sparkle, canal $CHANNEL)"
 SPARKLE=$(ls -d apps/macos/build/SourcePackages/artifacts/*/*/bin | head -1)
 # Notes en deux langues (docs/i18n.md) : la release GitHub porte la section
-# française, une ligne <!-- en -->, puis l'anglaise ; la console et l'app
-# Windows prennent la partie de leur langue.
+# française, une ligne <!-- en -->, puis l'anglaise ; Admin et l'app Windows
+# prennent la partie de leur langue.
 section() { awk -v v="## $VERSION" '$0==v{f=1;next} /^## /{f=0} f' "$1"; }
 NOTES_FR="$(section CHANGELOG.md)"
 NOTES_EN="$(section CHANGELOG.en.md)"
@@ -460,8 +472,9 @@ else
 fi
 
 step "Empreintes et manifeste signé"
-(cd "$OUT" && shasum -a 256 KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
-    KyberNow-Client-Setup.exe > SHA256SUMS)
+# Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
+(cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

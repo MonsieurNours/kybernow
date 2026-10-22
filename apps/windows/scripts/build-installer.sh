@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installateur de l'app Windows : apps/windows/dist/KyberNow-Client-Setup.exe,
+# Installateur de KyberNow Link, l'app Windows : apps/windows/dist/KyberNow-Link-Setup.exe,
 # un seul fichier pour x64 et ARM64 (il pose la version du processeur).
 #
 # Prérequis : les deux dossiers de l'app, construits par
@@ -43,18 +43,18 @@ cd "$SETUP"
 touch src/bin/ui.rs
 cargo build --release --target $TARGET --features ui --bin kybernow-client-setup-ui
 
-echo "==> Lanceur (KyberNow-Client-Setup.exe)"
+echo "==> Lanceur (KyberNow-Link-Setup.exe)"
 WV2_VERSION=$(awk '$0=="name = \"webview2-com-sys\""{getline; gsub(/"/,"",$3); print $3}' Cargo.lock)
 LOADER=$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-"$WV2_VERSION"/x64/WebView2Loader.dll | head -1)
 [ -f "$LOADER" ] || { echo "WebView2Loader.dll (x64, webview2-com-sys $WV2_VERSION) introuvable" >&2; exit 1; }
 touch src/bin/setup.rs
 KYBERNOW_SETUP_UI_EXE="$SETUP/target/$TARGET/release/kybernow-client-setup-ui.exe" \
 KYBERNOW_WEBVIEW2_LOADER="$LOADER" \
-    cargo build --release --target $TARGET --bin KyberNow-Client-Setup
+    cargo build --release --target $TARGET --bin KyberNow-Link-Setup
 
-OUT="$HERE/dist/KyberNow-Client-Setup.exe"
+OUT="$HERE/dist/KyberNow-Link-Setup.exe"
 mkdir -p "$HERE/dist"
-cat "$SETUP/target/$TARGET/release/KyberNow-Client-Setup.exe" "$STAGE/x64.tar.zst" "$STAGE/arm64.tar.zst" > "$OUT"
+cat "$SETUP/target/$TARGET/release/KyberNow-Link-Setup.exe" "$STAGE/x64.tar.zst" "$STAGE/arm64.tar.zst" > "$OUT"
 python3 - "$OUT" "${FOOTER[@]}" <<'EOF'
 import struct, sys
 out, n = sys.argv[1], [int(x) for x in sys.argv[2:]]

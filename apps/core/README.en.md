@@ -1,8 +1,8 @@
-# KyberNow client core (`kybernow-core`)
+# KyberNow Link core (`kybernow-core`)
 
 English · [Français](README.md)
 
-What KyberNow's clients have in common, written once in Rust: talking to the console, the Kyber session, profiles and bitrate, latency, updates, and since milestone 2 the shared input module and the sound engine of the Apple apps. The Windows app ([apps/windows](../windows/README.en.md)) was its first client; the Mac, Apple TV, iPhone and iPad apps ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) rest on it since milestones 1 to 5 (C bridge `apps/apple`), inputs and sound included, which Windows adopted in the same milestones in place of its `input.rs` and `audio.rs`.
+What the KyberNow Link apps have in common, written once in Rust: talking to KyberNow Admin, the Kyber session, profiles and bitrate, latency, updates, and since milestone 2 the shared input module and the sound engine of the Apple apps. The Windows app ([apps/windows](../windows/README.en.md)) was its first client; the Mac, Apple TV, iPhone and iPad apps ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) rest on it since milestones 1 to 5 (C bridge `apps/apple`), inputs and sound included, which Windows adopted in the same milestones in place of its `input.rs` and `audio.rs`.
 
 The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core Audio. What the platform provides goes through traits (the window, decoders, sound output and inputs through `session::Platform`; the clock, pasteboard and callbacks to the interface through the input module's traits; the sound output pulls sound from the engine itself). Kyber 0.29's building blocks come from `third_party/kyber-desktop/kysdk` with KyberNow's patches (`apps/macos/kyber-patches`), see [apps/windows/README.en.md](../windows/README.en.md).
 
@@ -10,13 +10,13 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 
 | File | Contents |
 |---|---|
-| `src/console.rs` | Console client (`info`, `prepare`, `heartbeat`, `foreground`, `end`), pinned certificate, `Accept-Language` |
+| `src/console.rs` | Admin client (`info`, `prepare`, `heartbeat`, `foreground`, `end`), pinned certificate, `Accept-Language` |
 | `src/i18n.rs` | Language (detection, choice), text catalogues, release notes per language ([docs/i18n.en.md](../../docs/i18n.en.md)) |
 | `src/session.rs` | A session's flow on a dedicated thread; what the platform provides: `Platform` |
 | `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second |
 | `src/latency.rs` | End-to-end latency, Kyber's clock |
-| `src/update.rs` | Updates: signed manifest (minisign), channel, download |
+| `src/update.rs` | Updates: signed manifest (minisign), channel, download; installer looked up under its current name, then its former names (`KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe` from releases before the rename) |
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |
 | `build.rs` | libopus through pkg-config when it knows it; otherwise the executable links it itself |

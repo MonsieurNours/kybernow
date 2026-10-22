@@ -4,45 +4,60 @@ English · [Français](releases.md)
 
 KyberNow releases are published on GitHub: https://github.com/MonsieurNours/kybernow/releases. The repository is public: updates download without a token, and the code stays available as the AGPL requires (with the patches to Kyber, see [kyber-changes.en.md](kyber-changes.en.md)).
 
-One version number for all of KyberNow: the console, the icon, the installer, the Windows app, the Mac app, the Apple TV app and the iPhone/iPad app change together (the iPhone/iPad app is not distributed yet: `release.sh` publishes its SDK, not the app).
+One version number for all of KyberNow: KyberNow Station (installer, icon, services), KyberNow Admin and the KyberNow Link apps (Windows, Mac, Apple TV, iPhone/iPad) change together (the iPhone/iPad app is not distributed yet: `release.sh` publishes its SDK, not the app).
 
 ## What a release contains
 
 | File | What for |
 |---|---|
-| `KyberNow-Server-Setup.exe` | KyberNow Server: first installation on the Windows computer to share (the name tells it apart from the app installer, `KyberNow-Client-Setup.exe`). A copy under the old name, `KyberNow-Setup.exe`, is still published for a few releases for existing links; the site should only go live with the new links once the release is published |
-| `kybernow-update.zip` | Update of a computer that is already installed: Kyber overlay, console, icon, `update.ps1` |
-| `update.ps1` | Manual update, without the console |
+| `KyberNow-Station-Setup.exe` | KyberNow Station: first installation on the Windows computer that will stream its image (full installation, or reinstallation when an update requires it) |
+| `kybernow-update.zip` | Update of a Station that is already installed: Kyber overlay, Admin, icon, `update.ps1` |
+| `update.ps1` | Manual update, without Admin |
 | `KyberNow-macOS.zip` | The Mac app (first installation: drag it into Applications) |
 | `appcast.xml` | Update feed for the Mac app (Sparkle), signed with EdDSA |
-| `KyberNow-Client-Setup.exe` | The Windows app, x64 and ARM64 in a single file: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
+| `KyberNow-Link-Setup.exe` | KyberNow Link for Windows, x64 and ARM64 in a single file: per-user installer (first installation and app updates, see [apps/windows/README.en.md](../apps/windows/README.en.md)) |
 | `KyberSDK-tvOS.zip` | Kyber SDK and KyberNow core (`KyberNow.xcframework`) built for Apple TV, downloaded by `apps/tvos/scripts/sideload.sh` to install the app without the App Store ([SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md)) |
-| `KyberSDK-iOS.zip` | KyberNow core, libkynput, libopus and their headers built for iPhone and iPad (`apps/ios/Vendor`, from 0.3.2 on), downloaded by `apps/ios/scripts/sideload.sh` to install the app without TestFlight or the App Store ([SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md)) |
-| `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from the console, whether a reinstallation is needed, SHA-256 checksum and size of each file above |
-| `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by the console before any installation |
-| `SHA256SUMS` | Checksums of all the files |
+| `KyberSDK-iOS.zip` | KyberNow core, libkynput, libopus and their headers built for iPhone and iPad (`apps/ios/Vendor`, from 0.4.0 on), downloaded by `apps/ios/scripts/sideload.sh` to install the app without TestFlight or the App Store ([SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md)) |
+| `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe` | Old installer names, identical copies: see “Old installer names” below |
+| `kybernow-release.json` | Release manifest: number, channel (`stable` or `beta`), date, minimum installed version for an update from Admin, whether a reinstallation is needed, SHA-256 checksum and size of each file above (old names included) |
+| `kybernow-release.json.minisig` | Manifest signature (minisign, ed25519), verified by Admin before any installation |
+| `SHA256SUMS` | Checksums of all the files (old names included) |
+
+### Old installer names
+
+From 0.4.0 on, the installers are called `KyberNow-Station-Setup.exe` (the Station) and `KyberNow-Link-Setup.exe` (the Windows app). Their old names are still published, **identical** (copies made by `release.sh`, same checksum):
+
+| Old name | Copy of | Why it stays |
+|---|---|---|
+| `KyberNow-Server-Setup.exe` | `KyberNow-Station-Setup.exe` | Admin 0.3.1 and earlier points to this name (“reinstall with KyberNow-Server-Setup.exe”); existing links to `releases/latest/download/` (website, guide, messages) |
+| `KyberNow-Setup.exe` | `KyberNow-Station-Setup.exe` | Name used before 0.3.0, kept for existing links |
+| `KyberNow-Client-Setup.exe` | `KyberNow-Link-Setup.exe` | The Windows app 0.3.1 and earlier looks for it in the signed manifest and in the release to update itself; existing links |
+
+New versions of Admin and of the Windows app look for the new name first, then for the old one if it is missing (manifest of an older release). The signed manifest and `SHA256SUMS` list both names, with the same checksum.
+
+**When to drop them.** The copies can go (the `LEGACY_STATION` and `LEGACY_LINK` lists in `release.sh`, `FILES` in `scripts/sign-manifest.sh`) once installations on 0.3.1 and earlier have moved to a version that knows the new names: a few releases, at least two or three stable ones after the first that publishes them, and once the website and the documentation use the new links. Beyond that, a Windows app left on 0.3.1 would no longer find its update, and Admin 0.3.1 would point to a missing file: it then has to be reinstalled by hand with the new file. The website should only go live with links to the new names once the release that publishes them is out.
 
 ## Updating
 
-**The computer, in one click.**
-- The console checks for the latest release every 6 hours, on its **channel**: `stable` (default, published releases) or `beta` (GitHub prereleases too), chosen on the Updates page (`update_channel` setting in `kyber-admin.toml`). The **Updates** page shows it with its notes and an **Install** button; the notification area icon offers “Install version X…”, which opens that page.
-- **Nothing installs without a signature.** For a newer release, the console downloads `kybernow-release.json` and `kybernow-release.json.minisig` and verifies the signature with the public key compiled into it (see “Update signing key”). Then: the manifest must announce the same number as the GitHub release (`tag_name`), a channel the computer follows (a `beta` release is refused on `stable`), a `min_installer_version` lower than or equal to the installed version and no `requires_setup` (otherwise “reinstall with KyberNow-Server-Setup.exe”). Any failure (missing manifest, invalid signature or another key's, channel, version) is shown on the page and in `GET /api/update` (`verify_error`), and the **Install** button does not appear; the icon only offers a release whose signature is good.
+**The Station, in one click.**
+- Admin checks for the latest release every 6 hours, on its **channel**: `stable` (default, published releases) or `beta` (GitHub prereleases too), chosen on the Updates page (`update_channel` setting in `kyber-admin.toml`). The **Updates** page shows it with its notes and an **Install** button; the notification area icon offers “Install version X…”, which opens that page.
+- **Nothing installs without a signature.** For a newer release, Admin downloads `kybernow-release.json` and `kybernow-release.json.minisig` and verifies the signature with the public key compiled into its program (see “Update signing key”). Then: the manifest must announce the same number as the GitHub release (`tag_name`), a channel the Station follows (a `beta` release is refused on `stable`), a `min_installer_version` lower than or equal to the installed version and no `requires_setup` (otherwise “reinstall with KyberNow-Station-Setup.exe”). Any failure (missing manifest, invalid signature or another key's, channel, version) is shown on the page and in `GET /api/update` (`verify_error`), and the **Install** button does not appear; the icon only offers a release whose signature is good.
 - The installation downloads and verifies the manifest again, then downloads `kybernow-update.zip` (never more than the manifest's size) and checks its size and SHA-256 checksum against it. The published release number must look like `X.Y.Z`: it is used as a folder name, so any other number is refused. Manifest, signature and package stay in `C:\ProgramData\KyberNow\update\<version>\` (reserved to SYSTEM and Administrators).
-- The console then launches **the applicator**, `kyber-admin update apply <package> --version X`, as SYSTEM and detached (it survives the console stopping). It is a copy of the console, `C:\Program Files\KyberNow\.staging\kyber-admin-maj.exe`: it must be able to rename the `admin` folder while it runs. Nothing is run from a folder another account could change, and no script is launched: PowerShell is no longer involved.
-- The applicator verifies the signed manifest and the package again (nothing comes from the console that launched it), then extracts the package into `C:\Program Files\KyberNow\.staging\<version>\paquet` (permissions inherited from Program Files: read-only for users). It refuses any path that would leave the folder (`..`, absolute path, drive, NTFS stream), any name that would not be an ordinary file on Windows (`CON`, `NUL`, `COM1`…, a name ending with a dot or a space, `<>"|?*`) and any link. It also refuses a release that is not newer than the installed one (going back has its own path). The package must contain `kyber`, `admin`, `tray` and a `version.txt` equal to the expected version. A failure at this stage touches nothing: the console is still running and shows it.
-- It stops the icon, then the server (`kyber` and its processes), then the console (`kyber-admin` and its agents), then the server again if the console had restarted it in the meantime. The automatic restart of `kyber` after a crash (set by the installer) is suspended until the restart, so that Windows does not restart it in the middle of the renames. It prepares each new folder in `.staging\<version>\` (a copy of the current folder, Kyber's settings and certificate included, with the package's files on top), then switches by renaming: `kyber` becomes `kyber.prev` and `.staging\<version>\kyber` becomes `kyber`, and the same for `admin`, `tray` and `webclient` (if it is in the package or already installed: every folder present thus gets its `.prev`). Kyber's logs (`kyber\log`) are moved, not copied. It then restores the services' permissions (`sc sdset`) and the Bonjour firewall rule.
-- It restarts the services, then checks the new version's health: within 60 s, the console must answer at the address of its `listen` setting (127.0.0.1 if it listens everywhere, no proxy) with `GET /api/session` giving the new version, and the server must be running. Otherwise it stops everything (the icon included, which the new console may have relaunched), puts each folder back where it was (`kyber.prev` becomes `kyber` again…), restarts the old version and writes the reason in the log and in `C:\ProgramData\KyberNow\update\resultat.json`. The console reads that file when it starts: the Updates page shows the failure, and `GET /api/update` returns it in `install_error` and `last_failure` (version, reason, rollback, log). If a folder resists the rollback, the applicator puts the others back, keeps `.staging\<version>`, writes it down (`undo_failed`) and the page says so, even when the failed version is the one running.
-- Whatever happens once the services are stopped (error, a rename that fails because a file is open), the applicator restarts them on its way out: the computer is never left without its server and console.
+- Admin then launches **the applicator**, `kyber-admin update apply <package> --version X`, as SYSTEM and detached (it survives Admin stopping). It is a copy of Admin, `C:\Program Files\KyberNow\.staging\kyber-admin-maj.exe`: it must be able to rename the `admin` folder while it runs. Nothing is run from a folder another account could change, and no script is launched: PowerShell is no longer involved.
+- The applicator verifies the signed manifest and the package again (nothing comes from the Admin process that launched it), then extracts the package into `C:\Program Files\KyberNow\.staging\<version>\paquet` (permissions inherited from Program Files: read-only for users). It refuses any path that would leave the folder (`..`, absolute path, drive, NTFS stream), any name that would not be an ordinary file on Windows (`CON`, `NUL`, `COM1`…, a name ending with a dot or a space, `<>"|?*`) and any link. It also refuses a release that is not newer than the installed one (going back has its own path). The package must contain `kyber`, `admin`, `tray` and a `version.txt` equal to the expected version. A failure at this stage touches nothing: Admin is still running and shows it.
+- It stops the icon, then the Kyber server (`kyber` and its processes), then Admin (`kyber-admin` and its agents), then the Kyber server again if Admin had restarted it in the meantime. The automatic restart of `kyber` after a crash (set by the installer) is suspended until the restart, so that Windows does not restart it in the middle of the renames. It prepares each new folder in `.staging\<version>\` (a copy of the current folder, Kyber's settings and certificate included, with the package's files on top), then switches by renaming: `kyber` becomes `kyber.prev` and `.staging\<version>\kyber` becomes `kyber`, and the same for `admin`, `tray` and `webclient` (if it is in the package or already installed: every folder present thus gets its `.prev`). Kyber's logs (`kyber\log`) are moved, not copied. It then restores the services' permissions (`sc sdset`) and the Bonjour firewall rule.
+- It restarts the services, then checks the new version's health: within 60 s, Admin must answer at the address of its `listen` setting (127.0.0.1 if it listens everywhere, no proxy) with `GET /api/session` giving the new version, and the Kyber server must be running. Otherwise it stops everything (the icon included, which the new version of Admin may have relaunched), puts each folder back where it was (`kyber.prev` becomes `kyber` again…), restarts the old version and writes the reason in the log and in `C:\ProgramData\KyberNow\update\resultat.json`. Admin reads that file when it starts: the Updates page shows the failure, and `GET /api/update` returns it in `install_error` and `last_failure` (version, reason, rollback, log). If a folder resists the rollback, the applicator puts the others back, keeps `.staging\<version>`, writes it down (`undo_failed`) and the page says so, even when the failed version is the one running.
+- Whatever happens once the services are stopped (error, a rename that fails because a file is open), the applicator restarts them on its way out: the Station is never left without its Kyber server and Admin.
 - When it succeeds, the update writes the new version into `C:\Program Files\KyberNow\kybernow.json` and into “Installed apps” (`DisplayVersion`), and `resultat.json` says `"ok": true`. The previous version stays in the `.prev` folders until the next update (about 300 MB). In `update\`, only the folders of the two latest versions are kept; `.staging\<version>` is deleted.
-- The console relaunches the icon in the user's session, with their account (`update\relaunch-tray` file). The page updates itself.
+- Admin relaunches the icon in the user's session, with their account (`update\relaunch-tray` file). The page updates itself.
 - **Going back to the previous version**: as long as the `.prev` folders exist, the Updates page offers this button (`POST /api/update/rollback`, previous version in `rollback` of `GET /api/update`). The same applicator switches in the other direction (`kyber-admin update rollback`): `kyber.prev` becomes `kyber` again and the removed version goes to `kyber.bad`, and the same for `admin`, `tray` and `webclient`; a folder brought by the removed version, with no `.prev` (`webclient`), goes too; Kyber's settings changed since the update (`kyber_config.toml`) and its logs are kept. Same health check, with the previous version; if it fails, the version that was running is put back. When it succeeds, the rollback deletes the `.bad` folders: no `.prev` is left, and the removed version is offered for installation again.
 - **During a session.** If a device is in session, `POST /api/update/install` (and `POST /api/update/rollback`) answers 409 with “Un appareil est connecté (…) : l'installation coupera sa session” (a device is connected: installing will cut its session); the page asks before going on, and then sends `{"force": true}`.
 - Duration: about one minute. A streaming session in progress is cut. Log: `C:\ProgramData\KyberNow\update\<version>\update.log`; the applicator's output goes to `lancement.log`, to read when `update.log` does not exist.
-- The console follows the applicator. If it stops while the console is still running (verification or extraction refused), the console says so: Updates page, end of the log, and “Install” becomes possible again.
+- Admin follows the applicator. If the applicator stops while Admin is still running (verification or extraction refused), Admin says so: Updates page, end of the log, and “Install” becomes possible again.
 - Steam's virtual speakers and the Start menu shortcut, set up by the installer, are no longer redone at each update; `update.ps1` (by hand) still does it.
-- **Moving to 0.2.6.** A 0.2.5 or older console knows neither the manifest nor the applicator: it updates to 0.2.6 as before, with `SHA256SUMS` and the package's `update.ps1`. Releases therefore keep `SHA256SUMS` and `update.ps1`. From 0.2.6 on, the console only installs a signed release.
+- **Moving to 0.2.6.** The console (Admin's former name) in 0.2.5 or earlier knows neither the manifest nor the applicator: it updates to 0.2.6 as before, with `SHA256SUMS` and the package's `update.ps1`. Releases therefore keep `SHA256SUMS` and `update.ps1`. From 0.2.6 on, Admin only installs a signed release.
 
-**The computer, by hand** (administrator PowerShell):
+**The Station, by hand** (administrator PowerShell):
 
 ```powershell
 irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex
@@ -50,19 +65,19 @@ irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps
 
 The script downloads `kybernow-update.zip` and `SHA256SUMS`, checks the package's checksum, then performs the same switch with a health check. If it fails, it says so in red (“Mise a jour non installee…”) after restarting everything.
 
-**Manual path: integrity only, until Authenticode signing.** `update.ps1` checks that the package is not damaged (`SHA256SUMS`), not that it comes from KyberNow: `SHA256SUMS` is published in the same place as the package, and verifying the minisign manifest would need a tool that is downloaded too (the release's `kyber-admin.exe`), which goes round in circles. The script itself is not signed. It therefore does not give the console's guarantees: keep it for troubleshooting, on a release whose GitHub page you know. Authenticode signing of the `.exe` files and of `update.ps1` is being considered to close that gap.
+**Manual path: integrity only, until Authenticode signing.** `update.ps1` checks that the package is not damaged (`SHA256SUMS`), not that it comes from KyberNow: `SHA256SUMS` is published in the same place as the package, and verifying the minisign manifest would need a tool that is downloaded too (the release's `kyber-admin.exe`), which goes round in circles. The script itself is not signed. It therefore does not give Admin's guarantees: keep it for troubleshooting, on a release whose GitHub page you know. Authenticode signing of the `.exe` files and of `update.ps1` is being considered to close that gap.
 
 To try a package served from the Mac before publishing it: `$env:KYBERNOW_UPDATE_BASE = 'http://<adresse-du-Mac>:8000'`, then the same command, with `python3 -m http.server 8000` running in `server/installer/dist` (`package-update.sh` also writes `SHA256SUMS` there).
 
 **Testing the verification and the applicator without Windows**: `cd server/admin && cargo test`. The tests cover the manifest (reading the published format, version comparison, channel, `min_installer_version`, `requires_setup`), the signature (test key generated in the test: valid signature, manifest changed by one byte, another key, trusted comment that does not match), a manifest actually produced by `scripts/sign-manifest.sh` and the `minisign` binary (`server/admin/src/update/testdata/`, throwaway test key of which only the public key is kept), extraction (`..`, absolute path, drive, links), the switch on a fake installation folder (success, failed health check then rollback, forged package that touches nothing, going back to the previous version and its failure) and the refusal during a session. Windows' services, processes and permissions go through a simulated trait: they are only checked on the PC. To regenerate `testdata/`: `KYBERNOW_MINISIGN_KEY=<temporary folder>/essai.key KYBERNOW_MINISIGN_ITEM=kybernow-minisign-essai scripts/sign-manifest.sh <folder> 0.2.7 beta --min-installer 0.2.6` on a 15-byte `kybernow-update.zip`, then delete the private key and the Keychain item.
 
-**Testing `update.ps1` without Windows**: `pwsh -NoProfile -File server/installer/tests/update-bench.ps1` (`brew install powershell`). The bench simulates the services and the console, and replays a successful update, a silent console (rollback), an incomplete package and a blocked rename.
+**Testing `update.ps1` without Windows**: `pwsh -NoProfile -File server/installer/tests/update-bench.ps1` (`brew install powershell`). The bench simulates the services and Admin, and replays a successful update, a silent Admin (rollback), an incomplete package and a blocked rename.
 
-**The Windows app.** It checks at launch then every 6 hours for the latest version of its channel (app settings: stable, or betas too), verifies the signed manifest like the console and its architecture's installer against it (size, SHA-256), then runs it silently (`/S /UPDATE`): it waits for the app to close, replaces its files and relaunches it. A version without a Windows installer is not offered.
+**The Windows app (KyberNow Link).** It checks at launch then every 6 hours for the latest version of its channel (app settings: stable, or betas too), verifies the signed manifest like Admin and the installer (`KyberNow-Link-Setup.exe`, or `KyberNow-Client-Setup.exe` in an older release's manifest) against it (size, SHA-256), then runs it silently (`/S /UPDATE`): it waits for the app to close, replaces its files and relaunches it. A version without a Windows installer is not offered.
 
 **The Mac app.**
 - Sparkle checks every day, and on request (KyberNow menu › Check for Updates…). The app downloads the archive, verifies its EdDSA signature with the app's public key (`SUPublicEDKey`), replaces itself and relaunches.
-- The app reads the website's cumulative feed, `https://www.kybernow.app/updates/appcast.xml`, which lists every release. It only offers stable releases, unless "Receive beta versions" is ticked in KyberNow › Settings…: see "Mac app update feed".
+- The app reads the website's cumulative feed, `https://www.kybernow.app/updates/appcast.xml`, which lists every release. It only offers stable releases, unless "Receive beta versions" is ticked in KyberNow Link › Settings…: see "Mac app update feed".
 - The private key is in this Mac's Keychain (item created by Sparkle's `generate_keys`). Back it up, and never put it in the repository:
 
 ```bash
@@ -89,7 +104,7 @@ Each release publishes a manifest, `kybernow-release.json`, signed with an ed255
 }
 ```
 
-`files` lists those of the published files that are present (`KyberNow-Server-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Client-Setup.exe`). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into the console: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
+`files` lists those of the published files that are present (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, and the old installer names `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, see “Old installer names”). The detached signature, `kybernow-release.json.minisig`, carries the trusted comment `kybernow <version> <channel>`. The public key is in the repository, `server/admin/src/update/kybernow-release.pub` (key ID `D63B24FFFC7E79D1`), and compiled into Admin: a SHA-256 checksum alone protects against a damaged download, not against a release forged by whoever controls the GitHub account; the signature does.
 
 The manifest is written and signed with:
 
@@ -98,9 +113,9 @@ scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable            # or beta
 scripts/sign-manifest.sh dist/vX.Y.Z X.Y.Z stable --min-installer 0.2.6 --requires-setup
 ```
 
-`--min-installer X.Y.Z`: oldest version from which the console can install this package (0.2.0 by default). `--requires-setup`: this release only installs with `KyberNow-Server-Setup.exe` (new driver, new service…). The script installs `minisign` with Homebrew if it is missing, then checks the signature against the repository's public key: a private key that does not match it is caught before publishing.
+`--min-installer X.Y.Z`: oldest version from which Admin can install this package (0.2.0 by default). `--requires-setup`: this release only installs with `KyberNow-Station-Setup.exe` (new driver, new service…). The script installs `minisign` with Homebrew if it is missing, then checks the signature against the repository's public key: a private key that does not match it is caught before publishing.
 
-**The private key** is in `~/Library/Application Support/KyberNow/minisign.key`, encrypted with a random password kept in the Keychain (item `kybernow-minisign`). The script creates it if it is missing and writes the public key into the repository; if a public key is already in the repository, it refuses to create another one: a new key would make every console already installed refuse all updates, and they would have to be reinstalled with `KyberNow-Server-Setup.exe`.
+**The private key** is in `~/Library/Application Support/KyberNow/minisign.key`, encrypted with a random password kept in the Keychain (item `kybernow-minisign`). The script creates it if it is missing and writes the public key into the repository; if a public key is already in the repository, it refuses to create another one: a new key would make every Station already installed refuse all updates, and they would have to be reinstalled with `KyberNow-Station-Setup.exe`.
 
 **Offline backup** (USB stick, password vault), like the Sparkle key, never in the repository: the private key and its password, one without the other is useless.
 
@@ -125,7 +140,7 @@ The password can only be read while the Mac is unlocked, like the notarisation p
 ## Publishing a release
 
 0. Check that the CI is green on `main` (the repository's Actions tab, see "Continuous integration"): it does not cover the Mac app, which `--dry-run` builds.
-1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by the console and by the app. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree. Both languages ship with the release ([docs/i18n.en.md](i18n.en.md)): the GitHub release carries the French section, a `<!-- en -->` line, then the English one (the console and the Windows app take the part in their language); in the Sparkle feed, English is the default description and French a per-language link (`xml:lang="fr"`) to `site/updates/notes/X.Y.Z/KyberNow-macOS.fr.html` (`scripts/notes-html.py`), committed with the site feed.
+1. Add a `## X.Y.Z` section at the top of `CHANGELOG.md`: these are the notes shown by Admin and by the apps. Add the same section, in English, to `CHANGELOG.en.md`. Commit: the script refuses a modified tree. Both languages ship with the release ([docs/i18n.en.md](i18n.en.md)): the GitHub release carries the French section, a `<!-- en -->` line, then the English one (Admin and the Windows app take the part in their language); in the Sparkle feed, English is the default description and French a per-language link (`xml:lang="fr"`) to `site/updates/notes/X.Y.Z/KyberNow-macOS.fr.html` (`scripts/notes-html.py`), committed with the site feed.
 2. If the Kyber patches have changed: `server/kyber-patches/build.sh` (it writes `third_party/payload/kyber-overlay.stamp`, the fingerprint of the compiled patches, which the script compares with the repository's).
 3. Quit the KyberNow built in Release if it is open (another copy does not matter), then, from `main`:
 
@@ -137,15 +152,15 @@ scripts/release.sh X.Y.Z             # release
 
 **Order.** The published binaries must be those of the tagged commit (the AGPL requires publishing the exact source of the binaries):
 1. preliminary checks, all shown at once; if one fails, nothing is modified;
-2. version alignment (console, tray icon, installer, Windows, Mac, Apple TV and iPhone/iPad apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
-3. build from that commit: installer, update package, the Rust core of the Apple apps (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, no KyberNow open), Developer ID-signed Mac app, Kyber SDK for the Apple TV (core included in `KyberSDK-tvOS.zip`) and Apple TV app, core and libraries of the iPhone/iPad app (`KyberSDK-iOS.zip`, the app itself built unsigned as a check); if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
+2. version alignment (Admin, tray icon, Station installer, Windows, Mac, Apple TV and iPhone/iPad apps, including `Cargo.lock` and the Xcode projects) and commit "KyberNow X.Y.Z"; a refused commit stops everything;
+3. build from that commit: Station installer, update package, the Rust core of the Apple apps (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, no KyberNow open), Developer ID-signed Mac app, Kyber SDK for the Apple TV (core included in `KyberSDK-tvOS.zip`) and Apple TV app, core and libraries of the iPhone/iPad app (`KyberSDK-iOS.zip`, the app itself built unsigned as a check), Windows app and its installer `KyberNow-Link-Setup.exe`; copies of the installers under their old names; if the build modifies a tracked file, the script stops (the binaries would no longer match the commit);
 4. notarisation of the Mac app, stapling of the ticket, Gatekeeper check;
 5. signed Sparkle feed, `SHA256SUMS`, signed manifest `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign); the website's cumulative feed (`site/updates/appcast.xml`) gets this release and is committed on top of the version commit ("Flux des mises à jour : KyberNow X.Y.Z");
 6. GitHub release created **as a draft** with all the files;
 7. tag `vX.Y.Z` on the version commit; 8. push of `main` (version commit and feed commit) and the tag, at once (`--atomic`): the Pages workflow publishes the feed;
 9. publication of the draft.
 
-The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Server-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
+The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Station-Setup.exe`, `kybernow-ui.exe` and `kybernow-tray.exe` (Properties › Details, manifests) follows the one in `Cargo.toml`: their `build.rs` produce the resources from the `resources/*.rc.in` and `*.manifest.in` templates.
 
 **Re-running after a failure**: the same command. The "KyberNow X.Y.Z" commit already at the head is reused (no second commit), an existing draft receives the new files (`--clobber`), the tag is created if missing. Only an already published release is refused. If the failure came after step 5, the feed commit is at the head with the version commit right below it: it is recognised, the app is rebuilt and the feed redone (the archive changed, and so did its signature); its commit is replaced if it has not been pushed yet, followed by a new one otherwise.
 
@@ -159,11 +174,11 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Server
 | Kyber SDK of the Mac app (`apps/macos/Vendor`) present | `apps/macos/scripts/build-kyclient.sh` |
 | No `vX.Y.Z` tag other than on the version commit, no `vX.Y.Z` release already published | `git tag -d vX.Y.Z` if left over from a rehearsal |
 | `gh` logged in, `notarytool` profile "kybernow" readable (Mac unlocked) | `gh auth login`, see below |
-| `scripts/sign-manifest.sh` present | without a signed manifest, the console refuses the update |
+| `scripts/sign-manifest.sh` present | without a signed manifest, Admin refuses the update |
 | Cumulative feed `site/updates/appcast.xml` present | `scripts/rebuild-appcast.sh`, once, then commit |
 | Tools: xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip, python3, xmllint | Homebrew (python3 and xmllint: Xcode tools) |
 
-**Channels.** A stable release is GitHub's "latest release" (`releases/latest`), the one the console and the Mac app see. `--beta` publishes a *prerelease*, never marked "latest": its manifest has `"channel": "beta"` and its Sparkle feed `<sparkle:channel>beta</sparkle:channel>`. The number stays `X.Y.Z` (the console refuses any other format): a beta takes the next number, and the stable release that follows it a higher one. The Mac app reads the website's cumulative feed, which combines both channels: it only offers a beta if the user asked for them ("Mac app update feed", below).
+**Channels.** A stable release is GitHub's "latest release" (`releases/latest`), the one Admin and the Mac app see. `--beta` publishes a *prerelease*, never marked "latest": its manifest has `"channel": "beta"` and its Sparkle feed `<sparkle:channel>beta</sparkle:channel>`. The number stays `X.Y.Z` (Admin refuses any other format): a beta takes the next number, and the stable release that follows it a higher one. The Mac app reads the website's cumulative feed, which combines both channels: it only offers a beta if the user asked for them ("Mac app update feed", below).
 
 **Rehearsal (`--dry-run`).** Does everything except the commit, notarisation, release, tag and push, which it prints (`[essai, non lancé] …`). It aligns the versions to build like the release, then puts the version files back as it found them. It writes the cumulative feed to `dist/vX.Y.Z/appcast-site.xml` and shows what would change in `site/updates/appcast.xml`, without touching the latter. It does not rebuild the Apple TV SDK (`build-kyber-tvos.sh` applies the patches in `third_party/`, shared with the other checkouts) and reuses `apps/tvos/Vendor`. Failed checks are listed at the beginning and at the end; the rehearsal goes on to show the rest and exits with an error. `--check` stops after the checks and prints the plan.
 
@@ -176,7 +191,7 @@ The files stay in `dist/vX.Y.Z/`. The version Windows shows for `KyberNow-Server
 The Mac app (from 0.2.7 on) reads `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` in `apps/macos/project.yml`): the repository's `site/updates/appcast.xml` file, published by the Pages workflow on every push to `main` that touches `site/`.
 
 - **Every published release**, stable and beta, newest first. Each entry is the one from the `appcast.xml` attached to its release, copied as is by `scripts/merge-appcast.py`: download link to `releases/download/vX.Y.Z/KyberNow-macOS.zip`, length, EdDSA signature, notes. Nothing is re-signed: the app still verifies the archive with `SUPublicEDKey`.
-- **Channels.** A beta's entries carry `<sparkle:channel>beta</sparkle:channel>`, stable ones no channel. The app (Sparkle delegate in `KyberNowApp.swift`) asks for the `beta` channel when "Receive beta versions" is ticked in KyberNow › Settings… (`UserDefaults`, key `receiveBetaUpdates`), for none otherwise. Sparkle offers the newest allowed entry: a stable release newer than an installed beta is offered normally, even with the box ticked; unticking the box does not go back to the previous stable release, the app waits for the next one.
+- **Channels.** A beta's entries carry `<sparkle:channel>beta</sparkle:channel>`, stable ones no channel. The app (Sparkle delegate in `KyberNowApp.swift`) asks for the `beta` channel when "Receive beta versions" is ticked in KyberNow Link › Settings… (`UserDefaults`, key `receiveBetaUpdates`), for none otherwise. Sparkle offers the newest allowed entry: a stable release newer than an installed beta is offered normally, even with the box ticked; unticking the box does not go back to the previous stable release, the app waits for the next one.
 - **Older apps keep working.** Versions up to 0.2.6 read `releases/latest/download/appcast.xml`, which GitHub resolves to the latest stable release: every release keeps its `appcast.xml`, so they receive 0.2.7 that way, then read the website's feed.
 - **Delay.** GitHub Pages caches for about 10 minutes, and the feed goes online a minute or two after the push, whereas the release is published a few seconds after it: in practice the app never sees an entry whose archive is still a draft (unless something fails between the push and the publication: re-running the same command publishes the draft).
 - **Rebuilding the feed** from the existing releases (bootstrap, or damaged feed): `scripts/rebuild-appcast.sh` lists the published releases (`gh release list`, drafts excluded), takes each one's `appcast.xml`, marks prereleases as `beta`, and runs `generate_appcast` (Sparkle key from the Keychain) for a release that would have the Mac app without a feed. It writes `site/updates/appcast.xml` (or `-o file`) and checks it with `xmllint`; it commits nothing. Committing the file to `main` publishes it.
@@ -193,7 +208,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 
 | Job | Machine | What it checks |
 |---|---|---|
-| Console, tray icon, installer | macOS | `cargo test` of the console and the installer; `cargo check --target x86_64-pc-windows-gnu` of the console, the installer (`--features ui`) and the tray icon, Windows resources included (MinGW from Homebrew) |
+| Admin, tray icon, installer | macOS | `cargo test` of Admin and the Station installer; `cargo check --target x86_64-pc-windows-gnu` of Admin, the installer (`--features ui`) and the tray icon, Windows resources included (MinGW from Homebrew) |
 | Svelte interfaces | Linux | `npm ci`, `npm run build`, `npm run check` in `server/web` and `server/installer/ui` |
 | Scripts and update.ps1 | Linux | `shellcheck` of all the scripts, `update.ps1` in ASCII, `update.ps1` test bench (`server/installer/tests/update-bench.ps1`, simulated services) |
 | Apple TV app | macOS | `xcodegen`, then `xcodebuild` for the simulator, unsigned, with the latest release's `KyberSDK-tvOS.zip` |
@@ -201,7 +216,7 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 What it does not cover:
 - **The Mac app.** It links Kyber's client SDK and VLC (`apps/macos/Vendor`, 88 MB, built from Kyber's sources by `build-kyclient.sh`), published nowhere. To build it in CI, each release would need a `KyberSDK-macOS.zip` (the contents of `apps/macos/Vendor`), like `KyberSDK-tvOS.zip` for the Apple TV.
 - **The Apple TV app when the client patches or the Rust core have changed** since the latest release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`): the published SDK no longer matches the code, so the build is skipped with a warning until the next release. This is the case until 0.2.6 (`KYCLIENT_MEDIA_PACKET_KIND_CLOSED`).
-- **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Server-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
+- **Linked Windows binaries and Kyber**: the CI checks the code; it produces neither `KyberNow-Station-Setup.exe` nor the overlay (Kyber patches, `third_party/` absent), and runs nothing on Windows.
 - **Nothing is signed or published**: releasing stays `scripts/release.sh`, on the author's Mac (notarisation, Sparkle and minisign keys). A CI that builds the Windows binaries would be the next step, to have them Authenticode-signed by SignPath (free programme for open-source projects, which requires a CI build).
 
 ## Signing and notarising the Mac app
@@ -226,22 +241,22 @@ The first notarisation for an account can take several hours (Apple's checks); a
 
 ## Settings migrations
 
-The console's settings (`C:\ProgramData\KyberNow\kyber-admin.toml`) carry the version of their format: `schema = 1` since 0.2.6 (missing = 0). At each start, and before `init` or `reset-password`, the console brings the file to the format it knows (`server/admin/src/migrate.rs`):
+Admin's settings (`C:\ProgramData\KyberNow\kyber-admin.toml`) carry the version of their format: `schema = 1` since 0.2.6 (missing = 0). At each start, and before `init` or `reset-password`, Admin brings the file to the format it knows (`server/admin/src/migrate.rs`):
 
 - one migration per version (from N to N+1), in order, each idempotent: running it again changes nothing more;
 - before writing, the original is copied to `backups\kyber-admin.toml.schema-<N>-<timestamp>`; each change is written to the log (`kyber-admin.log`); the file's comments are kept;
-- a file from a **newer** console (after an update rollback) is left as it is, and the settings this console does not know are kept when it rewrites the file;
-- a migration that cannot be done (unreadable file) does not prevent the console from starting: the file is then set aside as before (`kyber-admin.toml.invalide-…`).
+- a file from a **newer** version of Admin (after an update rollback) is left as it is, and the settings this version does not know are kept when it rewrites the file;
+- a migration that cannot be done (unreadable file) does not prevent Admin from starting: the file is then set aside as before (`kyber-admin.toml.invalide-…`).
 
 By hand: `kyber-admin.exe migrate --dry-run` shows what would change, `kyber-admin.exe migrate` does it.
 
 | Schema | Since | Change |
 |---|---|---|
-| 1 | 0.2.6 | `listen` becomes a valid `IP:port` address: port 9443 added to a bare address (`"0.0.0.0"`, which prevented the console from starting), `"0.0.0.0:<port>"` for a bare port (`listen = 9443`, which made the whole file unreadable: it was set aside, password included), spaces removed; an unusable value is removed (default address). |
+| 1 | 0.2.6 | `listen` becomes a valid `IP:port` address: port 9443 added to a bare address (`"0.0.0.0"`, which prevented Admin from starting), `"0.0.0.0:<port>"` for a bare port (`listen = 9443`, which made the whole file unreadable: it was set aside, password included), spaces removed; an unusable value is removed (default address). |
 
 Adding a migration: a `to_N` function in `migrate.rs`, added to `MIGRATIONS`, `CURRENT` raised to N, a test on a file of version N-1, and a row in this table.
 
-**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and the console then refuses "Install", pointing to `KyberNow-Server-Setup.exe`. Likewise, `--min-installer A.B.C` refuses the package on a computer installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.
+**Update that needs the installer.** Some releases cannot be installed by the update package: new driver (virtual display, gamepads), service to recreate, permissions to set again. They are published with `scripts/release.sh X.Y.Z --requires-setup`: the signed manifest carries `"requires_setup": true` and Admin then refuses "Install", pointing to `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` for Admin 0.3.1 and earlier, hence its copy). Likewise, `--min-installer A.B.C` refuses the package on a Station installed before version A.B.C (`min_installer_version`). The package keeps a copy (`requirements.json`, for a future check by `update.ps1`, which has no manifest); the signed manifest is authoritative.
 ## Keys, GitHub account and Windows signing
 
 ### Backing up the signing keys
@@ -314,7 +329,7 @@ gh api repos/MonsieurNours/kybernow/immutable-releases
 
 ### Windows signing (Authenticode): on hold
 
-Today `KyberNow-Server-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1` are not signed: Windows shows “Unknown publisher” (SmartScreen, UAC). This signature would not replace minisign. Authenticode says who signed; minisign proves it is KyberNow's key, built into the console, which also protects against a compromised GitHub account.
+Today `KyberNow-Station-Setup.exe`, `KyberNow-Link-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1` are not signed: Windows shows “Unknown publisher” (SmartScreen, UAC). This signature would not replace minisign. Authenticode says who signed; minisign proves it is KyberNow's key, built into Admin, which also protects against a compromised GitHub account.
 
 Decision of 2026-10-21: **postponed**, to be picked up when the Windows build is more mature. The intended option is SignPath Foundation (free).
 
@@ -332,7 +347,7 @@ Worth knowing before coming back to it (checked on 2026-10-21):
 | EV | ≈ €330–380/yr | “Matthieu Requenna” | yes, `jsign` | required for an attested driver |
 
 What SignPath will require:
-- **Building the whole Windows side in GitHub Actions**: console, tray icon, installer, **Kyber overlay** (`server/kyber-patches/build.sh`), and third-party packages downloaded then checked by hash.
+- **Building the whole Windows side in GitHub Actions**: Admin, tray icon, installers, **Kyber overlay** (`server/kyber-patches/build.sh`), and third-party packages downloaded then checked by hash.
 - One signing request per release (`signpath/github-action-submit-signing-request`, API token as an Actions secret), with manual approval on signpath.io.
 - On www.kybernow.app:
   - a “Code signing policy” page, with the sentence “Free code signing provided by SignPath.io, certificate by SignPath Foundation”;
@@ -346,7 +361,7 @@ What SignPath will require:
 
 Integration, whatever the option, in this order:
 1. sign `kyber-admin.exe`, `kybernow-tray.exe` and `update.ps1`;
-2. build `kybernow-update.zip` and `KyberNow-Server-Setup.exe`, then sign the installer;
+2. build `kybernow-update.zip` and `KyberNow-Station-Setup.exe`, then sign the installer (likewise `KyberNow-Link-Setup.exe`); then copy the signed installers under their old names;
 3. compute `SHA256SUMS` and sign the minisign manifest, last, because the Authenticode signature changes the hashes.
 
 `jsign` (Homebrew) signs `.exe`, `.cab` and PowerShell scripts from the Mac. With SignPath, `release.sh` would fetch the files signed by the CI (`gh run download`) before step 3.

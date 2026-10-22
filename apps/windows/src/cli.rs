@@ -12,19 +12,19 @@ use crate::plan::{Choices, plan};
 use crate::{audio, decoder, render, system};
 
 const USAGE: &str = "\
-KyberNow pour Windows : session directe en ligne de commande (sans argument,
+KyberNow Link pour Windows : session directe en ligne de commande (sans argument,
 l'app s'ouvre sur son accueil)
 
 Utilisation :
   kybernow <adresse>[:port] [options]
 
-  <adresse>         adresse de l'ordinateur (sa console KyberNow)
-  :port             port de la console (affiché dans la console, Accès)
+  <adresse>         adresse de l'ordinateur (celle de KyberNow Admin)
+  :port             port d'Admin (affiché dans Admin, Accès)
 
 Options :
   --user <compte>           compte KyberNow de l'ordinateur
   --password <mot de passe> (ou la variable KYBERNOW_PASSWORD, sinon demandé)
-  --fingerprint <empreinte> empreinte de la console (sha256:…), sinon retenue
+  --fingerprint <empreinte> empreinte d'Admin (sha256:…), sinon retenue
                             au premier contact
   --profile jeu|bureau|max  profil (Jeu par défaut)
   --codec h264|hevc|av1     format vidéo (selon la carte graphique par défaut)
@@ -244,7 +244,7 @@ pub fn main() -> i32 {
     let fingerprint = known.or_else(|| console.fingerprint_seen());
     if args.fingerprint.is_none() && system::known_console(&key).is_none() {
         if let Some(fp) = &fingerprint {
-            eprintln!("Empreinte de la console : {fp}\n(comparez avec celle affichée dans la console, Accès)");
+            eprintln!("Empreinte d'Admin : {fp}\n(comparez avec celle affichée dans Admin, Accès)");
             system::remember_console(&key, fp);
         }
     }

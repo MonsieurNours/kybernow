@@ -1,8 +1,8 @@
-//! `KyberNow-Server-Setup.exe` : lanceur de l'installation.
+//! `KyberNow-Station-Setup.exe` : lanceur de l'installation.
 //!
 //! Il porte le contenu à installer (accolé à la fin du fichier), dépose
 //! l'interface et `WebView2Loader.dll` dans `C:\Program Files\KyberNow\.setup`,
-//! puis lance l'interface. Avec `--uninstall`, il désinstalle KyberNow.
+//! puis lance l'interface. Avec `--uninstall`, il désinstalle KyberNow Station.
 //!
 //! Pas dans `%TEMP%` : l'interface y tournerait avec le jeton administrateur
 //! depuis un dossier où tout programme de l'utilisateur peut écrire, et
@@ -31,7 +31,7 @@ fn main() {
         return;
     }
     if let Err(e) = launch() {
-        message("KyberNow", &t("setup.startFailed", &[("error", &format!("{e:#}"))]), false);
+        message(kybernow::DISPLAY_NAME, &t("setup.startFailed", &[("error", &format!("{e:#}"))]), false);
     }
 }
 
@@ -41,7 +41,7 @@ fn launch() -> anyhow::Result<()> {
         anyhow::bail!(t("setup.notAPayload", &[]));
     }
     if !webview2_installed() {
-        message("KyberNow", &t("setup.webview2Missing", &[]), false);
+        message(kybernow::DISPLAY_NAME, &t("setup.webview2Missing", &[]), false);
         let _ = std::process::Command::new("cmd")
             .args(["/C", "start", "", "https://go.microsoft.com/fwlink/p/?LinkId=2124703"])
             .spawn();
@@ -59,7 +59,7 @@ fn launch() -> anyhow::Result<()> {
     std::fs::write(tmp.join("WebView2Loader.dll"), WEBVIEW2_LOADER)?;
 
     let webview_data: PathBuf =
-        std::env::temp_dir().join(format!("KyberNow-Server-Setup-WebView-{}", std::process::id()));
+        std::env::temp_dir().join(format!("KyberNow-Station-Setup-WebView-{}", std::process::id()));
     let status = std::process::Command::new(&ui)
         .arg("--payload")
         .arg(&exe)
@@ -91,7 +91,7 @@ fn uninstall() {
         Ok(()) => t("uninstall.done", &[]),
         Err(e) => t("uninstall.failed", &[("error", &format!("{e:#}"))]),
     };
-    message("KyberNow", &done, false);
+    message(kybernow::DISPLAY_NAME, &done, false);
     // Après la boîte : le dossier est effacé une fois ce programme fermé.
     kybernow::uninstall::schedule_removal();
 }

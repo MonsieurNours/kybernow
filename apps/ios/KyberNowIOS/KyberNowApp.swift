@@ -1,4 +1,4 @@
-// KyberNow pour l'iPhone et l'iPad.
+// KyberNow Link pour l'iPhone et l'iPad.
 
 import KyberKit
 import SwiftUI

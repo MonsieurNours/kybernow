@@ -1,4 +1,4 @@
-//! Les deux versions de l'app, accolées à la fin de `KyberNow-Client-Setup.exe`.
+//! Les deux versions de l'app, accolées à la fin de `KyberNow-Link-Setup.exe`.
 //!
 //! Disposition : `[exécutable][archive x64][archive arm64][pied de 64 octets]`.
 //! Chaque archive est un tar compressé en zstd. Le pied donne, pour chaque
@@ -272,7 +272,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Installateur construit : `KN_SETUP=…/KyberNow-Client-Setup.exe cargo test -- --ignored`.
+    /// Installateur construit : `KN_SETUP=…/KyberNow-Link-Setup.exe cargo test -- --ignored`.
     #[test]
     #[ignore]
     fn built_installer_extracts() {

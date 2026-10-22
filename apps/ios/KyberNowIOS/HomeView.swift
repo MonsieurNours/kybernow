@@ -184,7 +184,9 @@ struct HomeScreen: View {
                     .position(x: markFrame.midX + (center.x - markFrame.midX) * flight,
                               y: markFrame.midY + (center.y - markFrame.midY) * flight)
                 // Agrandi depuis son bord haut : le haut du nom reste à 22 pt sous le symbole.
-                Wordmark(size: wordSize)
+                // La signature « LINK » du lancement s'efface pendant le vol : la barre
+                // porte le nom seul (trop petit pour la signature).
+                Wordmark(size: wordSize, signed: true, signatureOpacity: Double(flight))
                     .fixedSize()
                     .scaleEffect(1 + (wordScale - 1) * flight, anchor: .top)
                     .position(x: wordFrame.midX + (wordTop.x - wordFrame.midX) * flight,
@@ -416,7 +418,7 @@ struct HomeScreen: View {
                     .foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .homeRise(revealed, 0.18)
-                Text("Ajoutez un ordinateur équipé de KyberNow : depuis votre Mac par iCloud, sur ce réseau, par un code à accepter sur l'ordinateur ou par son QR code.")
+                Text("Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, par un code à accepter sur l'ordinateur ou par son QR code.")
                     .font(Theme.sans(wide ? 17 : 14))
                     .foregroundStyle(Theme.text2)
                     .lineSpacing(2)

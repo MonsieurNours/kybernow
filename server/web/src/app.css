@@ -1,4 +1,4 @@
-/* Console KyberNow : identité v2 (brand/v2/tokens/kybernow.css), signal Spectre. */
+/* KyberNow Admin et KyberNow Link web (/ecran) : identité v2 (brand/v2/tokens/kybernow.css), signal Spectre. */
 
 @font-face {
   font-family: 'Archivo';
@@ -41,6 +41,13 @@
   --glow-2: drop-shadow(0 0 1px #f4f1ff) drop-shadow(0 0 5px #9a8cff) drop-shadow(0 0 16px rgb(109 91 255 / 0.8));
   --glow-3: drop-shadow(0 0 2px #ffffff) drop-shadow(0 0 9px #9a8cff) drop-shadow(0 0 28px #6d5bff);
   --text-glow: 0 0 1px #f4f1ff, 0 0 8px #9a8cff, 0 0 18px #6d5bff;
+
+  /* Logos signés (Mark.svelte, `product`), version sombre de brand/v2/logo.
+     Version claire, pour un thème clair : nom #0b1117, étiquette #dce3e7,
+     texte de l'étiquette #2f3b45. */
+  --logo-word: var(--text);
+  --logo-tag: #1e2832;
+  --logo-tag-text: #c9d5da;
 
   --ok: #4cd68a;
   --ok-text: #c9f2da;

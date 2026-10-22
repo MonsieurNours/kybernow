@@ -61,7 +61,7 @@ export function deviceName(): { name: string; os: string; app: string } {
   const ua = navigator.userAgent
   const browser = browserName(ua)
   const os = systemName(ua)
-  return { name: os ? t('web.device.name', { browser, os }) : browser, os, app: `${browser} · KyberNow web` }
+  return { name: os ? t('web.device.name', { browser, os }) : browser, os, app: `${browser} · KyberNow Link web` }
 }
 
 /** Taille de cet écran en pixels réels, bornée à la 4K, en nombres pairs. */

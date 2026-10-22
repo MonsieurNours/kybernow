@@ -1,8 +1,8 @@
-# Cœur client KyberNow (`kybernow-core`)
+# Cœur de KyberNow Link (`kybernow-core`)
 
 [English](README.en.md) · Français
 
-Ce que les clients KyberNow ont en commun, écrit une fois en Rust : le dialogue avec la console, la session Kyber, les profils et le débit, la latence, les mises à jour, et depuis le jalon 2 le module d'entrées partagé et le moteur de son des apps Apple. L'app Windows ([apps/windows](../windows/README.md)) en a été le premier client ; les apps Mac, Apple TV, iPhone et iPad ([apps/macos](../macos/README.md), [apps/tvos](../tvos/README.md), [apps/ios](../ios/README.md)) y reposent depuis les jalons 1 à 5 (pont C `apps/apple`), entrées et son compris, que Windows a adoptés dans les mêmes jalons à la place de ses `input.rs` et `audio.rs`.
+Ce que les apps KyberNow Link ont en commun, écrit une fois en Rust : le dialogue avec KyberNow Admin, la session Kyber, les profils et le débit, la latence, les mises à jour, et depuis le jalon 2 le module d'entrées partagé et le moteur de son des apps Apple. L'app Windows ([apps/windows](../windows/README.md)) en a été le premier client ; les apps Mac, Apple TV, iPhone et iPad ([apps/macos](../macos/README.md), [apps/tvos](../tvos/README.md), [apps/ios](../ios/README.md)) y reposent depuis les jalons 1 à 5 (pont C `apps/apple`), entrées et son compris, que Windows a adoptés dans les mêmes jalons à la place de ses `input.rs` et `audio.rs`.
 
 Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni Core Audio. Ce que la plateforme fournit passe par des traits (la fenêtre, les décodeurs, la sortie du son et les entrées par `session::Platform` ; l'horloge, le presse-papiers et les rappels vers l'interface par les traits du module d'entrées ; la sortie du son tire elle-même le son du moteur). Les briques de Kyber 0.29 viennent de `third_party/kyber-desktop/kysdk` avec les correctifs KyberNow (`apps/macos/kyber-patches`), voir [apps/windows/README.md](../windows/README.md).
 
@@ -10,13 +10,13 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 
 | Fichier | Contenu |
 |---|---|
-| `src/console.rs` | Client de la console (`info`, `prepare`, `heartbeat`, `foreground`, `end`), certificat épinglé, `Accept-Language` |
+| `src/console.rs` | Client d'Admin (`info`, `prepare`, `heartbeat`, `foreground`, `end`), certificat épinglé, `Accept-Language` |
 | `src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue ([docs/i18n.md](../../docs/i18n.md)) |
 | `src/session.rs` | Déroulé d'une session sur un fil dédié ; ce que la plateforme fournit : `Platform` |
 | `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), en-tête Opus |
 | `src/profile.rs` | Profils, format, débit selon les pixels par seconde |
 | `src/latency.rs` | Latence de bout en bout, horloge de Kyber |
-| `src/update.rs` | Mises à jour : manifeste signé (minisign), canal, téléchargement |
+| `src/update.rs` | Mises à jour : manifeste signé (minisign), canal, téléchargement ; installateur cherché sous son nom actuel puis sous ses anciens noms (`KyberNow-Link-Setup.exe`, puis `KyberNow-Client-Setup.exe` des versions d'avant le renommage) |
 | `src/input/` | Module d'entrées partagé (ci-dessous) |
 | `src/audio/` | Moteur de son (ci-dessous) |
 | `build.rs` | libopus par pkg-config quand il la connaît ; sinon l'exécutable la lie lui-même |

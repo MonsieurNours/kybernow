@@ -1,5 +1,5 @@
 #!/bin/bash
-# Construit KyberNow-Server-Setup.exe depuis macOS ou Linux.
+# Construit KyberNow-Station-Setup.exe depuis macOS ou Linux.
 #
 # Prérequis : node, zstd, mingw-w64, rustup target x86_64-pc-windows-gnu,
 # et les contenus extraits dans third_party/payload/ :
@@ -7,7 +7,7 @@
 #   apollo-0.4.6/   (Apollo 0.4.6, pour le pilote SudoVDA et ViGEmBus)
 #   kyber-overlay/  (facultatif : binaires corrigés et moteur web, voir server/kyber-patches)
 #
-# Sortie : server/installer/dist/KyberNow-Server-Setup.exe
+# Sortie : server/installer/dist/KyberNow-Station-Setup.exe
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -19,7 +19,7 @@ TARGET=x86_64-pc-windows-gnu
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 
-echo "==> Console d'administration (kyber-admin.exe)"
+echo "==> KyberNow Admin (kyber-admin.exe)"
 "$ROOT/server/build-windows.sh" > /dev/null
 
 echo "==> Icône de la zone de notification (kybernow-tray.exe)"
@@ -66,17 +66,17 @@ cd "$HERE"
 touch src/bin/ui.rs
 cargo build --release --target $TARGET --features ui --bin kybernow-ui
 
-echo "==> Lanceur (KyberNow-Server-Setup.exe)"
+echo "==> Lanceur (KyberNow-Station-Setup.exe)"
 LOADER=$(ls -d "$HOME"/.cargo/registry/src/index.crates.io-*/webview2-com-sys-*/x64/WebView2Loader.dll | tail -1)
 export KYBERNOW_UI_EXE="$HERE/target/$TARGET/release/kybernow-ui.exe"
 export KYBERNOW_WEBVIEW2_LOADER="$LOADER"
 touch src/bin/setup.rs
-cargo build --release --target $TARGET --bin KyberNow-Server-Setup
+cargo build --release --target $TARGET --bin KyberNow-Station-Setup
 
 echo "==> Assemblage"
 mkdir -p "$DIST"
-OUT="$DIST/KyberNow-Server-Setup.exe"
-cat "$HERE/target/$TARGET/release/KyberNow-Server-Setup.exe" "$ARCHIVE" > "$OUT"
+OUT="$DIST/KyberNow-Station-Setup.exe"
+cat "$HERE/target/$TARGET/release/KyberNow-Station-Setup.exe" "$ARCHIVE" > "$OUT"
 python3 - "$OUT" "$ARCHIVE_LEN" "$BYTES" "$FILES" <<'EOF'
 import struct, sys
 out, archive_len, unpacked, files = sys.argv[1], *map(int, sys.argv[2:])

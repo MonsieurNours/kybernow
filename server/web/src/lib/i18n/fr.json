@@ -29,13 +29,13 @@
   "session": {
     "aria": "Session sur {host}",
     "error": {
-      "expired": "Votre connexion à la console a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.",
-      "taken": "La session a été reprise par un autre appareil, ou arrêtée depuis la console de l’ordinateur.",
-      "noReply": "Le serveur Kyber de {host} ne répond pas. Vérifiez qu'il est en marche dans la console.",
+      "expired": "Votre connexion à KyberNow Admin a expiré (elle dure 12 h). Revenez à l’accueil et saisissez à nouveau le mot de passe.",
+      "taken": "La session a été reprise par un autre appareil, ou arrêtée depuis KyberNow Admin.",
+      "noReply": "Le serveur Kyber de {host} ne répond pas. Vérifiez qu'il est en marche dans KyberNow Admin.",
       "noImageStart": "Kyber sur {host} n'a pas démarré l'image. Réessayez dans un instant.",
       "noImageArrive": "{host} envoie l'image, mais elle n'arrive pas dans ce navigateur. Essayez le format H.264 dans Réglages › Avancé, ou Chrome ou Edge.",
       "pipeline": "L'image de {host} s'est arrêtée sur l'ordinateur (capture ou encodage), malgré {max} relances. Se reconnecter la redémarre.",
-      "unauthorized": "Kyber sur {host} refuse le jeton de la console. Rechargez la page ; si cela continue, vérifiez Kyber dans la console.",
+      "unauthorized": "Kyber sur {host} refuse le jeton de KyberNow Admin. Rechargez la page ; si cela continue, vérifiez Kyber dans Admin.",
       "startFailed": "Kyber sur {host} n'a pas pu démarrer l'image. Réessayez dans un instant.",
       "decode": "Ce navigateur n'arrive pas à décoder l'image. Essayez le format H.264 dans Réglages › Avancé.",
       "closed": "Kyber sur {host} a fermé la connexion.",
@@ -118,7 +118,7 @@
       "fps": "{fps} images/s",
       "reliable": "Fiable",
       "fast": "Rapide",
-      "browserNote": "Dans un navigateur, l'affichage attend le rafraîchissement de l'écran : comptez un peu plus que dans l'app."
+      "browserNote": "Dans un navigateur, l'affichage attend le rafraîchissement de l'écran : comptez un peu plus que dans l'app KyberNow Link."
     },
     "hint": {
       "locked": "Toutes les touches vont à {host}. La barre : en haut de l'écran, ou",
@@ -145,21 +145,21 @@
   },
   "web": {
     "app": {
-      "noConsole": "La console ne répond pas.",
-      "noPassword": "La console de cet ordinateur n'a pas encore de mot de passe.",
-      "openConsole": "Ouvrir la console",
+      "noConsole": "KyberNow Admin ne répond pas.",
+      "noPassword": "KyberNow Admin n'a pas encore de mot de passe sur cet ordinateur.",
+      "openConsole": "Ouvrir KyberNow Admin",
       "thisComputer": "Cet ordinateur"
     },
     "gate": {
       "title": "Votre ordinateur, dans ce navigateur.",
-      "lead": "Le mot de passe de la console, choisi à l'installation.",
+      "lead": "Le mot de passe de KyberNow Admin, choisi à l'installation.",
       "password": "Mot de passe",
       "wait": "Un instant…",
       "continue": "Continuer",
       "hint": "Rien à installer. Connexion chiffrée par le certificat de cet ordinateur."
     },
     "home": {
-      "console": "Console",
+      "console": "Admin",
       "signOut": "Se déconnecter",
       "preview": "Aperçu · {age}",
       "secondsAgo": "il y a {n} s",
@@ -174,7 +174,7 @@
       "noteGame": "Jeu : la latence la plus basse, et les manettes branchées ici passent sur l’ordinateur.",
       "noteDesktop444": "Bureau : un texte parfaitement net (4:4:4), aucune image perdue, le presse-papiers partagé.",
       "noteDesktop": "Bureau : aucune image perdue, plus de débit pour le texte, le presse-papiers partagé.",
-      "blockedIsolation": "La page n'a pas pu s'isoler, ce dont l'image a besoin. Rechargez-la ; si cela persiste, mettez à jour KyberNow Server.",
+      "blockedIsolation": "La page n'a pas pu s'isoler, ce dont l'image a besoin. Rechargez-la ; si cela persiste, mettez à jour KyberNow Station.",
       "blockedEngine": "Le moteur d'image de l'ordinateur n'a pas pu se charger. Le serveur Kyber est-il en marche ?",
       "rotateTitle": "Tournez le téléphone.",
       "rotate": "L'ordinateur crée un écran à sa taille, en largeur.",
@@ -263,7 +263,7 @@
     }
   },
   "app": {
-    "title": "Console KyberNow",
+    "title": "KyberNow Admin",
     "spaces": {
       "label": "Espaces",
       "overview": "Vue d'ensemble",
@@ -314,25 +314,24 @@
     "saved": "Enregistré. Redémarrez le serveur pour l’appliquer."
   },
   "login": {
-    "tag": "Console de l'ordinateur",
     "thisComputer": "Cet ordinateur",
     "welcome": "Bon retour.",
-    "signInIntro": "Le mot de passe de la console, choisi à l'installation.",
+    "signInIntro": "Le mot de passe d'Admin, choisi à l'installation.",
     "firstVisit": "Première visite",
-    "chooseTitle": "Choisissez le mot de passe de la console.",
+    "chooseTitle": "Choisissez le mot de passe d'Admin.",
     "codeIntro": "Le code prouve que vous êtes bien devant cet ordinateur, ou que vous y avez accès.",
     "code": "Code d'initialisation",
-    "codeHint": "Sur l'ordinateur : menu de l'icône KyberNow, ou le fichier {file}",
+    "codeHint": "Sur l'ordinateur : menu de l'icône KyberNow Station, ou le fichier {file}",
     "password": "Mot de passe",
     "newPassword": "Nouveau mot de passe",
     "min10": "10 caractères au moins.",
     "confirm": "Confirmation",
     "mismatch": "Les deux mots de passe ne correspondent pas.",
     "wait": "Un instant…",
-    "open": "Ouvrir la console",
-    "create": "Créer et ouvrir la console",
+    "open": "Ouvrir Admin",
+    "create": "Créer et ouvrir Admin",
     "forgot": "Mot de passe oublié ?",
-    "forgotHelp": "Sur l'ordinateur, menu de l'icône KyberNow › Réinitialiser le mot de passe de la console. Vos appareils et leurs comptes ne changent pas.",
+    "forgotHelp": "Sur l'ordinateur, menu de l'icône KyberNow Station › Réinitialiser le mot de passe d'Admin. Vos appareils et leurs comptes ne changent pas.",
     "foot": "Connexion chiffrée par le certificat de cet ordinateur."
   },
   "overview": {
@@ -352,7 +351,7 @@
       "stopped": "Arrêté",
       "startInSystem": "Démarrez-le dans Système",
       "missing": "Introuvable",
-      "reinstall": "Réinstallez KyberNow"
+      "reinstall": "Réinstallez KyberNow Station"
     },
     "display": {
       "off": "Désactivé",
@@ -439,7 +438,7 @@
     "add": {
       "qrLabel": "QR code d'appairage",
       "title": "Ajouter un appareil",
-      "text": "Sur votre réseau, ouvrez KyberNow : cet ordinateur y est déjà. Ailleurs, ou par VPN, scannez ce code avec l'appareil, ou collez le lien dans l'app.",
+      "text": "Sur votre réseau, ouvrez KyberNow Link : cet ordinateur y est déjà. Ailleurs, ou par VPN, scannez ce code avec l'appareil, ou collez le lien dans l'app.",
       "copy": "Copier le lien",
       "contents": "Ce que contient le lien",
       "explain": "L'adresse de cet ordinateur et l'empreinte de son certificat : l'app sait qu'elle parle bien à lui. Aucun mot de passe.",
@@ -465,7 +464,7 @@
       },
       "removeAccess": "Retirer l'accès",
       "forget": "Oublier cet appareil",
-      "empty": "Aucun appareil ne s'est encore connecté. Les apps KyberNow apparaissent ici dès leur première session."
+      "empty": "Aucun appareil ne s'est encore connecté. Les apps KyberNow Link apparaissent ici dès leur première session."
     },
     "accounts": {
       "title": "Comptes",
@@ -505,25 +504,25 @@
       "stable": "Stable",
       "beta": "Bêta",
       "confirmForce": "{message}. Continuer ?",
-      "confirmRollback": "Revenir à KyberNow {version} ? La console redémarre, environ une minute.",
-      "installed": "KyberNow {version} est en place.",
+      "confirmRollback": "Revenir à KyberNow Station {version} ? La Station redémarre, environ une minute.",
+      "installed": "KyberNow Station {version} est en place.",
       "timeout": "La mise à jour n'a pas abouti en 5 minutes : voyez C:\\ProgramData\\KyberNow\\update\\<version>\\update.log.",
       "publishedToday": "publiée aujourd’hui",
       "publishedOn": "publiée le {date}",
       "installing": "Installation en cours",
-      "installingLead": "La console s'arrête, remplace ses fichiers et revient d'elle-même, dans environ une minute. Cette page se recharge seule.",
+      "installingLead": "La Station s'arrête, remplace ses fichiers et revient d'elle-même, dans environ une minute. Cette page se recharge seule.",
       "prerelease": "Préversion",
       "newVersion": "Nouvelle version",
       "allNotes": "Toutes les notes de version",
       "installNow": "Installer maintenant",
       "installHint": "Environ une minute. Une session en cours sera coupée. Vous avez {current}.",
-      "download": "Télécharger KyberNow-Server-Setup.exe",
+      "download": "Télécharger {file}",
       "needsSetup": "Cette version s'installe avec l'installateur.",
       "youHave": "Vous avez {current}.",
       "refused": "Paquet refusé, rien n'a été installé. Vous avez {current}.",
-      "latest": "KyberNow {version} est la dernière version.",
-      "latestJustNow": "KyberNow {version} est la dernière version · vérifié il y a un instant.",
-      "latestMinutes": "KyberNow {version} est la dernière version · vérifié il y a {n} min.",
+      "latest": "KyberNow Station {version} est la dernière version.",
+      "latestJustNow": "KyberNow Station {version} est la dernière version · vérifié il y a un instant.",
+      "latestMinutes": "KyberNow Station {version} est la dernière version · vérifié il y a {n} min.",
       "checking": "Vérification…",
       "checkNow": "Vérifier maintenant",
       "rollback": "Revenir à la version précédente ({version})",
@@ -541,13 +540,13 @@
       "starting": "Démarrage…",
       "stopping": "Arrêt…",
       "stoppedState": "Arrêté",
-      "missing": "Introuvable : réinstallez KyberNow",
+      "missing": "Introuvable : réinstallez KyberNow Station",
       "simulated": "(simulé hors Windows)",
       "start": "Démarrer",
       "restart": "Redémarrer",
       "stop": "Arrêter",
       "trayTitle": "Icône de Kyber près de l'horloge",
-      "trayNote": "L'icône KyberNow, elle, se règle dans son menu (démarrage avec l'ordinateur).",
+      "trayNote": "L'icône KyberNow Station, elle, se règle dans son menu (démarrage avec l'ordinateur).",
       "gpu": "Carte graphique",
       "gpuDriver": "{name} · pilote {driver}",
       "noGpu": "Aucune carte graphique compatible",
@@ -571,7 +570,7 @@
       "load": "Charge",
       "address": "Adresse",
       "ports": "Ports",
-      "portsValue": "flux {stream} · console {console}",
+      "portsValue": "flux {stream} · Admin {console}",
       "os": "Système"
     },
     "logs": {
@@ -581,7 +580,7 @@
         "connections": "Connexions",
         "picture": "Image et son",
         "commands": "Commandes",
-        "console": "Console",
+        "console": "Admin",
         "other": "Autres"
       },
       "filter": "Filtrer",
@@ -618,11 +617,11 @@
       "saved": "kyber_config.toml enregistré."
     },
     "lang": {
-      "title": "Langue de la console",
-      "help": "Auto suit la langue de ce navigateur. Le choix vaut pour ce navigateur, console et client web."
+      "title": "Langue d'Admin",
+      "help": "Auto suit la langue de ce navigateur. Le choix vaut pour ce navigateur, dans Admin comme dans KyberNow Link web."
     },
     "password": {
-      "title": "Mot de passe de la console",
+      "title": "Mot de passe d'Admin",
       "help": "Celui choisi à l'installation. Le changer ferme les autres sessions ouvertes.",
       "cancel": "Annuler",
       "change": "Changer",
@@ -631,13 +630,13 @@
       "confirm": "Confirmation",
       "submit": "Changer le mot de passe",
       "mismatch": "Les deux mots de passe ne correspondent pas.",
-      "changed": "Mot de passe de la console changé. Les autres sessions ont été fermées."
+      "changed": "Mot de passe d'Admin changé. Les autres sessions ont été fermées."
     }
   },
   "imageSound": {
     "kicker": "Pendant une session",
     "title": "Image et son",
-    "intro": "Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
+    "intro": "Ce que vos appareils reçoivent, et ce que devient cet ordinateur le temps d'une session. Les apps KyberNow Link règlent elles-mêmes la qualité de l'image : il n'y a rien à régler ici pour bien démarrer.",
     "sections": "Sections",
     "tabs": {
       "display": "Écran",
@@ -662,7 +661,7 @@
       "surround71Hint": "Huit canaux, même si l’appareil ne demande rien."
     },
     "inputNotes": {
-      "gamepad": "Les apps Mac et Apple TV choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur ») : ici, seulement le défaut pour les autres clients."
+      "gamepad": "Les apps KyberNow Link pour Mac et Apple TV choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur ») : ici, seulement le défaut pour les autres connexions."
     },
     "toast": {
       "defaultMode": "Mode par défaut enregistré.",
@@ -671,7 +670,7 @@
       "saved": "Enregistré."
     },
     "pill": {
-      "simulated": "Simulé : cette console ne tourne pas sous Windows",
+      "simulated": "Simulé : Admin ne tourne pas sous Windows",
       "test": "Essai · {mode}",
       "active": "Actif · {mode}",
       "driverUnavailable": "Pilote indisponible",
@@ -692,7 +691,7 @@
       "step3": "3 · À la fin",
       "step3Text": "Vos écrans reviennent, avec leur disposition habituelle.",
       "trigger": "Quand créer l'écran virtuel",
-      "triggerHelp": "Les apps KyberNow annoncent leur écran ; un navigateur ou un client en ligne de commande ne le fait pas, il reçoit alors le mode par défaut.",
+      "triggerHelp": "Les apps KyberNow Link annoncent leur écran ; un navigateur ou un client en ligne de commande ne le fait pas, il reçoit alors le mode par défaut.",
       "defaultMode": "Mode par défaut",
       "defaultModeHelp": "Pour les connexions qui n'annoncent pas leur écran.",
       "otherCurrent": "{mode} (autre)",
@@ -715,7 +714,7 @@
     "sound": {
       "title": "Son",
       "sub": "L'ordinateur se tait, votre appareil reçoit le son, de la stéréo au 7.1.",
-      "installSteam": "Installez Steam sur cet ordinateur, puis relancez l'installateur KyberNow : il ajoutera les haut-parleurs virtuels. Sans eux, le son sort aussi des haut-parleurs de l'ordinateur.",
+      "installSteam": "Installez Steam sur cet ordinateur, puis relancez l'installateur de KyberNow Station : il ajoutera les haut-parleurs virtuels. Sans eux, le son sort aussi des haut-parleurs de l'ordinateur.",
       "trigger": "Quand envoyer le son",
       "triggerHelp": "Sinon, le son sort des haut-parleurs de l'ordinateur, comme d'habitude.",
       "channels": "Canaux",

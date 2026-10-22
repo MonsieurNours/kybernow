@@ -1,20 +1,20 @@
 {
   "setup": {
     "startFailed": "Setup could not start:\n\n{error}",
-    "notAPayload": "this file does not contain KyberNow. Download the full installer again.",
-    "webview2Missing": "The installer needs Microsoft Edge WebView2, included in Windows 11 and most Windows 10 installations.\n\nMicrosoft's download page will open: install it, then run KyberNow-Server-Setup again."
+    "notAPayload": "this file does not contain KyberNow Station. Download the full installer again.",
+    "webview2Missing": "The installer needs Microsoft Edge WebView2, included in Windows 11 and most Windows 10 installations.\n\nMicrosoft's download page will open: install it, then run KyberNow-Station-Setup again."
   },
   "uninstall": {
-    "title": "Uninstall KyberNow",
-    "confirm": "KyberNow will be removed from this computer: streaming server, administration console, tray icon, virtual display. The power mode and network category from before KyberNow are restored.\n\nThe ViGEmBus gamepad driver stays installed, as other software may use it.\n\nContinue?",
-    "keepData": "Keep KyberNow's settings on this computer?\n\nYes: C:\\ProgramData\\KyberNow stays (console settings and certificate, known devices, logs, a copy of Kyber's settings), readable by administrators only.\nNo: everything is deleted.",
-    "doneKept": "KyberNow has been uninstalled. Its settings remain in C:\\ProgramData\\KyberNow.",
-    "done": "KyberNow has been uninstalled.",
+    "title": "Uninstall KyberNow Station",
+    "confirm": "KyberNow Station will be removed from this computer: streaming server, KyberNow Admin, tray icon, virtual display. The power mode and network category from before the Station are restored.\n\nThe ViGEmBus gamepad driver stays installed, as other software may use it.\n\nContinue?",
+    "keepData": "Keep KyberNow Station's settings on this computer?\n\nYes: C:\\ProgramData\\KyberNow stays (Admin settings and certificate, known devices, logs, a copy of Kyber's settings), readable by administrators only.\nNo: everything is deleted.",
+    "doneKept": "KyberNow Station has been uninstalled. Its settings remain in C:\\ProgramData\\KyberNow.",
+    "done": "KyberNow Station has been uninstalled.",
     "failed": "Uninstalling ran into a problem:\n\n{error}"
   },
   "ui": {
-    "windowTitle": "KyberNow Setup",
-    "rebootReason": "Restarting to finish installing KyberNow"
+    "windowTitle": "KyberNow Station Setup",
+    "rebootReason": "Restarting to finish installing KyberNow Station"
   },
   "checks": {
     "gpu": {
@@ -39,7 +39,7 @@
     "ports": {
       "title": "Network ports",
       "defaultBusy": "The usual port 8080 is already in use{by}. ",
-      "picked": "{reason}Drawn at random and checked free: stream {stream} · console {console}"
+      "picked": "{reason}Drawn at random and checked free: stream {stream} · Admin {console}"
     },
     "display": {
       "title": "Main display",
@@ -64,16 +64,16 @@
     },
     "existing": {
       "title": "Existing installation",
-      "installed": "KyberNow {version} is installed",
+      "installed": "KyberNow Station {version} is installed",
       "keepChoice": "At the next step, you will choose to keep your settings and devices, or to start from scratch.",
       "noSettings": "Its settings cannot be found: the installation will start from scratch.",
       "kyberTitle": "A Kyber installation exists",
-      "kyberDetail": "It will be removed and replaced by KyberNow's (same engine, tuned for you)."
+      "kyberDetail": "It will be removed and replaced by KyberNow Station (same engine, tuned for you)."
     }
   },
   "ports": {
     "range": "Choose a port between 1024 and 65535.",
-    "samePort": "The stream and the console need two different ports.",
+    "samePort": "The stream and Admin need two different ports.",
     "reservedByWindows": "Port {port} is reserved by Windows.",
     "reservedBy": "Port {port} is in {owner}'s range ({first}–{last}), which that software often takes: choose another one.",
     "inUse": "Port {port} is already in use{by}.",
@@ -90,9 +90,9 @@
     "vigembusMissing": "ViGEmBus installer missing from the payload",
     "initialConfiguration": "initial configuration",
     "backup": "backing up {path}",
-    "serviceName": "KyberNow - streaming server",
-    "serviceDescription": "Kyber streaming server, installed and managed by KyberNow.",
-    "trayShortcut": "KyberNow in the notification area",
-    "consoleShortcut": "KyberNow console"
+    "serviceName": "KyberNow Station - streaming server",
+    "serviceDescription": "Kyber streaming server, installed and managed by KyberNow Station.",
+    "trayShortcut": "KyberNow Station in the notification area",
+    "consoleShortcut": "KyberNow Admin"
   }
 }

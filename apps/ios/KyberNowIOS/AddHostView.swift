@@ -305,7 +305,7 @@ private struct AddHostMenu: View {
                 HStack(spacing: 10) {
                     AddHostQRGlyph().stroke(Theme.accent, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
                         .frame(width: 18, height: 18)
-                    Text("Visez le QR code de la console de l'ordinateur (espace Accès). L'empreinte est vérifiée toute seule.")
+                    Text("Visez le QR code d'appairage, dans KyberNow Admin (espace Accès). L'empreinte est vérifiée toute seule.")
                         .font(Theme.sans(13.5)).foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
@@ -320,7 +320,7 @@ private struct AddHostMenu: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(AddHostPressStyle())
-        .accessibilityLabel(Text("Lire le QR code de la console avec la caméra"))
+        .accessibilityLabel(Text("Lire le QR code d'appairage avec la caméra"))
     }
 }
 
@@ -496,7 +496,7 @@ private struct AddHostMethodLabel: View {
         case .network: return String(localized: "Sur le réseau")
         case .code: return String(localized: "Code à l'écran")
         case .address: return String(localized: "Adresse")
-        case .qr: return String(localized: "QR code de la console")
+        case .qr: return String(localized: "QR code d'appairage")
         }
     }
 
@@ -508,7 +508,7 @@ private struct AddHostMethodLabel: View {
             if n == 0 { return String(localized: "Trouvé par Bonjour · compte à saisir") }
             if n == 1 { return String(localized: "1 ordinateur trouvé · compte à saisir") }
             return String(localized: "\(n) ordinateurs trouvés · compte à saisir")
-        case .code: return String(localized: "À accepter dans la console de l'ordinateur")
+        case .code: return String(localized: "À accepter dans KyberNow Admin")
         case .address: return String(localized: "VPN ou réseau sans découverte")
         case .qr: return DeviceDisplay.isPad ? String(localized: "Avec la caméra de l'iPad") : String(localized: "Avec la caméra de l'iPhone")
         }

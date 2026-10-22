@@ -1,17 +1,17 @@
 {
   "console": {
-    "certificate_changed": "the console's certificate has changed (seen: {seen})",
-    "http": "console: {message} ({status})",
+    "certificate_changed": "Admin's certificate has changed (seen: {seen})",
+    "http": "Admin: {message} ({status})",
     "http_status": "HTTP error {status}",
-    "network": "console unreachable: {error}",
-    "invalid": "unreadable response from the console: {error}",
+    "network": "Admin unreachable: {error}",
+    "invalid": "unreadable response from Admin: {error}",
     "no_request_id": "request ID missing"
   },
   "session": {
     "internal": "internal session error",
-    "no_image": "the computer is not sending a picture (its encoder is not responding: see its console's log, System › Logs)",
-    "unauthorized": "the computer's server does not recognise this device's account yet: in the console, restart the server (System), then try again",
-    "tls": "the certificate of the computer's server does not match the one given by the console",
+    "no_image": "the computer is not sending a picture (its encoder is not responding: see its log in Admin, System › Logs)",
+    "unauthorized": "the computer's Kyber server does not recognise this device's account yet: in Admin, restart the server (System), then try again",
+    "tls": "the certificate of the computer's Kyber server does not match the one given by Admin",
     "connect_failed": "cannot connect to Kyber ({reason})",
     "stream_failed": "cannot connect to the stream",
     "image_refused": "the computer rejected the picture request",

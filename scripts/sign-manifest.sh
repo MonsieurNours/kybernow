@@ -4,11 +4,17 @@
 #   scripts/sign-manifest.sh <dossier dist> <version> <canal> [--min-installer X.Y.Z] [--requires-setup]
 #
 # Le manifeste donne la version, le canal (stable ou beta), la date, la
-# version minimale déjà installée pour une mise à jour depuis la console,
-# s'il faut repasser par KyberNow-Server-Setup.exe, et l'empreinte SHA-256 et la
-# taille de chaque fichier publié présent dans le dossier. La console
-# (kyber-admin) refuse tout paquet dont le manifeste n'est pas signé par la
-# clé publique compilée en elle : server/admin/src/update/kybernow-release.pub.
+# version minimale déjà installée pour une mise à jour depuis Admin, s'il faut
+# repasser par KyberNow-Station-Setup.exe, et l'empreinte SHA-256 et la taille
+# de chaque fichier publié présent dans le dossier. KyberNow Admin (service
+# kyber-admin) refuse tout paquet dont le manifeste n'est pas signé par la clé
+# publique compilée en lui : server/admin/src/update/kybernow-release.pub.
+#
+# Les installateurs y figurent sous leurs nouveaux noms (KyberNow-Station-Setup.exe,
+# KyberNow-Link-Setup.exe) et sous leurs anciens noms, copies identiques
+# publiées quelques versions encore : l'app Windows en 0.3.1 et avant cherche
+# KyberNow-Client-Setup.exe ici (docs/releases.md, « Anciens noms des
+# installateurs »).
 #
 # Clé privée : ~/Library/Application Support/KyberNow/minisign.key, chiffrée
 # par un mot de passe aléatoire gardé dans le Trousseau (élément
@@ -46,8 +52,9 @@ KEY="${KYBERNOW_MINISIGN_KEY:-$HOME/Library/Application Support/KyberNow/minisig
 ITEM="${KYBERNOW_MINISIGN_ITEM:-kybernow-minisign}"
 if [ -n "${KYBERNOW_MINISIGN_KEY:-}" ]; then PUB="${KEY%.key}.pub"; else PUB="$REPO_PUB"; fi
 MANIFEST="kybernow-release.json"
-FILES=(KyberNow-Server-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
-    KyberNow-Client-Setup.exe)
+FILES=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
+    KyberNow-Link-Setup.exe
+    KyberNow-Server-Setup.exe KyberNow-Setup.exe KyberNow-Client-Setup.exe)
 
 if ! command -v minisign >/dev/null; then
     echo "==> minisign absent : installation (Homebrew)"
@@ -61,7 +68,7 @@ if [ ! -f "$KEY" ]; then
     if [ -z "${KYBERNOW_MINISIGN_KEY:-}" ] && [ -f "$REPO_PUB" ]; then
         echo "Clé privée absente ($KEY), mais une clé publique est déjà dans le dépôt." >&2
         echo "Remettez la sauvegarde (docs/releases.md, « Clé de signature des mises à jour ») ;" >&2
-        echo "une nouvelle clé rendrait les mises à jour refusées par toutes les consoles installées." >&2
+        echo "une nouvelle clé ferait refuser les mises à jour par toutes les Stations installées (Admin)." >&2
         exit 1
     fi
     echo "==> Clé de signature absente : création ($KEY)"
@@ -89,10 +96,10 @@ for f in "${FILES[@]}"; do
     SHA="$(shasum -a 256 "$DIST/$f" | cut -d' ' -f1)"
     SIZE="$(stat -f%z "$DIST/$f")"
     ENTRIES+=("$(printf '    "%s": { "sha256": "%s", "size": %s }' "$f" "$SHA" "$SIZE")")
-    printf '    %-22s %s  %s octets\n' "$f" "$SHA" "$SIZE"
+    printf '    %-26s %s  %s octets\n' "$f" "$SHA" "$SIZE"
 done
 [ ${#ENTRIES[@]} -gt 0 ] || { echo "aucun fichier publiable dans $DIST (${FILES[*]})" >&2; exit 1; }
-[ -f "$DIST/kybernow-update.zip" ] || echo "    attention : kybernow-update.zip absent, la console ne pourra pas installer cette version" >&2
+[ -f "$DIST/kybernow-update.zip" ] || echo "    attention : kybernow-update.zip absent, Admin ne pourra pas installer cette version" >&2
 {
     printf '{\n'
     printf '  "version": "%s",\n' "$VERSION"
@@ -112,7 +119,7 @@ echo "==> Signature (minisign, commentaire de confiance « kybernow $VERSION $CH
 rm -f "$DIST/$MANIFEST.minisig"
 printf '%s\n' "$PW" | minisign -S -s "$KEY" -m "$DIST/$MANIFEST" -x "$DIST/$MANIFEST.minisig" \
     -c "signature de $MANIFEST (KyberNow $VERSION)" -t "kybernow $VERSION $CHANNEL" > /dev/null 2> >(grep -v "^Password" >&2)
-# Contre la clé publique que compile la console : une clé qui ne correspond
+# Contre la clé publique que compile Admin : une clé qui ne correspond
 # pas au dépôt est vue ici, pas sur les ordinateurs.
 minisign -V -q -p "$PUB" -m "$DIST/$MANIFEST" -x "$DIST/$MANIFEST.minisig" \
     || { echo "la signature ne se vérifie pas avec $PUB" >&2; exit 1; }

@@ -1,4 +1,4 @@
-//! Désinstallation complète de KyberNow.
+//! Désinstallation complète de KyberNow Station.
 //!
 //! ViGEmBus n'est pas retiré : d'autres logiciels (Steam, Sunshine…) peuvent s'en servir.
 //! Le dossier d'installation est effacé par une commande différée, lancée par
@@ -16,8 +16,8 @@ use crate::sys::{self, run};
 /// Mode « Utilisation normale » de Windows, repli si l'ancien mode a disparu.
 const BALANCED_SCHEME: &str = "381b4222-f694-41f0-9685-ff5bb260df2e";
 
-/// Retire KyberNow. Avec `keep_data`, `C:\ProgramData\KyberNow` reste (réglages
-/// de la console, certificat, appareils, journaux, sauvegardes, plus une copie
+/// Retire KyberNow Station. Avec `keep_data`, `C:\ProgramData\KyberNow` reste (réglages
+/// d'Admin, certificat, appareils, journaux, sauvegardes, plus une copie
 /// de `kyber_config.toml`), réservé aux administrateurs.
 pub fn run_uninstall(keep_data: bool) -> Result<()> {
     let dir = sys::install_dir();
@@ -51,9 +51,9 @@ pub fn run_uninstall(keep_data: bool) -> Result<()> {
     }
 
     let _ = run("reg", &["delete", UNINSTALL_KEY, "/f"]);
-    let start_menu = std::path::PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
-        .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow");
-    let _ = std::fs::remove_dir_all(start_menu);
+    // Tout le dossier du menu Démarrer : raccourcis actuels (« KyberNow Station »,
+    // « KyberNow Admin ») et ceux des versions précédentes (« KyberNow », « Console KyberNow »).
+    let _ = std::fs::remove_dir_all(crate::install::start_menu_dir());
     if keep_data {
         // Les comptes des appareils sont dans kyber_config.toml, sous Program Files.
         let backups = sys::data_dir().join("backups");

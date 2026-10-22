@@ -1,5 +1,5 @@
 <!--
-  Connexion à la console, ou première visite (choix du mot de passe avec le
+  Connexion à KyberNow Admin, ou première visite (choix du mot de passe avec le
   code d'initialisation). Le symbole immense, la couture allumée : la porte
   de l'ordinateur.
 -->
@@ -64,9 +64,7 @@
   <div class="veil" aria-hidden="true"></div>
 
   <div class="lockup">
-    <Mark size={30} lit breathe />
-    <span class="disp wordmark"><span>Kyber</span><b>Now</b></span>
-    <span class="tag">{t('login.tag')}</span>
+    <Mark product="admin" size={30} lit breathe />
   </div>
 
   <div class="lang-corner"><LangChoice compact /></div>
@@ -175,24 +173,6 @@
     display: flex;
     align-items: center;
     gap: 12px;
-  }
-
-  .wordmark {
-    font-size: 18px;
-    letter-spacing: -0.01em;
-  }
-
-  .wordmark span {
-    font-weight: 420;
-  }
-
-  .wordmark b {
-    font-weight: 720;
-  }
-
-  .tag {
-    font-size: 13px;
-    color: var(--faint);
   }
 
   main {
@@ -323,10 +303,6 @@
     .lang-corner {
       right: 24px;
       top: 29px;
-    }
-
-    .tag {
-      display: none;
     }
 
     main {

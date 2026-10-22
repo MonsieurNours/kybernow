@@ -2,7 +2,7 @@
 //! minisign `kybernow-release.json.minisig`), écrit par
 //! `scripts/sign-manifest.sh` au moment de la publication.
 //!
-//! La clé publique est compilée dans la console (`kybernow-release.pub`) :
+//! La clé publique est compilée dans Admin (`kybernow-release.pub`) :
 //! un paquet n'est installé que si son manifeste est signé par elle, annonce
 //! la version publiée sur GitHub, un canal que suit cet ordinateur, et donne
 //! l'empreinte et la taille exactes du paquet téléchargé.
@@ -21,6 +21,12 @@ pub const MANIFEST: &str = "kybernow-release.json";
 pub const SIGNATURE: &str = "kybernow-release.json.minisig";
 /// Clé publique de publication (format minisign), identifiant D63B24FFFC7E79D1.
 pub const RELEASE_KEY: &str = include_str!("kybernow-release.pub");
+/// Installateur de KyberNow Station, publié avec chaque version.
+pub const SETUP: &str = "KyberNow-Station-Setup.exe";
+/// Nom de l'installateur jusqu'à la 0.3.1 : encore publié à l'identique (et
+/// listé par le manifeste) pendant quelques versions, seul nom connu des
+/// manifestes plus anciens.
+pub const LEGACY_SETUP: &str = "KyberNow-Server-Setup.exe";
 
 /// Canal de mises à jour suivi par l'ordinateur (réglage `update_channel`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,11 +70,11 @@ pub struct Manifest {
     pub files: BTreeMap<String, FileEntry>,
 }
 
-/// Pourquoi une version signée ne s'installe pas depuis la console.
+/// Pourquoi une version signée ne s'installe pas depuis Admin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    /// Il faut repasser par `KyberNow-Server-Setup.exe` (version trop ancienne ici,
-    /// ou paquet qui l'exige).
+    /// Il faut repasser par l'installateur (`Manifest::setup_installer`) :
+    /// version trop ancienne ici, ou paquet qui l'exige.
     Setup(Msg),
     /// Paquet refusé (canal, version, fichier absent).
     Rejected(Msg),
@@ -104,14 +110,14 @@ pub fn verify(json: &[u8], minisig: &str, public_key: &str) -> Result<Manifest> 
     Ok(manifest)
 }
 
-/// Vérifie la signature avec la clé de KyberNow compilée dans la console.
+/// Vérifie la signature avec la clé de KyberNow compilée dans Admin.
 pub fn verify_release(json: &[u8], minisig: &str) -> Result<Manifest> {
     verify(json, minisig, RELEASE_KEY)
 }
 
 impl Manifest {
-    /// La version publiée (`tag_name`) peut-elle s'installer ici, depuis la
-    /// console, sur le canal `channel`, par-dessus `installed` ?
+    /// La version publiée (`tag_name`) peut-elle s'installer ici, depuis
+    /// Admin, sur le canal `channel`, par-dessus `installed` ?
     pub fn check(&self, tag_version: &str, channel: Channel, installed: &str) -> Result<(), Refusal> {
         if self.version != tag_version {
             return Err(Refusal::Rejected(Msg::new("manifest.versionMismatch").with("version", self.version.as_str()).with("tag", tag_version)));
@@ -126,16 +132,28 @@ impl Manifest {
         }
         if super::newer(&self.min_installer_version, installed) {
             return Err(Refusal::Setup(
-                Msg::new("manifest.minInstaller").with("version", self.version.as_str()).with("min", self.min_installer_version.as_str()),
+                Msg::new("manifest.minInstaller")
+                    .with("version", self.version.as_str())
+                    .with("min", self.min_installer_version.as_str())
+                    .with("setup", self.setup_installer()),
             ));
         }
         if self.requires_setup {
-            return Err(Refusal::Setup(Msg::new("manifest.requiresSetup").with("version", self.version.as_str())));
+            return Err(Refusal::Setup(
+                Msg::new("manifest.requiresSetup").with("version", self.version.as_str()).with("setup", self.setup_installer()),
+            ));
         }
         if !self.files.contains_key(super::PACKAGE) {
             return Err(Refusal::Rejected(Msg::new("manifest.noPackage").with("version", self.version.as_str())));
         }
         Ok(())
+    }
+
+    /// Installateur de la Station pour cette version : `KyberNow-Station-Setup.exe`,
+    /// ou l'ancien nom si le manifeste (d'une version publiée avant le
+    /// renommage) ne liste que lui.
+    pub fn setup_installer(&self) -> &'static str {
+        if !self.files.contains_key(SETUP) && self.files.contains_key(LEGACY_SETUP) { LEGACY_SETUP } else { SETUP }
     }
 
     /// Empreinte et taille attendues d'un fichier publié.
@@ -202,7 +220,9 @@ pub mod tests {
     pub fn sample(version: &str, channel: Channel) -> Manifest {
         let mut files = BTreeMap::new();
         files.insert("kybernow-update.zip".to_string(), FileEntry { sha256: "ab".repeat(32), size: 42 });
-        files.insert("KyberNow-Server-Setup.exe".to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
+        // Les deux noms de l'installateur, même fichier, pendant la transition.
+        files.insert(SETUP.to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
+        files.insert(LEGACY_SETUP.to_string(), FileEntry { sha256: "cd".repeat(32), size: 7 });
         Manifest {
             version: version.into(),
             channel,
@@ -237,12 +257,14 @@ pub mod tests {
   "requires_setup": false,
   "files": {
     "KyberNow-Server-Setup.exe": { "sha256": "cd47d6ce8c25e5c92422bfc6e63ae848644460075916584426db7355a2d128a1", "size": 4 },
+    "KyberNow-Station-Setup.exe": { "sha256": "cd47d6ce8c25e5c92422bfc6e63ae848644460075916584426db7355a2d128a1", "size": 4 },
     "kybernow-update.zip": { "sha256": "257a4c075a4c2721970ffc7ef0380d0bf7329185de8f34ff9a6ac8336561c34c", "size": 4 }
   }
 }"#;
         let m: Manifest = serde_json::from_str(text).unwrap();
         assert_eq!(m.channel, Channel::Beta);
         assert_eq!(m.files["kybernow-update.zip"].size, 4);
+        assert_eq!(m.setup_installer(), SETUP);
         let back: Manifest = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
         assert_eq!(back, m);
         assert_eq!(serde_json::to_value(Channel::Stable).unwrap(), "stable");
@@ -314,7 +336,7 @@ pub mod tests {
         let mut old = sample("0.3.0", Channel::Stable);
         old.min_installer_version = "0.2.10".into();
         match old.check("0.3.0", Channel::Stable, "0.2.9") {
-            Err(Refusal::Setup(msg)) => assert!(msg.to_string().contains("KyberNow-Server-Setup.exe"), "{msg}"),
+            Err(Refusal::Setup(msg)) => assert!(msg.to_string().contains("réinstallez avec KyberNow-Station-Setup.exe"), "{msg}"),
             other => panic!("{other:?}"),
         }
         assert_eq!(old.check("0.3.0", Channel::Stable, "0.2.10"), Ok(()));
@@ -326,6 +348,29 @@ pub mod tests {
         let mut empty = sample("0.3.0", Channel::Stable);
         empty.files.remove("kybernow-update.zip");
         assert!(matches!(empty.check("0.3.0", Channel::Stable, "0.2.9"), Err(Refusal::Rejected(_))));
+    }
+
+    /// Manifeste d'une version publiée avant le renommage : seul l'ancien nom
+    /// de l'installateur y figure, c'est lui que nomment les messages.
+    #[test]
+    fn an_older_manifest_names_the_old_installer() {
+        let mut old = sample("0.3.0", Channel::Stable);
+        old.files.remove(SETUP);
+        assert_eq!(old.setup_installer(), LEGACY_SETUP);
+        old.requires_setup = true;
+        match old.check("0.3.0", Channel::Stable, "0.2.9") {
+            Err(Refusal::Setup(msg)) => {
+                assert!(msg.to_string().contains("s'installe avec KyberNow-Server-Setup.exe"), "{msg}");
+                assert!(msg.render(crate::i18n::Lang::En).contains("installs with KyberNow-Server-Setup.exe"), "{msg}");
+            }
+            other => panic!("{other:?}"),
+        }
+        // Le nouveau nom seul, ou aucun des deux : le nouveau nom.
+        let mut new = sample("0.3.2", Channel::Stable);
+        new.files.remove(LEGACY_SETUP);
+        assert_eq!(new.setup_installer(), SETUP);
+        new.files.remove(SETUP);
+        assert_eq!(new.setup_installer(), SETUP);
     }
 
     #[test]

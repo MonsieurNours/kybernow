@@ -1,4 +1,4 @@
-//! Installation de KyberNow, tâche par tâche.
+//! Installation de KyberNow Station, tâche par tâche.
 //!
 //! Les identifiants de tâche correspondent aux lignes de l'écran « Installation » :
 //! files, cert, service, firewall, vdd, gamepad, audio, admin, power (puis finish, sans ligne).
@@ -187,7 +187,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
     step(ctx, "service", || {
         if keep {
             ctx.log(format!(
-                "Réglages conservés : comptes, encodeur, ports (flux {}, console {}), mot de passe de la console",
+                "Réglages conservés : comptes, encodeur, ports (flux {}, Admin {}), mot de passe d'Admin",
                 req.stream_port, req.console_port
             ));
         } else {
@@ -306,7 +306,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         if !req.start_with_windows {
             run_ok("sc", &["config", "kyber-admin", "start=", "demand"], &[0])?;
         }
-        ctx.log(format!("Console d'administration démarrée sur le port {}", req.console_port));
+        ctx.log(format!("KyberNow Admin installé, en marche sur le port {}", req.console_port));
         ctx.progress(92.0);
         Ok(())
     })?;
@@ -348,7 +348,7 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
         let _ = run("reg", &["add", UNINSTALL_KEY, "/v", "EstimatedSize", "/t", "REG_DWORD", "/d", &(dir_size(&ctx.dir) / 1024).to_string(), "/f"]);
         write_shortcut(req.console_port);
         run_ok("sc", &["start", "kyber"], &[0, 1056])?; // 1056 : déjà démarré
-        // Démarré pour de bon : service en marche, puis serveur et console qui répondent.
+        // Démarré pour de bon : service en marche, puis serveur Kyber et Admin qui répondent.
         if !wait_running("kyber", Duration::from_secs(30)) {
             ctx.log("ATTENTION : le service « kyber » n'est pas passé en marche en 30 s (voir C:\\Program Files\\KyberNow\\kyber\\log)");
         } else if !port_answers(req.stream_port, Duration::from_secs(30)) {
@@ -357,9 +357,9 @@ fn install(ctx: &Ctx, req: &InstallRequest, info: &SystemInfo, payload: &Path) -
             ctx.log(format!("Serveur de streaming démarré (port {})", req.stream_port));
         }
         if port_answers(req.console_port, Duration::from_secs(15)) {
-            ctx.log(format!("Console en ligne (port {})", req.console_port));
+            ctx.log(format!("Admin en ligne (port {})", req.console_port));
         } else {
-            ctx.log(format!("ATTENTION : la console ne répond pas encore sur le port {}", req.console_port));
+            ctx.log(format!("ATTENTION : Admin ne répond pas encore sur le port {}", req.console_port));
         }
         setup_tray(ctx, req.start_with_windows);
         ctx.progress(100.0);
@@ -438,7 +438,7 @@ fn secure_data_dir(ctx: &Ctx) {
     match crate::acl::secure_dir(&dir) {
         Ok(0) => ctx.log(format!("Droits de {} : SYSTEM et Administrateurs seulement", dir.display())),
         Ok(n) => ctx.log(format!("Droits de {} posés, {n} lien(s) retiré(s)", dir.display())),
-        Err(e) => ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; la console réessaiera à son démarrage", dir.display())),
+        Err(e) => ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; Admin réessaiera à son démarrage", dir.display())),
     }
 }
 
@@ -453,7 +453,7 @@ fn secure_kyber_secrets(ctx: &Ctx) {
     files.extend(KYBER_CERT.iter().map(|f| kyber.join(f)));
     for file in files.into_iter().filter(|f| f.is_file()) {
         if let Err(e) = crate::acl::secure_file(&file) {
-            ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; la console réessaiera à son démarrage", file.display()));
+            ctx.log(format!("ATTENTION : droits de {} non posés ({e:#}) ; Admin réessaiera à son démarrage", file.display()));
         }
     }
     let previous = kyber.join("avant-maj");
@@ -503,7 +503,7 @@ fn create_kyber_service(ctx: &Ctx, req: &InstallRequest) -> Result<()> {
     Ok(())
 }
 
-/// « Conserver mes réglages » : ceux de Kyber et de la console doivent exister.
+/// « Conserver mes réglages » : ceux de Kyber et d'Admin doivent exister.
 fn check_kept_settings() -> Result<()> {
     let kyber = sys::install_dir().join(KYBER_CONFIG);
     let admin = sys::data_dir().join("kyber-admin.toml");
@@ -650,7 +650,7 @@ fn register_uninstaller(ctx: &Ctx, uninstaller: &Path) -> Result<()> {
         run_ok("reg", &["add", UNINSTALL_KEY, "/v", name, "/t", kind, "/d", value, "/f"], &[0])?;
         Ok(())
     };
-    add("DisplayName", "REG_SZ", crate::PRODUCT)?;
+    add("DisplayName", "REG_SZ", crate::DISPLAY_NAME)?;
     add("DisplayVersion", "REG_SZ", crate::VERSION)?;
     add("Publisher", "REG_SZ", crate::PUBLISHER)?;
     add("URLInfoAbout", "REG_SZ", crate::PUBLISHER_URL)?;
@@ -664,8 +664,8 @@ fn register_uninstaller(ctx: &Ctx, uninstaller: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Icône de la zone de notification : raccourci « KyberNow » dans le menu
-/// Démarrer, lancement à l'ouverture de session, puis lancement tout de suite.
+/// Icône de la zone de notification : raccourci « KyberNow Station » dans le
+/// menu Démarrer, lancement à l'ouverture de session, puis lancement tout de suite.
 ///
 /// L'installateur tourne en administrateur ; l'icône doit tourner sans. On la
 /// lance donc par l'Explorateur, qui la démarre dans la session de
@@ -676,8 +676,7 @@ fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
         ctx.log("Icône de la zone de notification absente du contenu");
         return;
     }
-    let lnk = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
-        .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow\KyberNow.lnk");
+    let lnk = start_menu_dir().join(format!("{}.lnk", crate::DISPLAY_NAME));
     let _ = sys::powershell(&format!(
         "$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = '{}'; \
          $s.Description = '{}'; $s.Save()",
@@ -692,16 +691,22 @@ fn setup_tray(ctx: &Ctx, start_with_windows: bool) {
     };
     let _ = std::process::Command::new(sys::system_root().join("explorer.exe")).arg(&exe).spawn();
     ctx.log(if start_with_windows {
-        "Icône KyberNow lancée (et à chaque ouverture de session)"
+        "Icône KyberNow Station lancée (et à chaque ouverture de session)"
     } else {
-        "Icône KyberNow lancée"
+        "Icône KyberNow Station lancée"
     });
 }
 
-/// Raccourci « Console KyberNow » dans le menu Démarrer.
+/// Dossier `KyberNow` du menu Démarrer (commun à tous les utilisateurs).
+pub fn start_menu_dir() -> PathBuf {
+    PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default()).join(r"Microsoft\Windows\Start Menu\Programs").join(crate::PRODUCT)
+}
+
+/// Raccourci « KyberNow Admin » dans le menu Démarrer. Les raccourcis des
+/// versions précédentes (« KyberNow.lnk », « Console KyberNow.url »…) sont
+/// retirés ; le nouveau raccourci de l'icône est écrit ensuite par [`setup_tray`].
 fn write_shortcut(console_port: u16) {
-    let dir = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
-        .join(r"Microsoft\Windows\Start Menu\Programs\KyberNow");
+    let dir = start_menu_dir();
     let _ = std::fs::create_dir_all(&dir);
     // Nom dans la langue de l'installation ; celui de l'autre langue (installation précédente) est retiré.
     let name = t("install.consoleShortcut", &[]);
@@ -710,6 +715,9 @@ fn write_shortcut(console_port: u16) {
         if old != name {
             let _ = std::fs::remove_file(dir.join(format!("{old}.url")));
         }
+    }
+    for old in crate::LEGACY_SHORTCUTS {
+        let _ = std::fs::remove_file(dir.join(old));
     }
     let _ = std::fs::write(
         dir.join(format!("{name}.url")),
@@ -750,7 +758,7 @@ fn simulate(ctx: &Ctx, req: &InstallRequest) -> Result<bool> {
         ("vdd", 70.0, "Pilote SudoVDA installé (simulation)"),
         ("gamepad", 82.0, "Pilote ViGEmBus installé (simulation)"),
         ("audio", 86.0, "Haut-parleurs virtuels de Steam installés (simulation)"),
-        ("admin", 92.0, "Console démarrée (simulation)"),
+        ("admin", 92.0, "KyberNow Admin en marche (simulation)"),
         ("power", 96.0, "Alimentation réglée (simulation)"),
         ("finish", 100.0, "Terminé (simulation)"),
     ];

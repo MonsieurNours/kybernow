@@ -259,7 +259,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         }
     });
 
-    let hwnd = match window::create(&format!("KyberNow — {host_name}"), opts.window_size) {
+    let hwnd = match window::create(&format!("{} — {host_name}", crate::shell::DISPLAY_NAME), opts.window_size) {
         Ok(h) => h,
         Err(e) => {
             App::clear();

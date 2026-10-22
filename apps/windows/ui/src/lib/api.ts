@@ -128,7 +128,7 @@ export const localLabel = (label: string) => {
   return key ? [t(`profiles.${key}`), ...rest].join(' · ') : label
 }
 
-/** Teinte de la signature d'un ordinateur, tirée de l'empreinte de sa console. */
+/** Teinte de la signature d'un ordinateur, tirée de l'empreinte de son Admin. */
 export const hue = (fp: string | null, salt = 0) => {
   let h = 2166136261 + salt
   for (const c of fp ?? 'kybernow') h = Math.imul(h ^ c.charCodeAt(0), 16777619)

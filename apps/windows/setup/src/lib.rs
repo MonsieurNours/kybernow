@@ -1,4 +1,4 @@
-//! Installateur de l'app KyberNow pour Windows : par utilisateur, sans droits
+//! Installateur de KyberNow Link, l'app Windows : par utilisateur, sans droits
 //! d'administrateur, une seule fois pour x64 et ARM64.
 
 pub mod events;

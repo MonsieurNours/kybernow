@@ -6,7 +6,8 @@ tvOS veut une icône en couches (effet de parallaxe au focus) :
   - Back  : l'encre, une lueur Spectre et la couture en filigrane ;
   - Front : le symbole (l'ordinateur en givre, vous en Spectre) et son néon.
 Plus les images du Top Shelf (rangée du haut de l'accueil), utilisées tant
-que l'app n'a pas encore d'ordinateur à proposer : symbole et nom.
+que l'app n'a pas encore d'ordinateur à proposer : symbole et nom, signé
+« LINK » (logo signé de KyberNow Link, geometry.json `signed.link`).
 
     python3 scripts/app-icon.py     (Pillow requis : pip install pillow)
 """
@@ -20,6 +21,8 @@ out = here.parent / "KyberNowTV/Assets.xcassets/App Icon & Top Shelf Image.brand
 INK = (5, 7, 10)
 ICE = (232, 241, 243)
 SPECTRE = (154, 140, 255)
+TAG = (0x1E, 0x28, 0x32)       # étiquette du logo signé, thème sombre
+TAG_TEXT = (0xC9, 0xD5, 0xDA)
 K = 4  # suréchantillonnage
 
 # --- Tracés -----------------------------------------------------------------
@@ -132,6 +135,20 @@ def wordmark(w, h, cap, x, baseline):
         img = Image.alpha_composite(img, fill((W, H), subpaths(wm[key]), ICE, tr, evenodd=True))
     return img.resize((w, h), Image.LANCZOS)
 
+def signature(w, h, cap, x, baseline, product="link"):
+    """L'étiquette du logo signé (« LINK »), sous le nom posé à (x, ligne de
+    base) avec la hauteur de capitale `cap` : même mise en page que
+    brand/v2/logo/kybernow-link-dark.svg, rapportée à l'origine du nom."""
+    sg, cap0 = geo["signed"][product], geo["wordmark"]["cap"]
+    W, H, s = w * K, h * K, cap * K / cap0
+    ox, oy, k = sg["wordX"], sg["baseline"], sg["sigScale"]
+    tag = lambda p: (x * K + (p[0] - ox) * s, baseline * K + (p[1] - oy) * s)
+    sig = lambda p: (x * K + (sg["sigX"] - ox + p[0] * k) * s, baseline * K + (sg["sigY"] - oy + p[1] * k) * s)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    img = Image.alpha_composite(img, fill((W, H), subpaths(sg["tag"]), TAG, tag))
+    img = Image.alpha_composite(img, fill((W, H), subpaths(sg["sig"]), TAG_TEXT, sig, evenodd=True))
+    return img.resize((w, h), Image.LANCZOS)
+
 def back(w, h):
     """Encre, lueur Spectre en bas à droite, couture en filigrane."""
     img = Image.new("RGBA", (w, h), INK + (255,))
@@ -180,6 +197,8 @@ def shelf(name, size):
         x0 = (w - total) / 2
         img = Image.alpha_composite(img, mark(w, h, side, x0 + side / 2, h / 2))
         img = Image.alpha_composite(img, wordmark(w, h, cap, x0 + side + h * 0.06, h / 2 + cap / 2))
+        # Signature sous le nom : elle reste dans la hauteur du symbole.
+        img = Image.alpha_composite(img, signature(w, h, cap, x0 + side + h * 0.06, h / 2 + cap / 2))
         file = f"{name.replace(' ', '-').lower()}{'' if scale == 1 else '@2x'}.png"
         root.mkdir(parents=True, exist_ok=True)
         img.convert("RGB").save(root / file)

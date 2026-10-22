@@ -43,7 +43,7 @@ use crate::kyber_config::KyberConfig;
 use crate::settings::Settings;
 
 #[derive(Parser)]
-#[command(version, about = "Interface web d'administration d'un serveur Kyber")]
+#[command(version, about = "KyberNow Admin : interface web d'administration de KyberNow Station et de son serveur Kyber")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
@@ -73,8 +73,8 @@ pub struct RunArgs {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Configuration initiale, utilisée par l'installateur KyberNow.
-    /// Le mot de passe (Kyber et console) est lu dans la variable KYBERNOW_PASSWORD.
+    /// Configuration initiale, utilisée par l'installateur de KyberNow Station.
+    /// Le mot de passe (Kyber et Admin) est lu dans la variable KYBERNOW_PASSWORD.
     Init {
         /// Identifiant du compte Kyber (connexion Basic)
         #[arg(long)]
@@ -100,7 +100,7 @@ enum Command {
         #[command(subcommand)]
         action: AgentAction,
     },
-    /// Mise à jour de l'ordinateur, lancée par la console (SYSTEM)
+    /// Mise à jour de KyberNow Station, lancée par Admin (SYSTEM)
     #[command(hide = true)]
     Update {
         #[command(subcommand)]

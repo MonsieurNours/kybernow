@@ -1,5 +1,5 @@
-//! Cœur des clients KyberNow écrits en Rust (Windows d'abord) : dialogue avec
-//! la console, session Kyber, profils et débit, mesure de la latence. Rien
+//! Cœur des apps KyberNow Link écrit en Rust (Windows d'abord) : dialogue avec
+//! KyberNow Admin, session Kyber, profils et débit, mesure de la latence. Rien
 //! ici ne dépend d'un système : décodage, rendu, son et entrées sont fournis
 //! par l'app à travers [`session::Platform`].
 
