@@ -303,6 +303,43 @@ if (document.querySelector('.dl-card')) {
   }
 }
 
+/* ---------- Guide : une tuile par appareil, son installation dessous ---------- */
+// L'ancre (#mac, #android-tv…) ouvre son installation, depuis un lien comme
+// depuis une tuile ; sans ancre, celle de l'appareil du visiteur.
+const osTiles = [...document.querySelectorAll('.os-tile')];
+if (osTiles.length) {
+  const panels = osTiles.map(a => $(a.getAttribute('aria-controls')));
+  const open = (id, scroll) => {
+    const i = panels.findIndex(p => p.id === id);
+    if (i < 0) return false;
+    panels.forEach((p, j) => p.classList.toggle('is-open', j === i));
+    osTiles.forEach((a, j) => { a.setAttribute('aria-selected', String(j === i)); a.tabIndex = j === i ? 0 : -1; });
+    if (scroll) panels[i].scrollIntoView({ behavior: reduceMotion || scroll === 'jump' ? 'auto' : 'smooth', block: 'start' });
+    return true;
+  };
+  const ua = navigator.userAgent;
+  const guess = /Android/.test(ua) && /TV|SHIELD|AFT/.test(ua) ? 'android-tv' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
+    : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : 'navigateur';
+  // Arrivée sur une ancre : l'installation était masquée, le navigateur n'a pas pu y aller.
+  if (!open(location.hash.slice(1), 'jump')) open(guess, false);
+  osTiles.forEach((a, i) => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      open(panels[i].id, false);
+      history.replaceState(null, '', '#' + panels[i].id);
+    });
+    a.addEventListener('keydown', e => {
+      const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const next = osTiles[(i + step + osTiles.length) % osTiles.length];
+      next.focus(); next.click();
+    });
+  });
+  // Lien vers une installation depuis la page (FAQ, mises à jour…).
+  addEventListener('hashchange', () => open(location.hash.slice(1), true));
+}
+
 /* ---------- Dernière version publiée (si GitHub répond) ---------- */
 // Taille telle que le système de l'appareil l'affichera une fois le fichier
 // téléchargé : Windows compte en 1 048 576 octets (et tronque), macOS en

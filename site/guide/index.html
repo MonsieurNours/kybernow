@@ -184,6 +184,14 @@
   },
   {
    "@type": "Question",
+   "name": "Et Android ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "L'app Android TV est essayée sur la NVIDIA Shield TV et s'installe depuis un ordinateur, en attendant le Play Store : voir Sur Android TV. Sur un téléphone ou une tablette Android, utilisez KyberNow Link dans le navigateur pour l'instant."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Pourquoi l'app Apple TV n'est-elle pas sur l'App Store ?",
    "acceptedAnswer": {
     "@type": "Answer",
@@ -299,6 +307,7 @@
             <li>Un PC sous Windows 10 22H2 ou Windows 11, x64 ou ARM64 (Snapdragon, sous Windows 11), pour l'app</li>
             <li>Une Apple TV 4K de 2021 ou plus récente sous tvOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Un iPhone ou un iPad sous iOS 18 ou iPadOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
+            <li>Une NVIDIA Shield TV, et un ordinateur du même réseau pour y installer l'app</li>
             <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
             <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
           </ul>
@@ -331,44 +340,58 @@
         </li>
       </ol>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>À la première ouverture d'Admin, le navigateur signale un certificat inconnu&#8239;: c'est normal, la Station a créé son propre certificat. Les apps KyberNow Link, elles, vérifient son empreinte.</span></p>
-      <p>Une icône KyberNow Station s'installe dans la zone de notification. Elle montre l'état de la Station (vert en marche, violet pendant une session) et ouvre Admin, où vous trouverez quatre pages&#8239;: <b>Vue d'ensemble</b>, <b>Image et son</b>, <b>Accès</b> et <b>Système</b>.</p>
+      <p>Une icône KyberNow Station s'installe dans la zone de notification. Elle montre l'état de la Station (vert en marche, violet pendant une session) et ouvre Admin, où vous trouverez cinq espaces&#8239;: <b>Vue d'ensemble</b>, <b>Image et son</b>, <b>Appareils Link</b>, <b>Utilisateurs</b> et <b>Système</b>.</p>
     </section>
 
     <section id="appareil" class="doc-section">
       <p class="step-label">Étape 2</p>
       <h2>Connecter un appareil</h2>
+      <p>Choisissez votre appareil&#8239;: son installation s'affiche juste dessous.</p>
+      <div class="os-tiles" role="tablist" aria-label="Appareils">
+        <a class="os-tile" role="tab" id="tab-mac" href="#mac" aria-controls="mac"><svg class="ic-lg"><use href="/assets/icons.svg#apple-logo"/></svg><b>Mac</b><span>App signée et notariée</span></a>
+        <a class="os-tile" role="tab" id="tab-windows" href="#windows" aria-controls="windows"><svg class="ic-lg"><use href="/assets/icons.svg#windows-logo"/></svg><b>Windows</b><span>PC x64 et ARM64</span></a>
+        <a class="os-tile" role="tab" id="tab-apple-tv" href="#apple-tv" aria-controls="apple-tv"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span>Depuis un Mac</span></a>
+        <a class="os-tile" role="tab" id="tab-iphone" href="#iphone" aria-controls="iphone"><svg class="ic-lg"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone et iPad</b><span>Depuis un Mac</span></a>
+        <a class="os-tile" role="tab" id="tab-android-tv" href="#android-tv" aria-controls="android-tv"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android TV</b><span>NVIDIA Shield</span></a>
+        <a class="os-tile" role="tab" id="tab-navigateur" href="#navigateur" aria-controls="navigateur"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><b>Navigateur</b><span>Rien à installer</span></a>
+      </div>
 
-      <h3 id="mac" class="sub">Avec l'app Mac</h3>
+      <div class="os-panel" id="mac" role="tabpanel" aria-labelledby="tab-mac">
+      <h3 class="sub">Avec l'app Mac</h3>
       <ol class="steps-doc">
         <li><p>Téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip">KyberNow-Link-macOS.zip</a>, ouvrez-le et glissez l'app dans Applications. L'app est signée et notarisée par Apple.</p></li>
         <li><p>Ouvrez-la puis choisissez «&#8239;Ajouter un ordinateur&#8239;»&#8239;:</p>
           <ul class="ticks">
             <li><b>Sur ce réseau</b>&#8239;: l'ordinateur apparaît tout seul (Bonjour).</li>
             <li><b>Par adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN.</li>
-            <li><b>QR code ou lien</b>&#8239;: dans Admin, page <b>Accès</b>, «&#8239;Ajouter un appareil&#8239;». Le lien contient l'adresse et l'empreinte du certificat, jamais de mot de passe.</li>
+            <li><b>QR code ou lien</b>&#8239;: dans Admin, page <b>Appareils Link</b>, «&#8239;Ajouter un appareil&#8239;». Le lien contient l'adresse et l'empreinte du certificat, jamais de mot de passe.</li>
           </ul>
         </li>
         <li><p>«&#8239;C'est bien votre ordinateur&#8239;?&#8239;»&#8239;: venue d'un lien ou de Bonjour, l'empreinte est vérifiée toute seule. Par simple adresse, comparez les quatre premiers groupes avec ceux d'Admin.</p></li>
         <li><p>Entrez le compte créé à l'installation. Il est gardé dans le Trousseau du Mac. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
       </ol>
+      </div>
 
-      <h3 id="windows" class="sub">Avec l'app Windows</h3>
+      <div class="os-panel" id="windows" role="tabpanel" aria-labelledby="tab-windows">
+      <h3 class="sub">Avec l'app Windows</h3>
       <p>Pour un PC portable ou un ordinateur modeste qui se connecte à un plus puissant. L'image est décodée par la carte graphique (H.264, HEVC, et AV1 quand elle le sait), affichée en Direct3D&nbsp;11&#8239;: environ 10&nbsp;ms de latence mesurées sur un réseau domestique.</p>
       <ol class="steps-doc">
         <li><p>Téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe">KyberNow-Link-Setup.exe</a> et ouvrez-le. Un seul installateur pour les PC x64 et ARM64&#8239;: il pose de lui-même la version qui convient. L'app s'installe pour vous seul, sans droits d'administrateur.</p></li>
         <li><p>Ouvrez KyberNow Link puis choisissez «&#8239;Ajouter un ordinateur&#8239;»&#8239;:</p>
           <ul class="ticks">
             <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul.</li>
-            <li><b>Avec le lien</b>&#8239;: dans Admin, page <b>Accès</b>, «&#8239;Ajouter un appareil&#8239;». Le lien <code>kybernow://</code> ouvre l'app avec l'ordinateur et son empreinte déjà vérifiés.</li>
+            <li><b>Avec le lien</b>&#8239;: dans Admin, page <b>Appareils Link</b>, «&#8239;Ajouter un appareil&#8239;». Le lien <code>kybernow://</code> ouvre l'app avec l'ordinateur et son empreinte déjà vérifiés.</li>
             <li><b>Par adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN. Comparez les quatre premiers groupes de l'empreinte avec ceux d'Admin.</li>
           </ul>
         </li>
-        <li><p>Pour y avoir accès, acceptez le <b>code à six chiffres</b> affiché par l'app dans Admin, page <b>Accès</b>, rubrique Appareils&#8239;: rien à taper. Ou entrez le compte créé à l'installation, gardé dans le gestionnaire d'identifiants de Windows. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
+        <li><p>Pour y avoir accès, acceptez le <b>code à six chiffres</b> affiché par l'app dans Admin, page <b>Appareils Link</b>&#8239;: rien à taper. Ou entrez le compte créé à l'installation, gardé dans le gestionnaire d'identifiants de Windows. Cliquez sur l'ordinateur&#8239;: la session s'ouvre.</p></li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>Pendant la bêta, l'app n'est pas encore signée avec Authenticode&#8239;: au premier lancement, Windows SmartScreen affiche un avertissement. Cliquez sur «&#8239;Informations complémentaires&#8239;», puis sur «&#8239;Exécuter quand même&#8239;».</span></p>
       <p class="muted">Vos ordinateurs apparaissent aussi au clic droit sur l'icône de KyberNow Link dans la barre des tâches&#8239;: un clic lance la session.</p>
+      </div>
 
-      <h3 id="apple-tv" class="sub">Sur l'Apple TV</h3>
+      <div class="os-panel" id="apple-tv" role="tabpanel" aria-labelledby="tab-apple-tv">
+      <h3 class="sub">Sur l'Apple TV</h3>
       <p>En attendant sa publication sur l'App Store, l'app s'installe depuis un Mac, signée avec votre propre compte Apple. Comptez dix minutes la première fois, une minute ensuite. Il faut une Apple TV 4K de 2021 ou plus récente, à jour, et un Mac sur le même réseau avec Xcode (gratuit sur l'App Store du Mac&#8239;; ouvrez-le une fois pour qu'il finisse de s'installer).</p>
       <ol class="steps-doc">
         <li><p>Sur le Mac, installez XcodeGen avec <a href="https://brew.sh" rel="noopener">Homebrew</a>, puis récupérez le code de KyberNow&#8239;:</p>
@@ -384,15 +407,17 @@ cd kybernow</code></pre></li>
           <ul class="ticks">
             <li><b>Depuis votre Mac</b>&#8239;: les ordinateurs de l'app Mac arrivent par iCloud, avec leurs accès. Installation avec <code>--full</code> seulement.</li>
             <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul&#8239;; tapez le compte, au besoin au clavier de l'iPhone.</li>
-            <li><b>Code à l'écran</b>&#8239;: acceptez-le dans Admin, page <b>Accès</b>, rubrique Appareils.</li>
+            <li><b>Code à l'écran</b>&#8239;: acceptez-le dans Admin, page <b>Appareils Link</b>.</li>
             <li><b>Adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN.</li>
           </ul>
         </li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>Avec un compte Apple gratuit, l'app cesse de s'ouvrir au bout de 7&nbsp;jours&#8239;: relancez la même commande pour la renouveler, vos ordinateurs et réglages restent. Avec un compte payant, elle tient un an.</span></p>
       <p class="muted">Procédure complète et dépannage&#8239;: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.md" rel="noopener">installer KyberNow Link sur votre Apple TV</a>.</p>
+      </div>
 
-      <h3 id="iphone" class="sub">Sur l'iPhone et l'iPad</h3>
+      <div class="os-panel" id="iphone" role="tabpanel" aria-labelledby="tab-iphone">
+      <h3 class="sub">Sur l'iPhone et l'iPad</h3>
       <p>En attendant TestFlight et l'App Store, l'app s'installe depuis un Mac, signée avec votre propre compte Apple, comme pour l'Apple TV. Il faut un iPhone ou un iPad sous iOS&nbsp;18 ou iPadOS&nbsp;18 au moins, un câble pour le brancher au Mac la première fois, et Xcode sur le Mac.</p>
       <ol class="steps-doc">
         <li><p>Sur le Mac, installez XcodeGen avec <a href="https://brew.sh" rel="noopener">Homebrew</a>, puis récupérez le code de KyberNow&#8239;:</p>
@@ -408,17 +433,40 @@ cd kybernow</code></pre></li>
           <ul class="ticks">
             <li><b>Depuis votre Mac</b>&#8239;: les ordinateurs de l'app Mac arrivent par iCloud, avec leurs accès. Installation avec <code>--full</code> seulement.</li>
             <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul&#8239;; tapez son compte.</li>
-            <li><b>Code</b> ou <b>QR code</b>&#8239;: affichés par Admin, page <b>Accès</b>, rubrique Appareils.</li>
+            <li><b>Code</b> ou <b>QR code</b>&#8239;: affichés par Admin, page <b>Appareils Link</b>.</li>
             <li><b>Adresse</b>&#8239;: son adresse IP ou son nom, par exemple par VPN.</li>
           </ul>
         </li>
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg><span>Avec un compte Apple gratuit, l'app cesse de s'ouvrir au bout de 7&nbsp;jours&#8239;: relancez la même commande pour la renouveler. Le SDK que télécharge le script est joint aux versions publiées à partir de la 0.4.0.</span></p>
       <p class="muted">Procédure complète et dépannage&#8239;: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.md" rel="noopener">installer KyberNow Link sur votre iPhone ou votre iPad</a>.</p>
+      </div>
 
-      <h3 id="navigateur" class="sub">Dans un navigateur</h3>
+      <div class="os-panel" id="android-tv" role="tabpanel" aria-labelledby="tab-android-tv">
+      <h3 class="sub">Sur Android TV</h3>
+      <p>Essayée sur la NVIDIA Shield TV&#8239;: jusqu'à la 4K à 60&nbsp;Hz en HEVC, son 7.1 sur un ampli HDMI, manettes Bluetooth. En attendant le Play Store, l'app s'installe depuis un ordinateur du même réseau avec <code>adb</code>, l'outil d'Android pour les développeurs. Comptez cinq minutes la première fois.</p>
+      <ol class="steps-doc">
+        <li><p>Sur la Shield, activez les options pour les développeurs&#8239;: <b>Paramètres › Préférences de l'appareil › À propos</b>, puis cliquez sept fois sur <b>Build</b>. Dans <b>Préférences de l'appareil › Options pour les développeurs</b>, activez <b>Débogage réseau</b> et notez l'adresse de la Shield.</p></li>
+        <li><p>Sur l'ordinateur, téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a> et installez <code>adb</code>&#8239;: sur un Mac avec <a href="https://brew.sh" rel="noopener">Homebrew</a>, <code>brew install android-platform-tools</code>&#8239;; ailleurs, les <a href="https://developer.android.com/tools/releases/platform-tools" rel="noopener">SDK Platform-Tools</a> de Google.</p></li>
+        <li><p>Reliez l'ordinateur à la Shield, puis installez l'app, depuis le dossier du fichier téléchargé&#8239;:</p>
+          <pre><code>adb connect 192.168.1.30
+adb install KyberNow-Link-Android.apk</code></pre>
+          <p>Remplacez l'adresse par celle de la Shield. Au premier <code>adb connect</code>, le téléviseur demande d'autoriser le débogage&#8239;: cochez «&#8239;Toujours autoriser&#8239;» et validez.</p></li>
+        <li><p>Ouvrez KyberNow depuis les applications de la Shield, puis ajoutez l'ordinateur&#8239;:</p>
+          <ul class="ticks">
+            <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul.</li>
+            <li><b>Code à l'écran</b>&#8239;: acceptez le code à six chiffres affiché par l'app dans Admin, page <b>Appareils Link</b>&#8239;: rien à taper à la télécommande.</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>Une fois l'app installée, vous pouvez désactiver le débogage réseau. Il ne resservira que pour installer une nouvelle version.</span></p>
+      </div>
+
+      <div class="os-panel" id="navigateur" role="tabpanel" aria-labelledby="tab-navigateur">
+      <h3 class="sub">Dans un navigateur</h3>
       <p>Sur n'importe quel appareil du même réseau (ou relié par VPN), ouvrez l'adresse d'Admin suivie de <code>/ecran</code>, par exemple <code>https://192.168.1.20:31415/ecran</code>. L'adresse exacte s'affiche à la fin de l'installation et sur la page Vue d'ensemble d'Admin. Acceptez l'avertissement de certificat, puis connectez-vous avec votre compte.</p>
       <p class="callout"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg><span>Link dans le navigateur convient pour dépanner, travailler depuis une tablette ou un ordinateur d'emprunt. Pour jouer, l'app native décode l'image plus vite.</span></p>
+      </div>
     </section>
 
     <section id="session" class="doc-section">
@@ -455,6 +503,13 @@ cd kybernow</code></pre></li>
         <div class="tr"><span class="th">Pavé tactile</span><span>En souris&#8239;: le doigt déplace le pointeur, un clic fait un clic gauche, Lecture/Pause un clic droit</span></div>
       </div>
       <p class="muted">Jusqu'à quatre manettes (Xbox, DualSense, DualShock), chacune un joueur sur l'ordinateur, avec les vibrations. Un clavier et une souris Bluetooth fonctionnent aussi.</p>
+      <h3 class="sub">Sur Android TV</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session&#8239;: santé du flux, profils, son, télécommande ou manette en souris, saisie de texte, touches, mesures, déconnexion</span></div>
+        <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Tenus ensemble, ouvrent le même menu depuis la manette</span></div>
+        <div class="tr"><span class="th">Manette en souris</span><span>Stick gauche&#8239;: le pointeur. <kbd>A</kbd> clic, <kbd>X</kbd> clic droit, stick droit molette, <kbd>Start</kbd> touche <kbd>⊞</kbd>, <kbd>Select</kbd> Échap, <kbd>L1</kbd> <kbd>R1</kbd> Alt + Tab</span></div>
+      </div>
+      <p class="muted">Dans le menu, la manette pilote l'app&#8239;: <kbd>A</kbd> valide, <kbd>B</kbd> ferme. «&#8239;Se déconnecter&#8239;», en rouge, est la dernière tuile.</p>
     </section>
 
     <section id="distance" class="doc-section">
@@ -474,6 +529,7 @@ cd kybernow</code></pre></li>
       <p><b>L'app Mac</b>&#8239;: elle se met à jour toute seule, ou par <b>KyberNow Link › Rechercher des mises à jour…</b></p>
       <p><b>L'app Windows</b>&#8239;: elle se met à jour toute seule, avec des mises à jour signées. Ses réglages (la roue de la barre de titre) proposent aussi les versions bêta.</p>
       <p><b>L'app Apple TV</b>&#8239;: dans le dossier <code>kybernow</code>, faites <code>git pull</code> puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
+      <p><b>L'app Android TV</b>&#8239;: téléchargez la nouvelle <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a>, puis <code>adb install -r KyberNow-Link-Android.apk</code> depuis l'ordinateur (débogage réseau activé sur la Shield). Vos ordinateurs et réglages restent.</p>
       <p class="muted">Sans Admin, depuis PowerShell en administrateur&#8239;:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
@@ -484,6 +540,7 @@ cd kybernow</code></pre></li>
       <p><b>Le Mac</b>&#8239;: glissez KyberNow Link d'Applications à la corbeille.</p>
       <p><b>Le PC Windows</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow Link › Désinstaller. L'app propose d'effacer aussi vos ordinateurs, réglages et mots de passe.</p>
       <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app.</p>
+      <p><b>La Shield</b>&#8239;: <b>Paramètres › Applications</b>, KyberNow, puis <b>Désinstaller</b>.</p>
     </section>
 
     <section id="faq" class="doc-section">
@@ -506,6 +563,7 @@ cd kybernow</code></pre></li>
         <details><summary>J'ai oublié le mot de passe.</summary><p>Sur l'ordinateur, clic droit sur l'icône KyberNow Station › «&#8239;Réinitialiser le mot de passe d'Admin…&#8239;», puis suivez Admin pour en choisir un nouveau.</p></details>
         <details><summary>L'app fonctionne-t-elle sur un Mac Intel&#8239;?</summary><p>Non, elle demande une puce Apple (M1 ou plus récente). Sur un Mac Intel, utilisez KyberNow Link dans le navigateur.</p></details>
         <details><summary>Et l'app iPhone et iPad&#8239;?</summary><p>Pas encore sur l'App Store ni sur TestFlight. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#iphone">Sur l'iPhone et l'iPad</a>. Il faut iOS&nbsp;18 ou iPadOS&nbsp;18 au moins.</p></details>
+        <details><summary>Et Android&#8239;?</summary><p>L'app Android TV est essayée sur la NVIDIA Shield TV et s'installe depuis un ordinateur, en attendant le Play Store&#8239;: voir <a href="#android-tv">Sur Android TV</a>. Sur un téléphone ou une tablette Android, utilisez KyberNow Link dans le navigateur pour l'instant.</p></details>
         <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel lien avec Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute KyberNow Station (installateur, écrans et haut-parleurs virtuels), KyberNow Admin et les apps KyberNow Link. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
         <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune. Rien ne passe par un serveur à nous&#8239;: l'image va directement de l'ordinateur à vos appareils. KyberNow Admin interroge seulement GitHub pour savoir si une nouvelle version existe.</p></details>

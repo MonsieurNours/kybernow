@@ -15,7 +15,7 @@ python3 -m http.server 5200 --directory site
 | Français | Anglais | Contenu |
 |---|---|---|
 | `/` | `/en/` | Présentation, la famille KyberNow (Station, Admin, Link) et téléchargements |
-| `/guide/` | `/en/guide/` | Guide pas à pas (KyberNow Station, puis les appareils avec KyberNow Link : Mac, Windows, Apple TV, iPhone et iPad, navigateur ; VPN, mises à jour, désinstallation) et FAQ |
+| `/guide/` | `/en/guide/` | Guide pas à pas (KyberNow Station, puis les appareils avec KyberNow Link : Mac, Windows, Apple TV, iPhone et iPad, Android TV, navigateur, chacun derrière sa tuile ; VPN, mises à jour, désinstallation) et FAQ |
 | `/mentions-legales/` | `/en/legal/` | Éditeur, hébergement, propriété intellectuelle, confidentialité, crédits |
 
 Chaque page déclare ses deux versions (`<link rel="alternate" hreflang>`). `assets/lang.js`, chargé dans `<head>`, envoie un visiteur dont le navigateur n'est pas en français vers la version anglaise (et l'inverse), sauf s'il a choisi une langue avec le sélecteur : ce choix est gardé dans `localStorage` (`kn-lang`). Les robots ne sont jamais redirigés. Les textes produits par `main.js` (trajet, simulation, profils) suivent `<html lang>`.
@@ -28,7 +28,7 @@ KyberNow est la marque ; elle regroupe trois produits, nommés comme dans le res
 
 - **KyberNow Station** : le logiciel installé sur l'ordinateur Windows qui diffuse l'image (`KyberNow-Station-Setup.exe`). Dans les textes, « la Station » après la première mention ; « l'ordinateur » reste quand on parle de la machine.
 - **KyberNow Admin** : l'administration de la Station dans le navigateur (« Admin », sans article, après la première mention).
-- **KyberNow Link** : les apps qui affichent l'image (Mac, Windows, Apple TV, iPhone et iPad) et leur version web `/ecran` (`KyberNow-Link-Setup.exe` pour Windows, `KyberNow-Link-macOS.zip` pour le Mac).
+- **KyberNow Link** : les apps qui affichent l'image (Mac, Windows, Apple TV, iPhone et iPad, Android TV) et leur version web `/ecran` (`KyberNow-Link-Setup.exe` pour Windows, `KyberNow-Link-macOS.zip` pour le Mac, `KyberNow-Link-Android.apk` pour Android TV).
 
 L'accueil les présente dans la section « La famille KyberNow » (`#famille`, juste après « Pourquoi »), chacun avec son logo signé (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies de `brand/v2/logo/`). Les cartes de téléchargement et l'encart « Avant de commencer » du guide reprennent les logos de Station et de Link. Un logo signé ne descend pas sous 32 px de haut (en dessous, la signature n'est plus lisible) ; le site n'a qu'un thème sombre, seules les versions `-dark` sont copiées.
 
@@ -36,7 +36,9 @@ L'accueil les présente dans la section « La famille KyberNow » (`#famille`, j
 
 Tant que KyberNow n'est pas en 1.0, le site le dit partout : badge « Bêta » à côté du logo sur chaque page et en tête de l'accueil (classe `.beta`), encart « KyberNow est en bêta » dans la section Télécharger (`.notice-beta`, icône `flask`), badge après le numéro de version, question « Pourquoi bêta ? » de la FAQ. À la 1.0, retirer ces éléments dans les deux langues.
 
-L'app KyberNow Link pour Apple TV n'a pas de fichier à télécharger : sa carte mène à la section « Sur l'Apple TV » du guide (`/guide/#apple-tv`), qui résume [apps/tvos/SIDELOAD.md](../apps/tvos/SIDELOAD.md) (installation depuis un Mac avec Xcode). De même pour l'app Link pour iPhone et iPad : carte vers « Sur l'iPhone et l'iPad » (`/guide/#iphone`), qui résume [apps/ios/SIDELOAD.md](../apps/ios/SIDELOAD.md). À reprendre quand les apps seront sur TestFlight ou l'App Store.
+L'app KyberNow Link pour Apple TV n'a pas de fichier à télécharger : sa carte mène à la section « Sur l'Apple TV » du guide (`/guide/#apple-tv`), qui résume [apps/tvos/SIDELOAD.md](../apps/tvos/SIDELOAD.md) (installation depuis un Mac avec Xcode). De même pour l'app Link pour iPhone et iPad : carte vers « Sur l'iPhone et l'iPad » (`/guide/#iphone`), qui résume [apps/ios/SIDELOAD.md](../apps/ios/SIDELOAD.md). À reprendre quand les apps seront sur TestFlight ou l'App Store. L'app Android TV a son APK, mais s'installe depuis un ordinateur avec `adb` : sa carte mène aussi au guide (`/guide/#android-tv`). Le guide ne présente que ce qui a été essayé (la NVIDIA Shield TV) ; le téléphone et la tablette Android restent « Prévu ».
+
+**Connecter un appareil** (guide) : une tuile par système (`.os-tiles`, rôle `tablist`), son installation dessous (`.os-panel`). `main.js` ouvre celle de l'ancre (`#mac`, `#android-tv`…, liens existants compris), sinon celle de l'appareil du visiteur ; flèches du clavier entre les tuiles. Sans JavaScript, toutes les installations restent à la suite. Un nouveau système : une tuile et un panneau dans les deux langues.
 
 ## Publication
 

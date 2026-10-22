@@ -70,7 +70,7 @@
    "description": "Free, open-source game and remote desktop streaming: your computer on all your devices, in an app or in the browser. 9.4 ms median latency measured on a local network, encrypted QUIC transport, virtual display at the device's resolution. A next-gen alternative to Sunshine and Moonlight, built on the Kyber engine.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Game streaming and remote desktop",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, web browser",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android TV 11+, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -158,7 +158,7 @@
    "url": "https://www.kybernow.app/en/#famille",
    "description": "The apps that display the computer's image on your devices, with hardware decoding: Mac, Windows, Apple TV, iPhone and iPad, plus a web version served by the Station.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, web browser",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android TV 11+, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/#appareil",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip",
@@ -471,7 +471,7 @@
 
     <ol class="steps" data-reveal>
       <li><span>1</span>Install KyberNow Station on the computer you want to share.</li>
-      <li><span>2</span>On each device, open KyberNow Link: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app or the browser.</li>
+      <li><span>2</span>On each device, open KyberNow Link: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app, the Android TV app or the browser.</li>
       <li><span>3</span>Connect: the computer is already there.</li>
     </ol>
 
@@ -519,7 +519,14 @@
         <ul class="specs"><li>iOS or iPadOS 18 or later</li><li>Trackpad or direct touch, the iPad's keyboard and trackpad, gamepads, external display</li><li>Installed from a Mac with Xcode, until TestFlight and the App Store</li></ul>
         <a class="btn btn-ghost" href="/en/guide/#iphone"><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg>Install on iPhone or iPad</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.40s" data-os="web">
+      <article class="dl-card" data-reveal style="--d:.40s" data-os="android">
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
+        <p class="mono-label">On your Android TV</p>
+        <h3>KyberNow Link for Android TV</h3>
+        <ul class="specs"><li>NVIDIA Shield TV, Android 11</li><li>Up to 4K at 60&nbsp;Hz in HEVC, 7.1 sound, Bluetooth gamepads</li><li>Installed from a computer, until the Play Store</li></ul>
+        <a class="btn btn-ghost" href="/en/guide/#android-tv"><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg>Install on Android TV</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.48s" data-os="web">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On all your devices</p>
         <h3>KyberNow Link in the browser</h3>
@@ -531,7 +538,7 @@
     <div class="soon" data-reveal>
       <p class="mono-label">Upcoming Link apps</p>
       <ul>
-        <li><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span class="tag">Planned</span></li>
+        <li><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg><b>Android phone and tablet</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg><b>Linux</b><span class="tag">Planned</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Planned</span></li>
       </ul>

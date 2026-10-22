@@ -15,7 +15,7 @@ python3 -m http.server 5200 --directory site
 | French | English | Contents |
 |---|---|---|
 | `/` | `/en/` | Presentation, the KyberNow family (Station, Admin, Link) and downloads |
-| `/guide/` | `/en/guide/` | Step-by-step guide (KyberNow Station, then devices with KyberNow Link: Mac, Windows, Apple TV, iPhone and iPad, browser; VPN, updates, uninstalling) and FAQ |
+| `/guide/` | `/en/guide/` | Step-by-step guide (KyberNow Station, then devices with KyberNow Link: Mac, Windows, Apple TV, iPhone and iPad, Android TV, browser, each behind its tile; VPN, updates, uninstalling) and FAQ |
 | `/mentions-legales/` | `/en/legal/` | Publisher, hosting, intellectual property, privacy, credits |
 
 Each page declares its two versions (`<link rel="alternate" hreflang>`). `assets/lang.js`, loaded in `<head>`, sends a visitor whose browser is not in French to the English version (and the other way round), unless they have chosen a language with the selector: that choice is kept in `localStorage` (`kn-lang`). Robots are never redirected. The texts produced by `main.js` (path, simulation, profiles) follow `<html lang>`.
@@ -28,7 +28,7 @@ KyberNow is the brand; it covers three products, named as in the rest of the rep
 
 - **KyberNow Station**: the software installed on the Windows computer that streams the image (`KyberNow-Station-Setup.exe`). In the texts, “the Station” after the first mention; “the computer” stays when talking about the machine itself.
 - **KyberNow Admin**: the Station's administration in the browser (“Admin”, with no article, after the first mention).
-- **KyberNow Link**: the apps that display the image (Mac, Windows, Apple TV, iPhone and iPad) and their `/ecran` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-Link-macOS.zip` for the Mac).
+- **KyberNow Link**: the apps that display the image (Mac, Windows, Apple TV, iPhone and iPad, Android TV) and their `/ecran` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-Link-macOS.zip` for the Mac, `KyberNow-Link-Android.apk` for Android TV).
 
 The home page presents them in the “The KyberNow family” section (`#famille`, right after “Why”), each with its signed logo (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies from `brand/v2/logo/`). The download cards and the guide's “Before you start” box reuse the Station and Link logos. A signed logo never goes below 32 px high (below that, the signature is no longer legible); the site only has a dark theme, so only the `-dark` versions are copied.
 
@@ -36,7 +36,9 @@ The home page presents them in the “The KyberNow family” section (`#famille`
 
 Until KyberNow reaches 1.0, the site says so throughout: a “Beta” badge next to the logo on every page and at the top of the home page (`.beta` class), a “KyberNow is in beta” box in the Download section (`.notice-beta`, `flask` icon), a badge after the version number, and a “Why beta?” FAQ question. At 1.0, remove these elements in both languages.
 
-The KyberNow Link app for Apple TV has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). Likewise for the Link app for iPhone and iPad: card to “On iPhone and iPad” (`/en/guide/#iphone`), which sums up [apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md). To be revisited once the apps are on TestFlight or the App Store.
+The KyberNow Link app for Apple TV has no file to download: its card leads to the “On Apple TV” section of the guide (`/en/guide/#apple-tv`), which sums up [apps/tvos/SIDELOAD.en.md](../apps/tvos/SIDELOAD.en.md) (installation from a Mac with Xcode). Likewise for the Link app for iPhone and iPad: card to “On iPhone and iPad” (`/en/guide/#iphone`), which sums up [apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md). To be revisited once the apps are on TestFlight or the App Store. The Android TV app has its APK, but is installed from a computer with `adb`: its card leads to the guide too (`/en/guide/#android-tv`). The guide only presents what has been tried (the NVIDIA Shield TV); Android phones and tablets stay “Planned”.
+
+**Connecting a device** (guide): one tile per system (`.os-tiles`, `tablist` role), its installation below (`.os-panel`). `main.js` opens the one named by the anchor (`#mac`, `#android-tv`…, existing links included), otherwise the visitor's device; arrow keys move between tiles. Without JavaScript, every installation stays one after the other. A new system: a tile and a panel in both languages.
 
 ## Publishing
 
