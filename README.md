@@ -24,7 +24,7 @@ KyberNow réunit trois produits :
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
 | `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
-| `docs/` | Changements de Kyber, notes de compilation, prototype de référence, audit du 20 octobre 2026 et [mesures à faire sur le matériel](docs/mesures.md) |
+| `docs/` | Changements de Kyber, notes de compilation, prototype de référence, audit du 20 octobre 2026, [propositions du 22 octobre 2026](docs/propositions-2026-10-22.md) (HDR, latence Apple TV, app au démarrage) et [mesures à faire sur le matériel](docs/mesures.md) |
 | `tools/latency/` | Mesure de latence |
 
 La documentation existe en français (`*.md`, la source) et en anglais (`*.en.md`, à côté de chaque fichier français) ; chaque évolution met à jour les deux dans le même commit. Elle décrit le projet tel qu'il est ; l'historique est dans `CHANGELOG.md` et dans git. Règles d'écriture : [docs/i18n.md](docs/i18n.md#documentation).
