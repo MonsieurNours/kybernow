@@ -8,6 +8,7 @@
   import { app, errorText, field, kyber, loadKyber, markRestartPending, notify, refreshStatus, setValues, value } from '../lib/store.svelte'
   import { ago, capital, deviceIcon, mode, ms } from '../lib/format'
   import Icon from '../lib/Icon.svelte'
+  import LaunchPicker from '../lib/LaunchPicker.svelte'
   import Qr from '../lib/Qr.svelte'
   import Switch from '../lib/Switch.svelte'
   import { t, tn } from '../lib/i18n/index.svelte'
@@ -16,6 +17,8 @@
   let devices = $state<Device[]>([])
   let users = $state<User[]>([])
   let menu = $state<string | null>(null)
+  /** Appareil dont on règle l'app ouverte au début de la session. */
+  let picking = $state<Device | null>(null)
   let editing = $state<string | null>(null)
   let newPassword = $state('')
   let username = $state('')
@@ -245,7 +248,7 @@
         <span class="device-icon" class:live={isLive}><Icon name={deviceIcon(d.kind)} size={20} stroke={1.6} /></span>
         <div class="who">
           <span class="name">{d.name}</span>
-          <span class="mono meta">{[d.os, d.own_account ? t('access.devices.ownAccess') : t('access.devices.account', { user: d.user }), d.last_mode ? mode(d.last_mode) : null].filter(Boolean).join(' · ')}</span>
+          <span class="mono meta">{[d.os, d.own_account ? t('access.devices.ownAccess') : t('access.devices.account', { user: d.user }), d.last_mode ? mode(d.last_mode) : null, d.launch ? t('access.devices.launches', { app: d.launch.name }) : null].filter(Boolean).join(' · ')}</span>
         </div>
         <span class="when" class:live={isLive}>{isLive ? t('access.devices.inSession') : d.sessions === 0 ? t('access.devices.paired', { ago: ago(d.last_seen) }) : capital(ago(d.last_seen))}{d.latency_ms && !isLive ? ` · ${ms(d.latency_ms)}` : ''}</span>
         <div class="menu-wrap">
@@ -255,6 +258,7 @@
           {#if menu === d.id}
             <div class="menu" role="menu">
               <span class="menu-info">{tn('access.devices.sessions', d.sessions)}{d.app ? ` · ${d.app}` : ''}</span>
+              <button type="button" role="menuitem" class="plain" onclick={() => ((menu = null), (picking = d))}><Icon name="play" size={15} />{t('access.devices.launchMenu')}</button>
               <button type="button" role="menuitem" onclick={() => forget(d)}><Icon name="trash" size={15} />{d.own_account ? t('access.devices.removeAccess') : t('access.devices.forget')}</button>
             </div>
           {/if}
@@ -322,6 +326,10 @@
     <p class="hash">{t('access.accounts.hash')}</p>
   </section>
 </div>
+
+{#if picking}
+  <LaunchPicker device={picking} onclose={() => (picking = null)} onsaved={(list) => (devices = list)} />
+{/if}
 
 <style>
   .add {
@@ -539,6 +547,10 @@
 
   .menu button:hover {
     background: rgb(255 255 255 / 0.06);
+  }
+
+  .menu button.plain {
+    color: var(--text);
   }
 
   .empty {

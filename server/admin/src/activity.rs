@@ -24,6 +24,7 @@ use serde_json::{Value, json};
 
 use crate::display::now_secs;
 use crate::i18n::{self, Lang, Msg};
+use crate::launch::Launch;
 
 /// Sans signal de vie d'une app pendant ce temps (il part toutes les 5 s),
 /// la console tient sa session pour interrompue : le fil d'événements la
@@ -81,6 +82,10 @@ pub struct Device {
     /// le retirer supprime ce compte.
     #[serde(default)]
     pub own_account: bool,
+    /// App ouverte sur l'ordinateur au début de chaque session de cet appareil
+    /// (réglée dans Admin, voir `launch.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<Launch>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -285,6 +290,7 @@ impl Activity {
                 last_mode: mode,
                 latency_ms: None,
                 own_account: false,
+                launch: None,
             }),
         }
         // Les plus anciens partent au-delà de 50 appareils.
@@ -456,6 +462,7 @@ impl Activity {
                     last_mode: None,
                     latency_ms: None,
                     own_account: true,
+                    launch: None,
                 });
                 None
             }
@@ -474,6 +481,22 @@ impl Activity {
         let device = s.stored.devices.remove(index);
         self.save_devices(&s);
         Some(device)
+    }
+
+    /// Règle (ou retire, avec `None`) l'app ouverte au début des sessions
+    /// d'un appareil. `None` en retour : appareil inconnu.
+    pub fn set_launch(&self, id: &str, launch: Option<Launch>) -> Option<Vec<Device>> {
+        let mut s = self.state.lock().unwrap();
+        let device = s.stored.devices.iter_mut().find(|d| d.id == id)?;
+        device.launch = launch;
+        self.save_devices(&s);
+        Some(s.stored.devices.clone())
+    }
+
+    /// L'app réglée pour un appareil, et le nom de l'appareil.
+    pub fn launch_of(&self, id: &str) -> Option<(Launch, String)> {
+        let s = self.state.lock().unwrap();
+        s.stored.devices.iter().find(|d| d.id == id).and_then(|d| d.launch.clone().map(|l| (l, d.name.clone())))
     }
 
     /// Compte propre à un appareil appairé → nom de l'appareil.

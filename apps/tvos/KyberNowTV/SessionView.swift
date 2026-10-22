@@ -23,23 +23,33 @@ struct SessionView: View {
             Color.black
             // L'ordinateur, en direct ; il recule derrière le menu.
             // Aucun effet SwiftUI (flou, luminosité) sur la vue Metal : il la
-            // fige sur une image. Le voile et le verre sont des calques par-dessus.
+            // fige sur une image. Le voile et le verre sont des calques par-dessus,
+            // et seulement quand ils servent (passage, menu) : une couche
+            // transparente laissée au-dessus de la couche Metal, même à
+            // opacité 0, oblige tvOS à composer l'image au lieu de l'envoyer
+            // telle quelle à l'écran, soit un balayage de plus (16,7 ms à 60 Hz).
+            // Menu fermé, la couche Metal est seule : plein écran, opaque,
+            // sans transformation ni coins arrondis.
             SessionStage(view: session.streamView, gameOnly: streaming && !session.menuOpen && session.phase != .ending,
                          scale: revealed ? (session.menuOpen ? 0.94 : 1) : 1.06, corner: session.menuOpen ? 28 : 0)
                 .frame(width: 1920, height: 1080)
                 .overlay {
-                    ZStack {
-                        Rectangle().fill(.ultraThinMaterial)
-                            .opacity(revealed ? (session.menuOpen ? 0.35 : 0) : 1)
-                        Color.black.opacity(revealed ? (session.menuOpen ? 0.58 : 0) : 0.45)
+                    if !revealed || session.menuOpen {
+                        ZStack {
+                            Rectangle().fill(.ultraThinMaterial)
+                                .opacity(revealed ? (session.menuOpen ? 0.35 : 0) : 1)
+                            Color.black.opacity(revealed ? (session.menuOpen ? 0.58 : 0) : 0.45)
+                        }
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                     }
-                    .allowsHitTesting(false)
                 }
                 .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 0.5), value: session.menuOpen)
                 .animation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.5), value: revealed)
 
-            // Le passage : l'accueil s'ouvre en deux le long de la couture.
-            if session.phase != .ended {
+            // Le passage : l'accueil s'ouvre en deux le long de la couture,
+            // puis disparaît de la hiérarchie une fois ouvert (même raison).
+            if session.phase != .ended, session.passageShown {
                 Passage(host: session.host, open: revealed)
                     .allowsHitTesting(false)
             }
@@ -130,7 +140,10 @@ struct SessionStage: UIViewControllerRepresentable {
         view.frame = container.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.layer.cornerCurve = .continuous
-        view.clipsToBounds = true
+        // Le découpage aux coins arrondis n'est posé que le temps du menu :
+        // un masque sur la vue, même rectangulaire, empêche la présentation
+        // directe de la couche Metal (voir SessionView).
+        view.clipsToBounds = corner > 0
         container.addSubview(view)
         controller.view = container
         controller.controllerUserInteractionEnabled = !gameOnly
@@ -148,16 +161,23 @@ struct SessionStage: UIViewControllerRepresentable {
         let anchorY = (0.3 - 0.5) * view.bounds.height
         let transform = CGAffineTransform(a: scale, b: 0, c: 0, d: scale, tx: 0, ty: anchorY * (1 - scale))
         guard view.transform != transform || view.layer.cornerRadius != corner else { return }
+        let view = self.view
+        if corner > 0 { view.clipsToBounds = true }
         let change = {
             view.transform = transform
             view.layer.cornerRadius = corner
         }
+        // Coins revenus à zéro : le découpage est retiré, une fois l'animation finie.
+        let settle = { (finished: Bool) in
+            if finished, corner == 0, view.layer.cornerRadius == 0 { view.clipsToBounds = false }
+        }
         if animated {
             UIView.animate(withDuration: scale == 1 && corner == 0 ? 1.2 : 0.5, delay: 0,
                            usingSpringWithDamping: 1, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction],
-                           animations: change)
+                           animations: change, completion: settle)
         } else {
             change()
+            settle(true)
         }
     }
 }

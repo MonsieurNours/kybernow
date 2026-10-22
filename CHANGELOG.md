@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.4
+
+- **Admin : une app s'ouvre sur l'ordinateur quand un appareil se connecte.** Dans Accès › Appareils, le menu de chaque appareil propose « App au début de la session… » : Steam Big Picture pour l'Apple TV, Playnite, un tableur pour le bureau à distance… Rien à taper : le sélecteur montre les lanceurs détectés (Steam Big Picture, Playnite, Xbox, GOG Galaxy, Epic Games, EA app, Ubisoft Connect, Battle.net), tout le menu Démarrer de l'ordinateur avec ses icônes, et un explorateur limité à Programmes et au Bureau. L'app s'ouvre dès que l'écran virtuel est prêt, avec le compte de l'utilisateur ; déjà ouverte, elle revient au premier plan ; session Windows verrouillée, elle attend le déverrouillage (2 min au plus). Options : la fermer à la fin de la session (Big Picture sait le faire tout seul), ne pas l'ouvrir en profil Bureau. Un appareil qui prend la main avec la même app la garde ouverte. Le fil d'événements dit ce qui s'ouvre et se ferme.
+- **App Apple TV : la couche Metal est seule à l'écran menu fermé.** Le voile du menu, son matériau et le passage ne restent plus par-dessus l'image une fois la session ouverte, et le découpage aux coins arrondis n'est posé que le temps du menu : tvOS peut envoyer l'image directement à l'écran au lieu de la composer, soit un balayage de moins (jusqu'à 16,7 ms à 60 Hz). La latence d'affichage est désormais mesurée sur l'Apple TV (instant de présentation donné par l'écran) et non plus estimée ; les images sans mesure sont comptées.
+- Propositions du 22 octobre 2026 (`docs/propositions-2026-10-22.md`) : HDR dans Kyber (chiffré, remis à plus tard), latence sur l'Apple TV, app au début de la session.
+
 ## 0.4.3
 
 - **App Mac : elle s'appelle KyberNow Link partout.** Le paquet devient « KyberNow Link.app » (Dock, Finder, Applications) et l'archive `KyberNow-Link-macOS.zip`. Une app déjà installée sous « KyberNow.app » se renomme d'elle-même au premier lancement de cette version, puis se relance ; réglages, ordinateurs, mots de passe et autorisations restent. `KyberNow-macOS.zip` reste publié en copie pour les liens existants.

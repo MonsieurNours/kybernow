@@ -127,3 +127,9 @@ Admin connaît déjà chaque appareil (`devices.json`, `activity.rs:66-84`, cham
 1. Apple TV : L1 (mesurer) puis L2 et L3, qui tiennent dans une semaine et tranchent par la mesure.
 2. App au démarrage : indépendante de Kyber, livrable en une version.
 3. HDR : la plus longue, à lancer une fois les réponses aux questions 1 à 3 connues ; les correctifs de capture peuvent partir en premier, le reste de la chaîne suit.
+
+## Décisions du 22 octobre 2026
+
+- **HDR** : remis à plus tard ; le chiffrage reste ici.
+- **Apple TV** : mesure sur une vraie Apple TV (2024) : 35 à 55 ms de bout en bout, plus la latence propre aux manettes de tvOS. L1 et L3 faits dans la 0.4.4 (`VideoRenderer`, `SessionView`, `SessionController`), à remesurer ; L2 (capture à 120 Hz) reste à essayer.
+- **App au début de la session** : faite dans la 0.4.4 avec ces réponses : par appareil, avec « pas en profil Bureau » ; Admin seulement ; fermeture à la fin cochée d'office pour les apps qui savent se fermer ; menu Démarrer, suggestions et explorateur « Autre… » ; lancement dès que l'écran virtuel est prêt ; déjà ouverte, au premier plan ; session verrouillée, lancement après le déverrouillage ; rien par défaut.

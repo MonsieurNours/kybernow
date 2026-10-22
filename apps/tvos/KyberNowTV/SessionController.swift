@@ -31,6 +31,10 @@ final class SessionController: ObservableObject {
     @Published private(set) var revealedAt: Date?
     /// Capsule « Vous entrez dans… », quelques secondes après l'apparition.
     @Published private(set) var entering = false
+    /// Le passage (les deux moitiés de l'accueil) est dans la hiérarchie :
+    /// jusqu'à la fin de son ouverture, puis retiré pour laisser la couche
+    /// Metal seule à l'écran (voir SessionView).
+    @Published private(set) var passageShown = true
     @Published private(set) var menuOpen = false
     @Published private(set) var stats: VideoStats?
     @Published private(set) var audioStats: AudioStats?
@@ -200,6 +204,7 @@ final class SessionController: ObservableObject {
                     self.phase = .streaming
                 }
                 self.startedAt = Date()
+                self.dismissPassage()
                 withAnimation(Theme.easeOut.delay(0.7)) { self.entering = true }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) { [weak self] in
                     withAnimation(.easeIn(duration: 0.35)) { self?.entering = false }
@@ -218,6 +223,14 @@ final class SessionController: ObservableObject {
                 return
             }
             if phase != .ending, phase != .ended { end() }
+        }
+    }
+
+    /// Le passage a fini de s'ouvrir (1,5 s) : il quitte la hiérarchie.
+    private func dismissPassage() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) { [weak self] in
+            guard let self, self.revealedAt != nil else { return }
+            self.passageShown = false
         }
     }
 
@@ -323,6 +336,7 @@ final class SessionController: ObservableObject {
                 self.revealedAt = Date()
                 self.phase = .streaming
             }
+            self.dismissPassage()
             self.startedAt = Date().addingTimeInterval(-42 * 60)
             self.modeLabel = String(localized: "\(3840) × \(2160) à \(60) Hz")
             var stats = VideoStats()

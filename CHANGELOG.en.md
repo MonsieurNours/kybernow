@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.4
+
+- **Admin: an app opens on the computer when a device connects.** In Access › Devices, each device's menu offers “App at session start…”: Steam Big Picture for the Apple TV, Playnite, a spreadsheet for the remote desktop… Nothing to type: the picker shows the detected launchers (Steam Big Picture, Playnite, Xbox, GOG Galaxy, Epic Games, EA app, Ubisoft Connect, Battle.net), the computer's whole Start menu with its icons, and a browser limited to Program Files and the Desktop. The app opens as soon as the virtual display is ready, with the user's account; already open, it comes back to the front; with the Windows session locked, it waits for the unlock (up to 2 min). Options: close it at the end of the session (Big Picture can do it by itself), do not open it in the Desktop profile. A device taking over with the same app keeps it open. The event feed says what opens and closes.
+- **Apple TV app: the Metal layer is alone on screen with the menu closed.** The menu's veil, its material and the passage no longer stay above the image once the session is open, and the rounded-corner clipping is only set while the menu is open: tvOS can send the image straight to the screen instead of compositing it, one refresh less (up to 16.7 ms at 60 Hz). Display latency is now measured on the Apple TV (presentation time reported by the screen) instead of estimated; frames without a measurement are counted.
+- Proposals of 22 October 2026 (`docs/propositions-2026-10-22.md`, in French): HDR in Kyber (costed, postponed), Apple TV latency, app at session start.
+
 ## 0.4.3
 
 - **Mac app: it is called KyberNow Link everywhere.** The bundle becomes “KyberNow Link.app” (Dock, Finder, Applications) and the archive `KyberNow-Link-macOS.zip`. An app already installed as “KyberNow.app” renames itself on the first launch of this version, then relaunches; settings, computers, passwords and permissions stay. `KyberNow-macOS.zip` is still published as a copy for existing links.

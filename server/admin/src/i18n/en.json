@@ -18,6 +18,7 @@
     "kyberCredentials": "Kyber credentials required",
     "noTokenKey": "Kyber has no key for Admin’s tokens. Reinstall KyberNow Station to create it.",
     "unknownDevice": "unknown device",
+    "launchInvalid": "invalid app setting",
     "accessPending": "This device just received its access: the server must restart to take it into account. It will do so as soon as {who} ends; try again then.",
     "sessionOf": "{name}’s session",
     "currentConnection": "the current connection",
@@ -130,6 +131,16 @@
     "displaysOffAgain": "{count} displays of the computer turned back on during the session: turned off again",
     "displayOffAgain": "A display of the computer turned back on during the session: turned off again",
     "displayOffFailed": "A display of the computer turned back on during the session and could not be turned off: {error}",
-    "displayOffGaveUp": "The display that turned back on could not be turned off after three attempts: it stays on for the rest of the session"
+    "displayOffGaveUp": "The display that turned back on could not be turned off after three attempts: it stays on for the rest of the session",
+    "launched": "{app} opened for {name}",
+    "launchedAfterUnlock": "{app} opened for {name} once the Windows session was unlocked",
+    "launchFront": "{app} was already open: brought to the front for {name}",
+    "launchLocked": "{app} was not opened for {name}: the Windows session stayed locked for 2 minutes",
+    "launchFailed": "{app} could not be opened for {name}: {error}",
+    "launchClosed": "{app} closed at the end of {name}'s session",
+    "launchCloseFailed": "{app} could not be closed: {error}",
+    "launchKept": "{app} stays open: {next} is taking over with the same app",
+    "launchSet": "At the start of {name}'s sessions: {app}",
+    "launchCleared": "No app opened at the start of {name}'s sessions any more"
   }
 }

@@ -69,10 +69,28 @@ public struct PresentStats: Sendable {
     public var presented = 0
     /// Images écartées par Core Animation au profit d'une plus récente (`presentedTime == 0`).
     public var discarded = 0
+    /// Images dont l'instant de présentation est estimé (l'écran ne l'a pas
+    /// donné : simulateur, ou Apple TV sans rappel de présentation).
+    public var estimated = 0
     /// `presentedTime − instant du commit` : médiane et 95e centile, en millisecondes.
     public var p50Ms: Double = 0
     public var p95Ms: Double = 0
     public init() {}
+}
+
+/// Un instant de présentation ne sert qu'une fois : le premier des deux
+/// rappels (présentation, ou fin du GPU plus un délai) le consomme.
+private final class PresentOnce: @unchecked Sendable {
+    private var done = false
+    private let lock = NSLock()
+
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if done { return false }
+        done = true
+        return true
+    }
 }
 
 final class VideoRenderer {
@@ -130,8 +148,8 @@ final class VideoRenderer {
     // Mesures (fil de rendu).
     private var window = (start: CACurrentMediaTime(), frames: 0, decode: 0.0, display: 0.0, displayed: 0)
     private var current = VideoStats()
-    /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées.
-    private var present = (lags: [Double](), rendered: 0, discarded: 0)
+    /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées, estimées.
+    private var present = (lags: [Double](), rendered: 0, discarded: 0, estimated: 0)
 
     /// GPU, file de commandes et pipeline, compilés une fois par processus
     /// (le shader était compilé depuis la source à chaque flux, 30 à 150 ms
@@ -225,8 +243,9 @@ final class VideoRenderer {
     }
 
     /// L'image affichée a quitté l'écran : la suivante peut partir.
-    /// `presentedTime` à 0 : écartée par l'écran.
-    private func presented(at presentedTime: CFTimeInterval, committed: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64) {
+    /// `presentedTime` à 0 : écartée par l'écran. `estimated` : l'instant
+    /// n'a pas été donné par l'écran, c'est une estimation.
+    private func presented(at presentedTime: CFTimeInterval, committed: CFTimeInterval, received: UInt64, decoded: UInt64, pts: UInt64, estimated: Bool = false) {
         if presentedTime > 0, let latency {
             // presentedTime et les instants mach sont sur l'horloge de
             // CACurrentMediaTime ; Kyber compte en CLOCK_MONOTONIC.
@@ -251,6 +270,7 @@ final class VideoRenderer {
                 self.window.display += (presentedTime - Self.seconds(received)) * 1000
                 self.window.displayed += 1
                 self.present.lags.append((presentedTime - committed) * 1000)
+                if estimated { self.present.estimated += 1 }
             } else {
                 self.present.discarded += 1
             }
@@ -292,11 +312,31 @@ final class VideoRenderer {
             self.gpuErrors += 1
             KyberLog.video.error("commande Metal en erreur : \(error.localizedDescription, privacy: .public)")
         }
-        #if os(tvOS) || (os(iOS) && targetEnvironment(simulator))
-        // tvOS (et le simulateur d'iOS) ne disent pas quand l'image est
-        // montrée : elle l'est au rafraîchissement qui suit la fin du rendu.
+        #if targetEnvironment(simulator)
+        // Le simulateur ne dit pas quand l'image est montrée : elle l'est au
+        // rafraîchissement qui suit la fin du rendu.
         commands.addCompletedHandler { [weak self] _ in
-            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts)
+            self?.presented(at: CACurrentMediaTime() + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts, estimated: true)
+        }
+        #elseif os(tvOS)
+        // Apple TV : l'instant de présentation quand l'écran le donne (c'est
+        // lui qui mesure vraiment l'attente du balayage à 60 Hz). Sans
+        // rappel 100 ms après la fin du GPU, ou avec un instant nul, on
+        // estime comme avant : une image n'est jamais tenue pour écartée
+        // ici, un 0 sur tvOS peut vouloir dire « inconnu », et la couche
+        // n'est pas refaite pour cela.
+        let once = PresentOnce()
+        drawable.addPresentedHandler { [weak self] d in
+            guard once.take() else { return }
+            let t = d.presentedTime
+            self?.presented(at: t > 0 ? t : CACurrentMediaTime(), committed: committed, received: received, decoded: decoded, pts: pts, estimated: t <= 0)
+        }
+        commands.addCompletedHandler { [weak self] _ in
+            let finished = CACurrentMediaTime()
+            self?.renderQueue.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard once.take() else { return }
+                self?.presented(at: finished + 1.0 / 120, committed: committed, received: received, decoded: decoded, pts: pts, estimated: true)
+            }
         }
         #else
         drawable.addPresentedHandler { [weak self] d in
@@ -454,15 +494,16 @@ final class VideoRenderer {
         stats.rendered = present.rendered
         stats.presented = present.lags.count
         stats.discarded = present.discarded
+        stats.estimated = present.estimated
         if !present.lags.isEmpty {
             let sorted = present.lags.sorted()
             stats.p50Ms = sorted[sorted.count / 2]
             stats.p95Ms = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
         }
-        present = ([], 0, 0)
+        present = ([], 0, 0, 0)
         if logPresentStats {
             // Metal ne dit pas publiquement si la présentation est directe ou composée : voir MTL_HUD_ENABLED=1.
-            KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées, \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
+            KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées (\(stats.estimated) estimées), \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
         }
         onPresentStats?(stats)
         guard stats.rendered > 0 else { return }

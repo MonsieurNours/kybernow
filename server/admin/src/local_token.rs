@@ -158,30 +158,7 @@ pub fn hand_over(data_dir: &Path) -> Result<serde_json::Value> {
 /// `AppData\Local` du compte connecté à la session console.
 #[cfg(windows)]
 fn user_local_app_data() -> Result<PathBuf> {
-    use anyhow::bail;
-    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
-    use windows_sys::Win32::System::RemoteDesktop::{WTSGetActiveConsoleSessionId, WTSQueryUserToken};
-    use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
-
-    let session = unsafe { WTSGetActiveConsoleSessionId() };
-    if session == 0xFFFF_FFFF {
-        bail!("aucune session console active");
-    }
-    unsafe {
-        let mut token: HANDLE = std::ptr::null_mut();
-        if WTSQueryUserToken(session, &mut token) == 0 {
-            bail!("aucun compte connecté à la session {session} : {}", std::io::Error::last_os_error());
-        }
-        let mut buf = [0u16; 1024];
-        let mut len = buf.len() as u32;
-        let ok = GetUserProfileDirectoryW(token, buf.as_mut_ptr(), &mut len);
-        CloseHandle(token);
-        if ok == 0 {
-            bail!("profil de l'utilisateur introuvable : {}", std::io::Error::last_os_error());
-        }
-        let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
-        Ok(PathBuf::from(String::from_utf16_lossy(&buf[..end])).join("AppData").join("Local"))
-    }
+    crate::display::agent::user_local_app_data()
 }
 
 #[cfg(test)]

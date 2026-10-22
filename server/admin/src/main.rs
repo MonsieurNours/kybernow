@@ -13,6 +13,7 @@ mod gpu;
 mod i18n;
 mod kyber_config;
 mod kyber_proxy;
+mod launch;
 mod local_token;
 mod logs;
 mod migrate;
@@ -206,6 +207,46 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Menu Démarrer, lanceurs détectés et dossiers de l'explorateur, pour le
+    /// compte qui lance l'agent ; icônes écrites dans `icons`.
+    Apps {
+        #[arg(long)]
+        icons: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Ouvre une app sur l'ordinateur, ou la ramène au premier plan.
+    Launch {
+        /// `app` (menu Démarrer), `uri` (adresse) ou `path` (exécutable)
+        #[arg(long)]
+        kind: String,
+        #[arg(long, allow_hyphen_values = true)]
+        target: String,
+        #[arg(long, allow_hyphen_values = true)]
+        exe: Option<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Ferme une app ouverte par Admin.
+    Close {
+        #[arg(long, allow_hyphen_values = true)]
+        uri: Option<String>,
+        #[arg(long)]
+        pid: Option<u32>,
+        #[arg(long, allow_hyphen_values = true)]
+        exe: Option<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+}
+
+fn launch_kind(kind: &str) -> Result<launch::LaunchKind> {
+    match kind {
+        "app" => Ok(launch::LaunchKind::App),
+        "uri" => Ok(launch::LaunchKind::Uri),
+        "path" => Ok(launch::LaunchKind::Path),
+        other => anyhow::bail!("sorte d'app inconnue : {other}"),
+    }
 }
 
 /// Dossier de travail de l'agent (celui de son fichier de résultat).
@@ -257,6 +298,11 @@ fn display_agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
+        AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
+        AgentAction::Launch { kind, target, exe, out } => {
+            (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
+        }
+        AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
@@ -268,6 +314,11 @@ fn display_agent(action: AgentAction) -> Result<()> {
         | AgentAction::AudioRestore { out, .. }
         | AgentAction::LocalToken { out, .. } => (out, Err(anyhow::anyhow!("réservé à Windows"))),
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
+        AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
+        AgentAction::Launch { kind, target, exe, out } => {
+            (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
+        }
+        AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
         AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
     };
     let value = match result {
@@ -289,6 +340,8 @@ pub struct Inner {
     pub preview: preview::Preview,
     /// Appareils connus, session en cours, fil des événements.
     pub activity: Arc<activity::Activity>,
+    /// App ouverte au début de la session de chaque appareil, et son catalogue.
+    pub launcher: Arc<launch::Launcher>,
     /// Demandes d'appairage par code (app Apple TV), en mémoire.
     pub pairing: pairing::Pairing,
     /// Jeton des routes locales (icône de la zone de notification).
@@ -338,6 +391,7 @@ impl AppState {
             foreground: foreground::Watcher::new(&data_dir),
             preview: preview::Preview::new(&data_dir),
             activity: Arc::new(activity::Activity::new(&data_dir)),
+            launcher: launch::Launcher::new(&data_dir),
             pairing: pairing::Pairing::new(),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
@@ -579,6 +633,15 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         display.on_event(Arc::new(move |kind: &str, msg: i18n::Msg| a.event(kind, msg)));
     }
 
+    // App ouverte au début des sessions : ses événements dans le fil, et la
+    // fermeture de l'app d'un appareil qui n'est plus en session.
+    let launcher = launch::Launcher::new(&data_dir);
+    {
+        let a = activity.clone();
+        launcher.on_event(Arc::new(move |kind: &str, msg: i18n::Msg| a.event(kind, msg)));
+    }
+    launcher.clone().supervise(activity.clone());
+
     let state = AppState(Arc::new(Inner {
         auth: auth::Auth::new(data_dir.clone(), settings.admin_password_hash.clone()),
         kyber,
@@ -587,6 +650,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         foreground: foreground::Watcher::new(&data_dir),
         preview: preview::Preview::new(&data_dir),
         activity,
+        launcher,
         pairing: pairing::Pairing::new(),
         local_token,
         updater: updater.clone(),
@@ -623,6 +687,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         let st = on_shutdown.clone();
         let _ = tokio::task::spawn_blocking(move || {
             st.foreground.stop();
+            st.launcher.shutdown();
             st.display.shutdown();
             st.audio.shutdown();
         })

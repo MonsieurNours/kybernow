@@ -66,42 +66,106 @@ fn quote(arg: &str) -> String {
     }
 }
 
-/// Lance `exe` dans la session de l'utilisateur connecté, avec son compte
-/// (pas celui du service) : l'icône de la zone de notification.
-pub fn launch_as_user(exe: &Path) -> Result<()> {
-    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+/// Jeton du compte connecté à la session console (à fermer par l'appelant).
+fn user_token() -> Result<HANDLE> {
     use windows_sys::Win32::System::RemoteDesktop::WTSQueryUserToken;
     let session = unsafe { WTSGetActiveConsoleSessionId() };
     if session == 0xFFFF_FFFF {
         bail!("aucune session ouverte");
     }
+    let mut token: HANDLE = null_mut();
+    if unsafe { WTSQueryUserToken(session, &mut token) } == 0 {
+        bail!("aucun compte connecté à la session {session} : {}", std::io::Error::last_os_error());
+    }
+    Ok(token)
+}
+
+/// Dossier du profil du compte de `token`.
+fn profile_dir(token: HANDLE) -> Result<PathBuf> {
+    use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
+    let mut buf = [0u16; 1024];
+    let mut len = buf.len() as u32;
+    if unsafe { GetUserProfileDirectoryW(token, buf.as_mut_ptr(), &mut len) } == 0 {
+        bail!("profil de l'utilisateur introuvable : {}", std::io::Error::last_os_error());
+    }
+    let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
+    Ok(PathBuf::from(String::from_utf16_lossy(&buf[..end])))
+}
+
+/// `AppData\Local` du compte connecté à la session console.
+pub fn user_local_app_data() -> Result<PathBuf> {
+    let token = user_token()?;
+    let dir = profile_dir(token);
+    unsafe { CloseHandle(token) };
+    Ok(dir?.join("AppData").join("Local"))
+}
+
+/// Lance `exe` dans la session de l'utilisateur connecté, avec son compte
+/// (pas celui du service) : l'icône de la zone de notification.
+pub fn launch_as_user(exe: &Path) -> Result<()> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    let token = user_token()?;
     unsafe {
-        let mut token: HANDLE = null_mut();
-        if WTSQueryUserToken(session, &mut token) == 0 {
-            bail!("jeton de l'utilisateur : {}", std::io::Error::last_os_error());
-        }
         let mut env: *mut std::ffi::c_void = null_mut();
         CreateEnvironmentBlock(&mut env, token, 0);
-        let mut cmdline: Vec<u16> = quote(&exe.display().to_string()).encode_utf16().chain(std::iter::once(0)).collect();
-        let mut desktop: Vec<u16> = "winsta0\\default".encode_utf16().chain(std::iter::once(0)).collect();
-        let mut si: STARTUPINFOW = std::mem::zeroed();
-        si.cb = size_of::<STARTUPINFOW>() as u32;
-        si.lpDesktop = desktop.as_mut_ptr();
-        let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-        let ok = CreateProcessAsUserW(
-            token, null(), cmdline.as_mut_ptr(), null(), null(), 0, CREATE_UNICODE_ENVIRONMENT, env, null(), &si, &mut pi,
-        );
+        let result = spawn_with_token(token, env, &quote(&exe.display().to_string()), CREATE_UNICODE_ENVIRONMENT, None, "l'icône");
         if !env.is_null() {
             DestroyEnvironmentBlock(env);
         }
         CloseHandle(token);
-        if ok == 0 {
-            bail!("lancement : {}", std::io::Error::last_os_error());
-        }
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        result.map(|_| ())
     }
-    Ok(())
+}
+
+/// Lance `display-agent args` **avec le compte de l'utilisateur** de la
+/// session console (pas SYSTEM : le menu Démarrer, les apps du Store et les
+/// jeux qu'on ouvre sont à lui), attend son résultat JSON au plus
+/// `timeout_ms`, et le rend. Le résultat est écrit dans son profil
+/// (`AppData\Local\KyberNow\agent`) : le dossier de données d'Admin lui est
+/// fermé.
+pub fn run_as_user(args: &[String], timeout_ms: u32) -> Result<Value> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    let exe = std::env::current_exe()?;
+    let token = user_token()?;
+    let dir = match profile_dir(token) {
+        Ok(p) => p.join("AppData").join("Local").join("KyberNow").join("agent"),
+        Err(e) => {
+            unsafe { CloseHandle(token) };
+            return Err(e);
+        }
+    };
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        unsafe { CloseHandle(token) };
+        return Err(e).with_context(|| format!("création de {}", dir.display()));
+    }
+    let out: PathBuf = dir.join(format!("agent-{}.json", rand::random::<u32>()));
+    let mut full: Vec<String> = vec!["display-agent".into()];
+    full.extend(args.iter().cloned());
+    full.push("--out".into());
+    full.push(out.display().to_string());
+    let cmdline = command_line(&exe, &full);
+    let code = unsafe {
+        let mut env: *mut std::ffi::c_void = null_mut();
+        CreateEnvironmentBlock(&mut env, token, 0);
+        let result = spawn_with_token(token, env, &cmdline, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, Some(timeout_ms), "l'agent utilisateur");
+        if !env.is_null() {
+            DestroyEnvironmentBlock(env);
+        }
+        CloseHandle(token);
+        result?
+    };
+    let text = std::fs::read_to_string(&out).with_context(|| format!("l'agent utilisateur n'a rien renvoyé (code {code})"));
+    let _ = std::fs::remove_file(&out);
+    let value: Value = serde_json::from_str(&text?)?;
+    if let Some(err) = value.get("error").and_then(Value::as_str) {
+        bail!("{err}");
+    }
+    Ok(value)
+}
+
+/// `"exe" arg1 "arg 2" …`
+fn command_line(exe: &Path, args: &[String]) -> String {
+    std::iter::once(quote(&exe.display().to_string())).chain(args.iter().map(|a| quote(a))).collect::<Vec<_>>().join(" ")
 }
 
 /// Lance l'agent avec `args` sans l'attendre (veille de longue durée).
@@ -139,35 +203,41 @@ fn start_in_console_session(exe: &Path, args: &[String], wait: Option<u32>) -> R
             CloseHandle(token);
             bail!("rattachement à la session {session} : {}", std::io::Error::last_os_error());
         }
+        let result = spawn_with_token(
+            token,
+            null_mut(),
+            &command_line(exe, args),
+            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+            wait,
+            "l'agent d'affichage",
+        );
+        CloseHandle(token);
+        result
+    }
+}
 
-        let mut cmdline: Vec<u16> = std::iter::once(quote(&exe.display().to_string()))
-            .chain(args.iter().map(|a| quote(a)))
-            .collect::<Vec<_>>()
-            .join(" ")
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect();
+/// Crée le processus `cmdline` avec `token` (et le bloc d'environnement
+/// `env`, ou celui du service), sur le bureau de la session du jeton. Avec
+/// `wait`, l'attend au plus ce délai (ms) et rend son code de sortie ; sinon
+/// rend 0 aussitôt.
+unsafe fn spawn_with_token(
+    token: HANDLE,
+    env: *mut std::ffi::c_void,
+    cmdline: &str,
+    flags: u32,
+    wait: Option<u32>,
+    what: &str,
+) -> Result<u32> {
+    unsafe {
+        let mut cmdline: Vec<u16> = cmdline.encode_utf16().chain(std::iter::once(0)).collect();
         let mut desktop: Vec<u16> = "winsta0\\default".encode_utf16().chain(std::iter::once(0)).collect();
         let mut si: STARTUPINFOW = std::mem::zeroed();
         si.cb = size_of::<STARTUPINFOW>() as u32;
         si.lpDesktop = desktop.as_mut_ptr();
         let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-        let ok = CreateProcessAsUserW(
-            token,
-            null(),
-            cmdline.as_mut_ptr(),
-            null(),
-            null(),
-            0,
-            CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
-            null(),
-            null(),
-            &si,
-            &mut pi,
-        );
-        CloseHandle(token);
+        let ok = CreateProcessAsUserW(token, null(), cmdline.as_mut_ptr(), null(), null(), 0, flags, env, null(), &si, &mut pi);
         if ok == 0 {
-            bail!("lancement de l'agent d'affichage : {}", std::io::Error::last_os_error());
+            bail!("lancement de {what} : {}", std::io::Error::last_os_error());
         }
         let Some(timeout_ms) = wait else {
             CloseHandle(pi.hThread);
@@ -181,7 +251,7 @@ fn start_in_console_session(exe: &Path, args: &[String], wait: Option<u32>) -> R
             TerminateProcess(pi.hProcess, 1);
             CloseHandle(pi.hThread);
             CloseHandle(pi.hProcess);
-            bail!("l'agent d'affichage n'a pas répondu en {} s, arrêté", timeout_ms / 1000);
+            bail!("{what} n'a pas répondu en {} s, arrêté", timeout_ms / 1000);
         }
         let mut code = 0u32;
         GetExitCodeProcess(pi.hProcess, &mut code);

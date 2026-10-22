@@ -75,6 +75,69 @@ export interface ModeInfo {
   refresh: number
 }
 
+export type LaunchKind = 'app' | 'uri' | 'path'
+
+/** App ouverte sur l'ordinateur au début de chaque session d'un appareil. */
+export interface Launch {
+  kind: LaunchKind
+  /** Identifiant d'application Windows, adresse (`steam://…`) ou exécutable. */
+  target: string
+  name: string
+  /** Fichier d'icône du catalogue (`/api/apps/icon/<nom>`). */
+  icon?: string | null
+  exe?: string | null
+  /** Adresse qui ferme l'app (`steam://close/bigpicture`). */
+  close?: string | null
+  close_at_end: boolean
+  skip_desktop: boolean
+}
+
+export interface AppEntry {
+  id: string
+  name: string
+  icon?: string | null
+  exe?: string | null
+}
+
+export interface Suggestion {
+  id: string
+  name: string
+  kind: LaunchKind
+  target: string
+  close?: string | null
+  exe?: string | null
+  icon?: string | null
+}
+
+export interface AppRoot {
+  /** `programs`, `programs86`, `desktop`, `userPrograms` */
+  id: string
+  path: string
+}
+
+export interface Catalogue {
+  refreshed_at: number
+  user: string | null
+  apps: AppEntry[]
+  suggestions: Suggestion[]
+  roots: AppRoot[]
+  error?: string | null
+}
+
+export interface BrowseEntry {
+  name: string
+  path: string
+}
+
+export interface Browse {
+  roots?: AppRoot[]
+  path?: string
+  root?: string
+  parent?: string | null
+  folders?: BrowseEntry[]
+  files?: BrowseEntry[]
+}
+
 export interface Device {
   id: string
   name: string
@@ -89,6 +152,8 @@ export interface Device {
   latency_ms: number | null
   /** `user` est le compte propre de l'appareil (appairage par code). */
   own_account: boolean
+  /** App ouverte au début de ses sessions, si réglée. */
+  launch?: Launch | null
 }
 
 /** Accès d'un appareil que Kyber en marche ne connaît pas encore (il redémarre dès qu'il est libre). */
@@ -333,6 +398,14 @@ export const api = {
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),
+  /** Règle (ou retire, avec `null`) l'app ouverte au début des sessions d'un appareil. */
+  setLaunch: (id: string, launch: Launch | null) =>
+    request<{ devices: Device[] }>('PUT', `/api/devices/${encodeURIComponent(id)}/launch`, { launch }),
+  /** Catalogue des apps de l'ordinateur (lu à la première demande). */
+  apps: () => request<Catalogue>('GET', '/api/apps'),
+  appsRefresh: () => request<Catalogue>('POST', '/api/apps/refresh'),
+  appsBrowse: (path?: string) => request<Browse>('GET', `/api/apps/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`),
+  appIconUrl: (name: string) => `/api/apps/icon/${encodeURIComponent(name)}`,
   forgetDevice: (id: string) =>
     request<{ devices: Device[]; revoked: boolean; restart_pending: boolean; pending_access: PendingAccess[] }>('DELETE', `/api/devices/${encodeURIComponent(id)}`),
   pairAccept: (id: string) =>

@@ -18,6 +18,7 @@
     "kyberCredentials": "identifiants Kyber requis",
     "noTokenKey": "Kyber n'a pas de clé pour les jetons d'Admin. Réinstallez KyberNow Station pour la créer.",
     "unknownDevice": "appareil inconnu",
+    "launchInvalid": "réglage d'app invalide",
     "accessPending": "Cet appareil vient de recevoir son accès : le serveur doit redémarrer pour en tenir compte. Il le fera dès la fin de {who} ; réessayez ensuite.",
     "sessionOf": "la session de {name}",
     "currentConnection": "la connexion en cours",
@@ -130,6 +131,16 @@
     "displaysOffAgain": "{count} écrans de l'ordinateur se sont rallumés pendant la session : éteints de nouveau",
     "displayOffAgain": "Un écran de l'ordinateur s'est rallumé pendant la session : éteint de nouveau",
     "displayOffFailed": "Un écran de l'ordinateur s'est rallumé pendant la session et n'a pas pu être éteint : {error}",
-    "displayOffGaveUp": "L'écran rallumé n'a pas pu être éteint après trois essais : il reste allumé pour le reste de la session"
+    "displayOffGaveUp": "L'écran rallumé n'a pas pu être éteint après trois essais : il reste allumé pour le reste de la session",
+    "launched": "{app} ouvert pour {name}",
+    "launchedAfterUnlock": "{app} ouvert pour {name}, une fois la session Windows déverrouillée",
+    "launchFront": "{app} était déjà ouvert : remis au premier plan pour {name}",
+    "launchLocked": "{app} n'a pas été ouvert pour {name} : la session Windows est restée verrouillée pendant 2 minutes",
+    "launchFailed": "{app} n'a pas pu être ouvert pour {name} : {error}",
+    "launchClosed": "{app} fermé à la fin de la session de {name}",
+    "launchCloseFailed": "{app} n'a pas pu être fermé : {error}",
+    "launchKept": "{app} reste ouvert : {next} prend la main avec la même app",
+    "launchSet": "Au début des sessions de {name} : {app}",
+    "launchCleared": "Plus d'app ouverte au début des sessions de {name}"
   }
 }

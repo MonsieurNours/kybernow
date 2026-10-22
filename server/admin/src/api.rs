@@ -19,6 +19,7 @@ use crate::display::{Mode, Origin, PolicyChoice, Trigger, VdSettings};
 use crate::access::PendingAccess;
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
+use crate::launch::Launch;
 use crate::pairing::{self, RequestError};
 use crate::{AppState, auth, gpu, logs, preview, schema, service};
 
@@ -53,6 +54,13 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/update/rollback", post(update_rollback))
         .route("/api/devices", get(devices))
         .route("/api/devices/{id}", axum::routing::delete(forget_device))
+        .route("/api/devices/{id}/launch", put(set_launch))
+        // App ouverte au début des sessions : catalogue du menu Démarrer,
+        // icônes, explorateur limité aux dossiers autorisés.
+        .route("/api/apps", get(apps))
+        .route("/api/apps/refresh", post(apps_refresh))
+        .route("/api/apps/icon/{name}", get(app_icon))
+        .route("/api/apps/browse", get(apps_browse))
         // Appairage par code (app Apple TV) : la demande et son état sans compte,
         // la réponse depuis la console.
         .route("/api/pair/request", post(pair_request))
@@ -748,8 +756,12 @@ async fn stream_prepare(
     // Reprise de main : un autre appareil est en session. La console lui
     // demande de finir (il l'apprend à son signal de vie suivant, 5 s au plus)
     // et attend qu'il ait rendu la main avant de préparer l'écran du nouveau.
+    // L'app ouverte au début de ses sessions (réglée dans Admin), s'il en a une.
+    let launch = s.activity.launch_of(&device_id).map(|(l, _)| l);
     if let activity::Claim::Waiting { previous } = s.activity.claim(&device_id, &device_name) {
         tracing::info!("{device_name} prend la main : on attend que {previous} se déconnecte");
+        // Si l'arrivant veut la même app que le partant, elle reste ouverte.
+        s.launcher.expect_takeover(&device_name, launch.as_ref());
         let deadline = tokio::time::Instant::now() + TAKEOVER_WAIT;
         loop {
             match s.activity.live_device_id() {
@@ -774,11 +786,16 @@ async fn stream_prepare(
     // Veille du plein écran (mode jeu de la souris dans l'app).
     s.foreground.start(&s.data_dir);
     let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
+    let launch_name = launch.as_ref().map(|l| l.name.clone());
     if trigger == Trigger::Off || body.virtual_display == Some(false) {
         s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
+        if let Some(l) = launch {
+            s.launcher.session_started(device_id, device_name, l, body.profile.clone());
+        }
         return Ok(Json(json!({
             "virtual_display": false, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
             "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
+            "launch": launch_name,
         })));
     }
     let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
@@ -788,9 +805,15 @@ async fn stream_prepare(
     // La session n'est ouverte qu'une fois l'écran en place : un échec ne
     // laisse pas un appareil « connecté » dans la vue d'ensemble.
     s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
+    // L'app de l'appareil s'ouvre sur l'écran virtuel, en fond (elle attend
+    // le déverrouillage de Windows s'il le faut).
+    if let Some(l) = launch {
+        s.launcher.session_started(device_id, device_name, l, body.profile.clone());
+    }
     Ok(Json(json!({
         "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
         "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
+        "launch": launch_name,
     })))
 }
 
@@ -910,8 +933,13 @@ async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) 
         }
     }
     s.foreground.stop();
-    let (d, a) = (s.display.clone(), s.audio.clone());
+    let (d, a, l) = (s.display.clone(), s.audio.clone(), s.launcher.clone());
+    let (ended_id, _) = activity::identity(None, &user);
+    let ended_id = body.device_id.clone().unwrap_or(ended_id);
     let report = blocking(move || {
+        // L'app ouverte pour cet appareil, fermée si l'appareil le demande,
+        // avant que ses fenêtres ne migrent vers les écrans d'origine.
+        l.session_ended(&ended_id);
         // Les écrans d'abord : la sortie audio d'origine revient avec eux.
         d.stop("l'appareil s'est déconnecté");
         a.stop("l'appareil s'est déconnecté");
@@ -931,6 +959,79 @@ async fn stream_end(State(s): State<AppState>, headers: HeaderMap, body: Bytes) 
 
 async fn devices(State(s): State<AppState>) -> Json<Value> {
     Json(json!({ "devices": s.activity.devices() }))
+}
+
+#[derive(Deserialize)]
+struct LaunchBody {
+    /// Le réglage, ou `null` pour ne plus rien ouvrir.
+    #[serde(default)]
+    launch: Option<Launch>,
+}
+
+/// Règle l'app ouverte au début des sessions d'un appareil.
+async fn set_launch(State(s): State<AppState>, Path(id): Path<String>, Json(body): Json<LaunchBody>) -> ApiResult<Json<Value>> {
+    let launch = match body.launch {
+        Some(l) => {
+            let launcher = s.launcher.clone();
+            Some(blocking(move || launcher.validate(l)).await?)
+        }
+        None => None,
+    };
+    let devices = s
+        .activity
+        .set_launch(&id, launch.clone())
+        .ok_or_else(|| ApiError::msg(StatusCode::NOT_FOUND, Msg::new("api.unknownDevice")))?;
+    let name = devices.iter().find(|d| d.id == id).map(|d| d.name.clone()).unwrap_or_default();
+    match &launch {
+        Some(l) => s.activity.event("info", Msg::new("events.launchSet").with("name", name).with("app", l.name.as_str())),
+        None => s.activity.event("info", Msg::new("events.launchCleared").with("name", name)),
+    }
+    Ok(Json(json!({ "devices": devices })))
+}
+
+/// Le catalogue des apps de l'ordinateur (menu Démarrer de l'utilisateur,
+/// lanceurs détectés, dossiers de l'explorateur), lu la première fois.
+async fn apps(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let launcher = s.launcher.clone();
+    let catalogue = blocking(move || {
+        let c = launcher.catalogue();
+        Ok(if c.refreshed_at == 0 { launcher.refresh() } else { c })
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(catalogue).map_err(anyhow::Error::from)?))
+}
+
+/// Relit le catalogue (l'agent tourne dans la session de l'utilisateur).
+async fn apps_refresh(State(s): State<AppState>) -> ApiResult<Json<Value>> {
+    let launcher = s.launcher.clone();
+    let catalogue = blocking(move || Ok(launcher.refresh())).await?;
+    Ok(Json(serde_json::to_value(catalogue).map_err(anyhow::Error::from)?))
+}
+
+/// L'icône d'une app du catalogue (PNG).
+async fn app_icon(State(s): State<AppState>, Path(name): Path<String>) -> Response {
+    let Some(path) = s.launcher.icon_path(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    match tokio::fs::read(path).await {
+        Ok(bytes) => (
+            [(header::CONTENT_TYPE, "image/png".to_string()), (header::CACHE_CONTROL, "private, max-age=3600".to_string())],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct BrowseQuery {
+    path: Option<String>,
+}
+
+/// Explorateur « Autre… » : les dossiers autorisés, ou le contenu de l'un d'eux.
+async fn apps_browse(State(s): State<AppState>, Query(q): Query<BrowseQuery>) -> ApiResult<Json<Value>> {
+    let launcher = s.launcher.clone();
+    Ok(Json(blocking(move || launcher.browse(q.path.as_deref())).await?))
 }
 
 /// Oublie un appareil. Appairé par code, il perd aussi son accès : son compte
