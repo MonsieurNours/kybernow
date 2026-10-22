@@ -270,8 +270,10 @@
       "overviewShort": "Ensemble",
       "imageSound": "Image et son",
       "imageSoundShort": "Image et son",
-      "access": "Accès",
-      "accessShort": "Accès",
+      "devices": "Appareils Link",
+      "devicesShort": "Appareils",
+      "users": "Utilisateurs",
+      "usersShort": "Utilisateurs",
       "system": "Système",
       "systemShort": "Système"
     },
@@ -411,7 +413,7 @@
     "logs": "Journaux",
     "noEvents": "Rien pour l'instant : les connexions et les changements apparaîtront ici."
   },
-  "access": {
+  "devices": {
     "timeLeft": "{m} min {s}",
     "remaining": "encore {time}",
     "accepted": "{name} a reçu son accès.",
@@ -425,16 +427,10 @@
     "revokedLater": "Accès de {name} retiré. Le serveur redémarrera pour en tenir compte dès la fin de la session en cours.",
     "revoked": "Accès de {name} retiré.",
     "forgotten": "{name} oublié.",
-    "accountExists": "« {user} » existe déjà : changez plutôt son mot de passe.",
-    "accountAdded": "Compte « {user} » ajouté.",
-    "passwordChanged": "Mot de passe de « {user} » changé.",
-    "removeDeviceConsequence": "{device} ne pourra plus se connecter.",
-    "removeConsequence": "Les appareils qui l'utilisent ne pourront plus se connecter.",
-    "confirmRemove": "Supprimer le compte « {user} » ? {consequence}",
-    "accountRemoved": "Compte « {user} » supprimé.",
-    "eyebrow": "Qui peut ouvrir cet ordinateur",
-    "title": "Accès",
-    "intro": "Vos appareils, les comptes qui permettent de se connecter, et comment en ajouter un.",
+    "eyebrow": "Les appareils qui ouvrent cet ordinateur",
+    "title": "Appareils Link",
+    "intro": "Les apps KyberNow Link qui ouvrent cet ordinateur, et ce qui se passe quand elles se connectent. Les identifiants et mots de passe sont dans",
+    "introLink": "Utilisateurs",
     "add": {
       "qrLabel": "QR code d'appairage",
       "title": "Ajouter un appareil",
@@ -444,9 +440,15 @@
       "explain": "L'adresse de cet ordinateur et l'empreinte de son certificat : l'app sait qu'elle parle bien à lui. Aucun mot de passe.",
       "fingerprint": "Empreinte :"
     },
-    "devices": {
-      "title": "Appareils",
-      "sub": "Ceux qui se sont déjà connectés",
+    "list": {
+      "title": "Vos appareils",
+      "sub": "Ceux qui se sont déjà connectés, et ce qui se passe quand ils arrivent.",
+      "count": {
+        "one": "{n} appareil",
+        "other": "{n} appareils"
+      },
+      "oneAtATime": "un seul en session à la fois",
+      "together": "plusieurs en même temps",
       "asks": "{name} demande l'accès",
       "codeLabel": "Code sur l'écran de l'appareil",
       "codeAria": "Code {digits}",
@@ -455,18 +457,51 @@
       "requestHelp": "Acceptez seulement si ce code est celui affiché sur votre appareil. Il reçoit son propre accès, que vous pourrez lui retirer ici.",
       "ownAccess": "accès propre",
       "account": "compte {user}",
-      "inSession": "En session",
-      "paired": "Appairé {ago}",
-      "options": "Options de {name}",
+      "noLaunch": "aucune app au début",
+      "launches": "{app} au début",
+      "launchesNotDesktop": "{app} au début, pas en Bureau",
       "sessions": {
         "one": "{n} session",
         "other": "{n} sessions"
       },
+      "inSession": "En session",
+      "inSessionSince": "En session depuis {duration}",
+      "paired": "Appairé {ago}",
+      "open": "Ouvrir les réglages de {name}",
+      "close": "Replier les réglages de {name}",
       "removeAccess": "Retirer l'accès",
       "forget": "Oublier cet appareil",
-      "launches": "au début : {app}",
-      "launchMenu": "App au début de la session…",
       "empty": "Aucun appareil ne s'est encore connecté. Les apps KyberNow Link apparaissent ici dès leur première session."
+    },
+    "card": {
+      "launchTitle": "Au début de la session",
+      "launchText": "Une app s'ouvre sur l'ordinateur dès que l'écran virtuel est prêt, avec votre compte Windows. Déjà ouverte, elle revient au premier plan.",
+      "noApp": "Aucune app",
+      "change": "Changer…",
+      "choose": "Choisir une app…",
+      "closeAtEnd": "Fermer l'app à la fin de la session",
+      "closeAtEndHint": "Par son propre moyen (Big Picture), sinon en fermant ses fenêtres",
+      "cannotClose": "Cette app ne sait pas se fermer proprement",
+      "skipDesktop": "Pas en profil Bureau",
+      "skipDesktopHint": "Rien ne s'ouvre quand l'appareil se connecte pour le bureau",
+      "optionSaved": "Réglage enregistré pour {name}.",
+      "accessTitle": "Accès",
+      "ownAccessText": "Compte propre {user}, reçu par code {when}. Le retirer coupe l'accès de cet appareil seulement ; les comptes des personnes, dans Utilisateurs, ne changent pas.",
+      "accountText": "Se connecte avec le compte {user}, saisi dans l'app. Son mot de passe se change dans Utilisateurs.",
+      "sessionsTitle": "Sessions",
+      "screen": "écran de {mode}",
+      "profile": "profil {profile}",
+      "latency": "latence médiane {latency}",
+      "live": "En cours : {details}.",
+      "last": "Dernière session {ago} : {details}.",
+      "lastPlain": "Dernière session {ago}.",
+      "history": {
+        "one": "{n} session depuis {since}",
+        "other": "{n} sessions depuis {since}"
+      },
+      "never": "Aucune session encore.",
+      "endSession": "Mettre fin à la session",
+      "endRequested": "Fin demandée"
     },
     "launch": {
       "eyebrow": "Au début de la session",
@@ -495,37 +530,66 @@
       "emptyCatalogue": "Aucune app trouvée. Ouvrez une session Windows sur l'ordinateur, puis actualisez.",
       "none": "Aucune app",
       "noneHint": "Rien ne s'ouvre au début de la session",
-      "closeAtEnd": "Fermer l'app à la fin de la session",
-      "closeAtEndHint": "Par son propre moyen (Big Picture), sinon en fermant ses fenêtres",
-      "cannotClose": "Cette app ne sait pas se fermer proprement",
-      "skipDesktop": "Pas en profil Bureau",
-      "skipDesktopHint": "Rien ne s'ouvre quand l'appareil se connecte en profil Bureau",
       "clear": "Ne plus rien ouvrir",
       "cancel": "Annuler",
       "save": "Enregistrer",
       "saved": "{app} s'ouvrira au début des sessions de {name}",
-      "cleared": "Plus rien ne s'ouvre au début des sessions de {name}"
-    },
+      "cleared": "Plus rien ne s'ouvre au début des sessions de {name}",
+      "closeHint": "Sait se fermer seule à la fin de la session.",
+      "noCloseHint": "Ne sait pas se fermer proprement.",
+      "optionsHint": "Les autres options sont sur la carte de l'appareil."
+    }
+  },
+  "users": {
+    "eyebrow": "Qui peut ouvrir cet ordinateur",
+    "title": "Utilisateurs",
+    "intro": "L'identifiant et le mot de passe qu'on saisit dans KyberNow Link. Un appareil accepté par code a son propre accès : il se gère depuis sa carte dans",
+    "introLink": "Appareils Link",
     "accounts": {
       "title": "Comptes",
-      "sub": "L'identifiant et le mot de passe saisis sur un appareil",
-      "insecure": "Le compte d'exemple « {user} » a toujours son mot de passe d'origine, connu de tous.",
-      "deleteThis": "Supprimer ce compte",
+      "sub": "Un identifiant par personne. Plusieurs appareils peuvent utiliser le même.",
+      "people": {
+        "one": "{n} personne",
+        "other": "{n} personnes"
+      },
+      "deviceAccounts": {
+        "one": "{n} accès d'appareil",
+        "other": "{n} accès d'appareil"
+      },
+      "insecure": "Le compte d'exemple « {user} » a toujours son mot de passe d'origine",
+      "insecureHint": "Il est connu de tous. Changez-le ou supprimez-le.",
+      "delete": "Supprimer",
       "originalPassword": "Mot de passe d'origine",
-      "ownAccessOf": "Accès propre à {device}",
-      "connectFromDevice": "Se connecter depuis un appareil",
+      "usedBy": "Utilisé par {devices}.",
+      "and": " et ",
+      "unused": "Aucun appareil ne l'utilise encore : saisissez-le dans KyberNow Link.",
+      "devicePill": "Accès d'appareil",
+      "deviceText": "Créé quand {device} a été accepté par code. Sans mot de passe à retenir : l'appareil le porte.",
+      "seeDevice": "Voir dans Appareils Link",
       "changePassword": "Changer le mot de passe",
       "deleteAria": "Supprimer le compte {user}",
       "newPasswordFor": "Nouveau mot de passe de {user}",
+      "passwordHint": "Les appareils qui l'utilisent devront le saisir de nouveau.",
       "min8": "8 caractères minimum",
       "save": "Enregistrer",
-      "cancel": "Annuler",
-      "newUsername": "Nouvel identifiant",
+      "cancel": "Annuler"
+    },
+    "add": {
+      "title": "Ajouter une personne",
+      "sub": "Elle saisira cet identifiant et ce mot de passe dans KyberNow Link, sur l'appareil de son choix.",
+      "username": "Identifiant",
       "usernamePlaceholder": "ex. lea",
       "password": "Mot de passe",
-      "addAccount": "Ajouter le compte",
-      "hash": "Kyber ne garde que l'empreinte des mots de passe (SHA-256). Un changement de compte s'applique au redémarrage du serveur."
-    }
+      "submit": "Ajouter",
+      "hash": "Kyber ne garde que l'empreinte des mots de passe (SHA-256). Un compte ajouté ou modifié s'applique au redémarrage du serveur, qu'Admin propose aussitôt."
+    },
+    "accountExists": "« {user} » existe déjà : changez plutôt son mot de passe.",
+    "accountAdded": "Compte « {user} » ajouté.",
+    "passwordChanged": "Mot de passe de « {user} » changé.",
+    "removeDeviceConsequence": "{device} ne pourra plus se connecter.",
+    "removeConsequence": "Les appareils qui l'utilisent ne pourront plus se connecter.",
+    "confirmRemove": "Supprimer le compte « {user} » ? {consequence}",
+    "accountRemoved": "Compte « {user} » supprimé."
   },
   "system": {
     "title": "Système",

@@ -113,7 +113,7 @@ enum AddHostFingerprint {
         return hex(a) == hex(b)
     }
 
-    /// Groupes de quatre caractères, comme la console les affiche (Accès).
+    /// Groupes de quatre caractères, comme la console les affiche (Appareils Link).
     static func groups(_ fp: String) -> [String] {
         let h = Array(hex(fp))
         return stride(from: 0, to: h.count, by: 4).map { String(h[$0 ..< min($0 + 4, h.count)]) }
@@ -305,7 +305,7 @@ private struct AddHostMenu: View {
                 HStack(spacing: 10) {
                     AddHostQRGlyph().stroke(Theme.accent, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
                         .frame(width: 18, height: 18)
-                    Text("Visez le QR code d'appairage, dans KyberNow Admin (espace Accès). L'empreinte est vérifiée toute seule.")
+                    Text("Visez le QR code d'appairage, dans KyberNow Admin (espace Appareils Link). L'empreinte est vérifiée toute seule.")
                         .font(Theme.sans(13.5)).foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)

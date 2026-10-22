@@ -188,7 +188,7 @@ public final class ConsoleClient: @unchecked Sendable {
     }
 
     /// Demande d'accès sans compte : la console affiche l'appareil et son code
-    /// (Accès › Appareils), à accepter ou refuser. Rend l'identifiant de la demande.
+    /// (Appareils Link), à accepter ou refuser. Rend l'identifiant de la demande.
     /// `ConsoleError.http(404, _)` : console d'une version qui ne le connaît pas.
     public func pairRequest(code: String) async throws -> String {
         let device = Self.thisDeviceJSON

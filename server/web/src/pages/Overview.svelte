@@ -200,7 +200,7 @@
       </div>
       <div class="ctas">
         <a href="/ecran/" class="ghost glass-ghost"><Icon name="browser" size={16} />{t('overview.openInBrowser')}</a>
-        <a href="#/acces" class="primary"><Icon name="plus" size={15} stroke={2.2} />{t('overview.addDevice')}</a>
+        <a href="#/appareils" class="primary"><Icon name="plus" size={15} stroke={2.2} />{t('overview.addDevice')}</a>
       </div>
     {/if}
   </div>
@@ -242,7 +242,7 @@
     <section aria-labelledby="t-app" class="list devices">
       <div class="list-head">
         <h2 id="t-app" class="disp">{t('overview.devices')}</h2>
-        <a href="#/acces">{t('overview.allDevices')}</a>
+        <a href="#/appareils">{t('overview.allDevices')}</a>
       </div>
       {#each devices.slice(0, 3) as d (d.id)}
         {@const isLive = live?.device_id === d.id}
@@ -255,7 +255,7 @@
           <span class="when" class:live={isLive}>{isLive ? t('overview.inSession') : capital(ago(d.last_seen))}</span>
         </div>
       {:else}
-        <p class="empty">{t('overview.noDevices')} <a href="#/acces">{t('overview.addDevice')}</a></p>
+        <p class="empty">{t('overview.noDevices')} <a href="#/appareils">{t('overview.addDevice')}</a></p>
       {/each}
     </section>
 

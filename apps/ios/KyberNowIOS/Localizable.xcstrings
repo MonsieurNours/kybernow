@@ -628,18 +628,18 @@
         }
       }
     },
-    "Accès › Appareils › « %@ » demande l'accès › Accepter." : {
+    "Appareils Link › « %@ » demande l'accès › Accepter." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Access › Devices › “%@” is asking for access › Accept."
+            "value" : "Link devices › “%@” is asking for access › Accept."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Accès › Appareils › « %@ » demande l'accès › Accepter."
+            "value" : "Appareils Link › « %@ » demande l'accès › Accepter."
           }
         }
       }
@@ -788,18 +788,18 @@
         }
       }
     },
-    "Affichés dans KyberNow Admin, espace Accès. Le port a été tiré au hasard à l'installation." : {
+    "Affichés dans KyberNow Admin, espace Appareils Link. Le port a été tiré au hasard à l'installation." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shown in KyberNow Admin, Access section. The port was picked at random during installation."
+            "value" : "Shown in KyberNow Admin, Link devices section. The port was picked at random during installation."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Affichés dans KyberNow Admin, espace Accès. Le port a été tiré au hasard à l'installation."
+            "value" : "Affichés dans KyberNow Admin, espace Appareils Link. Le port a été tiré au hasard à l'installation."
           }
         }
       }
@@ -3060,18 +3060,18 @@
         }
       }
     },
-    "Il est dans l'espace Accès de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule." : {
+    "Il est dans l'espace Appareils Link de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "It is in the Access section of KyberNow Admin. The pairing link it carries gives the address, the port and the fingerprint: it is checked automatically."
+            "value" : "It is in the Link devices section of KyberNow Admin. The pairing link it carries gives the address, the port and the fingerprint: it is checked automatically."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Il est dans l'espace Accès de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."
+            "value" : "Il est dans l'espace Appareils Link de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."
           }
         }
       }
@@ -6580,18 +6580,18 @@
         }
       }
     },
-    "Visez le QR code d'appairage, dans KyberNow Admin (espace Accès). L'empreinte est vérifiée toute seule." : {
+    "Visez le QR code d'appairage, dans KyberNow Admin (espace Appareils Link). L'empreinte est vérifiée toute seule." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Point at the pairing QR code, in KyberNow Admin (Access section). The fingerprint is checked automatically."
+            "value" : "Point at the pairing QR code, in KyberNow Admin (Link devices section). The fingerprint is checked automatically."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Visez le QR code d'appairage, dans KyberNow Admin (espace Accès). L'empreinte est vérifiée toute seule."
+            "value" : "Visez le QR code d'appairage, dans KyberNow Admin (espace Appareils Link). L'empreinte est vérifiée toute seule."
           }
         }
       }

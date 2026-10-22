@@ -1,6 +1,6 @@
 //! App ouverte sur l'ordinateur au début de la session d'un appareil :
 //! Steam Big Picture pour l'Apple TV, Playnite, Excel pour un bureau à
-//! distance… Réglée dans Admin (Accès › Appareils), gardée sur l'appareil
+//! distance… Réglée dans Admin (Appareils Link, carte de l'appareil), gardée sur l'appareil
 //! (`Device.launch`, `devices.json`).
 //!
 //! **Catalogue.** Pour ne jamais taper de chemin, Admin propose tout ce que

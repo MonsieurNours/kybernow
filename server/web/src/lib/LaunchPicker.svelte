@@ -2,14 +2,14 @@
   Sélecteur de l'app ouverte au début des sessions d'un appareil : les
   suggestions détectées (Steam Big Picture, Playnite…), tout le menu Démarrer
   de l'ordinateur avec ses icônes, et un explorateur limité à quelques
-  dossiers. Rien à taper : on clique.
+  dossiers. Rien à taper : on clique. Les options (fermer à la fin, pas en
+  Bureau) sont sur la carte de l'appareil, pas ici.
 -->
 <script lang="ts">
   import { api, type AppEntry, type Browse, type Catalogue, type Device, type Launch, type Suggestion } from './api'
   import { errorText, notify } from './store.svelte'
   import { t } from './i18n/index.svelte'
   import Icon from './Icon.svelte'
-  import Switch from './Switch.svelte'
 
   let { device, onclose, onsaved }: { device: Device; onclose: () => void; onsaved: (devices: Device[]) => void } = $props()
 
@@ -90,10 +90,10 @@
 
   function rootLabel(id: string): string {
     const known: Record<string, string> = {
-      programs: t('access.launch.roots.programs'),
-      programs86: t('access.launch.roots.programs86'),
-      desktop: t('access.launch.roots.desktop'),
-      userPrograms: t('access.launch.roots.userPrograms'),
+      programs: t('devices.launch.roots.programs'),
+      programs86: t('devices.launch.roots.programs86'),
+      desktop: t('devices.launch.roots.desktop'),
+      userPrograms: t('devices.launch.roots.userPrograms'),
     }
     return known[id] ?? id
   }
@@ -103,7 +103,7 @@
     try {
       const res = await api.setLaunch(device.id, launch)
       onsaved(res.devices)
-      notify('ok', launch ? t('access.launch.saved', { app: launch.name, name: device.name }) : t('access.launch.cleared', { name: device.name }))
+      notify('ok', launch ? t('devices.launch.saved', { app: launch.name, name: device.name }) : t('devices.launch.cleared', { name: device.name }))
       onclose()
     } catch (e) {
       notify('error', errorText(e))
@@ -123,22 +123,22 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="launch-title">
     <header>
       <div>
-        <span class="lbl">{t('access.launch.eyebrow')}</span>
-        <h2 id="launch-title" class="disp">{t('access.launch.title', { name: device.name })}</h2>
-        <p>{t('access.launch.intro')}</p>
+        <span class="lbl">{t('devices.launch.eyebrow')}</span>
+        <h2 id="launch-title" class="disp">{t('devices.launch.title', { name: device.name })}</h2>
+        <p>{t('devices.launch.intro')}</p>
       </div>
-      <button type="button" class="icon-button" aria-label={t('access.launch.cancel')} onclick={onclose}><Icon name="x" size={16} /></button>
+      <button type="button" class="icon-button" aria-label={t('devices.launch.cancel')} onclick={onclose}><Icon name="x" size={16} /></button>
     </header>
 
     {#if view === 'browse'}
       <section class="browse">
         <div class="browse-head">
           {#if browse?.path}
-            <button type="button" class="ghost small" disabled={browsing} onclick={() => open(browse?.parent ?? undefined)}><Icon name="back" size={14} />{t('access.launch.up')}</button>
+            <button type="button" class="ghost small" disabled={browsing} onclick={() => open(browse?.parent ?? undefined)}><Icon name="back" size={14} />{t('devices.launch.up')}</button>
             <span class="mono path">{browse.path}</span>
           {:else}
-            <button type="button" class="ghost small" onclick={() => (view = 'pick')}><Icon name="back" size={14} />{t('access.launch.backToList')}</button>
-            <span class="path">{t('access.launch.otherHint')}</span>
+            <button type="button" class="ghost small" onclick={() => (view = 'pick')}><Icon name="back" size={14} />{t('devices.launch.backToList')}</button>
+            <span class="path">{t('devices.launch.otherHint')}</span>
           {/if}
         </div>
         <ul class="list">
@@ -154,7 +154,7 @@
               <li><button type="button" class="file" class:selected={isSelected('path', f.path)} onclick={() => pickFile(f.path, f.name)}><Icon name="app" size={16} /><span>{f.name}</span></button></li>
             {/each}
             {#if !(browse?.folders?.length || browse?.files?.length)}
-              <li class="dim">{t('access.launch.emptyFolder')}</li>
+              <li class="dim">{t('devices.launch.emptyFolder')}</li>
             {/if}
           {/if}
         </ul>
@@ -163,20 +163,20 @@
       <div class="tools">
         <label class="search">
           <Icon name="search" size={16} />
-          <input type="search" placeholder={t('access.launch.search')} bind:value={search} autocomplete="off" />
+          <input type="search" placeholder={t('devices.launch.search')} bind:value={search} autocomplete="off" />
         </label>
-        <button type="button" class="ghost small" disabled={refreshing} onclick={refresh}><Icon name="restart" size={14} />{refreshing ? t('access.launch.refreshing') : t('access.launch.refresh')}</button>
-        <button type="button" class="ghost small" disabled={browsing} onclick={() => open()}><Icon name="folder" size={14} />{t('access.launch.other')}</button>
+        <button type="button" class="ghost small" disabled={refreshing} onclick={refresh}><Icon name="restart" size={14} />{refreshing ? t('devices.launch.refreshing') : t('devices.launch.refresh')}</button>
+        <button type="button" class="ghost small" disabled={browsing} onclick={() => open()}><Icon name="folder" size={14} />{t('devices.launch.other')}</button>
       </div>
 
       {#if loading}
-        <p class="dim">{t('access.launch.loading')}</p>
+        <p class="dim">{t('devices.launch.loading')}</p>
       {:else}
         {#if catalogue?.error}
-          <div class="notice warn" role="status"><Icon name="warning" /><span>{t('access.launch.readFailed', { error: catalogue.error })}</span></div>
+          <div class="notice warn" role="status"><Icon name="warning" /><span>{t('devices.launch.readFailed', { error: catalogue.error })}</span></div>
         {/if}
         {#if suggestions.length}
-          <h3 class="lbl">{t('access.launch.suggestions')}</h3>
+          <h3 class="lbl">{t('devices.launch.suggestions')}</h3>
           <div class="chips">
             {#each suggestions as s (s.id)}
               <button type="button" class="chip" class:selected={isSelected(s.kind, s.target)} onclick={() => pickSuggestion(s)}>
@@ -186,7 +186,7 @@
             {/each}
           </div>
         {/if}
-        <h3 class="lbl">{catalogue?.user ? t('access.launch.allOf', { user: catalogue.user }) : t('access.launch.all')}</h3>
+        <h3 class="lbl">{catalogue?.user ? t('devices.launch.allOf', { user: catalogue.user }) : t('devices.launch.all')}</h3>
         {#if apps.length}
           <div class="grid">
             {#each apps as a (a.id)}
@@ -197,7 +197,7 @@
             {/each}
           </div>
         {:else}
-          <p class="dim">{catalogue?.apps.length ? t('access.launch.noMatch') : t('access.launch.emptyCatalogue')}</p>
+          <p class="dim">{catalogue?.apps.length ? t('devices.launch.noMatch') : t('devices.launch.emptyCatalogue')}</p>
         {/if}
       {/if}
     {/if}
@@ -209,31 +209,20 @@
           <div>
             <strong>{draft.name}</strong>
             <span class="mono dim">{draft.target}</span>
+            <span class="dim">{canClose ? t('devices.launch.closeHint') : t('devices.launch.noCloseHint')} {t('devices.launch.optionsHint')}</span>
           </div>
         {:else}
           <Icon name="other" size={20} />
-          <div><strong>{t('access.launch.none')}</strong><span class="dim">{t('access.launch.noneHint')}</span></div>
+          <div><strong>{t('devices.launch.none')}</strong><span class="dim">{t('devices.launch.noneHint')}</span></div>
         {/if}
       </div>
-      {#if draft}
-        <div class="options">
-          <div class="opt">
-            <div><h4>{t('access.launch.closeAtEnd')}</h4><p>{canClose ? t('access.launch.closeAtEndHint') : t('access.launch.cannotClose')}</p></div>
-            <Switch label={t('access.launch.closeAtEnd')} checked={draft.close_at_end && canClose} disabled={!canClose} onchange={(v) => draft && (draft.close_at_end = v)} />
-          </div>
-          <div class="opt">
-            <div><h4>{t('access.launch.skipDesktop')}</h4><p>{t('access.launch.skipDesktopHint')}</p></div>
-            <Switch label={t('access.launch.skipDesktop')} checked={draft.skip_desktop} onchange={(v) => draft && (draft.skip_desktop = v)} />
-          </div>
-        </div>
-      {/if}
       <div class="actions">
         {#if device.launch}
-          <button type="button" class="ghost danger" disabled={saving} onclick={() => save(null)}>{t('access.launch.clear')}</button>
+          <button type="button" class="ghost danger" disabled={saving} onclick={() => save(null)}>{t('devices.launch.clear')}</button>
         {/if}
         <span class="spacer"></span>
-        <button type="button" class="ghost" disabled={saving} onclick={onclose}>{t('access.launch.cancel')}</button>
-        <button type="button" class="primary" disabled={saving || !draft} onclick={() => draft && save(draft)}><Icon name="check" size={15} stroke={2} />{t('access.launch.save')}</button>
+        <button type="button" class="ghost" disabled={saving} onclick={onclose}>{t('devices.launch.cancel')}</button>
+        <button type="button" class="primary" disabled={saving || !draft} onclick={() => draft && save(draft)}><Icon name="check" size={15} stroke={2} />{t('devices.launch.save')}</button>
       </div>
     </footer>
   </div>
@@ -522,29 +511,6 @@
     white-space: nowrap;
   }
 
-  .options {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-    gap: 10px 20px;
-  }
-
-  .opt {
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .opt h4 {
-    font-size: 13.5px;
-    font-weight: 600;
-  }
-
-  .opt p {
-    margin-top: 2px;
-    font-size: 12px;
-    color: var(--faint);
-  }
 
   .actions {
     display: flex;

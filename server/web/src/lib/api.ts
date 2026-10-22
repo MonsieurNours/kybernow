@@ -92,6 +92,11 @@ export interface Launch {
   skip_desktop: boolean
 }
 
+/** L'app sait-elle se fermer proprement à la fin de la session ? (Même règle que le serveur.) */
+export function canCloseLaunch(l: Launch): boolean {
+  return !!l.close || !!l.exe || l.kind !== 'uri'
+}
+
 export interface AppEntry {
   id: string
   name: string

@@ -388,7 +388,7 @@ struct AddHostNetworkPane: View {
 // MARK: - Code à l'écran
 
 /// L'appareil tire un code et le présente à toutes les consoles trouvées sur
-/// le réseau ; la première qui l'accepte (Accès › Appareils) lui donne son
+/// le réseau ; la première qui l'accepte (Appareils Link) lui donne son
 /// propre accès. Valable cinq minutes, puis un autre code est tiré.
 struct AddHostCodePane: View {
     @EnvironmentObject private var app: AppModel
@@ -419,7 +419,7 @@ struct AddHostCodePane: View {
                 .accessibilityLabel(Text("Code \(code.map(String.init).joined(separator: " "))"))
             VStack(alignment: .leading, spacing: 10) {
                 step(1, String(localized: "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)."))
-                step(2, String(localized: "Accès › Appareils › « \(deviceName) » demande l'accès › Accepter."))
+                step(2, String(localized: "Appareils Link › « \(deviceName) » demande l'accès › Accepter."))
                 step(3, DeviceDisplay.isPad
                     ? String(localized: "L'iPad reçoit son propre accès, révocable à tout moment depuis Admin.")
                     : String(localized: "L'iPhone reçoit son propre accès, révocable à tout moment depuis Admin."))
@@ -565,7 +565,7 @@ struct AddHostAddressPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "VPN, autre réseau"), title: String(localized: "Son adresse et son port"))
-            AddHostParagraph(String(localized: "Affichés dans KyberNow Admin, espace Accès. Le port a été tiré au hasard à l'installation."))
+            AddHostParagraph(String(localized: "Affichés dans KyberNow Admin, espace Appareils Link. Le port a été tiré au hasard à l'installation."))
             if wide {
                 HStack(alignment: .top, spacing: 16) {
                     addressField.frame(maxWidth: 400)

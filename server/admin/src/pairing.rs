@@ -2,7 +2,7 @@
 //!
 //! L'appareil tire un code à 6 chiffres, l'affiche, et l'envoie à la console
 //! (`POST /api/pair/request`) avec sa présentation. La console montre la
-//! demande et son code (Accès › Appareils, panneau de l'icône) ; l'administrateur
+//! demande et son code (Appareils Link, panneau de l'icône) ; l'administrateur
 //! vérifie que c'est le code affiché sur l'écran de la télévision, puis accepte
 //! ou refuse. L'appareil interroge l'état de sa demande
 //! (`GET /api/pair/request/{id}`) et reçoit, une seule fois, l'accès qui lui a

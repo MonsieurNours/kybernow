@@ -19,7 +19,7 @@ Utilisation :
   kybernow <adresse>[:port] [options]
 
   <adresse>         adresse de l'ordinateur (celle de KyberNow Admin)
-  :port             port d'Admin (affiché dans Admin, Accès)
+  :port             port d'Admin (affiché dans Admin, Appareils Link)
 
 Options :
   --user <compte>           compte KyberNow de l'ordinateur
@@ -244,7 +244,7 @@ pub fn main() -> i32 {
     let fingerprint = known.or_else(|| console.fingerprint_seen());
     if args.fingerprint.is_none() && system::known_console(&key).is_none() {
         if let Some(fp) = &fingerprint {
-            eprintln!("Empreinte d'Admin : {fp}\n(comparez avec celle affichée dans Admin, Accès)");
+            eprintln!("Empreinte d'Admin : {fp}\n(comparez avec celle affichée dans Admin, Appareils Link)");
             system::remember_console(&key, fp);
         }
     }

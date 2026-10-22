@@ -7,26 +7,31 @@
   import Login from './pages/Login.svelte'
   import Overview from './pages/Overview.svelte'
   import ImageSound from './pages/ImageSound.svelte'
-  import Access from './pages/Access.svelte'
+  import Devices from './pages/Devices.svelte'
+  import Users from './pages/Users.svelte'
   import System from './pages/System.svelte'
   import Mark from './lib/Mark.svelte'
   import Icon from './lib/Icon.svelte'
 
-  // Quatre espaces, par intention.
+  // Cinq espaces, par intention.
   const spaces = $derived([
     { id: 'ensemble', label: t('app.spaces.overview'), short: t('app.spaces.overviewShort'), icon: 'overview', component: Overview },
     { id: 'image-son', label: t('app.spaces.imageSound'), short: t('app.spaces.imageSoundShort'), icon: 'image', component: ImageSound },
-    { id: 'acces', label: t('app.spaces.access'), short: t('app.spaces.accessShort'), icon: 'key', component: Access },
+    { id: 'appareils', label: t('app.spaces.devices'), short: t('app.spaces.devicesShort'), icon: 'link', component: Devices },
+    { id: 'utilisateurs', label: t('app.spaces.users'), short: t('app.spaces.usersShort'), icon: 'user', component: Users },
     { id: 'systeme', label: t('app.spaces.system'), short: t('app.spaces.systemShort'), icon: 'gear', component: System },
   ])
-  // Anciennes adresses (console 0.2) : vers l'espace qui les reprend.
+  // Anciennes adresses (console 0.2, espace Accès d'avant la 0.4.4) : vers l'espace qui les reprend.
   const legacy: Record<string, string> = {
     dashboard: 'ensemble',
     display: 'image-son',
     audio: 'image-son',
     settings: 'systeme/avance',
-    devices: 'acces',
-    users: 'acces/comptes',
+    devices: 'appareils',
+    users: 'utilisateurs',
+    acces: 'appareils',
+    'acces/appareils': 'appareils',
+    'acces/comptes': 'utilisateurs',
     updates: 'systeme',
     logs: 'systeme/journaux',
     advanced: 'systeme/avance',
@@ -153,10 +158,10 @@
       <nav class="spaces" aria-label={t('app.spaces.label')}>
         {#each spaces as s (s.id)}
           <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
-            <Icon name={s.icon} />
+            {#if s.icon === 'link'}<Mark size={18} state="now" neutral="currentColor" />{:else}<Icon name={s.icon} />{/if}
             {s.label}
             {#if s.id === 'systeme' && updateBadge}<span class="badge">{updateBadge}</span>{/if}
-            {#if s.id === 'acces' && pairRequests.length}<span class="badge" aria-label={tn('app.pairBadge', pairRequests.length)}>{pairRequests.length}</span>{/if}
+            {#if s.id === 'appareils' && pairRequests.length}<span class="badge" aria-label={tn('app.pairBadge', pairRequests.length)}>{pairRequests.length}</span>{/if}
           </a>
         {/each}
       </nav>
@@ -201,14 +206,14 @@
           </button>
         </div>
       {/if}
-      {#if pairRequests.length && current.id !== 'acces'}
+      {#if pairRequests.length && current.id !== 'appareils'}
         <div class="restart notice pair" role="status">
           <Icon name={pairRequests[0].kind === 'tv' ? 'tv' : 'key'} size={18} />
           <span>
             {t('app.pairAsks', { name: pairRequests[0].name })}
             <b class="mono">{pairRequests[0].code.slice(0, 3)} {pairRequests[0].code.slice(3)}</b>.{pairRequests.length > 1 ? ` ${tn('app.pairOthers', pairRequests.length - 1)}` : ''}
           </span>
-          <a class="ghost small" href="#/acces/appareils">{t('app.seeRequest')}</a>
+          <a class="ghost small" href="#/appareils">{t('app.seeRequest')}</a>
         </div>
       {/if}
       {#key current.id}
@@ -219,10 +224,10 @@
     <nav class="tabbar" aria-label={t('app.spaces.label')}>
       {#each spaces as s (s.id)}
         <a href="#/{s.id}" class:current={s.id === current.id} aria-current={s.id === current.id ? 'page' : undefined}>
-          <Icon name={s.icon} size={22} />
+          {#if s.icon === 'link'}<Mark size={21} state="now" neutral="currentColor" />{:else}<Icon name={s.icon} size={22} />{/if}
           {s.short}
           {#if s.id === 'systeme' && updateBadge}<span class="pip" aria-label={t('app.updatePip')}></span>{/if}
-          {#if s.id === 'acces' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
+          {#if s.id === 'appareils' && pairRequests.length}<span class="pip" aria-label={t('app.pairPip')}></span>{/if}
         </a>
       {/each}
     </nav>

@@ -134,7 +134,7 @@ struct AddHostQRPane: View {
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
             AddHostHeader(eyebrow: String(localized: "Caméra"), title: String(localized: "Visez le QR code d'appairage"))
-            AddHostParagraph(String(localized: "Il est dans l'espace Accès de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."))
+            AddHostParagraph(String(localized: "Il est dans l'espace Appareils Link de KyberNow Admin. Le lien qu'il porte donne l'adresse, le port et l'empreinte : elle est vérifiée toute seule."))
             viewer
             if let notice {
                 AddHostNotice(kind: .warn, text: notice)

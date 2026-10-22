@@ -501,7 +501,7 @@ private struct VerifyAndAccount: View {
     // Étape 2 : le compte.
     @ViewBuilder private var account: some View {
         Text("Votre compte KyberNow").font(Theme.display(28)).foregroundStyle(Theme.text)
-        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**.")
+        Text("C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Utilisateurs**.")
             .font(Theme.sans(15)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
         LabeledField(label: String(localized: "Identifiant"), text: $username)
         LabeledField(label: String(localized: "Mot de passe"), text: $password, secure: true)

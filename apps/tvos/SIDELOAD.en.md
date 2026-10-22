@@ -60,7 +60,7 @@ The script:
 
 - Open **KyberNow** from the Apple TV home screen.
 - Allow **local network** access: without it, the app cannot find your computers.
-- Add your computer: **Code à l'écran** (accept it in KyberNow Admin, Access › Devices), **Sur le réseau** (its account, typed on the iPhone keyboard), or **Adresse**.
+- Add your computer: **Code à l'écran** (accept it in KyberNow Admin, Link devices), **Sur le réseau** (its account, typed on the iPhone keyboard), or **Adresse**.
 
 ## Renewing or updating
 

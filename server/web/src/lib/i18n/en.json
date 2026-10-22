@@ -270,8 +270,10 @@
       "overviewShort": "Overview",
       "imageSound": "Picture and sound",
       "imageSoundShort": "Picture & sound",
-      "access": "Access",
-      "accessShort": "Access",
+      "devices": "Link devices",
+      "devicesShort": "Devices",
+      "users": "Users",
+      "usersShort": "Users",
       "system": "System",
       "systemShort": "System"
     },
@@ -411,7 +413,7 @@
     "logs": "Logs",
     "noEvents": "Nothing yet: connections and changes will show up here."
   },
-  "access": {
+  "devices": {
     "timeLeft": "{m} min {s}",
     "remaining": "{time} left",
     "accepted": "{name} now has access.",
@@ -425,16 +427,10 @@
     "revokedLater": "Access removed for {name}. The server will restart to apply it as soon as the current session ends.",
     "revoked": "Access removed for {name}.",
     "forgotten": "{name} forgotten.",
-    "accountExists": "“{user}” already exists: change its password instead.",
-    "accountAdded": "Account “{user}” added.",
-    "passwordChanged": "Password changed for “{user}”.",
-    "removeDeviceConsequence": "{device} will no longer be able to connect.",
-    "removeConsequence": "Devices that use it will no longer be able to connect.",
-    "confirmRemove": "Delete the account “{user}”? {consequence}",
-    "accountRemoved": "Account “{user}” deleted.",
-    "eyebrow": "Who can open this computer",
-    "title": "Access",
-    "intro": "Your devices, the accounts used to connect, and how to add a device.",
+    "eyebrow": "The devices that open this computer",
+    "title": "Link devices",
+    "intro": "The KyberNow Link apps that open this computer, and what happens when they connect. Usernames and passwords are under",
+    "introLink": "Users",
     "add": {
       "qrLabel": "Pairing QR code",
       "title": "Add a device",
@@ -444,9 +440,15 @@
       "explain": "This computer’s address and its certificate fingerprint: the app knows it is talking to the right computer. No password.",
       "fingerprint": "Fingerprint:"
     },
-    "devices": {
-      "title": "Devices",
-      "sub": "Those that have already connected",
+    "list": {
+      "title": "Your devices",
+      "sub": "Those that have already connected, and what happens when they arrive.",
+      "count": {
+        "one": "{n} device",
+        "other": "{n} devices"
+      },
+      "oneAtATime": "one in session at a time",
+      "together": "several at the same time",
       "asks": "{name} is asking for access",
       "codeLabel": "Code on the device’s screen",
       "codeAria": "Code {digits}",
@@ -455,18 +457,51 @@
       "requestHelp": "Accept only if this code is the one shown on your device. It gets its own access, which you can remove here.",
       "ownAccess": "own access",
       "account": "account {user}",
-      "inSession": "In session",
-      "paired": "Paired {ago}",
-      "options": "Options for {name}",
+      "noLaunch": "no app at start",
+      "launches": "{app} at start",
+      "launchesNotDesktop": "{app} at start, not in Desktop",
       "sessions": {
         "one": "{n} session",
         "other": "{n} sessions"
       },
+      "inSession": "In session",
+      "inSessionSince": "In session for {duration}",
+      "paired": "Paired {ago}",
+      "open": "Open the settings of {name}",
+      "close": "Collapse the settings of {name}",
       "removeAccess": "Remove access",
       "forget": "Forget this device",
-      "launches": "at start: {app}",
-      "launchMenu": "App at session start…",
       "empty": "No device has connected yet. KyberNow Link apps show up here after their first session."
+    },
+    "card": {
+      "launchTitle": "At session start",
+      "launchText": "An app opens on the computer as soon as the virtual display is ready, with your Windows account. Already open, it comes back to the front.",
+      "noApp": "No app",
+      "change": "Change…",
+      "choose": "Choose an app…",
+      "closeAtEnd": "Close the app at the end of the session",
+      "closeAtEndHint": "By its own means (Big Picture), otherwise by closing its windows",
+      "cannotClose": "This app cannot be closed cleanly",
+      "skipDesktop": "Not in the Desktop profile",
+      "skipDesktopHint": "Nothing opens when the device connects for the desktop",
+      "optionSaved": "Setting saved for {name}.",
+      "accessTitle": "Access",
+      "ownAccessText": "Own account {user}, received with a code {when}. Removing it cuts this device's access only; people's accounts, under Users, do not change.",
+      "accountText": "Connects with the account {user}, entered in the app. Its password is changed under Users.",
+      "sessionsTitle": "Sessions",
+      "screen": "{mode} display",
+      "profile": "{profile} profile",
+      "latency": "median latency {latency}",
+      "live": "In progress: {details}.",
+      "last": "Last session {ago}: {details}.",
+      "lastPlain": "Last session {ago}.",
+      "history": {
+        "one": "{n} session since {since}",
+        "other": "{n} sessions since {since}"
+      },
+      "never": "No session yet.",
+      "endSession": "End the session",
+      "endRequested": "End requested"
     },
     "launch": {
       "eyebrow": "At session start",
@@ -495,37 +530,66 @@
       "emptyCatalogue": "No app found. Sign in to Windows on the computer, then refresh.",
       "none": "No app",
       "noneHint": "Nothing opens at the start of the session",
-      "closeAtEnd": "Close the app at the end of the session",
-      "closeAtEndHint": "By its own means (Big Picture), otherwise by closing its windows",
-      "cannotClose": "This app cannot be closed cleanly",
-      "skipDesktop": "Not in the Desktop profile",
-      "skipDesktopHint": "Nothing opens when the device connects in the Desktop profile",
       "clear": "Open nothing any more",
       "cancel": "Cancel",
       "save": "Save",
       "saved": "{app} will open at the start of {name}’s sessions",
-      "cleared": "Nothing opens at the start of {name}’s sessions any more"
-    },
+      "cleared": "Nothing opens at the start of {name}’s sessions any more",
+      "closeHint": "Can close by itself at the end of the session.",
+      "noCloseHint": "Cannot be closed cleanly.",
+      "optionsHint": "The other options are on the device's card."
+    }
+  },
+  "users": {
+    "eyebrow": "Who can open this computer",
+    "title": "Users",
+    "intro": "The username and password entered in KyberNow Link. A device accepted with a code has its own access: it is managed from its card under",
+    "introLink": "Link devices",
     "accounts": {
       "title": "Accounts",
-      "sub": "The username and password entered on a device",
-      "insecure": "The sample account “{user}” still has its original password, known to everyone.",
-      "deleteThis": "Delete this account",
+      "sub": "One username per person. Several devices can use the same one.",
+      "people": {
+        "one": "{n} person",
+        "other": "{n} people"
+      },
+      "deviceAccounts": {
+        "one": "{n} device access",
+        "other": "{n} device accesses"
+      },
+      "insecure": "The sample account “{user}” still has its original password",
+      "insecureHint": "It is known to everyone. Change it or delete it.",
+      "delete": "Delete",
       "originalPassword": "Original password",
-      "ownAccessOf": "Own access of {device}",
-      "connectFromDevice": "Connect from a device",
+      "usedBy": "Used by {devices}.",
+      "and": " and ",
+      "unused": "No device uses it yet: enter it in KyberNow Link.",
+      "devicePill": "Device access",
+      "deviceText": "Created when {device} was accepted with a code. No password to remember: the device carries it.",
+      "seeDevice": "See under Link devices",
       "changePassword": "Change password",
       "deleteAria": "Delete the account {user}",
       "newPasswordFor": "New password for {user}",
+      "passwordHint": "The devices that use it will have to enter it again.",
       "min8": "At least 8 characters",
       "save": "Save",
-      "cancel": "Cancel",
-      "newUsername": "New username",
+      "cancel": "Cancel"
+    },
+    "add": {
+      "title": "Add a person",
+      "sub": "They will enter this username and password in KyberNow Link, on the device of their choice.",
+      "username": "Username",
       "usernamePlaceholder": "e.g. lea",
       "password": "Password",
-      "addAccount": "Add account",
-      "hash": "Kyber only keeps a hash of passwords (SHA-256). Account changes apply when the server restarts."
-    }
+      "submit": "Add",
+      "hash": "Kyber only keeps a hash of passwords (SHA-256). An added or changed account applies when the server restarts, which Admin offers right away."
+    },
+    "accountExists": "“{user}” already exists: change its password instead.",
+    "accountAdded": "Account “{user}” added.",
+    "passwordChanged": "Password changed for “{user}”.",
+    "removeDeviceConsequence": "{device} will no longer be able to connect.",
+    "removeConsequence": "Devices that use it will no longer be able to connect.",
+    "confirmRemove": "Delete the account “{user}”? {consequence}",
+    "accountRemoved": "Account “{user}” deleted."
   },
   "system": {
     "title": "System",

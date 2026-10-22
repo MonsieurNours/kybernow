@@ -8,7 +8,8 @@
   produit, le nom « KyberNow », et dessous l'étiquette ADMIN ou LINK. `size`
   reste la taille du symbole ; sous ~32 px de haut, l'étiquette est omise.
   Couleurs du nom et de l'étiquette : --logo-word, --logo-tag, --logo-tag-text
-  (app.css).
+  (app.css). `neutral` remplace la couleur de la moitié non signalée (par
+  exemple `currentColor` pour une icône de menu dans l'état « now »).
 -->
 <script lang="ts">
   import { SIGNED, WORDMARK, type Product } from './signed'
@@ -19,13 +20,14 @@
     lit = false,
     breathe = false,
     seam = '#9A8CFF',
+    neutral,
     product,
-  }: { size?: number; state?: 'console' | 'server' | 'now'; lit?: boolean; breathe?: boolean; seam?: string; product?: Product } = $props()
+  }: { size?: number; state?: 'console' | 'server' | 'now'; lit?: boolean; breathe?: boolean; seam?: string; neutral?: string; product?: Product } = $props()
 
   const logo = $derived(product ? SIGNED[product] : null)
   const shown = $derived(state ?? logo?.state ?? 'console')
-  const top = $derived(shown === 'server' ? '#9A8CFF' : shown === 'now' ? '#E3EDF0' : '#33404B')
-  const bottom = $derived(shown === 'server' ? '#E3EDF0' : shown === 'now' ? '#9A8CFF' : '#33404B')
+  const top = $derived(shown === 'server' ? '#9A8CFF' : shown === 'now' ? (neutral ?? '#E3EDF0') : '#33404B')
+  const bottom = $derived(shown === 'server' ? (neutral ?? '#E3EDF0') : shown === 'now' ? '#9A8CFF' : '#33404B')
   const showSeam = $derived(shown === 'console' || lit)
   /** Pixels par unité du logo : le symbole garde `size` pixels. */
   const unit = $derived(logo ? size / logo.mark : 1)

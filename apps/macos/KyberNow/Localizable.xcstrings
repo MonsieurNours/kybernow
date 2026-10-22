@@ -913,18 +913,18 @@
         }
       }
     },
-    "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**." : {
+    "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Utilisateurs**." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This is the account created during installation on the computer. More accounts can be added in KyberNow Admin, on the **Access** page, under **Accounts**."
+            "value" : "This is the account created during installation on the computer. More accounts can be added in KyberNow Admin, on the **Users** page."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Accès**, section **Comptes**."
+            "value" : "C'est le compte créé pendant l'installation sur l'ordinateur. D'autres comptes s'ajoutent dans KyberNow Admin, page **Utilisateurs**."
           }
         }
       }

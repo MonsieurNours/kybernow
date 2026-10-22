@@ -58,7 +58,7 @@ Le script :
 
 - Avec un compte gratuit, iOS refuse d'abord d'ouvrir l'app : **Réglages › Général › VPN et gestion de l'appareil**, touchez votre compte sous « App de développeur », puis **Se fier**.
 - Ouvrez **KyberNow**, acceptez l'accès au **réseau local** : sans lui, l'app ne trouve pas vos ordinateurs.
-- Ajoutez votre ordinateur : **Sur le réseau** (son compte), **Code** (à accepter dans KyberNow Admin, espace Accès › Appareils), **QR code** (affiché par KyberNow Admin, à la caméra) ou **Adresse**. « Depuis votre Mac » (iCloud) demande l'installation avec `--full`.
+- Ajoutez votre ordinateur : **Sur le réseau** (son compte), **Code** (à accepter dans KyberNow Admin, espace Appareils Link), **QR code** (affiché par KyberNow Admin, à la caméra) ou **Adresse**. « Depuis votre Mac » (iCloud) demande l'installation avec `--full`.
 
 ## Renouveler ou mettre à jour
 
