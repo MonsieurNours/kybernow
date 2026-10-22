@@ -1,40 +1,57 @@
 {
-  "sourceLanguage" : "fr",
-  "strings" : {
-    "NSCameraUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "KyberNow Link reads the QR code shown in KyberNow Admin."
+  "sourceLanguage": "fr",
+  "strings": {
+    "CFBundleName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "KyberNow Link lit le QR code affiché dans KyberNow Admin."
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link"
           }
         }
       }
     },
-    "NSLocalNetworkUsageDescription" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "KyberNow Link connects to your computers on the local network."
+    "NSCameraUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link reads the QR code shown in KyberNow Admin."
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "KyberNow Link se connecte à vos ordinateurs sur le réseau local."
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link lit le QR code affiché dans KyberNow Admin."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link connects to your computers on the local network."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KyberNow Link se connecte à vos ordinateurs sur le réseau local."
           }
         }
       }
     }
   },
-  "version" : "1.0"
+  "version": "1.0"
 }

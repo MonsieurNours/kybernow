@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.2
+
+- Mac app: the menu bar finally shows "KyberNow Link"; the 0.4.1 fix was overwritten by Xcode, the name now goes through Info.plist's localized catalog.
+
 ## 0.4.1
 
 - Mac app: the menu bar still showed "KyberNow" instead of "KyberNow Link" (the name was lost at each build).

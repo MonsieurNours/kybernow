@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.2
+
+- App Mac : la barre des menus affiche enfin « KyberNow Link » ; la correction de la 0.4.1 était écrasée par Xcode, le nom passe désormais par le catalogue localisé d'Info.plist.
+
 ## 0.4.1
 
 - App Mac : la barre des menus affichait encore « KyberNow » au lieu de « KyberNow Link » (le nom était perdu à chaque compilation).
