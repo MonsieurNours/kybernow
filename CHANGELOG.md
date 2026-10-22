@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.5
+
+- **KyberNow Link arrive sur Android et Android TV.** Une seule app pour le téléphone, la tablette, le téléviseur (Android TV, Google TV, NVIDIA Shield) et la console portable, à partir d'Android 11 : accueil avec l'image de l'ordinateur, ajout par le réseau, code, adresse ou QR code, session en plein écran au doigt, à la télécommande, au clavier et à la souris ou à la manette (quatre joueurs, manette ou télécommande en souris), menu de session au téléviseur, presse-papiers, rangée « Reprendre sur un ordinateur » sur l'accueil d'Android TV. Essayée sur une Shield TV en 4K à 60 Hz.
+- L'APK (`KyberNow-Link-Android.apk`, signé) est publié avec chaque version, et l'app se met à jour seule, vérifiée par le manifeste signé (canal stable ou bêta). Une app installée depuis Android Studio est à désinstaller une fois avant d'installer l'APK publié.
+- Site : KyberNow Link pour Android rejoint les téléchargements.
+
 ## 0.4.4
 
 - **Admin : l'espace Accès devient « Appareils Link », et les comptes ont leur entrée « Utilisateurs ».** Chaque appareil est une carte qui s'ouvre sur ses réglages, lisibles en une ligne fermée et explicites ouverte : l'app au début de la session et ses deux options, l'accès, les sessions avec « Mettre fin à la session », oublier l'appareil ou retirer son accès ; plus de menu « … ». L'icône du menu est le symbole Link. Dans Utilisateurs : une personne par identifiant et les appareils qui l'utilisent, l'accès propre d'un appareil accepté par code en lecture seule, « Ajouter une personne ». Les anciennes adresses (`#/acces`, `#/acces/comptes`) mènent au bon espace ; les apps et les docs renvoient aux nouveaux noms.

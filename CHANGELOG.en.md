@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.5
+
+- **KyberNow Link comes to Android and Android TV.** A single app for the phone, the tablet, the TV (Android TV, Google TV, NVIDIA Shield) and the handheld console, from Android 11: home with the computer's image, adding over the network, by code, address or QR code, full-screen session by touch, remote, keyboard and mouse or gamepad (four players, gamepad or remote as a mouse), session menu on the TV, clipboard, a "Resume on a computer" row on the Android TV home screen. Tried on a Shield TV in 4K at 60 Hz.
+- The APK (`KyberNow-Link-Android.apk`, signed) is published with every release, and the app updates itself, verified by the signed manifest (stable or beta channel). An app installed from Android Studio must be uninstalled once before installing the published APK.
+- Site: KyberNow Link for Android joins the downloads.
+
 ## 0.4.4
 
 - **Admin: the Access space becomes “Link devices”, and accounts get their own “Users” entry.** Each device is a card that opens on its settings, readable in one line when closed and explicit when open: the app at session start and its two options, access, sessions with “End the session”, forget the device or remove its access; no more “…” menu. The menu icon is the Link symbol. Under Users: one person per username and the devices that use it, the own access of a device accepted with a code in read-only, “Add a person”. The old addresses (`#/acces`, `#/acces/comptes`) lead to the right space; the apps and the docs point to the new names.
