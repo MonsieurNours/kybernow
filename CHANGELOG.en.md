@@ -8,6 +8,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 - **KyberNow Link comes to Android and Android TV.** A single app for the phone, the tablet, the TV (Android TV, Google TV, NVIDIA Shield) and the handheld console, from Android 11: home with the computer's image, adding over the network, by code, address or QR code, full-screen session by touch, remote, keyboard and mouse or gamepad (four players, gamepad or remote as a mouse), session menu on the TV, clipboard, a "Resume on a computer" row on the Android TV home screen. Tried on a Shield TV in 4K at 60 Hz.
 - The APK (`KyberNow-Link-Android.apk`, signed) is published with every release, and the app updates itself, verified by the signed manifest (stable or beta channel). An app installed from Android Studio must be uninstalled once before installing the published APK.
+- **KyberNow Link comes to LG TVs (webOS).** A native app, on the same core as the other Link apps: picture through the TV's decoder (4K at 120 Hz in HEVC on 2022 OLEDs), 30, 60 or 120 frames per second, bitrate capped according to the network (LG's Ethernet port stops at 100 Mbit/s), four controllers with their rumble, Magic Remote or controller as mouse, session menu (Back button or L1 + R1 + Start + Select), adding by code or address. Installs in developer mode (`apps/webos/INSTALLATION.en.md`); not yet tried on a TV.
 
 ## 0.4.4
 

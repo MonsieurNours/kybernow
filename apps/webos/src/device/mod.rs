@@ -145,7 +145,7 @@ pub fn run() {
     let mut cv = Canvas::new();
     let assets = Assets::load();
     let mut live: Option<Live> = None;
-    let mut pairing: Option<Arc<AtomicBool>> = None;
+    let mut pairing: Vec<Arc<AtomicBool>> = Vec::new();
     let mut last_poll = Instant::now() - Duration::from_secs(60);
     let mut last_net = Instant::now();
     let mut dirty = true;
@@ -261,7 +261,7 @@ pub fn run() {
     if let Some(l) = live.take() {
         l.handle.session.stop();
     }
-    if let Some(c) = pairing.take() {
+    for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
     }
     app.store.save();
@@ -503,7 +503,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, video: &mut Video, actions: &mut Vec<Action>, pairing: &mut Option<Arc<AtomicBool>>) {
+fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, video: &mut Video, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>) {
     match e {
         Event::HostInfo { id, online, os, gpu, av1 } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
@@ -524,7 +524,17 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.images.insert(id, img);
             }
         }
-        Event::Found(list) => app.found = list,
+        Event::Found(list) => {
+            app.found = list;
+            // Ajout par code en cours : le code va aussi aux Stations apparues depuis.
+            if app.screen == Screen::Add
+                && app.add.step == AddStep::Code
+                && !app.add.code.is_empty()
+                && app.new_found().iter().any(|f| !app.add.asked.iter().any(|(_, a)| *a == f.address))
+            {
+                actions.push(Action::StartPairing);
+            }
+        }
         Event::Probed { address, port, fingerprint } => {
             app.add.busy = false;
             match fingerprint {
@@ -536,14 +546,11 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 Err(e) => app.add.message = Some(e),
             }
         }
-        Event::PairAsked { name, address } => {
-            if !app.add.asked.iter().any(|(_, a)| *a == address) {
-                app.add.asked.push((name.clone(), address));
-            }
+        Event::PairAsked { name, .. } => {
             app.add.message = Some(format!("{} {name} : {}", tr("Code présenté à", "Code shown to"), tr("acceptez-le dans Admin", "accept it in Admin")));
         }
         Event::PairAccepted(host) => {
-            if let Some(c) = pairing.take() {
+            for c in pairing.drain(..) {
                 c.store(true, Ordering::Relaxed);
             }
             let name = host.name.clone();
@@ -654,7 +661,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
     }
 }
 
-fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, tx: &Sender<Event>, pairing: &mut Option<Arc<AtomicBool>>, quit: &mut bool) {
+fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, tx: &Sender<Event>, pairing: &mut Vec<Arc<AtomicBool>>, quit: &mut bool) {
     match a {
         Action::Save => app.store.save(),
         Action::Quit => *quit = true,
@@ -750,33 +757,34 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
         }
         Action::StartPairing => {
-            if let Some(c) = pairing.take() {
-                c.store(true, Ordering::Relaxed);
-            }
+            // Le code va aux Stations trouvées à qui il n'a pas encore été présenté.
             let targets: Vec<jobs::Target> = app
                 .new_found()
                 .iter()
+                .filter(|f| !app.add.asked.iter().any(|(_, a)| *a == f.address))
                 .map(|f| jobs::Target { name: f.name.clone(), address: f.address.clone(), port: f.port, fingerprint: f.fingerprint.clone() })
                 .collect();
             if targets.is_empty() {
+                if !app.add.asked.is_empty() {
+                    return;
+                }
                 app.add.message = Some(tr("Aucune Station trouvée pour l'instant : le code sera présenté dès qu'elle apparaît, ou ajoutez-la par adresse.", "No Station found yet: the code is shown as soon as one appears, or add it by address.").into());
                 return;
             }
+            app.add.asked.extend(targets.iter().map(|t| (t.name.clone(), t.address.clone())));
             let cancel = Arc::new(AtomicBool::new(false));
             jobs::pair(targets, app.add.code.clone(), device_info(&app.store, &app.tv), cancel.clone(), tx.clone());
-            *pairing = Some(cancel);
+            pairing.push(cancel);
         }
         Action::PairAddress { address, port, fingerprint } => {
-            if let Some(c) = pairing.take() {
-                c.store(true, Ordering::Relaxed);
-            }
             let cancel = Arc::new(AtomicBool::new(false));
+            app.add.asked.push((address.clone(), address.clone()));
             let t = jobs::Target { name: address.clone(), address, port, fingerprint: Some(fingerprint) };
             jobs::pair(vec![t], app.add.code.clone(), device_info(&app.store, &app.tv), cancel.clone(), tx.clone());
-            *pairing = Some(cancel);
+            pairing.push(cancel);
         }
         Action::StopPairing => {
-            if let Some(c) = pairing.take() {
+            for c in pairing.drain(..) {
                 c.store(true, Ordering::Relaxed);
             }
         }
