@@ -16,8 +16,8 @@ settings:
     # Chaînes de l'interface extraites à la compilation vers les catalogues.
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     SWIFT_EMIT_LOC_STRINGS: YES
-    MARKETING_VERSION: "0.4.1"
-    CURRENT_PROJECT_VERSION: "202610221222"
+    MARKETING_VERSION: "0.4.2"
+    CURRENT_PROJECT_VERSION: "202610221231"
     ARCHS: arm64
     ONLY_ACTIVE_ARCH: YES
     # Certificat de développement des Lignes Claires : une signature stable
