@@ -253,10 +253,22 @@ class PadMouse(private val handle: () -> Long) {
         }
     }
 
+    /** L1 + R1 + Start + Select tenus ensemble : le menu (comme hors du mode souris). */
+    var onCombo: (() -> Unit)? = null
+    /** Boutons du combo tenus ; `mixed` : plusieurs à la fois depuis le dernier relâché complet. */
+    private val held = mutableSetOf<Int>()
+    private var mixed = false
+
     fun key(e: KeyEvent): Boolean {
         val h = handle()
         val down = e.action == KeyEvent.ACTION_DOWN
-        when (e.keyCode) {
+        // Select et Start arrivent parfois en Retour et Menu (manette Xbox en Bluetooth).
+        val code = when (e.keyCode) {
+            KeyEvent.KEYCODE_BACK -> KeyEvent.KEYCODE_BUTTON_SELECT
+            KeyEvent.KEYCODE_MENU -> KeyEvent.KEYCODE_BUTTON_START
+            else -> e.keyCode
+        }
+        when (code) {
             KeyEvent.KEYCODE_BUTTON_A -> Native.inputMouseButton(h, 0, down)
             KeyEvent.KEYCODE_BUTTON_X -> Native.inputMouseButton(h, 1, down)
             KeyEvent.KEYCODE_BUTTON_B -> Native.inputMouseButton(h, 2, down)
@@ -264,19 +276,36 @@ class PadMouse(private val handle: () -> Long) {
             KeyEvent.KEYCODE_DPAD_DOWN -> Native.inputKey(h, Sc.DOWN, down)
             KeyEvent.KEYCODE_DPAD_LEFT -> Native.inputKey(h, Sc.LEFT, down)
             KeyEvent.KEYCODE_DPAD_RIGHT -> Native.inputKey(h, Sc.RIGHT, down)
-            KeyEvent.KEYCODE_BUTTON_START -> if (!down) Sc.press(h, Sc.WIN)
-            KeyEvent.KEYCODE_BUTTON_SELECT -> if (!down) Sc.press(h, Sc.ESC)
-            KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1 -> if (down) {
+            // Start, Select, L1, R1 : action au relâché, sauf s'ils ont servi au combo.
+            KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_R1 -> comboKey(h, code, down)
+        }
+        // Les autres boutons ne font rien (pas de Retour ni d'OK d'Android).
+        return true
+    }
+
+    private fun comboKey(h: Long, code: Int, down: Boolean) {
+        if (down) {
+            held += code
+            if (held.size > 1) mixed = true
+            if (held.size == 4) onCombo?.invoke()
+            return
+        }
+        if (!held.remove(code)) return
+        val solo = !mixed
+        if (held.isEmpty()) mixed = false
+        if (!solo) return
+        when (code) {
+            KeyEvent.KEYCODE_BUTTON_START -> Sc.press(h, Sc.WIN)
+            KeyEvent.KEYCODE_BUTTON_SELECT -> Sc.press(h, Sc.ESC)
+            else -> {
                 if (!altHeld) { Native.inputKey(h, Sc.ALT, true); altHeld = true }
-                if (e.keyCode == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, true)
+                if (code == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, true)
                 Sc.press(h, Sc.TAB)
-                if (e.keyCode == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, false)
+                if (code == KeyEvent.KEYCODE_BUTTON_L1) Native.inputKey(h, Sc.SHIFT, false)
                 main.removeCallbacks(releaseAlt)
                 main.postDelayed(releaseAlt, 900)
             }
-            else -> return false
         }
-        return true
     }
 
     private val releaseAlt = Runnable {
@@ -284,6 +313,8 @@ class PadMouse(private val handle: () -> Long) {
     }
 
     fun stop() {
+        held.clear()
+        mixed = false
         running = false
         axes = PadAxes.REST
         main.removeCallbacks(tick)

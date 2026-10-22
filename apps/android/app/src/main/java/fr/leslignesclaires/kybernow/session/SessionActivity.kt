@@ -119,6 +119,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         setContentView(root)
 
         state.onCombo = { if (host.settings.combo) toggleMenu() }
+        pads.mouse.onCombo = { if (host.settings.combo) toggleMenu() }
         state.onInputConnected = { pads.reconnected() }
         start()
         observe()
