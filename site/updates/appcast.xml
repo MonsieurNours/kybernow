@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.4.5</title>
+            <pubDate>Thu, 22 Oct 2026 20:42:48 +0200</pubDate>
+            <sparkle:version>202610222036</sparkle:version>
+            <sparkle:shortVersionString>0.4.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow Link comes to Android and Android TV.** A single app for the phone, the tablet, the TV (Android TV, Google TV, NVIDIA Shield) and the handheld console, from Android 11: home with the computer's image, adding over the network, by code, address or QR code, full-screen session by touch, remote, keyboard and mouse or gamepad (four players, gamepad or remote as a mouse), session menu on the TV, clipboard, a "Resume on a computer" row on the Android TV home screen. Tried on a Shield TV in 4K at 60 Hz.
+- The APK (`KyberNow-Link-Android.apk`, signed) is published with every release, and the app updates itself, verified by the signed manifest (stable or beta channel). An app installed from Android Studio must be uninstalled once before installing the published APK.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.4.5/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.4.5/KyberNow-Link-macOS.zip" length="47134561" type="application/octet-stream" sparkle:edSignature="a3VHqT8DEai/fPXUVv8NZRuaYv2bpyON2Ja+F3Taq2Ur3iae/3PD/Nx/sfq1GAQwC/GN7wJq16IQqNVH9GWAAg=="/>
+        </item>
+        <item>
             <title>0.4.4</title>
             <pubDate>Thu, 22 Oct 2026 16:28:22 +0200</pubDate>
             <sparkle:version>202610221620</sparkle:version>
