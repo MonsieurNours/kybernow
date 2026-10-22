@@ -33,11 +33,6 @@ public struct StreamOptions: Sendable {
     /// Synchro verticale : sans elle, chaque image part dès qu'elle est
     /// décodée (latence la plus basse, déchirure possible).
     public var vsync = true
-    /// Décodage par l'app (VideoToolbox + Metal) plutôt que par VLC. L'AV1
-    /// passe toujours par VLC.
-    public var nativeVideo = true
-    /// Son décodé par l'app (Opus + Core Audio) plutôt que par VLC.
-    public var nativeAudio = true
     /// Presse-papiers partagé (texte), dans les deux sens.
     public var clipboard = true
     /// Toutes les manettes présentées en Xbox 360 à l'ordinateur ; sinon,

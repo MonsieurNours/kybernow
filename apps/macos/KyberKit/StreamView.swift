@@ -1,6 +1,6 @@
 // Vue d'une session : l'image de l'ordinateur et la capture du clavier et
-// de la souris. L'image est décodée par l'app (VideoToolbox) et dessinée
-// avec Metal dans `surface` ; pour l'AV1, VLC la dessine dans `videoView`.
+// de la souris. L'image, quel que soit le codec (H.264, HEVC, AV1), est
+// décodée par l'app (VideoToolbox) et dessinée avec Metal dans `surface`.
 //
 // Curseur : en usage bureau, le Mac affiche toujours un curseur, à la forme
 // de celui de l'ordinateur. Un masquage bref (frappe, changement de forme)
@@ -18,7 +18,8 @@ import AppKit
 @_implementationOnly import CKyber
 
 public final class StreamView: NSView {
-    /// Vue confiée au lecteur vidéo de Kyber (VLC).
+    /// Vue confiée à Kyber comme fenêtre (sa configuration l'exige) ; l'image
+    /// n'y est pas dessinée : elle passe par Metal, dans `surface`.
     public let videoView = NSView()
     /// Image décodée par l'app, dessinée avec Metal.
     let surface = MetalSurface()
@@ -161,7 +162,8 @@ public final class StreamView: NSView {
         applyCursorShape()
     }
 
-    // Les sous-vues de VLC ne doivent pas capter les événements.
+    // Aucune sous-vue (`videoView`, `surface`) ne capte les événements : ils
+    // arrivent tous ici.
     public override func hitTest(_ point: NSPoint) -> NSView? {
         frame.contains(point) ? self : nil
     }

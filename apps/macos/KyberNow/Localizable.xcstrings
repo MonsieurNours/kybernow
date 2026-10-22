@@ -2609,18 +2609,18 @@
         }
       }
     },
-    "Les mesures détaillées viennent du décodage par l'app : elles ne sont pas disponibles avec le lecteur VLC (Réglages, Avancé)." : {
+    "Les mesures détaillées s'affichent dès que l'image arrive." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Detailed measurements come from the app's own decoding: they are not available with the VLC player (Settings, Advanced)."
+            "value" : "Detailed measurements appear as soon as the picture arrives."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Les mesures détaillées viennent du décodage par l'app : elles ne sont pas disponibles avec le lecteur VLC (Réglages, Avancé)."
+            "value" : "Les mesures détaillées s'affichent dès que l'image arrive."
           }
         }
       }

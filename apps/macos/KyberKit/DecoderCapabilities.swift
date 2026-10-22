@@ -15,7 +15,8 @@ public struct DecoderCapabilities: Sendable {
     public let hevc: Bool
     /// HEVC 4:4:4 décodé en matériel (texte net, le profil Bureau et Max).
     public let hevc444: Bool
-    /// AV1 en matériel (puces M3 et suivantes). Lu pour l'instant par VLC.
+    /// AV1 en matériel (puces M3 et suivantes). Sans lui, l'app ne propose
+    /// pas l'AV1.
     public let av1: Bool
 
     public static let current = DecoderCapabilities.probe()
