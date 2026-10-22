@@ -4,7 +4,7 @@ English · [Français](README.md)
 
 KyberNow Link on Android: a single app for phone, tablet, TV (Android TV, Google TV) and handheld console, bringing back the computer (KyberNow Station: Kyber 0.29 server + KyberNow Admin) full screen, by touch, with the remote, keyboard and mouse, or a gamepad. Brand v2 ([guidelines](../../brand/v2/README.en.md)); mock-ups: [Claude Design](https://claude.ai/artifact/Ug3n57UPSvsrA3Hd9UMawX) (home, session menu, gamepads and rumble, image settings on the TV; home, adding and session on the phone; home on the tablet).
 
-**Status**: framing, mock-ups and the Rust core build script (`scripts/build-core.sh`). No app code yet. The decision is in [PROJECT.en.md](../../PROJECT.en.md) (“Android and Android TV”).
+**Status**: framing, mock-ups, and the Rust core building for Android's three targets (`scripts/build-core.sh`, 22/10/2026). No app code yet. The decision is in [PROJECT.en.md](../../PROJECT.en.md) (“Android and Android TV”).
 
 ## Devices
 
@@ -69,11 +69,10 @@ apps/android/scripts/build-core.sh                 # all three targets
 apps/android/scripts/build-core.sh --target aarch64-linux-android --check
 ```
 
-`scripts/build-core.sh` applies the patches in `apps/macos/kyber-patches`, builds libkynput without SDL into `third_party/kyber-desktop/rootfs-<target>` (`cargo cinstall`), then the core for each target, with the NDK's clang for API 30 (C compiler, linker, and `--sysroot` for bindgen). Kyber 0.29's sources go in `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
+`scripts/build-core.sh` applies the patches in `apps/macos/kyber-patches`, builds libkynput without SDL into `third_party/kyber-desktop/rootfs-<target>` (`cargo cinstall`), lays down a `libvlc.pc` with no library (vlc-rs, a dependency of kyvlcplayer on Android, only asks pkg-config for it; VLC's functions, never called, will be empty functions in the JNI library, as on iOS), then builds the core for each target, with the NDK's clang for API 30 (C compiler, linker, and `--sysroot` for bindgen). Checked on 22/10/2026 with rustc 1.97.0 and NDK r27c, on Linux: all three targets build (a minute and a half each, libkynput included). Kyber 0.29's sources go in `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
 
 ## To do
 
-- Build the core for the three targets (the script has not run with the NDK yet).
 - The JNI bridge, then the Kotlin app.
 - On the Station side: relay the phone's computers to the TV (code shown on the TV).
 - On the Shield: which gamepads vibrate over Bluetooth under Android 11, 1080p at 120 Hz end to end, the TV's game mode.

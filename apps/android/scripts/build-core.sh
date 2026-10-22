@@ -158,11 +158,31 @@ ensure_kynput() {
     [ -f "$prefix/lib/pkgconfig/kynput.pc" ] || { echo "libkynput ($target) non installée dans $prefix" >&2; exit 1; }
 }
 
+# libvlc.pc sans bibliothèque : vlc-rs (dépendance de kyvlcplayer sur Android)
+# ne fait que la demander à pkg-config. VLC n'est jamais appelé (l'image et le
+# son vont à l'app) : ses fonctions seront des fonctions vides dans la
+# bibliothèque JNI, comme sur iOS (apps/apple/scripts/build-apple-mobile.sh).
+ensure_libvlc_pc() {
+    local prefix=$1
+    [ -f "$prefix/lib/pkgconfig/libvlc.pc" ] && return 0
+    mkdir -p "$prefix/lib/pkgconfig"
+    cat > "$prefix/lib/pkgconfig/libvlc.pc" <<'EOF'
+# Écrit par apps/android/scripts/build-core.sh : VLC n'est jamais appelé sur
+# Android, ses fonctions sont fournies vides par la bibliothèque JNI.
+Name: libvlc
+Description: VLC absent (fonctions vides)
+Version: 4.0.0
+Libs:
+Cflags:
+EOF
+}
+
 build_target() {
     local target=$1 prefix started
     prefix="$KYBER/rootfs-$target"
     use_target "$target"
     ensure_kynput "$target" "$prefix"
+    ensure_libvlc_pc "$prefix"
     echo "==> cargo $COMMAND ($target, API $API)"
     started=$(date +%s)
     (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-core --release --target "$target")
