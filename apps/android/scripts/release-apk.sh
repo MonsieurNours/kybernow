@@ -61,8 +61,9 @@ APKSIGNER="$(ls -d "$SDK"/build-tools/*/apksigner 2> /dev/null | sort -V | tail 
 password() { security find-generic-password -s "$ITEM" -w 2> /dev/null; }
 
 fingerprint() {
-    KN_STOREPASS="$1" "$KEYTOOL" -list -v -keystore "$STORE" -alias "$ALIAS" -storepass:env KN_STOREPASS 2> /dev/null \
-        | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' | tr -d ':' | tr 'A-F' 'a-f' | head -1
+    # Sortie de keytool en anglais (en français : « SHA 256 »), empreinte en minuscules sans « : ».
+    KN_STOREPASS="$1" "$KEYTOOL" -J-Duser.language=en -J-Duser.country=US -list -v -keystore "$STORE" -alias "$ALIAS" -storepass:env KN_STOREPASS 2> /dev/null \
+        | sed -nE 's/^[[:space:]]*SHA[- ]?256:[[:space:]]*//p' | tr -d ': ' | tr 'A-F' 'a-f' | head -1
 }
 
 if [ ! -f "$STORE" ]; then
@@ -84,7 +85,9 @@ if [ ! -f "$STORE" ]; then
         -dname "CN=KyberNow Link, O=Les lignes claires, C=FR" -storepass:env KN_STOREPASS -keypass:env KN_STOREPASS > /dev/null
     chmod 600 "$STORE"
     if [ -z "${KYBERNOW_ANDROID_KEYSTORE:-}" ]; then
-        fingerprint "$PW" > "$CERT_FILE"
+        NEW="$(fingerprint "$PW")"
+        [ -n "$NEW" ] || { echo "clé créée mais empreinte illisible : $STORE" >&2; exit 1; }
+        printf '%s\n' "$NEW" > "$CERT_FILE"
         echo "    certificat : $(cat "$CERT_FILE") (écrit dans ${CERT_FILE#"$ROOT"/}, à commiter)"
         echo "    à sauvegarder hors ligne avec son mot de passe (docs/releases.md)"
     fi
