@@ -8,14 +8,14 @@ Key facts:
 - **Latency**: 9.4 ms median from capture to display, measured on 19 October 2026 (RTX 3080 Ti at 3840 × 2160, 160 Hz, to a MacBook Pro M4 Max, local network, H.264).
 - **Three products**: KyberNow Station (on the Windows computer that streams), KyberNow Admin (the Station's administration, in the browser) and KyberNow Link (the apps that display the image on your devices). "KyberNow" alone is the name of the whole project. Former names: KyberNow Server (now Station), the KyberNow console (now Admin), the KyberNow apps or clients (now Link).
 - **KyberNow Station**: Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor. One installer (KyberNow-Station-Setup.exe) sets up the Kyber engine, KyberNow Admin, a virtual display and virtual speakers per session, gamepad drivers and the firewall.
-- **KyberNow Link**: your computer on all your devices. Native apps for Mac, Windows, Apple TV, iPhone, iPad and Android TV (tried on the NVIDIA Shield) decode the image in hardware for the lowest latency; a web version served by the Station itself works on any computer, tablet or phone with a modern browser.
+- **KyberNow Link**: your computer on all your devices. Native apps for Mac, Windows, Apple TV, iPhone, iPad and Android 11 or later (phones, tablets, Android TV and Google TV) decode the image in hardware for the lowest latency; a web version served by the Station itself works on any computer, tablet or phone with a modern browser.
 - **Versus Sunshine + Moonlight**: QUIC (RFC 9000) instead of GameStream; image always encrypted (TLS 1.3); a single port; virtual display at the device's resolution built in; pairing through Bonjour, QR code or an on-screen code instead of a PIN; Opus sound up to 7.1; works in the browser too. Not yet: HDR.
 - **Price**: free, no account, no subscription, no ads. Community, non-commercial project by Les Lignes Claires. Not affiliated with or endorsed by the Kyber team.
 
 ## Pages
 
 - [Home (English)](https://www.kybernow.app/en/): presentation, the three products (Station, Admin, Link), path of an image, QUIC, comparison with Sunshine + Moonlight, downloads
-- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing KyberNow Station, connecting a Mac, a Windows PC, an Apple TV, an iPhone or iPad, an Android TV, or a browser with KyberNow Link, sessions, VPN, updates, uninstalling, frequently asked questions
+- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing KyberNow Station, connecting a Mac, a Windows PC, an Apple TV, an iPhone or iPad, an Android device, or a browser with KyberNow Link, sessions, VPN, updates, uninstalling, frequently asked questions
 - [Accueil (français)](https://www.kybernow.app/): the same presentation in French
 - [Guide et FAQ (français)](https://www.kybernow.app/guide/): the same guide in French
 

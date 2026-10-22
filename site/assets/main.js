@@ -293,8 +293,8 @@ if (document.querySelector('.dl-card')) {
   const touch = navigator.maxTouchPoints > 1;
   const isMac = /Macintosh|Mac OS X/.test(ua) && !touch;
   const isWindows = /Windows/.test(ua);
-  // Mac : l'app ; Windows : l'installateur ; tablette, téléphone et le reste : le navigateur
-  const target = isMac ? 'mac' : isWindows ? 'windows' : 'web';
+  // Mac : l'app ; Windows : l'installateur ; Android : l'APK ; tablette, téléphone et le reste : le navigateur
+  const target = isMac ? 'mac' : isWindows ? 'windows' : /Android/.test(ua) ? 'android' : 'web';
   const card = document.querySelector(`.dl-card[data-os="${target}"]`);
   if (card) {
     card.classList.add('is-primary');
@@ -318,10 +318,12 @@ if (osTiles.length) {
     return true;
   };
   const ua = navigator.userAgent;
-  const guess = /Android/.test(ua) && /TV|SHIELD|AFT/.test(ua) ? 'android-tv' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
+  const guess = /Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
     : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : 'navigateur';
   // Arrivée sur une ancre : l'installation était masquée, le navigateur n'a pas pu y aller.
-  if (!open(location.hash.slice(1), 'jump')) open(guess, false);
+  // #android-tv : ancre des premiers liens partagés.
+  const hash = location.hash.slice(1) === 'android-tv' ? 'android' : location.hash.slice(1);
+  if (!open(hash, 'jump')) open(guess, false);
   osTiles.forEach((a, i) => {
     a.addEventListener('click', e => {
       e.preventDefault();
@@ -337,7 +339,7 @@ if (osTiles.length) {
     });
   });
   // Lien vers une installation depuis la page (FAQ, mises à jour…).
-  addEventListener('hashchange', () => open(location.hash.slice(1), true));
+  addEventListener('hashchange', () => open(location.hash.slice(1) === 'android-tv' ? 'android' : location.hash.slice(1), true));
 }
 
 /* ---------- Dernière version publiée (si GitHub répond) ---------- */

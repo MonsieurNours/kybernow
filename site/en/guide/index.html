@@ -179,7 +179,7 @@
    "name": "What about Android?",
    "acceptedAnswer": {
     "@type": "Answer",
-    "text": "The Android TV app is tried on the NVIDIA Shield TV and installed from a computer until it is on the Play Store: see On Android TV. On an Android phone or tablet, use KyberNow Link in the browser for now."
+    "text": "Yes: a single app for phones, tablets and TVs, from Android 11. Until it is on the Play Store, it is installed from its APK file: see On Android."
    }
   },
   {
@@ -307,7 +307,7 @@
             <li>A PC on Windows 10 22H2 or Windows 11, x64 or ARM64 (Snapdragon, on Windows 11), for the app</li>
             <li>An Apple TV 4K from 2021 or later on tvOS 18 or later, and a Mac with Xcode to install the app on it</li>
             <li>An iPhone or iPad on iOS 18 or iPadOS 18 or later, and a Mac with Xcode to install the app on it</li>
-            <li>An NVIDIA Shield TV, and a computer on the same network to install the app on it</li>
+            <li>A phone, tablet or TV on Android 11 or later (Android TV, Google TV, NVIDIA Shield)</li>
             <li>Or any recent browser, on a computer, tablet or phone</li>
             <li>On the same network as the computer, or linked to it by a VPN</li>
           </ul>
@@ -352,7 +352,7 @@
         <a class="os-tile" role="tab" id="tab-windows" href="#windows" aria-controls="windows"><svg class="ic-lg"><use href="/assets/icons.svg#windows-logo"/></svg><b>Windows</b><span>x64 and ARM64 PCs</span></a>
         <a class="os-tile" role="tab" id="tab-apple-tv" href="#apple-tv" aria-controls="apple-tv"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span>From a Mac</span></a>
         <a class="os-tile" role="tab" id="tab-iphone" href="#iphone" aria-controls="iphone"><svg class="ic-lg"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone and iPad</b><span>From a Mac</span></a>
-        <a class="os-tile" role="tab" id="tab-android-tv" href="#android-tv" aria-controls="android-tv"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android TV</b><span>NVIDIA Shield</span></a>
+        <a class="os-tile" role="tab" id="tab-android" href="#android" aria-controls="android"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span>Android 11 or later</span></a>
         <a class="os-tile" role="tab" id="tab-navigateur" href="#navigateur" aria-controls="navigateur"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><b>Browser</b><span>Nothing to install</span></a>
       </div>
 
@@ -442,24 +442,30 @@ cd kybernow</code></pre></li>
       <p class="muted">Full procedure and troubleshooting: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md" rel="noopener">installing KyberNow Link on your iPhone or iPad</a>.</p>
       </div>
 
-      <div class="os-panel" id="android-tv" role="tabpanel" aria-labelledby="tab-android-tv">
-      <h3 class="sub">On Android TV</h3>
-      <p>Tried on the NVIDIA Shield TV: up to 4K at 60&nbsp;Hz in HEVC, 7.1 sound on an HDMI receiver, Bluetooth gamepads. Until it is on the Play Store, the app is installed from a computer on the same network with <code>adb</code>, Android's developer tool. Allow five minutes the first time.</p>
+      <div class="os-panel" id="android" role="tabpanel" aria-labelledby="tab-android">
+      <h3 class="sub">On Android</h3>
+      <p>A single app for phones, tablets and TVs (Android TV, Google TV, NVIDIA Shield), from Android&nbsp;11. On the TV: up to 4K at 60&nbsp;Hz, 7.1 sound on an HDMI receiver, Bluetooth gamepads and the remote. Until it is on the Play Store, the app is installed from its file, <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a>.</p>
+      <p><b>On a phone or tablet</b></p>
       <ol class="steps-doc">
-        <li><p>On the Shield, turn on developer options: <b>Settings › Device Preferences › About</b>, then click <b>Build</b> seven times. In <b>Device Preferences › Developer options</b>, turn on <b>Network debugging</b> and note the Shield's address.</p></li>
+        <li><p>On the device, open the <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a> link, then the downloaded file.</p></li>
+        <li><p>Android asks you to allow your browser to install apps: allow it, go back, then tap <b>Install</b>.</p></li>
+      </ol>
+      <p><b>On a TV</b>: the simplest way is through a computer on the same network, with <code>adb</code>, Android's developer tool. Allow five minutes the first time.</p>
+      <ol class="steps-doc">
+        <li><p>On the TV, turn on developer options: <b>Settings › Device Preferences › About</b> (on Google TV: <b>Settings › System › About</b>), then click <b>Build</b> seven times. In <b>Developer options</b>, turn on <b>Network debugging</b> (or <b>ADB debugging</b>) and note the TV's address.</p></li>
         <li><p>On the computer, download <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a> and install <code>adb</code>: on a Mac with <a href="https://brew.sh" rel="noopener">Homebrew</a>, <code>brew install android-platform-tools</code>; elsewhere, Google's <a href="https://developer.android.com/tools/releases/platform-tools" rel="noopener">SDK Platform-Tools</a>.</p></li>
-        <li><p>Connect the computer to the Shield, then install the app, from the folder of the downloaded file:</p>
+        <li><p>Connect the computer to the TV, then install the app, from the folder of the downloaded file:</p>
           <pre><code>adb connect 192.168.1.30
 adb install KyberNow-Link-Android.apk</code></pre>
-          <p>Replace the address with the Shield's. On the first <code>adb connect</code>, the TV asks you to allow debugging: tick “Always allow” and confirm.</p></li>
-        <li><p>Open KyberNow from the Shield's apps, then add the computer:</p>
-          <ul class="ticks">
-            <li><b>On the network</b>: the computer shows up on its own.</li>
-            <li><b>Code on screen</b>: accept the six-digit code shown by the app in Admin, on the <b>Link devices</b> page: nothing to type with the remote.</li>
-          </ul>
-        </li>
+          <p>Replace the address with the TV's. On the first <code>adb connect</code>, it asks you to allow debugging: tick “Always allow” and confirm. You can turn debugging off afterwards.</p></li>
       </ol>
-      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>Once the app is installed, you can turn network debugging off. You will only need it again to install a new version.</span></p>
+      <p><b>Then, everywhere</b>: open KyberNow and add the computer.</p>
+      <ul class="ticks">
+        <li><b>On the network</b>: the computer shows up on its own.</li>
+        <li><b>Code on screen</b>: accept the six-digit code shown by the app in Admin, on the <b>Link devices</b> page: nothing to type.</li>
+        <li><b>QR code</b>, on a phone or tablet: Admin's, on the <b>Link devices</b> page, “Add a device”.</li>
+        <li><b>Address</b>: its IP address or name, for example over a VPN.</li>
+      </ul>
       </div>
 
       <div class="os-panel" id="navigateur" role="tabpanel" aria-labelledby="tab-navigateur">
@@ -503,7 +509,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
         <div class="tr"><span class="th">Touch surface</span><span>As a mouse: your finger moves the pointer, a click is a left click, Play/Pause a right click</span></div>
       </div>
       <p class="muted">Up to four gamepads (Xbox, DualSense, DualShock), each one a player on the computer, with rumble. A Bluetooth keyboard and mouse work too.</p>
-      <h3 class="sub">On Android TV</h3>
+      <h3 class="sub">On an Android TV</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Back</kbd></span><span>Opens the session menu: stream health, profiles, sound, remote or gamepad as mouse, text input, keys, measurements, disconnect</span></div>
         <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Held together, open the same menu from the gamepad</span></div>
@@ -529,7 +535,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
       <p><b>The Mac app</b>: it updates itself, or through <b>KyberNow Link › Check for Updates…</b></p>
       <p><b>The Windows app</b>: it updates itself, with signed updates. Its settings (the gear in the title bar) also offer beta versions.</p>
       <p><b>The Apple TV app</b>: in the <code>kybernow</code> folder, run <code>git pull</code>, then the installation command again. With a free Apple account, do it before the 7&nbsp;days are up.</p>
-      <p><b>The Android TV app</b>: download the new <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk">KyberNow-Link-Android.apk</a>, then run <code>adb install -r KyberNow-Link-Android.apk</code> from the computer (network debugging on, on the Shield). Your computers and settings stay.</p>
+      <p><b>The Android app</b>: it checks for new versions and offers to install them, with signed updates; its settings (<b>App settings › Updates</b>) offer beta versions too. On a TV, the first time, Android asks you to allow KyberNow to install apps.</p>
       <p class="muted">Without Admin, from PowerShell as administrator:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
@@ -540,7 +546,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
       <p><b>The Mac</b>: drag KyberNow Link from Applications to the Trash.</p>
       <p><b>The Windows PC</b>: Windows Settings › Apps › Installed apps › KyberNow Link › Uninstall. The app offers to erase your computers, settings and passwords as well.</p>
       <p><b>The Apple TV</b>: on the Home Screen, press and hold the touch surface on the KyberNow icon, then choose to delete the app.</p>
-      <p><b>The Shield</b>: <b>Settings › Apps</b>, KyberNow, then <b>Uninstall</b>.</p>
+      <p><b>Android</b>: <b>Settings › Apps</b>, KyberNow, then <b>Uninstall</b>.</p>
     </section>
 
     <section id="faq" class="doc-section">
@@ -562,7 +568,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
         <details><summary>The image stays black or freezes.</summary><p>Update the Station and the app: the app asks for a full image again after a loss, and lightens the stream if the image does not arrive. Prefer an Ethernet cable on the computer, and check that no other streaming app is using the encoder.</p></details>
         <details><summary>I forgot the password.</summary><p>On the computer, right-click the KyberNow Station icon › “Reset the Admin password…”, then follow Admin to choose a new one.</p></details>
         <details><summary>Does the app work on an Intel Mac?</summary><p>No, it requires Apple silicon (M1 or later). On an Intel Mac, use KyberNow Link in the browser.</p></details>
-        <details><summary>What about Android?</summary><p>The Android TV app is tried on the NVIDIA Shield TV and installed from a computer until it is on the Play Store: see <a href="#android-tv">On Android TV</a>. On an Android phone or tablet, use KyberNow Link in the browser for now.</p></details>
+        <details><summary>What about Android?</summary><p>Yes: a single app for phones, tablets and TVs, from Android&nbsp;11. Until it is on the Play Store, it is installed from its APK file: see <a href="#android">On Android</a>.</p></details>
         <details><summary>What about the iPhone and iPad app?</summary><p>Not on the App Store or TestFlight yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see <a href="#iphone">On iPhone and iPad</a>. It needs iOS&nbsp;18 or iPadOS&nbsp;18 or later.</p></details>
         <details><summary>Why is the Apple TV app not on the App Store?</summary><p>Not yet. Until then, it is installed from a Mac with Xcode, signed with your own Apple account: see <a href="#apple-tv">On Apple TV</a>. It needs an Apple TV 4K from 2021 or later; older models cannot run the app.</p></details>
         <details><summary>How is KyberNow related to Kyber?</summary><p>KyberNow uses <a href="https://kyber.tech">Kyber</a>, the open-source streaming engine built by VLC developers, and adds KyberNow Station (installer, virtual displays and speakers), KyberNow Admin and the KyberNow Link apps. KyberNow is neither published nor endorsed by the Kyber team, and is not affiliated with it. Our fixes to the engine are published.</p></details>

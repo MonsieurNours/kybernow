@@ -376,6 +376,8 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .dl-card h3 { font-size: clamp(22px, 2.2vw, 28px); margin-top: 8px; }
 .specs { list-style: none; margin: 16px 0 28px; padding: 0; display: grid; gap: 6px; color: var(--kn-frost-2); font-size: 15px; flex: 1; }
 .specs li[data-size] { font: 500 13px/1.6 var(--kn-font-mono); color: var(--kn-mist); }
+.dl-more { margin-top: 12px; font-size: 14px; color: var(--kn-mist); text-decoration-color: var(--kn-line-2); text-underline-offset: 3px; }
+.dl-more:hover { color: var(--kn-frost); }
 /* Carte vedette : un seul coin coupé, comme le bouton principal */
 .dl-card.is-primary {
   box-shadow: none; border-radius: var(--kn-r-card) var(--kn-r-card) 0 var(--kn-r-card);
