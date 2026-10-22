@@ -15,7 +15,7 @@ KyberNow brings together three products:
 | `PROJECT.md` | Scope and decisions (in English: [PROJECT.en.md](PROJECT.en.md)) |
 | `apps/macos/` | KyberNow Link for Mac (SwiftUI, VideoToolbox, Metal, Core Audio) on the Rust core, see [its README](apps/macos/README.en.md) |
 | `apps/apple/` | C bridge between the Rust core and the Apple apps (`libkybernow`), see [docs/coeur-apple.en.md](docs/coeur-apple.en.md) |
-| `apps/android/` | KyberNow Link for Android and Android TV: framing, mock-ups and building the core, see [its README](apps/android/README.en.md) |
+| `apps/android/` | KyberNow Link for Android and Android TV (Kotlin, Compose, the core's JNI bridge in `apps/android/jni`), see [its README](apps/android/README.en.md) |
 | `apps/tvos/`, `apps/ios/` | KyberNow Link for Apple TV and for iPhone/iPad, see their READMEs ([Apple TV](apps/tvos/README.en.md), [iPhone and iPad](apps/ios/README.en.md)) |
 | `apps/core/`, `apps/windows/` | Rust client core of the KyberNow Link apps (session, talking to Admin, profiles, latency, updates, shared inputs and sound, see [its README](apps/core/README.en.md)) and KyberNow Link for Windows (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Link-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
 | `server/` | KyberNow Station: everything that runs on the computer that streams its image, see [its README](server/README.en.md) |

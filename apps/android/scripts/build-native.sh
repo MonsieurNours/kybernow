@@ -1,27 +1,31 @@
 #!/bin/bash
-# Compile le cœur client (kybernow-core, apps/core) pour Android, avec les
-# correctifs KyberNow de kyclient (apps/macos/kyber-patches), et laisse les
-# artefacts dans apps/target/<cible>/release. Comme apps/core/scripts/build-apple.sh
-# pour les cibles Apple : vérifier que toute la chaîne de dépendances (kyclient
-# avec kymux, kynput-rs, kyvlcplayer, rustls, ureq…) compile pour Android, et
-# construire libkynput (sans SDL : les manettes passent par l'app).
+# Compile la bibliothèque native de l'app Android, libkybernow.so : le cœur
+# client (kybernow-core, apps/core) et son pont JNI (kybernow-android,
+# apps/android/jni), avec les correctifs KyberNow de kyclient
+# (apps/macos/kyber-patches), libkynput (sans SDL : les manettes passent par
+# l'app), libopus et les fonctions vides de VLC. Chaque bibliothèque va dans
+# apps/android/app/src/main/jniLibs/<abi>/, que Gradle embarque.
 #
-#   apps/android/scripts/build-core.sh                      toutes les cibles
-#   apps/android/scripts/build-core.sh --target <cible>     une seule
-#   apps/android/scripts/build-core.sh --check              cargo check seul
+#   apps/android/scripts/build-native.sh                      toutes les cibles
+#   apps/android/scripts/build-native.sh --target <cible>     une seule
+#   apps/android/scripts/build-native.sh --check              cargo check seul
+#   apps/android/scripts/build-native.sh --debug              sans optimisation
 #
-#   aarch64-linux-android       téléphones, tablettes, Shield, Google TV Streamer
-#   armv7-linux-androideabi     Chromecast avec Google TV et téléviseurs dont
-#                               Android est en 32 bits (puce 64 bits ou non)
-#   x86_64-linux-android        émulateur
+#   aarch64-linux-android       arm64-v8a : téléphones, tablettes, Shield, Google TV Streamer
+#   armv7-linux-androideabi     armeabi-v7a : Chromecast avec Google TV et
+#                               téléviseurs dont Android est en 32 bits
+#   x86_64-linux-android        x86_64 : émulateur
 #
 # Android 11 au moins (API 30, la Shield). NDK r27c (27.2.12479018) :
 # ANDROID_NDK_HOME, sinon $ANDROID_HOME/ndk/27.2.12479018, sinon le SDK
 # d'Android Studio (~/Library/Android/sdk sur Mac, ~/Android/Sdk sur Linux).
-# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> avec
-# libkynput et kynput.pc (kynput-sys les lit par pkg-config et bindgen).
+# Chaque cible a son rootfs third_party/kyber-desktop/rootfs-<cible> :
+# libkynput, libopus et leurs .pc (lus par kynput-sys et le cœur), et un
+# libvlc.pc sans bibliothèque. Les sources d'Opus 1.6.1 sont prises dans
+# third_party/opus-1.6.1 (clonées depuis GitHub si absentes).
 #
-# S'arrête à la première erreur (correctif inapplicable, compilation ratée).
+# S'arrête à la première erreur (correctif inapplicable, compilation ratée)
+# sans toucher aux bibliothèques déjà en place.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -32,6 +36,8 @@ ROOT="$(cd "$APPS/.." && pwd)"
 THIRD_PARTY="$(cd "$ROOT/third_party" 2>/dev/null && pwd -P)" || { echo "third_party/ introuvable (docs/build-notes.md)" >&2; exit 1; }
 KYBER="$THIRD_PARTY/kyber-desktop"
 KYSDK="$KYBER/kysdk"
+OPUS_SRC="$THIRD_PARTY/opus-1.6.1"
+JNILIBS="$HERE/app/src/main/jniLibs"
 API=30
 NDK_VERSION=27.2.12479018
 . "$ROOT/scripts/kyber-toolchain.sh"
@@ -39,10 +45,12 @@ NDK_VERSION=27.2.12479018
 ALL_TARGETS=(aarch64-linux-android armv7-linux-androideabi x86_64-linux-android)
 TARGETS=()
 COMMAND=build
+PROFILE=release
 while [ $# -gt 0 ]; do
     case "$1" in
         --target) TARGETS+=("${2:-}"); shift ;;
         --check) COMMAND=check ;;
+        --debug) PROFILE=debug ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
@@ -82,7 +90,7 @@ SYSROOT="$LLVM/sysroot"
 [ -x "$LLVM/bin/clang" ] || { echo "clang du NDK absent : $LLVM/bin/clang" >&2; exit 1; }
 
 export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
-# bindgen (kynput-sys) : la libclang du NDK, qui connaît les cibles Android.
+# bindgen (kynput-sys) : la libclang du NDK quand il en a une (macOS), sinon celle du système.
 if [ -z "${LIBCLANG_PATH:-}" ]; then
     for dir in "$LLVM/lib" "$LLVM/lib64"; do
         if compgen -G "$dir/libclang.*" >/dev/null; then export LIBCLANG_PATH="$dir"; break; fi
@@ -101,6 +109,15 @@ clang_triple() {
     case "$1" in
         armv7-linux-androideabi) echo "armv7a-linux-androideabi$API" ;;
         *) echo "$1$API" ;;
+    esac
+}
+
+# ABI d'Android (dossier de jniLibs) de chaque cible Rust.
+abi_of() {
+    case "$1" in
+        aarch64-linux-android) echo arm64-v8a ;;
+        armv7-linux-androideabi) echo armeabi-v7a ;;
+        x86_64-linux-android) echo x86_64 ;;
     esac
 }
 
@@ -158,16 +175,37 @@ ensure_kynput() {
     [ -f "$prefix/lib/pkgconfig/kynput.pc" ] || { echo "libkynput ($target) non installée dans $prefix" >&2; exit 1; }
 }
 
+# libopus (moteur de son du cœur), statique, dans le rootfs de la cible.
+# Sources : le tag v1.6.1 du dépôt d'Opus (la version de Kyber 0.29).
+ensure_opus() {
+    local target=$1 prefix=$2 build
+    [ -f "$prefix/lib/pkgconfig/opus.pc" ] && [ -f "$prefix/lib/libopus.a" ] && return 0
+    if [ ! -f "$OPUS_SRC/CMakeLists.txt" ]; then
+        echo "==> sources d'Opus 1.6.1 dans $OPUS_SRC"
+        git clone -q --depth 1 --branch v1.6.1 https://github.com/xiph/opus.git "$OPUS_SRC"
+    fi
+    echo "==> libopus ($target) dans $prefix"
+    build="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-opus.XXXXXX")"
+    cmake -S "$OPUS_SRC" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+        -DANDROID_ABI="$(abi_of "$target")" -DANDROID_PLATFORM=$API \
+        -DCMAKE_INSTALL_PREFIX="$prefix" -DOPUS_BUILD_PROGRAMS=OFF -DOPUS_BUILD_TESTING=OFF \
+        -DOPUS_BUILD_SHARED_LIBRARY=OFF -DOPUS_DRED=OFF -DOPUS_OSCE=OFF >/dev/null
+    cmake --build "$build" --target install >/dev/null
+    rm -rf "$build"
+    [ -f "$prefix/lib/libopus.a" ] || { echo "libopus ($target) non construite" >&2; exit 1; }
+}
+
 # libvlc.pc sans bibliothèque : vlc-rs (dépendance de kyvlcplayer sur Android)
 # ne fait que la demander à pkg-config. VLC n'est jamais appelé (l'image et le
-# son vont à l'app) : ses fonctions seront des fonctions vides dans la
-# bibliothèque JNI, comme sur iOS (apps/apple/scripts/build-apple-mobile.sh).
+# son vont à l'app) : ses fonctions sont des fonctions vides compilées dans
+# la bibliothèque JNI (apps/android/jni/build.rs), comme sur iOS.
 ensure_libvlc_pc() {
     local prefix=$1
     [ -f "$prefix/lib/pkgconfig/libvlc.pc" ] && return 0
     mkdir -p "$prefix/lib/pkgconfig"
     cat > "$prefix/lib/pkgconfig/libvlc.pc" <<'EOF'
-# Écrit par apps/android/scripts/build-core.sh : VLC n'est jamais appelé sur
+# Écrit par apps/android/scripts/build-native.sh : VLC n'est jamais appelé sur
 # Android, ses fonctions sont fournies vides par la bibliothèque JNI.
 Name: libvlc
 Description: VLC absent (fonctions vides)
@@ -178,24 +216,28 @@ EOF
 }
 
 build_target() {
-    local target=$1 prefix started
+    local target=$1 prefix started abi lib flags=()
     prefix="$KYBER/rootfs-$target"
     use_target "$target"
     ensure_kynput "$target" "$prefix"
+    ensure_opus "$target" "$prefix"
     ensure_libvlc_pc "$prefix"
-    echo "==> cargo $COMMAND ($target, API $API)"
+    [ "$PROFILE" = release ] && flags+=(--release)
+    echo "==> cargo $COMMAND kybernow-android ($target, API $API, $PROFILE)"
     started=$(date +%s)
-    (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-core --release --target "$target")
-    if [ "$COMMAND" = build ]; then
-        local rlib="$APPS/target/$target/release/libkybernow_core.rlib"
-        [ -f "$rlib" ] || { echo "$rlib absent" >&2; exit 1; }
-        echo "    $rlib ($(du -h "$rlib" | cut -f1), $(( $(date +%s) - started )) s)"
-    else
-        echo "    $target vérifiée ($(( $(date +%s) - started )) s)"
-    fi
+    (cd "$APPS" && cargo_quiet cargo "$COMMAND" -p kybernow-android --lib "${flags[@]}" --target "$target")
+    [ "$COMMAND" = build ] || { echo "    $target vérifiée ($(( $(date +%s) - started )) s)"; return 0; }
+    lib="$APPS/target/$target/$PROFILE/libkybernow.so"
+    [ -f "$lib" ] || { echo "$lib absent" >&2; exit 1; }
+    abi="$(abi_of "$target")"
+    mkdir -p "$JNILIBS/$abi"
+    # Sans les informations de débogage dans l'APK (gardées dans target/).
+    "$LLVM/bin/llvm-strip" --strip-debug -o "$JNILIBS/$abi/libkybernow.so.new" "$lib"
+    mv "$JNILIBS/$abi/libkybernow.so.new" "$JNILIBS/$abi/libkybernow.so"
+    echo "    $abi/libkybernow.so ($(du -h "$JNILIBS/$abi/libkybernow.so" | cut -f1), $(( $(date +%s) - started )) s)"
 }
 
 for target in "${TARGETS[@]}"; do
     build_target "$target"
 done
-echo "kybernow-core : ${TARGETS[*]}"
+echo "libkybernow.so : ${TARGETS[*]}"

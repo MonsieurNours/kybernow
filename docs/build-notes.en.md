@@ -16,7 +16,8 @@ KyberNow's Kyber binaries (server overlay, Mac, Apple TV, iPhone and iPad app li
 | llvm-mingw | 20261006 (UCRT, macOS), clang 23.1.3 | Windows ARM64 client, in `third_party/toolchains` |
 | wasm-bindgen-cli | 0.2.100 (the one in kyber-web's `Cargo.lock`) | web client engine |
 | binaryen (`wasm-opt`) | 133 | web client engine |
-| Android NDK | r27c (27.2.12479018), checked with rustc 1.97.0 on Linux; Rust targets `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | client core for Android (`apps/android/scripts/build-core.sh`) |
+| Android NDK | r27c (27.2.12479018), checked with rustc 1.97.0 on Linux; Rust targets `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | client core and JNI bridge for Android (`apps/android/scripts/build-native.sh`) |
+| Android SDK, Gradle | platform 36, Android Gradle Plugin 8.13, Gradle 8.14 (wrapper), Kotlin 2.4, JDK 17 or later | Android app (`apps/android`) |
 
 Kyber's repositories have no `rust-toolchain.toml`: rustup's default toolchain does the build.
 

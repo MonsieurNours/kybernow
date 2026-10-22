@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Symbole Relais, état now (charte v2). Généré par apps/android/scripts/brand-drawables.py : ne pas retoucher. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="48.0" android:viewportHeight="48.0">
+    <group android:translateX="0" android:translateY="0" android:scaleX="1" android:scaleY="1">
+        <path android:fillColor="#E3EDF0" android:pathData="M7 0 L42.275 0 A1.2 1.2 0 0 1 43.123 2.049 L2.049 43.123 A1.2 1.2 0 0 1 0 42.275 L0 7 A7 7 0 0 1 7 0 Z" />
+        <path android:fillColor="#9A8CFF" android:pathData="M48 5.725 L48 41 A7 7 0 0 1 41 48 L5.725 48 A1.2 1.2 0 0 1 4.877 45.951 L45.951 4.877 A1.2 1.2 0 0 1 48 5.725 Z" />
+    </group>
+</vector>

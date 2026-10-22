@@ -18,3 +18,10 @@ apps/windows/dist/
 apps/windows/ui/dist/
 apps/windows/setup/ui/dist/
 apps/windows/gen/
+
+# App Android : bibliothèques natives (scripts/build-native.sh), builds Gradle, SDK local
+apps/android/app/src/main/jniLibs/
+apps/android/.gradle/
+apps/android/app/build/
+apps/android/build/
+apps/android/local.properties

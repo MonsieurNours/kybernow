@@ -1,0 +1,135 @@
+package fr.leslignesclaires.kybernow.core
+
+import android.view.Surface
+
+/**
+ * Le pont JNI du cœur Rust (`libkybernow.so`, apps/android/jni). Les objets du
+ * cœur passent en `Long` (0 : aucun), libérés par la fonction `…Free`
+ * correspondante. Les réponses d'Admin reviennent en JSON :
+ * `{"code": 0, "value": …}` ou `{"code": …, "error": "…"}`.
+ */
+object Native {
+    init {
+        System.loadLibrary("kybernow")
+    }
+
+    /** Journal vers logcat (`KyberNow`) et langue des messages du cœur. */
+    @JvmStatic external fun init(language: String)
+
+    /** Horloge des mesures de Kyber (µs, CLOCK_MONOTONIC). */
+    @JvmStatic external fun nowMicros(): Long
+
+    // Admin (hors session). Appels bloquants : jamais sur le fil principal.
+    @JvmStatic external fun consoleNew(host: String, port: Int, user: String, password: String, pinned: String?): Long
+    @JvmStatic external fun consoleFree(handle: Long)
+    @JvmStatic external fun consoleFingerprintSeen(handle: Long): String?
+    @JvmStatic external fun consoleInfo(handle: Long): String?
+    @JvmStatic external fun consoleProbe(handle: Long): String?
+    @JvmStatic external fun consolePreview(handle: Long, width: Int): ByteArray?
+    @JvmStatic external fun consolePairRequest(handle: Long, code: String, deviceJson: String): String?
+    @JvmStatic external fun consolePairStatus(handle: Long, id: String): String?
+
+    /** Réglages d'un profil (`jeu`, `bureau`, `max`) selon les décodeurs de l'appareil. */
+    @JvmStatic external fun profileSettings(profile: String, hevc: Boolean, hevc444: Boolean, av1: Boolean): String
+
+    // Session.
+    @JvmStatic external fun sessionStart(params: String, surface: Surface?, listener: SessionListener, refresh: Int): Long
+    @JvmStatic external fun sessionStop(handle: Long)
+    /** Attend la fin du fil de session puis libère : hors du fil principal. */
+    @JvmStatic external fun sessionFree(handle: Long)
+    @JvmStatic external fun sessionSetSurface(handle: Long, surface: Surface?, refresh: Int)
+    @JvmStatic external fun sessionSetSettings(handle: Long, json: String): Boolean
+    @JvmStatic external fun sessionSetBackground(handle: Long, background: Boolean, capBitsPerSecond: Int)
+    @JvmStatic external fun sessionPickDisplay(handle: Long, id: Int)
+    @JvmStatic external fun sessionSetMode(handle: Long, width: Int, height: Int, refresh: Int)
+    @JvmStatic external fun sessionRestoreMode(handle: Long)
+    /** [médiane, p95] en ms, ou nul sans mesure. */
+    @JvmStatic external fun sessionLatency(handle: Long): DoubleArray?
+
+    // Entrées.
+    /** Scancode Windows d'un code de touche Linux (`KeyEvent.getScanCode()`) ; −1 : inconnu. */
+    @JvmStatic external fun scancode(evdev: Int): Int
+    @JvmStatic external fun inputKey(handle: Long, scancode: Int, pressed: Boolean)
+    @JvmStatic external fun inputText(handle: Long, text: String)
+    @JvmStatic external fun pointerMoveBy(handle: Long, dx: Double, dy: Double)
+    @JvmStatic external fun pointerMoveTo(handle: Long, x: Double, y: Double)
+    @JvmStatic external fun inputMouseMove(handle: Long, dx: Int, dy: Int)
+    /** 0 gauche, 1 droit, 2 milieu, 3 précédent, 4 suivant. */
+    @JvmStatic external fun inputMouseButton(handle: Long, button: Int, pressed: Boolean)
+    /** En crans ; positif : vers le bas, vers la droite. */
+    @JvmStatic external fun inputWheel(handle: Long, dx: Float, dy: Float)
+    @JvmStatic external fun inputSetRelative(handle: Long, on: Boolean)
+    @JvmStatic external fun inputReleaseAll(handle: Long)
+    /** Règles Auto / Bureau / Jeu ; `mode` : 0 Auto, 1 Bureau, 2 Jeu. */
+    @JvmStatic external fun mouseWantsRelative(mode: Int, gameFullscreen: Boolean, remoteHidden: Boolean, visibleForMs: Double, relativeActive: Boolean): Boolean
+
+    // Manettes (boutons et axes : voir [Pad]).
+    @JvmStatic external fun padPlug(handle: Long, pad: Int, vendor: Int, product: Int)
+    @JvmStatic external fun padUnplug(handle: Long, pad: Int)
+    @JvmStatic external fun padButton(handle: Long, pad: Int, button: Int, pressed: Boolean)
+    @JvmStatic external fun padAxis(handle: Long, pad: Int, axis: Int, value: Int)
+    @JvmStatic external fun padAxesRest(handle: Long, pad: Int)
+    @JvmStatic external fun padSetComboEnabled(handle: Long, enabled: Boolean)
+}
+
+/** Boutons et axes des manettes, dans l'ordre du cœur (`PadButton::ALL`, `PadAxis::ALL`). */
+object Pad {
+    const val A = 0
+    const val B = 1
+    const val X = 2
+    const val Y = 3
+    const val BACK = 4
+    const val GUIDE = 5
+    const val START = 6
+    const val LEFT_STICK = 7
+    const val RIGHT_STICK = 8
+    const val L1 = 9
+    const val R1 = 10
+    const val UP = 11
+    const val DOWN = 12
+    const val LEFT = 13
+    const val RIGHT = 14
+
+    const val LEFT_X = 0
+    const val LEFT_Y = 1
+    const val RIGHT_X = 2
+    const val RIGHT_Y = 3
+    const val L2 = 4
+    const val R2 = 5
+}
+
+/**
+ * Rappels du cœur pendant une session, depuis ses propres fils (session,
+ * réseau de Kyber, décodeur, entrées) : rester bref, remonter sur le fil
+ * principal ce qui touche l'interface.
+ */
+interface SessionListener {
+    /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
+    fun onStatus(kind: Int, attempt: Int, max: Int, error: String?, hasReport: Boolean, displayRestored: Boolean, audioRestored: Boolean, reportError: String?)
+    fun onDisplay(id: Int, width: Int, height: Int)
+    fun onDisplays(json: String)
+    fun onMode(width: Int, height: Int, refresh: Int, virtualDisplay: Boolean)
+    /**
+     * Mesures de la seconde : latence (ms, −1 sans), aller-retour (ms, −1),
+     * montrées, mesurées, rejetées, images perdues, trous, demandes d'image
+     * clé, paquets perdus, octets, chaîne présente (1/0), puis capture,
+     * encodage, envoi, réseau, décodage, affichage (ms).
+     */
+    fun onSecond(values: DoubleArray)
+    /** 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre ». */
+    fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
+    fun onGameFullscreen(game: Boolean)
+    fun onInputConnected()
+    fun onVideoSize(width: Int, height: Int)
+    fun onDecoder(name: String)
+    fun onAudioOutput(channels: Int, bufferMs: Double)
+    /** Intensités 0 à 65535 (gros moteur grave, petit aigu) ; durée en ms (0 : jusqu'au suivant). */
+    fun onRumble(pad: Int, large: Int, small: Int, durationMs: Int)
+    fun onCombo(pad: Int)
+    /** Pointeur de l'ordinateur ; `pixels` (ARGB prémultiplié) seulement quand la forme change. */
+    fun onPointer(hasPosition: Boolean, x: Double, y: Double, remoteHidden: Boolean, width: Int, height: Int, hotX: Int, hotY: Int, pixels: IntArray?)
+    fun clipChangeCount(): Long
+    fun clipHasText(): Boolean
+    fun clipText(): String?
+    fun clipSetText(text: String)
+}

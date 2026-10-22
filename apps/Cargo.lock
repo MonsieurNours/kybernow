@@ -2208,6 +2208,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-android"
+version = "0.4.4"
+dependencies = [
+ "android_logger",
+ "cc",
+ "jni 0.21.1",
+ "kybernow-core",
+ "kynput-sys",
+ "log",
+ "ndk",
+ "ndk-sys",
+ "pkg-config",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "kybernow-apple"
 version = "0.4.4"
 dependencies = [
