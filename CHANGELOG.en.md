@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.4.6
+
+- Apple TV, iPhone and iPad apps: they declared themselves as version 1.0 (system settings, Admin); they now carry the published release number.
+
 ## 0.4.5
 
 - **KyberNow Link comes to Android and Android TV.** A single app for the phone, the tablet, the TV (Android TV, Google TV, NVIDIA Shield) and the handheld console, from Android 11: home with the computer's image, adding over the network, by code, address or QR code, full-screen session by touch, remote, keyboard and mouse or gamepad (four players, gamepad or remote as a mouse), session menu on the TV, clipboard, a "Resume on a computer" row on the Android TV home screen. Tried on a Shield TV in 4K at 60 Hz.

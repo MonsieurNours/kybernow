@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.4.6
+
+- Apps Apple TV, iPhone et iPad : elles se déclaraient en version 1.0 (réglages du système, Admin) ; elles portent désormais le numéro de la version publiée.
+
 ## 0.4.5
 
 - **KyberNow Link arrive sur Android et Android TV.** Une seule app pour le téléphone, la tablette, le téléviseur (Android TV, Google TV, NVIDIA Shield) et la console portable, à partir d'Android 11 : accueil avec l'image de l'ordinateur, ajout par le réseau, code, adresse ou QR code, session en plein écran au doigt, à la télécommande, au clavier et à la souris ou à la manette (quatre joueurs, manette ou télécommande en souris), menu de session au téléviseur, presse-papiers, rangée « Reprendre sur un ordinateur » sur l'accueil d'Android TV. Essayée sur une Shield TV en 4K à 60 Hz.

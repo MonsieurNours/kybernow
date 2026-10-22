@@ -80,6 +80,9 @@ targets:
     info:
       path: KyberNowTV/Info.plist
       properties:
+        # Versions du projet (alignées par scripts/release.sh), pas le 1.0 d'xcodegen.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: KyberNow
         CFBundleURLTypes:
           - CFBundleURLName: fr.leslignesclaires.kybernow.tv
@@ -118,6 +121,9 @@ targets:
     info:
       path: TopShelf/Info.plist
       properties:
+        # Versions du projet (alignées par scripts/release.sh), pas le 1.0 d'xcodegen.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: KyberNow
         NSExtension:
           NSExtensionPointIdentifier: com.apple.tv-top-shelf

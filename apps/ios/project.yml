@@ -85,6 +85,9 @@ targets:
     info:
       path: KyberNowIOS/Info.plist
       properties:
+        # Versions du projet (alignées par scripts/release.sh), pas le 1.0 d'xcodegen.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleDisplayName: KyberNow
         # Les deux langues de l'app (docs/i18n.md) : les textes du système (Coller…) suivent.
         CFBundleLocalizations: [fr, en]
