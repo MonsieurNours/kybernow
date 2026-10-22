@@ -408,7 +408,7 @@ private fun WideHome(host: Host, st: HostStatus, state: HomeState, actions: Home
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = s.dp(pad), vertical = s.dp(if (s.tv) 32f else 18f))) {
         TopBar(actions)
         Row(Modifier.weight(1f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 92f else 64f, focus) }
+            Box(Modifier.weight(1f)) { Hero(host, st, actions, if (s.tv) 72f else 56f, focus) }
             if (showReady) {
                 Spacer(Modifier.width(s.dp(28f)))
                 ReadyPanel(host, state.ready, Modifier.width(s.dp(if (s.tv) 330f else 300f)))
@@ -442,11 +442,16 @@ private fun Welcome(announced: List<Announced>, actions: HomeActions) {
     val s = LocalScale.current
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { if (s.tv) runCatching { focus.requestFocus() } }
-    Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding().padding(s.dp(if (s.tv) 64f else 24f))) {
-        Column(Modifier.align(Alignment.CenterStart).fillMaxWidth(if (s.tv) 0.6f else 1f), verticalArrangement = Arrangement.spacedBy(s.dp(18f))) {
-            Image(painterResource(R.drawable.kn_logo_link), contentDescription = "KyberNow Link", modifier = Modifier.height(s.dp(if (s.tv) 56f else 36f)))
-            Spacer(Modifier.height(s.dp(10f)))
-            Title(stringResource(R.string.welcome_title), size = if (s.tv) 54f else 34f)
+    Box(Modifier.fillMaxSize().background(Kn.ink).statusBarsPadding().navigationBarsPadding()) {
+        // Défilant : au téléviseur (540 dp de haut), tout ne tient pas toujours ; le focus fait défiler.
+        Column(
+            Modifier.align(Alignment.CenterStart).fillMaxWidth(if (s.tv) 0.62f else 1f).verticalScroll(rememberScrollState())
+                .padding(horizontal = s.dp(if (s.tv) 56f else 24f), vertical = s.dp(if (s.tv) 28f else 24f)),
+            verticalArrangement = Arrangement.spacedBy(s.dp(14f)),
+        ) {
+            Image(painterResource(R.drawable.kn_logo_link), contentDescription = "KyberNow Link", modifier = Modifier.height(s.dp(if (s.tv) 40f else 36f)))
+            Spacer(Modifier.height(s.dp(6f)))
+            Title(stringResource(R.string.welcome_title), size = if (s.tv) 40f else 34f)
             Body(stringResource(R.string.welcome_body), color = Kn.frost2, size = 16f)
             Spacer(Modifier.height(s.dp(6f)))
             announced.forEach { a ->

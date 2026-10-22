@@ -29,8 +29,9 @@ data class Announced(val serviceName: String, val name: String, val address: Str
  *
  * Adresse : l'IPv4 d'abord. Avant Android 14, NsdManager ne rend qu'une
  * adresse, parfois l'IPv6 locale au lien (`fe80::…`), inutilisable sans le
- * nom de l'interface : l'IPv4 est alors redemandée par JmDNS. Faute d'IPv4,
- * une IPv6 routable convient ; une IPv6 locale au lien, jamais.
+ * nom de l'interface : l'IPv4 est alors redemandée par JmDNS, puis
+ * directement pour le nom de l'ordinateur (`MdnsLookup`). Faute d'IPv4, une
+ * IPv6 routable convient ; une IPv6 locale au lien, jamais.
  */
 class Discovery(private val context: Context) {
     private val nsd = context.getSystemService(NsdManager::class.java)
@@ -88,7 +89,7 @@ class Discovery(private val context: Context) {
             val s = resolved ?: return@execute
             val txt = s.attributes.mapValues { (_, v) -> v?.toString(Charsets.UTF_8) }
             if (txt["kyber"] == "0") return@execute
-            val address = address(s) ?: run {
+            val address = address(s) ?: txt["name"]?.let { n -> runCatching { MdnsLookup.ipv4(n, localIpv4()) }.getOrNull() } ?: run {
                 Log.w("KyberNow", "découverte : aucune adresse utilisable pour ${s.serviceName}")
                 return@execute
             }
