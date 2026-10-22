@@ -98,6 +98,23 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
 }
 
+// Sans libkybernow.so l'app s'installe mais meurt au lancement
+// (UnsatisfiedLinkError) : on refuse de construire.
+val checkNativeLibrary by tasks.registering {
+    val jniLibs = layout.projectDirectory.dir("src/main/jniLibs")
+    doLast {
+        val found = jniLibs.asFile.listFiles()?.filter { it.resolve("libkybernow.so").isFile }?.map { it.name } ?: emptyList()
+        if (found.isEmpty()) {
+            throw GradleException(
+                "libkybernow.so absente de app/src/main/jniLibs : lancez d'abord apps/android/scripts/build-native.sh " +
+                    "(voir apps/android/README.md, « Compiler »).",
+            )
+        }
+        logger.lifecycle("libkybernow.so : ${found.sorted().joinToString(", ")}")
+    }
+}
+tasks.named("preBuild") { dependsOn(checkNativeLibrary) }
+
 roborazzi {
     outputDir.set(file("screenshots"))
 }
