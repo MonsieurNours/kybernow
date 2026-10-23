@@ -11,7 +11,7 @@ unsafe extern "C" {
     fn kn_eac3_close(e: *mut c_void);
 }
 
-/// Débit de Kodi pour le 5.1 vers un ampli.
+/// Débit du 5.1 vers un ampli : 640 kbit/s, le plus haut de l'AC-3, que tout ampli Dolby accepte.
 pub const BITRATE: i32 = 640_000;
 
 pub struct Encoder {
