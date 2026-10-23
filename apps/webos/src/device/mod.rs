@@ -536,6 +536,17 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 }
                 return;
             }
+            // Hors jeu (menu ouvert, connexion) : les relâchements vont quand même
+            // au suivi de la combinaison du cœur. Sans cela, les quatre touches
+            // lâchées dans le menu qu'elles ont ouvert restaient « tenues » pour
+            // lui, et un simple appui long sur L1 ou R1 en jeu le rouvrait.
+            if is_button
+                && !down
+                && let Some(p) = &input
+                && let Some(b) = pads::core_button(which)
+            {
+                p.combo().button(slot as u32, b, false);
+            }
             // Hors jeu : la manette pilote l'app.
             if let Some(n) = pads.nav(is_button, which, down, value) {
                 actions.extend(app.nav(n));
