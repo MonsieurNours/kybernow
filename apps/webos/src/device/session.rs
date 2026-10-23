@@ -114,7 +114,9 @@ impl Platform for WebOsPlatform {
             old.stop();
             old.wake();
         }
-        self.0.send(Event::InputReady);
+        // Les manettes ne sont annoncées qu'une fois la liaison prête
+        // (`connected`) : une seule annonce par liaison (deux annonces du même
+        // joueur recréent sa manette virtuelle sur l'ordinateur).
         kynput
     }
 
@@ -189,7 +191,13 @@ impl InputPlatform for InputCallbacks {
         self.0.send(Event::Combo);
     }
 
-    fn connected(&self) {}
+    /// Les entrées sont reliées à l'ordinateur : les manettes y sont annoncées,
+    /// une fois par liaison. Annoncées plus tôt, à la création des entrées,
+    /// elles se perdaient quand la liaison n'était pas encore prête (deuxième
+    /// session, reconnexion : « aucune manette détectée » dans le jeu).
+    fn connected(&self) {
+        self.0.send(Event::InputReady);
+    }
 
     fn navigate(&self, _key: PadKey) {}
 }

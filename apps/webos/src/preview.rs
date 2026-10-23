@@ -133,6 +133,9 @@ pub fn run(dir: &Path, lang: &str) {
 
     app.go(Screen::Home);
     shot(&mut app, &mut cv, &assets, None, dir, "1-accueil");
+    app.update = crate::app::UpdateState::Available { version: "0.4.6".into(), channel: "stable".into(), page: String::new() };
+    shot(&mut app, &mut cv, &assets, None, dir, "1b-accueil-mise-a-jour");
+    app.update = crate::app::UpdateState::Unknown;
 
     let mut empty = App::new(Store::default());
     empty.found = app.found.clone();
@@ -165,6 +168,7 @@ pub fn run(dir: &Path, lang: &str) {
         app.focus = if i == 0 { Target::Setting(Setting::Fps) } else { Target::Section(i) };
         shot(&mut app, &mut cv, &assets, None, dir, name);
     }
+    app.update = crate::app::UpdateState::Available { version: "0.4.6".into(), channel: "stable".into(), page: String::new() };
     for (i, name) in ["11-reglages-televiseur", "11b-reglages-manettes-globales"].iter().enumerate() {
         app.open_settings(true, Screen::Home);
         app.section = i;

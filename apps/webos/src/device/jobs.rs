@@ -185,3 +185,20 @@ pub fn wake(mac: &str) -> bool {
     let _ = sock.set_broadcast(true);
     sock.send_to(&packet, "255.255.255.255:9").is_ok()
 }
+
+/// Nom du paquet de l'app des téléviseurs LG dans chaque version publiée.
+pub const IPK: &str = "KyberNow-Link-webOS.ipk";
+
+/// La dernière version du canal qui publie le paquet webOS, plus récente que
+/// celle-ci et vérifiée par le manifeste signé (le cœur, comme sur Android).
+/// L'app ne s'installe pas elle-même (mode développeur) : elle le signale.
+pub fn check_update(beta: bool, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("update".into())
+        .spawn(move || {
+            let channel = if beta { kybernow_core::update::Channel::Beta } else { kybernow_core::update::Channel::Stable };
+            let r = kybernow_core::update::check(env!("CARGO_PKG_VERSION"), channel, &[IPK]);
+            let _ = tx.send(Event::Update(r));
+        })
+        .ok();
+}

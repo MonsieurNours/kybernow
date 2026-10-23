@@ -130,11 +130,13 @@ pub struct Host {
 pub struct AppSettings {
     /// `auto`, `fr`, `en`.
     pub language: String,
+    /// Mises à jour : aussi les bêtas (sinon les versions stables seules).
+    pub beta: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into() }
+        Self { language: "auto".into(), beta: false }
     }
 }
 

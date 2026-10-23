@@ -53,6 +53,7 @@ pub enum Event {
     InputReady,
     GameFullscreen(bool),
     DecoderFailed(String),
+    Update(Result<Option<kybernow_core::update::Available>, String>),
 }
 
 struct Video {
@@ -130,6 +131,7 @@ pub fn run() {
     // L'app.
     let store = Store::load();
     i18n::set_english(i18n::resolve(&store.app.language, &sdl::locale()));
+    kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
     let mut app = App::new(store);
     let (panel, refresh) = sdl::panel();
     let decoder = ndl::available();
@@ -144,6 +146,9 @@ pub fn run() {
 
     let (tx, rx) = channel::<Event>();
     jobs::discover(tx.clone());
+    let mut last_update = Instant::now();
+    app.update = crate::app::UpdateState::Checking;
+    jobs::check_update(app.store.app.beta, tx.clone());
     let mut pads = pads::Pads::default();
     let mut cv = Canvas::new();
     let assets = Assets::load();
@@ -240,6 +245,11 @@ pub fn run() {
                 app.tv.multichannel = m;
                 dirty = true;
             }
+        }
+        // Mises à jour : au lancement, puis toutes les 6 heures (hors session).
+        if live.is_none() && last_update.elapsed() > Duration::from_secs(6 * 3600) {
+            last_update = Instant::now();
+            jobs::check_update(app.store.app.beta, tx.clone());
         }
         if last_net.elapsed() > Duration::from_secs(5) && live.is_none() {
             last_net = Instant::now();
@@ -372,6 +382,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 }
                 let sc = if remote_back { sdl::SC_ESCAPE } else { sc };
                 if !repeat && let Some(win) = pads::win_scancode(sc) {
+                    log::debug!("clavier : touche SDL {sc} (Windows {win:#x}) {} vers l'ordinateur", if down { "appuyée" } else { "relâchée" });
                     p.key(win, down);
                 }
                 return;
@@ -516,6 +527,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 if let Some(p) = &input {
                     if is_button {
                         if let Some(b) = pads::core_button(which) {
+                            log::debug!("manettes : J{} {b:?} {} vers l'ordinateur", slot + 1, if down { "appuyé" } else { "relâché" });
                             p.gamepad_button(slot as u32, b, down);
                         }
                     } else if let Some(a) = pads::core_axis(which) {
@@ -674,6 +686,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             if let Some(l) = live.as_ref()
                 && let Some(p) = l.handle.shared.current_input()
             {
+                if !pads.slots().is_empty() {
+                    log::info!("manettes : {} annoncée(s) à l'ordinateur", pads.slots().len());
+                }
                 for slot in pads.slots() {
                     let (v, pr) = pads.ids(slot);
                     p.gamepad_plug(slot as u32, Some(v), Some(pr));
@@ -690,6 +705,22 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 s.notice = Some((format!("{} ({e})", tr("Décodeur du téléviseur indisponible", "TV decoder unavailable")), Instant::now()));
             }
         }
+        Event::Update(r) => {
+            app.update = match r {
+                Ok(Some(a)) => {
+                    log::info!("mise à jour : version {} ({}) disponible, {}", a.version, a.channel.as_str(), a.page);
+                    crate::app::UpdateState::Available { version: a.version, channel: a.channel.as_str().into(), page: a.page }
+                }
+                Ok(None) => {
+                    log::info!("mise à jour : à jour ({})", app.version);
+                    crate::app::UpdateState::UpToDate
+                }
+                Err(e) => {
+                    log::warn!("mise à jour : {e}");
+                    crate::app::UpdateState::Failed(e)
+                }
+            };
+        }
     }
 }
 
@@ -697,7 +728,14 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
     match a {
         Action::Save => app.store.save(),
         Action::Quit => *quit = true,
-        Action::Language => i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale())),
+        Action::Language => {
+            i18n::set_english(i18n::resolve(&app.store.app.language, &sdl::locale()));
+            kybernow_core::i18n::set_current(if i18n::english() { kybernow_core::i18n::Lang::En } else { kybernow_core::i18n::Lang::Fr });
+        }
+        Action::CheckUpdate => {
+            app.update = crate::app::UpdateState::Checking;
+            jobs::check_update(app.store.app.beta, tx.clone());
+        }
         Action::Connect { host, profile } => {
             if live.is_some() {
                 return;

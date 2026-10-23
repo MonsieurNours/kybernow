@@ -254,6 +254,8 @@ pub enum Setting {
     Reliable,
     Remove,
     Language,
+    /// Mises à jour : stables, ou aussi les bêtas.
+    UpdateChannel,
     /// Ouvre l'écran de test des manettes.
     Pads,
 }
@@ -351,7 +353,21 @@ pub enum Action {
     Disconnect,
     CancelConnect,
     Language,
+    /// Chercher une mise à jour maintenant.
+    CheckUpdate,
     Quit,
+}
+
+/// Où en est la recherche de mise à jour.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum UpdateState {
+    #[default]
+    Unknown,
+    Checking,
+    UpToDate,
+    /// Plus récente, signée : version, canal (`stable`, `beta`), page de la version.
+    Available { version: String, channel: String, page: String },
+    Failed(String),
 }
 
 pub struct App {
@@ -377,6 +393,7 @@ pub struct App {
     pub session: Option<SessionUi>,
     pub toast: Option<(String, Instant)>,
     pub version: &'static str,
+    pub update: UpdateState,
     /// L'écran d'où l'on vient (Réglages et Manettes ouverts depuis la session).
     pub back_to: Screen,
 }
@@ -402,6 +419,7 @@ impl App {
             session: None,
             toast: None,
             version: env!("CARGO_PKG_VERSION"),
+            update: UpdateState::Unknown,
             back_to: Screen::Home,
         }
     }
@@ -842,6 +860,10 @@ impl App {
             self.go(Screen::Gamepads);
             return Vec::new();
         }
+        if s == Setting::UpdateChannel {
+            self.store.app.beta = !self.store.app.beta;
+            return vec![Action::Save, Action::CheckUpdate];
+        }
         if s == Setting::Language {
             let order = ["auto", "fr", "en"];
             let i = order.iter().position(|v| *v == self.store.app.language).unwrap_or(0);
@@ -895,7 +917,7 @@ impl App {
             Setting::BackMenu => st.back_opens_menu = !st.back_opens_menu,
             Setting::Reconnect => st.reconnect = !st.reconnect,
             Setting::Reliable => st.reliable = !st.reliable,
-            Setting::Remove | Setting::Language | Setting::Pads => {}
+            Setting::Remove | Setting::Language | Setting::Pads | Setting::UpdateChannel => {}
         }
         vec![Action::Save]
     }

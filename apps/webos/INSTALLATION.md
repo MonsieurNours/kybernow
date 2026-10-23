@@ -8,7 +8,7 @@ Il faut :
 
 - un téléviseur LG sous **webOS 5 ou après** (2020 et après ; une OLED G2 de 2022 convient) ;
 - un ordinateur (Windows, Mac ou Linux) sur le même réseau que le téléviseur ;
-- le paquet de l'app : `fr.leslignesclaires.kybernow_<version>_arm.ipk` (construit par `apps/webos/scripts/build.sh`, voir [README.md](README.md)) ;
+- le paquet de l'app : `KyberNow-Link-webOS.ipk`, joint à chaque version sur GitHub (ou `fr.leslignesclaires.kybernow_<version>_arm.ipk`, construit par `apps/webos/scripts/build.sh`, voir [README.md](README.md)) ;
 - un ordinateur Windows avec KyberNow Station, pour se connecter ensuite.
 
 ## 1. Le compte de développeur LG
@@ -33,7 +33,7 @@ Deux façons. La première est la plus simple.
 
 1. Sur l'ordinateur, installez [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop/releases) (webosbrew, libre).
 2. Ajoutez le téléviseur : **Add device** › **Developer mode**, avec l'adresse IP et la phrase secrète de l'étape 2.
-3. Onglet **Apps** › **Install** (ou glissez le fichier dans la fenêtre) : choisissez `fr.leslignesclaires.kybernow_<version>_arm.ipk`.
+3. Onglet **Apps** › **Install** (ou glissez le fichier dans la fenêtre) : choisissez `KyberNow-Link-webOS.ipk`.
 4. **KyberNow Link** apparaît dans la liste des apps du téléviseur.
 
 ### En ligne de commande (outils de LG)
@@ -71,7 +71,7 @@ L'ordinateur n'apparaît pas ? Choisissez **Ajouter** › **Par adresse et port*
 
 ## Mettre à jour
 
-Installez le nouveau `.ipk` comme à l'étape 3 : il remplace l'ancien. Les ordinateurs ajoutés sont gardés (dans `/media/developer/temp/kybernow`, hors du dossier de l'app).
+L'app cherche les nouvelles versions (au lancement puis toutes les 6 heures) et affiche « Version X disponible » sur l'accueil ; Réglages › Ce téléviseur › Mises à jour choisit les versions stables ou aussi les bêtas. Elle ne peut pas s'installer elle-même (mode développeur) : téléchargez `KyberNow-Link-webOS.ipk` sur la page de la version (github.com/MonsieurNours/kybernow/releases) et installez-le comme à l'étape 3, il remplace l'ancien. Les ordinateurs ajoutés sont gardés (dans `/media/developer/temp/kybernow`, hors du dossier de l'app).
 
 ## En cas de souci
 

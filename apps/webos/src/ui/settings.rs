@@ -6,7 +6,7 @@ use super::canvas::{Canvas, Font, Rgba, Text, H, W};
 use super::theme::*;
 use super::widgets::{self, Key, Value};
 use super::Frame;
-use crate::app::{App, NetKind, Rect, Section, Setting, Target};
+use crate::app::{App, NetKind, Rect, Section, Setting, Target, UpdateState};
 use crate::i18n::tr;
 use crate::model::Profile;
 
@@ -204,7 +204,35 @@ fn global(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, mut y: f32, w: f32)
                 NetKind::Unknown => tr("inconnu", "unknown").into(),
             };
             y += widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &format!("{} {} Mbit/s", tr("Débit plafonné à", "Bitrate capped at"), app.net.cap_mbps()), Value::Text(link)) + 14.0;
-            widgets::row(cv, f, None, x, y, w, "KyberNow Link", tr("Licence AGPL-3.0, sur le cœur de Kyber", "AGPL-3.0 licence, on Kyber's core"), Value::Text(app.version.into()));
+            y += widgets::row(cv, f, None, x, y, w, "KyberNow Link", &update_help(app), Value::Text(update_value(app))) + 14.0;
+            let chan: Vec<String> = vec![tr("Stables", "Stable").into(), tr("Bêtas aussi", "Betas too").into()];
+            widgets::row(cv, f, s(Setting::UpdateChannel), x, y, w, tr("Mises à jour", "Updates"), tr("Cherchées au lancement puis toutes les 6 heures, vérifiées par leur signature", "Checked at launch then every 6 hours, verified by their signature"), Value::Choices(&chan, usize::from(app.store.app.beta)));
         }
+    }
+}
+
+/// La version, et la mise à jour trouvée.
+fn update_value(app: &App) -> String {
+    match &app.update {
+        UpdateState::Available { version, .. } => format!("{} → {version}", app.version),
+        _ => app.version.into(),
+    }
+}
+
+fn update_help(app: &App) -> String {
+    match &app.update {
+        UpdateState::Available { version, channel, .. } => format!(
+            "{} {version}{} {}",
+            tr("Version", "Version"),
+            if channel == "beta" { tr(" (bêta)", " (beta)") } else { "" },
+            tr(
+                "disponible : installez KyberNow-Link-webOS.ipk depuis l'ordinateur (Dev Manager, ares-install)",
+                "available: install KyberNow-Link-webOS.ipk from the computer (Dev Manager, ares-install)"
+            )
+        ),
+        UpdateState::Checking => tr("Recherche d'une mise à jour…", "Looking for an update…").into(),
+        UpdateState::UpToDate => tr("À jour · licence AGPL-3.0, sur le cœur de Kyber", "Up to date · AGPL-3.0 licence, on Kyber's core").into(),
+        UpdateState::Failed(e) => format!("{} : {e}", tr("Mise à jour introuvable", "Update check failed")),
+        UpdateState::Unknown => tr("Licence AGPL-3.0, sur le cœur de Kyber", "AGPL-3.0 licence, on Kyber's core").into(),
     }
 }

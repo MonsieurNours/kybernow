@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.4.6
 
+- LG TV app: attached to every release (`KyberNow-Link-webOS.ipk`); the app announces new versions ("Version X available", verified by their signature; stable or betas too), to install from the computer. The controller is no longer lost from one session to the next ("no controller detected", A button doing nothing).
 - LG TV app: a controller switched on after the app is launched is now detected (inputs rescanned every 3 s).
 - LG TV app: **5.1 sound to a receiver** (Computer settings › Sound › 5.1 Dolby): the app encodes the sound to Dolby Digital Plus, which the TV passes untouched to the receiver over eARC (TV's Digital Sound Output set to Pass-Through). Sound has its own chain: the picture keeps its latency, the sound follows with a small fixed delay; stereo by default. The picture decoder reloads when the TV unloaded it by itself (sound mode change on the computer). "5.1 PCM" for receivers that announce multichannel PCM. 7.1 is not possible from a TV app.
 - LG TV app: the computer's pointer no longer flickers when the Magic Remote or a controller is the mouse.

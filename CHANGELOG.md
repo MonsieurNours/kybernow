@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.4.6
 
+- App des téléviseurs LG : jointe à chaque version (`KyberNow-Link-webOS.ipk`) ; l'app signale les nouvelles versions (« Version X disponible », vérifiées par leur signature ; stables ou aussi les bêtas), à installer depuis l'ordinateur. La manette n'est plus perdue d'une session à l'autre (« aucune manette détectée », bouton A sans effet).
 - App des téléviseurs LG : une manette allumée après le lancement de l'app est maintenant vue (relecture des entrées toutes les 3 s).
 - App des téléviseurs LG : **son 5.1 vers un ampli** (Réglages de l'ordinateur › Son › 5.1 Dolby) : l'app encode le son en Dolby Digital Plus, que le téléviseur passe tel quel à l'ampli en eARC (téléviseur en Sortie audio numérique Pass-Through). Le son a sa propre chaîne : l'image garde sa latence, le son suit avec un léger retard fixe ; stéréo par défaut. Le décodeur d'image se recharge quand le téléviseur l'a déchargé de lui-même (changement de mode son sur l'ordinateur). « 5.1 PCM » pour les amplis qui annoncent le PCM multicanal. Le 7.1 n'est pas possible depuis une app du téléviseur.
 - App des téléviseurs LG : le pointeur de l'ordinateur ne clignote plus quand la Magic Remote ou la manette sert de souris.

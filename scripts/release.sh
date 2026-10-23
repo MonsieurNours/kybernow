@@ -101,7 +101,7 @@ FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
 ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
-    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -239,6 +239,13 @@ done
 # App Android : clé de publication (Trousseau) et outils (JDK, SDK, apksigner).
 if CHECK="$(apps/android/scripts/release-apk.sh --check 2>&1)"; then ok "app Android : ${CHECK##*$'\n'}"
 else problem "app Android : ${CHECK##*$'\n'}"; fi
+
+# App des téléviseurs LG : sources de Kyber (kysdk) ; la chaîne webOS est
+# téléchargée par apps/webos/scripts/build.sh si elle manque.
+if [ -d third_party/kyber-desktop/kysdk/kyctl ]; then ok "app webOS : sources de Kyber"
+else problem "app webOS : third_party/kyber-desktop/kysdk absent (docs/build-notes.md)"; fi
+if rustup target list --installed 2>/dev/null | grep -qx armv7-unknown-linux-gnueabi; then ok "app webOS : cible Rust armv7-unknown-linux-gnueabi"
+else problem "app webOS : rustup target add armv7-unknown-linux-gnueabi"; fi
 
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
@@ -413,6 +420,13 @@ step "App Android (KyberNow Link, APK signé)"
 apps/android/scripts/release-apk.sh "$OUT/KyberNow-Link-Android.apk" 2>&1 \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) ' || true; }
 
+step "App des téléviseurs LG (KyberNow Link, paquet webOS)"
+# Binaire armv7 et paquet .ipk (installé en mode développeur : ares-install ou
+# webOS Dev Manager ; l'app signale la nouvelle version, sans s'installer).
+apps/webos/scripts/build.sh 2>&1 \
+    | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) |^warning|^ *(-->|\||=|[0-9]+ \|)' || true; }
+cp "apps/webos/dist/fr.leslignesclaires.kybernow_${VERSION}_arm.ipk" "$OUT/KyberNow-Link-webOS.ipk"
+
 TREE_AFTER="$(tree_state)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
     echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
@@ -496,7 +510,7 @@ fi
 step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
-    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk > SHA256SUMS)
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

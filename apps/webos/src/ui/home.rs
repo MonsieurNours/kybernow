@@ -34,6 +34,12 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
     let label = tr("Réglages", "Settings");
     let gw = widgets::icon_chip_width(cv, label);
     widgets::icon_chip(cv, f, Target::AppSettings, W - 96.0 - gw, 64.0, Icon::Gear, label);
+    // Une mise à jour signée est publiée : rappel discret (détails dans Réglages › Ce téléviseur).
+    if let crate::app::UpdateState::Available { version, .. } = &app.update {
+        let s = format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available"));
+        let style = Text::new(Font::Mono, 16.0, SPECTRE).align(super::canvas::Align::Right);
+        cv.text(W - 96.0 - gw - 24.0, 100.0, style, &s.to_uppercase());
+    }
 
     match host {
         Some(h) => {

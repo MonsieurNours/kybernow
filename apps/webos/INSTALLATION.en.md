@@ -8,7 +8,7 @@ You need:
 
 - an LG TV running **webOS 5 or later** (2020 and later; a 2022 OLED G2 is fine);
 - a computer (Windows, Mac or Linux) on the same network as the TV;
-- the app's package: `fr.leslignesclaires.kybernow_<version>_arm.ipk` (built by `apps/webos/scripts/build.sh`, see [README.en.md](README.en.md));
+- the app's package: `KyberNow-Link-webOS.ipk`, attached to every release on GitHub (or `fr.leslignesclaires.kybernow_<version>_arm.ipk`, built by `apps/webos/scripts/build.sh`, see [README.en.md](README.en.md));
 - a Windows computer with KyberNow Station, to connect to afterwards.
 
 ## 1. The LG developer account
@@ -33,7 +33,7 @@ Two ways. The first one is the simplest.
 
 1. On the computer, install [webOS Dev Manager](https://github.com/webosbrew/dev-manager-desktop/releases) (webosbrew, open source).
 2. Add the TV: **Add device** › **Developer mode**, with the IP address and passphrase from step 2.
-3. **Apps** tab › **Install** (or drop the file onto the window): pick `fr.leslignesclaires.kybernow_<version>_arm.ipk`.
+3. **Apps** tab › **Install** (or drop the file onto the window): pick `KyberNow-Link-webOS.ipk`.
 4. **KyberNow Link** shows up in the TV's app list.
 
 ### On the command line (LG's tools)
@@ -71,7 +71,7 @@ The computer does not show up? Choose **Add** › **With address and port** and 
 
 ## Updating
 
-Install the new `.ipk` as in step 3: it replaces the old one. The added computers are kept (in `/media/developer/temp/kybernow`, outside the app's folder).
+The app looks for new versions (at launch then every 6 hours) and shows "Version X available" on the home screen; Settings › This TV › Updates picks stable versions or betas too. It cannot install itself (developer mode): download `KyberNow-Link-webOS.ipk` from the release page (github.com/MonsieurNours/kybernow/releases) and install it as in step 3, it replaces the old one. The added computers are kept (in `/media/developer/temp/kybernow`, outside the app's folder).
 
 ## Troubleshooting
 

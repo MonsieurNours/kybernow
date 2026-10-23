@@ -45,17 +45,21 @@ done
 
 [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 
-# La chaîne de webosbrew.
+# La chaîne de webosbrew : celle de Linux x86_64 (buildroot-nc4) ou celle
+# du Mac Apple Silicon (native-toolchain, gcc 12, glibc 2.12), téléchargée
+# une fois.
+MAC_TOOLCHAIN_URL="https://github.com/webosbrew/native-toolchain/releases/download/webos-d7ed7ee.6/arm-webos-linux-gnueabi_sdk-buildroot_darwin-arm64.tar.bz2"
 if [ -z "${WEBOS_TOOLCHAIN:-}" ]; then
-    WEBOS_TOOLCHAIN="$THIRD_PARTY/webos-toolchain/arm-webos-linux-gnueabi_sdk-buildroot"
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64) TC_DIR="$THIRD_PARTY/webos-toolchain" TC_URL="$TOOLCHAIN_URL" TC_TAR=xz ;;
+        Darwin-arm64) TC_DIR="$THIRD_PARTY/webos-toolchain-mac" TC_URL="$MAC_TOOLCHAIN_URL" TC_TAR=xj ;;
+        *) echo "Chaîne webOS : posez WEBOS_TOOLCHAIN (github.com/webosbrew/native-toolchain)" >&2; exit 1 ;;
+    esac
+    WEBOS_TOOLCHAIN="$TC_DIR/arm-webos-linux-gnueabi_sdk-buildroot"
     if [ ! -x "$WEBOS_TOOLCHAIN/bin/arm-webos-linux-gnueabi-gcc" ]; then
-        [ "$(uname -s)-$(uname -m)" = Linux-x86_64 ] || {
-            echo "Chaîne webOS absente : téléchargez celle de votre système (github.com/webosbrew/native-toolchain) et posez WEBOS_TOOLCHAIN" >&2
-            exit 1
-        }
-        echo "==> chaîne webOS dans $THIRD_PARTY/webos-toolchain"
-        mkdir -p "$THIRD_PARTY/webos-toolchain"
-        curl -fsSL "$TOOLCHAIN_URL" | tar xz -C "$THIRD_PARTY/webos-toolchain"
+        echo "==> chaîne webOS dans $TC_DIR"
+        mkdir -p "$TC_DIR"
+        curl -fsSL "$TC_URL" | tar "$TC_TAR" -C "$TC_DIR"
         (cd "$WEBOS_TOOLCHAIN" && ./relocate-sdk.sh >/dev/null)
     fi
 fi
@@ -100,6 +104,7 @@ if [ ! -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ]; then
 fi
 
 export PATH="$HOME/.cargo/bin:$PATH"
+[ -d /opt/homebrew/opt/rustup/bin ] && export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 rustup target list --installed 2>/dev/null | grep -qx "$TARGET" || {
     echo "Cible Rust $TARGET absente : rustup target add $TARGET" >&2
     exit 1
