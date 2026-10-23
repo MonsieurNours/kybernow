@@ -43,10 +43,20 @@ fn machine_lines(m: &Machine) -> Vec<(String, bool)> {
     if m.hw_av1 {
         dec.push("AV1");
     }
+    if m.hw_hevc444 {
+        dec.push("4:4:4");
+    }
     if m.vaapi && !dec.is_empty() {
         v.push((format!("{} {} {}", tr("Décode", "Decodes"), dec.join(", "), tr("par VA-API", "via VA-API")), true));
+        let mut cpu = Vec::new();
         if !m.hw_av1 {
-            v.push((tr("AV1, 4:4:4 : non", "AV1, 4:4:4: no").into(), false));
+            cpu.push(tr("AV1 : non", "AV1: no"));
+        }
+        if !m.hw_hevc444 {
+            cpu.push(tr("4:4:4 : processeur", "4:4:4: CPU"));
+        }
+        if !cpu.is_empty() {
+            v.push((cpu.join(" · "), false));
         }
     } else {
         v.push((tr("Décodage par le processeur (H.264, HEVC)", "CPU decoding (H.264, HEVC)").into(), false));
