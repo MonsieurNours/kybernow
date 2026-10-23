@@ -16,7 +16,8 @@
 #      KyberNow Link) et commit « KyberNow X.Y.Z » ;
 #   3. construction depuis ce commit : installateur de la Station, paquet de
 #      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
-#      SDK, app Windows et son installateur, app Android (APK signé) ; l'arbre doit rester propre (sinon
+#      SDK, app Windows et son installateur, app Android (APK signé), app des
+#      téléviseurs LG (paquet webOS) ; l'arbre doit rester propre (sinon
 #      les binaires ne correspondraient pas au commit) ;
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
 #   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
@@ -299,7 +300,8 @@ if [ "$MODE" = check ]; then
 Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
   3. installateur de la Station, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac,
-     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur, app Android
+     apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur, app Android,
+     app des téléviseurs LG (KyberNow-Link-webOS.ipk)
      (anciens noms des installateurs publiés en copie : ${LEGACY_STATION[*]} ${LEGACY_LINK[*]})
   4. notarisation de l'app Mac
   5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
