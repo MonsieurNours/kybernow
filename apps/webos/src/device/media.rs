@@ -19,6 +19,7 @@ use kybernow_core::latency;
 use kybernow_core::media::{OpusHead, Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
 
 use super::eac3;
+use super::esplayer;
 use super::ndl;
 use super::sdl;
 use super::session::Shared;
@@ -130,6 +131,8 @@ impl Feeder {
                 Msg::Stop => break,
             }
         }
+        // La chaîne Dolby d'abord : le décodeur de jeu se recharge avant elle.
+        esplayer::unload();
         ndl::unload();
     }
 
@@ -216,6 +219,13 @@ impl Feeder {
                 self.waiting_key = true;
                 self.request_keyframe();
             }
+            Err(e) if e == ndl::UNLOADED_BY_TV => {
+                // Rechargé à l'image clé suivante, avec les paramètres.
+                log::warn!("image : {e} ; rechargement à l'image clé suivante");
+                self.loaded_config = None;
+                self.waiting_key = true;
+                self.request_keyframe();
+            }
             Err(e) => {
                 log::warn!("image : {e}");
                 self.lost();
@@ -240,7 +250,8 @@ enum Route {
     /// 6 voies, essayé le 23/10/2026) sort en stéréo : sa sortie passe par le mixeur.
     NdlPcm,
     /// Opus 5.1 décodé par l'app, encodé en E-AC-3 (32 ms par trame) et donné
-    /// au plan Dolby de NDL : le téléviseur le passe tel quel à l'ampli.
+    /// à la chaîne audio Dolby (`esplayer.rs`) : le téléviseur le passe tel
+    /// quel à l'ampli. L'image reste sur la chaîne de jeu.
     NdlDolby,
     /// Moteur du cœur, sortie SDL en stéréo.
     Sdl,
@@ -299,18 +310,18 @@ impl AudioSink {
             enc.push(pcm)
         };
         for f in frames {
-            match ndl::play_audio(&f) {
-                Ok(sent) => {
-                    if sent {
-                        let mut n = self.ndl_packets.lock().unwrap();
-                        *n += 1;
-                        if *n == 1 {
-                            log::info!("son : première trame E-AC-3 acceptée par NDL ; sortie multicanal du téléviseur : {:?}", ndl::multichannel());
-                        }
+            match esplayer::feed(&f) {
+                Ok(()) => {
+                    let mut n = self.ndl_packets.lock().unwrap();
+                    *n += 1;
+                    if *n == 1 {
+                        log::info!("son : première trame E-AC-3 acceptée par la chaîne Dolby");
                     }
                 }
+                Err(e) if e == "tampon plein" => log::debug!("son : chaîne Dolby, trame sautée (tampon plein)"),
                 Err(e) => {
-                    log::warn!("son : {e} ; stéréo par SDL pour la suite de la session");
+                    log::warn!("son : chaîne Dolby : {e} ; stéréo par SDL pour la suite de la session");
+                    esplayer::unload();
                     self.to_sdl();
                     return;
                 }
@@ -386,13 +397,15 @@ impl AudioSink {
                     self.to_sdl();
                     return;
                 };
-                match enc.silence() {
-                    Some(silence) => ndl::set_dolby_silence(silence),
-                    None => {
-                        log::warn!("son : l'encodeur E-AC-3 ne sort rien ; stéréo par SDL");
-                        self.to_sdl();
-                        return;
-                    }
+                let Some(silence) = enc.silence() else {
+                    log::warn!("son : l'encodeur E-AC-3 ne sort rien ; stéréo par SDL");
+                    self.to_sdl();
+                    return;
+                };
+                if let Err(e) = esplayer::load(&silence) {
+                    log::warn!("son : {e} ; stéréo par SDL");
+                    self.to_sdl();
+                    return;
                 }
                 *self.encoder.lock().unwrap() = Some(enc);
                 *self.decoder.lock().unwrap() = Some((d, vec![0.0; MAX_FRAMES * 6], Vec::new()));
@@ -495,6 +508,9 @@ impl PacketHandler for AudioSink {
 
 impl Drop for AudioSink {
     fn drop(&mut self) {
+        if *self.route.lock().unwrap() == Route::NdlDolby {
+            esplayer::unload();
+        }
         self.engine.stop();
         let id = *self.device.lock().unwrap();
         if id != 0 {

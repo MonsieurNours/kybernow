@@ -9,6 +9,7 @@
 mod jobs;
 mod log_file;
 mod eac3;
+mod esplayer;
 mod media;
 mod starfish;
 mod ndl;
@@ -290,6 +291,7 @@ pub fn run() {
         c.store(true, Ordering::Relaxed);
     }
     app.store.save();
+    esplayer::quit();
     ndl::quit();
     unsafe { sdl::SDL_Quit() };
     log::info!("KyberNow Link s'arrête");

@@ -245,28 +245,10 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         _ if surround => 6,
         _ => 2,
     };
-    ndl::set_audio_plane(match (surround, dolby) {
-        (true, true) => ndl::AudioPlane::Dolby51,
-        (true, false) => ndl::AudioPlane::Pcm51,
-        _ => ndl::AudioPlane::OpusClock,
-    });
-    // Le Dolby s'essaie tout de suite, au mode demandé : s'il n'est pas
-    // confirmé, le décodeur repasse en stéréo avant la première image.
-    if surround && dolby {
-        super::starfish::set_dolby_name(0);
-        let kind = match codec {
-            "av1" => ndl::VIDEO_AV1,
-            "h264" => ndl::VIDEO_H264,
-            _ => ndl::VIDEO_H265,
-        };
-        std::thread::Builder::new()
-            .name("ndl-probe".into())
-            .spawn(move || {
-                log::info!("son : essai du Dolby avant la session ({w} × {h})");
-                ndl::probe(kind, w, h);
-            })
-            .ok();
-    }
+    // L'image reste sur la chaîne de jeu de NDL, avec son plan Opus muet qui
+    // la cadence (comme en stéréo) ; le Dolby a sa propre chaîne, audio seule.
+    ndl::set_audio_plane(if surround && !dolby { ndl::AudioPlane::Pcm51 } else { ndl::AudioPlane::OpusClock });
+    let _ = (w, h, codec);
     let shared = Arc::new(Shared {
         tx: Mutex::new(tx),
         session: OnceLock::new(),
