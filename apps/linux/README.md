@@ -77,6 +77,9 @@ apps/linux/scripts/build.sh                    # → apps/target/release/kyberno
 # extensions rust-stable et llvm20), pour cette architecture ou l'autre :
 apps/linux/scripts/flatpak.sh                  # → apps/linux/dist/KyberNow-Link-Linux-<arch>.flatpak
 apps/linux/scripts/flatpak.sh x86_64           # depuis une machine ARM : Rosetta ou qemu-user-static
+
+# Depuis le Mac, les deux dans la VM « KyberNow Linux » (ce que fait release.sh) :
+apps/linux/scripts/release-flatpaks.sh [--check] [DOSSIER]
 ```
 
 `build.sh` applique les correctifs client de Kyber, compile libkynput (`cargo cinstall`, statique) et FFmpeg 7.1.1 réduit au décodage (VA-API) dans un préfixe, puis l'app. `sources.sh` assemble les seules sources utiles (une centaine de mégaoctets au lieu des compilations de Kyber), que `flatpak.sh` donne à flatpak-builder en deux modules : les dépendances (en cache tant que Kyber ne change pas), puis l'app. Les sources de Kyber 0.29 vont dans `third_party/kyber-desktop` (voir [docs/build-notes.md](../../docs/build-notes.md)).

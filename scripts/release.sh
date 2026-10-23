@@ -17,7 +17,8 @@
 #   3. construction depuis ce commit : installateur de la Station, paquet de
 #      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
 #      SDK, app Windows et son installateur, app Android (APK signé), app des
-#      téléviseurs LG (paquet webOS) ; l'arbre doit rester propre (sinon
+#      téléviseurs LG (paquet webOS), app Linux (deux Flatpak, construits
+#      dans la VM « KyberNow Linux ») ; l'arbre doit rester propre (sinon
 #      les binaires ne correspondraient pas au commit) ;
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
 #   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
@@ -103,6 +104,7 @@ LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
 ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -110,7 +112,8 @@ VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo
     apps/tvos/project.yml apps/tvos/KyberNowTV.xcodeproj
     apps/ios/project.yml apps/ios/KyberNowIOS.xcodeproj
     apps/Cargo.toml apps/Cargo.lock apps/windows/tauri.conf.json
-    apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock)
+    apps/windows/setup/Cargo.toml apps/windows/setup/Cargo.lock
+    apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml)
 
 # Exigences de la mise à jour, transmises à package-update.sh et au manifeste.
 UPDATE_FLAGS=()
@@ -248,6 +251,11 @@ else problem "app webOS : third_party/kyber-desktop/kysdk absent (docs/build-not
 if rustup target list --installed 2>/dev/null | grep -qx armv7-unknown-linux-gnueabi; then ok "app webOS : cible Rust armv7-unknown-linux-gnueabi"
 else problem "app webOS : rustup target add armv7-unknown-linux-gnueabi"; fi
 
+# App Linux : les Flatpak se construisent dans la VM Parallels « KyberNow Linux »
+# (démarrée au besoin), qui voit ce dépôt en dossier partagé.
+if CHECK="$(apps/linux/scripts/release-flatpaks.sh --check 2>&1)"; then ok "app Linux : ${CHECK##*$'\n'}"
+else problem "app Linux : ${CHECK##*$'\n'} (apps/linux/README.md, « Compiler »)"; fi
+
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
 else problem "$SITE_FEED absent : scripts/rebuild-appcast.sh (une fois, à commiter)"; fi
@@ -301,7 +309,7 @@ Publication prévue ($CHANNEL) :
   2. versions alignées sur $VERSION, $([ "$RELAUNCH" = 1 ] && echo "commit déjà fait (relance)" || echo "commit « KyberNow $VERSION »")
   3. installateur de la Station, paquet de mise à jour${UPDATE_FLAGS[*]+ (${UPDATE_FLAGS[*]})}, app Mac,
      apps Apple TV et iPhone/iPad et leurs SDK, app Windows et son installateur, app Android,
-     app des téléviseurs LG (KyberNow-Link-webOS.ipk)
+     app des téléviseurs LG (KyberNow-Link-webOS.ipk), app Linux (deux Flatpak, VM « KyberNow Linux »)
      (anciens noms des installateurs publiés en copie : ${LEGACY_STATION[*]} ${LEGACY_LINK[*]})
   4. notarisation de l'app Mac
   5. appcast.xml$([ "$BETA" = 1 ] && echo " (sparkle:channel beta)"), SHA256SUMS, kybernow-release.json signé (canal $CHANNEL),
@@ -336,6 +344,9 @@ else
     # Clients en Rust (cœur et app Windows) : version de l'espace de travail.
     sed -i '' -E "s/^version = \".*\"/version = \"$VERSION\"/" apps/Cargo.toml
     sed -i '' -E "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" apps/windows/tauri.conf.json
+    # Fiche AppStream du Flatpak : la version et sa date.
+    sed -i '' -E "s|<release version=\"[^\"]*\" date=\"[^\"]*\"/>|<release version=\"$VERSION\" date=\"$(date +%Y-%m-%d)\"/>|" \
+        apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml
     (cd apps && cargo update --workspace --offline --quiet)
     for d in apps/macos apps/tvos apps/ios; do
         sed -i '' -E "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" "$d/project.yml"
@@ -429,6 +440,11 @@ apps/webos/scripts/build.sh 2>&1 \
     | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Finished) |^warning|^ *(-->|\||=|[0-9]+ \|)' || true; }
 cp "apps/webos/dist/fr.leslignesclaires.kybernow_${VERSION}_arm.ipk" "$OUT/KyberNow-Link-webOS.ipk"
 
+step "App Linux, Steam Deck et SteamOS (KyberNow Link, Flatpak x86_64 et aarch64)"
+# Construits dans la VM « KyberNow Linux » depuis cet arbre (dossier partagé) ;
+# l'app signale les nouvelles versions, Flatpak les installe.
+apps/linux/scripts/release-flatpaks.sh "$OUT"
+
 TREE_AFTER="$(tree_state)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
     echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
@@ -512,7 +528,8 @@ fi
 step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
-    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk > SHA256SUMS)
+    KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}
