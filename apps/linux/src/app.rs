@@ -383,6 +383,10 @@ impl Section {
     }
 }
 
+/// Débits proposés (Mbit/s, 0 : celui du profil) : jusqu'à 500, quand
+/// l'ordinateur, le réseau et le décodeur le tiennent.
+pub const BITRATES: [u32; 14] = [0, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500];
+
 pub const HOST_SECTIONS: [Section; 7] = [Section::Profile, Section::Picture, Section::Sound, Section::Controllers, Section::Inputs, Section::Network, Section::Account];
 pub const APP_SECTIONS: [Section; 2] = [Section::App, Section::Gamepads];
 
@@ -1251,7 +1255,7 @@ impl App {
                     Some(false) => tr("Cet écran n'annonce pas la fréquence variable · Immédiat : chaque image dès qu'elle est décodée", "This screen does not announce variable refresh · Immediate: each frame as soon as it is decoded"),
                     None => tr("Fréquence variable : quand l'écran et le compositeur la permettent", "Variable refresh: when the screen and compositor allow it"),
                 };
-                let bitrates = [0u32, 10, 20, 30, 40, 50, 60, 80, 100, 150];
+                let bitrates = BITRATES;
                 let br_labels: Vec<String> = bitrates.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
                 let mut rows = vec![
                     choice(
@@ -1432,7 +1436,7 @@ impl App {
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
             Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1"], i),
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
-            Setting::Bitrate => st.mbps = [0u32, 10, 20, 30, 40, 50, 60, 80, 100, 150][i.min(9)],
+            Setting::Bitrate => st.mbps = BITRATES[i.min(BITRATES.len() - 1)],
             Setting::Audio => st.audio = pick(&["auto", "stereo", "5.1", "7.1", "computer"], i),
             Setting::Mouse => st.mouse = pick(&["auto", "desktop", "game"], i),
             Setting::Xbox360 => st.xbox360 = if i == usize::MAX { !st.xbox360 } else { i == 0 },

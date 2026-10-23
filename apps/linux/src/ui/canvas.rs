@@ -263,6 +263,20 @@ impl Canvas {
         }
     }
 
+    /// Un dégradé à plusieurs arrêts (position 0 à 1), vertical ou horizontal.
+    pub fn gradient(&mut self, x: f32, y: f32, w: f32, h: f32, horizontal: bool, stops: &[(f32, Rgba)]) {
+        let stops: Vec<tiny_skia::GradientStop> = stops.iter().map(|(p, c)| tiny_skia::GradientStop::new(*p, tiny_skia::Color::from_rgba8(c.0, c.1, c.2, c.3))).collect();
+        let (a, b) = if horizontal { ((x, y), (x + w, y)) } else { ((x, y), (x, y + h)) };
+        let Some(shader) = tiny_skia::LinearGradient::new(tiny_skia::Point::from_xy(a.0, a.1), tiny_skia::Point::from_xy(b.0, b.1), stops, tiny_skia::SpreadMode::Pad, Transform::identity()) else {
+            return;
+        };
+        let paint = Paint { shader, anti_alias: false, ..Default::default() };
+        if let Some(r) = Rect::from_xywh(x, y, w.max(0.0), h.max(0.0)) {
+            let t = self.t();
+            self.pix.fill_rect(r, &paint, t, None);
+        }
+    }
+
     /// Un polygone plein (coins coupés à 45°, couture).
     pub fn polygon(&mut self, pts: &[(f32, f32)], c: Rgba) {
         let mut pb = PathBuilder::new();

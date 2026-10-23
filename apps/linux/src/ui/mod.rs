@@ -113,11 +113,15 @@ pub fn signature(cv: &mut Canvas, fingerprint: Option<&str>, offline: bool) {
     cv.mark(w - s * 0.76, h - s * 0.7, s, Rgba::hex(0x141B23).alpha(0.55), Rgba::hex(0x141B23).alpha(0.55), None);
 }
 
-/// Le dégradé d'encre qui tient le texte de l'accueil lisible sur l'image.
+/// Le fondu d'encre qui tient le texte de l'accueil lisible sur l'image,
+/// celui de l'app Mac (HomeView) : à gauche sous le texte, en bas sous les
+/// ordinateurs, un voile en haut.
 pub fn shade(cv: &mut Canvas) {
     let (w, h) = (cv.w, cv.h);
-    cv.vgradient(0.0, 0.0, w, h * 0.35, Rgba(5, 7, 10, 140), Rgba(5, 7, 10, 26));
-    cv.vgradient(0.0, h * 0.35, w, h * 0.65, Rgba(5, 7, 10, 26), Rgba(5, 7, 10, 205));
+    let ink = |a: f32| INK.alpha(a);
+    cv.gradient(0.0, 0.0, w, h, true, &[(0.0, ink(0.88)), (0.38, ink(0.55)), (0.66, ink(0.0))]);
+    cv.gradient(0.0, 0.0, w, h, false, &[(0.48, ink(0.0)), (0.76, ink(0.82)), (1.0, ink(1.0))]);
+    cv.gradient(0.0, 0.0, w, h * 0.14, false, &[(0.0, ink(0.55)), (1.0, ink(0.0))]);
 }
 
 /// Teinte tirée de l'empreinte d'Admin (comme `hue()` de l'app Windows).
