@@ -224,7 +224,24 @@ fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, label: &str, u: f32) 
     }
     cv.rrect(r.x, r.y, r.w, r.h, 8.0 * u, if hover { INK_3 } else { INK_2 });
     cv.rrect_stroke(r.x, r.y, r.w, r.h, 8.0 * u, 1.0, LINE_2);
+    if label == "⌫" {
+        erase_glyph(cv, r.x + r.w / 2.0, r.y + r.h / 2.0, u);
+        return;
+    }
     cv.text(r.x + r.w / 2.0, r.y + r.h / 2.0 + 7.0 * u, Text::new(Font::MonoMedium, 20.0 * u, FROST).align(Align::Center), label);
+}
+
+/// Effacer (⌫) : absent des polices de la charte, dessiné au trait — une
+/// étiquette pointée vers la gauche, une croix dedans.
+fn erase_glyph(cv: &mut Canvas, cx: f32, cy: f32, u: f32) {
+    let (w, h) = (26.0 * u, 18.0 * u);
+    let (l, r, t, b) = (cx - w / 2.0, cx + w / 2.0, cy - h / 2.0, cy + h / 2.0);
+    let tip = l + 7.0 * u;
+    let stroke = 1.8 * u;
+    cv.polyline(&[(tip, t), (r, t), (r, b), (tip, b), (l, cy), (tip, t)], stroke, FROST);
+    let (xc, s) = (cx + 3.5 * u, 4.0 * u);
+    cv.line(xc - s, cy - s, xc + s, cy + s, stroke, FROST);
+    cv.line(xc - s, cy + s, xc + s, cy - s, stroke, FROST);
 }
 
 #[allow(clippy::too_many_arguments)]
