@@ -67,7 +67,7 @@ export WEBOS_TOOLCHAIN
 SYSROOT="$WEBOS_TOOLCHAIN/arm-webos-linux-gnueabi/sysroot"
 export WEBOS_SYSROOT="$SYSROOT"
 
-# SDL2 de webosbrew (2.30.12-webos.6, comme moonlight-tv) : la SDL du
+# SDL2 de webosbrew (2.30.12-webos.6) : la SDL du
 # téléviseur est ancienne et sans les réglages de webOS (touches Retour et
 # Accueil, manettes en jeu). Compilée une fois, embarquée dans le paquet.
 SDL_TAG=release-2.30.12-webos.6

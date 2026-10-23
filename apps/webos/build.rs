@@ -6,7 +6,7 @@
 //!   correctif 0001), comme sur Android et iOS ;
 //! - libopus en statique (moteur de son du cœur), du rootfs de la cible ;
 //! - cales de glibc : le téléviseur a la glibc 2.12, Rust en demande trois
-//!   fonctions plus récentes (`src/glibc_compat.c`, reprises de punktfunk) ;
+//!   fonctions plus récentes (`src/glibc_compat.c`, licence MIT ou Apache-2.0, voir son en-tête) ;
 //! - SDL2 (la version webOS de webosbrew, compilée par scripts/build.sh)
 //!   embarquée dans le paquet (`lib/`, trouvée par le RPATH).
 

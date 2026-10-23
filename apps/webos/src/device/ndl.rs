@@ -1,9 +1,9 @@
 //! Décodage de l'image par le téléviseur : NDL DirectMedia (API 2, webOS 5
-//! et après), la bibliothèque de LG qu'utilisent moonlight-tv et punktfunk.
+//! et après), la bibliothèque de LG.
 //! L'image décodée va sur le plan vidéo du téléviseur, sous le plan graphique
 //! de l'app (transparent pendant la session).
 //!
-//! Ce qui compte, appris par moonlight-tv (ss4s) et punktfunk :
+//! Ce qui compte, vérifié sur le téléviseur :
 //! - la bibliothèque est ouverte par `dlopen`, jamais liée ;
 //! - `NDL_DirectMediaInit` au premier chargement, pas au lancement ;
 //! - chaque chargement porte un plan de son Opus stéréo, amorcé de trames
@@ -14,7 +14,7 @@
 //!   qu'une fois ce plan nourri : une seule trame ne suffit pas à tous les
 //!   téléviseurs (webOS 26 sur une G2 : image noire, sans erreur). Des
 //!   trames vides de 5 ms sont donc envoyées jusqu'à la confirmation, et les
-//!   images attendent (punktfunk, `ndl/v2/load.rs`) ;
+//!   images attendent ;
 //! - horodatages en millisecondes depuis le chargement, jamais en arrière ;
 //! - jamais de vidage (`Flush`) en cours de session : il coupe le plan de son
 //!   pour toujours ; après une perte, on attend l'image clé suivante ;
@@ -32,7 +32,7 @@ pub const VIDEO_H265: i32 = 2;
 pub const VIDEO_AV1: i32 = 4;
 const AUDIO_OPUS: i32 = 3;
 
-/// Trame Opus vide, stéréo (1 flux, 1 couplé), celle de ss4s.
+/// Trame Opus vide, stéréo (1 flux, 1 couplé).
 const OPUS_EMPTY_STEREO: [u8; 3] = [0xec, 0xff, 0xfe];
 const AUDIO_PCM: i32 = 1;
 /// 5 ms de silence PCM S16LE en 6 voies (240 images).
@@ -144,7 +144,7 @@ struct Api {
     audio_play: unsafe extern "C" fn(*const c_void, u32, i64) -> c_int,
     error: unsafe extern "C" fn() -> *const c_char,
     render_length: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
-    /// Écrit son verdict par le pointeur (punktfunk : la valeur rendue n'est pas le verdict).
+    /// Écrit son verdict par le pointeur (la valeur rendue n'est pas le verdict).
     multichannel: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
 }
 
@@ -476,7 +476,7 @@ pub fn multichannel() -> Multichannel {
         return decode_multichannel(LAST_MULTICHANNEL.load(Ordering::Acquire) as c_int);
     };
     // Seul le paramètre de sortie compte : la valeur rendue n'a pas de sens
-    // (punktfunk, docs/NOTES.md : lue, elle donne n'importe quoi sur ARM).
+    // (lue, elle ne veut rien dire sur ARM).
     let mut v: c_int = -1;
     let ret = unsafe { f(&mut v) };
     static LOGGED: AtomicU8 = AtomicU8::new(0xff);

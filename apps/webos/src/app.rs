@@ -97,7 +97,7 @@ pub struct NetInfo {
 
 impl NetInfo {
     /// Plafond de débit de la session : la prise Ethernet des LG s'arrête à
-    /// 100 Mbit/s (environ 93 utiles), le décodeur à 95 (moonlight-tv).
+    /// 100 Mbit/s (environ 93 utiles), le décodeur à 95.
     pub fn cap_mbps(&self) -> u32 {
         match self.kind {
             NetKind::Ethernet if self.link_mbps.unwrap_or(100) <= 100 => 80,
