@@ -242,7 +242,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         _ if surround => 6,
         _ => 2,
     };
-    ndl::set_audio_channels(if surround { 6 } else { 2 });
+    ndl::set_audio_plane(if surround { ndl::AudioPlane::Pcm51 } else { ndl::AudioPlane::OpusClock });
     let shared = Arc::new(Shared {
         tx: Mutex::new(tx),
         session: OnceLock::new(),

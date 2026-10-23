@@ -1,0 +1,17 @@
+diff --git a/src/joystick/linux/SDL_sysjoystick.c b/src/joystick/linux/SDL_sysjoystick.c
+index 798427d..59321bf 100644
+--- a/src/joystick/linux/SDL_sysjoystick.c
++++ b/src/joystick/linux/SDL_sysjoystick.c
+@@ -1064,7 +1064,12 @@ static void LINUX_JoystickDetect(void)
+ {
+ #ifdef __WEBOS__
+     if (enumeration_method == ENUMERATION_NETLINK) {
++        /* KyberNow: in the app jail the netlink socket binds but delivers no
++         * uevent, so a controller switched on after launch is never seen.
++         * Keep the periodic /dev/input scan as well (every 3 s; adds are
++         * idempotent, removals come from the dead file descriptors). */
+         LINUX_NetlinkJoystickDetect();
++        LINUX_FallbackJoystickDetect();
+     } else
+ #endif
+ #ifdef SDL_USE_LIBUDEV

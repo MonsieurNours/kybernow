@@ -69,8 +69,25 @@ export WEBOS_SYSROOT="$SYSROOT"
 SDL_TAG=release-2.30.12-webos.6
 SDL_SRC="$THIRD_PARTY/sdl-webos"
 export SDL_PREFIX="$THIRD_PARTY/sdl-webos-dist"
+# Correctifs de KyberNow à SDL (apps/webos/sdl-patches) : la relecture de
+# /dev/input, pour les manettes allumées après le lancement. Un correctif
+# nouveau ou changé force la recompilation.
+SDL_STAMP="$SDL_PREFIX/.kybernow-patches"
+patches_sum="$(cat "$HERE"/sdl-patches/*.patch 2>/dev/null | shasum | cut -c1-16)"
+if [ -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ] && [ "$(cat "$SDL_STAMP" 2>/dev/null)" != "$patches_sum" ]; then
+    rm -rf "$SDL_PREFIX" "$SDL_SRC/build"
+fi
 if [ ! -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ]; then
     [ -f "$SDL_SRC/CMakeLists.txt" ] || git clone -q --depth 1 --branch "$SDL_TAG" https://github.com/webosbrew/SDL-webOS.git "$SDL_SRC"
+    for patch in "$HERE"/sdl-patches/*.patch; do
+        [ -f "$patch" ] || continue
+        if git -C "$SDL_SRC" apply --check "$patch" 2>/dev/null; then
+            git -C "$SDL_SRC" apply "$patch" && echo "==> SDL : $(basename "$patch") appliqué"
+        elif ! git -C "$SDL_SRC" apply --reverse --check "$patch" 2>/dev/null; then
+            echo "Correctif SDL $(basename "$patch") inapplicable" >&2
+            exit 1
+        fi
+    done
     echo "==> SDL2 de webOS ($SDL_TAG) dans $SDL_PREFIX"
     cmake -S "$SDL_SRC" -B "$SDL_SRC/build" -DCMAKE_TOOLCHAIN_FILE="$WEBOS_TOOLCHAIN/share/buildroot/toolchainfile.cmake" \
         -DCMAKE_BUILD_TYPE=Release -DWEBOS=ON -DSDL_OFFSCREEN=OFF -DSDL_DISKAUDIO=OFF -DSDL_DUMMYAUDIO=OFF \
@@ -79,6 +96,7 @@ if [ ! -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ]; then
     cmake --build "$SDL_SRC/build" -j"$(nproc 2>/dev/null || echo 4)" >/dev/null
     cmake --install "$SDL_SRC/build" >/dev/null
     [ -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ] || { echo "SDL2 de webOS non construite" >&2; exit 1; }
+    echo "$patches_sum" > "$SDL_STAMP"
 fi
 
 export PATH="$HOME/.cargo/bin:$PATH"

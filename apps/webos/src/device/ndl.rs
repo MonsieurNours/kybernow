@@ -34,20 +34,38 @@ const AUDIO_OPUS: i32 = 3;
 
 /// Trame Opus vide, stéréo (1 flux, 1 couplé), celle de ss4s.
 const OPUS_EMPTY_STEREO: [u8; 3] = [0xec, 0xff, 0xfe];
-/// Trame Opus vide en 5.1 (4 flux, 2 couplés), celle de ss4s (`opus_empty_frame_642`).
-const OPUS_EMPTY_51: [u8; 15] = [0xec, 0x02, 0xff, 0xfe, 0xec, 0x02, 0xff, 0xfe, 0xe8, 0x02, 0xff, 0xfe, 0xe8, 0xff, 0xfe];
-/// Voies du plan de son au prochain chargement : 2, ou 6 quand le son 5.1
-/// passe par NDL (seule disposition qu'il décode : flux (G, D), (arrière G,
-/// arrière D), C, LFE ; voies G, D, C, LFE, arrière G, arrière D).
-static AUDIO_CHANNELS: AtomicU8 = AtomicU8::new(2);
+const AUDIO_PCM: i32 = 1;
+/// 5 ms de silence PCM S16LE en 6 voies (240 images).
+const PCM_SILENCE_51: [u8; 240 * 6 * 2] = [0; 240 * 6 * 2];
 
-/// Voies du plan de son des prochains chargements (2 ou 6).
-pub fn set_audio_channels(n: u8) {
-    AUDIO_CHANNELS.store(if n == 6 { 6 } else { 2 }, Ordering::Release);
+/// Le plan de son du chargement.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioPlane {
+    /// Opus stéréo, jamais nourri de son réel : il cale les images sur leur
+    /// horodatage (le son sort par SDL).
+    OpusClock,
+    /// PCM S16LE 6 voies (G, D, C, LFE, arrière G, arrière D), le PCM
+    /// multicanal de la TV vers l'HDMI (Sortie son numérique en Pass-Through,
+    /// ampli en eARC). Le son décodé par l'app y passe.
+    Pcm51,
 }
 
-fn empty_frame() -> &'static [u8] {
-    if AUDIO_CHANNELS.load(Ordering::Acquire) == 6 { &OPUS_EMPTY_51 } else { &OPUS_EMPTY_STEREO }
+static AUDIO_PLANE: AtomicU8 = AtomicU8::new(0);
+
+/// Le plan de son des prochains chargements.
+pub fn set_audio_plane(p: AudioPlane) {
+    AUDIO_PLANE.store(p as u8, Ordering::Release);
+}
+
+fn wanted_plane() -> AudioPlane {
+    if AUDIO_PLANE.load(Ordering::Acquire) == AudioPlane::Pcm51 as u8 { AudioPlane::Pcm51 } else { AudioPlane::OpusClock }
+}
+
+fn empty_frame(plane: AudioPlane) -> &'static [u8] {
+    match plane {
+        AudioPlane::Pcm51 => &PCM_SILENCE_51,
+        AudioPlane::OpusClock => &OPUS_EMPTY_STEREO,
+    }
 }
 
 /// Durée d'une trame vide (ms), et avance des trames sur l'horloge du chargement.
@@ -86,9 +104,22 @@ struct OpusInfo {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+struct PcmInfo {
+    kind: c_int,
+    unknown1: c_int,
+    format: *const c_char,
+    layout: *const c_char,
+    channel_mode: *const c_char,
+    /// 1 : 48 kHz.
+    sample_rate: c_int,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 union AudioInfo {
     kind: c_int,
     opus: OpusInfo,
+    pcm: PcmInfo,
     padding: [u8; 32],
 }
 
@@ -121,6 +152,8 @@ struct State {
     initialized: bool,
     /// Chargé : (format, largeur, hauteur), instant du chargement.
     loaded: Option<((i32, u32, u32), Instant)>,
+    /// Plan de son du chargement en cours.
+    plane: AudioPlane,
     last_pts: i64,
     /// Dernier horodatage donné au plan de son (jamais en arrière : NDL le couperait).
     last_audio_pts: i64,
@@ -165,7 +198,7 @@ pub fn available() -> bool {
         })();
         match api {
             Some(api) => {
-                *g = Some(State { api, initialized: false, loaded: None, last_pts: 0, last_audio_pts: 0, feeding: false });
+                *g = Some(State { api, initialized: false, loaded: None, plane: AudioPlane::OpusClock, last_pts: 0, last_audio_pts: 0, feeding: false });
                 true
             }
             None => {
@@ -200,7 +233,8 @@ extern "C" fn on_load(kind: c_int, value: i64, s: *const c_char) {
 pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
-    if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) {
+    let plane = wanted_plane();
+    if st.loaded.as_ref().is_some_and(|(k, _)| *k == (kind, width, height)) && st.plane == plane {
         return Ok(());
     }
     unsafe {
@@ -214,23 +248,46 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
             }
             st.initialized = true;
         }
-        let mut info = DataInfo {
-            video: VideoInfo { width: width as c_int, height: height as c_int, kind, unknown1: 0 },
-            audio: AudioInfo { padding: [0; 32] },
+        static S16LE: &CStr = c"S16LE";
+        static INTERLEAVED: &CStr = c"interleaved";
+        static SIX: &CStr = c"6-channel";
+        let load = |plane: AudioPlane| -> Result<(), String> {
+            let mut info = DataInfo {
+                video: VideoInfo { width: width as c_int, height: height as c_int, kind, unknown1: 0 },
+                audio: AudioInfo { padding: [0; 32] },
+            };
+            match plane {
+                AudioPlane::OpusClock => {
+                    info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: 2, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
+                }
+                AudioPlane::Pcm51 => {
+                    info.audio.pcm = PcmInfo { kind: AUDIO_PCM, unknown1: 0, format: S16LE.as_ptr(), layout: INTERLEAVED.as_ptr(), channel_mode: SIX.as_ptr(), sample_rate: 1 };
+                }
+            }
+            LOAD_COMPLETED.store(false, Ordering::Release);
+            GENERATION.fetch_add(1, Ordering::AcqRel);
+            if (st.api.load)(&mut info, on_load) != 0 {
+                return Err(format!("NDL_DirectMediaLoad ({plane:?}) : {}", last_error(&st.api)));
+            }
+            Ok(())
         };
-        let channels = AUDIO_CHANNELS.load(Ordering::Acquire);
-        info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: channels as c_int, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
-        LOAD_COMPLETED.store(false, Ordering::Release);
-        GENERATION.fetch_add(1, Ordering::AcqRel);
         let at = Instant::now();
-        if (st.api.load)(&mut info, on_load) != 0 {
-            return Err(format!("NDL_DirectMediaLoad : {}", last_error(&st.api)));
-        }
+        let plane = match load(plane) {
+            Ok(()) => plane,
+            Err(e) if plane == AudioPlane::Pcm51 => {
+                // Le PCM 6 voies refusé : l'image d'abord, le son repassera par SDL.
+                log::warn!("son : {e} ; plan Opus stéréo à la place");
+                load(AudioPlane::OpusClock)?;
+                AudioPlane::OpusClock
+            }
+            Err(e) => return Err(e),
+        };
         st.loaded = Some(((kind, width, height), at));
+        st.plane = plane;
         st.last_pts = 0;
         st.last_audio_pts = 0;
         st.feeding = false;
-        log::info!("image : NDL chargé ({}, {width} × {height}, son {channels} voies)", name(kind));
+        log::info!("image : NDL chargé ({}, {width} × {height}, son {plane:?})", name(kind));
     }
     // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
     // alors les images sur leur horodatage.
@@ -262,7 +319,7 @@ fn prime(st: &mut State) -> u32 {
     let Some((_, at)) = st.loaded else { return 0 };
     let target = at.elapsed().as_millis() as i64 + PRIME_LEAD_MS;
     let mut n = 0;
-    let frame = empty_frame();
+    let frame = empty_frame(st.plane);
     while st.last_audio_pts < target {
         let pts = st.last_audio_pts;
         if unsafe { (st.api.audio_play)(frame.as_ptr() as *const c_void, frame.len() as u32, pts) } != 0 {
@@ -328,14 +385,17 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
     }
 }
 
-/// Un paquet Opus du son réel au plan de son de NDL (5.1), horodaté à
+/// Du son réel (PCM S16LE 6 voies) au plan de son de NDL, horodaté à
 /// l'horloge du chargement, jamais en arrière (NDL couperait le son pour le
 /// reste de la session). `Ok(false)` : pas encore de plan confirmé, paquet
-/// laissé de côté.
+/// laissé de côté ; `Err` si le chargement n'a pas ce plan.
 pub fn play_audio(data: &[u8]) -> Result<bool, String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
     let Some((_, at)) = st.loaded else { return Ok(false) };
+    if st.plane != AudioPlane::Pcm51 {
+        return Err("le chargement n'a pas de plan PCM 6 voies".into());
+    }
     if !LOAD_COMPLETED.load(Ordering::Acquire) {
         return Ok(false);
     }

@@ -33,20 +33,20 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 
 - **Mode de la session** : celui de la dalle (`SDL_webOSGetPanelResolution`, `SDL_webOSGetRefreshRate`), soit 3840 × 2160 à 120 Hz sur une G2 ; une définition ou une fréquence choisie dans les réglages. L'écran virtuel de l'ordinateur est créé à ce mode.
 - **30, 60 ou 120 images par seconde** : la dalle ne change pas de fréquence pour une app (webOS n'en donne pas le moyen) ; à 30 ou 60 i/s, chaque image y est montrée 4 ou 2 fois, à intervalles réguliers. 144 Hz : les dalles de 2025 qui l'ont (pas la G2).
-- **Format** : HEVC d'office (4K à 120 i/s sur le décodeur des OLED de 2022) ; AV1 seulement jusqu'à 60 i/s (au-delà, les LG le montrent à 60 : moonlight-tv #529, punktfunk) ; H.264 au choix, déconseillé au-delà de 60 i/s.
-- **Débit** : le débit du profil (proportionné aux pixels par seconde, comme les autres apps), plafonné à 80 Mbit/s en Ethernet (la prise des LG s'arrête à 100 Mbit/s, environ 93 utiles) et à 95 en Wi-Fi (limite du décodeur que retient moonlight-tv sur les puces de 2022 et après). Le lien est lu dans `/sys/class/net`.
+- **Format** : HEVC d'office (4K à 120 i/s sur le décodeur des OLED de 2022) ; AV1 seulement jusqu'à 60 i/s (au-delà, les LG le montrent à 60) ; H.264 au choix, déconseillé au-delà de 60 i/s.
+- **Débit** : le débit du profil (proportionné aux pixels par seconde, comme les autres apps), plafonné à 80 Mbit/s en Ethernet (la prise des LG s'arrête à 100 Mbit/s, environ 93 utiles) et à 95 en Wi-Fi (limite du décodeur sur les puces de 2022 et après). Le lien est lu dans `/sys/class/net`.
 - **Mode jeu de la télé** : aucune API ne permet à une app de passer la télé en Optimiseur de jeu ; le menu le rappelle (bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu), et le rappel se coupe.
 - **VRR** : LG le réserve aux entrées HDMI, pour toute app interne, native ou web. L'ordinateur envoie ses images au rythme de la dalle.
 - **HDR** : le décodeur sait l'afficher (`NDL_DirectVideoSetHDRInfo`, HEVC Main10) ; impossible avec Kyber 0.29 (capture en 8 bits), comme sur les autres apps.
 
 ## Décodage (NDL DirectMedia)
 
-`src/device/ndl.rs`, d'après moonlight-tv (bibliothèque ss4s) et punktfunk, qui l'ont éprouvé sur des téléviseurs :
+`src/device/ndl.rs`. Ce qui compte, vérifié sur la G2 :
 
 - `libNDL_directmedia.so.1` ouverte par `dlopen`, jamais liée (une dépendance directe empêche l'app de démarrer là où elle manque).
 - `NDL_DirectMediaInit` au premier chargement, pas au lancement de l'app.
 - Chaque chargement porte un **plan de son Opus stéréo, amorcé de trames vides** (`0xec 0xff 0xfe`, 5 ms chacune) : sans lui, NDL ne cale pas les images sur leur horodatage, et l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son réel ne passe pas par là (voir Son).
-- **Le chargement n'est confirmé (`LOADCOMPLETED`) qu'une fois ce plan nourri** : les trames vides partent par salves jusqu'à la confirmation (en fond passé 500 ms), et aucune image n'est donnée avant (2 s au plus). Avec une seule trame, la G2 sous webOS 26 restait sur une image noire, sans erreur ; confirmé en 141 ms depuis (punktfunk, `ndl/v2/load.rs`).
+- **Le chargement n'est confirmé (`LOADCOMPLETED`) qu'une fois ce plan nourri** : les trames vides partent par salves jusqu'à la confirmation (en fond passé 500 ms), et aucune image n'est donnée avant (2 s au plus). Avec une seule trame, la G2 sous webOS 26 restait sur une image noire, sans erreur ; confirmé en 141 ms depuis.
 - Horodatages en millisecondes depuis le chargement, jamais en arrière.
 - **Jamais de vidage** (`NDL_DirectVideoFlushRenderBuffer`) en cours de session : il coupe le plan de son pour le reste de la session. Après une perte, aucune image n'est donnée avant l'image clé suivante, redemandée par le cœur.
 - Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé devant l'image clé qui (re)démarre le décodeur ; un nouveau jeu de paramètres, un autre format ou une autre taille rechargent NDL.
@@ -65,7 +65,7 @@ Opus décodé par le moteur du cœur (`apps/core/src/audio` : tampon adaptatif, 
 
 ## Vibrations
 
-Les vibrations du jeu arrivent au cœur (`InputPlatform::rumble`) et partent à la manette du joueur par `SDL_GameControllerRumble` (5 s au plus sans durée, (0, 0) arrête). Sur les téléviseurs LG, les manettes Bluetooth vibrent quand webOS donne leurs moteurs (moonlight-tv : la DualSense en Bluetooth n'y vibre pas toujours) ; l'écran de test dit pour chaque manette « 2 moteurs » ou « sans vibration », et la vibration d'essai le vérifie.
+Les vibrations du jeu arrivent au cœur (`InputPlatform::rumble`) et partent à la manette du joueur par `SDL_GameControllerRumble` (5 s au plus sans durée, (0, 0) arrête). Sur les téléviseurs LG, les manettes Bluetooth vibrent quand webOS donne leurs moteurs (la DualSense en Bluetooth n'y vibre pas toujours) ; l'écran de test dit pour chaque manette « 2 moteurs » ou « sans vibration », et la vibration d'essai le vérifie.
 
 ## Architecture
 
@@ -87,11 +87,11 @@ apps/webos/
 ```
 
 - **Cœur** : `kybernow-core` tel quel ; `src/device/session.rs` est l'équivalent du pont JNI d'Android (`Platform` du cœur : image, son, chaîne d'entrées, états, mesures, pointeur, vibrations).
-- **SDL2** : la version webOS de webosbrew (`release-2.30.12-webos.6`, celle de moonlight-tv), compilée par `build.sh` et embarquée dans le paquet (`lib/`, trouvée par le RPATH `$ORIGIN/../lib`, en `DT_RPATH` pour passer devant l'ancienne SDL du téléviseur). Réglages : Retour et appui long sur Retour à l'app (`SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`, `_EXIT`), manettes laissées en manettes (`SDL_WEBOS_CLOUDGAME_ACTIVE`). Les fonctions de SDL sont déclarées à la main (`src/device/sdl.rs`).
+- **SDL2** : la version webOS de webosbrew (`release-2.30.12-webos.6`), compilée par `build.sh` avec les correctifs d'`apps/webos/sdl-patches` (relecture de `/dev/input` toutes les 3 s en plus du canal netlink, muet dans le bac à sable de l'app : sans elle, une manette allumée après le lancement n'est jamais vue) et embarquée dans le paquet (`lib/`, trouvée par le RPATH `$ORIGIN/../lib`, en `DT_RPATH` pour passer devant l'ancienne SDL du téléviseur). Réglages : Retour et appui long sur Retour à l'app (`SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`, `_EXIT`), manettes laissées en manettes (`SDL_WEBOS_CLOUDGAME_ACTIVE`). Les fonctions de SDL sont déclarées à la main (`src/device/sdl.rs`).
 - **Interface** : dessinée en mémoire (tiny-skia pour les formes et les images, fontdue pour le texte) en 1920 × 1080, le plan graphique de webOS, puis envoyée à l'écran par une texture SDL. Pendant la session, la fenêtre est effacée en transparent ; le pointeur de l'ordinateur est une petite texture à part, recomposée sans redessiner l'interface.
 - **Polices** : Archivo et Martian Mono de `brand/v2/fonts`, en instances fixes réduites au latin (`scripts/fonts.py`), car fontdue ne lit pas les axes variables.
 - **VLC** : kyvlcplayer référence libvlc, jamais appelée : `build.rs` compile une fonction vide par fonction `libvlc_*` de vlc-rs, comme sur Android et iOS.
-- **glibc** : le téléviseur a la glibc 2.12 ; `src/glibc_compat.c` (repris de punktfunk) fournit `getauxval`, `gettid` et `sendmmsg`, que la bibliothèque standard de Rust demande.
+- **glibc** : le téléviseur a la glibc 2.12 ; `src/glibc_compat.c` fournit `getauxval`, `gettid` et `sendmmsg`, que la bibliothèque standard de Rust demande.
 - **kynput** : sur Linux, kynput compile l'injection d'entrées du serveur (libinput, libevdev, X11), absente du téléviseur ; le correctif `kyber-patches/0001` (cfg `kybernow_webos`) le fait se comporter comme sur Android (client seul).
 
 ## Compiler
@@ -112,7 +112,7 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 `scripts/build.sh` applique les correctifs d'`apps/macos/kyber-patches` puis ceux d'`apps/webos/kyber-patches`, compile dans `third_party/kyber-desktop/rootfs-armv7-unknown-linux-gnueabi` libkynput (sans SDL, `cargo cinstall`) et libopus 1.6.1 (en code indépendant de la position : le binaire est PIE), la SDL2 de webOS dans `third_party/sdl-webos-dist`, pose `libvlc.pc`, puis compile `kybernow-webos` et le met en paquet (`scripts/package.sh` : binaire sans informations de débogage, SDL2, images, licences). Les sources de Kyber 0.29 vont dans `third_party/kyber-desktop` (voir [docs/build-notes.md](../../docs/build-notes.md)).
 
 - **Chaîne** : celle de webosbrew (`openlgtv/buildroot-nc4`, gcc 16, glibc 2.12, armv7 softfp), dans `third_party/webos-toolchain` ou `WEBOS_TOOLCHAIN`. Sur un Mac Apple Silicon (essayé le 23/10/2026) : `arm-webos-linux-gnueabi_sdk-buildroot_darwin-arm64.tar.bz2` de [webosbrew/native-toolchain](https://github.com/webosbrew/native-toolchain) (gcc 12, glibc 2.12), décompressée dans `third_party/webos-toolchain-mac`, `./relocate-sdk.sh` une fois, puis `WEBOS_TOOLCHAIN=…/arm-webos-linux-gnueabi_sdk-buildroot apps/webos/scripts/build.sh` (avec `/opt/homebrew/opt/rustup/bin` dans le `PATH` si rustup vient de Homebrew). `scripts/cc.sh` lui donne sa racine système et lie libstdc++ en statique.
-- **Options de Rust** : `-C target-feature=+neon,+vfp3,-soft-float -C target-cpu=cortex-a73` (la cible « gnueabi » émule sinon le calcul en virgule flottante : dix fois plus lent, d'après punktfunk), `--cfg kybernow_webos`, `--cfg getrandom_backend="linux_raw"`.
+- **Options de Rust** : `-C target-feature=+neon,+vfp3,-soft-float -C target-cpu=cortex-a73` (la cible « gnueabi » émule sinon le calcul en virgule flottante : dix fois plus lent), `--cfg kybernow_webos`, `--cfg getrandom_backend="linux_raw"`.
 - **Paquet** : `scripts/ipk.py` écrit le `.ipk` comme `ares-package` (archive ar : `debian-binary`, `control.tar.gz`, `data.tar.gz` avec `usr/palm/applications/<id>/` et `usr/palm/packages/<id>/packageinfo.json`), sans les outils de LG.
 - **Émulation** : `qemu-arm` ne lance pas un binaire lié à la glibc 2.12 du téléviseur (son chargeur plante, même pour un programme C minimal) ; l'aperçu se vérifie avec un binaire statique (`--no-default-features`, `+crt-static`, la cale de glibc en `-C link-arg`, `qemu-arm -cpu max`).
 
@@ -125,5 +125,5 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 - Sur la G2 : une session de bout en bout (NDL, son, manettes, vibrations), la latence en 4K à 120 Hz, en 1440p et en 1080p, à 30, 60 et 120 i/s.
 - Magic Remote en souris : vérifier que le téléviseur envoie toujours les mouvements quand son pointeur est caché.
 - Son 5.1 jusqu'à l'ampli : vérifier avec la Sortie son numérique en Pass-Through (l'ampli doit afficher du multicanal), puis l'écart son-image.
-- DualSense : vibrations et gâchettes adaptatives par le service Bluetooth de webOS (comme punktfunk), quand SDL ne les donne pas.
+- DualSense : vibrations et gâchettes adaptatives par le service Bluetooth de webOS, quand SDL ne les donne pas.
 - Homebrew Channel : dépôt de l'app (mises à jour).
