@@ -22,6 +22,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     match &s.phase {
         Phase::Preparing | Phase::Connecting | Phase::FirstImages => passage(app, cv, f, s),
         Phase::Ended { error } => ended(app, cv, f, s, error.as_deref()),
+        Phase::Ending => ending(app, cv, s),
         _ => {
             cv.clear_transparent();
             if s.keys {
@@ -125,6 +126,35 @@ fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         let bw = cv.text_width(Text::new(Font::Regular, 13.0, MUTED), label) + 26.0;
         widgets::ghost(cv, f, Target::CancelConnect, x + cw - 32.0 - bw, by - 24.0, 36.0, 13.0, None, label, MUTED);
     }
+}
+
+// MARK: - Déconnexion
+
+/// L'accueil revient en fondu (avec la dernière image de la session) sous
+/// « Déconnexion… », le temps que l'ordinateur remette son écran et son son.
+fn ending(app: &App, cv: &mut Canvas, s: &SessionUi) {
+    let u = unit(app.layout);
+    let (w, h) = (cv.w, cv.h);
+    let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
+    home::draw_body(app, cv, &mut under, true);
+    let t = s.ending_since.map(|t| t.elapsed().as_secs_f32()).unwrap_or(1.0);
+    let veil = 1.0 - (t / 0.45).clamp(0.0, 1.0) * 0.55;
+    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (255.0 * veil) as u8));
+    let msg = tr("Déconnexion… l'ordinateur remet son écran", "Disconnecting… the computer restores its screen");
+    let style = Text::new(Font::Regular, 14.0 * u, MUTED);
+    let ch = 38.0 * u;
+    let cw = cv.text_width(style, msg) + 56.0 * u;
+    let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
+    cv.rrect(x, y, cw, ch, ch / 2.0, Rgba(9, 13, 18, 230));
+    cv.rrect_stroke(x, y, cw, ch, ch / 2.0, 1.0, LINE_2);
+    let a0 = t * 6.0;
+    let (cx, cy) = (x + 20.0 * u, y + ch / 2.0);
+    let pts: Vec<(f32, f32)> = (0..=12).map(|k| {
+        let a = a0 + k as f32 * 0.35;
+        (cx + 6.0 * u * a.cos(), cy + 6.0 * u * a.sin())
+    }).collect();
+    cv.polyline(&pts, 1.8 * u, SPECTRE);
+    cv.text(x + 36.0 * u, y + ch / 2.0 + 5.0 * u, style, msg);
 }
 
 // MARK: - Fin sur erreur

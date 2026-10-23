@@ -333,7 +333,7 @@ pub fn run(args: &[String]) {
         let streaming = live.is_some() && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
         // Animations : lancement, passage, capsules, ajout, écran des manettes.
         let animating = app.screen == Screen::Launch
-            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages))
+            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages | Phase::Ending))
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.screen == Screen::Gamepads
@@ -597,7 +597,10 @@ fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, dirty: &mut bool, pr
     }
     // Pointeur du système : forme de l'ordinateur (bureau, souris du bureau),
     // caché ailleurs (l'app dessine celui de l'ordinateur).
-    let show_sys = !streaming || s.menu || s.keys || s.bar || (app.layout == Layout::Desktop && !s.relative && !l.pointer_hidden);
+    // Bureau, souris du bureau : toujours visible. Windows masque son pointeur
+    // par intermittence (sans souris branchée, à l'arrêt) ; le suivre ferait
+    // perdre le curseur au repos.
+    let show_sys = !streaming || s.menu || s.keys || s.bar || (app.layout == Layout::Desktop && !s.relative);
     unsafe {
         sdl::SDL_ShowCursor(show_sys as c_int);
         if !win.sys_cursor.is_null() && streaming && !s.menu && !s.keys && !s.bar {
@@ -1013,7 +1016,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     Phase::Streaming
                 }
                 Status::Reconnecting { attempt, max } => Phase::Reconnecting { attempt, max },
-                Status::Ending => Phase::Ending,
+                Status::Ending => {
+                    s.ending_since.get_or_insert_with(Instant::now);
+                    Phase::Ending
+                }
                 Status::Ended { error, .. } => {
                     if let Some(l) = live.as_ref()
                         && let Some(p) = l.handle.shared.current_input()
@@ -1267,6 +1273,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 bar_menu: None,
                 notice: None,
                 started: Instant::now(),
+                ending_since: None,
                 summary: format!("{} · {} × {} · {} Hz · {codec_label} · {mbps} Mbit/s", ui::profile_label(profile), mode.0, mode.1, mode.2),
             });
             app.screen = Screen::Session;
@@ -1313,8 +1320,24 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
             if let Some(s) = app.session.as_mut() {
                 s.menu = false;
+                s.keys = false;
                 s.bar = false;
+                s.bar_menu = None;
                 s.phase = Phase::Ending;
+                s.ending_since.get_or_insert_with(Instant::now);
+            }
+            // L'accueil qui revient montre déjà la dernière image de la session.
+            if let (Some(l), Some(s)) = (live.as_ref(), app.session.as_ref())
+                && app.store.app.keep_last_image
+                && let Some(img) = l.snapshot.clone()
+            {
+                app.images.insert(s.host.clone(), img);
+                app.image_is_last.insert(s.host.clone(), true);
+            }
+            unsafe {
+                sdl::SDL_SetRelativeMouseMode(0);
+                sdl::SDL_ShowCursor(1);
+                sdl::SDL_SetCursor(sdl::SDL_GetDefaultCursor());
             }
         }
         Action::SetProfile(p) => {

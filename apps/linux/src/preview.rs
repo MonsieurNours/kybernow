@@ -151,6 +151,7 @@ fn session(app: &App) -> SessionUi {
         bar_menu: None,
         notice: None,
         started: Instant::now() - Duration::from_millis(2100),
+        ending_since: None,
         summary: format!("{} · {w} × {h} · {fps} Hz · HEVC · 30 Mbit/s", ui::profile_label(Profile::Jeu)),
     }
 }

@@ -297,6 +297,8 @@ pub struct SessionUi {
     pub started: Instant,
     /// Résumé de la session (« Jeu · 1280 × 800 · 90 Hz · HEVC · 30 Mbit/s »).
     pub summary: String,
+    /// Déconnexion demandée : l'accueil revient en fondu sous « Déconnexion… ».
+    pub ending_since: Option<Instant>,
 }
 
 /// Étapes de l'ajout d'un ordinateur.
