@@ -277,6 +277,26 @@ impl Canvas {
         }
     }
 
+    /// Une image de la taille du canevas, découpée par un polygone (en points),
+    /// décalée de `(dx, dy)` points et estompée : une moitié de l'accueil au passage.
+    pub fn draw_masked(&mut self, src: &Pixmap, poly: &[(f32, f32)], dx: f32, dy: f32, opacity: f32) {
+        if opacity <= 0.0 {
+            return;
+        }
+        let k = self.k;
+        let mut pb = PathBuilder::new();
+        for (i, (x, y)) in poly.iter().enumerate() {
+            let (px, py) = ((x + dx) * k, (y + dy) * k);
+            if i == 0 { pb.move_to(px, py) } else { pb.line_to(px, py) }
+        }
+        pb.close();
+        let Some(path) = pb.finish() else { return };
+        let Some(mut mask) = tiny_skia::Mask::new(self.pix.width(), self.pix.height()) else { return };
+        mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+        let paint = PixmapPaint { opacity: opacity.clamp(0.0, 1.0), quality: FilterQuality::Nearest, ..Default::default() };
+        self.pix.draw_pixmap(0, 0, src.as_ref(), &paint, Transform::from_translate(dx * k, dy * k), Some(&mask));
+    }
+
     /// Un polygone plein (coins coupés à 45°, couture).
     pub fn polygon(&mut self, pts: &[(f32, f32)], c: Rgba) {
         let mut pb = PathBuilder::new();
@@ -824,5 +844,23 @@ impl Canvas {
         let l = lit.clamp(0.0, 1.0);
         let seam = if flash > 0.0 { mix(CORE, Rgba(255, 255, 255, 255), flash) } else { mix(top, CORE, l) };
         self.mark(x, y, size, mix(top, frost, l), mix(top, SPECTRE, l), Some(seam));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn masked_half_is_drawn() {
+        let mut cv = Canvas::new();
+        cv.resize(200, 100, 1.0);
+        cv.clear(Rgba(200, 10, 10, 255));
+        let src = cv.pix.clone();
+        cv.clear_transparent();
+        cv.draw_masked(&src, &[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)], 0.0, 0.0, 1.0);
+        let px = cv.pix.pixel(10, 10).unwrap();
+        assert!(px.alpha() > 200, "alpha {}", px.alpha());
+        assert_eq!(cv.pix.pixel(150, 10).unwrap().alpha(), 0);
     }
 }

@@ -299,6 +299,8 @@ pub struct SessionUi {
     pub summary: String,
     /// Déconnexion demandée : l'accueil revient en fondu sous « Déconnexion… ».
     pub ending_since: Option<Instant>,
+    /// Première image : les moitiés de l'accueil s'écartent (passage).
+    pub opened_at: Option<Instant>,
 }
 
 /// Étapes de l'ajout d'un ordinateur.

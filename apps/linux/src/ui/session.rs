@@ -25,6 +25,9 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         Phase::Ending => ending(app, cv, s),
         _ => {
             cv.clear_transparent();
+            if super::passage_opening(s) {
+                opening(app, cv, s);
+            }
             if s.keys {
                 keys(app, cv, f);
             } else if s.menu {
@@ -50,25 +53,123 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
 // MARK: - Passage
 
+/// Durées du passage, celles de l'app Mac (apps/macos/KyberNow/Passage.swift).
+pub const OPEN: f32 = 1.1;
+const CLOSE: f32 = 0.6;
+
+fn ease(p: f32) -> f32 {
+    // cubic-bezier(.2, .9, .1, 1) approché : départ vif, arrivée douce.
+    1.0 - (1.0 - p.clamp(0.0, 1.0)).powi(4)
+}
+
+/// La couture à 45° : son point haut (elle descend vers la gauche) et les deux moitiés.
+fn halves(w: f32, h: f32) -> ([(f32, f32); 4], [(f32, f32); 4], f32) {
+    let c = (w + h) / 2.0;
+    ([(0.0, 0.0), (c, 0.0), (c - h, h), (0.0, h)], [(c, 0.0), (w, 0.0), (w, h), (c - h, h)], c)
+}
+
+/// Le tube néon dans la couture : `scale` (étirement depuis le centre),
+/// `alpha` (grésillement, respiration), bouts en fondu.
+fn tube(cv: &mut Canvas, u: f32, scale: f32, alpha: f32) {
+    if alpha <= 0.01 || scale <= 0.0 {
+        return;
+    }
+    let (w, h) = (cv.w, cv.h);
+    let c = (w + h) / 2.0;
+    let (cx, cy) = (c - h / 2.0, h / 2.0);
+    let half = h / 2.0 * scale;
+    let n = 28;
+    for (width, color) in [(16.0 * u, FLAT.alpha(0.55)), (6.0 * u, SPECTRE), (3.0 * u, CORE)] {
+        for i in 0..n {
+            let (t0, t1) = (i as f32 / n as f32, (i + 1) as f32 / n as f32);
+            let mid = (t0 + t1) / 2.0;
+            let fade = (mid / 0.14).min((1.0 - mid) / 0.14).clamp(0.0, 1.0);
+            let p = |t: f32| (cx + half * (1.0 - 2.0 * t), cy - half * (1.0 - 2.0 * t));
+            let (a, b) = (p(t0), p(t1));
+            cv.line(a.0, a.1, b.0, b.1, width, color.alpha(alpha * fade));
+        }
+    }
+}
+
+/// La lueur Spectre le long de la couture.
+fn band(cv: &mut Canvas, u: f32, alpha: f32) {
+    if alpha <= 0.01 {
+        return;
+    }
+    let (w, h) = (cv.w, cv.h);
+    let c = (w + h) / 2.0;
+    for i in 0..5 {
+        let t = (i as f32 + 0.5) / 5.0;
+        cv.glow(c - h * t, h * t, 170.0 * u, 170.0 * u, FLAT.alpha(0.42 * alpha));
+    }
+}
+
+/// Niveau du tube pendant l'attente : grésillement sur une seconde, puis respiration.
+fn ignite(t: f32, reduced: bool) -> (f32, f32) {
+    if reduced {
+        return (1.0, 1.0);
+    }
+    const KEYS: [(f32, f32); 8] = [(0.0, 0.0), (0.06, 0.9), (0.1, 0.1), (0.16, 0.95), (0.22, 0.05), (0.3, 1.0), (0.34, 0.3), (0.44, 1.0)];
+    let alpha = if t < 1.0 {
+        let mut a = 1.0;
+        for w in KEYS.windows(2) {
+            if t <= w[1].0 {
+                let p = (t - w[0].0) / (w[1].0 - w[0].0);
+                a = w[0].1 + (w[1].1 - w[0].1) * p;
+                break;
+            }
+        }
+        a
+    } else {
+        let phase = ((t - 1.0) / 1.6) % 2.0;
+        let p = if phase < 1.0 { phase } else { 2.0 - phase };
+        1.0 - 0.3 * p
+    };
+    (ease(t / 0.45), alpha)
+}
+
+/// Préparation : l'accueil joint, le tube s'allume dans la couture, la capsule des étapes.
 fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
-    // L'accueil dessous, sans ses éléments choisissables.
     let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
     home::draw_body(app, cv, &mut under, true);
-    // Les deux moitiés s'écartent le long de la couture (assombries).
     let t = s.started.elapsed().as_secs_f32();
-    let open = (t / 0.5).clamp(0.0, 1.0);
-    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (150.0 + 40.0 * open) as u8));
-    // La couture : un tube néon à 45° qui traverse l'écran.
-    let (cx, cy) = (w / 2.0, h / 2.0);
-    let len = w.max(h) * 1.2;
-    let (dx, dy) = (len * 0.707, -len * 0.707 * 0.62);
-    let gap = 26.0 * u * open;
-    cv.polygon(&[(0.0, 0.0), (w, 0.0), (w, (cy + gap - (w - cx) * 0.62).max(0.0)), (0.0, cy + gap + cx * 0.62)], Rgba(5, 7, 10, 0));
-    for (width, c) in [(26.0 * u, HALO.alpha(0.18)), (12.0 * u, HALO.alpha(0.45)), (5.0 * u, SPECTRE), (2.4 * u, CORE)] {
-        cv.line(cx - dx, cy - dy, cx + dx, cy + dy, width, c);
-    }
+    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (90.0 * ease(t / 0.4)) as u8));
+    band(cv, u, 0.75 * ease(t / 0.6));
+    let (scale, alpha) = ignite(t, app.reduce_motion);
+    tube(cv, u, scale, alpha);
+    capsule_steps(app, cv, f, s, t);
+}
+
+/// Première image : les moitiés de l'accueil s'écartent le long de la
+/// couture en s'effaçant, l'image de l'ordinateur apparaît derrière ; le néon s'éteint.
+fn opening(app: &App, cv: &mut Canvas, s: &SessionUi) {
+    let Some(at) = s.opened_at else { return };
+    let u = unit(app.layout);
+    let t = at.elapsed().as_secs_f32();
+    let dur = if app.reduce_motion { 0.25 } else { OPEN };
+    let p = ease(t / dur);
+    let (w, h) = (cv.w, cv.h);
+    let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
+    home::draw_body(app, cv, &mut under, true);
+    let home = cv.pix.clone();
+    cv.clear_transparent();
+    let d = if app.reduce_motion { 0.0 } else { w.max(h) * 0.18 * p };
+    let (a, b, _) = halves(w, h);
+    cv.draw_masked(&home, &a, -d, -d, 1.0 - p);
+    cv.draw_masked(&home, &b, d, d, 1.0 - p);
+    let since_start = s.started.elapsed().as_secs_f32();
+    let (_, breathe) = ignite(since_start, app.reduce_motion);
+    let fade = |delay: f32, len: f32| 1.0 - ((t - delay) / len).clamp(0.0, 1.0);
+    band(cv, u, 0.75 * fade(0.2, 0.7));
+    tube(cv, u, 1.0, breathe * fade(0.45, 0.6));
+}
+
+/// La capsule « Vous entrez dans… », ses étapes et Annuler.
+fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f32) {
+    let u = unit(app.layout);
+    let (w, h) = (cv.w, cv.h);
     // La capsule.
     let cw = 560.0 * u;
     let ch = 300.0 * u;
@@ -128,33 +229,51 @@ fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
 }
 
+
 // MARK: - Déconnexion
 
-/// L'accueil revient en fondu (avec la dernière image de la session) sous
-/// « Déconnexion… », le temps que l'ordinateur remette son écran et son son.
+/// Fin : la dernière image reste figée, les moitiés de l'accueil reviennent
+/// et se joignent (0,6 s), un dernier éclair dans la couture ; puis
+/// « Déconnexion… » le temps que l'ordinateur remette son écran et son son.
 fn ending(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
+    let t = s.ending_since.map(|t| t.elapsed().as_secs_f32()).unwrap_or(10.0);
+    let dur = if app.reduce_motion { 0.2 } else { CLOSE };
+    let p = ease(t / dur);
     let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
     home::draw_body(app, cv, &mut under, true);
-    let t = s.ending_since.map(|t| t.elapsed().as_secs_f32()).unwrap_or(1.0);
-    let veil = 1.0 - (t / 0.45).clamp(0.0, 1.0) * 0.55;
-    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (255.0 * veil) as u8));
-    let msg = tr("Déconnexion… l'ordinateur remet son écran", "Disconnecting… the computer restores its screen");
-    let style = Text::new(Font::Regular, 14.0 * u, MUTED);
-    let ch = 38.0 * u;
-    let cw = cv.text_width(style, msg) + 56.0 * u;
-    let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
-    cv.rrect(x, y, cw, ch, ch / 2.0, Rgba(9, 13, 18, 230));
-    cv.rrect_stroke(x, y, cw, ch, ch / 2.0, 1.0, LINE_2);
-    let a0 = t * 6.0;
-    let (cx, cy) = (x + 20.0 * u, y + ch / 2.0);
-    let pts: Vec<(f32, f32)> = (0..=12).map(|k| {
-        let a = a0 + k as f32 * 0.35;
-        (cx + 6.0 * u * a.cos(), cy + 6.0 * u * a.sin())
-    }).collect();
-    cv.polyline(&pts, 1.8 * u, SPECTRE);
-    cv.text(x + 36.0 * u, y + ch / 2.0 + 5.0 * u, style, msg);
+    if p < 1.0 {
+        let home = cv.pix.clone();
+        cv.clear_transparent();
+        let d = if app.reduce_motion { 0.0 } else { w.max(h) * 0.18 * (1.0 - p) };
+        let (a, b, _) = halves(w, h);
+        cv.draw_masked(&home, &a, -d, -d, p);
+        cv.draw_masked(&home, &b, d, d, p);
+    }
+    // L'éclair : à 55 % éteint, 70 % allumé, 100 % éteint (sur la durée plus 0,15 s).
+    let k = t / (dur + 0.15);
+    let flash = if k < 0.55 { 0.0 } else if k < 0.7 { (k - 0.55) / 0.15 } else { (1.0 - (k - 0.7) / 0.3).max(0.0) };
+    tube(cv, u, 1.0, flash);
+    // « Déconnexion… », une fois les moitiés jointes.
+    let a = ((t - dur) / 0.3).clamp(0.0, 1.0);
+    if a > 0.0 {
+        let msg = tr("Déconnexion… l'ordinateur remet son écran", "Disconnecting… the computer restores its screen");
+        let style = Text::new(Font::Regular, 14.0 * u, MUTED.alpha(a));
+        let ch = 38.0 * u;
+        let cw = cv.text_width(style, msg) + 56.0 * u;
+        let (x, y) = ((w - cw) / 2.0, h - 150.0 * u);
+        cv.rrect(x, y, cw, ch, ch / 2.0, Rgba(9, 13, 18, (230.0 * a) as u8));
+        cv.rrect_stroke(x, y, cw, ch, ch / 2.0, 1.0, LINE_2.alpha(a));
+        let a0 = t * 6.0;
+        let (cx, cy) = (x + 20.0 * u, y + ch / 2.0);
+        let pts: Vec<(f32, f32)> = (0..=12).map(|k| {
+            let ang = a0 + k as f32 * 0.35;
+            (cx + 6.0 * u * ang.cos(), cy + 6.0 * u * ang.sin())
+        }).collect();
+        cv.polyline(&pts, 1.8 * u, SPECTRE.alpha(a));
+        cv.text(x + 36.0 * u, y + ch / 2.0 + 5.0 * u, style, msg);
+    }
 }
 
 // MARK: - Fin sur erreur

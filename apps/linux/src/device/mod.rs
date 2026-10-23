@@ -141,6 +141,8 @@ impl Win {
 /// État de la session en cours.
 struct Live {
     handle: session::Handle,
+    /// L'ordinateur de la session (la dernière session y est enregistrée).
+    host: String,
     pointer: Option<(f64, f64)>,
     pointer_hidden: bool,
     started: Instant,
@@ -333,7 +335,7 @@ pub fn run(args: &[String]) {
         let streaming = live.is_some() && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
         // Animations : lancement, passage, capsules, ajout, écran des manettes.
         let animating = app.screen == Screen::Launch
-            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages | Phase::Ending))
+            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages | Phase::Ending) || ui::passage_opening(s))
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.screen == Screen::Gamepads
@@ -539,7 +541,7 @@ fn draw_frame(win: &mut Win, show_ui: bool, live: Option<&Live>, app: &App) {
     unsafe {
         sdl::SDL_SetRenderDrawColor(win.renderer, 0, 0, 0, 255);
         sdl::SDL_RenderClear(win.renderer);
-        let in_session = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
+        let in_session = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. } | Phase::Ending));
         win.video_rect = if in_session { win.screen.draw(win.renderer, win.out_size) } else { None };
         if show_ui && !win.ui.is_null() {
             sdl::SDL_RenderCopy(win.renderer, win.ui, std::ptr::null(), std::ptr::null());
@@ -1013,6 +1015,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     if s.phase != Phase::Streaming {
                         app.focus = Target::Menu(crate::app::MenuItem::Resume);
                     }
+                    s.opened_at.get_or_insert_with(Instant::now);
                     Phase::Streaming
                 }
                 Status::Reconnecting { attempt, max } => Phase::Reconnecting { attempt, max },
@@ -1044,6 +1047,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         }
         Event::Second { latency_ms, fps, mbps, lost, codec, audio_ms } => {
             if let Some(l) = live.as_mut() {
+                // Toutes les 10 s au journal : ce qu'on voit dans la barre.
+                if l.started.elapsed().as_secs() % 10 == 0 {
+                    log::info!("session : latence {:?} ms, {fps:.0} i/s, {mbps:.1} Mbit/s, {lost} perdues, {codec}", latency_ms.map(|v| (v * 10.0).round() / 10.0));
+                }
                 if let Some(v) = latency_ms {
                     l.latencies.push(v);
                 }
@@ -1274,6 +1281,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 notice: None,
                 started: Instant::now(),
                 ending_since: None,
+                opened_at: None,
                 summary: format!("{} · {} × {} · {} Hz · {codec_label} · {mbps} Mbit/s", ui::profile_label(profile), mode.0, mode.1, mode.2),
             });
             app.screen = Screen::Session;
@@ -1288,6 +1296,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
             *live = Some(Live {
                 handle,
+                host: h.id.clone(),
                 pointer: None,
                 pointer_hidden: true,
                 started: Instant::now(),
@@ -1437,7 +1446,8 @@ fn open_url(url: &str) {
 
 /// Fin de session : la dernière session (latence médiane, durée) pour l'accueil.
 fn finish(app: &mut App, win: &mut Win, l: Live) {
-    let host = app.session.as_ref().map(|s| s.host.clone());
+    // L'interface a pu oublier la session (fin sans erreur) : l'ordinateur vient de `Live`.
+    let host = Some(l.host.clone());
     if app.session.as_ref().is_some_and(|s| !matches!(s.phase, Phase::Ended { error: Some(_) })) {
         app.session = None;
         if app.screen == Screen::Session {
@@ -1457,26 +1467,28 @@ fn finish(app: &mut App, win: &mut Win, l: Live) {
     let mut lat = l.latencies.clone();
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let seconds = l.started.elapsed().as_secs();
-    if let (Some(id), false) = (host, lat.is_empty()) {
-        let median = lat[lat.len() / 2];
-        let p95 = lat[((lat.len() as f64 * 0.95) as usize).min(lat.len() - 1)];
-        let mbps = if l.mbps.is_empty() { 0.0 } else { l.mbps.iter().sum::<f64>() / l.mbps.len() as f64 };
-        let codec = l.handle.shared.codec();
-        if let Some(h) = app.store.host_mut(&id) {
-            h.last = Some(LastSession { median, p95, seconds, mode: format!("{} · {codec}", l.mode), mbps, at: now_secs() });
+    log::info!("session : {} s, {} secondes mesurées", seconds, lat.len());
+    let Some(id) = host else { return };
+    // La dernière session : latence si l'ordinateur l'a mesurée, sinon durée et mode seuls.
+    let mbps = if l.mbps.is_empty() { 0.0 } else { l.mbps.iter().sum::<f64>() / l.mbps.len() as f64 };
+    let codec = l.handle.shared.codec();
+    let (median, p95) = if lat.is_empty() { (0.0, 0.0) } else { (lat[lat.len() / 2], lat[((lat.len() as f64 * 0.95) as usize).min(lat.len() - 1)]) };
+    if seconds >= 3
+        && let Some(h) = app.store.host_mut(&id)
+    {
+        h.last = Some(LastSession { median, p95, seconds, mode: format!("{} · {codec}", l.mode), mbps, at: now_secs() });
+    }
+    app.store.save();
+    if app.store.app.keep_last_image
+        && let Some(img) = l.snapshot.clone()
+    {
+        if let Some(png) = ui::canvas::encode_png(&img) {
+            let _ = std::fs::write(Store::image_path(&id).with_extension("png"), png);
         }
-        app.store.save();
-        if app.store.app.keep_last_image
-            && let Some(img) = l.snapshot.clone()
-        {
-            if let Some(png) = ui::canvas::encode_png(&img) {
-                let _ = std::fs::write(Store::image_path(&id).with_extension("png"), png);
-            }
-            app.images.insert(id.clone(), img);
-            app.image_is_last.insert(id, true);
-        } else {
-            // L'aperçu sera repris d'Admin au prochain sondage.
-            app.images.remove(&id);
-        }
+        app.images.insert(id.clone(), img);
+        app.image_is_last.insert(id, true);
+    } else {
+        // L'aperçu sera repris d'Admin au prochain sondage.
+        app.images.remove(&id);
     }
 }

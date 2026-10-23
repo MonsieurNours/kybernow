@@ -169,8 +169,10 @@ fn last_panel(app: &App, cv: &mut Canvas, h: &Host, at: Rect) {
         return;
     };
     y += 46.0;
-    let lw = cv.text(x, y, Text::new(Font::MonoMedium, 40.0, SPECTRE).tracking(-1.0), &format!("{} ms", decimal(last.median, 1)));
-    cv.text(x + lw + 10.0, y, Text::new(Font::Mono, 12.0, FAINT), tr("médiane", "median"));
+    let measured = last.median > 0.0;
+    let value = if measured { format!("{} ms", decimal(last.median, 1)) } else { "— ms".into() };
+    let lw = cv.text(x, y, Text::new(Font::MonoMedium, 40.0, SPECTRE).tracking(-1.0), &value);
+    cv.text(x + lw + 10.0, y, Text::new(Font::Mono, 12.0, FAINT), if measured { tr("médiane", "median") } else { tr("non mesurée", "not measured") });
     y += 18.0;
     // La règle d'une image, à la fréquence de cet écran.
     let frame = 1000.0 / app.machine.refresh.max(30) as f64;
@@ -187,7 +189,7 @@ fn last_panel(app: &App, cv: &mut Canvas, h: &Host, at: Rect) {
     y += 24.0;
     let m12 = Text::new(Font::Mono, 12.0, MUTED);
     let w = cv.text(x, y, m12, &format!("{} ", tr("95e centile", "95th percentile")));
-    cv.text(x + w, y, m12.color(FROST), &format!("{} ms", decimal(last.p95, 1)));
+    cv.text(x + w, y, m12.color(FROST), &if measured { format!("{} ms", decimal(last.p95, 1)) } else { "—".into() });
     y += 20.0;
     cv.text_fit(x, y, m12, &format!("{} · {}", duration(last.seconds), when(last.at)), iw);
     y += 20.0;
@@ -367,7 +369,8 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
             segments(cv, f, x, y + 4.0 * u, 52.0 * u, 17.0 * u, &items);
             y += 60.0 * u + 26.0 * u;
             let note = match &hst.last {
-                Some(l) => format!("{} · {} ms {} · {}, {}", source(app, hst), decimal(l.median, 1), tr("médiane", "median"), duration(l.seconds), when(l.at)),
+                Some(l) if l.median > 0.0 => format!("{} · {} ms {} · {}, {}", source(app, hst), decimal(l.median, 1), tr("médiane", "median"), duration(l.seconds), when(l.at)),
+        Some(l) => format!("{} · {}, {}", source(app, hst), duration(l.seconds), when(l.at)),
                 None => source(app, hst).to_string(),
             };
             cv.text_fit(x0, y, Text::new(Font::Regular, 14.0 * u, FAINT), &note, hero_max);

@@ -152,6 +152,7 @@ fn session(app: &App) -> SessionUi {
         notice: None,
         started: Instant::now() - Duration::from_millis(2100),
         ending_since: None,
+        opened_at: None,
         summary: format!("{} · {w} × {h} · {fps} Hz · HEVC · 30 Mbit/s", ui::profile_label(Profile::Jeu)),
     }
 }
@@ -257,6 +258,11 @@ pub fn run(dir: &Path, lang: &str) {
         app.screen = Screen::Session;
         app.focus = Target::CancelConnect;
         shot(&mut app, &mut cv, None, dir, &p("10-passage"));
+        let mut s = session(&app);
+        s.menu = false;
+        s.opened_at = Some(Instant::now() - Duration::from_millis(120));
+        app.session = Some(s);
+        shot(&mut app, &mut cv, Some(&video), dir, &p("10b-ouverture"));
 
         let mut s = session(&app);
         if layout == Layout::Desktop {
@@ -318,6 +324,22 @@ mod tests {
         app.hits = ui::draw(&app, &mut cv);
         app.nav(Nav::Right);
         assert_eq!(app.selected().unwrap().id, "b");
+    }
+
+    /// Ouverture : les moitiés de l'accueil sont encore là juste après la première image.
+    #[test]
+    fn opening_draws_halves() {
+        let mut app = demo(false, Layout::Handheld);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        let mut s = session(&app);
+        s.menu = false;
+        s.opened_at = Some(Instant::now() - Duration::from_millis(100));
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        ui::draw(&app, &mut cv);
+        let a = cv.pix.pixel(200, 400).unwrap().alpha();
+        assert!(a > 100, "alpha {a}");
     }
 
     /// Le bureau : survol puis clic sur un segment de profil.
