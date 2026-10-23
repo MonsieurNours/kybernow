@@ -70,7 +70,7 @@
    "description": "Free, open-source game and remote desktop streaming: your computer on all your devices, in an app or in the browser. 9.4 ms median latency measured on a local network, encrypted QUIC transport, virtual display at the device's resolution. A next-gen alternative to Sunshine and Moonlight, built on the Kyber engine.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Game streaming and remote desktop",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, web browser",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -156,9 +156,9 @@
    "@id": "https://www.kybernow.app/#link",
    "name": "KyberNow Link",
    "url": "https://www.kybernow.app/en/#famille",
-   "description": "The apps that display the computer's image on your devices, with hardware decoding: Mac, Windows, Apple TV, iPhone and iPad, plus a web version served by the Station.",
+   "description": "The apps that display the computer's image on your devices, with hardware decoding: Mac, Windows, Apple TV, iPhone and iPad, Android, LG TVs, plus a web version served by the Station.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, web browser",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/#appareil",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip",
@@ -382,7 +382,7 @@
         <ul class="ticks ticks-on">
           <li>KyberNow Station: installer, administration in the browser (KyberNow Admin) and updates</li>
           <li>Virtual display and speakers for each session</li>
-          <li>KyberNow Link: native apps for Mac, Windows, Apple TV, iPhone and iPad (decoding and display by the app), and its web version</li>
+          <li>KyberNow Link: native apps for Mac, Windows, Apple TV, iPhone and iPad, Android and LG TVs (decoding and display by the app), and its web version</li>
           <li>Engine fixes, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">published and documented</a></li>
         </ul>
       </div>
@@ -471,7 +471,7 @@
 
     <ol class="steps" data-reveal>
       <li><span>1</span>Install KyberNow Station on the computer you want to share.</li>
-      <li><span>2</span>On each device, open KyberNow Link: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app, the Android app or the browser.</li>
+      <li><span>2</span>On each device, open KyberNow Link: the Mac app, the Windows app, the Apple TV app, the iPhone and iPad app, the Android app, the LG TV app or the browser.</li>
       <li><span>3</span>Connect: the computer is already there.</li>
     </ol>
 
@@ -527,7 +527,14 @@
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk"><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg>Download the app</a>
         <a class="dl-more" href="/en/guide/#android">Install on a TV</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.48s" data-os="web">
+      <article class="dl-card" data-reveal style="--d:.48s" data-os="lg">
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
+        <p class="mono-label">On your LG TV</p>
+        <h3>KyberNow Link for LG TVs</h3>
+        <ul class="specs"><li>webOS 5 or later (LG TVs from 2020 on)</li><li>Up to 4K at 120&nbsp;Hz, gamepads, Magic Remote, 5.1 Dolby sound to a receiver</li><li>Installed from a computer, in developer mode</li></ul>
+        <a class="btn btn-ghost" href="/en/guide/#lg"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Install on the TV</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.56s" data-os="web">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">On all your devices</p>
         <h3>KyberNow Link in the browser</h3>
