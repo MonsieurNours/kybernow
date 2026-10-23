@@ -363,15 +363,32 @@ pub enum Multichannel {
     Ready,
 }
 
+/// Dernière réponse du téléviseur (0xff : jamais lue).
+static LAST_MULTICHANNEL: AtomicU8 = AtomicU8::new(0xff);
+
 /// Interroge le téléviseur (réglages de son et ampli branché, à l'instant).
+/// NDL ne répond qu'initialisé, donc en session : hors session, la dernière
+/// réponse lue.
 pub fn multichannel() -> Multichannel {
     let g = NDL.lock().unwrap();
-    let Some(f) = g.as_ref().and_then(|st| st.api.multichannel) else { return Multichannel::Unknown };
+    let Some(f) = g.as_ref().filter(|st| st.initialized).and_then(|st| st.api.multichannel) else {
+        return decode_multichannel(LAST_MULTICHANNEL.load(Ordering::Acquire) as c_int);
+    };
+    // Seul le paramètre de sortie compte : la valeur rendue n'a pas de sens
+    // (punktfunk, docs/NOTES.md : lue, elle donne n'importe quoi sur ARM).
     let mut v: c_int = -1;
     let ret = unsafe { f(&mut v) };
-    if ret != 0 {
-        return Multichannel::Unknown;
+    static LOGGED: AtomicU8 = AtomicU8::new(0xff);
+    if LOGGED.swap(v.clamp(0, 0xfe) as u8, Ordering::AcqRel) != v.clamp(0, 0xfe) as u8 {
+        log::info!("son : NDL_DirectAudioSupportMultiChannel → {v} (rendu {ret})");
     }
+    if (0..=3).contains(&v) {
+        LAST_MULTICHANNEL.store(v as u8, Ordering::Release);
+    }
+    decode_multichannel(v)
+}
+
+fn decode_multichannel(v: c_int) -> Multichannel {
     match v {
         0 => Multichannel::Unsupported,
         1 => Multichannel::NoDevice,

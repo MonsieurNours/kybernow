@@ -277,7 +277,7 @@ impl AudioSink {
         }
         if ndl_ok {
             *self.route.lock().unwrap() = Route::Ndl;
-            log::info!("son : 5.1 par le décodeur du téléviseur (NDL), paquets tels quels ; sortie multicanal : {:?}", ndl::multichannel());
+            log::info!("son : 5.1 par le décodeur du téléviseur (NDL), paquets tels quels");
         } else {
             if self.surround {
                 log::warn!("son : 5.1 demandé mais flux pas décodable par NDL tel quel ; stéréo par SDL");
@@ -351,7 +351,7 @@ impl PacketHandler for AudioSink {
                                 let mut n = self.ndl_packets.lock().unwrap();
                                 *n += 1;
                                 if *n == 1 {
-                                    log::info!("son : premier paquet 5.1 accepté par NDL");
+                                    log::info!("son : premier paquet 5.1 accepté par NDL ; sortie multicanal du téléviseur : {:?}", ndl::multichannel());
                                 }
                             }
                         }

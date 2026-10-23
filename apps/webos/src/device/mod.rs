@@ -217,9 +217,9 @@ pub fn run() {
             }
         }
         // Sortie multicanal du téléviseur (réglages de son, ampli) : relue
-        // toutes les 2 s pendant que la rubrique Son est ouverte.
-        if live.is_none()
-            && app.screen == Screen::Settings
+        // toutes les 2 s pendant que la rubrique Son est ouverte (aussi
+        // depuis le menu de session).
+        if app.screen == Screen::Settings
             && !app.settings_global
             && app.current_section() == crate::app::Section::Sound
             && last_multichannel.elapsed() > Duration::from_secs(2)
