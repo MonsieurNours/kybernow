@@ -33,7 +33,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 - **Session mode**: the panel's (`SDL_webOSGetPanelResolution`, `SDL_webOSGetRefreshRate`), that is 3840 × 2160 at 120 Hz on a G2; or a resolution or frame rate chosen in the settings. The computer's virtual display is created at this mode.
 - **30, 60 or 120 frames per second**: the panel does not change its refresh rate for an app (webOS offers no way to); at 30 or 60 fps each frame is shown 4 or 2 times, evenly. 144 Hz: the 2025 panels that have it (not the G2).
-- **Codec**: HEVC by default (4K at 120 fps on the decoder of 2022 OLEDs); AV1 only up to 60 fps (beyond, LG TVs show it at 60: moonlight-tv #529, punktfunk); H.264 as an option, not advised above 60 fps.
+- **Codec**: HEVC by default (4K at 120 fps on the decoder of 2022 OLEDs); AV1 only up to 60 fps (beyond, LG TVs show it at 60); H.264 as an option, not advised above 60 fps.
 - **Bitrate**: the profile's bitrate (scaled to pixels per second, like the other apps), capped at 80 Mbit/s on Ethernet (LG's port stops at 100 Mbit/s, about 93 usable) and at 95 on Wi-Fi (the decoder limit moonlight-tv uses on 2022 and later chips). The link is read from `/sys/class/net`.
 - **TV game mode**: no API lets an app switch the TV to Game Optimizer; the menu reminds you (Magic Remote Settings button › Picture › Mode › Game Optimizer), and the reminder can be turned off.
 - **VRR**: LG keeps it for HDMI inputs, for every internal app, native or web. The computer sends its frames at the panel's pace.
@@ -41,12 +41,12 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 ## Decoding (NDL DirectMedia)
 
-`src/device/ndl.rs`, after moonlight-tv (the ss4s library) and punktfunk, which proved it on TVs:
+`src/device/ndl.rs`. What matters, checked on the G2:
 
 - `libNDL_directmedia.so.1` opened with `dlopen`, never linked (a direct dependency keeps the app from starting where it is missing).
 - `NDL_DirectMediaInit` at the first load, not at app launch.
 - Every load carries a **stereo Opus audio plane, primed with empty frames** (`0xec 0xff 0xfe`, 5 ms each): without it, NDL does not pace frames on their timestamps, and the picture stutters above 1080p on a 120 Hz panel. The real sound does not go there (see Sound).
-- **The load is only confirmed (`LOADCOMPLETED`) once that plane is fed**: empty frames go out in bursts until the confirmation (in the background past 500 ms), and no frame is given before it (2 s at most). With a single frame, the G2 on webOS 26 stayed on a black picture, with no error; confirmed in 141 ms since (punktfunk, `ndl/v2/load.rs`).
+- **The load is only confirmed (`LOADCOMPLETED`) once that plane is fed**: empty frames go out in bursts until the confirmation (in the background past 500 ms), and no frame is given before it (2 s at most). With a single frame, the G2 on webOS 26 stayed on a black picture, with no error; confirmed in 141 ms since.
 - Timestamps in milliseconds since the load, never going backwards.
 - **Never flush** (`NDL_DirectVideoFlushRenderBuffer`) during a session: it cuts the audio plane for the rest of the session. After a loss, no frame is given before the next keyframe, requested again by the core.
 - The parameter set (SPS/PPS, VPS, AV1 sequence header) goes before the keyframe that (re)starts the decoder; a new parameter set, codec or size reloads NDL.
@@ -65,7 +65,7 @@ Opus decoded by the core's engine (`apps/core/src/audio`: adaptive buffer, loss 
 
 ## Rumble
 
-The game's rumble reaches the core (`InputPlatform::rumble`) and goes to the player's controller through `SDL_GameControllerRumble` (5 s at most without a duration, (0, 0) stops). On LG TVs, Bluetooth controllers rumble when webOS exposes their motors (moonlight-tv: the DualSense over Bluetooth does not always rumble there); the test screen says "2 motors" or "no rumble" for each controller, and the test rumble checks it.
+The game's rumble reaches the core (`InputPlatform::rumble`) and goes to the player's controller through `SDL_GameControllerRumble` (5 s at most without a duration, (0, 0) stops). On LG TVs, Bluetooth controllers rumble when webOS exposes their motors (the DualSense over Bluetooth does not always rumble there); the test screen says "2 motors" or "no rumble" for each controller, and the test rumble checks it.
 
 ## Architecture
 
@@ -87,11 +87,11 @@ apps/webos/
 ```
 
 - **Core**: `kybernow-core` as is; `src/device/session.rs` is the equivalent of Android's JNI bridge (the core's `Platform`: picture, sound, input chain, states, stats, pointer, rumble).
-- **SDL2**: webosbrew's webOS version (`release-2.30.12-webos.6`, moonlight-tv's), built by `build.sh` and shipped in the package (`lib/`, found through the `$ORIGIN/../lib` RPATH, as `DT_RPATH` to come before the TV's older SDL). Settings: Back and long Back to the app (`SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`, `_EXIT`), controllers left as controllers (`SDL_WEBOS_CLOUDGAME_ACTIVE`). SDL's functions are declared by hand (`src/device/sdl.rs`).
+- **SDL2**: webosbrew's webOS version (`release-2.30.12-webos.6`), built by `build.sh` with the patches in `apps/webos/sdl-patches` (rescan of `/dev/input` every 3 s on top of the netlink channel, which stays silent in the app's sandbox: without it, a controller switched on after launch is never seen) and shipped in the package (`lib/`, found through the `$ORIGIN/../lib` RPATH, as `DT_RPATH` to come before the TV's older SDL). Settings: Back and long Back to the app (`SDL_WEBOS_ACCESS_POLICY_KEYS_BACK`, `_EXIT`), controllers left as controllers (`SDL_WEBOS_CLOUDGAME_ACTIVE`). SDL's functions are declared by hand (`src/device/sdl.rs`).
 - **Interface**: drawn in memory (tiny-skia for shapes and images, fontdue for text) at 1920 × 1080, webOS's graphics plane, then sent to the screen through an SDL texture. During the session, the window is cleared to transparent; the computer's pointer is a small separate texture, recomposited without redrawing the interface.
 - **Fonts**: Archivo and Martian Mono from `brand/v2/fonts`, as static instances cut down to Latin (`scripts/fonts.py`), since fontdue does not read variable axes.
 - **VLC**: kyvlcplayer references libvlc, never called: `build.rs` compiles an empty function for each `libvlc_*` function of vlc-rs, as on Android and iOS.
-- **glibc**: the TV has glibc 2.12; `src/glibc_compat.c` (taken from punktfunk) provides `getauxval`, `gettid` and `sendmmsg`, which Rust's standard library asks for.
+- **glibc**: the TV has glibc 2.12; `src/glibc_compat.c` provides `getauxval`, `gettid` and `sendmmsg`, which Rust's standard library asks for.
 - **kynput**: on Linux, kynput compiles the server's input injection (libinput, libevdev, X11), missing on the TV; patch `kyber-patches/0001` (cfg `kybernow_webos`) makes it behave as on Android (client only).
 
 ## Building
@@ -125,5 +125,5 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 - On the G2: an end-to-end session (NDL, sound, controllers, rumble), latency at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps.
 - Magic Remote as mouse: check that the TV still sends motion while its pointer is hidden.
 - 5.1 sound up to the receiver: check with Digital Sound Output set to Pass-Through (the receiver must show multichannel), then audio-video sync.
-- DualSense: rumble and adaptive triggers through webOS's Bluetooth service (as punktfunk does), when SDL does not provide them.
+- DualSense: rumble and adaptive triggers through webOS's Bluetooth service, when SDL does not provide them.
 - Homebrew Channel: a repository for the app (updates).
