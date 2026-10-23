@@ -18,6 +18,7 @@ use kybernow_core::audio::{opus, AudioEngine, MonotonicClock, OutputOrder, MAX_F
 use kybernow_core::latency;
 use kybernow_core::media::{OpusHead, Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
 
+use super::eac3;
 use super::ndl;
 use super::sdl;
 use super::session::Shared;
@@ -87,6 +88,9 @@ struct Feeder {
     in_config: bool,
     loaded_config: Option<Vec<u8>>,
     waiting_key: bool,
+    /// Chargement de NDL connu : s'il change (rechargement, repli du son), le
+    /// décodeur a besoin des paramètres et d'une image clé.
+    generation: u64,
     lost_reported: bool,
     last_request: Option<Instant>,
     failed: bool,
@@ -94,7 +98,7 @@ struct Feeder {
 
 impl Feeder {
     fn new(shared: Arc<Shared>) -> Self {
-        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, lost_reported: false, last_request: None, failed: false }
+        Self { shared, kind: ndl::VIDEO_H265, config: Vec::new(), in_config: false, loaded_config: None, waiting_key: true, generation: 0, lost_reported: false, last_request: None, failed: false }
     }
 
     fn run(mut self, rx: Receiver<Msg>) {
@@ -168,8 +172,15 @@ impl Feeder {
             }
             self.loaded_config = Some(self.config.clone());
             self.waiting_key = true;
+            self.generation = ndl::generation();
+        }
+        if self.generation != ndl::generation() {
+            self.generation = ndl::generation();
+            self.waiting_key = true;
+            log::info!("image : décodeur rechargé, image clé redemandée");
         }
         if self.waiting_key && !key {
+            self.request_keyframe();
             return;
         }
         let first = self.waiting_key;
@@ -224,9 +235,13 @@ enum Route {
     Pending,
     /// Opus 5.1 décodé par l'app, PCM 6 voies au plan de son de NDL : le PCM
     /// multicanal de la TV vers l'ampli (eARC, Sortie son numérique en
-    /// Pass-Through). Le décodage par la TV elle-même (plan Opus 6 voies,
-    /// essayé le 23/10/2026) sort en stéréo : sa sortie passe par le mixeur.
+    /// Pass-Through), si l'ampli l'annonce (le Denon AVC-X3700H annonce
+    /// LPCM 2 voies : stéréo). Le décodage par la TV elle-même (plan Opus
+    /// 6 voies, essayé le 23/10/2026) sort en stéréo : sa sortie passe par le mixeur.
     NdlPcm,
+    /// Opus 5.1 décodé par l'app, encodé en E-AC-3 (32 ms par trame) et donné
+    /// au plan Dolby de NDL : le téléviseur le passe tel quel à l'ampli.
+    NdlDolby,
     /// Moteur du cœur, sortie SDL en stéréo.
     Sdl,
 }
@@ -249,13 +264,18 @@ pub struct AudioSink {
     head: Mutex<Vec<u8>>,
     /// Décodeur 5.1 de la route NDL, et ses tampons.
     decoder: Mutex<Option<(opus::Decoder, Vec<f32>, Vec<u8>)>>,
+    /// Encodeur E-AC-3 de la route Dolby.
+    encoder: Mutex<Option<eac3::Encoder>>,
+    /// Son 5.1 demandé : PCM (`false`) ou Dolby (`true`).
+    dolby: bool,
     /// Paquets donnés à NDL (journal).
     ndl_packets: Mutex<u64>,
 }
 
 impl AudioSink {
-    /// `surround` : le son 5.1 est demandé à l'ordinateur et confié à NDL.
-    pub fn new(surround: bool) -> Arc<Self> {
+    /// `surround` : le son 5.1 est demandé à l'ordinateur et confié à NDL ;
+    /// `dolby` : encodé en E-AC-3 plutôt que donné en PCM.
+    pub fn new(surround: bool, dolby: bool) -> Arc<Self> {
         let engine = Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), OutputOrder::Windows));
         Arc::new(Self {
             engine,
@@ -265,8 +285,37 @@ impl AudioSink {
             route: Mutex::new(Route::Pending),
             head: Mutex::new(Vec::new()),
             decoder: Mutex::new(None),
+            encoder: Mutex::new(None),
+            dolby,
             ndl_packets: Mutex::new(0),
         })
+    }
+
+    /// Les trames E-AC-3 de ce PCM 5.1 (ordre G, D, C, LFE, arrière G, arrière D) à NDL.
+    fn feed_dolby(&self, pcm: &[f32]) {
+        let frames = {
+            let mut g = self.encoder.lock().unwrap();
+            let Some(enc) = g.as_mut() else { return };
+            enc.push(pcm)
+        };
+        for f in frames {
+            match ndl::play_audio(&f) {
+                Ok(sent) => {
+                    if sent {
+                        let mut n = self.ndl_packets.lock().unwrap();
+                        *n += 1;
+                        if *n == 1 {
+                            log::info!("son : première trame E-AC-3 acceptée par NDL ; sortie multicanal du téléviseur : {:?}", ndl::multichannel());
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!("son : {e} ; stéréo par SDL pour la suite de la session");
+                    self.to_sdl();
+                    return;
+                }
+            }
+        }
     }
 
     /// Décode un paquet (ou masque `conceal` images) en PCM S16LE 6 voies
@@ -276,6 +325,17 @@ impl AudioSink {
         let Some((dec, pcm, bytes)) = g.as_mut() else { return };
         let frames = dec.decode(data, if data.is_some() { MAX_FRAMES } else { conceal.clamp(120, MAX_FRAMES) / 120 * 120 }, pcm);
         if frames == 0 {
+            return;
+        }
+        if self.dolby {
+            // Même ordre de voies que le PCM de NDL, en flottant pour l'encodeur.
+            let mut ordered = Vec::with_capacity(frames * 6);
+            for f in 0..frames {
+                let src = &pcm[f * 6..f * 6 + 6];
+                ordered.extend(PCM_ORDER.iter().map(|&i| src[i]));
+            }
+            drop(g);
+            self.feed_dolby(&ordered);
             return;
         }
         bytes.clear();
@@ -320,6 +380,25 @@ impl AudioSink {
             None => None,
         };
         match decoder {
+            Some(d) if self.dolby => {
+                let Some(mut enc) = eac3::Encoder::new(6) else {
+                    log::warn!("son : encodeur E-AC-3 indisponible ; stéréo par SDL");
+                    self.to_sdl();
+                    return;
+                };
+                match enc.silence() {
+                    Some(silence) => ndl::set_dolby_silence(silence),
+                    None => {
+                        log::warn!("son : l'encodeur E-AC-3 ne sort rien ; stéréo par SDL");
+                        self.to_sdl();
+                        return;
+                    }
+                }
+                *self.encoder.lock().unwrap() = Some(enc);
+                *self.decoder.lock().unwrap() = Some((d, vec![0.0; MAX_FRAMES * 6], Vec::new()));
+                *self.route.lock().unwrap() = Route::NdlDolby;
+                log::info!("son : 5.1 décodé par l'app, encodé en E-AC-3 ({} kbit/s) pour le téléviseur (NDL)", eac3::BITRATE / 1000);
+            }
             Some(d) => {
                 *self.decoder.lock().unwrap() = Some((d, vec![0.0; MAX_FRAMES * 6], Vec::with_capacity(MAX_FRAMES * 12)));
                 *self.route.lock().unwrap() = Route::NdlPcm;
@@ -338,6 +417,7 @@ impl AudioSink {
     fn to_sdl(&self) {
         *self.route.lock().unwrap() = Route::Sdl;
         self.decoder.lock().unwrap().take();
+        self.encoder.lock().unwrap().take();
         let head = self.head.lock().unwrap().clone();
         self.engine.configure(&head);
         self.open();
@@ -394,7 +474,7 @@ impl PacketHandler for AudioSink {
                 }
                 let route = *self.route.lock().unwrap();
                 match route {
-                    Route::NdlPcm => self.feed_ndl(Some(data), 0),
+                    Route::NdlPcm | Route::NdlDolby => self.feed_ndl(Some(data), 0),
                     // Paquet avant l'en-tête : stéréo supposée (comme le moteur).
                     Route::Pending => {
                         *self.route.lock().unwrap() = Route::Sdl;
@@ -406,7 +486,7 @@ impl PacketHandler for AudioSink {
             }
             Packet::Hole { missing_samples } => match *self.route.lock().unwrap() {
                 Route::Sdl => self.engine.conceal(missing_samples as usize),
-                Route::NdlPcm => self.feed_ndl(None, missing_samples as usize),
+                Route::NdlPcm | Route::NdlDolby => self.feed_ndl(None, missing_samples as usize),
                 Route::Pending => {}
             },
         }

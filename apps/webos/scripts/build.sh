@@ -172,6 +172,27 @@ if [ ! -f "$PREFIX/lib/libopus.a" ]; then
     [ -f "$PREFIX/lib/libopus.a" ] || { echo "libopus non construite" >&2; exit 1; }
 fi
 
+# Encodeur E-AC-3 (son 5.1 Dolby vers l'ampli) : FFmpeg 7.1.1 réduit à ses
+# encodeurs ac3 et eac3 (libavcodec + libavutil, statiques, ~1,4 Mo, LGPL).
+FFMPEG_VERSION=7.1.1
+FFMPEG_SRC="$THIRD_PARTY/ffmpeg-$FFMPEG_VERSION"
+if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
+    if [ ! -f "$FFMPEG_SRC/configure" ]; then
+        echo "==> sources de FFmpeg $FFMPEG_VERSION dans $FFMPEG_SRC"
+        curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" | tar xJ -C "$THIRD_PARTY"
+    fi
+    echo "==> libavcodec (encodeurs ac3 et eac3, $TARGET) dans $PREFIX"
+    build="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-ffmpeg.XXXXXX")"
+    # static_assert : la glibc 2.12 du téléviseur ne le définit pas.
+    (cd "$build" && "$FFMPEG_SRC/configure" --enable-cross-compile --cross-prefix="$WEBOS_TOOLCHAIN/bin/arm-webos-linux-gnueabi-" \
+        --arch=armv7 --cpu=cortex-a73 --target-os=linux --sysroot="$SYSROOT" --prefix="$PREFIX" \
+        --disable-everything --disable-all --enable-avcodec --enable-avutil --enable-encoder=eac3 --enable-encoder=ac3 \
+        --disable-programs --disable-doc --disable-network --disable-autodetect --enable-static --disable-shared --enable-pic --disable-debug \
+        --extra-cflags="-mfpu=neon -O2 -Dstatic_assert=_Static_assert" >/dev/null && make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" >/dev/null && make install >/dev/null)
+    rm -rf "$build"
+    [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
+fi
+
 # libvlc.pc sans bibliothèque (fonctions vides dans le binaire, build.rs).
 if [ ! -f "$PREFIX/lib/pkgconfig/libvlc.pc" ]; then
     mkdir -p "$PREFIX/lib/pkgconfig"

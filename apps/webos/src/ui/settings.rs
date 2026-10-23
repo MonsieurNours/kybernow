@@ -84,17 +84,19 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             info_card(app, cv, x, H - 150.0, w);
         }
         Section::Sound => {
-            let opts: Vec<String> = vec!["Auto".into(), tr("Stéréo", "Stereo").into(), "5.1".into(), tr("Sur l'ordinateur", "On the computer").into()];
+            let opts: Vec<String> = vec!["Auto".into(), tr("Stéréo", "Stereo").into(), "5.1 Dolby".into(), "5.1 PCM".into(), tr("Ordinateur", "Computer").into()];
             let i = match st.audio.as_str() {
                 "stereo" => 1,
-                "surround" => 2,
-                "computer" => 3,
+                "dolby" => 2,
+                "surround" => 3,
+                "computer" => 4,
                 _ => 0,
             };
             let help = match st.audio.as_str() {
-                "surround" => tr("5.1 décodé par le téléviseur, vers l'ampli en eARC ou mixé pour ses haut-parleurs ; stéréo si le flux ne s'y prête pas", "5.1 decoded by the TV, to the receiver over eARC or mixed for its speakers; stereo if the stream does not fit"),
+                "dolby" => tr("Encodé en Dolby Digital Plus par l'app et passé tel quel à l'ampli (eARC, Sortie son numérique en Pass-Through) ; environ 50 ms de son en plus", "Encoded to Dolby Digital Plus by the app and passed as is to the receiver (eARC, Digital Sound Output set to Pass-Through); about 50 ms more on sound"),
+                "surround" => tr("PCM 6 voies, sans délai, si l'ampli annonce le PCM multicanal (beaucoup n'annoncent que la stéréo) ; sinon stéréo", "6-channel PCM, no delay, if the receiver announces multichannel PCM (many only announce stereo); stereo otherwise"),
                 "computer" => tr("Pour un casque branché à l'ordinateur", "For a headset plugged into the computer"),
-                _ => tr("Auto : stéréo pour l'instant. 5.1 : par le décodeur du téléviseur, vers l'ampli", "Auto: stereo for now. 5.1: through the TV's decoder, to the receiver"),
+                _ => tr("Auto : stéréo, le son le plus direct. 5.1 Dolby : pour un ampli, avec un léger délai. 5.1 PCM : sans délai, rarement accepté", "Auto: stereo, the most direct sound. 5.1 Dolby: for a receiver, with a slight delay. 5.1 PCM: no delay, rarely accepted"),
             };
             y += widgets::row(cv, f, s(Setting::Audio), x, y, w, tr("Son", "Sound"), help, Value::Choices(&opts, i)) + 14.0;
             let (state, help) = match app.tv.multichannel {

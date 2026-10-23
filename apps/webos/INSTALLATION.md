@@ -66,6 +66,7 @@ L'ordinateur n'apparaît pas ? Choisissez **Ajouter** › **Par adresse et port*
 
 - **Mode d'image : Optimiseur de jeu.** Pendant la session, bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu. Aucune app ne peut le choisir à votre place ; sans lui, le téléviseur ajoute ses traitements d'image (et de la latence).
 - **Manettes** : associez-les au téléviseur en Bluetooth, dans les réglages du téléviseur (rubrique des appareils ou des manettes ; le chemin varie selon la version de webOS). DualSense, DualShock 4, Xbox et Switch Pro marchent. Dans l'app, **Réglages › Manettes et Magic Remote › Tester les manettes** montre les touches et essaie les vibrations.
+- **Son 5.1 avec un ampli** : dans l'app, Réglages de l'ordinateur › Son › **5.1 Dolby** ; sur le téléviseur, Son › Sortie audio numérique › **Pass-Through** (« Interconnexion »). Sans ce réglage, l'ampli reçoit de la stéréo, des apps du téléviseur aussi. « 5.1 PCM » ne marche qu'avec les rares amplis qui annoncent le PCM multicanal.
 - **Réseau** : la prise Ethernet des téléviseurs LG s'arrête à 100 Mbit/s ; l'app y plafonne le débit à 80 Mbit/s. Le Wi-Fi (5 GHz, près du point d'accès) va souvent plus loin : l'app y monte jusqu'à 95 Mbit/s.
 
 ## Mettre à jour

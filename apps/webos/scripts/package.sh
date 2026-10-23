@@ -32,6 +32,7 @@ cp "$HERE/webos/icon.png" "$HERE/webos/icon-large.png" "$HERE/webos/splash.png" 
 sed "s/@VERSION@/$VERSION/" "$HERE/webos/appinfo.json" > "$STAGE/appinfo.json"
 cp "$ROOT/brand/v2/fonts/OFL-Archivo.txt" "$ROOT/brand/v2/fonts/OFL-MartianMono.txt" "$STAGE/licenses/"
 [ -f "$THIRD_PARTY/sdl-webos/LICENSE.txt" ] && cp "$THIRD_PARTY/sdl-webos/LICENSE.txt" "$STAGE/licenses/SDL2.txt"
+[ -f "$THIRD_PARTY/ffmpeg-7.1.1/COPYING.LGPLv2.1" ] && cp "$THIRD_PARTY/ffmpeg-7.1.1/COPYING.LGPLv2.1" "$STAGE/licenses/FFmpeg-LGPL-2.1.txt"
 [ -f "$ROOT/LICENSE" ] && cp "$ROOT/LICENSE" "$STAGE/licenses/KyberNow-AGPL-3.0.txt"
 
 mkdir -p "$HERE/dist"

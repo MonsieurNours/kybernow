@@ -63,6 +63,37 @@ fn main() {
             .unwrap_or_else(|e| panic!("{cc} : {e}"));
         assert!(ok.success(), "{cc} : src/glibc_compat.c ne compile pas");
         println!("cargo:rustc-link-arg={}", obj.display());
+        // Crochet sur le lecteur média de LG (src/starfish_hook.c) : un objet
+        // lié tel quel et exporté, pour passer devant libplayerAPIs.
+        let hook = out.join("starfish_hook.o");
+        let ok = std::process::Command::new(&cc)
+            .args(["-fPIC", "-O2", "-c", "src/starfish_hook.c", "-o"])
+            .arg(&hook)
+            .status()
+            .unwrap_or_else(|e| panic!("{cc} : {e}"));
+        assert!(ok.success(), "{cc} : src/starfish_hook.c ne compile pas");
+        println!("cargo:rerun-if-changed=src/starfish_hook.c");
+        println!("cargo:rustc-link-arg={}", hook.display());
+        println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_PvES2_");
+        println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_E");
+        println!("cargo:rustc-link-arg=-Wl,--export-dynamic-symbol=_ZN17StarfishMediaAPIs4FeedB5cxx11EPKc");
+        // Encodeur E-AC-3 : libavcodec et libavutil (statiques, du rootfs) derrière src/eac3_shim.c.
+        let prefix = PathBuf::from(env::var("PKG_CONFIG_LIBDIR").expect("PKG_CONFIG_LIBDIR")).join("../..");
+        let prefix = prefix.canonicalize().unwrap_or(prefix);
+        let eac3 = out.join("eac3_shim.o");
+        let ok = std::process::Command::new(&cc)
+            .args(["-fPIC", "-O2", "-c", "src/eac3_shim.c", "-I"])
+            .arg(prefix.join("include"))
+            .arg("-o")
+            .arg(&eac3)
+            .status()
+            .unwrap_or_else(|e| panic!("{cc} : {e}"));
+        assert!(ok.success(), "{cc} : src/eac3_shim.c ne compile pas");
+        println!("cargo:rerun-if-changed=src/eac3_shim.c");
+        println!("cargo:rustc-link-arg={}", eac3.display());
+        // Après l'objet qui les appelle, dans l'ordre de l'édition de liens (comme les fonctions vides de VLC).
+        println!("cargo:rustc-link-arg={}", prefix.join("lib/libavcodec.a").display());
+        println!("cargo:rustc-link-arg={}", prefix.join("lib/libavutil.a").display());
         let sdl = env::var("SDL_PREFIX").expect("SDL_PREFIX (posé par scripts/build.sh)");
         println!("cargo:rerun-if-env-changed=SDL_PREFIX");
         println!("cargo:rustc-link-search=native={sdl}/lib");

@@ -885,7 +885,7 @@ impl App {
                 st.mbps = opts[cycle(i, opts.len(), dir)];
             }
             Setting::Audio => {
-                let opts = ["auto", "stereo", "surround", "computer"];
+                let opts = ["auto", "stereo", "dolby", "surround", "computer"];
                 let i = opts.iter().position(|v| *v == st.audio).unwrap_or(0);
                 st.audio = opts[cycle(i, opts.len(), dir)].into();
             }

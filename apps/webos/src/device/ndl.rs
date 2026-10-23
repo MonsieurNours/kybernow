@@ -48,31 +48,75 @@ pub enum AudioPlane {
     /// multicanal de la TV vers l'HDMI (Sortie son numérique en Pass-Through,
     /// ampli en eARC). Le son décodé par l'app y passe.
     Pcm51,
+    /// E-AC-3 5.1 encodé par l'app : chargé comme le PCM 6 voies, le document
+    /// de chargement réécrit en `AC3 PLUS` (`starfish.rs`) ; le téléviseur
+    /// passe les trames à l'ampli (Sortie son numérique en Pass-Through).
+    Dolby51,
+}
+
+/// Trame E-AC-3 de silence, pour amorcer le plan Dolby (`media.rs` la donne).
+static DOLBY_SILENCE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
+
+pub fn set_dolby_silence(frame: Vec<u8>) {
+    *DOLBY_SILENCE.lock().unwrap() = frame;
 }
 
 static AUDIO_PLANE: AtomicU8 = AtomicU8::new(0);
 
-/// Le plan de son des prochains chargements.
+/// Le plan de son des prochains chargements. Pour le Dolby, la trame de
+/// silence qui amorce le plan est produite tout de suite (avant la première
+/// image, qui précède l'en-tête audio).
 pub fn set_audio_plane(p: AudioPlane) {
+    if p == AudioPlane::Dolby51 && DOLBY_SILENCE.lock().unwrap().is_empty() {
+        match super::eac3::Encoder::new(6).and_then(|mut e| e.silence()) {
+            Some(s) => set_dolby_silence(s),
+            None => log::warn!("son : pas de trame E-AC-3 de silence (encodeur indisponible)"),
+        }
+    }
     AUDIO_PLANE.store(p as u8, Ordering::Release);
 }
 
-fn wanted_plane() -> AudioPlane {
-    if AUDIO_PLANE.load(Ordering::Acquire) == AudioPlane::Pcm51 as u8 { AudioPlane::Pcm51 } else { AudioPlane::OpusClock }
+/// Essaie le chargement avec le plan de son voulu, avant la première image
+/// (Dolby : le téléviseur met jusqu'à 2,5 s à confirmer, ou refuse ; autant
+/// que ce soit réglé avant que les images n'arrivent). Rend le plan obtenu.
+pub fn probe(kind: i32, width: u32, height: u32) -> Option<AudioPlane> {
+    match ensure(kind, width, height) {
+        Ok(()) => plane(),
+        Err(e) => {
+            log::warn!("image : essai de chargement : {e}");
+            None
+        }
+    }
 }
 
-fn empty_frame(plane: AudioPlane) -> &'static [u8] {
-    match plane {
-        AudioPlane::Pcm51 => &PCM_SILENCE_51,
-        AudioPlane::OpusClock => &OPUS_EMPTY_STEREO,
+fn wanted_plane() -> AudioPlane {
+    match AUDIO_PLANE.load(Ordering::Acquire) {
+        x if x == AudioPlane::Pcm51 as u8 => AudioPlane::Pcm51,
+        x if x == AudioPlane::Dolby51 as u8 => AudioPlane::Dolby51,
+        _ => AudioPlane::OpusClock,
     }
+}
+
+fn empty_frame(plane: AudioPlane) -> Vec<u8> {
+    match plane {
+        AudioPlane::Pcm51 => PCM_SILENCE_51.to_vec(),
+        AudioPlane::Dolby51 => DOLBY_SILENCE.lock().unwrap().clone(),
+        AudioPlane::OpusClock => OPUS_EMPTY_STEREO.to_vec(),
+    }
+}
+
+/// Durée d'une trame vide du plan (ms).
+fn prime_packet_ms(plane: AudioPlane) -> i64 {
+    if plane == AudioPlane::Dolby51 { 32 } else { PRIME_PACKET_MS }
 }
 
 /// Durée d'une trame vide (ms), et avance des trames sur l'horloge du chargement.
 const PRIME_PACKET_MS: i64 = 5;
 const PRIME_LEAD_MS: i64 = 40;
-/// Attente de `LOADCOMPLETED` au chargement, puis entre deux salves.
+/// Attente de `LOADCOMPLETED` au chargement, puis entre deux salves ; le
+/// Dolby met plus longtemps (la chaîne de pass-through du téléviseur).
 const PRIME_BUDGET: Duration = Duration::from_millis(500);
+const PRIME_BUDGET_DOLBY: Duration = Duration::from_millis(2500);
 const PRIME_RETRY: Duration = Duration::from_millis(20);
 /// Sans confirmation passé ce délai, les images partent quand même.
 const FEED_ANYWAY_AFTER: Duration = Duration::from_millis(2000);
@@ -260,10 +304,12 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
                 AudioPlane::OpusClock => {
                     info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: 2, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
                 }
-                AudioPlane::Pcm51 => {
+                AudioPlane::Pcm51 | AudioPlane::Dolby51 => {
                     info.audio.pcm = PcmInfo { kind: AUDIO_PCM, unknown1: 0, format: S16LE.as_ptr(), layout: INTERLEAVED.as_ptr(), channel_mode: SIX.as_ptr(), sample_rate: 1 };
                 }
             }
+            // Le document de chargement passe par le crochet : réécrit en E-AC-3 pour le plan Dolby.
+            super::starfish::set_rewrite_eac3(if plane == AudioPlane::Dolby51 { 6 } else { 0 });
             LOAD_COMPLETED.store(false, Ordering::Release);
             GENERATION.fetch_add(1, Ordering::AcqRel);
             if (st.api.load)(&mut info, on_load) != 0 {
@@ -273,9 +319,16 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
         };
         let at = Instant::now();
         let plane = match load(plane) {
+            Ok(()) if plane == AudioPlane::Dolby51 && !super::starfish::rewritten() => {
+                // Document inattendu, pas réécrit : le son repassera par SDL.
+                (st.api.unload)();
+                log::warn!("son : Dolby impossible (document de chargement inattendu) ; plan Opus stéréo à la place");
+                load(AudioPlane::OpusClock)?;
+                AudioPlane::OpusClock
+            }
             Ok(()) => plane,
-            Err(e) if plane == AudioPlane::Pcm51 => {
-                // Le PCM 6 voies refusé : l'image d'abord, le son repassera par SDL.
+            Err(e) if plane != AudioPlane::OpusClock => {
+                // Le plan refusé : l'image d'abord, le son repassera par SDL.
                 log::warn!("son : {e} ; plan Opus stéréo à la place");
                 load(AudioPlane::OpusClock)?;
                 AudioPlane::OpusClock
@@ -293,7 +346,8 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
     // alors les images sur leur horodatage.
     let generation = GENERATION.load(Ordering::Acquire);
     let mut primed = 0;
-    while !LOAD_COMPLETED.load(Ordering::Acquire) && st.loaded.as_ref().is_some_and(|(_, at)| at.elapsed() < PRIME_BUDGET) {
+    let budget = if st.plane == AudioPlane::Dolby51 { PRIME_BUDGET_DOLBY } else { PRIME_BUDGET };
+    while !LOAD_COMPLETED.load(Ordering::Acquire) && st.loaded.as_ref().is_some_and(|(_, at)| at.elapsed() < budget) {
         primed += prime(st);
         let until = Instant::now() + PRIME_RETRY;
         while Instant::now() < until && !LOAD_COMPLETED.load(Ordering::Acquire) {
@@ -303,6 +357,27 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
     let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
     if LOAD_COMPLETED.load(Ordering::Acquire) {
         log::info!("image : NDL confirmé après {} ms ({primed} trames vides)", at.elapsed().as_millis());
+    } else if st.plane == AudioPlane::Dolby51 {
+        // Le téléviseur ne confirme pas le Dolby : l'autre nom de codec, puis
+        // image et son en stéréo.
+        unsafe {
+            (st.api.unload)();
+        }
+        GENERATION.fetch_add(1, Ordering::AcqRel);
+        st.loaded = None;
+        let name = super::starfish::dolby_name();
+        if (name as usize) + 1 < super::starfish::DOLBY_NAMES.len() {
+            log::warn!("son : Dolby « {} » pas confirmé après {} ms ; essai avec « {} »", super::starfish::DOLBY_NAMES[name as usize], at.elapsed().as_millis(), super::starfish::DOLBY_NAMES[name as usize + 1]);
+            super::starfish::set_dolby_name(name + 1);
+            drop(g);
+            return ensure(kind, width, height);
+        }
+        log::warn!("son : Dolby pas confirmé par le téléviseur après {} ms ; rechargement en stéréo", at.elapsed().as_millis());
+        super::starfish::set_rewrite_eac3(0);
+        st.plane = AudioPlane::OpusClock;
+        drop(g);
+        AUDIO_PLANE.store(AudioPlane::OpusClock as u8, Ordering::Release);
+        return ensure(kind, width, height);
     } else {
         log::warn!("image : NDL pas confirmé après {} ms ; plan de son nourri en fond", at.elapsed().as_millis());
         std::thread::Builder::new()
@@ -320,14 +395,19 @@ fn prime(st: &mut State) -> u32 {
     let target = at.elapsed().as_millis() as i64 + PRIME_LEAD_MS;
     let mut n = 0;
     let frame = empty_frame(st.plane);
+    let step = prime_packet_ms(st.plane);
+    if frame.is_empty() {
+        log::warn!("son : rien pour amorcer le plan {:?}", st.plane);
+        return 0;
+    }
     while st.last_audio_pts < target {
         let pts = st.last_audio_pts;
         if unsafe { (st.api.audio_play)(frame.as_ptr() as *const c_void, frame.len() as u32, pts) } != 0 {
             log::warn!("image : trame vide refusée à {pts} ms : {}", last_error(&st.api));
-            st.last_audio_pts += PRIME_PACKET_MS;
+            st.last_audio_pts += step;
             break;
         }
-        st.last_audio_pts += PRIME_PACKET_MS;
+        st.last_audio_pts += step;
         n += 1;
     }
     n
@@ -385,7 +465,18 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
     }
 }
 
-/// Du son réel (PCM S16LE 6 voies) au plan de son de NDL, horodaté à
+/// Numéro du chargement en cours : change à chaque chargement (le décodeur
+/// repart de zéro, il lui faut les paramètres et une image clé).
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Acquire)
+}
+
+/// Le plan de son du chargement en cours.
+pub fn plane() -> Option<AudioPlane> {
+    NDL.lock().unwrap().as_ref().and_then(|st| st.loaded.as_ref().map(|_| st.plane))
+}
+
+/// Du son réel (PCM S16LE 6 voies, ou trames E-AC-3) au plan de son de NDL, horodaté à
 /// l'horloge du chargement, jamais en arrière (NDL couperait le son pour le
 /// reste de la session). `Ok(false)` : pas encore de plan confirmé, paquet
 /// laissé de côté ; `Err` si le chargement n'a pas ce plan.
@@ -393,8 +484,8 @@ pub fn play_audio(data: &[u8]) -> Result<bool, String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
     let Some((_, at)) = st.loaded else { return Ok(false) };
-    if st.plane != AudioPlane::Pcm51 {
-        return Err("le chargement n'a pas de plan PCM 6 voies".into());
+    if !matches!(st.plane, AudioPlane::Pcm51 | AudioPlane::Dolby51) {
+        return Err("le chargement n'a pas de plan 6 voies".into());
     }
     if !LOAD_COMPLETED.load(Ordering::Acquire) {
         return Ok(false);

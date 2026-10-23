@@ -66,6 +66,7 @@ The computer does not show up? Choose **Add** › **With address and port** and 
 
 - **Picture mode: Game Optimizer.** During the session, Magic Remote Settings button › Picture › Mode › Game Optimizer. No app can pick it for you; without it, the TV adds its picture processing (and latency).
 - **Controllers**: pair them with the TV over Bluetooth, in the TV's settings (devices or gamepads section; the path depends on the webOS version). DualSense, DualShock 4, Xbox and Switch Pro work. In the app, **Settings › Controllers and Magic Remote › Test controllers** shows the buttons and tries the rumble.
+- **5.1 sound with a receiver**: in the app, Computer settings › Sound › **5.1 Dolby**; on the TV, Sound › Digital Sound Output › **Pass-Through**. Without it the receiver gets stereo, from the TV's apps too. "5.1 PCM" only works with the few receivers that announce multichannel PCM.
 - **Network**: LG TVs' Ethernet port stops at 100 Mbit/s; the app caps the bitrate at 80 Mbit/s there. Wi-Fi (5 GHz, close to the access point) often goes further: the app goes up to 95 Mbit/s there.
 
 ## Updating

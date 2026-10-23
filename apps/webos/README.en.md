@@ -4,7 +4,7 @@ English · [Français](README.md)
 
 KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on the same Rust core as the other Link apps (`apps/core`), that brings up the computer (KyberNow Station) full screen, with the Magic Remote, keyboard and mouse, or gamepad. v2 identity ([guidelines](../../brand/v2/README.en.md)); mockups: [Claude Design](https://claude.ai/artifact/2TNZZrYYZpHvdQqLXzSLGv) (home, session menu with the Magic Remote, Picture, Network and Sound settings, controllers and rumble). Installing on the TV: [INSTALLATION.en.md](INSTALLATION.en.md) (developer mode).
 
-**Status (23/10/2026)**: installed on the G2 (webOS 26) in developer mode; end-to-end session at 1440p: picture, sound (stereo), controller, Magic Remote. The binary builds for webOS (armv7, glibc 2.12), so does the `.ipk` package, and the interface is checked through its screenshots (on the computer, and by the ARM binary under emulation). Test TV: LG OLED G2 83 inches (2022). The decision is in [PROJECT.en.md](../../PROJECT.en.md) ("LG TVs (webOS)").
+**Status (23/10/2026)**: installed on the G2 (webOS 26) in developer mode; end-to-end session at 4K and 1440p: picture, stereo and 5.1 Dolby sound to a receiver, controller (connected before or after launch), Magic Remote. The binary builds for webOS (armv7, glibc 2.12), so does the `.ipk` package, and the interface is checked through its screenshots (on the computer, and by the ARM binary under emulation). Test TV: LG OLED G2 83 inches (2022). The decision is in [PROJECT.en.md](../../PROJECT.en.md) ("LG TVs (webOS)").
 
 ![Home](screenshots/1-accueil.png)
 
@@ -57,11 +57,18 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 Opus decoded by the core's engine (`apps/core/src/audio`: adaptive buffer, loss concealment), pulled by SDL's callback (the TV's PulseAudio, 48 kHz, 512 frames per callback) in **stereo**: a game in 5.1 or 7.1 is mixed down by the engine. The app asks the computer for stereo (Auto and Stereo). Sound can stay on the computer.
 
-**5.1** (Sound › 5.1 setting): the app asks the computer for 6 channels, loads NDL with a 6-channel Opus audio plane (primed with empty 5.1 frames) and hands it the packets **untouched**, stamped on the load's clock, never backwards: the TV decodes and outputs to the receiver over eARC, or mixes for its speakers. NDL decodes a single layout (4 streams, 2 coupled: (L, R), (rear L, rear R), C, LFE); libopus's surround encoder layout, which Kyber sends (order `[0, 4, 1, 2, 3, 5]`), carries the same streams, hence no re-encoding (`media.rs`, `NDL_51_MAPPINGS`). Another stream, or a packet NDL refuses, falls back to SDL in stereo.
+**5.1 Dolby** (Sound › 5.1 Dolby setting): the app asks the computer for 6 channels, decodes the Opus itself, encodes it to **E-AC-3** (Dolby Digital Plus, 640 kbit/s, 1536-sample frames i.e. 32 ms; libavcodec reduced to its ac3 and eac3 encoders, `src/eac3_shim.c`, `src/device/eac3.rs`) and hands it to the TV's decoder, which passes it untouched to the receiver over eARC (Digital Sound Output set to Pass-Through). Checked on the G2 with a Denon AVC-X3700H on 2026-10-23. It is the only road to a receiver: the TV's own apps do the same, and the receiver does not take multichannel PCM (see below).
 
-- The TV only outputs multichannel when its **Digital Sound Output is set to Pass-Through**: `NDL_DirectAudioSupportMultiChannel` says so (3 = ready; 2 = multichannel receiver connected but not Pass-Through), shown in Settings › Sound and read again every 2 s (NDL only answers once initialised, so in session; outside, the last answer). On the G2 under webOS 26 the call fails (-1) even in session: "unknown". Tried on 2026-10-23 (G2, webOS 26, receiver over eARC): 6 channels received from the computer, packets accepted by NDL, sound heard, but the receiver in stereo while the output is not Pass-Through.
-- **No raw stream to the receiver**: the computer sends Opus, which no receiver decodes, and NDL's API 2 only takes PCM, MP3 and Opus for sound (AC-3 only exists in API 1, webOS 4's).
-- **No 7.1**: NDL decodes 5.1 at most.
+- **How**: the decoder's public API (NDL) only knows PCM, MP3 and Opus. Underneath, LG's media player (`StarfishMediaAPIs`, loaded into the app's process) is driven by a JSON document. The binary exports `StarfishMediaAPIs::Load` and `Feed` (`src/starfish_hook.c`, `src/device/starfish.rs`): LG's libraries, loaded later, resolve them in the app, which sees the document, rewrites it for Dolby (`BUFFERSTREAM` transport, the one of movie players, `AC3 PLUS` codec, `ac3PlusInfo`, no added buffering, `lowDelayMode` and game mode kept), converts timestamps to nanoseconds, and hands it to the real player. The app asks NDL for a 6-channel PCM plane and feeds it E-AC-3 frames: NDL does not look at the bytes.
+- **Why not the game decoder's chain** (`DIRECTMEDIA-ES-PLAYER`): its audio sink has no bitstream output and crashes on a first Dolby buffer (crash report from the G2, `lgao_push_first_event`).
+- **Tried before the session**: the Dolby load is attempted as soon as "Connect" is pressed, at the requested mode, primed with E-AC-3 silence frames; without a confirmation within 2.5 s the other codec name (`EAC3`) is tried, then the decoder goes back to stereo, before the first frame. A reload mid-session asks for the parameter sets and a keyframe again.
+
+**5.1 PCM** (Sound › 5.1 PCM setting): 6 channels decoded by the app and given as S16LE PCM to NDL's "6-channel" plane, the TV's multichannel PCM to HDMI. No encoding delay, but the TV only outputs it when the receiver announces multichannel PCM over CEC (short audio descriptors): the Denon AVC-X3700H announces LPCM 2 channels only (AC-3 and E-AC-3 in 5.1 and 7.1), and many receivers do the same. The "TV 5.1 output" line in the settings reads `NDL_DirectAudioSupportMultiChannel`, which fails (-1) on the G2 under webOS 26: "unknown".
+
+- Letting the TV decode the 5.1 Opus itself (6-channel Opus plane) comes out in stereo: its output goes through the TV's mixer.
+- **No raw stream to the receiver**: the computer sends Opus, which no receiver decodes.
+- **No 7.1**: E-AC-3 5.1 at most through this road.
+- **TV settings**: Sound › Digital Sound Output set to **Pass-Through**; on PCM or Auto everything comes out in stereo, LG's apps included. That setting can revert to PCM after a reboot or a settings change: check it when the receiver falls back to stereo.
 
 ## Rumble
 
@@ -109,7 +116,7 @@ apps/webos/scripts/build.sh --check          # cargo check only
 apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.png
 ```
 
-`scripts/build.sh` applies the patches of `apps/macos/kyber-patches` then those of `apps/webos/kyber-patches`, builds into `third_party/kyber-desktop/rootfs-armv7-unknown-linux-gnueabi` libkynput (without SDL, `cargo cinstall`) and libopus 1.6.1 (position-independent: the binary is PIE), webOS's SDL2 into `third_party/sdl-webos-dist`, writes `libvlc.pc`, then builds `kybernow-webos` and packages it (`scripts/package.sh`: binary without debug info, SDL2, images, licences). Kyber 0.29's sources go into `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
+`scripts/build.sh` applies the patches of `apps/macos/kyber-patches` then those of `apps/webos/kyber-patches`, builds into `third_party/kyber-desktop/rootfs-armv7-unknown-linux-gnueabi` libkynput (without SDL, `cargo cinstall`) and libopus 1.6.1 (position-independent: the binary is PIE), webOS's SDL2 into `third_party/sdl-webos-dist`, writes `libvlc.pc`, then FFmpeg 7.1.1's libavcodec and libavutil reduced to the ac3 and eac3 encoders (static, LGPL 2.1, licence in the package), then builds `kybernow-webos` and packages it (`scripts/package.sh`: binary without debug info, SDL2, images, licences). Kyber 0.29's sources go into `third_party/kyber-desktop` (see [docs/build-notes.en.md](../../docs/build-notes.en.md)).
 
 - **Toolchain**: webosbrew's (`openlgtv/buildroot-nc4`, gcc 16, glibc 2.12, armv7 softfp), in `third_party/webos-toolchain` or `WEBOS_TOOLCHAIN`. On an Apple Silicon Mac (tried on 2026-10-23): `arm-webos-linux-gnueabi_sdk-buildroot_darwin-arm64.tar.bz2` from [webosbrew/native-toolchain](https://github.com/webosbrew/native-toolchain) (gcc 12, glibc 2.12), unpacked into `third_party/webos-toolchain-mac`, `./relocate-sdk.sh` once, then `WEBOS_TOOLCHAIN=…/arm-webos-linux-gnueabi_sdk-buildroot apps/webos/scripts/build.sh` (with `/opt/homebrew/opt/rustup/bin` on `PATH` if rustup comes from Homebrew). `scripts/cc.sh` gives it its sysroot and links libstdc++ statically.
 - **Rust options**: `-C target-feature=+neon,+vfp3,-soft-float -C target-cpu=cortex-a73` (otherwise the "gnueabi" target emulates floating point: ten times slower, according to punktfunk), `--cfg kybernow_webos`, `--cfg getrandom_backend="linux_raw"`.
@@ -124,6 +131,6 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 - On the G2: an end-to-end session (NDL, sound, controllers, rumble), latency at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps.
 - Magic Remote as mouse: check that the TV still sends motion while its pointer is hidden.
-- 5.1 sound up to the receiver: check with Digital Sound Output set to Pass-Through (the receiver must show multichannel), then audio-video sync.
+- 5.1 Dolby: measure audio-video sync and the added latency (32 ms encoding, the TV's `BUFFERSTREAM` chain, the receiver's decoding).
 - DualSense: rumble and adaptive triggers through webOS's Bluetooth service, when SDL does not provide them.
 - Homebrew Channel: a repository for the app (updates).

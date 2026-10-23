@@ -8,7 +8,9 @@
 
 mod jobs;
 mod log_file;
+mod eac3;
 mod media;
+mod starfish;
 mod ndl;
 mod pads;
 pub mod sdl;
