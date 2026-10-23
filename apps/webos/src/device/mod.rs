@@ -279,9 +279,14 @@ fn draw_frame(video: &Video, show_ui: bool, live: Option<&Live>, app: &App) {
         if show_ui {
             sdl::SDL_RenderCopy(video.renderer, video.ui, std::ptr::null(), std::ptr::null());
         }
+        // Manette ou Magic Remote en souris : le pointeur est toujours dessiné.
+        // Sans souris branchée, Windows cache le sien par intermittence
+        // (annonces « caché » / « visible » plusieurs fois par seconde),
+        // comme sur Android.
+        let forced = app.session.as_ref().is_some_and(|s| s.remote_mouse || s.pad_mouse);
         if let Some(l) = live
             && !video.cursor.is_null()
-            && !l.pointer_hidden
+            && (!l.pointer_hidden || forced)
             && app.screen == Screen::Session
             && app.session.as_ref().is_some_and(|s| !s.menu && matches!(s.phase, Phase::Streaming))
             && let Some((x, y)) = l.pointer
