@@ -38,7 +38,15 @@ fn main() {
     }
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     fs::write(out.join("vlc_stubs.c"), c).unwrap();
-    cc::Build::new().file(out.join("vlc_stubs.c")).warnings(false).compile("kybernow_vlc_stubs");
+    // En fin de ligne (link-arg), après les rlibs de vlc-rs et kyvlcplayer qui
+    // les appellent : en `-l`, l'archive passe avant elles et l'éditeur de liens
+    // n'en retient rien.
+    cc::Build::new()
+        .file(out.join("vlc_stubs.c"))
+        .warnings(false)
+        .cargo_metadata(false)
+        .compile("kybernow_vlc_stubs");
+    println!("cargo:rustc-link-arg={}", out.join("libkybernow_vlc_stubs.a").display());
 
     if let Err(e) = pkg_config::Config::new().statik(true).probe("opus") {
         panic!("libopus introuvable ({e}) : lancez apps/webos/scripts/build.sh");
