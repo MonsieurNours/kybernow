@@ -15,6 +15,7 @@ use kybernow_core::profile::{Capabilities, Codec, Profile as CoreProfile, Stream
 use kybernow_core::session::{Notice, Platform, Recovery, Session, SessionParams, Status};
 use kybernow_core::{Display, WindowHandle};
 
+use super::ndl;
 use super::media::{AudioSink, VideoSink};
 use super::Event;
 use crate::model::{Host, Profile};
@@ -30,6 +31,8 @@ pub struct Shared {
     mode: Mutex<Mode>,
     refresh: AtomicU32,
     has_audio: bool,
+    /// Son 5.1 par NDL.
+    surround: bool,
     pub combo_enabled: AtomicBool,
     codec: Mutex<String>,
 }
@@ -87,7 +90,7 @@ impl Platform for WebOsPlatform {
     }
 
     fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
-        self.0.has_audio.then(|| AudioSink::new() as Arc<dyn PacketHandler>)
+        self.0.has_audio.then(|| AudioSink::new(self.0.surround) as Arc<dyn PacketHandler>)
     }
 
     fn input_pipeline(&self) -> Pipeline {
@@ -231,7 +234,15 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
-    let audio_channels = if host.settings.audio == "computer" { 0 } else { 2 };
+    // 5.1 : demandé à l'ordinateur et confié au décodeur du téléviseur (NDL),
+    // qui le sort vers l'ampli (eARC) ou le mixe pour ses haut-parleurs.
+    let surround = host.settings.audio == "surround" && ndl::available();
+    let audio_channels = match host.settings.audio.as_str() {
+        "computer" => 0,
+        _ if surround => 6,
+        _ => 2,
+    };
+    ndl::set_audio_channels(if surround { 6 } else { 2 });
     let shared = Arc::new(Shared {
         tx: Mutex::new(tx),
         session: OnceLock::new(),
@@ -242,6 +253,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         mode: Mutex::new(Mode { width: w, height: h, refresh: fps }),
         refresh: AtomicU32::new(refresh),
         has_audio: audio_channels > 0,
+        surround,
         combo_enabled: AtomicBool::new(host.settings.combo),
         codec: Mutex::new(String::new()),
     });

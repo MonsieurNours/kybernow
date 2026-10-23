@@ -26,7 +26,7 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
   - **End**: back home, the session's median latency and duration kept for the home screen; an error shows with "Back home".
 - **Controllers** (`src/device/pads.rs`, `src/ui/pads.rs`): up to four players in order of arrival, announced to the computer at each picture start; buttons, sticks, triggers and D-pad; rumble on both motors as the game asks (and on the triggers when the controller has them); controller as mouse (left stick pointer, RT faster, LT finer, right stick wheel, A / B / X left, right, middle click). The Magic Remote, when webOS presents it as a gamepad, is left out. Test screen: buttons, sticks and triggers live, test rumble per motor and on the triggers.
 - **Magic Remote, keyboard, mouse**: outside the game, the pointer selects what it hovers and OK confirms, the arrows go to the nearest item in their direction; in the game, arrows and OK go to the computer (Back as Esc if the setting says so), or the Magic Remote becomes the computer's mouse (OK left click, yellow right click, wheel); with the Magic Remote or a controller as the mouse, the computer's pointer is always drawn, since Windows with no mouse plugged in hides it on and off (as on Android); a plugged-in keyboard sends its keys (USB codes converted to Windows scancodes with the `keycode` crate's table, kynput's).
-- **Settings** (`src/ui/settings.rs`), two screens. **Global**: this TV (language, model, panel, decoder, network, version); controllers (connected ones, test). **Per computer**: profile, resolution (like this TV, 2160p, 1440p, 1080p, 720p), frame rate (the panel's, 30, 60, 120), codec (Auto: HEVC; H.264, AV1), bitrate, game mode reminder, VRR (unavailable, explained); sound (Auto, stereo, on the computer); controllers seen as Xbox 360, combination, Magic Remote Back, controller test; network (link, cap, reliable transport, reconnection, Admin address); account and fingerprint, remove the computer.
+- **Settings** (`src/ui/settings.rs`), two screens. **Global**: this TV (language, model, panel, decoder, network, version); controllers (connected ones, test). **Per computer**: profile, resolution (like this TV, 2160p, 1440p, 1080p, 720p), frame rate (the panel's, 30, 60, 120), codec (Auto: HEVC; H.264, AV1), bitrate, game mode reminder, VRR (unavailable, explained); sound (Auto, stereo, 5.1, on the computer; state of the TV's 5.1 output); controllers seen as Xbox 360, combination, Magic Remote Back, controller test; network (link, cap, reliable transport, reconnection, Admin address); account and fingerprint, remove the computer.
 - **Languages**: French and English (`src/i18n.rs`, pairs written in place), following the TV's language; Auto / Français / English setting.
 
 ## Picture, frame rate and game mode
@@ -55,7 +55,13 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 ## Sound
 
-Opus decoded by the core's engine (`apps/core/src/audio`: adaptive buffer, loss concealment), pulled by SDL's callback (the TV's PulseAudio, 48 kHz, 512 frames per callback) in **stereo**: a game in 5.1 or 7.1 is mixed down by the engine. The app asks the computer for stereo. Surround to an eARC receiver would go through NDL's Opus plane (5.1 at most), which no project has yet seen reach a receiver as 5.1: to be tried. Sound can stay on the computer.
+Opus decoded by the core's engine (`apps/core/src/audio`: adaptive buffer, loss concealment), pulled by SDL's callback (the TV's PulseAudio, 48 kHz, 512 frames per callback) in **stereo**: a game in 5.1 or 7.1 is mixed down by the engine. The app asks the computer for stereo (Auto and Stereo). Sound can stay on the computer.
+
+**5.1** (Sound › 5.1 setting): the app asks the computer for 6 channels, loads NDL with a 6-channel Opus audio plane (primed with empty 5.1 frames) and hands it the packets **untouched**, stamped on the load's clock, never backwards: the TV decodes and outputs to the receiver over eARC, or mixes for its speakers. NDL decodes a single layout (4 streams, 2 coupled: (L, R), (rear L, rear R), C, LFE); libopus's surround encoder layout, which Kyber sends (order `[0, 4, 1, 2, 3, 5]`), carries the same streams, hence no re-encoding (`media.rs`, `NDL_51_MAPPINGS`). Another stream, or a packet NDL refuses, falls back to SDL in stereo.
+
+- The TV only outputs multichannel when its **Digital Sound Output is set to Pass-Through**: `NDL_DirectAudioSupportMultiChannel` says so (3 = ready; 2 = multichannel receiver connected but not Pass-Through), shown in Settings › Sound and read again every 2 s. Tried on 2026-10-23 (G2, webOS 26, receiver over eARC): 6 channels received from the computer, packets accepted by NDL, sound heard, but the receiver in stereo while the output is not Pass-Through.
+- **No raw stream to the receiver**: the computer sends Opus, which no receiver decodes, and NDL's API 2 only takes PCM, MP3 and Opus for sound (AC-3 only exists in API 1, webOS 4's).
+- **No 7.1**: NDL decodes 5.1 at most.
 
 ## Rumble
 
@@ -118,6 +124,6 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 - On the G2: an end-to-end session (NDL, sound, controllers, rumble), latency at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps.
 - Magic Remote as mouse: check that the TV still sends motion while its pointer is hidden.
-- Surround through NDL's Opus plane to an eARC receiver.
+- 5.1 sound up to the receiver: check with Digital Sound Output set to Pass-Through (the receiver must show multichannel), then audio-video sync.
 - DualSense: rumble and adaptive triggers through webOS's Bluetooth service (as punktfunk does), when SDL does not provide them.
 - Homebrew Channel: a repository for the app (updates).

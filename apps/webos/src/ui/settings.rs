@@ -84,14 +84,31 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             info_card(app, cv, x, H - 150.0, w);
         }
         Section::Sound => {
-            let opts: Vec<String> = vec!["Auto".into(), tr("Stéréo", "Stereo").into(), tr("Sur l'ordinateur", "On the computer").into()];
+            let opts: Vec<String> = vec!["Auto".into(), tr("Stéréo", "Stereo").into(), "5.1".into(), tr("Sur l'ordinateur", "On the computer").into()];
             let i = match st.audio.as_str() {
                 "stereo" => 1,
-                "computer" => 2,
+                "surround" => 2,
+                "computer" => 3,
                 _ => 0,
             };
-            y += widgets::row(cv, f, s(Setting::Audio), x, y, w, tr("Son", "Sound"), tr("Sur l'ordinateur : pour un casque branché à l'ordinateur", "On the computer: for a headset plugged into the computer"), Value::Choices(&opts, i)) + 14.0;
-            widgets::row(cv, f, None, x, y, w, tr("Son multicanal (5.1, 7.1)", "Surround (5.1, 7.1)"), tr("Mixé en stéréo par l'app pour l'instant : la sortie 5.1 du décodeur LG reste à valider", "Mixed to stereo by the app for now: the LG decoder's 5.1 output is not validated yet"), Value::Unavailable(tr("à venir", "coming")));
+            let help = match st.audio.as_str() {
+                "surround" => tr("5.1 décodé par le téléviseur, vers l'ampli en eARC ou mixé pour ses haut-parleurs ; stéréo si le flux ne s'y prête pas", "5.1 decoded by the TV, to the receiver over eARC or mixed for its speakers; stereo if the stream does not fit"),
+                "computer" => tr("Pour un casque branché à l'ordinateur", "For a headset plugged into the computer"),
+                _ => tr("Auto : stéréo pour l'instant. 5.1 : par le décodeur du téléviseur, vers l'ampli", "Auto: stereo for now. 5.1: through the TV's decoder, to the receiver"),
+            };
+            y += widgets::row(cv, f, s(Setting::Audio), x, y, w, tr("Son", "Sound"), help, Value::Choices(&opts, i)) + 14.0;
+            let (state, help) = match app.tv.multichannel {
+                4 => (tr("prête", "ready"), tr("Le téléviseur sortira le 5.1 vers l'ampli", "The TV will send 5.1 to the receiver")),
+                3 => (
+                    tr("pas en Pass-Through", "not Pass-Through"),
+                    tr("Téléviseur : Son › Sortie son numérique › Pass-Through (sinon l'ampli reçoit de la stéréo)", "TV: Sound › Digital Sound Output › Pass-Through (otherwise the receiver gets stereo)"),
+                ),
+                2 => (tr("pas d'ampli", "no receiver"), tr("Aucun appareil multicanal branché (ampli ou barre de son en eARC)", "No multichannel device connected (receiver or soundbar over eARC)")),
+                1 => (tr("impossible", "unsupported"), tr("Ce téléviseur ne sort pas le multicanal d'une app", "This TV does not output multichannel from an app")),
+                _ => (tr("inconnue", "unknown"), tr("Le téléviseur ne le dit pas", "The TV does not say")),
+            };
+            y += widgets::row(cv, f, None, x, y, w, tr("Sortie 5.1 du téléviseur", "TV 5.1 output"), help, Value::Text(state.into())) + 14.0;
+            widgets::row(cv, f, None, x, y, w, "7.1", tr("Une app du téléviseur ne peut pas sortir plus que du 5.1 (décodeur LG)", "A TV app cannot output more than 5.1 (LG decoder)"), Value::Unavailable(tr("indisponible", "unavailable")));
         }
         Section::Controllers => {
             y += widgets::row(cv, f, s(Setting::Xbox360), x, y, w, tr("Manettes vues comme des Xbox 360", "Controllers seen as Xbox 360"), tr("Sinon, l'ordinateur voit chaque manette telle qu'elle est", "Otherwise the computer sees each controller as it is"), Value::Toggle(st.xbox360)) + 14.0;

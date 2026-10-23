@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.4.6
 
+- App des téléviseurs LG : son 5.1 (Réglages › Son › 5.1), décodé par le téléviseur et envoyé à l'ampli en eARC ; les réglages disent si le téléviseur est prêt à le sortir (Sortie son numérique en Pass-Through). Le 7.1 n'est pas possible depuis une app du téléviseur.
 - App des téléviseurs LG : le pointeur de l'ordinateur ne clignote plus quand la Magic Remote ou la manette sert de souris.
 - App des téléviseurs LG : premier essai sur un téléviseur (OLED G2, webOS 26). L'image restait noire : le décodeur du téléviseur attend du son avant de confirmer son chargement ; l'app l'amorce maintenant jusqu'à la confirmation. Les ordinateurs ajoutés et le journal sont gardés dans `/media/developer/temp/kybernow` : ils survivent au redémarrage et à la réinstallation, et le journal se lit depuis l'ordinateur.
 - App des téléviseurs LG : les réglages s'ouvrent depuis l'accueil à la croix, sans touche particulière de la télécommande (télécommande tierce, manette) : « Réglages de l'ordinateur » à côté des profils, et « Réglages » en haut à droite pour les réglages globaux (langue, téléviseur, manettes), même sans ordinateur ajouté. Installée sur une OLED G2.

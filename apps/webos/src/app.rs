@@ -116,11 +116,14 @@ pub struct TvInfo {
     /// Le décodeur du téléviseur (NDL) est là.
     pub decoder: bool,
     pub av1: bool,
+    /// Sortie multicanal de NDL : 0 inconnue, 1 impossible, 2 pas d'appareil
+    /// multicanal branché, 3 Sortie son numérique pas en Pass-Through, 4 prête.
+    pub multichannel: u8,
 }
 
 impl Default for TvInfo {
     fn default() -> Self {
-        Self { model: "LG".into(), webos: String::new(), panel: (3840, 2160), refresh: 120, decoder: true, av1: true }
+        Self { model: "LG".into(), webos: String::new(), panel: (3840, 2160), refresh: 120, decoder: true, av1: true, multichannel: 0 }
     }
 }
 
@@ -882,7 +885,7 @@ impl App {
                 st.mbps = opts[cycle(i, opts.len(), dir)];
             }
             Setting::Audio => {
-                let opts = ["auto", "stereo", "computer"];
+                let opts = ["auto", "stereo", "surround", "computer"];
                 let i = opts.iter().position(|v| *v == st.audio).unwrap_or(0);
                 st.audio = opts[cycle(i, opts.len(), dir)].into();
             }

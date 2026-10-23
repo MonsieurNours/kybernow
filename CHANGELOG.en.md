@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.4.6
 
+- LG TV app: 5.1 sound (Settings › Sound › 5.1), decoded by the TV and sent to the receiver over eARC; the settings tell whether the TV is ready to output it (Digital Sound Output set to Pass-Through). 7.1 is not possible from a TV app.
 - LG TV app: the computer's pointer no longer flickers when the Magic Remote or a controller is the mouse.
 - LG TV app: first try on a TV (OLED G2, webOS 26). The picture stayed black: the TV's decoder waits for sound before confirming its load; the app now primes it until the confirmation. Added computers and the log are kept in `/media/developer/temp/kybernow`: they survive reboots and reinstalls, and the log can be read from the computer.
 - LG TV app: settings open from the home screen with the arrows, no special remote key needed (third-party remote, controller): "Computer settings" next to the profiles, and "Settings" at the top right for global settings (language, TV, controllers), even with no computer added. Installed on an OLED G2.

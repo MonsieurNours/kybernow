@@ -26,7 +26,7 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
   - **Fin** : retour à l'accueil, la latence médiane et la durée de la session gardées pour l'accueil ; une erreur s'affiche avec « Retour à l'accueil ».
 - **Manettes** (`src/device/pads.rs`, `src/ui/pads.rs`) : quatre joueurs au plus dans l'ordre d'arrivée, annoncés à l'ordinateur à chaque démarrage de l'image ; boutons, sticks, gâchettes et croix ; vibrations des deux moteurs demandées par le jeu (et des gâchettes quand la manette en a) ; manette en souris (stick gauche pointeur, RT plus vite, LT plus précis, stick droit molette, A / B / X clics gauche, droit, milieu). La Magic Remote, quand webOS la présente comme une manette, est écartée. Écran de test : touches, sticks et gâchettes en direct, vibration d'essai par moteur et aux gâchettes.
 - **Magic Remote, clavier, souris** : hors du jeu, le pointeur choisit ce qu'il survole et OK valide, les flèches vont au plus proche dans leur direction ; en jeu, les flèches et OK partent à l'ordinateur (Retour comme Échap si le réglage le veut), ou la Magic Remote devient la souris de l'ordinateur (OK clic gauche, jaune clic droit, molette) ; Magic Remote ou manette en souris, le pointeur de l'ordinateur est toujours dessiné, car Windows sans souris branchée le cache par intermittence (comme sur Android) ; un clavier branché envoie ses touches (codes USB convertis en scancodes de Windows par la table du crate `keycode`, celle de kynput).
-- **Réglages** (`src/ui/settings.rs`), deux écrans. **Globaux** : ce téléviseur (langue, modèle, dalle, décodeur, réseau, version) ; manettes (celles branchées, test). **Par ordinateur** : profil, définition (comme ce téléviseur, 2160p, 1440p, 1080p, 720p), images par seconde (celle de la dalle, 30, 60, 120), format (Auto : HEVC ; H.264, AV1), débit, rappel du mode jeu, VRR (indisponible, expliqué) ; son (Auto, stéréo, sur l'ordinateur) ; manettes vues comme des Xbox 360, combinaison, Retour de la Magic Remote, test des manettes ; réseau (lien, plafond, transport fiable, reconnexion, adresse d'Admin) ; compte et empreinte, retirer l'ordinateur.
+- **Réglages** (`src/ui/settings.rs`), deux écrans. **Globaux** : ce téléviseur (langue, modèle, dalle, décodeur, réseau, version) ; manettes (celles branchées, test). **Par ordinateur** : profil, définition (comme ce téléviseur, 2160p, 1440p, 1080p, 720p), images par seconde (celle de la dalle, 30, 60, 120), format (Auto : HEVC ; H.264, AV1), débit, rappel du mode jeu, VRR (indisponible, expliqué) ; son (Auto, stéréo, 5.1, sur l'ordinateur ; état de la sortie 5.1 du téléviseur) ; manettes vues comme des Xbox 360, combinaison, Retour de la Magic Remote, test des manettes ; réseau (lien, plafond, transport fiable, reconnexion, adresse d'Admin) ; compte et empreinte, retirer l'ordinateur.
 - **Langues** : français et anglais (`src/i18n.rs`, paires écrites sur place), selon la langue du téléviseur ; réglage Auto / Français / English.
 
 ## Image, fréquence et mode jeu
@@ -55,7 +55,13 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 
 ## Son
 
-Opus décodé par le moteur du cœur (`apps/core/src/audio` : tampon adaptatif, masquage des pertes), tiré par le rappel de SDL (PulseAudio du téléviseur, 48 kHz, 512 images par rappel) en **stéréo** : un jeu en 5.1 ou 7.1 est mixé par le moteur. L'app demande la stéréo à l'ordinateur. Le multicanal vers un ampli en eARC passerait par le plan Opus de NDL (5.1 au plus), qu'aucun projet n'a encore vu arriver en 5.1 à un ampli : à essayer. Le son peut rester sur l'ordinateur.
+Opus décodé par le moteur du cœur (`apps/core/src/audio` : tampon adaptatif, masquage des pertes), tiré par le rappel de SDL (PulseAudio du téléviseur, 48 kHz, 512 images par rappel) en **stéréo** : un jeu en 5.1 ou 7.1 est mixé par le moteur. L'app demande la stéréo à l'ordinateur (Auto et Stéréo). Le son peut rester sur l'ordinateur.
+
+**5.1** (réglage Son › 5.1) : l'app demande 6 voies à l'ordinateur, charge NDL avec un plan de son Opus en 6 voies (amorcé de trames vides 5.1) et lui donne les paquets **tels quels**, horodatés à l'horloge du chargement, jamais en arrière : le téléviseur décode et sort vers l'ampli en eARC, ou mixe pour ses haut-parleurs. NDL ne décode qu'une disposition (4 flux, 2 couplés : (G, D), (arrière G, arrière D), C, LFE) ; celle de l'encodeur surround de libopus, qu'envoie Kyber (ordre `[0, 4, 1, 2, 3, 5]`), porte les mêmes flux, d'où le passage sans réencodage (`media.rs`, `NDL_51_MAPPINGS`). Un autre flux, ou un paquet refusé par NDL, repasse par SDL en stéréo.
+
+- Le téléviseur ne sort le multicanal que si sa **Sortie son numérique est en Pass-Through** : `NDL_DirectAudioSupportMultiChannel` le dit (3 = prêt ; 2 = ampli multicanal branché mais pas Pass-Through), affiché dans Réglages › Son et relu toutes les 2 s. Essai du 23/10/2026 (G2, webOS 26, ampli en eARC) : 6 voies reçues de l'ordinateur, paquets acceptés par NDL, son entendu, mais l'ampli en stéréo tant que la sortie n'est pas en Pass-Through.
+- **Pas de flux brut vers l'ampli** : l'ordinateur envoie de l'Opus, qu'aucun ampli ne décode, et l'API 2 de NDL ne prend en son que PCM, MP3 et Opus (l'AC-3 n'existe que dans l'API 1, celle de webOS 4).
+- **Pas de 7.1** : NDL décode au plus le 5.1.
 
 ## Vibrations
 
@@ -118,6 +124,6 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 - Sur la G2 : une session de bout en bout (NDL, son, manettes, vibrations), la latence en 4K à 120 Hz, en 1440p et en 1080p, à 30, 60 et 120 i/s.
 - Magic Remote en souris : vérifier que le téléviseur envoie toujours les mouvements quand son pointeur est caché.
-- Son multicanal par le plan Opus de NDL vers un ampli en eARC.
+- Son 5.1 jusqu'à l'ampli : vérifier avec la Sortie son numérique en Pass-Through (l'ampli doit afficher du multicanal), puis l'écart son-image.
 - DualSense : vibrations et gâchettes adaptatives par le service Bluetooth de webOS (comme punktfunk), quand SDL ne les donne pas.
 - Homebrew Channel : dépôt de l'app (mises à jour).

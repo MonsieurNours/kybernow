@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use kybernow_core::audio::{AudioEngine, MonotonicClock, OutputOrder};
 use kybernow_core::latency;
-use kybernow_core::media::{Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
+use kybernow_core::media::{OpusHead, Packet, PacketHandler, FOURCC_AV1, FOURCC_HEVC};
 
 use super::ndl;
 use super::sdl;
@@ -217,18 +217,81 @@ impl Feeder {
 
 const RATE: i32 = 48_000;
 
-/// Le son de la session : moteur du cœur, sortie SDL en stéréo.
+/// Dispositions 5.1 que NDL décode telles quelles : 4 flux, 2 couplés,
+/// flux (G, D), (arrière G, arrière D), C, LFE. Celle de NDL (voies G, D, C,
+/// LFE, arrière G, arrière D) et celle de l'encodeur surround de libopus
+/// (ordre de Vorbis : G, C, D, arrière G, arrière D, LFE) portent les mêmes
+/// flux : les paquets passent sans être touchés.
+const NDL_51_MAPPINGS: [[u8; 6]; 2] = [[0, 1, 4, 5, 2, 3], [0, 4, 1, 2, 3, 5]];
+
+/// Où part le son.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Route {
+    /// En-tête pas encore reçu.
+    Pending,
+    /// Paquets Opus 5.1 au plan de son de NDL (le téléviseur décode et sort
+    /// en 5.1 vers l'ampli, ou mixe vers ses haut-parleurs).
+    Ndl,
+    /// Moteur du cœur, sortie SDL en stéréo.
+    Sdl,
+}
+
+/// Le son de la session : 5.1 par NDL quand il est demandé et que le flux
+/// s'y prête, sinon moteur du cœur et sortie SDL en stéréo.
 pub struct AudioSink {
     engine: Arc<AudioEngine>,
     device: Mutex<u32>,
     /// Le moteur, prêté au rappel de SDL.
     holder: Mutex<Option<Box<Arc<AudioEngine>>>>,
+    surround: bool,
+    route: Mutex<Route>,
+    /// L'en-tête Opus, pour repasser par SDL si NDL refuse le son.
+    head: Mutex<Vec<u8>>,
+    /// Paquets donnés à NDL (journal).
+    ndl_packets: Mutex<u64>,
 }
 
 impl AudioSink {
-    pub fn new() -> Arc<Self> {
+    /// `surround` : le son 5.1 est demandé à l'ordinateur et confié à NDL.
+    pub fn new(surround: bool) -> Arc<Self> {
         let engine = Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), OutputOrder::Windows));
-        Arc::new(Self { engine, device: Mutex::new(0), holder: Mutex::new(None) })
+        Arc::new(Self {
+            engine,
+            device: Mutex::new(0),
+            holder: Mutex::new(None),
+            surround,
+            route: Mutex::new(Route::Pending),
+            head: Mutex::new(Vec::new()),
+            ndl_packets: Mutex::new(0),
+        })
+    }
+
+    /// Choisit la route d'après l'en-tête du flux.
+    fn configure(&self, data: &[u8]) {
+        *self.head.lock().unwrap() = data.to_vec();
+        let head = OpusHead::parse(data);
+        let ndl_ok = self.surround
+            && head.as_ref().is_some_and(|h| h.channels == 6 && h.streams == 4 && h.coupled == 2 && NDL_51_MAPPINGS.iter().any(|m| h.mapping == m));
+        if let Some(h) = &head {
+            log::info!("son : en-tête Opus {} voies, {} flux, {} couplés, ordre {:?}", h.channels, h.streams, h.coupled, h.mapping);
+        }
+        if ndl_ok {
+            *self.route.lock().unwrap() = Route::Ndl;
+            log::info!("son : 5.1 par le décodeur du téléviseur (NDL), paquets tels quels ; sortie multicanal : {:?}", ndl::multichannel());
+        } else {
+            if self.surround {
+                log::warn!("son : 5.1 demandé mais flux pas décodable par NDL tel quel ; stéréo par SDL");
+            }
+            self.to_sdl();
+        }
+    }
+
+    /// Repasse par le moteur du cœur et SDL (stéréo mixée).
+    fn to_sdl(&self) {
+        *self.route.lock().unwrap() = Route::Sdl;
+        let head = self.head.lock().unwrap().clone();
+        self.engine.configure(&head);
+        self.open();
     }
 
     fn open(&self) {
@@ -275,16 +338,42 @@ impl PacketHandler for AudioSink {
     fn packet(&self, packet: Packet<'_>) {
         match packet {
             Packet::Codec { .. } => {}
-            Packet::Media { is_config: true, data, .. } => {
-                self.engine.configure(data);
-                self.open();
-            }
+            Packet::Media { is_config: true, data, .. } => self.configure(data),
             Packet::Media { data, .. } => {
-                if !data.is_empty() {
-                    self.engine.decode(data);
+                if data.is_empty() {
+                    return;
+                }
+                let route = *self.route.lock().unwrap();
+                match route {
+                    Route::Ndl => match ndl::play_audio(data) {
+                        Ok(sent) => {
+                            if sent {
+                                let mut n = self.ndl_packets.lock().unwrap();
+                                *n += 1;
+                                if *n == 1 {
+                                    log::info!("son : premier paquet 5.1 accepté par NDL");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("son : {e} ; stéréo par SDL pour la suite de la session");
+                            self.to_sdl();
+                        }
+                    },
+                    // Paquet avant l'en-tête : stéréo supposée (comme le moteur).
+                    Route::Pending => {
+                        *self.route.lock().unwrap() = Route::Sdl;
+                        self.open();
+                        self.engine.decode(data);
+                    }
+                    Route::Sdl => self.engine.decode(data),
                 }
             }
-            Packet::Hole { missing_samples } => self.engine.conceal(missing_samples as usize),
+            Packet::Hole { missing_samples } => {
+                if *self.route.lock().unwrap() == Route::Sdl {
+                    self.engine.conceal(missing_samples as usize);
+                }
+            }
         }
     }
 }

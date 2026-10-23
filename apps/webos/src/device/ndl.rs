@@ -23,7 +23,7 @@
 #![allow(non_snake_case)]
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -34,6 +34,22 @@ const AUDIO_OPUS: i32 = 3;
 
 /// Trame Opus vide, stéréo (1 flux, 1 couplé), celle de ss4s.
 const OPUS_EMPTY_STEREO: [u8; 3] = [0xec, 0xff, 0xfe];
+/// Trame Opus vide en 5.1 (4 flux, 2 couplés), celle de ss4s (`opus_empty_frame_642`).
+const OPUS_EMPTY_51: [u8; 15] = [0xec, 0x02, 0xff, 0xfe, 0xec, 0x02, 0xff, 0xfe, 0xe8, 0x02, 0xff, 0xfe, 0xe8, 0xff, 0xfe];
+/// Voies du plan de son au prochain chargement : 2, ou 6 quand le son 5.1
+/// passe par NDL (seule disposition qu'il décode : flux (G, D), (arrière G,
+/// arrière D), C, LFE ; voies G, D, C, LFE, arrière G, arrière D).
+static AUDIO_CHANNELS: AtomicU8 = AtomicU8::new(2);
+
+/// Voies du plan de son des prochains chargements (2 ou 6).
+pub fn set_audio_channels(n: u8) {
+    AUDIO_CHANNELS.store(if n == 6 { 6 } else { 2 }, Ordering::Release);
+}
+
+fn empty_frame() -> &'static [u8] {
+    if AUDIO_CHANNELS.load(Ordering::Acquire) == 6 { &OPUS_EMPTY_51 } else { &OPUS_EMPTY_STEREO }
+}
+
 /// Durée d'une trame vide (ms), et avance des trames sur l'horloge du chargement.
 const PRIME_PACKET_MS: i64 = 5;
 const PRIME_LEAD_MS: i64 = 40;
@@ -94,6 +110,8 @@ struct Api {
     audio_play: unsafe extern "C" fn(*const c_void, u32, i64) -> c_int,
     error: unsafe extern "C" fn() -> *const c_char,
     render_length: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
+    /// Écrit son verdict par le pointeur (punktfunk : la valeur rendue n'est pas le verdict).
+    multichannel: Option<unsafe extern "C" fn(*mut c_int) -> c_int>,
 }
 
 unsafe impl Send for Api {}
@@ -142,6 +160,7 @@ pub fn available() -> bool {
                 audio_play: sym(lib, "NDL_DirectAudioPlay")?,
                 error: sym(lib, "NDL_DirectMediaGetError")?,
                 render_length: sym(lib, "NDL_DirectVideoGetRenderBufferLength"),
+                multichannel: sym(lib, "NDL_DirectAudioSupportMultiChannel"),
             })
         })();
         match api {
@@ -199,7 +218,8 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
             video: VideoInfo { width: width as c_int, height: height as c_int, kind, unknown1: 0 },
             audio: AudioInfo { padding: [0; 32] },
         };
-        info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: 2, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
+        let channels = AUDIO_CHANNELS.load(Ordering::Acquire);
+        info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: channels as c_int, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
         LOAD_COMPLETED.store(false, Ordering::Release);
         GENERATION.fetch_add(1, Ordering::AcqRel);
         let at = Instant::now();
@@ -210,7 +230,7 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
         st.last_pts = 0;
         st.last_audio_pts = 0;
         st.feeding = false;
-        log::info!("image : NDL chargé ({}, {width} × {height})", name(kind));
+        log::info!("image : NDL chargé ({}, {width} × {height}, son {channels} voies)", name(kind));
     }
     // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
     // alors les images sur leur horodatage.
@@ -242,9 +262,10 @@ fn prime(st: &mut State) -> u32 {
     let Some((_, at)) = st.loaded else { return 0 };
     let target = at.elapsed().as_millis() as i64 + PRIME_LEAD_MS;
     let mut n = 0;
+    let frame = empty_frame();
     while st.last_audio_pts < target {
         let pts = st.last_audio_pts;
-        if unsafe { (st.api.audio_play)(OPUS_EMPTY_STEREO.as_ptr() as *const c_void, OPUS_EMPTY_STEREO.len() as u32, pts) } != 0 {
+        if unsafe { (st.api.audio_play)(frame.as_ptr() as *const c_void, frame.len() as u32, pts) } != 0 {
             log::warn!("image : trame vide refusée à {pts} ms : {}", last_error(&st.api));
             st.last_audio_pts += PRIME_PACKET_MS;
             break;
@@ -304,6 +325,59 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
         }
         let mut n: c_int = 0;
         Ok(st.api.render_length.and_then(|f| (f(&mut n) == 0).then_some(n)))
+    }
+}
+
+/// Un paquet Opus du son réel au plan de son de NDL (5.1), horodaté à
+/// l'horloge du chargement, jamais en arrière (NDL couperait le son pour le
+/// reste de la session). `Ok(false)` : pas encore de plan confirmé, paquet
+/// laissé de côté.
+pub fn play_audio(data: &[u8]) -> Result<bool, String> {
+    let mut g = NDL.lock().unwrap();
+    let st = g.as_mut().ok_or("NDL absent")?;
+    let Some((_, at)) = st.loaded else { return Ok(false) };
+    if !LOAD_COMPLETED.load(Ordering::Acquire) {
+        return Ok(false);
+    }
+    let pts = (at.elapsed().as_millis() as i64).max(st.last_audio_pts + 1);
+    st.last_audio_pts = pts;
+    if unsafe { (st.api.audio_play)(data.as_ptr() as *const c_void, data.len() as u32, pts) } != 0 {
+        return Err(format!("NDL_DirectAudioPlay : {}", last_error(&st.api)));
+    }
+    Ok(true)
+}
+
+/// Ce que le téléviseur ferait d'un son multicanal décodé par NDL
+/// (`NDL_DirectAudioSupportMultiChannel`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Multichannel {
+    /// Fonction absente (webOS ancien) ou réponse illisible.
+    Unknown,
+    /// Pas de multicanal sur ce téléviseur.
+    Unsupported,
+    /// Aucun appareil branché ne le prend (pas d'ampli en eARC).
+    NoDevice,
+    /// L'ampli le prend, mais la Sortie son numérique n'est pas en Pass-Through.
+    NotPassthrough,
+    /// Le multicanal sortira.
+    Ready,
+}
+
+/// Interroge le téléviseur (réglages de son et ampli branché, à l'instant).
+pub fn multichannel() -> Multichannel {
+    let g = NDL.lock().unwrap();
+    let Some(f) = g.as_ref().and_then(|st| st.api.multichannel) else { return Multichannel::Unknown };
+    let mut v: c_int = -1;
+    let ret = unsafe { f(&mut v) };
+    if ret != 0 {
+        return Multichannel::Unknown;
+    }
+    match v {
+        0 => Multichannel::Unsupported,
+        1 => Multichannel::NoDevice,
+        2 => Multichannel::NotPassthrough,
+        3 => Multichannel::Ready,
+        _ => Multichannel::Unknown,
     }
 }
 

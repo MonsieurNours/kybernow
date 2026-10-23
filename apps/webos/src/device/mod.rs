@@ -148,6 +148,7 @@ pub fn run() {
     let mut pairing: Vec<Arc<AtomicBool>> = Vec::new();
     let mut last_poll = Instant::now() - Duration::from_secs(60);
     let mut last_net = Instant::now();
+    let mut last_multichannel = Instant::now() - Duration::from_secs(60);
     let mut dirty = true;
     let mut present = true;
     let mut ui_shown = true;
@@ -213,6 +214,28 @@ pub fn run() {
             last_poll = Instant::now();
             for h in &app.store.hosts {
                 jobs::poll(h.clone(), !app.images.contains_key(&h.id), tx.clone());
+            }
+        }
+        // Sortie multicanal du téléviseur (réglages de son, ampli) : relue
+        // toutes les 2 s pendant que la rubrique Son est ouverte.
+        if live.is_none()
+            && app.screen == Screen::Settings
+            && !app.settings_global
+            && app.current_section() == crate::app::Section::Sound
+            && last_multichannel.elapsed() > Duration::from_secs(2)
+        {
+            last_multichannel = Instant::now();
+            let m = match ndl::multichannel() {
+                ndl::Multichannel::Unknown => 0,
+                ndl::Multichannel::Unsupported => 1,
+                ndl::Multichannel::NoDevice => 2,
+                ndl::Multichannel::NotPassthrough => 3,
+                ndl::Multichannel::Ready => 4,
+            };
+            if m != app.tv.multichannel {
+                log::info!("son : sortie multicanal du téléviseur {:?}", ndl::multichannel());
+                app.tv.multichannel = m;
+                dirty = true;
             }
         }
         if last_net.elapsed() > Duration::from_secs(5) && live.is_none() {

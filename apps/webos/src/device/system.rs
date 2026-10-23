@@ -42,6 +42,7 @@ pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool) -> TvInfo {
         // L'AV1 matériel arrive avec les téléviseurs de 2020 et plus (webOS 5) ;
         // NDL le prend en API 2.
         av1: decoder && major >= 5,
+        multichannel: 0,
     }
 }
 
