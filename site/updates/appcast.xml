@@ -3,6 +3,19 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.4.7</title>
+            <pubDate>Fri, 23 Oct 2026 19:30:21 +0200</pubDate>
+            <sparkle:version>202610231915</sparkle:version>
+            <sparkle:shortVersionString>0.4.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow Link comes to Linux, the Steam Deck and SteamOS.** One app, three interfaces: desktop (GNOME, KDE: window, mouse and keyboard, session bar at the top), the Steam Deck and handheld consoles in Gaming Mode (all by controller, animated launch, session menu by L1 + R1 + Start + Select or a touch at the top of the screen, Steam keyboard) and SteamOS in the living room (the same interface at ten feet, "Ready to play" column). Picture decoded by the GPU (VA-API) or the CPU, **variable refresh rate** when the display allows it, stereo, 5.1 or 7.1 sound, four controllers with rumble, game mouse, clipboard, optional 4:4:4 colour for sharp text. Flatpak package (`KyberNow-Link-Linux-x86_64.flatpak`, and `aarch64`), installed without administrator rights (`apps/linux/INSTALLATION.en.md`); not yet tried in a session on the Steam Deck.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.4.7/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.4.7/KyberNow-Link-macOS.zip" length="47134549" type="application/octet-stream" sparkle:edSignature="6fy7rRT+nJpzD3qFRMCR02YxTuBy2NJpUfgwIWDsrf185wVLrutTRqIOERaO8ZROsb0YTXZfL+2RqPu6rLKPCg=="/>
+        </item>
+        <item>
             <title>0.4.6</title>
             <pubDate>Fri, 23 Oct 2026 16:37:06 +0200</pubDate>
             <sparkle:version>202610231629</sparkle:version>
