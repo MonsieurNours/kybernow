@@ -258,17 +258,19 @@ pub fn core_profile(p: Profile) -> CoreProfile {
     CoreProfile::parse(p.id()).unwrap_or(CoreProfile::Jeu)
 }
 
-/// Les réglages du flux : le profil ramené à ce que décode cette machine
-/// (pas de 4:4:4), le format choisi, le débit choisi ou allégé.
+/// Les réglages du flux : le profil ramené à ce que décode cette machine, le
+/// format choisi, le 4:4:4 s'il est demandé (HEVC seulement), le débit choisi
+/// ou allégé.
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), m: &Machine, light: bool) -> StreamSettings {
-    let caps = Capabilities { hevc: m.decodes("hevc"), hevc444: false, av1: codec == "av1" };
+    let yuv444 = host.settings.yuv444 && codec == "hevc";
+    let caps = Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1" };
     let mut s = StreamSettings::for_profile(core_profile(profile), caps);
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
         _ => Codec::Hevc,
     };
-    s.yuv444 = false;
+    s.yuv444 = yuv444;
     if host.settings.reliable {
         s.reliable = true;
     }

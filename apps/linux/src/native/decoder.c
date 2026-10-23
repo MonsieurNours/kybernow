@@ -6,12 +6,18 @@
 // Les images VA-API sont recopiées en NV12 dans la mémoire du processeur
 // (av_hwframe_transfer_data) puis montrées par SDL : une copie par image,
 // négligeable à la taille du Steam Deck. Plus tard : import DMA-BUF sans copie.
+//
+// 4:4:4 (en option, HEVC) : SDL n'a pas de texture YUV 4:4:4 ; les images sont
+// converties ici en BGRA (virgule fixe, sur quelques fils), sur le fil du
+// décodeur, et montrées telles quelles.
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <pthread.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
@@ -25,6 +31,7 @@
 #define KN_FMT_NONE 0
 #define KN_FMT_NV12 1
 #define KN_FMT_I420 2
+#define KN_FMT_BGRA 3
 
 typedef struct kn_frame {
     int width, height, format;
@@ -42,7 +49,101 @@ typedef struct kn_decoder {
     AVFrame *frame, *sw, *out;
     int hw_active;
     char name[64];
+    // Image 4:4:4 convertie en BGRA.
+    uint8_t *rgb;
+    size_t rgb_size;
 } kn_decoder;
+
+// ---- 4:4:4 → BGRA --------------------------------------------------------
+
+typedef struct kn_conv {
+    const uint8_t *y, *u, *v;
+    int ys, us, vs;     // pas de ligne
+    int step;           // pas d'un pixel (1 : plans séparés, 4 : VUYX)
+    uint8_t *out;
+    int out_stride, width, y0, y1;
+    int cy, crv, cgu, cgv, cbu, yoff; // coefficients × 2^14
+} kn_conv;
+
+static inline uint8_t clamp8(int v) { return v < 0 ? 0 : v > 255 ? 255 : (uint8_t)v; }
+
+static void *conv_rows(void *arg) {
+    kn_conv *c = arg;
+    const int step = c->step;
+    for (int row = c->y0; row < c->y1; row++) {
+        const uint8_t *py = c->y + (size_t)row * c->ys;
+        const uint8_t *pu = c->u + (size_t)row * c->us;
+        const uint8_t *pv = c->v + (size_t)row * c->vs;
+        uint8_t *o = c->out + (size_t)row * c->out_stride;
+        for (int x = 0; x < c->width; x++) {
+            int yy = (py[x * step] - c->yoff) * c->cy + (1 << 13);
+            int uu = pu[x * step] - 128, vv = pv[x * step] - 128;
+            o[4 * x + 0] = clamp8((yy + c->cbu * uu) >> 14);
+            o[4 * x + 1] = clamp8((yy - c->cgu * uu - c->cgv * vv) >> 14);
+            o[4 * x + 2] = clamp8((yy + c->crv * vv) >> 14);
+            o[4 * x + 3] = 255;
+        }
+    }
+    return NULL;
+}
+
+// Convertit l'image 4:4:4 `f` dans d->rgb. 0 : fait, < 0 : format inconnu.
+static int to_bgra(kn_decoder *d, const AVFrame *f, int bt709, int full) {
+    kn_conv base = {0};
+    switch (f->format) {
+    case AV_PIX_FMT_YUV444P:
+    case AV_PIX_FMT_YUVJ444P:
+        base.y = f->data[0]; base.u = f->data[1]; base.v = f->data[2];
+        base.ys = f->linesize[0]; base.us = f->linesize[1]; base.vs = f->linesize[2];
+        base.step = 1;
+        break;
+    case AV_PIX_FMT_VUYX:
+    case AV_PIX_FMT_VUYA:
+        base.v = f->data[0]; base.u = f->data[0] + 1; base.y = f->data[0] + 2;
+        base.ys = base.us = base.vs = f->linesize[0];
+        base.step = 4;
+        break;
+    default:
+        return -1;
+    }
+    size_t need = (size_t)f->width * f->height * 4;
+    if (d->rgb_size < need) {
+        free(d->rgb);
+        d->rgb = malloc(need);
+        d->rgb_size = d->rgb ? need : 0;
+        if (!d->rgb) return -1;
+    }
+    // BT.709 ou BT.601, plage limitée ou complète.
+    double kr = bt709 ? 0.2126 : 0.299, kb = bt709 ? 0.0722 : 0.114, kg = 1.0 - kr - kb;
+    double ys = full ? 1.0 : 255.0 / 219.0, cs = full ? 1.0 : 255.0 / 224.0;
+    double rv = 2.0 * (1.0 - kr) * cs, bu = 2.0 * (1.0 - kb) * cs;
+    double gu = bu * kb / kg, gv = rv * kr / kg;
+    base.cy = (int)(ys * 16384 + 0.5);
+    base.crv = (int)(rv * 16384 + 0.5);
+    base.cbu = (int)(bu * 16384 + 0.5);
+    base.cgu = (int)(gu * 16384 + 0.5);
+    base.cgv = (int)(gv * 16384 + 0.5);
+    base.yoff = full ? 0 : 16;
+    base.out = d->rgb;
+    base.out_stride = f->width * 4;
+    base.width = f->width;
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    int n = ncpu > 4 ? 4 : ncpu < 1 ? 1 : (int)ncpu;
+    if ((size_t)f->width * f->height < 640 * 480) n = 1;
+    kn_conv parts[4];
+    pthread_t th[4];
+    int started[4] = {0};
+    for (int i = 0; i < n; i++) {
+        parts[i] = base;
+        parts[i].y0 = f->height * i / n;
+        parts[i].y1 = f->height * (i + 1) / n;
+        if (i > 0) started[i] = pthread_create(&th[i], NULL, conv_rows, &parts[i]) == 0;
+        if (i > 0 && !started[i]) conv_rows(&parts[i]);
+    }
+    conv_rows(&parts[0]);
+    for (int i = 1; i < n; i++) if (started[i]) pthread_join(th[i], NULL);
+    return 0;
+}
 
 static enum AVPixelFormat get_format(AVCodecContext *ctx, const enum AVPixelFormat *fmts) {
     kn_decoder *d = ctx->opaque;
@@ -140,7 +241,10 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
         AVFrame *src = d->frame;
         if (d->frame->format == AV_PIX_FMT_VAAPI) {
             av_frame_unref(d->sw);
-            d->sw->format = AV_PIX_FMT_NV12;
+            // NV12 en 4:2:0 ; en 4:4:4, le format des surfaces (VUYX, 444P…).
+            enum AVPixelFormat swf = AV_PIX_FMT_NV12;
+            if (d->frame->hw_frames_ctx) swf = ((AVHWFramesContext *)d->frame->hw_frames_ctx->data)->sw_format;
+            d->sw->format = swf;
             r = av_hwframe_transfer_data(d->sw, d->frame, 0);
             if (r < 0) { av_frame_unref(d->frame); return r; }
             d->sw->pts = d->frame->pts;
@@ -169,7 +273,18 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
     for (int i = 0; i < 3; i++) { out->data[i] = f->data[i]; out->linesize[i] = f->linesize[i]; }
     out->pts = f->pts;
     out->bt709 = f->colorspace != AVCOL_SPC_BT470BG && f->colorspace != AVCOL_SPC_SMPTE170M;
-    out->full_range = f->color_range == AVCOL_RANGE_JPEG || f->format == AV_PIX_FMT_YUVJ420P;
+    out->full_range = f->color_range == AVCOL_RANGE_JPEG || f->format == AV_PIX_FMT_YUVJ420P || f->format == AV_PIX_FMT_YUVJ444P;
+    if (out->format == KN_FMT_NONE && to_bgra(d, f, out->bt709, out->full_range) == 0) {
+        out->format = KN_FMT_BGRA;
+        memset(out->data, 0, sizeof out->data);
+        memset(out->linesize, 0, sizeof out->linesize);
+        out->data[0] = d->rgb;
+        out->linesize[0] = f->width * 4;
+    }
+    if (out->format == KN_FMT_NONE) {
+        static int warned = 0;
+        if (!warned++) av_log(NULL, AV_LOG_ERROR, "kybernow : format d'image non montré : %s\n", av_get_pix_fmt_name(f->format));
+    }
     return 1;
 }
 
@@ -181,6 +296,7 @@ void kn_decoder_close(kn_decoder *d) {
     av_frame_free(&d->frame);
     av_frame_free(&d->sw);
     av_frame_free(&d->out);
+    free(d->rgb);
     avcodec_free_context(&d->ctx);
     av_buffer_unref(&d->hw);
     free(d);

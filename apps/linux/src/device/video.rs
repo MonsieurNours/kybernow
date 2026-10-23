@@ -58,6 +58,8 @@ fn wake_main() {
 pub enum Format {
     Nv12,
     I420,
+    /// 4:4:4 converti en RVB par `decoder.c` (octets B, G, R, A).
+    Bgra,
 }
 
 /// Une image décodée, prête à montrer.
@@ -361,7 +363,11 @@ impl Decoder {
     /// Copie l'image dans un tampon réutilisé : le décodeur garde la sienne.
     fn copy(&self, f: &KnFrame, pts: u64, received: i64, decoded: i64) -> Frame {
         let (w, h) = (f.width.max(0) as usize, f.height.max(0) as usize);
-        let format = if f.format == 1 { Format::Nv12 } else { Format::I420 };
+        let format = match f.format {
+            1 => Format::Nv12,
+            3 => Format::Bgra,
+            _ => Format::I420,
+        };
         let mut out = self.shared.latest.buffer().unwrap_or_else(|| Frame {
             width: 0,
             height: 0,
@@ -376,6 +382,7 @@ impl Decoder {
         });
         let rows = |plane: usize| match (format, plane) {
             (_, 0) => h,
+            (Format::Bgra, _) => 0,
             (Format::Nv12, 1) => h.div_ceil(2),
             (Format::Nv12, _) => 0,
             (Format::I420, _) => h.div_ceil(2),
@@ -432,6 +439,8 @@ impl Screen {
                 let fmt = match f.format {
                     Format::Nv12 => sdl::SDL_PIXELFORMAT_NV12,
                     Format::I420 => sdl::SDL_PIXELFORMAT_IYUV,
+                    // Octets B, G, R, A : ARGB8888 en petit-boutiste.
+                    Format::Bgra => sdl::SDL_PIXELFORMAT_ARGB8888,
                 };
                 self.texture = sdl::SDL_CreateTexture(r, fmt, sdl::SDL_TEXTUREACCESS_STREAMING, f.width as c_int, f.height as c_int);
                 if self.texture.is_null() {
@@ -455,6 +464,7 @@ impl Screen {
                     f.planes[2].as_ptr(),
                     f.pitch[2] as c_int,
                 ),
+                Format::Bgra => sdl::SDL_UpdateTexture(self.texture, std::ptr::null(), f.planes[0].as_ptr() as *const c_void, f.pitch[0] as c_int),
             };
             self.last = Some((f.width, f.height));
             ok == 0
@@ -498,6 +508,15 @@ pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
         let sy = (y as u64 * f.height as u64 / h as u64) as usize;
         for x in 0..w {
             let sx = (x as u64 * f.width as u64 / w as u64) as usize;
+            let i = ((y * w + x) * 4) as usize;
+            if f.format == Format::Bgra {
+                let s = sy * f.pitch[0] + sx * 4;
+                d[i] = f.planes[0][s + 2];
+                d[i + 1] = f.planes[0][s + 1];
+                d[i + 2] = f.planes[0][s];
+                d[i + 3] = 255;
+                continue;
+            }
             let yy = f.planes[0][sy * f.pitch[0] + sx] as f32;
             let (u, v) = match f.format {
                 Format::Nv12 => {
@@ -505,12 +524,12 @@ pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
                     (f.planes[1][i] as f32, f.planes[1][i + 1] as f32)
                 }
                 Format::I420 => (f.planes[1][(sy / 2) * f.pitch[1] + sx / 2] as f32, f.planes[2][(sy / 2) * f.pitch[2] + sx / 2] as f32),
+                Format::Bgra => unreachable!(),
             };
             let (yn, un, vn) = if f.full_range { (yy / 255.0, (u - 128.0) / 255.0, (v - 128.0) / 255.0) } else { ((yy - 16.0) / 219.0, (u - 128.0) / 224.0, (v - 128.0) / 224.0) };
             let r = yn + 2.0 * (1.0 - kr) * vn;
             let b = yn + 2.0 * (1.0 - kb) * un;
             let g = (yn - kr * r - kb * b) / kg;
-            let i = ((y * w + x) * 4) as usize;
             d[i] = (r.clamp(0.0, 1.0) * 255.0) as u8;
             d[i + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
             d[i + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;

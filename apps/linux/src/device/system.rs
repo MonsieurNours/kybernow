@@ -81,12 +81,14 @@ pub fn machine(window: *mut sdl::SDL_Window) -> Machine {
         m.hw_h264 = mask & 1 != 0;
         m.hw_hevc = mask & 2 != 0;
         m.hw_av1 = mask & 4 != 0;
+        m.hw_hevc444 = mask & 8 != 0;
         m.gpu = unsafe { std::ffi::CStr::from_ptr(vendor.as_ptr()) }.to_string_lossy().into_owned();
     } else {
         m.vaapi = false;
         m.hw_h264 = false;
         m.hw_hevc = false;
         m.hw_av1 = false;
+        m.hw_hevc444 = false;
     }
     let (size, refresh, name) = sdl::display_mode(window);
     m.display = size;
@@ -120,7 +122,7 @@ pub fn machine(window: *mut sdl::SDL_Window) -> Machine {
             Some(false) => ", sans VRR".into(),
             None => ", VRR inconnu".into(),
         },
-        if m.vaapi { format!("H.264 {} HEVC {} AV1 {}", m.hw_h264, m.hw_hevc, m.hw_av1) } else { "absent".into() },
+        if m.vaapi { format!("H.264 {} HEVC {} AV1 {} HEVC 4:4:4 {}", m.hw_h264, m.hw_hevc, m.hw_av1, m.hw_hevc444) } else { "absent".into() },
         m.gpu,
         m.audio_channels,
         m.audio_name

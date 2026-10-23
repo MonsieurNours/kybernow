@@ -136,6 +136,8 @@ pub struct Machine {
     pub hw_h264: bool,
     pub hw_hevc: bool,
     pub hw_av1: bool,
+    /// HEVC 4:4:4 décodé par la carte (Intel récentes) ; sinon le processeur.
+    pub hw_hevc444: bool,
     /// VA-API présent.
     pub vaapi: bool,
     /// Écran : définition et fréquence (celles de la fenêtre).
@@ -162,6 +164,7 @@ impl Default for Machine {
             hw_h264: true,
             hw_hevc: true,
             hw_av1: false,
+            hw_hevc444: false,
             vaapi: true,
             display: (1280, 800),
             refresh: 60,
@@ -1250,6 +1253,7 @@ impl App {
                 let fps_labels: Vec<String> = fps.iter().map(|f| if *f == 0 { format!("{} · {} Hz", tr("Écran", "Screen"), m.refresh) } else { format!("{f}") }).collect();
                 let fps_off: Vec<bool> = fps.iter().map(|f| *f > m.refresh.max(60) && *f != 0).collect();
                 let codecs = ["auto", "hevc", "h264", "av1"];
+                let hevc = self.codec_for(h) == "hevc";
                 let codec_off: Vec<bool> = codecs.iter().map(|c| *c != "auto" && !m.decodes(c)).collect();
                 let display = ["auto", "vsync", "immediate", "vrr"];
                 let vrr_hint = match m.vrr {
@@ -1280,9 +1284,9 @@ impl App {
                     Row {
                         setting: Setting::Yuv444,
                         label: tr("Couleurs 4:4:4", "4:4:4 colour").into(),
-                        hint: tr("Pas encore sur Linux : l'image est en 4:2:0", "Not on Linux yet: the picture is 4:2:0").into(),
-                        kind: RowKind::Toggle(false),
-                        enabled: false,
+                        hint: yuv444_hint(m, hevc).into(),
+                        kind: RowKind::Toggle(st.yuv444 && hevc),
+                        enabled: hevc,
                     },
                     choice(
                         Setting::Display,
@@ -1419,7 +1423,6 @@ impl App {
                 self.store.app.keep_last_image = !self.store.app.keep_last_image;
                 return vec![Action::Save];
             }
-            Setting::Yuv444 => return Vec::new(),
             _ => {}
         }
         let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
@@ -1448,6 +1451,7 @@ impl App {
             Setting::Combo => st.combo = !st.combo,
             Setting::Clipboard => st.clipboard = !st.clipboard,
             Setting::Reconnect => st.reconnect = !st.reconnect,
+            Setting::Yuv444 => st.yuv444 = !st.yuv444,
             _ => {}
         }
         vec![Action::Save]
@@ -1481,6 +1485,17 @@ impl App {
             _ if hevc_ok => "hevc",
             _ => "h264",
         }
+    }
+}
+
+/// Ce que dit la ligne 4:4:4 : qui décode, et ce qu'il en coûte.
+fn yuv444_hint(m: &Machine, hevc: bool) -> &'static str {
+    if !hevc {
+        tr("En HEVC seulement", "HEVC only")
+    } else if m.hw_hevc444 {
+        tr("Texte net : la carte décode le 4:4:4, l'app convertit les couleurs (plus de débit)", "Sharp text: the GPU decodes 4:4:4, the app converts the colours (more bitrate)")
+    } else {
+        tr("Texte net : le processeur décode le 4:4:4 (exigeant au-delà du 1440p)", "Sharp text: the CPU decodes 4:4:4 (demanding above 1440p)")
     }
 }
 

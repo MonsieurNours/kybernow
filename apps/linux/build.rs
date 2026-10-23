@@ -67,6 +67,7 @@ fn main() {
     println!("cargo:rustc-link-arg=-lva-drm");
     println!("cargo:rustc-link-arg=-ldrm");
     println!("cargo:rustc-link-arg=-lm");
+    println!("cargo:rustc-link-arg=-lpthread");
     // aarch64 : GCC compile les opérations atomiques de FFmpeg en appels à
     // libgcc (`__aarch64_ldadd4_acq_rel`, -moutline-atomics), statique.
     if env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {

@@ -67,6 +67,9 @@ pub struct HostSettings {
     pub battery_light: bool,
     /// Écran virtuel de la Station (sinon les écrans de l'ordinateur tels quels).
     pub virtual_display: bool,
+    /// Couleurs 4:4:4 (texte net) en HEVC : en option, la carte (VA-API) ou le
+    /// processeur décode, l'app convertit en RVB.
+    pub yuv444: bool,
 }
 
 impl Default for HostSettings {
@@ -87,6 +90,7 @@ impl Default for HostSettings {
             reliable: false,
             battery_light: true,
             virtual_display: true,
+            yuv444: false,
         }
     }
 }
