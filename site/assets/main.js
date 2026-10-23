@@ -293,8 +293,10 @@ if (document.querySelector('.dl-card')) {
   const touch = navigator.maxTouchPoints > 1;
   const isMac = /Macintosh|Mac OS X/.test(ua) && !touch;
   const isWindows = /Windows/.test(ua);
-  // Mac : l'app ; Windows : l'installateur ; Android : l'APK ; tablette, téléphone et le reste : le navigateur
-  const target = isMac ? 'mac' : isWindows ? 'windows' : /Android/.test(ua) ? 'android' : 'web';
+  // Mac : l'app ; Windows : l'installateur ; Android : l'APK ; téléviseur LG (navigateur webOS) : son guide ;
+  // tablette, téléphone et le reste : le navigateur
+  const isLG = /Web0S|webOS/.test(ua);
+  const target = isLG ? 'lg' : isMac ? 'mac' : isWindows ? 'windows' : /Android/.test(ua) ? 'android' : 'web';
   const card = document.querySelector(`.dl-card[data-os="${target}"]`);
   if (card) {
     card.classList.add('is-primary');
@@ -318,7 +320,7 @@ if (osTiles.length) {
     return true;
   };
   const ua = navigator.userAgent;
-  const guess = /Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
+  const guess = /Web0S|webOS/.test(ua) ? 'lg' : /Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
     : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : 'navigateur';
   // Arrivée sur une ancre : l'installation était masquée, le navigateur n'a pas pu y aller.
   // #android-tv : ancre des premiers liens partagés.

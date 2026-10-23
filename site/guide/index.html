@@ -192,6 +192,14 @@
   },
   {
    "@type": "Question",
+   "name": "Et les téléviseurs LG ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : une app native pour les téléviseurs LG sous webOS 5 ou plus récent (2020 et après), jusqu'à la 4K à 120 Hz, avec manettes, Magic Remote et son 5.1 Dolby vers un ampli. Elle n'est pas dans le LG Content Store : elle s'installe en mode développeur, avec un compte LG gratuit, depuis un ordinateur : voir Sur un téléviseur LG."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Pourquoi l'app Apple TV n'est-elle pas sur l'App Store ?",
    "acceptedAnswer": {
     "@type": "Answer",
@@ -308,6 +316,7 @@
             <li>Une Apple TV 4K de 2021 ou plus récente sous tvOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Un iPhone ou un iPad sous iOS 18 ou iPadOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Un téléphone, une tablette ou un téléviseur sous Android 11 ou plus récent (Android TV, Google TV, NVIDIA Shield)</li>
+            <li>Un téléviseur LG sous webOS 5 ou plus récent (2020 et après), et un ordinateur pour y installer l'app en mode développeur</li>
             <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
             <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
           </ul>
@@ -353,6 +362,7 @@
         <a class="os-tile" role="tab" id="tab-apple-tv" href="#apple-tv" aria-controls="apple-tv"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span>Depuis un Mac</span></a>
         <a class="os-tile" role="tab" id="tab-iphone" href="#iphone" aria-controls="iphone"><svg class="ic-lg"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone et iPad</b><span>Depuis un Mac</span></a>
         <a class="os-tile" role="tab" id="tab-android" href="#android" aria-controls="android"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span>Android 11 ou plus</span></a>
+        <a class="os-tile" role="tab" id="tab-lg" href="#lg" aria-controls="lg"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Téléviseur LG</b><span>webOS 5 ou plus</span></a>
         <a class="os-tile" role="tab" id="tab-navigateur" href="#navigateur" aria-controls="navigateur"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><b>Navigateur</b><span>Rien à installer</span></a>
       </div>
 
@@ -468,6 +478,23 @@ adb install KyberNow-Link-Android.apk</code></pre>
       </ul>
       </div>
 
+      <div class="os-panel" id="lg" role="tabpanel" aria-labelledby="tab-lg">
+      <h3 class="sub">Sur un téléviseur LG</h3>
+      <p>Une app native pour les téléviseurs LG sous webOS&nbsp;5 ou plus récent (2020 et après)&#8239;: jusqu'à la 4K à 120&nbsp;Hz, quatre manettes Bluetooth avec leurs vibrations, Magic Remote en souris, son 5.1 Dolby vers un ampli. Elle n'est pas dans le LG Content Store&#8239;: elle s'installe en <b>mode développeur</b>, que LG ouvre à tous avec un compte gratuit, sans rien modifier au téléviseur. Comptez un quart d'heure la première fois, depuis un ordinateur du même réseau.</p>
+      <ol class="steps-doc">
+        <li><p>Sur l'ordinateur, créez un compte gratuit sur <a href="https://webostv.developer.lge.com" rel="noopener">webostv.developer.lge.com</a> (<b>Sign In › Create Account</b>).</p></li>
+        <li><p>Sur le téléviseur, installez l'app <b>Developer Mode</b> depuis le LG Content Store, connectez-vous avec ce compte et activez <b>Dev Mode Status</b>&#8239;: le téléviseur redémarre. Rouvrez Developer Mode, activez <b>Key Server</b>, et notez l'adresse IP du téléviseur et sa phrase secrète (<b>Passphrase</b>).</p></li>
+        <li><p>Sur l'ordinateur, installez <a href="https://github.com/webosbrew/dev-manager-desktop/releases" rel="noopener">webOS Dev Manager</a> (Windows, Mac, Linux), ajoutez le téléviseur (<b>Add device › Developer mode</b>, avec l'adresse et la phrase secrète), puis dans l'onglet <b>Apps</b>, installez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-webOS.ipk">KyberNow-Link-webOS.ipk</a>.</p></li>
+        <li><p>Ouvrez <b>KyberNow Link</b> depuis l'accueil du téléviseur et ajoutez l'ordinateur&#8239;: il apparaît tout seul s'il est sur le réseau, et le code à six chiffres affiché s'accepte dans Admin, page <b>Appareils Link</b>.</p></li>
+      </ol>
+      <p class="muted">En ligne de commande, avec les outils de LG (<code>npm install -g @webos-tools/cli</code>)&#8239;:</p>
+      <pre><code>ares-setup-device --add tv -i "host=192.168.1.50" -i "port=9922" -i "username=prisoner"
+ares-novacom --device tv --getkey
+ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
+      <p class="callout"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg><span>Le mode développeur a une durée, affichée dans l'app Developer Mode&#8239;: à zéro, les apps installées ainsi disparaissent. Le bouton <b>Extend Session</b> la remet au maximum&#8239;; pensez-y de temps en temps.</span></p>
+      <p><b>Réglages conseillés</b>&#8239;: pendant la session, mode d'image <b>Optimiseur de jeu</b> (bouton Réglages de la Magic Remote › Image › Mode)&#8239;; manettes associées en Bluetooth dans les réglages du téléviseur. Pour le <b>son 5.1</b> vers un ampli en eARC&#8239;: dans l'app, réglages de l'ordinateur › Son › <b>5.1 Dolby</b>, et sur le téléviseur, Son › Sortie audio numérique › <b>Pass-Through</b> («&#8239;Interconnexion&#8239;»).</p>
+      </div>
+
       <div class="os-panel" id="navigateur" role="tabpanel" aria-labelledby="tab-navigateur">
       <h3 class="sub">Dans un navigateur</h3>
       <p>Sur n'importe quel appareil du même réseau (ou relié par VPN), ouvrez l'adresse d'Admin suivie de <code>/ecran</code>, par exemple <code>https://192.168.1.20:31415/ecran</code>. L'adresse exacte s'affiche à la fin de l'installation et sur la page Vue d'ensemble d'Admin. Acceptez l'avertissement de certificat, puis connectez-vous avec votre compte.</p>
@@ -516,6 +543,13 @@ adb install KyberNow-Link-Android.apk</code></pre>
         <div class="tr"><span class="th">Manette en souris</span><span>Stick gauche&#8239;: le pointeur. <kbd>A</kbd> clic, <kbd>X</kbd> clic droit, stick droit molette, <kbd>Start</kbd> touche <kbd>⊞</kbd>, <kbd>Select</kbd> Échap, <kbd>L1</kbd> <kbd>R1</kbd> Alt + Tab</span></div>
       </div>
       <p class="muted">Dans le menu, la manette pilote l'app&#8239;: <kbd>A</kbd> valide, <kbd>B</kbd> ferme. «&#8239;Se déconnecter&#8239;», en rouge, est la dernière tuile.</p>
+      <h3 class="sub">Au téléviseur LG</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session (aussi l'appui long sur Retour, ou le bouton rouge)&#8239;: santé du flux, profils, Magic Remote ou manette en souris, touches, mesures, manettes, réglages, déconnexion</span></div>
+        <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Tenus ensemble, ouvrent le même menu depuis la manette</span></div>
+        <div class="tr"><span class="th">Magic Remote en souris</span><span>Le pointeur suit la télécommande&#8239;: <kbd>OK</kbd> clic gauche, bouton jaune clic droit, molette</span></div>
+      </div>
+      <p class="muted">Hors session, la Magic Remote, une télécommande ordinaire ou la manette parcourent l'app&#8239;; «&#8239;Réglages&#8239;», en haut à droite de l'accueil, ouvre les réglages du téléviseur, «&#8239;Réglages de l'ordinateur&#8239;» ceux de l'ordinateur choisi.</p>
     </section>
 
     <section id="distance" class="doc-section">
@@ -536,6 +570,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
       <p><b>L'app Windows</b>&#8239;: elle se met à jour toute seule, avec des mises à jour signées. Ses réglages (la roue de la barre de titre) proposent aussi les versions bêta.</p>
       <p><b>L'app Apple TV</b>&#8239;: dans le dossier <code>kybernow</code>, faites <code>git pull</code> puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
       <p><b>L'app Android</b>&#8239;: elle vérifie les nouvelles versions et propose de les installer, avec des mises à jour signées&#8239;; ses réglages (<b>Réglages de l'app › Mises à jour</b>) proposent aussi les versions bêta. Au téléviseur, la première fois, Android demande d'autoriser KyberNow à installer des applications.</p>
+      <p><b>L'app des téléviseurs LG</b>&#8239;: elle vérifie les nouvelles versions (mises à jour signées) et affiche «&#8239;Version X disponible&#8239;» sur l'accueil&#8239;; ses réglages (<b>Réglages › Ce téléviseur › Mises à jour</b>) proposent aussi les versions bêta. En mode développeur, elle ne peut pas s'installer elle-même&#8239;: installez le nouveau <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-webOS.ipk">KyberNow-Link-webOS.ipk</a> depuis l'ordinateur, comme la première fois. Vos ordinateurs sont gardés.</p>
       <p class="muted">Sans Admin, depuis PowerShell en administrateur&#8239;:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
@@ -547,6 +582,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
       <p><b>Le PC Windows</b>&#8239;: Paramètres Windows › Applications › Applications installées › KyberNow Link › Désinstaller. L'app propose d'effacer aussi vos ordinateurs, réglages et mots de passe.</p>
       <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app.</p>
       <p><b>Android</b>&#8239;: <b>Paramètres › Applications</b>, KyberNow, puis <b>Désinstaller</b>.</p>
+      <p><b>Le téléviseur LG</b>&#8239;: dans webOS Dev Manager, onglet <b>Apps</b>, ou <code>ares-install --device tv --remove fr.leslignesclaires.kybernow</code>. Quitter le mode développeur la retire aussi.</p>
     </section>
 
     <section id="faq" class="doc-section">
@@ -570,6 +606,7 @@ adb install KyberNow-Link-Android.apk</code></pre>
         <details><summary>L'app fonctionne-t-elle sur un Mac Intel&#8239;?</summary><p>Non, elle demande une puce Apple (M1 ou plus récente). Sur un Mac Intel, utilisez KyberNow Link dans le navigateur.</p></details>
         <details><summary>Et l'app iPhone et iPad&#8239;?</summary><p>Pas encore sur l'App Store ni sur TestFlight. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#iphone">Sur l'iPhone et l'iPad</a>. Il faut iOS&nbsp;18 ou iPadOS&nbsp;18 au moins.</p></details>
         <details><summary>Et Android&#8239;?</summary><p>Oui&#8239;: une seule app pour le téléphone, la tablette et le téléviseur, à partir d'Android&nbsp;11. En attendant le Play Store, elle s'installe à partir de son fichier APK&#8239;: voir <a href="#android">Sur Android</a>.</p></details>
+        <details><summary>Et les téléviseurs LG&#8239;?</summary><p>Oui&#8239;: une app native pour les téléviseurs LG sous webOS&nbsp;5 ou plus récent (2020 et après), jusqu'à la 4K à 120&nbsp;Hz, avec manettes, Magic Remote et son 5.1 Dolby vers un ampli. Elle n'est pas dans le LG Content Store&#8239;: elle s'installe en mode développeur, avec un compte LG gratuit, depuis un ordinateur&#8239;: voir <a href="#lg">Sur un téléviseur LG</a>.</p></details>
         <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel lien avec Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute KyberNow Station (installateur, écrans et haut-parleurs virtuels), KyberNow Admin et les apps KyberNow Link. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
         <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune. Rien ne passe par un serveur à nous&#8239;: l'image va directement de l'ordinateur à vos appareils. KyberNow Admin interroge seulement GitHub pour savoir si une nouvelle version existe.</p></details>
