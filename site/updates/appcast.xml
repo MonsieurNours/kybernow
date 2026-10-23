@@ -3,6 +3,22 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.4.6</title>
+            <pubDate>Fri, 23 Oct 2026 16:37:06 +0200</pubDate>
+            <sparkle:version>202610231629</sparkle:version>
+            <sparkle:shortVersionString>0.4.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow Link on LG TVs, tried end to end** (OLED G2, webOS 26): picture up to 4K at 120 Hz, gamepads, Magic Remote. The app is attached to every release (`KyberNow-Link-webOS.ipk`, installed in developer mode from the computer) and announces new versions ("Version X available", verified by their signature; stable or betas too). Added computers and the log are kept outside the app's folder (`/media/developer/temp/kybernow`): they survive reboots and reinstalls.
+- LG TVs: **5.1 sound to a receiver** (Computer settings › Sound › 5.1 Dolby): the app encodes the sound to Dolby Digital Plus, which the TV passes untouched to the receiver over eARC (TV's Digital Sound Output set to Pass-Through). The picture keeps its latency, the sound follows with a small fixed delay; stereo by default. "5.1 PCM" for the few receivers that announce multichannel PCM. 7.1 is not possible from a TV app.
+- LG TVs, fixes: black picture on the first try (the decoder waits for sound before confirming its load); decoder reloaded when the TV unloaded it by itself (sound mode change on the computer); controller switched on after launching the app, or lost from one session to the next ("no controller detected", A button doing nothing); menu reopened by a long press on L1 or R1; computer pointer flickering with the Magic Remote or gamepad as mouse; settings reachable with the arrows from the home screen ("Computer settings", and "Settings" for the TV's), with no special remote key.
+- Apple TV, iPhone and iPad apps: they declared themselves as version 1.0 (system settings, Admin); they now carry the published release number.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.4.6/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.4.6/KyberNow-Link-macOS.zip" length="47133910" type="application/octet-stream" sparkle:edSignature="UOkuS+N57QxcRgYFrgwax/cdzksgu0fsCldToOsWMOrbdHi0QvtDd/Tr2UkDDrVmUWnGrjJrtoY73yMV/2YPDg=="/>
+        </item>
+        <item>
             <title>0.4.5</title>
             <pubDate>Thu, 22 Oct 2026 20:42:48 +0200</pubDate>
             <sparkle:version>202610222036</sparkle:version>
