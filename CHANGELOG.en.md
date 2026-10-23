@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.4.6
 
+- LG TV app: first try on a TV (OLED G2, webOS 26). The picture stayed black: the TV's decoder waits for sound before confirming its load; the app now primes it until the confirmation. Added computers and the log are kept in `/media/developer/temp/kybernow`: they survive reboots and reinstalls, and the log can be read from the computer.
 - LG TV app: settings open from the home screen with the arrows, no special remote key needed (third-party remote, controller): "Computer settings" next to the profiles, and "Settings" at the top right for global settings (language, TV, controllers), even with no computer added. Installed on an OLED G2.
 - Apple TV, iPhone and iPad apps: they declared themselves as version 1.0 (system settings, Admin); they now carry the published release number.
 

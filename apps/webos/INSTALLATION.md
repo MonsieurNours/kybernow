@@ -70,17 +70,16 @@ L'ordinateur n'apparaît pas ? Choisissez **Ajouter** › **Par adresse et port*
 
 ## Mettre à jour
 
-Installez le nouveau `.ipk` comme à l'étape 3 : il remplace l'ancien. Une réinstallation peut effacer les ordinateurs ajoutés (ils sont gardés dans le dossier de l'app) : il suffit alors de refaire l'ajout par code.
+Installez le nouveau `.ipk` comme à l'étape 3 : il remplace l'ancien. Les ordinateurs ajoutés sont gardés (dans `/media/developer/temp/kybernow`, hors du dossier de l'app).
 
 ## En cas de souci
 
 - **L'app ne s'installe pas** : le mode développeur a peut-être expiré (rouvrez Developer Mode, réactivez, prolongez), ou l'adresse IP du téléviseur a changé (`ares-setup-device` ou Dev Manager).
 - **Écran noir en session, mais du son** : notez-le avec le journal (ci-dessous) ; le décodeur du téléviseur a refusé le flux. Essayez Réglages › Image › Format : H.264, ou une définition plus basse.
-- **Le journal** : l'app écrit `conf/kybernow.log` dans son dossier sur le téléviseur (`/media/developer/apps/usr/palm/applications/fr.leslignesclaires.kybernow/`), ou `/tmp/kybernow/kybernow.log` si ce dossier n'est pas accessible. Pour le lire depuis l'ordinateur :
+- **Le journal** : l'app écrit `kybernow.log` dans `/media/developer/temp/kybernow/` sur le téléviseur (avec `kybernow.json`, les ordinateurs ajoutés). Pour le lire depuis l'ordinateur :
 
   ```sh
-  ssh -i ~/.ssh/tv_webos -p 9922 prisoner@192.168.1.50 \
-      cat /media/developer/apps/usr/palm/applications/fr.leslignesclaires.kybernow/conf/kybernow.log
+  ares-novacom --device tv --run "cat /media/developer/temp/kybernow/kybernow.log"
   ```
 
-  (la clé `tv_webos` est celle qu'a récupérée `ares-novacom --getkey` ; Dev Manager a aussi un terminal et un explorateur de fichiers.)
+  (Dev Manager a aussi un terminal et un explorateur de fichiers.)

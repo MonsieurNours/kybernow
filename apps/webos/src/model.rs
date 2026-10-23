@@ -1,7 +1,7 @@
 //! Ce que l'app garde : les ordinateurs (adresse d'Admin, empreinte, compte),
 //! leurs réglages, la dernière session, l'identité de ce téléviseur et les
-//! réglages de l'app. Un fichier JSON dans `$HOME/conf` (le dossier de l'app
-//! sur le téléviseur), comme moonlight-tv ; `/tmp` à défaut.
+//! réglages de l'app. Un fichier JSON dans le dossier de l'app (`Store::dir` :
+//! `/media/developer/temp/kybernow` en mode développeur).
 //!
 //! Les mots de passe sont dans ce fichier, en clair : webOS n'a pas de
 //! trousseau accessible aux apps natives. Le compte est propre à cet appareil
@@ -152,16 +152,29 @@ pub struct Store {
 }
 
 impl Store {
+    /// Le dossier de l'app, choisi une fois : le premier où l'on peut
+    /// écrire parmi `$HOME/conf`, `/media/developer/temp/kybernow` et
+    /// `/tmp/kybernow`. En mode développeur, `HOME` vaut `/media/developer`,
+    /// qui n'est pas ouvert à l'utilisateur de l'app ; `temp` l'est, survit au
+    /// redémarrage et se lit en ssh (le `/tmp` de l'app est vidé au redémarrage
+    /// et invisible en ssh). Ce qui était dans `/tmp/kybernow` y est recopié.
     pub fn dir() -> PathBuf {
-        if let Some(home) = std::env::var_os("HOME") {
-            let d = PathBuf::from(home).join("conf");
-            if std::fs::create_dir_all(&d).is_ok() {
-                return d;
+        static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+        DIR.get_or_init(|| {
+            let tmp = PathBuf::from("/tmp/kybernow");
+            let mut candidates = Vec::new();
+            if let Some(home) = std::env::var_os("HOME") {
+                candidates.push(PathBuf::from(home).join("conf"));
             }
-        }
-        let d = PathBuf::from("/tmp/kybernow");
-        let _ = std::fs::create_dir_all(&d);
-        d
+            candidates.push(PathBuf::from("/media/developer/temp/kybernow"));
+            candidates.push(tmp.clone());
+            let d = candidates.into_iter().find(|d| writable(d)).unwrap_or_else(|| tmp.clone());
+            if d != tmp && !d.join("kybernow.json").exists() && tmp.join("kybernow.json").exists() {
+                let _ = std::fs::copy(tmp.join("kybernow.json"), d.join("kybernow.json"));
+            }
+            d
+        })
+        .clone()
     }
 
     pub fn load() -> Self {
@@ -223,6 +236,14 @@ impl Store {
 }
 
 /// Un identifiant aléatoire au format UUID v4.
+/// On peut créer le dossier et y écrire.
+fn writable(d: &std::path::Path) -> bool {
+    let probe = d.join(".probe");
+    let ok = std::fs::create_dir_all(d).is_ok() && std::fs::write(&probe, b"").is_ok();
+    let _ = std::fs::remove_file(probe);
+    ok
+}
+
 pub fn new_id() -> String {
     let mut b = [0u8; 16];
     if getrandom::getrandom(&mut b).is_err() {

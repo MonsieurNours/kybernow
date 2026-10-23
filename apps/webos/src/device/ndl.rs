@@ -6,10 +6,15 @@
 //! Ce qui compte, appris par moonlight-tv (ss4s) et punktfunk :
 //! - la bibliothèque est ouverte par `dlopen`, jamais liée ;
 //! - `NDL_DirectMediaInit` au premier chargement, pas au lancement ;
-//! - chaque chargement porte un plan de son Opus stéréo, amorcé d'une trame
-//!   vide : sans lui, NDL ne cale pas les images sur leur horodatage et
+//! - chaque chargement porte un plan de son Opus stéréo, amorcé de trames
+//!   vides : sans lui, NDL ne cale pas les images sur leur horodatage et
 //!   l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son, lui,
 //!   sort par SDL (moteur du cœur) ;
+//! - un chargement avec plan de son ne se termine (`LOADCOMPLETED`, 0x16)
+//!   qu'une fois ce plan nourri : une seule trame ne suffit pas à tous les
+//!   téléviseurs (webOS 26 sur une G2 : image noire, sans erreur). Des
+//!   trames vides de 5 ms sont donc envoyées jusqu'à la confirmation, et les
+//!   images attendent (punktfunk, `ndl/v2/load.rs`) ;
 //! - horodatages en millisecondes depuis le chargement, jamais en arrière ;
 //! - jamais de vidage (`Flush`) en cours de session : il coupe le plan de son
 //!   pour toujours ; après une perte, on attend l'image clé suivante ;
@@ -18,8 +23,9 @@
 #![allow(non_snake_case)]
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub const VIDEO_H264: i32 = 1;
 pub const VIDEO_H265: i32 = 2;
@@ -28,6 +34,19 @@ const AUDIO_OPUS: i32 = 3;
 
 /// Trame Opus vide, stéréo (1 flux, 1 couplé), celle de ss4s.
 const OPUS_EMPTY_STEREO: [u8; 3] = [0xec, 0xff, 0xfe];
+/// Durée d'une trame vide (ms), et avance des trames sur l'horloge du chargement.
+const PRIME_PACKET_MS: i64 = 5;
+const PRIME_LEAD_MS: i64 = 40;
+/// Attente de `LOADCOMPLETED` au chargement, puis entre deux salves.
+const PRIME_BUDGET: Duration = Duration::from_millis(500);
+const PRIME_RETRY: Duration = Duration::from_millis(20);
+/// Sans confirmation passé ce délai, les images partent quand même.
+const FEED_ANYWAY_AFTER: Duration = Duration::from_millis(2000);
+
+/// `LOADCOMPLETED` reçu pour le chargement en cours.
+static LOAD_COMPLETED: AtomicBool = AtomicBool::new(false);
+/// Numéro du chargement en cours (le fil qui nourrit le plan de son s'arrête quand il change).
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -85,6 +104,10 @@ struct State {
     /// Chargé : (format, largeur, hauteur), instant du chargement.
     loaded: Option<((i32, u32, u32), Instant)>,
     last_pts: i64,
+    /// Dernier horodatage donné au plan de son (jamais en arrière : NDL le couperait).
+    last_audio_pts: i64,
+    /// Images envoyées au décodeur depuis le chargement (après confirmation).
+    feeding: bool,
 }
 
 static NDL: Mutex<Option<State>> = Mutex::new(None);
@@ -123,7 +146,7 @@ pub fn available() -> bool {
         })();
         match api {
             Some(api) => {
-                *g = Some(State { api, initialized: false, loaded: None, last_pts: 0 });
+                *g = Some(State { api, initialized: false, loaded: None, last_pts: 0, last_audio_pts: 0, feeding: false });
                 true
             }
             None => {
@@ -144,7 +167,10 @@ fn last_error(api: &Api) -> String {
 extern "C" fn on_load(kind: c_int, value: i64, s: *const c_char) {
     let s = if s.is_null() { String::new() } else { unsafe { CStr::from_ptr(s).to_string_lossy().into_owned() } };
     match kind {
-        0x16 => log::info!("image : NDL chargé {s}"),
+        0x16 => {
+            LOAD_COMPLETED.store(true, Ordering::Release);
+            log::info!("image : NDL chargé (confirmé) {s}");
+        }
         0x17 => log::info!("image : NDL déchargé {s}"),
         0x1a => log::info!("image : NDL lecture {s}"),
         _ => log::info!("image : NDL état 0x{kind:02x} ({value:#x}) {s}"),
@@ -174,17 +200,75 @@ pub fn ensure(kind: i32, width: u32, height: u32) -> Result<(), String> {
             audio: AudioInfo { padding: [0; 32] },
         };
         info.audio.opus = OpusInfo { kind: AUDIO_OPUS, unknown1: 0, channels: 2, unknown2: 0, sample_rate: 48.0, stream_header: std::ptr::null() };
+        LOAD_COMPLETED.store(false, Ordering::Release);
+        GENERATION.fetch_add(1, Ordering::AcqRel);
+        let at = Instant::now();
         if (st.api.load)(&mut info, on_load) != 0 {
             return Err(format!("NDL_DirectMediaLoad : {}", last_error(&st.api)));
         }
-        let at = Instant::now();
-        // Le plan de son, amorcé : NDL cale alors les images sur leur horodatage.
-        (st.api.audio_play)(OPUS_EMPTY_STEREO.as_ptr() as *const c_void, OPUS_EMPTY_STEREO.len() as u32, 0);
         st.loaded = Some(((kind, width, height), at));
         st.last_pts = 0;
+        st.last_audio_pts = 0;
+        st.feeding = false;
         log::info!("image : NDL chargé ({}, {width} × {height})", name(kind));
     }
+    // Le plan de son, amorcé jusqu'à la confirmation du chargement : NDL cale
+    // alors les images sur leur horodatage.
+    let generation = GENERATION.load(Ordering::Acquire);
+    let mut primed = 0;
+    while !LOAD_COMPLETED.load(Ordering::Acquire) && st.loaded.as_ref().is_some_and(|(_, at)| at.elapsed() < PRIME_BUDGET) {
+        primed += prime(st);
+        let until = Instant::now() + PRIME_RETRY;
+        while Instant::now() < until && !LOAD_COMPLETED.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+    let at = st.loaded.as_ref().map(|(_, at)| *at).unwrap_or_else(Instant::now);
+    if LOAD_COMPLETED.load(Ordering::Acquire) {
+        log::info!("image : NDL confirmé après {} ms ({primed} trames vides)", at.elapsed().as_millis());
+    } else {
+        log::warn!("image : NDL pas confirmé après {} ms ; plan de son nourri en fond", at.elapsed().as_millis());
+        std::thread::Builder::new()
+            .name("ndl-prime".into())
+            .spawn(move || carry_prime(generation))
+            .ok();
+    }
     Ok(())
+}
+
+/// Une salve de trames vides, jusqu'à l'avance voulue sur l'horloge du
+/// chargement ; rend le nombre de trames.
+fn prime(st: &mut State) -> u32 {
+    let Some((_, at)) = st.loaded else { return 0 };
+    let target = at.elapsed().as_millis() as i64 + PRIME_LEAD_MS;
+    let mut n = 0;
+    while st.last_audio_pts < target {
+        let pts = st.last_audio_pts;
+        if unsafe { (st.api.audio_play)(OPUS_EMPTY_STEREO.as_ptr() as *const c_void, OPUS_EMPTY_STEREO.len() as u32, pts) } != 0 {
+            log::warn!("image : trame vide refusée à {pts} ms : {}", last_error(&st.api));
+            st.last_audio_pts += PRIME_PACKET_MS;
+            break;
+        }
+        st.last_audio_pts += PRIME_PACKET_MS;
+        n += 1;
+    }
+    n
+}
+
+/// Nourrit le plan de son en fond tant que le chargement n'est pas confirmé.
+fn carry_prime(generation: u64) {
+    loop {
+        std::thread::sleep(PRIME_RETRY);
+        if LOAD_COMPLETED.load(Ordering::Acquire) || GENERATION.load(Ordering::Acquire) != generation {
+            return;
+        }
+        let mut g = NDL.lock().unwrap();
+        let Some(st) = g.as_mut() else { return };
+        if st.loaded.is_none() || GENERATION.load(Ordering::Acquire) != generation {
+            return;
+        }
+        prime(st);
+    }
 }
 
 pub fn name(kind: i32) -> &'static str {
@@ -201,6 +285,17 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
     let mut g = NDL.lock().unwrap();
     let st = g.as_mut().ok_or("NDL absent")?;
     let Some((_, at)) = st.loaded else { return Err("NDL non chargé".into()) };
+    if !st.feeding {
+        // Avant la confirmation, une image donnée à NDL est perdue (image noire) :
+        // elle attend, et l'image clé est redemandée.
+        if !LOAD_COMPLETED.load(Ordering::Acquire) && at.elapsed() < FEED_ANYWAY_AFTER {
+            return Err(NOT_READY.into());
+        }
+        if !LOAD_COMPLETED.load(Ordering::Acquire) {
+            log::warn!("image : NDL toujours pas confirmé après {} ms, images envoyées quand même", at.elapsed().as_millis());
+        }
+        st.feeding = true;
+    }
     let pts = (at.elapsed().as_millis() as i64).max(st.last_pts + 1);
     st.last_pts = pts;
     unsafe {
@@ -212,12 +307,16 @@ pub fn play(data: &[u8]) -> Result<Option<i32>, String> {
     }
 }
 
+/// Erreur de `play` tant que NDL n'a pas confirmé le chargement.
+pub const NOT_READY: &str = "NDL pas encore prêt";
+
 /// Décharge le décodeur (fin de l'image).
 pub fn unload() {
     let mut g = NDL.lock().unwrap();
     if let Some(st) = g.as_mut()
         && st.loaded.take().is_some()
     {
+        GENERATION.fetch_add(1, Ordering::AcqRel);
         unsafe {
             (st.api.unload)();
         }

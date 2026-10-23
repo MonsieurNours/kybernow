@@ -4,7 +4,7 @@ English · [Français](README.md)
 
 KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on the same Rust core as the other Link apps (`apps/core`), that brings up the computer (KyberNow Station) full screen, with the Magic Remote, keyboard and mouse, or gamepad. v2 identity ([guidelines](../../brand/v2/README.en.md)); mockups: [Claude Design](https://claude.ai/artifact/2TNZZrYYZpHvdQqLXzSLGv) (home, session menu with the Magic Remote, Picture, Network and Sound settings, controllers and rumble). Installing on the TV: [INSTALLATION.en.md](INSTALLATION.en.md) (developer mode).
 
-**Status (23/10/2026)**: installed on the G2 in developer mode, the home screen shows (computers found, controller, network); session not tried yet. The binary builds for webOS (armv7, glibc 2.12), so does the `.ipk` package, and the interface is checked through its screenshots (on the computer, and by the ARM binary under emulation). Test TV: LG OLED G2 83 inches (2022). The decision is in [PROJECT.en.md](../../PROJECT.en.md) ("LG TVs (webOS)").
+**Status (23/10/2026)**: installed on the G2 (webOS 26) in developer mode; end-to-end session at 1440p: picture, sound (stereo), controller, Magic Remote. The binary builds for webOS (armv7, glibc 2.12), so does the `.ipk` package, and the interface is checked through its screenshots (on the computer, and by the ARM binary under emulation). Test TV: LG OLED G2 83 inches (2022). The decision is in [PROJECT.en.md](../../PROJECT.en.md) ("LG TVs (webOS)").
 
 ![Home](screenshots/1-accueil.png)
 
@@ -45,7 +45,8 @@ KyberNow Link on LG TVs: a **native** app (an ARM binary, not a web page), on th
 
 - `libNDL_directmedia.so.1` opened with `dlopen`, never linked (a direct dependency keeps the app from starting where it is missing).
 - `NDL_DirectMediaInit` at the first load, not at app launch.
-- Every load carries a **stereo Opus audio plane, primed with an empty frame** (`0xec 0xff 0xfe`): without it, NDL does not pace frames on their timestamps, and the picture stutters above 1080p on a 120 Hz panel. The real sound does not go there (see Sound).
+- Every load carries a **stereo Opus audio plane, primed with empty frames** (`0xec 0xff 0xfe`, 5 ms each): without it, NDL does not pace frames on their timestamps, and the picture stutters above 1080p on a 120 Hz panel. The real sound does not go there (see Sound).
+- **The load is only confirmed (`LOADCOMPLETED`) once that plane is fed**: empty frames go out in bursts until the confirmation (in the background past 500 ms), and no frame is given before it (2 s at most). With a single frame, the G2 on webOS 26 stayed on a black picture, with no error; confirmed in 141 ms since (punktfunk, `ndl/v2/load.rs`).
 - Timestamps in milliseconds since the load, never going backwards.
 - **Never flush** (`NDL_DirectVideoFlushRenderBuffer`) during a session: it cuts the audio plane for the rest of the session. After a loss, no frame is given before the next keyframe, requested again by the core.
 - The parameter set (SPS/PPS, VPS, AV1 sequence header) goes before the keyframe that (re)starts the decoder; a new parameter set, codec or size reloads NDL.
@@ -111,13 +112,12 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Log
 
-`$HOME/conf/kybernow.log` in the app's folder on the TV (the previous one as `.1`), and standard error: `image :` (NDL), `son :`, `manettes :`, `session :` lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
+`/media/developer/temp/kybernow/kybernow.log` on the TV (the previous one as `.1`), next to `kybernow.json` (computers and settings). In developer mode, `HOME` is `/media/developer`, closed to the app's user, and its `/tmp` is emptied on reboot and invisible over ssh: `temp` is open to all, survives reboots and reinstalls, and can be read over ssh. The app takes the first folder it can write to among `$HOME/conf`, this one and `/tmp/kybernow` (`Store::dir`), and standard error: `image :` (NDL), `son :`, `manettes :`, `session :` lines, with the core's messages (logs stay in French). See [INSTALLATION.en.md](INSTALLATION.en.md) to read it.
 
 ## To do
 
 - On the G2: an end-to-end session (NDL, sound, controllers, rumble), latency at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps.
 - Magic Remote as mouse: check that the TV still sends motion while its pointer is hidden.
 - Surround through NDL's Opus plane to an eARC receiver.
-- Where to keep computers so that reinstalling the app does not erase them.
 - DualSense: rumble and adaptive triggers through webOS's Bluetooth service (as punktfunk does), when SDL does not provide them.
 - Homebrew Channel: a repository for the app (updates).

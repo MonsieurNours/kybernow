@@ -70,17 +70,16 @@ The computer does not show up? Choose **Add** › **With address and port** and 
 
 ## Updating
 
-Install the new `.ipk` as in step 3: it replaces the old one. A reinstall may erase the added computers (they are kept in the app's folder): just add them again with the code.
+Install the new `.ipk` as in step 3: it replaces the old one. The added computers are kept (in `/media/developer/temp/kybernow`, outside the app's folder).
 
 ## Troubleshooting
 
 - **The app does not install**: developer mode may have expired (open Developer Mode again, turn it on, extend), or the TV's IP address changed (`ares-setup-device` or Dev Manager).
 - **Black screen in session, but sound**: note it with the log (below); the TV's decoder refused the stream. Try Settings › Picture › Codec: H.264, or a lower resolution.
-- **The log**: the app writes `conf/kybernow.log` in its folder on the TV (`/media/developer/apps/usr/palm/applications/fr.leslignesclaires.kybernow/`), or `/tmp/kybernow/kybernow.log` if that folder is not reachable. To read it from the computer:
+- **The log**: the app writes `kybernow.log` in `/media/developer/temp/kybernow/` on the TV (with `kybernow.json`, the added computers). To read it from the computer:
 
   ```sh
-  ssh -i ~/.ssh/tv_webos -p 9922 prisoner@192.168.1.50 \
-      cat /media/developer/apps/usr/palm/applications/fr.leslignesclaires.kybernow/conf/kybernow.log
+  ares-novacom --device tv --run "cat /media/developer/temp/kybernow/kybernow.log"
   ```
 
-  (the `tv_webos` key is the one `ares-novacom --getkey` fetched; Dev Manager also has a terminal and a file browser.)
+  (Dev Manager also has a terminal and a file browser.)

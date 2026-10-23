@@ -200,6 +200,11 @@ impl Feeder {
                     s.frame_displayed(pts, received, decoded, at);
                 }
             }
+            Err(e) if e == ndl::NOT_READY => {
+                // Le décodeur attend sa confirmation : on attend l'image clé suivante.
+                self.waiting_key = true;
+                self.request_keyframe();
+            }
             Err(e) => {
                 log::warn!("image : {e}");
                 self.lost();

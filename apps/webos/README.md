@@ -4,7 +4,7 @@
 
 KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas une page web), sur le même cœur Rust que les autres apps Link (`apps/core`), qui retrouve l'ordinateur (KyberNow Station) en plein écran, à la Magic Remote, au clavier et à la souris ou à la manette. Identité v2 ([charte](../../brand/v2/README.md)) ; maquettes : [Claude Design](https://claude.ai/artifact/2TNZZrYYZpHvdQqLXzSLGv) (accueil, menu de session à la Magic Remote, réglages Image, Réseau et Son, manettes et vibrations). Installation sur le téléviseur : [INSTALLATION.md](INSTALLATION.md) (mode développeur).
 
-**État (23/10/2026)** : installée sur la G2 en mode développeur, l'accueil s'affiche (ordinateurs trouvés, manette, réseau) ; session pas encore essayée. Le binaire se construit pour webOS (armv7, glibc 2.12), le paquet `.ipk` aussi, et l'interface est vérifiée par ses captures (sur l'ordinateur, et par le binaire ARM sous émulation). Téléviseur d'essai : LG OLED G2 83 pouces (2022). La décision est dans [PROJECT.md](../../PROJECT.md) (« Téléviseurs LG (webOS) »).
+**État (23/10/2026)** : installée sur la G2 (webOS 26) en mode développeur ; session de bout en bout en 1440p : image, son (stéréo), manette, Magic Remote. Le binaire se construit pour webOS (armv7, glibc 2.12), le paquet `.ipk` aussi, et l'interface est vérifiée par ses captures (sur l'ordinateur, et par le binaire ARM sous émulation). Téléviseur d'essai : LG OLED G2 83 pouces (2022). La décision est dans [PROJECT.md](../../PROJECT.md) (« Téléviseurs LG (webOS) »).
 
 ![Accueil](screenshots/1-accueil.png)
 
@@ -45,7 +45,8 @@ KyberNow Link sur les téléviseurs LG : une app **native** (un binaire ARM, pas
 
 - `libNDL_directmedia.so.1` ouverte par `dlopen`, jamais liée (une dépendance directe empêche l'app de démarrer là où elle manque).
 - `NDL_DirectMediaInit` au premier chargement, pas au lancement de l'app.
-- Chaque chargement porte un **plan de son Opus stéréo, amorcé d'une trame vide** (`0xec 0xff 0xfe`) : sans lui, NDL ne cale pas les images sur leur horodatage, et l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son réel ne passe pas par là (voir Son).
+- Chaque chargement porte un **plan de son Opus stéréo, amorcé de trames vides** (`0xec 0xff 0xfe`, 5 ms chacune) : sans lui, NDL ne cale pas les images sur leur horodatage, et l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son réel ne passe pas par là (voir Son).
+- **Le chargement n'est confirmé (`LOADCOMPLETED`) qu'une fois ce plan nourri** : les trames vides partent par salves jusqu'à la confirmation (en fond passé 500 ms), et aucune image n'est donnée avant (2 s au plus). Avec une seule trame, la G2 sous webOS 26 restait sur une image noire, sans erreur ; confirmé en 141 ms depuis (punktfunk, `ndl/v2/load.rs`).
 - Horodatages en millisecondes depuis le chargement, jamais en arrière.
 - **Jamais de vidage** (`NDL_DirectVideoFlushRenderBuffer`) en cours de session : il coupe le plan de son pour le reste de la session. Après une perte, aucune image n'est donnée avant l'image clé suivante, redemandée par le cœur.
 - Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé devant l'image clé qui (re)démarre le décodeur ; un nouveau jeu de paramètres, un autre format ou une autre taille rechargent NDL.
@@ -111,13 +112,12 @@ apps/webos/scripts/preview.sh                # → apps/target/webos-preview/*.p
 
 ## Journal
 
-`$HOME/conf/kybernow.log` dans le dossier de l'app sur le téléviseur (le précédent en `.1`), et la sortie d'erreur : lignes `image :` (NDL), `son :`, `manettes :`, `session :`, avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.
+`/media/developer/temp/kybernow/kybernow.log` sur le téléviseur (le précédent en `.1`), à côté de `kybernow.json` (ordinateurs et réglages). En mode développeur, `HOME` vaut `/media/developer`, fermé à l'utilisateur de l'app, et son `/tmp` est vidé au redémarrage et invisible en ssh : `temp` est ouvert à tous, survit au redémarrage et à la réinstallation, et se lit en ssh. L'app prend le premier dossier où elle peut écrire parmi `$HOME/conf`, celui-ci et `/tmp/kybernow` (`Store::dir`), et la sortie d'erreur : lignes `image :` (NDL), `son :`, `manettes :`, `session :`, avec les messages du cœur. Voir [INSTALLATION.md](INSTALLATION.md) pour le lire.
 
 ## Reste à faire
 
 - Sur la G2 : une session de bout en bout (NDL, son, manettes, vibrations), la latence en 4K à 120 Hz, en 1440p et en 1080p, à 30, 60 et 120 i/s.
 - Magic Remote en souris : vérifier que le téléviseur envoie toujours les mouvements quand son pointeur est caché.
 - Son multicanal par le plan Opus de NDL vers un ampli en eARC.
-- Où garder les ordinateurs pour qu'une réinstallation de l'app ne les efface pas.
 - DualSense : vibrations et gâchettes adaptatives par le service Bluetooth de webOS (comme punktfunk), quand SDL ne les donne pas.
 - Homebrew Channel : dépôt de l'app (mises à jour).

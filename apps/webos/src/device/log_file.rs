@@ -1,4 +1,4 @@
-//! Journal de l'app : `$HOME/conf/kybernow.log` (le précédent gardé en
+//! Journal de l'app : `kybernow.log` dans `Store::dir` (le précédent gardé en
 //! `.1`), et la sortie d'erreur (visible par `ares-launch` et ssh).
 
 use std::io::Write;
