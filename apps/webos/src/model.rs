@@ -1,0 +1,247 @@
+//! Ce que l'app garde : les ordinateurs (adresse d'Admin, empreinte, compte),
+//! leurs réglages, la dernière session, l'identité de ce téléviseur et les
+//! réglages de l'app. Un fichier JSON dans `$HOME/conf` (le dossier de l'app
+//! sur le téléviseur), comme moonlight-tv ; `/tmp` à défaut.
+//!
+//! Les mots de passe sont dans ce fichier, en clair : webOS n'a pas de
+//! trousseau accessible aux apps natives. Le compte est propre à cet appareil
+//! (accordé par le code à six chiffres) et se retire dans Admin.
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+/// Profils, dans le vocabulaire du cœur (`Profile::parse`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Profile {
+    #[default]
+    Jeu,
+    Bureau,
+    Max,
+}
+
+impl Profile {
+    pub const ALL: [Profile; 3] = [Profile::Jeu, Profile::Bureau, Profile::Max];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Profile::Jeu => "jeu",
+            Profile::Bureau => "bureau",
+            Profile::Max => "max",
+        }
+    }
+}
+
+/// Réglages d'un ordinateur, comme Réglages › par ordinateur sur les autres apps.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct HostSettings {
+    pub profile: Profile,
+    /// 0 : comme ce téléviseur ; sinon hauteur (2160, 1440, 1080, 720).
+    pub resolution: u32,
+    /// Images par seconde : 30, 60, 120 (0 : la fréquence de la dalle).
+    pub fps: u32,
+    /// `auto`, `hevc`, `h264`, `av1`.
+    pub codec: String,
+    /// 0 : celui du profil, plafonné par le lien (Ethernet : 100 Mbit/s).
+    pub mbps: u32,
+    /// `auto`, `stereo`, `5.1`, `computer` (le son reste sur l'ordinateur).
+    pub audio: String,
+    /// Toutes les manettes vues comme des Xbox 360 par l'ordinateur.
+    pub xbox360: bool,
+    /// L1 + R1 + Start + Select ouvrent le menu.
+    pub combo: bool,
+    /// Bouton Retour de la Magic Remote : ouvre le menu (sinon Échap).
+    pub back_opens_menu: bool,
+    pub clipboard: bool,
+    pub reconnect: bool,
+    /// Transport fiable même en profil Jeu (Wi-Fi chargé).
+    pub reliable: bool,
+    /// Ne plus rappeler de passer la télé en Optimiseur de jeu.
+    pub game_mode_hint: bool,
+}
+
+impl Default for HostSettings {
+    fn default() -> Self {
+        Self {
+            profile: Profile::Jeu,
+            resolution: 0,
+            fps: 0,
+            codec: "auto".into(),
+            mbps: 0,
+            audio: "auto".into(),
+            xbox360: true,
+            combo: true,
+            back_opens_menu: true,
+            clipboard: true,
+            reconnect: true,
+            reliable: false,
+            game_mode_hint: true,
+        }
+    }
+}
+
+/// La dernière session : latence médiane et 95e centile (ms), durée (s),
+/// mode et débit moyen.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct LastSession {
+    pub median: f64,
+    pub p95: f64,
+    pub seconds: u64,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub mbps: f64,
+    pub at: u64,
+}
+
+/// Un ordinateur équipé de KyberNow Station.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Host {
+    pub id: String,
+    pub name: String,
+    /// Adresse et port d'Admin.
+    pub address: String,
+    pub port: u16,
+    /// Empreinte du certificat d'Admin (`sha256:…`), épinglée.
+    pub fingerprint: Option<String>,
+    pub user: String,
+    #[serde(default)]
+    pub password: String,
+    #[serde(default)]
+    pub os: Option<String>,
+    #[serde(default)]
+    pub gpu: Option<String>,
+    #[serde(default)]
+    pub av1: bool,
+    /// Adresse matérielle pour le réveil (Wake-on-LAN), si connue.
+    #[serde(default)]
+    pub mac: Option<String>,
+    #[serde(default)]
+    pub settings: HostSettings,
+    #[serde(default)]
+    pub last: Option<LastSession>,
+}
+
+/// Réglages de l'app.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct AppSettings {
+    /// `auto`, `fr`, `en`.
+    pub language: String,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self { language: "auto".into() }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Store {
+    /// Identifiant de ce téléviseur auprès d'Admin, tiré une fois.
+    pub device_id: String,
+    pub hosts: Vec<Host>,
+    /// Dernier ordinateur choisi sur l'accueil.
+    pub selected: Option<String>,
+    pub app: AppSettings,
+    #[serde(skip)]
+    path: Option<PathBuf>,
+}
+
+impl Store {
+    pub fn dir() -> PathBuf {
+        if let Some(home) = std::env::var_os("HOME") {
+            let d = PathBuf::from(home).join("conf");
+            if std::fs::create_dir_all(&d).is_ok() {
+                return d;
+            }
+        }
+        let d = PathBuf::from("/tmp/kybernow");
+        let _ = std::fs::create_dir_all(&d);
+        d
+    }
+
+    pub fn load() -> Self {
+        let path = Self::dir().join("kybernow.json");
+        let mut s: Store = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        if s.device_id.is_empty() {
+            s.device_id = new_id();
+        }
+        s.path = Some(path);
+        s.save();
+        s
+    }
+
+    /// Écrit le fichier (par un fichier temporaire renommé : jamais à moitié écrit).
+    pub fn save(&self) {
+        let Some(path) = &self.path else { return };
+        let Ok(bytes) = serde_json::to_vec_pretty(self) else { return };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, bytes).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
+    }
+
+    pub fn host(&self, id: &str) -> Option<&Host> {
+        self.hosts.iter().find(|h| h.id == id)
+    }
+
+    pub fn host_mut(&mut self, id: &str) -> Option<&mut Host> {
+        self.hosts.iter_mut().find(|h| h.id == id)
+    }
+
+    /// Ajoute un ordinateur, ou met à jour celui de même adresse.
+    pub fn put(&mut self, host: Host) -> String {
+        if let Some(h) = self.hosts.iter_mut().find(|h| h.address == host.address && h.port == host.port) {
+            let id = h.id.clone();
+            let settings = h.settings.clone();
+            let last = h.last.clone();
+            *h = Host { id: id.clone(), settings, last, ..host };
+            return id;
+        }
+        let id = host.id.clone();
+        self.hosts.push(host);
+        id
+    }
+
+    pub fn remove(&mut self, id: &str) {
+        self.hosts.retain(|h| h.id != id);
+        if self.selected.as_deref() == Some(id) {
+            self.selected = None;
+        }
+    }
+
+    /// Dossier des dernières images de session (une par ordinateur).
+    pub fn image_path(id: &str) -> PathBuf {
+        let d = Self::dir().join("images");
+        let _ = std::fs::create_dir_all(&d);
+        d.join(format!("{id}.jpg"))
+    }
+}
+
+/// Un identifiant aléatoire au format UUID v4.
+pub fn new_id() -> String {
+    let mut b = [0u8; 16];
+    if getrandom::getrandom(&mut b).is_err() {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        b.copy_from_slice(&t.to_le_bytes());
+    }
+    b[6] = (b[6] & 0x0F) | 0x40;
+    b[8] = (b[8] & 0x3F) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
+}
+
+/// Un code à six chiffres pour l'ajout par code (accepté dans Admin).
+pub fn pair_code() -> String {
+    let mut b = [0u8; 4];
+    let _ = getrandom::getrandom(&mut b);
+    format!("{:06}", u32::from_le_bytes(b) % 1_000_000)
+}
+
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}

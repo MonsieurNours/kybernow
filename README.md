@@ -16,6 +16,7 @@ KyberNow réunit trois produits :
 | `apps/macos/` | KyberNow Link pour Mac (SwiftUI, VideoToolbox, Metal, Core Audio) sur le cœur Rust, voir [son README](apps/macos/README.md) |
 | `apps/apple/` | Pont C entre le cœur Rust et les apps Apple (`libkybernow`), voir [docs/coeur-apple.md](docs/coeur-apple.md) |
 | `apps/android/` | KyberNow Link pour Android et Android TV (Kotlin, Compose, pont JNI du cœur dans `apps/android/jni`), voir [son README](apps/android/README.md) |
+| `apps/webos/` | KyberNow Link pour les téléviseurs LG (webOS) : app native sur le cœur Rust, image par le décodeur du téléviseur (NDL), SDL2 de webOS ; installation en mode développeur, voir [son README](apps/webos/README.md) et [son installation](apps/webos/INSTALLATION.md) |
 | `apps/tvos/`, `apps/ios/` | KyberNow Link pour Apple TV et pour iPhone/iPad, voir leurs README ([Apple TV](apps/tvos/README.md), [iPhone et iPad](apps/ios/README.md)) |
 | `apps/core/`, `apps/windows/` | Cœur client en Rust des apps KyberNow Link (session, dialogue avec Admin, profils, latence, mises à jour, entrées et son partagés, voir [son README](apps/core/README.md)) et KyberNow Link pour Windows (Direct3D 11, FFmpeg, WASAPI), avec son installateur `KyberNow-Link-Setup.exe` (`apps/windows/setup`, x64 et ARM64), voir [son README](apps/windows/README.md) |
 | `server/` | KyberNow Station : tout ce qui tourne sur l'ordinateur qui diffuse son image, voir [son README](server/README.md) |

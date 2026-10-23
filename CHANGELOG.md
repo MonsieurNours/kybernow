@@ -13,6 +13,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 - **KyberNow Link arrive sur Android et Android TV.** Une seule app pour le téléphone, la tablette, le téléviseur (Android TV, Google TV, NVIDIA Shield) et la console portable, à partir d'Android 11 : accueil avec l'image de l'ordinateur, ajout par le réseau, code, adresse ou QR code, session en plein écran au doigt, à la télécommande, au clavier et à la souris ou à la manette (quatre joueurs, manette ou télécommande en souris), menu de session au téléviseur, presse-papiers, rangée « Reprendre sur un ordinateur » sur l'accueil d'Android TV. Essayée sur une Shield TV en 4K à 60 Hz.
 - L'APK (`KyberNow-Link-Android.apk`, signé) est publié avec chaque version, et l'app se met à jour seule, vérifiée par le manifeste signé (canal stable ou bêta). Une app installée depuis Android Studio est à désinstaller une fois avant d'installer l'APK publié.
+- **KyberNow Link arrive sur les téléviseurs LG (webOS).** Une app native, sur le même cœur que les autres apps Link : image par le décodeur du téléviseur (4K à 120 Hz en HEVC sur les OLED de 2022), 30, 60 ou 120 images par seconde, débit plafonné selon le réseau (la prise Ethernet des LG s'arrête à 100 Mbit/s), quatre manettes avec leurs vibrations, Magic Remote ou manette en souris, menu de session (bouton Retour ou L1 + R1 + Start + Select), ajout par code ou adresse. S'installe en mode développeur (`apps/webos/INSTALLATION.md`) ; pas encore essayée sur un téléviseur.
 
 ## 0.4.4
 

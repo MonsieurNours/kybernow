@@ -1,0 +1,15 @@
+{
+    "id": "fr.leslignesclaires.kybernow",
+    "version": "@VERSION@",
+    "vendor": "Les Lignes Claires",
+    "type": "native",
+    "main": "bin/kybernow-webos",
+    "title": "KyberNow Link",
+    "appDescription": "Votre ordinateur sur ce téléviseur",
+    "icon": "icon.png",
+    "largeIcon": "icon-large.png",
+    "splashBackground": "splash.png",
+    "iconColor": "#05070A",
+    "useAllMouseButtons": true,
+    "supportTouchMode": "none"
+}
