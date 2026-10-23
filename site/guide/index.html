@@ -200,6 +200,14 @@
   },
   {
    "@type": "Question",
+   "name": "Et Linux, le Steam Deck et SteamOS ?",
+   "acceptedAnswer": {
+    "@type": "Answer",
+    "text": "Oui : une app native pour Linux (GNOME, KDE…, x86_64 ou ARM), le Steam Deck et SteamOS au salon, avec une interface pour chacun : le bureau à la souris et au clavier, le Deck et le téléviseur à la manette. Image décodée par la carte graphique (VA-API) ou le processeur, fréquence variable quand l'écran la permet. Elle s'installe en paquet Flatpak, sans droits d'administrateur : voir Sur Linux et Sur le Steam Deck et SteamOS."
+   }
+  },
+  {
+   "@type": "Question",
    "name": "Pourquoi l'app Apple TV n'est-elle pas sur l'App Store ?",
    "acceptedAnswer": {
     "@type": "Answer",
@@ -317,6 +325,7 @@
             <li>Un iPhone ou un iPad sous iOS 18 ou iPadOS 18 ou plus récent, et un Mac avec Xcode pour y installer l'app</li>
             <li>Un téléphone, une tablette ou un téléviseur sous Android 11 ou plus récent (Android TV, Google TV, NVIDIA Shield)</li>
             <li>Un téléviseur LG sous webOS 5 ou plus récent (2020 et après), et un ordinateur pour y installer l'app en mode développeur</li>
+            <li>Un PC sous Linux avec Flatpak (x86_64 ou ARM), un Steam Deck, ou une Steam Machine ou un PC sous SteamOS, pour l'app</li>
             <li>Ou n'importe quel navigateur récent, sur ordinateur, tablette ou téléphone</li>
             <li>Sur le même réseau que l'ordinateur, ou relié à lui par un VPN</li>
           </ul>
@@ -359,10 +368,12 @@
       <div class="os-tiles" role="tablist" aria-label="Appareils">
         <a class="os-tile" role="tab" id="tab-mac" href="#mac" aria-controls="mac"><svg class="ic-lg"><use href="/assets/icons.svg#apple-logo"/></svg><b>Mac</b><span>App signée et notariée</span></a>
         <a class="os-tile" role="tab" id="tab-windows" href="#windows" aria-controls="windows"><svg class="ic-lg"><use href="/assets/icons.svg#windows-logo"/></svg><b>Windows</b><span>PC x64 et ARM64</span></a>
+        <a class="os-tile" role="tab" id="tab-linux" href="#linux" aria-controls="linux"><svg class="ic-lg"><use href="/assets/icons.svg#linux-logo"/></svg><b>Linux</b><span>Paquet Flatpak</span></a>
         <a class="os-tile" role="tab" id="tab-apple-tv" href="#apple-tv" aria-controls="apple-tv"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Apple TV</b><span>Depuis un Mac</span></a>
         <a class="os-tile" role="tab" id="tab-iphone" href="#iphone" aria-controls="iphone"><svg class="ic-lg"><use href="/assets/icons.svg#device-mobile"/></svg><b>iPhone et iPad</b><span>Depuis un Mac</span></a>
         <a class="os-tile" role="tab" id="tab-android" href="#android" aria-controls="android"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span>Android 11 ou plus</span></a>
         <a class="os-tile" role="tab" id="tab-lg" href="#lg" aria-controls="lg"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>Téléviseur LG</b><span>webOS 5 ou plus</span></a>
+        <a class="os-tile" role="tab" id="tab-steam-deck" href="#steam-deck" aria-controls="steam-deck"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><b>Steam Deck</b><span>Et SteamOS au salon</span></a>
         <a class="os-tile" role="tab" id="tab-navigateur" href="#navigateur" aria-controls="navigateur"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><b>Navigateur</b><span>Rien à installer</span></a>
       </div>
 
@@ -398,6 +409,28 @@
       </ol>
       <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#shield-check"/></svg><span>Pendant la bêta, l'app n'est pas encore signée avec Authenticode&#8239;: au premier lancement, Windows SmartScreen affiche un avertissement. Cliquez sur «&#8239;Informations complémentaires&#8239;», puis sur «&#8239;Exécuter quand même&#8239;».</span></p>
       <p class="muted">Vos ordinateurs apparaissent aussi au clic droit sur l'icône de KyberNow Link dans la barre des tâches&#8239;: un clic lance la session.</p>
+      </div>
+
+      <div class="os-panel" id="linux" role="tabpanel" aria-labelledby="tab-linux">
+      <h3 class="sub">Sur Linux</h3>
+      <p>Une app native pour les PC sous Linux (GNOME, KDE…), x86_64 ou ARM&#8239;: fenêtre, souris et clavier, barre de session en haut de l'écran. L'image est décodée par la carte graphique (VA-API&#8239;: H.264, HEVC, et AV1 quand elle le sait), sinon par le processeur&#8239;; fréquence variable quand l'écran la permet, son stéréo, 5.1 ou 7.1, quatre manettes avec leurs vibrations. L'app est un paquet <b>Flatpak</b>, installé pour vous seul, sans droits d'administrateur. Pour le Steam Deck, voir <a href="#steam-deck">Sur le Steam Deck et SteamOS</a>.</p>
+      <ol class="steps-doc">
+        <li><p>Téléchargez le paquet de votre machine&#8239;: <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak">KyberNow-Link-Linux-x86_64.flatpak</a> pour la plupart des PC, <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-aarch64.flatpak">KyberNow-Link-Linux-aarch64.flatpak</a> pour une machine ARM.</p></li>
+        <li><p>Double-cliquez sur le fichier&#8239;: GNOME Logiciels ou KDE Discover l'installe. Ou, dans un terminal, depuis le dossier du fichier&#8239;:</p>
+          <pre><code>flatpak install --user KyberNow-Link-Linux-x86_64.flatpak</code></pre>
+          <p>L'app s'appuie sur le runtime de freedesktop (<code>org.freedesktop.Platform</code> 25.08), que Flatpak propose de récupérer sur Flathub s'il manque&#8239;: acceptez.</p></li>
+        <li><p>Ouvrez <b>KyberNow Link</b> depuis le menu des applications, puis ajoutez l'ordinateur&#8239;:</p>
+          <ul class="ticks">
+            <li><b>Sur le réseau</b>&#8239;: l'ordinateur apparaît tout seul. Acceptez le <b>code à six chiffres</b> affiché par l'app dans Admin, page <b>Appareils Link</b>&#8239;: rien à taper.</li>
+            <li><b>Par adresse</b>&#8239;: son adresse IP ou son nom, et le port d'Admin, par exemple par VPN. Comparez les quatre premiers groupes de l'empreinte avec ceux d'Admin.</li>
+          </ul>
+        </li>
+      </ol>
+      <p class="muted">Flatpak est déjà là sur la plupart des distributions (sinon&#8239;: <a href="https://flatpak.org/setup/" rel="noopener">flatpak.org/setup</a>). S'il ne connaît pas encore Flathub, ajoutez-le et installez le runtime à la main&#8239;:</p>
+      <pre><code>flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Platform//25.08</code></pre>
+      <p><b>Réglages conseillés</b>&#8239;: pour un texte net au bureau, <b>Réglages de l'ordinateur › Image › Couleurs 4:4:4</b> (en HEVC, désactivé par défaut&#8239;; demande plus de débit, et le processeur si la carte ne décode pas le 4:4:4). <b>Affichage</b> reste sur Auto&#8239;: si l'écran annonce la fréquence variable (FreeSync, VRR), chaque image s'affiche dès qu'elle est décodée et l'écran suit la cadence du flux.</p>
+      <p class="muted">En cas de souci, le journal de l'app est dans <code>~/.var/app/fr.leslignesclaires.kybernow/config/kybernow/kybernow.log</code>. Procédure complète&#8239;: <a href="https://github.com/MonsieurNours/kybernow/blob/main/apps/linux/INSTALLATION.md" rel="noopener">installer KyberNow Link sur Linux et le Steam Deck</a>.</p>
       </div>
 
       <div class="os-panel" id="apple-tv" role="tabpanel" aria-labelledby="tab-apple-tv">
@@ -495,6 +528,25 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p><b>Réglages conseillés</b>&#8239;: pendant la session, mode d'image <b>Optimiseur de jeu</b> (bouton Réglages de la Magic Remote › Image › Mode)&#8239;; manettes associées en Bluetooth dans les réglages du téléviseur. Pour le <b>son 5.1</b> vers un ampli en eARC&#8239;: dans l'app, réglages de l'ordinateur › Son › <b>5.1 Dolby</b>, et sur le téléviseur, Son › Sortie audio numérique › <b>Pass-Through</b> («&#8239;Interconnexion&#8239;»).</p>
       </div>
 
+      <div class="os-panel" id="steam-deck" role="tabpanel" aria-labelledby="tab-steam-deck">
+      <h3 class="sub">Sur le Steam Deck et SteamOS</h3>
+      <p>L'app Linux, lancée depuis le mode Jeu. Sous gamescope, elle prend d'elle-même une interface à la manette&#8239;: sur le Steam Deck, l'interface <b>portable</b> (1280&nbsp;×&nbsp;800, légende des boutons, lancement animé)&#8239;; sur un téléviseur, l'interface du <b>salon</b>, la même lisible à trois mètres, avec sa colonne «&#8239;Prêt à jouer&#8239;» (manettes, son, écran, décodeurs). Comptez dix minutes la première fois.</p>
+      <ol class="steps-doc">
+        <li><p>Passez en <b>mode Bureau</b>&#8239;: bouton Steam › <b>Alimentation › Passer au bureau</b>.</p></li>
+        <li><p>Avec Firefox ou un autre navigateur, téléchargez <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak">KyberNow-Link-Linux-x86_64.flatpak</a>.</p></li>
+        <li><p>Double-cliquez sur le fichier, dans le dossier des téléchargements&#8239;: Discover l'installe. Ou ouvrez <b>Konsole</b> et tapez&#8239;:</p>
+          <pre><code>flatpak install --user ~/Downloads/KyberNow-Link-Linux-x86_64.flatpak</code></pre>
+          <p>(<code>~/Téléchargements/</code> si le Deck est en français.)</p></li>
+        <li><p>Ajoutez l'app à Steam&#8239;: ouvrez Steam en mode Bureau, <b>Jeux › Ajouter un jeu non-Steam</b>, cochez <b>KyberNow Link</b>, puis <b>Ajouter</b>.</p></li>
+        <li><p>Revenez au <b>mode Jeu</b> (icône «&#8239;Retour au mode Jeu&#8239;» du bureau). KyberNow Link est dans la bibliothèque, onglet <b>Non-Steam</b>.</p></li>
+        <li><p>Dans la fiche de KyberNow Link, icône de manette › <b>Disposition</b>, choisissez le modèle <b>Manette avec pavé tactile en souris</b>&#8239;: sticks et boutons vont à la manette de l'ordinateur, le pavé droit déplace la souris, ses clics cliquent.</p></li>
+        <li><p>Lancez KyberNow Link et ajoutez l'ordinateur&#8239;: il apparaît tout seul s'il est sur le réseau, et le code à six chiffres affiché s'accepte dans Admin, page <b>Appareils Link</b>. Par adresse, le pavé à l'écran ou le clavier de Steam servent à la taper.</p></li>
+      </ol>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#flask"/></svg><span>L'app n'a pas encore été essayée de bout en bout sur un Steam Deck. Dites-nous ce qui marche et ce qui coince sur <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</span></p>
+      <p><b>Au salon</b>&#8239;: une Steam Machine, un PC sous SteamOS ou Bazzite branché au téléviseur, ou le Deck sur sa station d'accueil. L'installation est la même&#8239;; l'app passe à l'interface du salon dès que l'écran dépasse 1280&nbsp;×&nbsp;800 sous gamescope, et <b>Réglages de l'app › Interface</b> force Bureau, Portable ou Salon. Quand le téléviseur annonce la fréquence variable (VRR), l'app montre chaque image dès qu'elle est décodée et le téléviseur suit la cadence du flux&#8239;; l'écran du Steam Deck, lui, n'en a pas.</p>
+      <p><b>Réglages conseillés</b>&#8239;: ceux par défaut, soit le profil <b>Jeu</b>, écran «&#8239;Comme cet écran&#8239;» (1280&nbsp;×&nbsp;800 sur le Deck, à sa fréquence), Affichage sur Auto. <b>Alléger sur batterie</b>, activé, limite le Deck débranché à 60 images par seconde et 20&nbsp;Mbit/s. Un Wi-Fi 5&nbsp;GHz ou 6&nbsp;GHz proche du routeur, ou un câble Ethernet sur la station d'accueil.</p>
+      </div>
+
       <div class="os-panel" id="navigateur" role="tabpanel" aria-labelledby="tab-navigateur">
       <h3 class="sub">Dans un navigateur</h3>
       <p>Sur n'importe quel appareil du même réseau (ou relié par VPN), ouvrez l'adresse d'Admin suivie de <code>/ecran</code>, par exemple <code>https://192.168.1.20:31415/ecran</code>. L'adresse exacte s'affiche à la fin de l'installation et sur la page Vue d'ensemble d'Admin. Acceptez l'avertissement de certificat, puis connectez-vous avec votre compte.</p>
@@ -529,6 +581,14 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
       </div>
       <p class="muted">La barre de session apparaît quand le pointeur touche le haut de l'écran. En plein écran, les raccourcis de Windows, la touche <kbd>⊞</kbd> et <kbd>Alt</kbd><kbd>Tab</kbd> compris, partent vers l'ordinateur&#8239;; le menu Touches envoie <kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Suppr</kbd> et les autres combinaisons réservées. Une session s'affiche sur un seul écran pour l'instant.</p>
+      <h3 class="sub">Raccourcis de l'app Linux</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>D</kbd></span><span>Se déconnecter</span></div>
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>F</kbd></span><span>Plein écran ou fenêtre</span></div>
+        <div class="tr"><span class="th"><kbd>Ctrl</kbd><kbd>Alt</kbd><kbd>Maj</kbd><kbd>M</kbd></span><span>Souris en mode jeu ou bureau</span></div>
+        <div class="tr"><span class="th"><kbd>Échap</kbd> tenu une seconde</span><span>Rend la souris des jeux</span></div>
+      </div>
+      <p class="muted">Sur le bureau, la barre de session apparaît quand le pointeur approche du haut de l'écran&#8239;: latence, définition, images par seconde, décodeur, profil, touches, souris, plein écran, Quitter. En plein écran, le clavier est saisi&#8239;: <kbd>Alt</kbd><kbd>Tab</kbd> et la touche Super partent vers l'ordinateur.</p>
       <h3 class="sub">Sur l'Apple TV</h3>
       <div class="table">
         <div class="tr"><span class="th"><kbd>Retour</kbd></span><span>Ouvre le menu de session&#8239;: santé du flux, manettes, son, télécommande en souris, saisie de texte, déconnexion</span></div>
@@ -550,6 +610,15 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <div class="tr"><span class="th">Magic Remote en souris</span><span>Le pointeur suit la télécommande&#8239;: <kbd>OK</kbd> clic gauche, bouton jaune clic droit, molette</span></div>
       </div>
       <p class="muted">Hors session, la Magic Remote, une télécommande ordinaire ou la manette parcourent l'app&#8239;; «&#8239;Réglages&#8239;», en haut à droite de l'accueil, ouvre les réglages du téléviseur, «&#8239;Réglages de l'ordinateur&#8239;» ceux de l'ordinateur choisi.</p>
+      <h3 class="sub">Au Steam Deck et sous SteamOS</h3>
+      <div class="table">
+        <div class="tr"><span class="th"><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd></span><span>Tenus ensemble, ouvrent le menu de session&#8239;: santé du flux, Reprendre, profils, son, manette en souris, clavier de Steam, touches, mesures, déconnexion</span></div>
+        <div class="tr"><span class="th">Toucher en haut de l'écran</span><span>Ouvre le même menu</span></div>
+        <div class="tr"><span class="th">Pavés tactiles</span><span>En souris, par Steam Input (modèle «&#8239;Manette avec pavé tactile en souris&#8239;»)</span></div>
+        <div class="tr"><span class="th">Clavier</span><span>Dans le menu, ouvre le clavier de Steam&#8239;: le texte part vers l'ordinateur</span></div>
+        <div class="tr"><span class="th">Manette en souris</span><span>Stick gauche&#8239;: le pointeur, <kbd>RT</kbd> plus vite, <kbd>LT</kbd> plus précis. Stick droit molette, <kbd>A</kbd> <kbd>B</kbd> <kbd>X</kbd> clics</span></div>
+      </div>
+      <p class="muted">Hors session, à la manette&#8239;: <kbd>A</kbd> valide, <kbd>B</kbd> revient, <kbd>Y</kbd> ouvre les réglages de l'ordinateur, <kbd>X</kbd> ajoute un ordinateur, <kbd>L1</kbd> et <kbd>R1</kbd> changent de profil, <kbd>Start</kbd> ouvre les réglages de l'app. Jusqu'à quatre manettes, chacune un joueur sur l'ordinateur, avec leurs vibrations.</p>
     </section>
 
     <section id="distance" class="doc-section">
@@ -571,6 +640,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p><b>L'app Apple TV</b>&#8239;: dans le dossier <code>kybernow</code>, faites <code>git pull</code> puis relancez la commande d'installation. Avec un compte Apple gratuit, faites-le avant la fin des 7&nbsp;jours.</p>
       <p><b>L'app Android</b>&#8239;: elle vérifie les nouvelles versions et propose de les installer, avec des mises à jour signées&#8239;; ses réglages (<b>Réglages de l'app › Mises à jour</b>) proposent aussi les versions bêta. Au téléviseur, la première fois, Android demande d'autoriser KyberNow à installer des applications.</p>
       <p><b>L'app des téléviseurs LG</b>&#8239;: elle vérifie les nouvelles versions (mises à jour signées) et affiche «&#8239;Version X disponible&#8239;» sur l'accueil&#8239;; ses réglages (<b>Réglages › Ce téléviseur › Mises à jour</b>) proposent aussi les versions bêta. En mode développeur, elle ne peut pas s'installer elle-même&#8239;: installez le nouveau <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-webOS.ipk">KyberNow-Link-webOS.ipk</a> depuis l'ordinateur, comme la première fois. Vos ordinateurs sont gardés.</p>
+      <p><b>L'app Linux</b>&#8239;: elle vérifie les nouvelles versions (mises à jour signées) et affiche «&#8239;Version X disponible&#8239;» sur l'accueil&#8239;; ses réglages (<b>Réglages de l'app › Versions proposées</b>) proposent aussi les versions bêta. Installée depuis un fichier, elle ne se met pas à jour toute seule&#8239;: téléchargez le nouveau paquet et installez-le comme la première fois (double clic, ou <code>flatpak install --user</code>). Vos ordinateurs et réglages restent.</p>
       <p class="muted">Sans Admin, depuis PowerShell en administrateur&#8239;:</p>
       <pre><code>irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex</code></pre>
     </section>
@@ -583,6 +653,9 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p><b>L'Apple TV</b>&#8239;: sur l'écran d'accueil, maintenez le pavé tactile appuyé sur l'icône de KyberNow, puis choisissez de supprimer l'app.</p>
       <p><b>Android</b>&#8239;: <b>Paramètres › Applications</b>, KyberNow, puis <b>Désinstaller</b>.</p>
       <p><b>Le téléviseur LG</b>&#8239;: dans webOS Dev Manager, onglet <b>Apps</b>, ou <code>ares-install --device tv --remove fr.leslignesclaires.kybernow</code>. Quitter le mode développeur la retire aussi.</p>
+      <p><b>Linux et le Steam Deck</b>&#8239;: dans GNOME Logiciels ou Discover, ou dans un terminal&#8239;; la seconde ligne efface aussi vos ordinateurs, réglages et le journal. Sur le Deck, retirez aussi KyberNow Link de la bibliothèque de Steam.</p>
+      <pre><code>flatpak uninstall --user fr.leslignesclaires.kybernow
+rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
     </section>
 
     <section id="faq" class="doc-section">
@@ -607,6 +680,7 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
         <details><summary>Et l'app iPhone et iPad&#8239;?</summary><p>Pas encore sur l'App Store ni sur TestFlight. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#iphone">Sur l'iPhone et l'iPad</a>. Il faut iOS&nbsp;18 ou iPadOS&nbsp;18 au moins.</p></details>
         <details><summary>Et Android&#8239;?</summary><p>Oui&#8239;: une seule app pour le téléphone, la tablette et le téléviseur, à partir d'Android&nbsp;11. En attendant le Play Store, elle s'installe à partir de son fichier APK&#8239;: voir <a href="#android">Sur Android</a>.</p></details>
         <details><summary>Et les téléviseurs LG&#8239;?</summary><p>Oui&#8239;: une app native pour les téléviseurs LG sous webOS&nbsp;5 ou plus récent (2020 et après), jusqu'à la 4K à 120&nbsp;Hz, avec manettes, Magic Remote et son 5.1 Dolby vers un ampli. Elle n'est pas dans le LG Content Store&#8239;: elle s'installe en mode développeur, avec un compte LG gratuit, depuis un ordinateur&#8239;: voir <a href="#lg">Sur un téléviseur LG</a>.</p></details>
+        <details><summary>Et Linux, le Steam Deck et SteamOS&#8239;?</summary><p>Oui&#8239;: une app native pour Linux (GNOME, KDE…, x86_64 ou ARM), le Steam Deck et SteamOS au salon, avec une interface pour chacun&#8239;: le bureau à la souris et au clavier, le Deck et le téléviseur à la manette. Image décodée par la carte graphique (VA-API) ou le processeur, fréquence variable quand l'écran la permet. Elle s'installe en paquet Flatpak, sans droits d'administrateur&#8239;: voir <a href="#linux">Sur Linux</a> et <a href="#steam-deck">Sur le Steam Deck et SteamOS</a>.</p></details>
         <details><summary>Pourquoi l'app Apple TV n'est-elle pas sur l'App Store&#8239;?</summary><p>Pas encore. En attendant, elle s'installe depuis un Mac avec Xcode, signée avec votre propre compte Apple&#8239;: voir <a href="#apple-tv">Sur l'Apple TV</a>. Il faut une Apple TV 4K de 2021 ou plus récente&#8239;; les modèles plus anciens ne peuvent pas faire tourner l'app.</p></details>
         <details><summary>Quel lien avec Kyber&#8239;?</summary><p>KyberNow utilise <a href="https://kyber.tech">Kyber</a>, le moteur de streaming libre conçu par des développeurs de VLC, et y ajoute KyberNow Station (installateur, écrans et haut-parleurs virtuels), KyberNow Admin et les apps KyberNow Link. KyberNow n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Nos correctifs du moteur sont publiés.</p></details>
         <details><summary>Quelles données KyberNow collecte-t-il&#8239;?</summary><p>Aucune. Rien ne passe par un serveur à nous&#8239;: l'image va directement de l'ordinateur à vos appareils. KyberNow Admin interroge seulement GitHub pour savoir si une nouvelle version existe.</p></details>

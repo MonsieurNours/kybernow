@@ -294,9 +294,10 @@ if (document.querySelector('.dl-card')) {
   const isMac = /Macintosh|Mac OS X/.test(ua) && !touch;
   const isWindows = /Windows/.test(ua);
   // Mac : l'app ; Windows : l'installateur ; Android : l'APK ; téléviseur LG (navigateur webOS) : son guide ;
+  // Linux et Steam Deck (après Android et webOS, qui disent aussi Linux) : le Flatpak ;
   // tablette, téléphone et le reste : le navigateur
   const isLG = /Web0S|webOS/.test(ua);
-  const target = isLG ? 'lg' : isMac ? 'mac' : isWindows ? 'windows' : /Android/.test(ua) ? 'android' : 'web';
+  const target = isLG ? 'lg' : isMac ? 'mac' : isWindows ? 'windows' : /Android/.test(ua) ? 'android' : /Linux/.test(ua) ? 'linux' : 'web';
   const card = document.querySelector(`.dl-card[data-os="${target}"]`);
   if (card) {
     card.classList.add('is-primary');
@@ -320,8 +321,9 @@ if (osTiles.length) {
     return true;
   };
   const ua = navigator.userAgent;
+  // Navigateur de Steam (mode Jeu, Big Picture) : le Steam Deck ; autre Linux : le bureau.
   const guess = /Web0S|webOS/.test(ua) ? 'lg' : /Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
-    : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : 'navigateur';
+    : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : /Valve Steam|SteamOS/.test(ua) ? 'steam-deck' : /Linux/.test(ua) ? 'linux' : 'navigateur';
   // Arrivée sur une ancre : l'installation était masquée, le navigateur n'a pas pu y aller.
   // #android-tv : ancre des premiers liens partagés.
   const hash = location.hash.slice(1) === 'android-tv' ? 'android' : location.hash.slice(1);

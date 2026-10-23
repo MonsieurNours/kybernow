@@ -70,7 +70,7 @@
    "description": "Streaming de jeux et de bureau à distance, libre et gratuit : votre ordinateur sur tous vos appareils, dans une app ou dans le navigateur. Latence médiane de 9,4 ms mesurée sur réseau local, transport QUIC chiffré, écran virtuel à la définition de l'appareil. Alternative nouvelle génération à Sunshine et Moonlight, construite sur le moteur Kyber.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Streaming de jeux et bureau à distance",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, navigateur web",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, navigateur web",
    "softwareHelp": "https://www.kybernow.app/guide/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -86,7 +86,7 @@
     "fr",
     "en"
    ],
-   "keywords": "jeu à distance, bureau à distance, streaming de jeux, cloud gaming à la maison, remote play, alternative à Moonlight, alternative à Sunshine, streaming PC vers Mac, streaming PC vers Apple TV",
+   "keywords": "jeu à distance, bureau à distance, streaming de jeux, cloud gaming à la maison, remote play, alternative à Moonlight, alternative à Sunshine, streaming PC vers Mac, streaming PC vers Apple TV, streaming PC vers Steam Deck",
    "featureList": [
     "Latence médiane de 9,4 ms de la capture à l'affichage (réseau local, 4K à 160 Hz)",
     "Transport QUIC (RFC 9000), chiffré en TLS 1.3, un seul port",
@@ -156,13 +156,15 @@
    "@id": "https://www.kybernow.app/#link",
    "name": "KyberNow Link",
    "url": "https://www.kybernow.app/#famille",
-   "description": "Les apps qui affichent l'image de l'ordinateur sur vos appareils, avec décodage matériel : Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, et une version web servie par la Station.",
+   "description": "Les apps qui affichent l'image de l'ordinateur sur vos appareils, avec décodage matériel : Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, Linux et Steam Deck, et une version web servie par la Station.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, navigateur web",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, navigateur web",
    "softwareHelp": "https://www.kybernow.app/guide/#appareil",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip",
-    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe"
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe",
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak",
+    "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-aarch64.flatpak"
    ],
    "image": "https://www.kybernow.app/assets/img/kybernow-link-dark.svg",
    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
@@ -382,7 +384,7 @@
         <ul class="ticks ticks-on">
           <li>KyberNow Station&#8239;: installateur, administration dans le navigateur (KyberNow Admin) et mises à jour</li>
           <li>Écran et haut-parleurs virtuels par session</li>
-          <li>KyberNow Link&#8239;: apps natives pour Mac, Windows, Apple TV, iPhone et iPad, Android et téléviseurs LG (décodage et affichage par l'app), et sa version web</li>
+          <li>KyberNow Link&#8239;: apps natives pour Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, Linux et Steam Deck (décodage et affichage par l'app), et sa version web</li>
           <li>Correctifs du moteur, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">publiés et décrits</a></li>
         </ul>
       </div>
@@ -471,7 +473,7 @@
 
     <ol class="steps" data-reveal>
       <li><span>1</span>Installez KyberNow Station sur l'ordinateur à partager.</li>
-      <li><span>2</span>Sur chaque appareil, ouvrez KyberNow Link&#8239;: l'app Mac, l'app Windows, l'app Apple TV, l'app iPhone et iPad, l'app Android, l'app des téléviseurs LG ou le navigateur.</li>
+      <li><span>2</span>Sur chaque appareil, ouvrez KyberNow Link&#8239;: l'app Mac, l'app Windows, l'app Apple TV, l'app iPhone et iPad, l'app Android, l'app des téléviseurs LG, l'app Linux et Steam Deck ou le navigateur.</li>
       <li><span>3</span>Connectez-vous&#8239;: l'ordinateur est déjà là.</li>
     </ol>
 
@@ -505,21 +507,30 @@
         <ul class="specs"><li>Windows 10 22H2 ou Windows 11, PC x64 ou ARM64 (Snapdragon)</li><li>Sans droits d'administrateur, se met à jour seule</li><li data-size="KyberNow-Link-Setup.exe">27,2&nbsp;Mo</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Télécharger l'app</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.24s" data-os="tv">
+      <article class="dl-card" data-reveal style="--d:.24s" data-os="linux">
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
+        <p class="mono-label">Sur votre PC Linux ou votre Steam Deck</p>
+        <h3>KyberNow Link pour Linux</h3>
+        <ul class="specs"><li>Linux (GNOME, KDE…), Steam Deck, SteamOS au salon&#8239;; x86_64 ou ARM</li><li>Souris et clavier sur le bureau, tout à la manette en mode Jeu, fréquence variable quand l'écran la permet</li><li data-size="KyberNow-Link-Linux-x86_64.flatpak">Paquet Flatpak</li></ul>
+        <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak"><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg>Télécharger l'app</a>
+        <a class="dl-more" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-aarch64.flatpak">Pour une machine ARM (aarch64)</a>
+        <a class="dl-more" href="/guide/#steam-deck">Installer sur le Steam Deck</a>
+      </article>
+      <article class="dl-card" data-reveal style="--d:.32s" data-os="tv">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre Apple TV</p>
         <h3>KyberNow Link pour Apple TV</h3>
         <ul class="specs"><li>Apple TV 4K de 2021 ou plus récente, tvOS 18 ou plus récent</li><li>Jusqu'à quatre manettes, Siri Remote en souris, son 5.1 et 7.1</li><li>Installée depuis un Mac avec Xcode, en attendant l'App Store</li></ul>
         <a class="btn btn-ghost" href="/guide/#apple-tv"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Installer sur l'Apple TV</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.32s" data-os="ios">
+      <article class="dl-card" data-reveal style="--d:.40s" data-os="ios">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre iPhone ou votre iPad</p>
         <h3>KyberNow Link pour iPhone et iPad</h3>
         <ul class="specs"><li>iOS ou iPadOS 18 ou plus récent</li><li>Pavé tactile ou toucher direct, clavier et trackpad de l'iPad, manettes, écran externe</li><li>Installée depuis un Mac avec Xcode, en attendant TestFlight et l'App Store</li></ul>
         <a class="btn btn-ghost" href="/guide/#iphone"><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg>Installer sur l'iPhone ou l'iPad</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.40s" data-os="android">
+      <article class="dl-card" data-reveal style="--d:.48s" data-os="android">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre appareil Android</p>
         <h3>KyberNow Link pour Android</h3>
@@ -527,14 +538,14 @@
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk"><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg>Télécharger l'app</a>
         <a class="dl-more" href="/guide/#android">Installer sur un téléviseur</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.48s" data-os="lg">
+      <article class="dl-card" data-reveal style="--d:.56s" data-os="lg">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre téléviseur LG</p>
         <h3>KyberNow Link pour téléviseurs LG</h3>
         <ul class="specs"><li>webOS 5 ou plus récent (téléviseurs LG de 2020 et après)</li><li>Jusqu'à la 4K à 120&nbsp;Hz, manettes, Magic Remote, son 5.1 Dolby vers un ampli</li><li>Installée depuis un ordinateur, en mode développeur</li></ul>
         <a class="btn btn-ghost" href="/guide/#lg"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Installer sur le téléviseur</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.56s" data-os="web">
+      <article class="dl-card" data-reveal style="--d:.64s" data-os="web">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur tous vos appareils</p>
         <h3>KyberNow Link dans le navigateur</h3>
@@ -546,10 +557,9 @@
     <div class="soon" data-reveal>
       <p class="mono-label">Apps Link à venir</p>
       <ul>
-        <li><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg><b>Linux</b><span class="tag">Prévu</span></li>
         <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Prévu</span></li>
       </ul>
-      <p class="soon-note">En attendant, tous ces appareils peuvent déjà ouvrir Link dans le navigateur.</p>
+      <p class="soon-note">En attendant, le Raspberry Pi peut déjà ouvrir Link dans le navigateur.</p>
     </div>
 
     <p class="release" data-reveal><span id="release-version">Version 0.2.5</span> <span class="beta">Bêta</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Notes de version</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">Empreintes SHA-256</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Code source</a></p>
