@@ -2324,6 +2324,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kybernow-linux"
+version = "0.4.6"
+dependencies = [
+ "cc",
+ "fontdue",
+ "getrandom 0.2.17",
+ "keycode",
+ "kybernow-core",
+ "kynput-sys",
+ "libc",
+ "log",
+ "mdns-sd 0.13.11",
+ "pkg-config",
+ "serde",
+ "serde_json",
+ "tiny-skia",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "kybernow-webos"
 version = "0.4.6"
 dependencies = [

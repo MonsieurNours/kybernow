@@ -1,0 +1,251 @@
+//! Éléments communs, d'après les maquettes : bouton principal au coin coupé à
+//! 45°, segments, pastilles, interrupteurs, cartes des ordinateurs, légende
+//! des boutons de la manette. Le focus se voit comme sur les maquettes :
+//! anneau au cœur du néon (#F4F1FF) et halo Spectre.
+
+use super::canvas::{Align, Canvas, Font, Rgba, Text};
+use super::icons::Icon;
+use super::theme::*;
+use super::Frame;
+use crate::app::{Rect, Target};
+
+/// Étiquette en capitales Martian Mono (« DERNIÈRE SESSION »).
+pub fn eyebrow(cv: &mut Canvas, x: f32, y: f32, size: f32, color: Rgba, s: &str) -> f32 {
+    cv.text(x, y, Text::new(Font::Mono, size, color).tracking(size * 0.08), &s.to_uppercase())
+}
+
+/// L'anneau du focus autour d'un rectangle.
+pub fn ring(cv: &mut Canvas, r: Rect, radius: f32) {
+    cv.neon(r.x, r.y, r.w, r.h, radius, 1.0);
+}
+
+/// Bouton principal (« Se connecter ») : aplat Spectre, coin bas droit coupé
+/// à 45° ; rend sa largeur. `h` : hauteur (52 bureau, 60 Deck, 76 salon).
+pub fn primary(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, s: &str, play: bool) -> f32 {
+    let size = h * 0.32;
+    let style = Text::new(Font::Semibold, size, Rgba(255, 255, 255, 255));
+    let icon = if play { size * 1.05 } else { 0.0 };
+    let gap = if play { size * 0.7 } else { 0.0 };
+    let pad = h * 0.58;
+    let w = cv.text_width(style, s) + 2.0 * pad + icon + gap;
+    let r = Rect::new(x, y, w, h);
+    let (focused, hover) = f.state(t, r);
+    if focused {
+        ring(cv, r, 8.0);
+    }
+    let cut = h * 0.23;
+    let c = if hover { Rgba::hex(0x7E6EFF) } else { FLAT };
+    cv.polygon(&[(x, y), (x + w, y), (x + w, y + h - cut), (x + w - cut, y + h), (x, y + h)], c);
+    let mut tx = x + pad;
+    if play {
+        let cy = y + h / 2.0;
+        cv.polygon(&[(tx + icon * 0.2, cy - icon * 0.42), (tx + icon * 0.2, cy + icon * 0.42), (tx + icon * 0.9, cy)], Rgba(255, 255, 255, 255));
+        tx += icon + gap;
+    }
+    cv.text(tx, y + h / 2.0 + size * 0.36, style, s);
+    w
+}
+
+/// Segments (profils, réglages du bureau) : `items` = (cible, libellé, choisi, indisponible).
+/// Rend la largeur.
+pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f32, items: &[(Target, String, bool, bool)]) -> f32 {
+    let pad = h * 0.08;
+    let style = Text::new(Font::Regular, size, MUTED);
+    let widths: Vec<f32> = items.iter().map(|(_, s, ..)| cv.text_width(style, s) + size * 2.3).collect();
+    let total = widths.iter().sum::<f32>() + pad * 2.0 + (items.len().saturating_sub(1)) as f32 * 3.0;
+    cv.rrect(x, y, total, h, h * 0.2, Rgba(9, 13, 18, 190));
+    cv.rrect_stroke(x, y, total, h, h * 0.2, 1.0, LINE_2);
+    let mut xx = x + pad;
+    for (i, (t, s, on, off)) in items.iter().enumerate() {
+        let w = widths[i];
+        let r = Rect::new(xx, y + pad, w, h - 2.0 * pad);
+        let (focused, hover) = if *off { (false, false) } else { f.state(*t, r) };
+        if *on {
+            cv.rrect(r.x, r.y, r.w, r.h, h * 0.15, INK_3);
+            cv.rrect_stroke(r.x, r.y, r.w, r.h, h * 0.15, 1.0, LINE_2);
+        } else if hover {
+            cv.rrect(r.x, r.y, r.w, r.h, h * 0.15, Rgba(227, 237, 240, 14));
+        }
+        if focused {
+            ring(cv, r, h * 0.15);
+        }
+        let color = if *off { DIM } else if *on { FROST } else { MUTED };
+        let font = if *on { Font::Semibold } else { Font::Regular };
+        cv.text(r.x + w / 2.0, r.y + r.h / 2.0 + size * 0.36, Text::new(font, size, color).align(Align::Center), s);
+        xx += w + 3.0;
+    }
+    total
+}
+
+/// Bouton à contour ; rend sa largeur.
+pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, size: f32, icon: Option<Icon>, s: &str, color: Rgba) -> f32 {
+    let style = Text::new(Font::Regular, size, color);
+    let iw = if icon.is_some() { size * 1.15 + size * 0.6 } else { 0.0 };
+    let w = cv.text_width(style, s) + size * 2.0 + iw;
+    let r = Rect::new(x, y, w, h);
+    let (focused, hover) = f.state(t, r);
+    if focused {
+        ring(cv, r, 8.0);
+    }
+    cv.rrect(x, y, w, h, 8.0, if hover { Rgba(227, 237, 240, 16) } else { Rgba(9, 13, 18, 120) });
+    cv.rrect_stroke(x, y, w, h, 8.0, 1.0, if hover { FAINT } else { LINE_2 });
+    let mut tx = x + size;
+    if let Some(i) = icon {
+        cv.icon(&i, tx, y + (h - size * 1.15) / 2.0, size * 1.15, 1.8, color);
+        tx += iw;
+    }
+    cv.text(tx, y + h / 2.0 + size * 0.36, style.color(if hover { FROST } else { color }), s);
+    w
+}
+
+/// Lien souligné (« Réglages de l'ordinateur ») ; rend sa largeur.
+pub fn link(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, size: f32, s: &str) -> f32 {
+    let style = Text::new(Font::Regular, size, MUTED);
+    let w = cv.text_width(style, s);
+    let r = Rect::new(x - 6.0, y - size * 1.1, w + 12.0, size * 1.6);
+    let (focused, hover) = f.state(t, r);
+    if focused {
+        ring(cv, r, 6.0);
+    }
+    let c = if hover || focused { FROST } else { MUTED };
+    cv.text(x, y, style.color(c), s);
+    cv.rect(x, y + size * 0.3, w, 1.0, c.alpha(0.7));
+    w
+}
+
+/// Pastille d'information (écran virtuel) ; rend sa largeur.
+pub fn info_chip(cv: &mut Canvas, x: f32, y: f32, h: f32, size: f32, icon: Icon, parts: &[(&str, bool)]) -> f32 {
+    let iw = size * 1.25;
+    let mut w = size * 1.0 + iw + size * 0.6;
+    for (s, mono) in parts {
+        let st = Text::new(if *mono { Font::Mono } else { Font::Regular }, if *mono { size * 0.92 } else { size }, MUTED);
+        w += cv.text_width(st, s);
+    }
+    w += size;
+    cv.rrect(x, y, w, h, 8.0, Rgba(9, 13, 18, 184));
+    cv.rrect_stroke(x, y, w, h, 8.0, 1.0, LINE_2);
+    cv.icon(&icon, x + size, y + (h - iw) / 2.0, iw, 1.6, MUTED);
+    let mut tx = x + size + iw + size * 0.6;
+    for (s, mono) in parts {
+        let st = Text::new(if *mono { Font::Mono } else { Font::Regular }, if *mono { size * 0.92 } else { size }, if *mono { FROST } else { MUTED });
+        tx += cv.text(tx, y + h / 2.0 + size * 0.36, st, s);
+    }
+    w
+}
+
+/// Interrupteur.
+pub fn toggle(cv: &mut Canvas, x: f32, y: f32, h: f32, on: bool, enabled: bool) {
+    let w = h * 1.7;
+    let a = if enabled { 1.0 } else { 0.45 };
+    cv.rrect(x, y, w, h, h / 2.0, if on { FLAT.alpha(a) } else { LINE_2.alpha(a) });
+    let r = h / 2.0 - h * 0.12;
+    let cx = if on { x + w - h / 2.0 } else { x + h / 2.0 };
+    cv.circle(cx, y + h / 2.0, r, Rgba(255, 255, 255, (255.0 * a) as u8));
+}
+
+/// Pastille d'état (en ligne, hors ligne, occupé).
+pub fn dot(cv: &mut Canvas, x: f32, y: f32, r: f32, c: Rgba, glow: bool) {
+    if glow {
+        cv.circle(x, y, r * 2.4, c.alpha(0.22));
+    }
+    cv.circle(x, y, r, c);
+}
+
+/// Un bouton de la manette, pour la légende : rond (A, B, X, Y) ou arrondi
+/// (L1, R1, ☰). Rend sa largeur.
+pub fn pad_glyph(cv: &mut Canvas, x: f32, cy: f32, size: f32, label: &str) -> f32 {
+    let round = label.chars().count() == 1 && label.chars().all(|c| c.is_ascii_alphabetic());
+    let style = Text::new(Font::MonoMedium, size * 0.46, FROST);
+    let drawn = label == "☰" || label == "⧉";
+    let w = if round || drawn { size } else { (cv.text_width(style, label) + size * 0.55).max(size) };
+    if round {
+        cv.rrect_stroke(x, cy - size / 2.0, size, size, size / 2.0, 1.5, MUTED);
+    } else {
+        cv.rrect_stroke(x, cy - size / 2.0, w, size, size * 0.27, 1.5, MUTED);
+    }
+    // Start (☰) et Select (⧉) : absents des polices de la charte, dessinés au trait.
+    let s = size * 0.36;
+    let (gx, gy) = (x + w / 2.0, cy);
+    match label {
+        "☰" => {
+            for dy in [-0.32f32, 0.0, 0.32] {
+                cv.line(gx - s * 0.55, gy + dy * s * 1.4, gx + s * 0.55, gy + dy * s * 1.4, 1.6, FROST);
+            }
+        }
+        "⧉" => {
+            cv.rrect_stroke(gx - s * 0.62, gy - s * 0.62, s * 0.85, s * 0.85, 1.5, 1.4, FROST);
+            cv.rrect_stroke(gx - s * 0.22, gy - s * 0.22, s * 0.85, s * 0.85, 1.5, 1.4, FROST);
+        }
+        _ => {
+            cv.text(gx, cy + size * 0.17, style.align(Align::Center), label);
+        }
+    }
+    w
+}
+
+/// Une entrée de la légende : boutons puis ce qu'ils font. Rend la largeur.
+pub fn legend(cv: &mut Canvas, x: f32, cy: f32, size: f32, keys: &[&str], s: &str) -> f32 {
+    let mut xx = x;
+    for k in keys {
+        xx += pad_glyph(cv, xx, cy, size, k) + size * 0.2;
+    }
+    xx += size * 0.15;
+    let w = cv.text(xx, cy + size * 0.2, Text::new(Font::Regular, size * 0.54, MUTED), s);
+    xx + w - x
+}
+
+/// Largeur d'une entrée de légende (pour l'aligner à droite).
+pub fn legend_width(cv: &mut Canvas, size: f32, keys: &[&str], s: &str) -> f32 {
+    let style = Text::new(Font::MonoMedium, size * 0.46, FROST);
+    let mut w = 0.0;
+    for k in keys {
+        let round = (k.chars().count() == 1 && k.chars().all(|c| c.is_ascii_alphabetic())) || *k == "☰" || *k == "⧉";
+        w += if round { size } else { (cv.text_width(style, k) + size * 0.55).max(size) } + size * 0.2;
+    }
+    w + size * 0.15 + cv.text_width(Text::new(Font::Regular, size * 0.54, MUTED), s)
+}
+
+/// Une carte d'ordinateur : nom, pastille d'état, deux lignes en Martian Mono.
+/// `dashed` : trouvé sur le réseau, pas encore ajouté.
+#[allow(clippy::too_many_arguments)]
+pub fn card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, scale: f32, name: &str, dot_color: Option<Rgba>, badge: Option<&str>, lines: &[&str], selected: bool, dashed: bool, dim: bool) {
+    let (focused, hover) = f.state(t, r);
+    if focused {
+        ring(cv, r, 10.0 * scale);
+    }
+    cv.rrect(r.x, r.y, r.w, r.h, 10.0 * scale, if hover { Rgba(20, 27, 35, 235) } else { CARD });
+    if selected {
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * scale, 1.5, SPECTRE);
+        cv.rrect_stroke(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0, 13.0 * scale, 3.0, HALO.alpha(0.22));
+    } else if dashed {
+        cv.rrect_dashed(r.x, r.y, r.w, r.h, 10.0 * scale, 1.0, LINE_2);
+    } else {
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 10.0 * scale, 1.0, LINE);
+    }
+    let pad = 15.0 * scale;
+    let name_style = Text::new(Font::Semibold, 15.5 * scale, if dim { MUTED } else { FROST });
+    let right = r.x + r.w - pad;
+    let mut name_max = r.w - 2.0 * pad - 14.0 * scale;
+    if let Some(b) = badge {
+        let bs = Text::new(Font::Mono, 9.5 * scale, SPECTRE).tracking(scale);
+        let bw = cv.text(right, r.y + pad + 12.0 * scale, bs.align(Align::Right), &b.to_uppercase());
+        name_max -= bw + 8.0 * scale;
+    }
+    cv.text_fit(r.x + pad, r.y + pad + 13.0 * scale, name_style, name, name_max);
+    if let Some(c) = dot_color {
+        dot(cv, right - 4.0 * scale, r.y + pad + 8.0 * scale, 4.0 * scale, c, false);
+    }
+    let mono = Text::new(Font::Mono, 10.5 * scale, if dim { GHOST } else { FAINT });
+    let mut yy = r.y + r.h - pad - (lines.len().saturating_sub(1)) as f32 * 16.0 * scale;
+    for l in lines {
+        cv.text_fit(r.x + pad, yy, mono, l, r.w - 2.0 * pad);
+        yy += 16.0 * scale;
+    }
+}
+
+/// Un panneau d'encre translucide (mesures de l'accueil, Prêt à jouer) :
+/// lisible quelle que soit l'image derrière.
+pub fn panel(cv: &mut Canvas, r: Rect, radius: f32) {
+    cv.rrect(r.x, r.y, r.w, r.h, radius, PANEL);
+    cv.rrect_stroke(r.x, r.y, r.w, r.h, radius, 1.0, LINE);
+}

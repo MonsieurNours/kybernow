@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## À venir
+
+- **KyberNow Link arrive sur Linux, le Steam Deck et SteamOS.** Une seule app, trois interfaces : le bureau (GNOME, KDE : fenêtre, souris et clavier, barre de session en haut), le Steam Deck et les consoles portables en mode Jeu (tout à la manette, lancement animé, menu de session par L1 + R1 + Start + Select ou un toucher en haut de l'écran, clavier de Steam) et SteamOS au salon (même interface à trois mètres, colonne « Prêt à jouer »). Image décodée par la carte graphique (VA-API) ou le processeur, **fréquence variable** quand l'écran la permet, son stéréo, 5.1 ou 7.1, quatre manettes avec vibrations, souris des jeux, presse-papiers. Paquet Flatpak (`KyberNow-Link-Linux-x86_64.flatpak`, et `aarch64`), à installer sans droits d'administrateur (`apps/linux/INSTALLATION.md`) ; pas encore essayé en session sur le Steam Deck.
+
 ## 0.4.6
 
 - **KyberNow Link sur les téléviseurs LG, essayé de bout en bout** (OLED G2, webOS 26) : image jusqu'à la 4K à 120 Hz, manettes, Magic Remote. L'app est jointe à chaque version (`KyberNow-Link-webOS.ipk`, installée en mode développeur depuis l'ordinateur) et signale les nouvelles versions (« Version X disponible », vérifiées par leur signature ; stables ou aussi les bêtas). Les ordinateurs ajoutés et le journal sont gardés hors du dossier de l'app (`/media/developer/temp/kybernow`) : ils survivent au redémarrage et à la réinstallation.

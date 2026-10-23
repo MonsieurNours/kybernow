@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## Coming next
+
+- **KyberNow Link comes to Linux, the Steam Deck and SteamOS.** One app, three interfaces: desktop (GNOME, KDE: window, mouse and keyboard, session bar at the top), the Steam Deck and handheld consoles in Gaming Mode (all by controller, animated launch, session menu by L1 + R1 + Start + Select or a touch at the top of the screen, Steam keyboard) and SteamOS in the living room (the same interface at ten feet, "Ready to play" column). Picture decoded by the GPU (VA-API) or the CPU, **variable refresh rate** when the display allows it, stereo, 5.1 or 7.1 sound, four controllers with rumble, game mouse, clipboard. Flatpak package (`KyberNow-Link-Linux-x86_64.flatpak`, and `aarch64`), installed without administrator rights (`apps/linux/INSTALLATION.en.md`); not yet tried in a session on the Steam Deck.
+
 ## 0.4.6
 
 - **KyberNow Link on LG TVs, tried end to end** (OLED G2, webOS 26): picture up to 4K at 120 Hz, gamepads, Magic Remote. The app is attached to every release (`KyberNow-Link-webOS.ipk`, installed in developer mode from the computer) and announces new versions ("Version X available", verified by their signature; stable or betas too). Added computers and the log are kept outside the app's folder (`/media/developer/temp/kybernow`): they survive reboots and reinstalls.

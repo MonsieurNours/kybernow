@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=KyberNow Link
+GenericName=Streaming de votre ordinateur
+GenericName[en]=Stream your computer
+Comment=Votre ordinateur sur tous vos appareils
+Comment[en]=Your computer on all your devices
+Exec=kybernow
+Icon=fr.leslignesclaires.kybernow
+Terminal=false
+Categories=Game;Network;RemoteAccess;
+Keywords=stream;streaming;remote;desktop;game;kyber;kybernow;
+StartupNotify=true
+StartupWMClass=fr.leslignesclaires.kybernow
+PrefersNonDefaultGPU=false

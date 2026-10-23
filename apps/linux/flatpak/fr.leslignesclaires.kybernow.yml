@@ -1,0 +1,58 @@
+# KyberNow Link pour Linux, le Steam Deck et SteamOS, en Flatpak.
+# Construit par apps/linux/scripts/flatpak.sh (sources assemblées par
+# sources.sh dans le dossier `src` à côté de ce fichier) ; voir apps/linux/README.md.
+app-id: fr.leslignesclaires.kybernow
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.llvm20
+command: kybernow
+finish-args:
+  # Admin, Kyber (QUIC), annonce Bonjour des Stations.
+  - --share=network
+  - --share=ipc
+  # SDL2 prend X11 (Xwayland sous GNOME et KDE, gamescope sur le Steam Deck).
+  - --socket=x11
+  - --socket=wayland
+  - --socket=pulseaudio
+  # Carte graphique (VA-API, VRR) et manettes (/dev/input, hidraw).
+  - --device=all
+  # Veille de l'écran suspendue pendant la session.
+  - --talk-name=org.freedesktop.ScreenSaver
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin
+  prepend-ld-library-path: /usr/lib/sdk/llvm20/lib
+  env:
+    CARGO_HOME: /run/build/kybernow/cargo
+    LIBCLANG_PATH: /usr/lib/sdk/llvm20/lib
+  # cargo et FFmpeg se téléchargent pendant la construction.
+  build-args:
+    - --share=network
+modules:
+  # libkynput (client seul) et FFmpeg réduit au décodage, dans un préfixe
+  # retiré à la fin : un module à part, mis en cache tant que Kyber ne change pas.
+  - name: kybernow-deps
+    buildsystem: simple
+    build-commands:
+      - apps/linux/scripts/build.sh --deps-only --prefix /app/lib/kybernow-sdk
+    cleanup:
+      - /lib/kybernow-sdk
+    sources:
+      - type: dir
+        path: src-deps
+
+  - name: kybernow
+    buildsystem: simple
+    build-commands:
+      - apps/linux/scripts/build.sh --prefix /app/lib/kybernow-sdk --install /app
+      - install -Dm644 apps/linux/flatpak/fr.leslignesclaires.kybernow.desktop /app/share/applications/fr.leslignesclaires.kybernow.desktop
+      - install -Dm644 apps/linux/flatpak/fr.leslignesclaires.kybernow.metainfo.xml /app/share/metainfo/fr.leslignesclaires.kybernow.metainfo.xml
+      - install -Dm644 brand/v2/app-icon/kybernow-link-1024.svg /app/share/icons/hicolor/scalable/apps/fr.leslignesclaires.kybernow.svg
+      - install -Dm644 apps/linux/flatpak/icon-256.png /app/share/icons/hicolor/256x256/apps/fr.leslignesclaires.kybernow.png
+      - install -Dm644 third_party/kyber-desktop/COPYING.AGPLv3 /app/share/licenses/fr.leslignesclaires.kybernow/COPYING.AGPLv3
+      - install -Dm644 apps/linux/flatpak/LICENSES.md /app/share/licenses/fr.leslignesclaires.kybernow/LICENSES.md
+    sources:
+      - type: dir
+        path: src

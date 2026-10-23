@@ -28,3 +28,6 @@ apps/android/local.properties
 
 # App webOS : paquets .ipk (scripts/package.sh)
 apps/webos/dist/
+
+# App Linux : paquets Flatpak (scripts/flatpak.sh)
+apps/linux/dist/
