@@ -1,8 +1,8 @@
-# KyberNow Link pour Linux, le Steam Deck et SteamOS
+# KyberNow Link pour Linux, le Steam Deck, SteamOS et le Raspberry Pi
 
 [English](README.en.md) · Français
 
-KyberNow Link sur Linux : une app **native** sur le cœur Rust des autres apps Link (`apps/core`), qui retrouve l'ordinateur (KyberNow Station : serveur Kyber 0.29 + KyberNow Admin) en plein écran, au clavier et à la souris ou à la manette. Une seule app, trois interfaces d'après les maquettes ([Claude Design](https://claude.ai/artifact/MgBJNBJ4WEMFvVB6Ujfxhc)) :
+KyberNow Link sur Linux : une app **native** sur le cœur Rust des autres apps Link (`apps/core`), qui retrouve l'ordinateur (KyberNow Station : serveur Kyber 0.29 + KyberNow Admin) en plein écran, au clavier et à la souris ou à la manette. Une seule app, trois interfaces d'après les maquettes ([Claude Design](https://claude.ai/artifact/MgBJNBJ4WEMFvVB6Ujfxhc) ; Raspberry Pi : https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft) :
 
 - **Bureau** (GNOME, KDE…) : fenêtre sans bordure avec sa barre de titre, souris et clavier, réglages en segments, barre de session en haut ;
 - **Portable** (Steam Deck et consoles sous gamescope, 1280 × 800) : tout au focus et à la manette, légende des boutons, lancement animé ;
@@ -10,14 +10,14 @@ KyberNow Link sur Linux : une app **native** sur le cœur Rust des autres apps L
 
 Sous gamescope, l'app prend la console (portable jusqu'à 1280 × 800, salon au-delà), ailleurs le bureau ; Réglages de l'app › Interface, `--ui desktop|handheld|tv` ou `KYBERNOW_UI` la forcent. Installation : [INSTALLATION.md](INSTALLATION.md). La décision est dans [PROJECT.md](../../PROJECT.md) (« Client Linux, Steam Deck et SteamOS »).
 
-**État (23/10/2026)** : écrite, compilée (x86_64 et aarch64) et lancée sur un Linux de bureau (Ubuntu 24.04 sous GNOME, en machine virtuelle) : accueil, réglages, lancement, découverte des Stations ; pas encore essayée en session, ni sur le Steam Deck.
+**État (23/10/2026)** : écrite, compilée (x86_64 et aarch64) et lancée sur un Linux de bureau (Ubuntu 24.04 sous GNOME, en machine virtuelle) : accueil, réglages, lancement, découverte des Stations ; pas encore essayée en session, ni sur le Steam Deck. **Raspberry Pi** (jalon 1, 23/10/2026) : détection du Pi, décodeurs V4L2, accueil et réglages d'après les maquettes, paquet .deb construit dans la VM ; pas encore essayée sur une carte (voir « Raspberry Pi »).
 
 ## Ce que fait l'app
 
 - **Lancement** (console) : la séquence de l'iPhone et de l'iPad (symbole éteint, grésillement, nom et signature, puis l'accueil reprend le symbole) ; A ou B la sautent.
 - **Accueil** (`src/ui/home.rs`) : l'ordinateur choisi en plein cadre (la dernière image de la dernière session, sinon l'aperçu d'Admin, sinon sa signature), son état, l'écran virtuel qui l'attend (« 1280 × 800 · 90 Hz, comme le Deck », VRR), « Se connecter » et les profils ; sur le bureau la dernière session (latence sur la règle d'une image), au salon « Prêt à jouer » (manettes, son, écran, décodeurs), tous deux sur un panneau d'encre ; en bas les ordinateurs, ceux trouvés sur le réseau et l'ajout. À la manette, ‹ › sur « Se connecter » changent d'ordinateur.
 - **Ajout** (`src/ui/pair.rs`) : code à six chiffres présenté à chaque Station trouvée (mDNS `_kybernow._tcp`) et accepté dans Admin › Appareils Link ; ou adresse et port d'Admin (clavier, clavier de Steam ou pavé à la manette), puis les quatre premiers groupes de l'empreinte à comparer.
-- **Réglages** (`src/ui/settings.rs`) : par ordinateur, profil ; écran (comme cet écran, 4K, 1440p, 1080p, 800p, 720p), fréquence, format (ceux que la carte décode), couleurs 4:4:4 (en option, HEVC), **affichage** (Auto, synchronisé, immédiat, fréquence variable), débit, écran virtuel, alléger sur batterie ; son (Auto, stéréo, 5.1, 7.1, sur l'ordinateur) ; manette vue par l'ordinateur, combinaison, test des manettes ; souris (Auto, bureau, jeu), presse-papiers ; transport, reconnexion ; compte, retirer. Réglages de l'app : interface, langue, dernière image, versions proposées. « Cet ordinateur » / « Cet appareil » dit ce que l'app a trouvé.
+- **Réglages** (`src/ui/settings.rs`) : sur le bureau, d'après la maquette Raspberry : à gauche le profil (une rangée de boutons), les rubriques et la carte « Cet appareil » ; à droite la rubrique choisie, un champ par réglage (libellé, segments et leurs étiquettes « VA-API », « décodeur du Pi », « processeur », valeurs indisponibles barrées, aide) ; fil d'Ariane dans la barre de titre (logo › ordinateur › Réglages, l'ordinateur ramène à l'accueil). Par ordinateur, profil ; écran (comme cet écran, 4K, 1440p, 1080p, 800p, 720p), fréquence, format (ceux que la carte décode), couleurs 4:4:4 (en option, HEVC), **affichage** (Auto, synchronisé, immédiat, fréquence variable), débit, écran virtuel, alléger sur batterie ; son (Auto, stéréo, 5.1, 7.1, sur l'ordinateur) ; manette vue par l'ordinateur, combinaison, test des manettes ; souris (Auto, bureau, jeu), presse-papiers ; transport, reconnexion ; compte, retirer. Réglages de l'app : interface, langue, dernière image, versions proposées. « Cet ordinateur » / « Cet appareil » dit ce que l'app a trouvé.
 - **Session** (`src/ui/session.rs`, `src/device/`) : passage (la couture, le néon, les étapes, Annuler) ; image plein cadre ; **bureau** : barre en haut à l'approche du pointeur (latence et courbe, définition, images par seconde, décodeur, profil, touches, souris, plein écran, Quitter) ; **console** : menu à la manette (santé du flux, tuiles : Reprendre, profils, son, manette en souris, clavier de Steam, touches, mesures, alléger ou manettes, Se déconnecter) ; mesures par-dessus l'image ; capsules (souris des jeux, manette branchée, reconnexion) ; fin sur erreur.
 
 ## Image, fréquence variable et décodage
@@ -27,6 +27,17 @@ Sous gamescope, l'app prend la console (portable jusqu'à 1280 × 800, salon au-
 - **Fréquence variable (VRR)** : l'app lit la propriété `vrr_capable` des écrans branchés par DRM (`src/native/display.c`, libdrm, lecture seule). Affichage Auto : si l'écran l'annonce, chaque image est montrée dès qu'elle est décodée (sans attendre la synchro verticale) et le compositeur (gamescope, KWin, Mutter) cale l'écran sur la cadence du flux ; sinon synchronisé. Synchronisé, Immédiat et Fréquence variable se forcent dans les réglages. Le Steam Deck (LCD et OLED) n'a pas de VRR ; un écran ou un téléviseur branché au dock peut l'avoir.
 - **Mode de la session** : celui de l'écran (« comme cet écran ») ou la hauteur choisie, à la fréquence de l'écran ou choisie ; sur batterie avec « Alléger », 60 i/s et 20 Mbit/s au plus.
 - **Mode jeu du téléviseur (ALLM)** : géré par le compositeur (gamescope), pas par l'app.
+
+## Raspberry Pi
+
+La même app, sur Raspberry Pi OS (Debian 13 « trixie », arm64), en paquet `.deb` ; cadrage dans [PROJECT.md](../../PROJECT.md) (« Client Raspberry Pi »), maquettes : https://claude.ai/artifact/6crVeg3QyrA5vs8TRhWRft. Le second livrable, l'image « KyberNow Link OS » à flasher, viendra ensuite.
+
+- **Détection** (`src/device/system.rs`, `pi()`) : l'arbre des périphériques (`/proc/device-tree/model` → « Raspberry Pi 5 », « Compute Module 5 », « Raspberry Pi 3 B+ » ; `compatible` → génération 5 : BCM2712, 4 : BCM2711, 3 : BCM2837), la mémoire (`/proc/meminfo`, arrondie au Go), les décodeurs V4L2 (`/sys/class/video4linux/*/name` : `rpivid` pour le HEVC des Pi 4 et 5, `bcm2835-codec` pour le H.264 des Pi 3 et 4), la température (zone thermique 0, relue toutes les 5 s), le système (« Raspberry Pi OS (Trixie) », d'après `/etc/rpi-issue`). Les modes de l'écran branché sont lus par DRM (`display.c`, `kn_modes_probe`) : fréquence la plus haute en 1080p et plus grand mode.
+- **Ce que la sortie permet** (`Pi` dans `app.rs`) : 4K à 60 Hz au plus sur les Pi 4 et 5 (HDMI 2.0), 1080p avant ; 1080p à 120 Hz si l'écran l'annonce (à vérifier sur le matériel) ; pas de VRR. Les choix d'écran, de fréquence et de format au-delà sont grisés (barrés) ; les étiquettes disent qui décode ; le 4:4:4 passe au processeur (1080p au plus) ; les aides expliquent (« 4K seulement en HEVC, décodé par le Pi. Au-delà de 1080p, le H.264 passe par le processeur et saccade »).
+- **Accueil** : le panneau « Ce Raspberry Pi » remplace « Dernière session » (décodeurs, écran et sortie HDMI, son, réseau avec la latence de la dernière session) ; la légende dit « Cet appareil : Raspberry Pi 5 · 8 Go · Raspberry Pi OS (Trixie) · HEVC par le décodeur du Pi · PipeWire » ; la version porte l'architecture (« 0.4.8 · aarch64 »). Captures : `--preview` produit `rpi-01-accueil.png`, `rpi-07-reglages-image.png`… (machine simulée).
+- **Décodage** (`decoder.c`, mode `KN_HW_V4L2`) : HEVC par le hwaccel `hevc_v4l2request` du FFmpeg de Raspberry Pi ([jc-kynesim/rpi-ffmpeg](https://github.com/jc-kynesim/rpi-ffmpeg), branche `dev/7.1.1/rpi_import_1`, compilé par `build.sh --rpi` avec `--enable-v4l2-request --enable-sand --enable-libudev`), périphérique DRM (`/dev/dri/card0`), images `DRM_PRIME` au format SAND recopiées en NV12 linéaire par `av_hwframe_transfer_data` (une copie par image ; la voie sans copie, SAND posé sur un plan DRM, viendra avec l'image OS) ; H.264 par le décodeur `h264_v4l2m2m` (M2M, dans tout FFmpeg Linux : `--enable-v4l2-m2m`), images en mémoire. En cas de refus ou d'erreurs en boucle, le processeur décode. Le FFmpeg officiel (Flatpak) n'a pas le hwaccel V4L2 request : le Flatpak aarch64 sur un Pi décode le HEVC par le processeur.
+- **Paquet** (`scripts/deb.sh`, sur un Linux arm64 : la VM, ou un Pi) : `build.sh --rpi --install`, lanceur, fiche AppStream, icônes, licences, dépendances lues sur le binaire (`dpkg-shlibdeps`), `dpkg-deb` → `dist/KyberNow-Link-RaspberryPi-arm64.deb` (publié avec chaque version, `release-flatpaks.sh` le construit dans la VM après les Flatpak) et `kybernow-link_<version>_arm64.deb`. **Dépôt apt** (`scripts/apt-repo.sh`) : `pool/` et `dists/stable/` (`dpkg-scanpackages`, `apt-ftparchive`), signé si `KYBERNOW_APT_GPG_KEY` nomme une clé GPG (clé publique exportée en `kybernow.gpg`) ; à publier sur un site statique (www.kybernow.app/apt, par exemple). L'app en .deb cherche sa mise à jour dans `KyberNow-Link-RaspberryPi-arm64.deb` de la version publiée et la signale ; par le dépôt, `apt upgrade` l'installe.
+- **Pas encore vérifié sur une carte** (aucun Raspberry Pi disponible ; tout est compilé dans la VM Ubuntu ARM64) : le décodeur HEVC (API request, format SAND, latence image par image), la sortie 1080p à 120 Hz, le son HDMI multicanal, les manettes Bluetooth, le paquet sur Raspberry Pi OS Trixie (dépendances calculées sur Ubuntu 24.04 : mêmes noms de paquets, `libssl3t64`, `libsdl2-2.0-0`…).
 
 ## Son
 
@@ -53,9 +64,9 @@ apps/linux/
 │   │                    manettes, session ; logo tracé depuis la géométrie de la charte
 │   ├── device/          SDL (fenêtre, événements, son), session (Platform du cœur), image
 │   │                    (FFmpeg), machine (DMI, VA-API, DRM), manettes, tâches de fond, journal
-│   └── native/          decoder.c (FFmpeg, VA-API), display.c (VRR par DRM)
+│   └── native/          decoder.c (FFmpeg : VA-API, V4L2 du Pi), display.c (VRR et modes par DRM)
 ├── flatpak/             manifeste, .desktop, AppStream, icône, licences
-└── scripts/             build.sh, sources.sh, flatpak.sh, preview.sh
+└── scripts/             build.sh (--rpi), sources.sh, flatpak.sh, release-flatpaks.sh, deb.sh, apt-repo.sh
 ```
 
 - **Interface** : dessinée en mémoire en *points* (ceux des maquettes : 1280 × 800 pour le bureau et le Deck, 1920 × 1080 pour le salon), multipliés par l'échelle de l'écran (HiDPI) ; le logo signé est tracé depuis les chemins de `brand/v2` (comme `Mark.svelte` de l'app Windows), net à toute taille.
@@ -78,8 +89,13 @@ apps/linux/scripts/build.sh                    # → apps/target/release/kyberno
 apps/linux/scripts/flatpak.sh                  # → apps/linux/dist/KyberNow-Link-Linux-<arch>.flatpak
 apps/linux/scripts/flatpak.sh x86_64           # depuis une machine ARM : Rosetta ou qemu-user-static
 
-# Depuis le Mac, les deux dans la VM « KyberNow Linux » (ce que fait release.sh) :
+# Depuis le Mac, les deux Flatpak puis le .deb du Pi dans la VM « KyberNow Linux » (ce que fait release.sh) :
 apps/linux/scripts/release-flatpaks.sh [--check] [DOSSIER]
+
+# Raspberry Pi, sur un Linux arm64 (la VM, ou un Pi ; libudev-dev en plus) :
+apps/linux/scripts/build.sh --rpi              # FFmpeg de Raspberry Pi, décodeur HEVC V4L2 request
+apps/linux/scripts/deb.sh                      # → apps/linux/dist/KyberNow-Link-RaspberryPi-arm64.deb
+apps/linux/scripts/apt-repo.sh [DOSSIER]       # → dist/apt (dépôt à publier ; KYBERNOW_APT_GPG_KEY pour signer)
 ```
 
 `build.sh` applique les correctifs client de Kyber, compile libkynput (`cargo cinstall`, statique) et FFmpeg 7.1.1 réduit au décodage (VA-API) dans un préfixe, puis l'app. `sources.sh` assemble les seules sources utiles (une centaine de mégaoctets au lieu des compilations de Kyber), que `flatpak.sh` donne à flatpak-builder en deux modules : les dépendances (en cache tant que Kyber ne change pas), puis l'app. Les sources de Kyber 0.29 vont dans `third_party/kyber-desktop` (voir [docs/build-notes.md](../../docs/build-notes.md)).
@@ -92,3 +108,4 @@ apps/linux/scripts/release-flatpaks.sh [--check] [DOSSIER]
 - Sur un Linux de bureau avec une carte AMD ou Intel : VA-API en HEVC et AV1, VRR sur un écran FreeSync, souris des jeux sous Xwayland.
 - Import DMA-BUF des images VA-API (sans copie) pour la 4K à 120 Hz ; NVIDIA (NVDEC par FFmpeg).
 - Un dépôt Flatpak ou Flathub, pour que les mises à jour s'installent seules.
+- Raspberry Pi : essayer sur une carte (Pi 5 d'abord) le décodeur HEVC V4L2 request, le H.264 M2M sur Pi 4, le paquet sur Raspberry Pi OS Trixie, la sortie 1080p 120 Hz ; publier le dépôt apt (clé GPG, hébergement) ; la voie sans copie (SAND sur un plan DRM) ; puis le second livrable, l'image « KyberNow Link OS » (pi-gen, KMS/DRM, A/B, CEC, premier démarrage à la manette).

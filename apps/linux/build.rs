@@ -18,6 +18,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/native");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG_PATH");
     println!("cargo:rerun-if-env-changed=KYBERNOW_PREFIX");
+    println!("cargo:rerun-if-env-changed=KYBERNOW_V4L2_REQUEST");
     if env::var("CARGO_FEATURE_DEVICE").is_err() {
         return;
     }
@@ -46,6 +47,8 @@ fn main() {
     let prefix = PathBuf::from(env::var("KYBERNOW_PREFIX").expect("KYBERNOW_PREFIX (posé par apps/linux/scripts/build.sh)"));
     let va = pkg_config::Config::new().cargo_metadata(false).probe("libva").expect("libva introuvable (pkg-config libva)");
     let drm = pkg_config::Config::new().cargo_metadata(false).probe("libdrm").expect("libdrm introuvable (pkg-config libdrm)");
+    // Le FFmpeg de Raspberry Pi (build.sh --rpi) : hwaccel HEVC V4L2 request, avec libudev.
+    let v4l2_request = env::var("KYBERNOW_V4L2_REQUEST").is_ok_and(|v| v == "1");
     let mut native = cc::Build::new();
     native
         .file("src/native/decoder.c")
@@ -54,6 +57,9 @@ fn main() {
         .flag_if_supported("-Wno-deprecated-declarations")
         .opt_level(2)
         .cargo_metadata(false);
+    if v4l2_request {
+        native.define("KN_V4L2_REQUEST", None);
+    }
     for p in va.include_paths.iter().chain(drm.include_paths.iter()) {
         native.include(p);
     }
@@ -66,6 +72,9 @@ fn main() {
     println!("cargo:rustc-link-arg=-lva");
     println!("cargo:rustc-link-arg=-lva-drm");
     println!("cargo:rustc-link-arg=-ldrm");
+    if v4l2_request {
+        println!("cargo:rustc-link-arg=-ludev");
+    }
     println!("cargo:rustc-link-arg=-lm");
     println!("cargo:rustc-link-arg=-lpthread");
     // aarch64 : GCC compile les opérations atomiques de FFmpeg en appels à

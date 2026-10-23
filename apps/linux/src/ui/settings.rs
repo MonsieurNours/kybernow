@@ -1,16 +1,18 @@
-//! Réglages, d'après les maquettes : sur le bureau, l'ordinateur à gauche
-//! (et « Cet ordinateur »), les réglages en lignes à droite avec leurs
-//! segments ; à la manette (Deck, salon), les rubriques à gauche, les valeurs
-//! ‹ › à droite, la légende en bas. Les lignes viennent de `App::rows`,
-//! les mêmes pour les trois interfaces.
+//! Réglages, d'après les maquettes : sur le bureau, la colonne de gauche porte
+//! le profil (une rangée de boutons), les rubriques et « Cet appareil » ; à
+//! droite, la rubrique choisie, un champ par réglage (libellé, segments avec
+//! leurs étiquettes, aide). À la manette (Deck, salon), les rubriques à
+//! gauche, les valeurs ‹ › à droite, la légende en bas. Les lignes viennent de
+//! `App::rows`, les mêmes pour les trois interfaces.
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
-use super::icons::Icon;
+use super::home::{gbit, profile_label};
 use super::theme::*;
-use super::widgets::{self, eyebrow, legend, segments};
+use super::widgets::{self, eyebrow, legend, nav_button, segments_tagged, tag, tag_width};
 use super::{launch, title_bar, unit, Frame};
-use crate::app::{App, Layout, Machine, Rect, Row, RowKind, Section, Target};
+use crate::app::{App, Layout, Machine, NetKind, Rect, Row, RowKind, Section, Target};
 use crate::i18n::tr;
+use crate::model::Profile;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     if app.layout == Layout::Desktop { desktop(app, cv, f) } else { console(app, cv, f) }
@@ -46,8 +48,9 @@ fn machine_lines(m: &Machine) -> Vec<(String, bool)> {
     if m.hw_hevc444 {
         dec.push("4:4:4");
     }
-    if m.vaapi && !dec.is_empty() {
-        v.push((format!("{} {} {}", tr("Décode", "Decodes"), dec.join(", "), tr("par VA-API", "via VA-API")), true));
+    if (m.vaapi || m.pi.is_some()) && !dec.is_empty() {
+        let by = if m.pi.is_some() { tr("par le décodeur du Pi", "by the Pi's decoder") } else { tr("par VA-API", "via VA-API") };
+        v.push((format!("{} {} {}", tr("Décode", "Decodes"), dec.join(", "), by), true));
         let mut cpu = Vec::new();
         if !m.hw_av1 {
             cpu.push(tr("AV1 : non", "AV1: no"));
@@ -75,153 +78,210 @@ fn machine_lines(m: &Machine) -> Vec<(String, bool)> {
 
 // MARK: - Bureau
 
+/// La carte « Cet appareil » de la colonne : un titre (le modèle) et des
+/// lignes en Martian Mono. Sur le Pi, comme la maquette : mémoire et système,
+/// sortie HDMI, réseau et température.
+fn device_card(app: &App) -> (&'static str, String, Vec<String>) {
+    let m = &app.machine;
+    if let Some(p) = &m.pi {
+        let net = match (app.net.kind, app.net.link_mbps) {
+            (NetKind::Ethernet, Some(mb)) => format!("Ethernet {}", gbit(mb)),
+            (NetKind::Ethernet, None) => "Ethernet".into(),
+            (NetKind::Wifi, _) => match &app.net.band {
+                Some(b) => format!("Wi‑Fi {b}"),
+                None => "Wi‑Fi".into(),
+            },
+            _ => tr("Réseau", "Network").into(),
+        };
+        let temp = m.temp_c.map(|t| format!(" · {} °C", t.round() as i32)).unwrap_or_default();
+        let lines = vec![
+            format!("{} {} · {}", p.ram_gb, tr("Go", "GB"), m.os),
+            format!("{} · {} {} Hz {}", p.hdmi(), Machine::height_label(p.max_height()), m.max_hz(p.max_height()), tr("au plus", "at most")),
+            format!("{net}{temp}"),
+        ];
+        return (tr("Cet appareil", "This device"), p.model.clone(), lines);
+    }
+    let lines = machine_lines(m);
+    if m.model.is_empty() {
+        // Sans modèle, le système fait le titre ; le bureau prend la première ligne.
+        let mut rest: Vec<String> = lines.into_iter().skip(1).map(|(l, _)| l).collect();
+        if !m.desktop.is_empty() {
+            rest.insert(0, m.desktop.clone());
+        }
+        (tr("Cet ordinateur", "This computer"), m.os.clone(), rest)
+    } else {
+        (tr("Cet ordinateur", "This computer"), m.model.clone(), lines.into_iter().map(|(l, _)| l).filter(|l| *l != m.model).collect())
+    }
+}
+
+/// La phrase sous le titre de la rubrique : le profil et l'ordinateur, puis
+/// ce que règle la rubrique.
+fn subtitle(app: &App, s: Section) -> String {
+    let lead = match app.selected() {
+        Some(h) if !app.settings_global => format!("{} {} {} {}. ", tr("Profil", "Profile"), profile_label(h.settings.profile), tr("sur", "on"), h.name),
+        _ => String::new(),
+    };
+    let who = if app.machine.pi.is_some() { tr("ce Raspberry Pi", "this Raspberry Pi") } else { tr("cet ordinateur", "this computer") };
+    let rest: String = match s {
+        Section::Picture => format!("{} {} {}", tr("Les choix grisés dépassent ce que", "Greyed-out choices go beyond what"), who, tr("sait décoder ou afficher.", "can decode or display.")),
+        Section::Sound => tr("Le son de l'ordinateur sort sur cet appareil ; Auto suit la sortie en service.", "The computer's sound plays on this device; Auto follows the output in use.").into(),
+        Section::Controllers => tr("Jusqu'à quatre manettes, vues par l'ordinateur comme vous le choisissez.", "Up to four controllers, seen by the computer as you choose.").into(),
+        Section::Inputs => tr("La souris et le clavier de cet appareil, envoyés à l'ordinateur.", "This device's mouse and keyboard, sent to the computer.").into(),
+        Section::Network => tr("Comment les paquets voyagent, et ce que fait l'app quand le réseau coupe.", "How packets travel, and what the app does when the network drops.").into(),
+        Section::Account => tr("Le compte de cet appareil sur l'ordinateur, accordé par le code.", "This device's account on the computer, granted by the code.").into(),
+        Section::App => tr("Langue, interface et mises à jour de l'app sur cet appareil.", "Language, interface and updates of the app on this device.").into(),
+        Section::Gamepads => tr("Les manettes que voit cet appareil.", "The controllers this device sees.").into(),
+        Section::Profile => String::new(),
+    };
+    format!("{lead}{rest}")
+}
+
 fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame) {
     let (w, h) = (cv.w, cv.h);
     cv.clear(INK_BG);
     let top = if app.fullscreen { 0.0 } else { 40.0 };
-    let aside = 380.0f32.min(w * 0.34);
-    // Les lignes d'abord (elles défilent sous la barre de titre).
-    let mx = aside + 48.0;
-    let mw = w - mx - 48.0;
-    let sections = app.sections();
-    let mut y = top + 44.0 - app.scroll;
-    let start = y;
-    for (i, s) in sections.iter().enumerate() {
-        if *s == Section::Gamepads && app.settings_global {
-            // Les manettes : une ligne dans la rubrique de l'app.
-        }
-        let rows = app.rows(*s);
-        if rows.is_empty() {
-            continue;
-        }
-        if i > 0 {
-            y += 22.0;
-        }
-        eyebrow(cv, mx, y + 13.0, 13.0, SPECTRE, s.label());
-        y += 20.0;
-        let n = rows.len();
-        for (j, r) in rows.iter().enumerate() {
-            y += row_desktop(app, cv, f, r, mx, y, mw, j + 1 == n);
-        }
+    let nav_w = 232.0;
+    let mx = nav_w + 40.0;
+    let mw = w - mx - 40.0;
+    let section = app.current_section();
+    // La rubrique d'abord : elle défile sous l'en-tête et la colonne.
+    let mut y = top + 28.0 - app.scroll;
+    cv.text_shrink(mx - 1.0, y + 25.0, Text::new(Font::Display, 28.0, FROST).tracking(-0.3), section.label(), mw);
+    y += 38.0;
+    y += cv.paragraph(mx, y + 13.0, Text::new(Font::Regular, 13.0, FAINT), &subtitle(app, section), mw, 19.0) + 2.0;
+    let rows = app.rows(section);
+    let n = rows.len();
+    for (i, r) in rows.iter().enumerate() {
+        y += field(cv, f, r, mx, y, mw, i + 1 == n);
     }
-    let content = y - start + 40.0;
-    let _ = content;
-    // La colonne de gauche, par-dessus.
-    cv.rect(0.0, top, aside, h - top, INK_BG);
-    cv.glow(aside * 0.2, top + 40.0, aside * 1.2, 300.0, Rgba::hex(0x7A5CFF).alpha(0.22));
-    cv.rect(aside - 1.0, top, 1.0, h - top, LINE);
-    let ax = 40.0;
-    let mut ay = top + 44.0;
-    widgets::ghost(cv, f, Target::Back, ax, ay, 40.0, 14.0, Some(Icon::Back), if app.back_to == crate::app::Screen::Session { tr("Session", "Session") } else { tr("Accueil", "Home") }, MUTED);
-    ay += 66.0;
-    eyebrow(cv, ax, ay, 11.0, FAINT, if app.settings_global { tr("Réglages de l'app", "App settings") } else { tr("Réglages de l'ordinateur", "Computer settings") });
-    ay += 46.0;
-    cv.text_shrink(ax - 1.0, ay, Text::new(Font::Display, 40.0, FROST).tracking(-0.8), &title(app), aside - 2.0 * ax);
-    ay += 26.0;
-    let mono = Text::new(Font::Mono, 12.0, MUTED);
+
+    // La colonne, par-dessus.
+    cv.rect(0.0, top, nav_w, h - top, INK_1);
+    cv.rect(nav_w - 1.0, top, 1.0, h - top, LINE);
+    let nx = 16.0;
+    let bw = nav_w - 32.0;
+    let mut ny = top + 24.0;
     if !app.settings_global
         && let Some(hst) = app.selected()
     {
-        let mut lines = Vec::new();
-        if let Some(os) = &hst.os {
-            lines.push(os.clone());
+        eyebrow(cv, nx + 14.0, ny + 11.0, 11.0, FAINT, tr("Profil", "Profile"));
+        ny += 21.0;
+        for p in Profile::ALL {
+            nav_button(cv, f, Target::Chip(p), nx, ny, bw, profile_label(p), hst.settings.profile == p);
+            ny += 42.0;
         }
-        if let Some(g) = &hst.gpu {
-            lines.push(g.clone());
-        }
-        lines.push(format!("{} · Admin {}", hst.address, hst.port));
-        lines.push(format!("{} {}", tr("compte", "account"), hst.user));
-        for l in lines {
-            cv.text_fit(ax, ay, mono, &l, aside - 2.0 * ax);
-            ay += 21.0;
-        }
-    } else {
-        cv.text_fit(ax, ay, mono, &format!("{} {}", tr("Version", "Version"), app.version), aside - 2.0 * ax);
+        ny += 16.0;
     }
-    // « Cet ordinateur ».
-    let lines = machine_lines(&app.machine);
-    let ch = 50.0 + lines.len() as f32 * 21.0;
-    let cy = h - 40.0 - ch;
-    let cw = aside - 2.0 * ax;
-    cv.rrect(ax, cy, cw, ch, 10.0, Rgba(14, 20, 26, 205));
-    cv.rrect_stroke(ax, cy, cw, ch, 10.0, 1.0, LINE);
-    eyebrow(cv, ax + 16.0, cy + 26.0, 11.0, FAINT, tr("Cet ordinateur", "This computer"));
-    let mut ly = cy + 50.0;
-    for (l, strong) in lines {
-        cv.text_fit(ax + 16.0, ly, Text::new(Font::Mono, 11.5, if strong { FROST } else { MUTED }), &l, cw - 32.0);
-        ly += 21.0;
+    eyebrow(cv, nx + 14.0, ny + 11.0, 11.0, FAINT, if app.settings_global { tr("Réglages de l'app", "App settings") } else { tr("Réglages", "Settings") });
+    ny += 21.0;
+    for (i, s) in app.sections().iter().enumerate().skip(app.first_desktop_section()) {
+        nav_button(cv, f, Target::Section(i), nx, ny, bw, s.label(), i == app.section);
+        ny += 42.0;
+    }
+    // « Cet appareil », en bas de la colonne.
+    let (eyebrow_text, card_title, lines) = device_card(app);
+    let mono = Text::new(Font::Mono, 11.0, FAINT);
+    // Les lignes passent à la ligne, comme sur la maquette.
+    let n_lines: usize = lines.iter().map(|l| cv.line_count(mono, l, bw - 28.0)).sum();
+    let ch = 12.0 + 13.0 + 6.0 + 16.0 + 2.0 + n_lines as f32 * 17.6 + 12.0;
+    let cy = h - 24.0 - ch;
+    if cy > ny + 12.0 {
+        cv.rrect(nx, cy, bw, ch, 10.0, Rgba(14, 20, 26, 204));
+        cv.rrect_stroke(nx, cy, bw, ch, 10.0, 1.0, LINE);
+        let cx = nx + 14.0;
+        eyebrow(cv, cx, cy + 12.0 + 11.0, 11.0, FAINT, eyebrow_text);
+        cv.text_fit(cx, cy + 12.0 + 13.0 + 6.0 + 13.0, Text::new(Font::Semibold, 13.0, FROST), &card_title, bw - 28.0);
+        let mut ly = cy + 12.0 + 13.0 + 6.0 + 16.0 + 2.0 + 12.0;
+        for l in &lines {
+            ly += cv.paragraph(cx, ly, mono, l, bw - 28.0, 17.6);
+        }
     }
     if top > 0.0 {
         title_bar(app, cv, f);
     }
 }
 
-/// Une ligne de réglage du bureau ; rend sa hauteur.
-fn row_desktop(app: &App, cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f32, w: f32, last: bool) -> f32 {
-    let h = 62.0;
-    let label = Text::new(Font::Regular, 15.0, if r.enabled { FROST } else { MUTED });
-    let hint = Text::new(Font::Regular, 12.0, FAINT);
+/// Un champ de la rubrique (maquette) : le libellé, les segments et leurs
+/// étiquettes, l'aide ; ou, pour un interrupteur, une action et une
+/// information, le libellé et l'aide à gauche et la commande à droite.
+/// Rend sa hauteur (le filet compris).
+fn field(cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f32, w: f32, last: bool) -> f32 {
+    let label = Text::new(Font::Semibold, 15.0, if r.enabled { FROST } else { MUTED });
+    let hint = Text::new(Font::Regular, 13.0, FAINT);
     let right = x + w;
-    // La commande, à droite ; sa largeur limite le texte.
-    let cw = match &r.kind {
-        RowKind::Choice { options, current, disabled } => {
-            let items: Vec<(Target, String, bool, bool)> = options.iter().enumerate().map(|(i, o)| (Target::Choice(r.setting, i), o.clone(), i == *current, disabled.get(i).copied().unwrap_or(false))).collect();
-            let style = Text::new(Font::Regular, 13.0, MUTED);
-            let est: f32 = options.iter().map(|o| cv.text_width(style, o) + 13.0 * 2.3 + 3.0).sum::<f32>() + 6.0;
-            if est <= w * 0.62 {
-                segments(cv, f, right - est, y + (h - 40.0) / 2.0, 40.0, 13.0, &items)
-            } else {
-                stepper(cv, f, r, right, y, h, &options[*current])
+    let bottom = match &r.kind {
+        RowKind::Choice { options, current, disabled, tags } => {
+            cv.text_fit(x, y + 18.0 + 14.0, label, &r.label, w);
+            let items: Vec<(Target, String, bool, bool, Option<crate::app::Tag>)> =
+                options.iter().enumerate().map(|(i, o)| (Target::Choice(r.setting, i), o.clone(), i == *current, disabled.get(i).copied().unwrap_or(false), tags.get(i).cloned().flatten())).collect();
+            let (_, sh) = segments_tagged(cv, f, x, y + 46.0, w, &items);
+            let hy = y + 46.0 + sh + 10.0;
+            let hh = hint_block(cv, r, hint, x, hy, w);
+            hy + hh + 18.0
+        }
+        other => {
+            let cw = match other {
+                RowKind::Toggle(_) => 44.0,
+                RowKind::Action(s) | RowKind::Danger(s) => ghost_w(cv, s),
+                RowKind::Info(s) => cv.text_width(Text::new(Font::Mono, 12.0, MUTED), s),
+                RowKind::Choice { .. } => 0.0,
+            };
+            let tw = w - cw - 24.0;
+            cv.text_fit(x, y + 18.0 + 14.0, label, &r.label, tw);
+            let hy = y + 18.0 + 18.0;
+            let hh = hint_block(cv, r, hint, x, hy, tw);
+            let bottom = hy + hh + 18.0;
+            let fh = bottom - y;
+            match other {
+                RowKind::Toggle(on) => {
+                    let tr_ = Rect::new(right - 44.0, y + (fh - 26.0) / 2.0, 44.0, 26.0);
+                    let (focused, _) = if r.enabled { f.state(Target::Setting(r.setting), tr_) } else { (false, false) };
+                    if focused {
+                        widgets::ring(cv, tr_, 13.0);
+                    }
+                    widgets::toggle(cv, tr_.x, tr_.y, 26.0, *on, r.enabled);
+                }
+                RowKind::Action(s) => {
+                    widgets::ghost(cv, f, Target::Setting(r.setting), right - cw, y + (fh - 36.0) / 2.0, 36.0, 13.0, None, s, MUTED);
+                }
+                RowKind::Danger(s) => {
+                    widgets::ghost(cv, f, Target::Setting(r.setting), right - cw, y + (fh - 36.0) / 2.0, 36.0, 13.0, None, s, BAD_TEXT);
+                }
+                RowKind::Info(s) => {
+                    cv.text(right, y + fh / 2.0 + 4.0, Text::new(Font::Mono, 12.0, MUTED).align(Align::Right), s);
+                }
+                RowKind::Choice { .. } => {}
             }
+            bottom
         }
-        RowKind::Toggle(on) => {
-            let tr_ = Rect::new(right - 46.0, y + (h - 26.0) / 2.0, 46.0, 26.0);
-            let (focused, _) = if r.enabled { f.state(Target::Setting(r.setting), tr_) } else { (false, false) };
-            if focused {
-                widgets::ring(cv, tr_, 13.0);
-            }
-            widgets::toggle(cv, tr_.x, tr_.y, 26.0, *on, r.enabled);
-            46.0
-        }
-        RowKind::Action(s) => {
-            let gw = ghost_w(cv, s);
-            widgets::ghost(cv, f, Target::Setting(r.setting), right - gw, y + (h - 38.0) / 2.0, 38.0, 13.0, None, s, MUTED)
-        }
-        RowKind::Danger(s) => {
-            let gw = ghost_w(cv, s);
-            widgets::ghost(cv, f, Target::Setting(r.setting), right - gw, y + (h - 38.0) / 2.0, 38.0, 13.0, None, s, BAD_TEXT)
-        }
-        RowKind::Info(s) => cv.text(right, y + h / 2.0 + 5.0, Text::new(Font::Mono, 12.0, MUTED).align(Align::Right), s),
     };
-    let tw = w - cw - 24.0;
-    cv.text_fit(x, y + 26.0, label, &r.label, tw);
-    cv.text_fit(x, y + 45.0, hint, &r.hint, tw);
     if !last {
-        cv.rect(x, y + h - 1.0, w, 1.0, LINE);
+        cv.rect(x, bottom, w, 1.0, LINE);
     }
-    let _ = app;
-    h
+    bottom + 1.0 - y
+}
+
+/// L'aide d'un champ, avec son étiquette au bout ; rend sa hauteur.
+fn hint_block(cv: &mut Canvas, r: &Row, style: Text, x: f32, y: f32, w: f32) -> f32 {
+    let lh = 19.5;
+    let Some(t) = &r.tag else {
+        return cv.paragraph(x, y + 14.0, style, &r.hint, w, lh);
+    };
+    let tw = tag_width(cv, t);
+    let text_w = cv.text_width(style, &r.hint);
+    if text_w + 8.0 + tw <= w {
+        cv.text(x, y + 14.0, style, &r.hint);
+        tag(cv, x + text_w + 8.0, y + 10.0, t);
+        lh.max(22.0)
+    } else {
+        let hh = cv.paragraph(x, y + 14.0, style, &r.hint, w, lh);
+        tag(cv, x, y + hh + 4.0 + 11.0, t);
+        hh + 4.0 + 22.0
+    }
 }
 
 fn ghost_w(cv: &mut Canvas, s: &str) -> f32 {
     cv.text_width(Text::new(Font::Regular, 13.0, MUTED), s) + 26.0
-}
-
-/// ‹ valeur › quand les segments ne tiennent pas ; rend la largeur.
-fn stepper(cv: &mut Canvas, f: &mut Frame, r: &Row, right: f32, y: f32, h: f32, value: &str) -> f32 {
-    let st = Text::new(Font::Mono, 13.0, FROST);
-    let w = cv.text_width(st, value) + 64.0;
-    let rect = Rect::new(right - w, y + (h - 40.0) / 2.0, w, 40.0);
-    let (focused, hover) = f.state(Target::Setting(r.setting), rect);
-    if focused {
-        widgets::ring(cv, rect, 8.0);
-    }
-    cv.rrect(rect.x, rect.y, rect.w, rect.h, 8.0, if hover { INK_3 } else { INK_2 });
-    cv.rrect_stroke(rect.x, rect.y, rect.w, rect.h, 8.0, 1.0, LINE_2);
-    cv.text(rect.x + 14.0, rect.y + 26.0, Text::new(Font::Mono, 13.0, GHOST), "‹");
-    cv.text(rect.x + w / 2.0, rect.y + 25.0, st.align(Align::Center), value);
-    cv.text(rect.x + w - 14.0, rect.y + 26.0, Text::new(Font::Mono, 13.0, GHOST).align(Align::Right), "›");
-    w
 }
 
 // MARK: - Manette (Deck, salon)

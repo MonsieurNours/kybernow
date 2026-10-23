@@ -104,7 +104,7 @@ LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
 ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -529,7 +529,7 @@ step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak > SHA256SUMS)
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

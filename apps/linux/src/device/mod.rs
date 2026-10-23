@@ -419,9 +419,12 @@ pub fn run(args: &[String]) {
             last_net = Instant::now();
             let n = system::net();
             let b = sdl::power();
-            if n != app.net || b != app.machine.battery {
+            // La température de la puce (Pi), arrondie au degré pour ne pas redessiner sans cesse.
+            let t = if app.machine.pi.is_some() { system::temperature().map(|t| t.round()) } else { None };
+            if n != app.net || b != app.machine.battery || t != app.machine.temp_c {
                 app.net = n;
                 app.machine.battery = b;
+                app.machine.temp_c = t;
                 dirty = true;
             }
         }

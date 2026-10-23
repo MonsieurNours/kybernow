@@ -191,17 +191,25 @@ pub fn wake(mac: &str) -> bool {
 pub const FLATPAK: &str = "KyberNow-Link-Linux-x86_64.flatpak";
 #[cfg(not(target_arch = "x86_64"))]
 pub const FLATPAK: &str = "KyberNow-Link-Linux-aarch64.flatpak";
+/// Le paquet .deb du Raspberry Pi (arm64).
+pub const DEB: &str = "KyberNow-Link-RaspberryPi-arm64.deb";
 
-/// La dernière version du canal qui publie le Flatpak, plus récente que
-/// celle-ci et vérifiée par le manifeste signé (le cœur, comme sur Android et
-/// webOS). Un Flatpak installé depuis un fichier ne se met pas à jour seul :
-/// l'app le signale.
+/// Le fichier que cette installation cherche dans une version publiée : le
+/// Flatpak dans le bac à sable, le .deb hors de lui sur ARM (Raspberry Pi).
+pub fn asset() -> &'static str {
+    if !crate::app::flatpak() && cfg!(target_arch = "aarch64") { DEB } else { FLATPAK }
+}
+
+/// La dernière version du canal qui publie le paquet de cette installation,
+/// plus récente que celle-ci et vérifiée par le manifeste signé (le cœur,
+/// comme sur Android et webOS). Un Flatpak ou un .deb installé depuis un
+/// fichier ne se met pas à jour seul : l'app le signale.
 pub fn check_update(beta: bool, tx: Sender<Event>) {
     std::thread::Builder::new()
         .name("update".into())
         .spawn(move || {
             let channel = if beta { kybernow_core::update::Channel::Beta } else { kybernow_core::update::Channel::Stable };
-            let r = kybernow_core::update::check(env!("CARGO_PKG_VERSION"), channel, &[FLATPAK]);
+            let r = kybernow_core::update::check(env!("CARGO_PKG_VERSION"), channel, &[asset()]);
             let _ = tx.send(Event::Update(r));
         })
         .ok();

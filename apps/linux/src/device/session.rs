@@ -71,8 +71,10 @@ pub struct Shared {
     codec: Mutex<String>,
     /// L'image la plus récente, pour le fil principal.
     pub latest: Latest,
-    /// VA-API par format : H.264, HEVC, AV1.
-    vaapi: [bool; 3],
+    /// Décodeur matériel par format : H.264, HEVC, AV1 (VA-API, ou V4L2 sur le Pi).
+    hw: [bool; 3],
+    /// Lequel : 1 VA-API, 2 V4L2 (Raspberry Pi).
+    pub hw_backend: i32,
     pub clipboard: Option<Arc<Clipboard>>,
     pub audio: Mutex<Option<Weak<AudioSink>>>,
 }
@@ -112,9 +114,9 @@ impl Shared {
         self.send(Event::DecoderFailed(e.to_string()));
     }
 
-    /// VA-API pour ce format (0 H.264, 1 HEVC, 2 AV1).
-    pub fn vaapi_for(&self, codec: i32) -> bool {
-        self.vaapi.get(codec as usize).copied().unwrap_or(false)
+    /// Un décodeur matériel pour ce format (0 H.264, 1 HEVC, 2 AV1).
+    pub fn hw_for(&self, codec: i32) -> bool {
+        self.hw.get(codec as usize).copied().unwrap_or(false)
     }
 
     /// Latence du son jusqu'à la sortie, si le moteur la connaît.
@@ -326,7 +328,8 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         relative: AtomicBool::new(relative),
         codec: Mutex::new(String::new()),
         latest: Latest::default(),
-        vaapi: [m.vaapi && m.hw_h264, m.vaapi && m.hw_hevc, m.vaapi && m.hw_av1],
+        hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
+        hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
         clipboard: host.settings.clipboard.then(|| Arc::new(Clipboard::default())),
         audio: Mutex::new(None),
     });

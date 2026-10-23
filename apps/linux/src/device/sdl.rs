@@ -375,7 +375,7 @@ pub fn display_mode(window: *mut SDL_Window) -> ((u32, u32), u32, String) {
 }
 
 /// La sortie son par défaut : nom et voies (SDL 2.24 et après).
-pub fn default_audio() -> Option<(String, u32)> {
+pub fn default_audio() -> Option<(String, u32, u32)> {
     unsafe {
         let mut name: *mut c_char = std::ptr::null_mut();
         let mut spec = SDL_AudioSpec::empty();
@@ -386,7 +386,7 @@ pub fn default_audio() -> Option<(String, u32)> {
         if !name.is_null() {
             SDL_free(name as *mut c_void);
         }
-        Some((n, spec.channels as u32))
+        Some((n, spec.channels as u32, spec.freq.max(0) as u32))
     }
 }
 

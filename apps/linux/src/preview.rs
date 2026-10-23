@@ -295,6 +295,60 @@ pub fn run(dir: &Path, lang: &str) {
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
     }
+
+    // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
+    // écrans des maquettes « App sur Raspberry Pi OS », en pixels simples.
+    let mut app = demo(en, Layout::Desktop);
+    raspberry(&mut app);
+    let mut cv = Canvas::new();
+    cv.resize(1280, 800, 1.0);
+    app.go(Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-01-accueil");
+    app.open_settings(false, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07-reglages-image");
+    app.section = 2;
+    shot(&mut app, &mut cv, None, dir, "rpi-07b-reglages-son");
+    app.section = 3;
+    shot(&mut app, &mut cv, None, dir, "rpi-07c-reglages-manettes");
+    app.section = 6;
+    shot(&mut app, &mut cv, None, dir, "rpi-07d-reglages-compte");
+    app.open_settings(true, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
+}
+
+/// La machine de démonstration devient un Raspberry Pi 5 (8 Go, Raspberry Pi
+/// OS Trixie, HEVC par rpivid, téléviseur 1080p à 120 Hz au plus, Ethernet).
+fn raspberry(app: &mut App) {
+    app.device_name = "Raspberry Pi 5".into();
+    let m = &mut app.machine;
+    m.os = "Raspberry Pi OS (Trixie)".into();
+    m.desktop = "labwc, Wayland".into();
+    m.model = "Raspberry Pi 5".into();
+    m.gpu = "VideoCore VII".into();
+    m.vaapi = false;
+    m.hw_h264 = false;
+    m.hw_hevc = true;
+    m.hw_av1 = false;
+    m.hw_hevc444 = false;
+    m.display = (1920, 1080);
+    m.refresh = 60;
+    m.vrr = Some(false);
+    m.display_name = "LG C4".into();
+    m.audio_name = "PipeWire".into();
+    m.audio_rate = 48000;
+    m.audio_channels = 2;
+    m.battery = None;
+    m.pi = Some(crate::app::Pi { model: "Raspberry Pi 5".into(), generation: 5, ram_gb: 8, v4l2_h264: false, v4l2_hevc: true });
+    m.temp_c = Some(52.0);
+    m.max_hz_1080p = 120;
+    m.max_mode = (3840, 2160, 60);
+    app.net.kind = NetKind::Ethernet;
+    app.net.link_mbps = Some(1000);
+    app.net.band = None;
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.profile = Profile::Bureau;
+        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1080p HEVC".into(), mbps: 28.0, at: 0 });
+    }
 }
 
 #[cfg(test)]

@@ -147,11 +147,70 @@ pub struct Machine {
     /// L'écran branché annonce la fréquence variable (DRM `vrr_capable`) ;
     /// `None` : on ne sait pas (pas de DRM lisible).
     pub vrr: Option<bool>,
-    /// Sortie son : voies et nom.
+    /// Sortie son : voies, nom et fréquence (Hz, 0 : inconnue).
     pub audio_channels: u32,
     pub audio_name: String,
+    pub audio_rate: u32,
     /// Batterie : pourcentage, sur secteur ou non.
     pub battery: Option<(u32, bool)>,
+    /// Un Raspberry Pi (arbre des périphériques), avec ce qu'il décode par V4L2.
+    pub pi: Option<Pi>,
+    /// Température du processeur (°C), lue toutes les quelques secondes (Pi).
+    pub temp_c: Option<f32>,
+    /// Modes de l'écran branché, lus par DRM : fréquence la plus haute en
+    /// 1080p, et le plus grand mode (largeur, hauteur, fréquence) ; 0 : inconnus.
+    pub max_hz_1080p: u32,
+    pub max_mode: (u32, u32, u32),
+}
+
+/// Un Raspberry Pi : modèle court, génération (famille de la puce), mémoire,
+/// décodeurs V4L2 présents (`/sys/class/video4linux`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Pi {
+    /// « Raspberry Pi 5 », « Raspberry Pi 400 », « Compute Module 5 », « Raspberry Pi Zero 2 W ».
+    pub model: String,
+    /// 5 : BCM2712 (Pi 5, 500, CM5) ; 4 : BCM2711 (Pi 4, 400, CM4) ; 3 : BCM2837 (Pi 3, Zero 2 W) ; 0 : plus ancien ou inconnu.
+    pub generation: u8,
+    /// Mémoire vive, en Go (arrondie).
+    pub ram_gb: u32,
+    /// Décodeur H.264 `bcm2835-codec` (Pi 3 et 4 ; absent du Pi 5).
+    pub v4l2_h264: bool,
+    /// Décodeur HEVC `rpivid` (Pi 4 et 5), API V4L2 « request ».
+    pub v4l2_hevc: bool,
+}
+
+impl Pi {
+    /// La plus grande hauteur d'image que la sortie HDMI du Pi affiche : 4K
+    /// (Pi 4 et 5, HDMI 2.0, 60 Hz) ; 1080p pour les plus anciens (HDMI 1.4).
+    pub fn max_height(&self) -> u32 {
+        if self.generation >= 4 { 2160 } else { 1080 }
+    }
+
+    /// La fréquence la plus haute que le Pi sort à cette hauteur : 4K et 1440p
+    /// à 60 Hz ; 1080p à 120 Hz sur les Pi 4 et 5 (bande passante HDMI 2.0, à
+    /// vérifier sur le matériel), 60 Hz avant.
+    pub fn max_hz(&self, height: u32) -> u32 {
+        if height <= 1080 && self.generation >= 4 { 120 } else { 60 }
+    }
+
+    /// « HDMI 2.0 » / « HDMI 1.4 ».
+    pub fn hdmi(&self) -> &'static str {
+        if self.generation >= 4 { "HDMI 2.0" } else { "HDMI 1.4" }
+    }
+
+    /// Les deux chiffres de la carte graphique : « VideoCore VII ».
+    pub fn gpu(&self) -> &'static str {
+        match self.generation {
+            5 => "VideoCore VII",
+            4 => "VideoCore VI",
+            _ => "VideoCore IV",
+        }
+    }
+
+    /// Le H.264 décodé par la puce s'arrête à 1080p (60 Hz sur Pi 4, 30 Hz sur Pi 3).
+    pub fn h264_hw_hz(&self) -> u32 {
+        if self.generation >= 4 { 60 } else { 30 }
+    }
 }
 
 impl Default for Machine {
@@ -172,7 +231,12 @@ impl Default for Machine {
             vrr: None,
             audio_channels: 2,
             audio_name: "PipeWire".into(),
+            audio_rate: 0,
             battery: None,
+            pi: None,
+            temp_c: None,
+            max_hz_1080p: 0,
+            max_mode: (0, 0, 0),
         }
     }
 }
@@ -193,6 +257,45 @@ impl Machine {
             "av1" => self.hw_av1,
             _ => true,
         }
+    }
+
+    /// Un décodeur matériel existe (VA-API, ou V4L2 sur le Pi).
+    pub fn hw_any(&self) -> bool {
+        self.hw_h264 || self.hw_hevc || self.hw_av1
+    }
+
+    /// Le nom du décodeur matériel, pour les étiquettes : « VA-API », « décodeur du Pi ».
+    pub fn hw_name(&self) -> &'static str {
+        if self.pi.is_some() { tr("décodeur du Pi", "Pi decoder") } else { "VA-API" }
+    }
+
+    /// La plus grande hauteur d'image que cet appareil affiche (Pi : sa sortie HDMI).
+    pub fn max_height(&self) -> u32 {
+        self.pi.as_ref().map(|p| p.max_height()).unwrap_or(u32::MAX)
+    }
+
+    /// La fréquence la plus haute possible pour une hauteur d'image : sur le
+    /// Pi, celle de sa sortie, bornée par ce que l'écran annonce en 1080p
+    /// (DRM) ; ailleurs, celle de l'écran (au moins 60).
+    pub fn max_hz(&self, height: u32) -> u32 {
+        match &self.pi {
+            Some(p) => {
+                let hz = p.max_hz(height);
+                if height <= 1080 && self.max_hz_1080p > 0 { hz.min(self.max_hz_1080p.max(self.refresh)) } else { hz.min(self.refresh.max(60)) }
+            }
+            None => {
+                let mut hz = self.refresh.max(60);
+                if height <= 1080 {
+                    hz = hz.max(self.max_hz_1080p);
+                }
+                hz
+            }
+        }
+    }
+
+    /// « 1080p », « 4K », « 800p ».
+    pub fn height_label(h: u32) -> String {
+        if h >= 2160 { "4K".into() } else { format!("{h}p") }
     }
 }
 
@@ -380,7 +483,7 @@ impl Section {
             Section::Sound => tr("Son", "Sound"),
             Section::Controllers => tr("Manettes", "Controllers"),
             Section::Inputs => tr("Souris et clavier", "Mouse and keyboard"),
-            Section::Network => tr("Réseau", "Network"),
+            Section::Network => tr("Transport", "Transport"),
             Section::Account => tr("Compte", "Account"),
             Section::App => tr("KyberNow Link", "KyberNow Link"),
             Section::Gamepads => tr("Manettes", "Controllers"),
@@ -398,8 +501,9 @@ pub const APP_SECTIONS: [Section; 2] = [Section::App, Section::Gamepads];
 /// La forme d'une ligne de réglage.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RowKind {
-    /// Valeurs au choix (segments sur le bureau, ‹ valeur › à la manette).
-    Choice { options: Vec<String>, current: usize, disabled: Vec<bool> },
+    /// Valeurs au choix (segments sur le bureau, ‹ valeur › à la manette) ;
+    /// `tags` : une étiquette par valeur, s'il y en a (« décodeur du Pi », « processeur »).
+    Choice { options: Vec<String>, current: usize, disabled: Vec<bool>, tags: Vec<Option<Tag>> },
     Toggle(bool),
     /// Ouvre un écran ou lance quelque chose.
     Action(String),
@@ -416,6 +520,38 @@ pub struct Row {
     pub hint: String,
     pub kind: RowKind,
     pub enabled: bool,
+    /// Étiquette au bout de l'aide (« processeur » sur la ligne 4:4:4).
+    pub tag: Option<Tag>,
+}
+
+/// Une étiquette sur une valeur : qui fait le travail (la carte ou le
+/// décodeur du Pi, le processeur) ou une précision (« 1080p »).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tag {
+    pub text: String,
+    pub kind: TagKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TagKind {
+    /// Décodeur matériel (Spectre).
+    Hw,
+    /// Processeur (ambre).
+    Cpu,
+    /// Précision neutre.
+    Note,
+}
+
+impl Tag {
+    pub fn hw(text: &str) -> Option<Tag> {
+        Some(Tag { text: text.into(), kind: TagKind::Hw })
+    }
+    pub fn cpu() -> Option<Tag> {
+        Some(Tag { text: tr("processeur", "CPU").into(), kind: TagKind::Cpu })
+    }
+    pub fn note(text: &str) -> Option<Tag> {
+        Some(Tag { text: text.into(), kind: TagKind::Note })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -636,9 +772,15 @@ impl App {
         s[self.section.min(s.len() - 1)]
     }
 
+    /// La première rubrique de la colonne du bureau : le profil y est une
+    /// rangée de boutons à part, les réglages commencent à Image.
+    pub fn first_desktop_section(&self) -> usize {
+        if self.layout == Layout::Desktop && !self.settings_global { 1 } else { 0 }
+    }
+
     pub fn open_settings(&mut self, global: bool, from: Screen) {
         self.settings_global = global;
-        self.section = 0;
+        self.section = self.first_desktop_section();
         self.scroll = 0.0;
         self.back_to = from;
         self.go(Screen::Settings);
@@ -774,8 +916,9 @@ impl App {
                         vec![Action::Save]
                     }
                     Screen::Settings => {
-                        let n = self.sections().len();
-                        self.section = cycle(self.section, n, dir);
+                        let first = self.first_desktop_section();
+                        let n = self.sections().len() - first;
+                        self.section = first + cycle(self.section.saturating_sub(first), n, dir);
                         self.scroll = 0.0;
                         self.focus = Target::Section(self.section);
                         Vec::new()
@@ -1182,10 +1325,11 @@ impl App {
             setting,
             label: label.to_string(),
             hint,
-            kind: RowKind::Choice { options, current, disabled },
+            kind: RowKind::Choice { options, current, disabled, tags: Vec::new() },
             enabled: true,
+            tag: None,
         };
-        let toggle = |setting, label: &str, hint: String, on: bool| Row { setting, label: label.to_string(), hint, kind: RowKind::Toggle(on), enabled: true };
+        let toggle = |setting, label: &str, hint: String, on: bool| Row { setting, label: label.to_string(), hint, kind: RowKind::Toggle(on), enabled: true, tag: None };
         if section == Section::App {
             let lang = ["auto", "fr", "en"].iter().position(|v| *v == self.store.app.language).unwrap_or(0);
             let iface = ["auto", "desktop", "handheld", "tv"].iter().position(|v| *v == self.store.app.interface).unwrap_or(0);
@@ -1210,12 +1354,16 @@ impl App {
                 choice(
                     Setting::UpdateChannel,
                     tr("Versions proposées", "Offered versions"),
-                    tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée", "The Flatpak does not update itself: the app tells you when a version is published").into(),
+                    if flatpak() {
+                        tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée", "The Flatpak does not update itself: the app tells you when a version is published").into()
+                    } else {
+                        tr("Par le dépôt apt, l'app se met à jour avec le système ; sinon elle prévient quand une version est publiée", "Through the apt repository the app updates with the system; otherwise it tells you when a version is published").into()
+                    },
                     vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()],
                     self.store.app.beta as usize,
                     vec![false; 2],
                 ),
-                Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true },
+                Row { setting: Setting::CheckUpdate, label: format!("KyberNow Link {}", self.version), hint: update, kind: RowKind::Action(tr("Chercher", "Check").into()), enabled: true, tag: None },
             ];
         }
         if section == Section::Gamepads {
@@ -1225,7 +1373,7 @@ impl App {
             } else {
                 self.pads.iter().map(|p| format!("{}{} {}", tr("J", "P"), p.slot + 1, p.name)).collect::<Vec<_>>().join(" · ")
             };
-            return vec![Row { setting: Setting::Pads, label: tr("Tester les manettes", "Test the controllers").into(), hint, kind: RowKind::Action(format!("{n}")), enabled: true }];
+            return vec![Row { setting: Setting::Pads, label: tr("Tester les manettes", "Test the controllers").into(), hint, kind: RowKind::Action(format!("{n}")), enabled: true, tag: None }];
         }
         let Some(h) = self.selected() else { return Vec::new() };
         let st = &h.settings;
@@ -1239,54 +1387,55 @@ impl App {
                 vec![false; 3],
             )],
             Section::Picture => {
-                let (dw, dh) = m.display;
+                let (_, dh) = m.display;
+                let pi = m.pi.as_ref();
                 let res = [0u32, 2160, 1440, 1080, 800, 720];
-                let res_labels: Vec<String> = res
-                    .iter()
-                    .map(|r| match r {
-                        0 => format!("{} · {dw} × {dh}", tr("Comme cet écran", "Like this screen")),
-                        2160 => "4K".into(),
-                        r => format!("{r}p"),
-                    })
-                    .collect();
+                let res_labels: Vec<String> = res.iter().map(|r| if *r == 0 { format!("{} · {}", tr("Comme cet écran", "Like this screen"), Machine::height_label(dh)) } else { Machine::height_label(*r) }).collect();
+                // Au-delà de ce que la sortie affiche (Pi 3 : 1080p), grisé.
+                let res_off: Vec<bool> = res.iter().map(|r| *r > m.max_height()).collect();
+                let height = if st.resolution == 0 { dh } else { st.resolution };
                 let fps = [0u32, 30, 60, 90, 120, 144];
-                let fps_labels: Vec<String> = fps.iter().map(|f| if *f == 0 { format!("{} · {} Hz", tr("Écran", "Screen"), m.refresh) } else { format!("{f}") }).collect();
-                let fps_off: Vec<bool> = fps.iter().map(|f| *f > m.refresh.max(60) && *f != 0).collect();
+                let fps_labels: Vec<String> = fps.iter().map(|f| if *f == 0 { format!("{} · {} Hz", tr("Écran", "Screen"), m.refresh) } else { format!("{f} Hz") }).collect();
+                let fps_off: Vec<bool> = fps.iter().map(|f| *f != 0 && *f > m.max_hz(height)).collect();
+                // Sur le Pi, 120 Hz n'existe qu'en 1080p : l'étiquette le dit.
+                let fps_tags: Vec<Option<Tag>> = fps.iter().map(|f| if pi.is_some_and(|p| p.generation >= 4) && *f == 120 { Tag::note("1080p") } else { None }).collect();
                 let codecs = ["auto", "hevc", "h264", "av1"];
                 let hevc = self.codec_for(h) == "hevc";
                 let codec_off: Vec<bool> = codecs.iter().map(|c| *c != "auto" && !m.decodes(c)).collect();
+                let who = |hw: bool| if hw { Tag::hw(m.hw_name()) } else { Tag::cpu() };
+                let codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
                 let display = ["auto", "vsync", "immediate", "vrr"];
-                let vrr_hint = match m.vrr {
-                    Some(true) => tr("Fréquence variable : l'écran suit la cadence du flux · Immédiat : déchirure permise", "Variable refresh: the screen follows the stream's pace · Immediate: tearing allowed"),
-                    Some(false) => tr("Cet écran n'annonce pas la fréquence variable · Immédiat : chaque image dès qu'elle est décodée", "This screen does not announce variable refresh · Immediate: each frame as soon as it is decoded"),
-                    None => tr("Fréquence variable : quand l'écran et le compositeur la permettent", "Variable refresh: when the screen and compositor allow it"),
+                let vrr_hint = match (pi, m.vrr) {
+                    (Some(_), _) => tr("Pas de fréquence variable sur la sortie HDMI du Pi · Immédiat : chaque image dès qu'elle est décodée", "No variable refresh on the Pi's HDMI output · Immediate: each frame as soon as it is decoded"),
+                    (None, Some(true)) => tr("Fréquence variable : l'écran suit la cadence du flux · Immédiat : déchirure permise", "Variable refresh: the screen follows the stream's pace · Immediate: tearing allowed"),
+                    (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable · Immédiat : chaque image dès qu'elle est décodée", "This screen does not announce variable refresh · Immediate: each frame as soon as it is decoded"),
+                    (None, None) => tr("Fréquence variable : quand l'écran et le compositeur la permettent", "Variable refresh: when the screen and compositor allow it"),
                 };
                 let bitrates = BITRATES;
                 let br_labels: Vec<String> = bitrates.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
+                let mut res_row = choice(Setting::Resolution, tr("Écran", "Screen"), picture_hints(m).0, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
+                if pi.is_none() {
+                    res_row.label = tr("Écran de l'ordinateur", "Computer's screen").into();
+                }
+                let mut fps_row = choice(Setting::Fps, tr("Fréquence", "Refresh rate"), picture_hints(m).1, fps_labels, fps.iter().position(|v| *v == st.fps).unwrap_or(0), fps_off);
+                if let RowKind::Choice { tags, .. } = &mut fps_row.kind {
+                    *tags = fps_tags;
+                }
+                let mut codec_row = choice(Setting::Codec, tr("Format", "Format"), picture_hints(m).2, vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()], codecs.iter().position(|v| *v == st.codec).unwrap_or(0), codec_off);
+                if let RowKind::Choice { tags, .. } = &mut codec_row.kind {
+                    *tags = codec_tags;
+                }
                 let mut rows = vec![
-                    choice(
-                        Setting::Resolution,
-                        tr("Écran de l'ordinateur", "Computer's screen"),
-                        tr("Écran virtuel créé par la Station au début de la session", "Virtual display created by the Station when the session starts").into(),
-                        res_labels,
-                        res.iter().position(|v| *v == st.resolution).unwrap_or(0),
-                        vec![false; res.len()],
-                    ),
-                    choice(Setting::Fps, tr("Fréquence", "Refresh rate"), tr("Images par seconde demandées à l'ordinateur", "Frames per second asked of the computer").into(), fps_labels, fps.iter().position(|v| *v == st.fps).unwrap_or(0), fps_off),
-                    choice(
-                        Setting::Codec,
-                        tr("Format", "Format"),
-                        if m.vaapi && (m.hw_h264 || m.hw_hevc || m.hw_av1) { format!("{} · {}", tr("Ceux que la carte décode par VA-API", "Those the GPU decodes through VA-API"), decoders_label(m)) } else { tr("Pas de décodage par la carte : le processeur décode H.264 et HEVC", "No GPU decoding: the CPU decodes H.264 and HEVC").into() },
-                        vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()],
-                        codecs.iter().position(|v| *v == st.codec).unwrap_or(0),
-                        codec_off,
-                    ),
+                    res_row,
+                    fps_row,
+                    codec_row,
                     Row {
                         setting: Setting::Yuv444,
                         label: tr("Couleurs 4:4:4", "4:4:4 colour").into(),
                         hint: yuv444_hint(m, hevc).into(),
                         kind: RowKind::Toggle(st.yuv444 && hevc),
                         enabled: hevc,
+                        tag: if hevc { who(m.hw_hevc444) } else { None },
                     },
                     choice(
                         Setting::Display,
@@ -1294,10 +1443,10 @@ impl App {
                         vrr_hint.into(),
                         vec!["Auto".into(), tr("Synchronisé", "Synchronised").into(), tr("Immédiat", "Immediate").into(), tr("Fréquence variable", "Variable refresh").into()],
                         display.iter().position(|v| *v == st.display).unwrap_or(0),
-                        vec![false, false, false, m.vrr == Some(false)],
+                        vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
-                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : selon les pixels par seconde du profil", "Auto: from the profile's pixels per second").into(), br_labels, bitrates.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; bitrates.len()]),
-                    toggle(Setting::VirtualDisplay, tr("Écran virtuel", "Virtual display"), tr("Sinon, les écrans de l'ordinateur tels quels", "Otherwise the computer's screens as they are").into(), st.virtual_display),
+                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : proportionné aux pixels par seconde du profil", "Auto: in proportion to the profile's pixels per second").into(), br_labels, bitrates.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; bitrates.len()]),
+                    toggle(Setting::VirtualDisplay, tr("Écran virtuel", "Virtual display"), tr("Créé par la Station au début de la session ; sinon, les écrans de l'ordinateur tels quels", "Created by the Station when the session starts; otherwise the computer's screens as they are").into(), st.virtual_display),
                 ];
                 if m.battery.is_some() {
                     rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit", "On battery: 60 frames per second at most, lower bitrate").into(), st.battery_light));
@@ -1332,6 +1481,7 @@ impl App {
                     hint: if self.pads.is_empty() { tr("Aucune manette vue", "No controller seen").into() } else { self.pads.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(" · ") },
                     kind: RowKind::Action(format!("{}", self.pads.len())),
                     enabled: true,
+                    tag: None,
                 },
             ],
             Section::Inputs => vec![
@@ -1363,6 +1513,7 @@ impl App {
                     hint: format!("{} · {}", h.user, h.fingerprint.as_deref().map(short_fp).unwrap_or_default()),
                     kind: RowKind::Info(format!("{}:{}", h.address, h.port)),
                     enabled: true,
+                    tag: None,
                 },
                 Row {
                     setting: Setting::Remove,
@@ -1370,6 +1521,7 @@ impl App {
                     hint: tr("Son compte sur cet appareil se retire aussi dans Admin › Appareils Link", "Its account on this device is also removed in Admin › Link devices").into(),
                     kind: RowKind::Danger(tr("Retirer", "Remove").into()),
                     enabled: true,
+                    tag: None,
                 },
             ],
             Section::App | Section::Gamepads => Vec::new(),
@@ -1380,7 +1532,7 @@ impl App {
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
         let row = self.sections().iter().flat_map(|sec| self.rows(*sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
         if let Some(row) = row
-            && let RowKind::Choice { options, current, disabled } = &row.kind
+            && let RowKind::Choice { options, current, disabled, .. } = &row.kind
         {
             // La valeur suivante qui n'est pas indisponible.
             let n = options.len();
@@ -1488,10 +1640,48 @@ impl App {
     }
 }
 
+/// Les aides des lignes Écran, Fréquence et Format, selon la machine : sur le
+/// Pi, ce que sa sortie HDMI et ses décodeurs permettent ; ailleurs, VA-API.
+fn picture_hints(m: &Machine) -> (String, String, String) {
+    let Some(p) = &m.pi else {
+        let screen = tr("Écran virtuel créé par la Station au début de la session", "Virtual display created by the Station when the session starts").to_string();
+        let fps = tr("Images par seconde demandées à l'ordinateur", "Frames per second asked of the computer").to_string();
+        let codec = if m.vaapi && m.hw_any() { format!("{} · {}", tr("Ceux que la carte décode par VA-API", "Those the GPU decodes through VA-API"), decoders_label(m)) } else { tr("Pas de décodage par la carte : le processeur décode H.264 et HEVC", "No GPU decoding: the CPU decodes H.264 and HEVC").into() };
+        return (screen, fps, codec);
+    };
+    let screen = match p.generation {
+        5 => tr("4K seulement en HEVC, décodé par le Pi. Au-delà de 1080p, le H.264 passe par le processeur et saccade.", "4K in HEVC only, decoded by the Pi. Above 1080p, H.264 goes through the CPU and stutters.").to_string(),
+        4 => tr("4K en HEVC, 1080p en H.264 : les deux par le décodeur du Pi.", "4K in HEVC, 1080p in H.264: both by the Pi's decoder.").to_string(),
+        _ => tr("1080p au plus (HDMI 1.4), en H.264 par le décodeur du Pi.", "1080p at most (HDMI 1.4), in H.264 by the Pi's decoder.").to_string(),
+    };
+    let fps = if p.generation >= 4 {
+        if m.max_hz_1080p >= 120 {
+            format!(
+                "{} {} {}",
+                tr("L'écran annonce 1080p à", "The screen announces 1080p at"),
+                format!("{} Hz ;", m.max_hz_1080p),
+                tr("le Pi ne sort pas la 4K au-delà de 60 Hz. Pas de fréquence variable sur cette sortie.", "the Pi does not output 4K above 60 Hz. No variable refresh on this output.")
+            )
+        } else {
+            tr("Le Pi sort la 4K à 60 Hz au plus, et le 1080p à 120 Hz si l'écran l'annonce. Pas de fréquence variable sur cette sortie.", "The Pi outputs 4K at 60 Hz at most, and 1080p at 120 Hz when the screen announces it. No variable refresh on this output.").to_string()
+        }
+    } else {
+        tr("60 Hz au plus sur la sortie HDMI de ce Pi ; 30 Hz en H.264 décodé par la puce.", "60 Hz at most on this Pi's HDMI output; 30 Hz for H.264 decoded by the chip.").to_string()
+    };
+    let codec = match p.generation {
+        5 => tr("HEVC : jusqu'à 4K à 60 Hz, en 4:2:0. H.264 : 1080p à 60 Hz au plus, par les quatre cœurs. AV1 : rien ne le décode ici.", "HEVC: up to 4K at 60 Hz, 4:2:0. H.264: 1080p at 60 Hz at most, on the four cores. AV1: nothing decodes it here.").to_string(),
+        4 => tr("HEVC jusqu'à 4K à 60 Hz et H.264 jusqu'à 1080p à 60 Hz, tous deux par le décodeur du Pi. AV1 : rien ne le décode ici.", "HEVC up to 4K at 60 Hz and H.264 up to 1080p at 60 Hz, both by the Pi's decoder. AV1: nothing decodes it here.").to_string(),
+        _ => tr("H.264 par le décodeur du Pi, 1080p à 30 Hz au plus. HEVC par le processeur : 720p. AV1 : non.", "H.264 by the Pi's decoder, 1080p at 30 Hz at most. HEVC on the CPU: 720p. AV1: no.").to_string(),
+    };
+    (screen, fps, codec)
+}
+
 /// Ce que dit la ligne 4:4:4 : qui décode, et ce qu'il en coûte.
 fn yuv444_hint(m: &Machine, hevc: bool) -> &'static str {
     if !hevc {
         tr("En HEVC seulement", "HEVC only")
+    } else if m.pi.is_some() {
+        tr("Texte plus net. Sur ce Pi, le décodeur ne les prend pas : le processeur décode, 1080p au plus.", "Sharper text. On this Pi the decoder does not take them: the CPU decodes, 1080p at most.")
     } else if m.hw_hevc444 {
         tr("Texte net : la carte décode le 4:4:4, l'app convertit les couleurs (plus de débit)", "Sharp text: the GPU decodes 4:4:4, the app converts the colours (more bitrate)")
     } else {
@@ -1511,6 +1701,11 @@ fn decoders_label(m: &Machine) -> String {
         v.push("AV1");
     }
     if v.is_empty() { tr("aucun", "none").into() } else { v.join(", ") }
+}
+
+/// L'app tourne dans le bac à sable Flatpak (sinon : paquet .deb ou binaire).
+pub fn flatpak() -> bool {
+    std::path::Path::new("/.flatpak-info").exists()
 }
 
 /// « sha256:7C:3A:91:E0:… » → « 7c3a · 91e0 · 4b2d · a81f ».

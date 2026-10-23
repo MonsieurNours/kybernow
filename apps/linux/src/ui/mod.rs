@@ -162,7 +162,7 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
     }
     cv.rect(0.0, 0.0, cv.w, h, Rgba(5, 7, 10, 153));
     cv.rect(0.0, h - 1.0, cv.w, 1.0, LINE);
-    cv.logo_link(16.0, 10.0, 20.0, 1.0);
+    let lw = cv.logo_link(16.0, 9.0, 22.0, 1.0);
     let mut x = cv.w - 10.0;
     for (t, icon) in [(Target::WinClose, icons::Icon::Close), (Target::WinMaximize, icons::Icon::Square), (Target::WinMinimize, icons::Icon::Minus)] {
         x -= 34.0;
@@ -172,6 +172,27 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
             cv.rrect(r.x, r.y, r.w, r.h, 6.0, if t == Target::WinClose { BAD.alpha(0.8) } else { Rgba(227, 237, 240, 22) });
         }
         cv.icon(&icon, x + 9.0, 12.0, 16.0, 1.4, MUTED);
+    }
+    if app.screen == Screen::Settings {
+        // Fil d'Ariane (maquette) : logo › ordinateur › Réglages ; l'ordinateur ramène en arrière.
+        let mut cx = 16.0 + lw + 14.0;
+        let sep = Text::new(Font::Regular, 14.0, GHOST);
+        let crumb = Text::new(Font::Regular, 14.0, MUTED);
+        if !app.settings_global
+            && let Some(h) = app.selected()
+        {
+            cx += cv.text(cx, 25.0, sep, "›") + 14.0;
+            let w = cv.text_width(crumb, &h.name).min(360.0);
+            let r = Rect::new(cx - 6.0, 8.0, w + 12.0, 24.0);
+            let (focused, hover) = f.state(Target::Back, r);
+            if focused {
+                cv.neon(r.x, r.y, r.w, r.h, 6.0, 1.0);
+            }
+            cx += cv.text_fit(cx, 25.0, crumb.color(if hover { FROST } else { MUTED }), &h.name, 360.0) + 14.0;
+        }
+        cx += cv.text(cx, 25.0, sep, "›") + 14.0;
+        cv.text(cx, 25.0, Text::new(Font::Regular, 14.0, FROST), if app.settings_global { crate::i18n::tr("Réglages de l'app", "App settings") } else { crate::i18n::tr("Réglages", "Settings") });
+        return h;
     }
     x -= 36.0;
     let r = Rect::new(x, 3.0, 34.0, 34.0);
@@ -191,7 +212,9 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
             cv.text(x - 12.0, 24.0, st, &s);
         }
         _ => {
-            cv.text(x - 12.0, 24.0, Text::new(Font::Mono, 11.0, FAINT).align(Align::Right), app.version);
+            // Sur le Pi, l'architecture suit la version (« 0.6.0 · aarch64 »), comme sur la maquette.
+            let v = if app.machine.pi.is_some() { format!("{} · {}", app.version, std::env::consts::ARCH) } else { app.version.to_string() };
+            cv.text(x - 12.0, 24.0, Text::new(Font::Mono, 11.0, FAINT).align(Align::Right), &v);
         }
     }
     h

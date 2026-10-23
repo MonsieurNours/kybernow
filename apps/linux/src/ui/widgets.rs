@@ -7,7 +7,7 @@ use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::icons::Icon;
 use super::theme::*;
 use super::Frame;
-use crate::app::{Rect, Target};
+use crate::app::{Rect, Tag, TagKind, Target};
 
 /// Étiquette en capitales Martian Mono (« DERNIÈRE SESSION »).
 pub fn eyebrow(cv: &mut Canvas, x: f32, y: f32, size: f32, color: Rgba, s: &str) -> f32 {
@@ -75,6 +75,102 @@ pub fn segments(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, h: f32, size: f3
         xx += w + 3.0;
     }
     total
+}
+
+/// Une étiquette (« décodeur du Pi », « processeur », « 1080p ») : 22 pt de
+/// haut, Martian Mono 11, centrée sur `cy` ; rend sa largeur.
+pub fn tag(cv: &mut Canvas, x: f32, cy: f32, t: &Tag) -> f32 {
+    let (bg, fg) = match t.kind {
+        TagKind::Hw => (Rgba(154, 140, 255, 41), Rgba::hex(0xC9C0FF)),
+        TagKind::Cpu => (Rgba(245, 184, 65, 41), WARN),
+        TagKind::Note => (INK_3, FAINT),
+    };
+    let style = Text::new(Font::Mono, 11.0, fg).tracking(0.44);
+    let w = cv.text_width(style, &t.text) + 16.0;
+    cv.rrect(x, cy - 11.0, w, 22.0, 6.0, bg);
+    cv.text(x + 8.0, cy + 4.0, style, &t.text);
+    w
+}
+
+pub fn tag_width(cv: &mut Canvas, t: &Tag) -> f32 {
+    cv.text_width(Text::new(Font::Mono, 11.0, FAINT).tracking(0.44), &t.text) + 16.0
+}
+
+/// Segments des réglages du bureau, d'après la maquette : boutons de 36 pt
+/// (Archivo 14), étiquette dans le bouton, valeur indisponible barrée ; les
+/// boutons passent à la ligne au-delà de `max`. `items` = (cible, libellé,
+/// choisi, indisponible, étiquette). Rend (largeur, hauteur).
+pub fn segments_tagged(cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, max: f32, items: &[(Target, String, bool, bool, Option<Tag>)]) -> (f32, f32) {
+    let (pad, gap, bh, border) = (3.0, 2.0, 36.0, 1.0);
+    let style = Text::new(Font::Regular, 14.0, MUTED);
+    let widths: Vec<f32> = items.iter().map(|(_, s, _, _, t)| cv.text_width(style, s) + 28.0 + t.as_ref().map(|t| 8.0 + tag_width(cv, t)).unwrap_or(0.0)).collect();
+    let inner_max = (max - 2.0 * (pad + border)).max(1.0);
+    let mut rows: Vec<Vec<usize>> = vec![Vec::new()];
+    let (mut rw, mut widest) = (0.0f32, 0.0f32);
+    for (i, w) in widths.iter().enumerate() {
+        let first = rows.last().unwrap().is_empty();
+        let add = if first { *w } else { *w + gap };
+        if !first && rw + add > inner_max {
+            widest = widest.max(rw);
+            rows.push(Vec::new());
+            rw = *w;
+        } else {
+            rw += add;
+        }
+        rows.last_mut().unwrap().push(i);
+    }
+    widest = widest.max(rw);
+    let total_w = widest + 2.0 * (pad + border);
+    let total_h = rows.len() as f32 * bh + (rows.len() - 1) as f32 * gap + 2.0 * (pad + border);
+    cv.rrect(x, y, total_w, total_h, 8.0, Rgba(9, 13, 18, 179));
+    cv.rrect_stroke(x, y, total_w, total_h, 8.0, 1.0, LINE_2);
+    let mut yy = y + border + pad;
+    for row in rows {
+        let mut xx = x + border + pad;
+        for i in row {
+            let (t, s, on, off, tg) = &items[i];
+            let r = Rect::new(xx, yy, widths[i], bh);
+            let (focused, hover) = if *off { (false, false) } else { f.state(*t, r) };
+            if *on {
+                cv.rrect(r.x, r.y, r.w, r.h, 6.0, INK_3);
+                cv.rrect_stroke(r.x, r.y, r.w, r.h, 6.0, 1.0, LINE_2);
+            } else if hover {
+                cv.rrect(r.x, r.y, r.w, r.h, 6.0, Rgba(227, 237, 240, 14));
+            }
+            if focused {
+                ring(cv, r, 6.0);
+            }
+            let color = if *off { GHOST } else if *on { FROST } else { MUTED };
+            let cy = yy + bh / 2.0;
+            let tw = cv.text(xx + 14.0, cy + 14.0 * 0.36, Text::new(Font::Regular, 14.0, color), s);
+            if *off {
+                cv.rect(xx + 14.0, cy - 1.0, tw, 1.0, GHOST);
+            }
+            if let Some(tg) = tg {
+                tag(cv, xx + 14.0 + tw + 8.0, cy, tg);
+            }
+            xx += widths[i] + gap;
+        }
+        yy += bh + gap;
+    }
+    (total_w, total_h)
+}
+
+/// Un bouton de la colonne des réglages (bureau) : pleine largeur, 40 pt,
+/// Archivo 15 ; choisi sur un relief d'encre. `value` : à droite, en Martian Mono.
+pub fn nav_button(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, w: f32, s: &str, on: bool) {
+    let r = Rect::new(x, y, w, 40.0);
+    let (focused, hover) = f.state(t, r);
+    if on {
+        cv.rrect(r.x, r.y, r.w, r.h, 8.0, INK_3);
+        cv.rrect_stroke(r.x, r.y, r.w, r.h, 8.0, 1.0, LINE_2);
+    } else if hover {
+        cv.rrect(r.x, r.y, r.w, r.h, 8.0, Rgba(227, 237, 240, 12));
+    }
+    if focused {
+        ring(cv, r, 8.0);
+    }
+    cv.text_fit(x + 14.0, y + 20.0 + 15.0 * 0.36, Text::new(Font::Regular, 15.0, if on { FROST } else { MUTED }), s, w - 28.0);
 }
 
 /// Bouton à contour ; rend sa largeur.

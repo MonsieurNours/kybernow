@@ -468,6 +468,25 @@ impl Canvas {
     }
 
     /// Un paragraphe coupé aux mots sur une largeur ; rend la hauteur occupée.
+    /// Le nombre de lignes que `paragraph` prendra (même coupure).
+    pub fn line_count(&mut self, style: Text, s: &str, max: f32) -> usize {
+        let mut line = String::new();
+        let mut lines = 0;
+        for word in s.split_whitespace() {
+            let candidate = if line.is_empty() { word.to_string() } else { format!("{line} {word}") };
+            if !line.is_empty() && self.text_width(style, &candidate) > max {
+                lines += 1;
+                line = word.to_string();
+            } else {
+                line = candidate;
+            }
+        }
+        if !line.is_empty() {
+            lines += 1;
+        }
+        lines.max(1)
+    }
+
     pub fn paragraph(&mut self, x: f32, y: f32, style: Text, s: &str, max: f32, line_height: f32) -> f32 {
         let mut line = String::new();
         let mut yy = y;
