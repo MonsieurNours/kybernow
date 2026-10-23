@@ -1,25 +1,30 @@
-//! Réglages de l'ordinateur choisi (et de ce téléviseur) : rubriques à
-//! gauche, lignes à droite ; gauche et droite changent la valeur.
+//! Réglages : ceux de l'ordinateur choisi, ou les réglages globaux (ce
+//! téléviseur, la langue, les manettes). Rubriques à gauche, lignes à
+//! droite ; gauche et droite changent la valeur.
 
 use super::canvas::{Canvas, Font, Rgba, Text, H, W};
 use super::theme::*;
 use super::widgets::{self, Key, Value};
 use super::Frame;
-use crate::app::{App, NetKind, Rect, Setting, Target, SECTIONS};
-use crate::i18n::{english, tr};
+use crate::app::{App, NetKind, Rect, Section, Setting, Target};
+use crate::i18n::tr;
 use crate::model::Profile;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.clear(INK);
-    let Some(h) = app.selected() else { return };
+    let host = if app.settings_global { None } else { app.selected() };
+    if !app.settings_global && host.is_none() {
+        return;
+    }
 
     // Rubriques.
     cv.rect(520.0, 0.0, 1.0, H, LINE);
-    widgets::label(cv, 96.0, 104.0, &h.name);
+    let over = host.map(|h| h.name.as_str()).unwrap_or(tr("KyberNow Link", "KyberNow Link"));
+    widgets::label(cv, 96.0, 104.0, over);
     cv.text(92.0, 178.0, Text::new(Font::Title, 56.0, FROST).tracking(-1.5), tr("Réglages", "Settings"));
     let mut y = 228.0;
-    for (i, (fr, en)) in SECTIONS.iter().enumerate() {
-        let label = if english() { *en } else { *fr };
+    for (i, sec) in app.sections().iter().enumerate() {
+        let label = sec.label();
         let r = Rect::new(96.0, y, 384.0, 72.0);
         let focused = f.hit(Target::Section(i), r);
         let current = app.section == i;
@@ -39,11 +44,16 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     // Lignes.
     let (x, w) = (600.0, W - 110.0 - 600.0);
     let mut y = 88.0;
+    let s = |s: Setting| Some(Target::Setting(s));
+    let Some(h) = host else {
+        global(app, cv, f, x, y, w);
+        footer(cv);
+        return;
+    };
     let st = &h.settings;
     let (mw, mh, fps) = app.session_mode(h);
-    let s = |s: Setting| Some(Target::Setting(s));
-    match app.section {
-        0 => {
+    match app.current_section() {
+        Section::Picture => {
             let profiles: Vec<String> = Profile::ALL.iter().map(|p| super::home::profile_label(*p).to_string()).collect();
             let pi = Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0);
             y += widgets::row(cv, f, s(Setting::Profile), x, y, w, tr("Profil", "Profile"), tr("Jeu : faible latence · Bureau : texte net · Max : tout au plus haut", "Game: low latency · Desktop: sharp text · Max: everything highest"), Value::Choices(&profiles, pi)) + 14.0;
@@ -73,7 +83,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             let _ = (fps, y);
             info_card(app, cv, x, H - 150.0, w);
         }
-        1 => {
+        Section::Sound => {
             let opts: Vec<String> = vec!["Auto".into(), tr("Stéréo", "Stereo").into(), tr("Sur l'ordinateur", "On the computer").into()];
             let i = match st.audio.as_str() {
                 "stereo" => 1,
@@ -83,13 +93,13 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y += widgets::row(cv, f, s(Setting::Audio), x, y, w, tr("Son", "Sound"), tr("Sur l'ordinateur : pour un casque branché à l'ordinateur", "On the computer: for a headset plugged into the computer"), Value::Choices(&opts, i)) + 14.0;
             widgets::row(cv, f, None, x, y, w, tr("Son multicanal (5.1, 7.1)", "Surround (5.1, 7.1)"), tr("Mixé en stéréo par l'app pour l'instant : la sortie 5.1 du décodeur LG reste à valider", "Mixed to stereo by the app for now: the LG decoder's 5.1 output is not validated yet"), Value::Unavailable(tr("à venir", "coming")));
         }
-        2 => {
+        Section::Controllers => {
             y += widgets::row(cv, f, s(Setting::Xbox360), x, y, w, tr("Manettes vues comme des Xbox 360", "Controllers seen as Xbox 360"), tr("Sinon, l'ordinateur voit chaque manette telle qu'elle est", "Otherwise the computer sees each controller as it is"), Value::Toggle(st.xbox360)) + 14.0;
             y += widgets::row(cv, f, s(Setting::Combo), x, y, w, tr("L1 + R1 + Start + Select : menu", "L1 + R1 + Start + Select: menu"), tr("La combinaison ouvre le menu de session", "The combination opens the session menu"), Value::Toggle(st.combo)) + 14.0;
             y += widgets::row(cv, f, s(Setting::BackMenu), x, y, w, tr("Retour de la Magic Remote : menu", "Magic Remote Back: menu"), tr("Sinon, Retour part à l'ordinateur comme Échap", "Otherwise Back goes to the computer as Esc"), Value::Toggle(st.back_opens_menu)) + 14.0;
             widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into()));
         }
-        3 => {
+        Section::Network => {
             let link = match app.net.kind {
                 NetKind::Ethernet => format!("Ethernet · {} Mbit/s", app.net.link_mbps.unwrap_or(100)),
                 NetKind::Wifi => "Wi-Fi".into(),
@@ -101,29 +111,19 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y += widgets::row(cv, f, s(Setting::Reconnect), x, y, w, tr("Reconnexion automatique", "Automatic reconnection"), tr("Après une coupure du réseau", "After a network drop"), Value::Toggle(st.reconnect)) + 14.0;
             widgets::row(cv, f, None, x, y, w, tr("Adresse d'Admin", "Admin address"), tr("Trouvée sur le réseau ou tapée à l'ajout", "Found on the network or typed when adding"), Value::Text(format!("{}:{}", h.address, h.port)));
         }
-        4 => {
+        Section::Account => {
             y += widgets::row(cv, f, None, x, y, w, tr("Compte", "Account"), tr("Propre à ce téléviseur, accordé par le code ; retirable dans Admin", "This TV's own, granted by the code; removable in Admin"), Value::Text(h.user.clone())) + 14.0;
             let fp = h.fingerprint.as_deref().unwrap_or("—").trim_start_matches("sha256:").split(':').take(4).collect::<Vec<_>>().join(" ").to_uppercase();
             y += widgets::row(cv, f, None, x, y, w, tr("Empreinte d'Admin", "Admin fingerprint"), tr("Certificat épinglé à l'ajout", "Certificate pinned when added"), Value::Text(fp)) + 14.0;
             widgets::row(cv, f, s(Setting::Remove), x, y, w, tr("Retirer l'ordinateur", "Remove the computer"), tr("De ce téléviseur seulement", "From this TV only"), Value::Danger(tr("Retirer", "Remove")));
         }
-        _ => {
-            let langs: Vec<String> = vec!["Auto".into(), "Français".into(), "English".into()];
-            let li = match app.store.app.language.as_str() {
-                "fr" => 1,
-                "en" => 2,
-                _ => 0,
-            };
-            y += widgets::row(cv, f, s(Setting::Language), x, y, w, tr("Langue", "Language"), tr("Auto : celle du téléviseur", "Auto: the TV's"), Value::Choices(&langs, li)) + 14.0;
-            y += widgets::row(cv, f, None, x, y, w, tr("Téléviseur", "TV"), "webOS", Value::Text(format!("{} {}", app.tv.model, app.tv.webos))) + 14.0;
-            let (pw, ph) = app.tv.panel;
-            y += widgets::row(cv, f, None, x, y, w, tr("Dalle", "Panel"), tr("Définition et fréquence de l'écran", "Screen resolution and refresh rate"), Value::Text(format!("{pw} × {ph} · {} Hz", app.tv.refresh))) + 14.0;
-            let dec = if app.tv.decoder { tr("NDL (matériel)", "NDL (hardware)") } else { tr("introuvable", "not found") };
-            y += widgets::row(cv, f, None, x, y, w, tr("Décodeur", "Decoder"), tr("Décodeur vidéo du téléviseur", "The TV's video decoder"), Value::Text(dec.into())) + 14.0;
-            widgets::row(cv, f, None, x, y, w, "KyberNow Link", tr("Licence AGPL-3.0, sur le cœur de Kyber", "AGPL-3.0 licence, on Kyber's core"), Value::Text(app.version.into()));
-        }
+        Section::Tv | Section::Gamepads => {}
     }
 
+    footer(cv);
+}
+
+fn footer(cv: &mut Canvas) {
     let y = H - 48.0;
     let mut x = 96.0;
     x += widgets::hint(cv, x, y, Key::Ok, tr("Changer", "Change")) + 40.0;
@@ -148,4 +148,44 @@ fn info_card(app: &App, cv: &mut Canvas, x: f32, y: f32, w: f32) {
         cv.text_fit(xx, y + 68.0, val, v, col - 40.0);
     }
     let _ = Rgba(0, 0, 0, 0);
+}
+
+/// Réglages globaux : ce téléviseur (langue, matériel, réseau, version), les
+/// manettes branchées et leur test. Sans ordinateur ajouté aussi.
+fn global(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, mut y: f32, w: f32) {
+    let s = |s: Setting| Some(Target::Setting(s));
+    match app.current_section() {
+        Section::Gamepads => {
+            y += widgets::row(cv, f, s(Setting::Pads), x, y, w, tr("Tester les manettes", "Test controllers"), tr("Touches, sticks, gâchettes et vibrations de chaque manette", "Buttons, sticks, triggers and rumble of each controller"), Value::Text("›".into())) + 14.0;
+            if app.pads.is_empty() {
+                y += widgets::row(cv, f, None, x, y, w, tr("Aucune manette", "No controller"), tr("Associez-la en Bluetooth dans les réglages du téléviseur", "Pair it over Bluetooth in the TV's settings"), Value::Text("—".into())) + 14.0;
+            }
+            for p in &app.pads {
+                let r = if p.rumble { tr("vibrations", "rumble") } else { tr("sans vibration", "no rumble") };
+                y += widgets::row(cv, f, None, x, y, w, &p.name, &format!("{} {}", tr("Joueur", "Player"), p.slot + 1), Value::Text(r.into())) + 14.0;
+            }
+            widgets::row(cv, f, None, x, y, w, tr("Réglages propres à chaque ordinateur", "Per-computer settings"), tr("Xbox 360, combinaison du menu, bouton Retour : dans les réglages de l'ordinateur", "Xbox 360, menu combination, Back button: in the computer's settings"), Value::Text(String::new()));
+        }
+        _ => {
+            let langs: Vec<String> = vec!["Auto".into(), "Français".into(), "English".into()];
+            let li = match app.store.app.language.as_str() {
+                "fr" => 1,
+                "en" => 2,
+                _ => 0,
+            };
+            y += widgets::row(cv, f, s(Setting::Language), x, y, w, tr("Langue", "Language"), tr("Auto : celle du téléviseur", "Auto: the TV's"), Value::Choices(&langs, li)) + 14.0;
+            y += widgets::row(cv, f, None, x, y, w, tr("Téléviseur", "TV"), "webOS", Value::Text(format!("{} {}", app.tv.model, app.tv.webos))) + 14.0;
+            let (pw, ph) = app.tv.panel;
+            y += widgets::row(cv, f, None, x, y, w, tr("Dalle", "Panel"), tr("Définition et fréquence de l'écran", "Screen resolution and refresh rate"), Value::Text(format!("{pw} × {ph} · {} Hz", app.tv.refresh))) + 14.0;
+            let dec = if app.tv.decoder { tr("NDL (matériel)", "NDL (hardware)") } else { tr("introuvable", "not found") };
+            y += widgets::row(cv, f, None, x, y, w, tr("Décodeur", "Decoder"), tr("Décodeur vidéo du téléviseur", "The TV's video decoder"), Value::Text(dec.into())) + 14.0;
+            let link = match app.net.kind {
+                NetKind::Ethernet => format!("Ethernet · {} Mbit/s", app.net.link_mbps.unwrap_or(100)),
+                NetKind::Wifi => "Wi-Fi".into(),
+                NetKind::Unknown => tr("inconnu", "unknown").into(),
+            };
+            y += widgets::row(cv, f, None, x, y, w, tr("Réseau", "Network"), &format!("{} {} Mbit/s", tr("Débit plafonné à", "Bitrate capped at"), app.net.cap_mbps()), Value::Text(link)) + 14.0;
+            widgets::row(cv, f, None, x, y, w, "KyberNow Link", tr("Licence AGPL-3.0, sur le cœur de Kyber", "AGPL-3.0 licence, on Kyber's core"), Value::Text(app.version.into()));
+        }
+    }
 }

@@ -255,14 +255,39 @@ pub enum Setting {
     Pads,
 }
 
-pub const SECTIONS: [(&str, &str); 6] = [
-    ("Image", "Picture"),
-    ("Son", "Sound"),
-    ("Manettes et Magic Remote", "Controllers and Magic Remote"),
-    ("Réseau", "Network"),
-    ("Compte", "Account"),
-    ("Ce téléviseur", "This TV"),
-];
+/// Une rubrique des réglages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Section {
+    Picture,
+    Sound,
+    /// Manettes et Magic Remote, réglages de l'ordinateur.
+    Controllers,
+    Network,
+    Account,
+    /// Réglages globaux : langue, téléviseur, réseau du téléviseur, version.
+    Tv,
+    /// Réglages globaux : manettes branchées et leur test.
+    Gamepads,
+}
+
+impl Section {
+    pub fn label(self) -> &'static str {
+        match self {
+            Section::Picture => tr("Image", "Picture"),
+            Section::Sound => tr("Son", "Sound"),
+            Section::Controllers => tr("Manettes et Magic Remote", "Controllers and Magic Remote"),
+            Section::Network => tr("Réseau", "Network"),
+            Section::Account => tr("Compte", "Account"),
+            Section::Tv => tr("Ce téléviseur", "This TV"),
+            Section::Gamepads => tr("Manettes", "Controllers"),
+        }
+    }
+}
+
+/// Réglages de l'ordinateur choisi.
+pub const HOST_SECTIONS: [Section; 5] = [Section::Picture, Section::Sound, Section::Controllers, Section::Network, Section::Account];
+/// Réglages globaux (de l'app sur ce téléviseur), sans ordinateur.
+pub const APP_SECTIONS: [Section; 2] = [Section::Tv, Section::Gamepads];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
@@ -283,6 +308,8 @@ pub enum Target {
     AddCard,
     Wake,
     HostSettings,
+    /// Réglages globaux (bouton de l'accueil).
+    AppSettings,
     AddFound(usize),
     AddByAddress,
     Key(char),
@@ -341,6 +368,8 @@ pub struct App {
     pub pads: Vec<PadInfo>,
     pub add: AddState,
     pub section: usize,
+    /// Écran des réglages : globaux (vrai) ou de l'ordinateur choisi.
+    pub settings_global: bool,
     pub pad_selected: usize,
     pub session: Option<SessionUi>,
     pub toast: Option<(String, Instant)>,
@@ -365,6 +394,7 @@ impl App {
             pads: Vec::new(),
             add: AddState { step: AddStep::Code, code: String::new(), asked: Vec::new(), address: String::new(), message: None, busy: false },
             section: 0,
+            settings_global: false,
             pad_selected: 0,
             session: None,
             toast: None,
@@ -383,6 +413,25 @@ impl App {
     /// Les Stations trouvées qui ne sont pas déjà ajoutées.
     pub fn new_found(&self) -> Vec<&Found> {
         self.found.iter().filter(|f| !self.store.hosts.iter().any(|h| h.address == f.address && h.port == f.port)).collect()
+    }
+
+    /// Les rubriques de l'écran des réglages ouvert.
+    pub fn sections(&self) -> &'static [Section] {
+        if self.settings_global { &APP_SECTIONS } else { &HOST_SECTIONS }
+    }
+
+    /// La rubrique ouverte.
+    pub fn current_section(&self) -> Section {
+        let s = self.sections();
+        s[self.section.min(s.len() - 1)]
+    }
+
+    /// Ouvre les réglages : globaux, ou ceux de l'ordinateur choisi.
+    pub fn open_settings(&mut self, global: bool, from: Screen) {
+        self.settings_global = global;
+        self.section = 0;
+        self.back_to = from;
+        self.go(Screen::Settings);
     }
 
     pub fn toast(&mut self, s: impl Into<String>) {
@@ -672,8 +721,11 @@ impl App {
                 if self.selected().is_none() {
                     return Vec::new();
                 }
-                self.back_to = Screen::Home;
-                self.go(Screen::Settings);
+                self.open_settings(false, Screen::Home);
+                Vec::new()
+            }
+            Target::AppSettings => {
+                self.open_settings(true, Screen::Home);
                 Vec::new()
             }
             Target::Section(i) => {
@@ -773,8 +825,7 @@ impl App {
                 Vec::new()
             }
             MenuItem::Settings => {
-                self.back_to = Screen::Session;
-                self.go(Screen::Settings);
+                self.open_settings(false, Screen::Session);
                 Vec::new()
             }
             MenuItem::Disconnect => vec![Action::Disconnect],

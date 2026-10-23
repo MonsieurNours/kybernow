@@ -29,6 +29,12 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
 
     cv.image(&assets.logo, 96.0, 60.0, 1.0);
 
+    // Réglages globaux, en haut à droite : atteignables à la croix, sans
+    // touche particulière de la télécommande.
+    let label = tr("Réglages", "Settings");
+    let gw = widgets::icon_chip_width(cv, label);
+    widgets::icon_chip(cv, f, Target::AppSettings, W - 96.0 - gw, 64.0, Icon::Gear, label);
+
     match host {
         Some(h) => {
             let live = app.live.get(&h.id).cloned().unwrap_or_default();
@@ -72,6 +78,8 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
                 let label = profile_label(p);
                 x += widgets::chip(cv, f, Target::Chip(p), x, by + 14.0, label, h.settings.profile == p) + 10.0;
             }
+            x += 18.0;
+            widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages de l'ordinateur", "Computer settings"));
         }
         None => {
             let y0 = 300.0;

@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.4.6
 
+- App des téléviseurs LG : les réglages s'ouvrent depuis l'accueil à la croix, sans touche particulière de la télécommande (télécommande tierce, manette) : « Réglages de l'ordinateur » à côté des profils, et « Réglages » en haut à droite pour les réglages globaux (langue, téléviseur, manettes), même sans ordinateur ajouté. Installée sur une OLED G2.
 - Apps Apple TV, iPhone et iPad : elles se déclaraient en version 1.0 (réglages du système, Admin) ; elles portent désormais le numéro de la version publiée.
 
 ## 0.4.5

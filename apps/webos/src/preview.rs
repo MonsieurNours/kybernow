@@ -159,10 +159,16 @@ pub fn run(dir: &Path, lang: &str) {
     app.go(Screen::Add);
     shot(&mut app, &mut cv, &assets, None, dir, "5-ajout-empreinte");
 
-    for (i, name) in ["6-reglages-image", "7-reglages-son", "8-reglages-manettes", "9-reglages-reseau", "10-reglages-compte", "11-reglages-televiseur"].iter().enumerate() {
+    for (i, name) in ["6-reglages-image", "7-reglages-son", "8-reglages-manettes", "9-reglages-reseau", "10-reglages-compte"].iter().enumerate() {
+        app.open_settings(false, Screen::Home);
         app.section = i;
-        app.screen = Screen::Settings;
         app.focus = if i == 0 { Target::Setting(Setting::Fps) } else { Target::Section(i) };
+        shot(&mut app, &mut cv, &assets, None, dir, name);
+    }
+    for (i, name) in ["11-reglages-televiseur", "11b-reglages-manettes-globales"].iter().enumerate() {
+        app.open_settings(true, Screen::Home);
+        app.section = i;
+        app.focus = Target::Section(i);
         shot(&mut app, &mut cv, &assets, None, dir, name);
     }
 
@@ -199,4 +205,45 @@ pub fn run(dir: &Path, lang: &str) {
     app.session = Some(s);
     app.focus = Target::Back;
     shot(&mut app, &mut cv, &assets, None, dir, "17-session-fin");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::Nav;
+
+    /// Les réglages s'atteignent à la croix depuis « Se connecter », sans
+    /// touche particulière de la télécommande (télécommande tierce, manette).
+    #[test]
+    fn settings_reachable_with_arrows() {
+        let mut app = demo(false);
+        let mut cv = Canvas::new();
+        let assets = Assets::load();
+        let mut redraw = |app: &mut App| app.hits = ui::draw(app, &mut cv, &assets);
+        app.go(Screen::Home);
+        redraw(&mut app);
+        for _ in 0..4 {
+            app.nav(Nav::Right);
+            redraw(&mut app);
+        }
+        assert_eq!(app.focus, Target::HostSettings);
+        app.nav(Nav::Ok);
+        assert_eq!((app.screen, app.settings_global), (Screen::Settings, false));
+        app.nav(Nav::Back);
+        assert_eq!(app.screen, Screen::Home);
+
+        app.go(Screen::Home);
+        redraw(&mut app);
+        app.nav(Nav::Up);
+        assert_eq!(app.focus, Target::AppSettings);
+        app.nav(Nav::Ok);
+        assert_eq!((app.screen, app.settings_global), (Screen::Settings, true));
+
+        // Sans ordinateur ajouté aussi.
+        let mut empty = App::new(Store::default());
+        empty.go(Screen::Home);
+        redraw(&mut empty);
+        empty.nav(Nav::Up);
+        assert_eq!(empty.focus, Target::AppSettings);
+    }
 }

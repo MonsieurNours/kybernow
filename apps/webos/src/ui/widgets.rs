@@ -72,6 +72,31 @@ pub fn chip(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str, 
     w
 }
 
+/// Largeur d'une pastille à icône (pour l'aligner à droite).
+pub fn icon_chip_width(cv: &mut Canvas, s: &str) -> f32 {
+    cv.text_width(Text::new(Font::Regular, 22.0, FROST), s) + 28.0 + 30.0 + 12.0 + 28.0
+}
+
+/// Pastille à icône (Réglages…), atteignable à la croix ; rend sa largeur.
+#[allow(clippy::too_many_arguments)]
+pub fn icon_chip(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, icon: Icon, s: &str) -> f32 {
+    let style = Text::new(Font::Regular, 22.0, FROST);
+    let w = icon_chip_width(cv, s);
+    let h = 56.0;
+    let focused = f.hit(t, Rect::new(x, y, w, h));
+    let fg = if focused { INK } else { FROST };
+    if focused {
+        cv.neon(x, y, w, h, 28.0, 0.8);
+        cv.rrect(x, y, w, h, 28.0, CORE);
+    } else {
+        cv.rrect(x, y, w, h, 28.0, Rgba(227, 237, 240, 15));
+        cv.rrect_stroke(x, y, w, h, 28.0, 1.0, BORDER);
+    }
+    cv.icon(&icon, x + 26.0, y + 13.0, 30.0, 1.6, fg);
+    cv.text(x + 26.0 + 30.0 + 12.0, y + 36.0, style.color(fg), s);
+    w
+}
+
 /// Tuile du menu de session.
 #[allow(clippy::too_many_arguments)]
 pub fn tile(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, icon: Icon, title: &str, sub: Option<&str>, danger: bool, on: bool) {
