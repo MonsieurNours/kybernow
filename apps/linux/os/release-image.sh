@@ -31,7 +31,7 @@ if ! vm true 2>/dev/null; then
         running) ;;
         suspended | paused) prlctl resume "$VM" >/dev/null ;;
         stopped) prlctl start "$VM" >/dev/null ;;
-        *) echo "VM « $VM » introuvable (prlctl status : ${state:-rien})" >&2; exit 1; }
+        *) echo "VM « $VM » introuvable (prlctl status : ${state:-rien})" >&2; exit 1 ;;
     esac
     for _ in $(seq 60); do vm true 2>/dev/null && break; sleep 2; done
     vm true 2>/dev/null || { echo "VM « $VM » démarrée mais injoignable par ssh ($HOST)" >&2; exit 1; }
@@ -49,6 +49,7 @@ f="$ROOT/apps/linux/dist/KyberNow-Link-OS.img.xz"
 echo "    $(du -h "$f" | cut -f1) $f"
 # Les mesures de l'image, pour Raspberry Pi Imager : taille et SHA-256 du fichier,
 # taille et SHA-256 de l'image décompressée (lue en flux, sans l'écrire).
-vm "cd '$REPO/apps/linux/dist' && { echo download_size=\$(stat -c %s KyberNow-Link-OS.img.xz); echo download_sha256=\$(sha256sum KyberNow-Link-OS.img.xz | cut -d' ' -f1); xz -dc KyberNow-Link-OS.img.xz | tee >(wc -c > /tmp/kn-extract-size) | sha256sum | cut -d' ' -f1 | sed 's/^/extract_sha256=/'; echo extract_size=\$(cat /tmp/kn-extract-size); } > KyberNow-Link-OS.img.xz.info"
+# (taille décompressée lue dans l'index de xz : pas de course avec un tee.)
+vm "cd '$REPO/apps/linux/dist' && { echo download_size=\$(stat -c %s KyberNow-Link-OS.img.xz); echo download_sha256=\$(sha256sum KyberNow-Link-OS.img.xz | cut -d' ' -f1); echo extract_sha256=\$(xz -dc KyberNow-Link-OS.img.xz | sha256sum | cut -d' ' -f1); echo extract_size=\$(xz --robot -l KyberNow-Link-OS.img.xz | awk '/^totals/{print \$5}'); } > KyberNow-Link-OS.img.xz.info"
 cat "$f.info"
 [ -z "$DEST" ] || cp "$f" "$f.info" "$DEST/"
