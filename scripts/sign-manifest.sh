@@ -54,7 +54,7 @@ if [ -n "${KYBERNOW_MINISIGN_KEY:-}" ]; then PUB="${KEY%.key}.pub"; else PUB="$R
 MANIFEST="kybernow-release.json"
 FILES=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 KyberNow-Link-macOS.zip KyberNow-macOS.zip appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz
     KyberNow-Server-Setup.exe KyberNow-Setup.exe KyberNow-Client-Setup.exe)
 
 if ! command -v minisign >/dev/null; then

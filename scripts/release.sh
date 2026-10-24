@@ -104,7 +104,7 @@ LEGACY_STATION=(KyberNow-Server-Setup.exe KyberNow-Setup.exe)
 LEGACY_LINK=(KyberNow-Client-Setup.exe)
 ASSETS=(KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz
     SHA256SUMS kybernow-release.json kybernow-release.json.minisig)
 # Fichiers modifiés par l'alignement des versions (et rien d'autre dans le commit).
 VERSION_FILES=(server/admin/Cargo.toml server/admin/Cargo.lock server/tray/Cargo.toml server/tray/Cargo.lock
@@ -255,6 +255,8 @@ else problem "app webOS : rustup target add armv7-unknown-linux-gnueabi"; fi
 # (démarrée au besoin), qui voit ce dépôt en dossier partagé.
 if CHECK="$(apps/linux/scripts/release-flatpaks.sh --check 2>&1)"; then ok "app Linux : ${CHECK##*$'\n'}"
 else problem "app Linux : ${CHECK##*$'\n'} (apps/linux/README.md, « Compiler »)"; fi
+if CHECK="$(apps/linux/os/release-image.sh --check 2>&1)"; then ok "KyberNow Link OS : ${CHECK##*$'\n'}"
+else problem "KyberNow Link OS : ${CHECK##*$'\n'} (apps/linux/os/README.md)"; fi
 
 # Flux cumulatif du site : amorcé une fois par scripts/rebuild-appcast.sh.
 if [ -f "$SITE_FEED" ]; then ok "flux cumulatif du site ($SITE_FEED)"
@@ -445,6 +447,12 @@ step "App Linux, Steam Deck et SteamOS (KyberNow Link, Flatpak x86_64 et aarch64
 # l'app signale les nouvelles versions, Flatpak les installe.
 apps/linux/scripts/release-flatpaks.sh "$OUT"
 
+step "KyberNow Link OS (image Raspberry Pi à flasher)"
+# Construite dans la même VM (pi-gen, long) ; l'app en OS cherche cette image
+# dans chaque version pour sa mise à jour A/B, et Raspberry Pi Imager la liste
+# par site/updates/rpi-imager.json.
+apps/linux/os/release-image.sh "$OUT"
+
 TREE_AFTER="$(tree_state)"
 if [ "$TREE_AFTER" != "$TREE_BEFORE" ]; then
     echo "La construction a modifié des fichiers suivis : les binaires ne correspondraient pas au commit." >&2
@@ -505,13 +513,17 @@ BASE=()
 [ -f "$SITE_FEED" ] && BASE=(--base "$SITE_FEED")
 python3 scripts/merge-appcast.py -o "$OUT/appcast-site.xml" ${BASE[@]+"${BASE[@]}"} "--$CHANNEL" "$OUT/appcast.xml"
 xmllint --noout "$OUT/appcast-site.xml"
-if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED" && cmp -s "$OUT/notes/${MAC_ZIP%.zip}.fr.html" "$NOTES_DIR/${MAC_ZIP%.zip}.fr.html"; then
+# Le dépôt JSON de Raspberry Pi Imager (KyberNow Link OS de cette version), sur le site aussi.
+IMAGER_JSON="site/updates/rpi-imager.json"
+apps/linux/os/imager-json.sh "$VERSION" "$OUT/KyberNow-Link-OS.img.xz.info" "$OUT/rpi-imager.json" >/dev/null
+if cmp -s "$OUT/appcast-site.xml" "$SITE_FEED" && cmp -s "$OUT/notes/${MAC_ZIP%.zip}.fr.html" "$NOTES_DIR/${MAC_ZIP%.zip}.fr.html" && cmp -s "$OUT/rpi-imager.json" "$IMAGER_JSON"; then
     echo "    $SITE_FEED déjà à jour"
 elif [ "$MODE" = release ]; then
     mkdir -p "$(dirname "$SITE_FEED")" "$NOTES_DIR"
     cp "$OUT/appcast-site.xml" "$SITE_FEED"
     cp "$OUT/notes/${MAC_ZIP%.zip}.fr.html" "$NOTES_DIR/"
-    git add -- "$SITE_FEED" "$NOTES_DIR"
+    cp "$OUT/rpi-imager.json" "$IMAGER_JSON"
+    git add -- "$SITE_FEED" "$NOTES_DIR" "$IMAGER_JSON"
     # Relance : le commit du flux pas encore poussé est remplacé, pas doublé.
     if [ "$(git log -1 --format=%s)" = "$FEED_SUBJECT" ] && ! git merge-base --is-ancestor HEAD origin/main; then
         git commit -q --amend --no-edit
@@ -529,7 +541,7 @@ step "Empreintes et manifeste signé"
 # Nouveaux et anciens noms des installateurs (même empreinte), comme le manifeste.
 (cd "$OUT" && shasum -a 256 KyberNow-Station-Setup.exe kybernow-update.zip update.ps1 "$MAC_ZIP" "${LEGACY_MAC[@]}" appcast.xml KyberSDK-tvOS.zip KyberSDK-iOS.zip \
     KyberNow-Link-Setup.exe "${LEGACY_STATION[@]}" "${LEGACY_LINK[@]}" KyberNow-Link-Android.apk KyberNow-Link-webOS.ipk \
-    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak > SHA256SUMS)
+    KyberNow-Link-Linux-x86_64.flatpak KyberNow-Link-Linux-aarch64.flatpak KyberNow-Link-RaspberryPi-arm64.deb KyberNow-Link-OS.img.xz > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
 if [ -x scripts/sign-manifest.sh ]; then
     scripts/sign-manifest.sh "$OUT" "$VERSION" "$CHANNEL" ${UPDATE_FLAGS[@]+"${UPDATE_FLAGS[@]}"}

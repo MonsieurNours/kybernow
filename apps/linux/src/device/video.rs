@@ -1,6 +1,7 @@
 //! Image de la session : les paquets du correctif 0001 (Annex B) vont, depuis
 //! un fil à part (le fil réseau de Kyber ne bloque jamais), à FFmpeg
-//! (`src/native/decoder.c`) : VA-API quand la carte sait le format, sinon le
+//! (`src/native/decoder.c`) : le décodeur matériel (VA-API ; sur le Pi, V4L2)
+//! quand la machine sait le format, sinon le
 //! processeur. Le jeu de paramètres (SPS/PPS, VPS, en-tête AV1) est placé
 //! devant chaque image clé ; après une perte, rien avant l'image clé suivante,
 //! redemandée par le cœur. Seule l'image la plus récente est gardée pour le
@@ -175,7 +176,7 @@ struct Decoder {
     in_config: bool,
     loaded_config: Option<Vec<u8>>,
     dec: *mut c_void,
-    /// VA-API refusé ou en échec : le processeur décode.
+    /// Décodeur matériel refusé ou en échec : le processeur décode.
     software: bool,
     waiting_key: bool,
     lost_reported: bool,
@@ -245,12 +246,13 @@ impl Decoder {
     fn open(&mut self) -> Result<(), String> {
         let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4) as c_int;
         let mut err = [0 as c_char; 256];
-        let hw = !self.software && self.shared.vaapi_for(self.codec);
-        let d = unsafe { kn_decoder_open(self.codec, hw as c_int, threads, err.as_mut_ptr(), err.len() as c_int) };
+        // 0 : processeur ; 1 : VA-API ; 2 : V4L2 (décodeurs du Raspberry Pi).
+        let hw = if !self.software && self.shared.hw_for(self.codec) { self.shared.hw_backend } else { 0 };
+        let d = unsafe { kn_decoder_open(self.codec, hw, threads, err.as_mut_ptr(), err.len() as c_int) };
         if d.is_null() {
             let e = unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned();
-            if hw && self.codec != 2 {
-                log::warn!("image : VA-API refusé ({e}) ; le processeur décode");
+            if hw != 0 && self.codec != 2 {
+                log::warn!("image : décodeur matériel refusé ({e}) ; le processeur décode");
                 self.software = true;
                 return self.open();
             }
@@ -350,9 +352,9 @@ impl Decoder {
         if self.errors <= 3 || self.errors % 100 == 0 {
             log::warn!("image : erreur de décodage {code} ({} de suite)", self.errors);
         }
-        // VA-API qui échoue en boucle : le processeur prend la suite.
+        // Le décodeur matériel qui échoue en boucle : le processeur prend la suite.
         if self.errors >= 8 && !self.software && unsafe { kn_decoder_is_hw(self.dec) } != 0 && self.codec != 2 {
-            log::warn!("image : VA-API échoue ; le processeur décode");
+            log::warn!("image : le décodeur matériel échoue ; le processeur décode");
             self.software = true;
             self.close();
         }

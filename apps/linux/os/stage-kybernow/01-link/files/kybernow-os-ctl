@@ -1,0 +1,53 @@
+#!/bin/bash
+# Ce que l'app demande au système sur KyberNow Link OS, en root par sudo
+# (sudoers : la liste ci-dessous, rien d'autre) :
+#
+#   kybernow-os-ctl ssh on|off          SSH (Réglages de l'appareil › Avancé)
+#   kybernow-os-ctl reboot | poweroff
+#   kybernow-os-ctl standby on|off      sortie HDMI éteinte (veille) ou rallumée, et le téléviseur par CEC
+#   kybernow-os-ctl cec-name            annonce « KyberNow Link » au téléviseur (CEC)
+#   kybernow-os-ctl cec-wake            réveille le téléviseur et prend la source (CEC)
+#   kybernow-os-ctl hostname NOM
+#   kybernow-os-ctl hdmi auto|2160p60|1080p120|1080p60   mode de la sortie HDMI au prochain démarrage (cmdline.txt)
+set -euo pipefail
+CEC="${CEC_DEVICE:-/dev/cec0}"
+case "${1:-}" in
+ssh)
+    if [ "${2:-}" = on ]; then systemctl enable --now ssh.service; else systemctl disable --now ssh.service; fi
+    ;;
+reboot) systemctl reboot ;;
+poweroff) systemctl poweroff ;;
+standby)
+    if [ "${2:-}" = on ]; then
+        [ -e "$CEC" ] && cec-ctl -d "$CEC" --to 0 --standby >/dev/null 2>&1 || true
+    else
+        [ -e "$CEC" ] && { cec-ctl -d "$CEC" --to 0 --image-view-on >/dev/null 2>&1; cec-ctl -d "$CEC" --active-source phys-addr="$(cec-ctl -d "$CEC" 2>/dev/null | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -1)" >/dev/null 2>&1; } || true
+    fi
+    ;;
+cec-name)
+    [ -e "$CEC" ] && cec-ctl -d "$CEC" --playback --osd-name "KyberNow Link" >/dev/null 2>&1 || true
+    ;;
+cec-wake)
+    [ -e "$CEC" ] && { cec-ctl -d "$CEC" --to 0 --image-view-on >/dev/null 2>&1; cec-ctl -d "$CEC" --active-source phys-addr="$(cec-ctl -d "$CEC" 2>/dev/null | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -1)" >/dev/null 2>&1; } || true
+    ;;
+hdmi)
+    CMD=/boot/firmware/cmdline.txt
+    sed -i -E 's/ ?video=HDMI-A-1:[^ ]+//' "$CMD"
+    case "${2:-auto}" in
+        2160p60) sed -i -E 's/$/ video=HDMI-A-1:3840x2160@60D/' "$CMD" ;;
+        1080p120) sed -i -E 's/$/ video=HDMI-A-1:1920x1080@120D/' "$CMD" ;;
+        1080p60) sed -i -E 's/$/ video=HDMI-A-1:1920x1080@60D/' "$CMD" ;;
+        auto) ;;
+        *) echo "mode inconnu : $2" >&2; exit 2 ;;
+    esac
+    ;;
+hostname)
+    n="${2:?nom}"
+    [[ "$n" =~ ^[A-Za-z0-9-]{1,63}$ ]] || { echo "nom invalide" >&2; exit 2; }
+    hostnamectl set-hostname "$n"
+    ;;
+*)
+    echo "usage : kybernow-os-ctl ssh on|off | reboot | poweroff | standby on|off | cec-name | cec-wake | hostname NOM | hdmi MODE" >&2
+    exit 2
+    ;;
+esac

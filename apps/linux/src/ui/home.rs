@@ -140,10 +140,19 @@ fn desktop(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>) {
                 tr("Sa signature, tirée de son empreinte.", "Its signature, from its fingerprint.")
             };
             let m = &app.machine;
-            let this = format!("{} {} · {} · {}", tr("Cet ordinateur :", "This computer:"), m.os, short_gpu(&m.gpu), decoders_short(m));
-            cv.text_fit(x0, y, Text::new(Font::Regular, 13.0, FAINT), &format!("{src} {this}"), hero_max);
+            let this = match &m.pi {
+                Some(p) => format!("{} {} · {} {} · {} · {} · {}", tr("Cet appareil :", "This device:"), p.model, p.ram_gb, tr("Go", "GB"), m.os, decoders_short(m), m.audio_name),
+                None => format!("{} {} · {} · {}", tr("Cet ordinateur :", "This computer:"), m.os, short_gpu(&m.gpu), decoders_short(m)),
+            };
+            // Deux lignes au plus, comme sur la maquette (le texte du Pi est long).
+            cv.paragraph(x0, y, Text::new(Font::Regular, 13.0, FAINT), &format!("{src} {this}"), hero_max, 19.0);
             if wide {
-                last_panel(app, cv, hst, Rect::new(w - x0 - panel_w, top + 46.0, panel_w, 0.0));
+                let at = Rect::new(w - x0 - panel_w, top + 46.0, panel_w, 0.0);
+                if m.pi.is_some() {
+                    pi_panel(app, cv, hst, at);
+                } else {
+                    last_panel(app, cv, hst, at);
+                }
             }
         }
         None => welcome(cv, f, x0, y, 1.0, hero_max),
@@ -197,6 +206,78 @@ fn last_panel(app: &App, cv: &mut Canvas, h: &Host, at: Rect) {
     cv.text_fit(x, y, m12, &format!("{}{mbps}", last.mode), iw);
 }
 
+/// Le panneau « Ce Raspberry Pi » (maquette) : quatre lignes, icône, titre et
+/// détail en Martian Mono ; la dernière session tient dans la ligne du réseau.
+fn pi_panel(app: &App, cv: &mut Canvas, h: &Host, at: Rect) {
+    let m = &app.machine;
+    let Some(p) = &m.pi else { return };
+    let (px, py) = (22.0, 18.0);
+    let x = at.x + px;
+    let iw = at.w - 2.0 * px;
+    let tx = x + 30.0 + 12.0;
+    let tw = iw - 42.0;
+    let title = Text::new(Font::Semibold, 14.0, FROST);
+    let sub = Text::new(Font::Mono, 12.0, FAINT);
+    // Les lignes : (icône, titre, détail).
+    let hz = |height: u32| m.max_hz(height);
+    let decoders = match (p.v4l2_hevc, p.v4l2_h264) {
+        (true, true) => (tr("H.264 et HEVC par le décodeur du Pi", "H.264 and HEVC by the Pi's decoder").to_string(), tr("HEVC 4K à 60 Hz, H.264 1080p à 60 Hz, 4:2:0", "HEVC 4K at 60 Hz, H.264 1080p at 60 Hz, 4:2:0").to_string()),
+        (true, false) => (tr("HEVC par le décodeur du Pi", "HEVC by the Pi's decoder").to_string(), tr("4K à 60 Hz, 4:2:0 · H.264 par le processeur, 1080p", "4K at 60 Hz, 4:2:0 · H.264 on the CPU, 1080p").to_string()),
+        (false, true) => (tr("H.264 par le décodeur du Pi", "H.264 by the Pi's decoder").to_string(), format!("{} {} Hz · {}", tr("1080p à", "1080p at"), p.h264_hw_hz(), tr("HEVC par le processeur, 720p", "HEVC on the CPU, 720p"))),
+        (false, false) => (tr("Décodage par le processeur", "CPU decoding").to_string(), tr("H.264 et HEVC, 1080p au plus", "H.264 and HEVC, 1080p at most").to_string()),
+    };
+    let screen = (format!("{} {} × {} · {} Hz", tr("Écran", "Screen"), m.display.0, m.display.1, m.refresh), format!("{} · {} {} {} Hz · {}", p.hdmi(), tr("jusqu'à", "up to"), crate::app::Machine::height_label(p.max_height()), hz(p.max_height()), tr("sans VRR", "no VRR")));
+    let sound = (
+        match m.audio_channels {
+            c if c >= 8 => tr("Son 7.1", "7.1 sound").to_string(),
+            c if c >= 6 => tr("Son 5.1", "5.1 sound").to_string(),
+            _ => tr("Son stéréo", "Stereo sound").to_string(),
+        },
+        if m.audio_rate > 0 { format!("HDMI · {} · {} kHz", m.audio_name, m.audio_rate / 1000) } else { format!("HDMI · {}", m.audio_name) },
+    );
+    let net_title = match app.net.kind {
+        NetKind::Ethernet => match app.net.link_mbps {
+            Some(mb) => format!("Ethernet {}", gbit(mb)),
+            None => "Ethernet".into(),
+        },
+        NetKind::Wifi => match &app.net.band {
+            Some(b) => format!("Wi-Fi {b}"),
+            None => "Wi-Fi".into(),
+        },
+        NetKind::Unknown => tr("Réseau", "Network").to_string(),
+    };
+    let net_sub = match &h.last {
+        Some(l) if l.median > 0.0 => format!("{} {} ms {} · {}", tr("Dernière session :", "Last session:"), decimal(l.median, 1), tr("médiane", "median"), l.mode.replace(" × ", " × ")),
+        Some(l) => format!("{} {} · {}", tr("Dernière session :", "Last session:"), duration(l.seconds), l.mode),
+        None => tr("Pas encore de session depuis cet appareil", "No session from this device yet").to_string(),
+    };
+    let net_icon = if app.net.kind == NetKind::Wifi { Icon::Wifi } else { Icon::Ethernet };
+    let rows: [(Icon, String, String); 4] = [(Icon::Cpu, decoders.0, decoders.1), (Icon::Monitor, screen.0, screen.1), (Icon::Speaker, sound.0, sound.1), (net_icon, net_title, net_sub)];
+    // La hauteur d'abord (le détail passe sur deux lignes), puis le dessin.
+    let mut heights = [0.0f32; 4];
+    for (i, (_, _, s)) in rows.iter().enumerate() {
+        let lines = cv.line_count(sub, s, tw);
+        heights[i] = 10.0 + 17.0 + 3.0 + lines as f32 * 18.0 + 10.0;
+    }
+    let total = py + 16.0 + 4.0 + heights.iter().sum::<f32>() + 3.0 + 8.0;
+    panel(cv, Rect::new(at.x, at.y, at.w, total), 14.0);
+    let mut y = at.y + py;
+    eyebrow(cv, x, y + 11.0, 11.0, FAINT, tr("Ce Raspberry Pi", "This Raspberry Pi"));
+    y += 16.0 + 4.0;
+    for (i, (icon, t, s)) in rows.iter().enumerate() {
+        let ry = y + 10.0;
+        cv.rrect(x, ry, 30.0, 30.0, 8.0, INK_3);
+        cv.icon(icon, x + 7.0, ry + 7.0, 16.0, 1.8, SPECTRE);
+        cv.text_fit(tx, ry + 13.0, title, t, tw);
+        cv.paragraph(tx, ry + 17.0 + 3.0 + 12.0, sub, s, tw, 18.0);
+        y += heights[i];
+        if i < 3 {
+            cv.rect(x, y, iw, 1.0, LINE);
+            y += 1.0;
+        }
+    }
+}
+
 fn duration(s: u64) -> String {
     let m = s / 60;
     if m >= 60 { format!("{} h {:02}", m / 60, m % 60) } else { format!("{m} min") }
@@ -225,7 +306,11 @@ fn decoders_short(m: &crate::app::Machine) -> String {
     if m.hw_av1 {
         v.push("AV1");
     }
-    if m.vaapi && !v.is_empty() { format!("{} {}", v.join(", "), tr("par VA-API", "via VA-API")) } else { tr("décodage par le processeur", "CPU decoding").into() }
+    if v.is_empty() || !(m.vaapi || m.pi.is_some()) {
+        return tr("décodage par le processeur", "CPU decoding").into();
+    }
+    let list = if v.len() == 2 { format!("{} {} {}", v[0], tr("et", "and"), v[1]) } else { v.join(", ") };
+    format!("{list} {}", if m.pi.is_some() { tr("par le décodeur du Pi", "by the Pi's decoder") } else { tr("par VA-API", "via VA-API") })
 }
 
 /// Sans ordinateur : bienvenue et ajout.
@@ -402,9 +487,26 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if host.is_some() {
         legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));
     }
-    let label = tr("Réglages de l'app", "App settings");
+    let label = if app.is_os() { tr("Réglages de l'appareil", "Device settings") } else { tr("Réglages de l'app", "App settings") };
     let lw = legend_width(cv, g, &["☰"], label);
-    let r = Rect::new(w - x0 - lw - 8.0, gy - g * 0.7, lw + 16.0, g * 1.4);
+    let mut rx = w - x0 - lw;
+    if app.is_os() {
+        // ⏻ Veille, à gauche de ☰ (le bouton Guide ou PS de la manette aussi).
+        let sl = tr("Veille", "Standby");
+        let sw = legend_width(cv, g, &["⏻"], sl);
+        let sx = rx - 28.0 * u - sw;
+        let sr = Rect::new(sx - 8.0, gy - g * 0.7, sw + 16.0, g * 1.4);
+        let (sf, sh) = f.state(Target::Setting(crate::app::Setting::OsStandby), sr);
+        if sf || sh {
+            cv.rrect(sr.x, sr.y, sr.w, sr.h, 8.0, Rgba(227, 237, 240, 18));
+        }
+        if sf {
+            widgets::ring(cv, sr, 8.0);
+        }
+        legend(cv, sx, gy, g, &["⏻"], sl);
+        rx = w - x0 - lw;
+    }
+    let r = Rect::new(rx - 8.0, gy - g * 0.7, lw + 16.0, g * 1.4);
     let (focused, hover) = f.state(Target::AppSettings, r);
     if focused || hover {
         cv.rrect(r.x, r.y, r.w, r.h, 8.0, Rgba(227, 237, 240, 18));
@@ -412,8 +514,11 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if focused {
         widgets::ring(cv, r, 8.0);
     }
-    legend(cv, w - x0 - lw, gy, g, &["☰"], label);
-    if let crate::app::UpdateState::Available { version, .. } = &app.update {
+    legend(cv, rx, gy, g, &["☰"], label);
+    // Sur l'OS, la pastille de l'en-tête le dit déjà.
+    if let crate::app::UpdateState::Available { version, .. } = &app.update
+        && !app.is_os()
+    {
         let s = format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available"));
         cv.text(w - x0 - lw - 28.0 * u, gy + 5.0 * u, Text::new(Font::Mono, 12.0 * u, SPECTRE).align(Align::Right), &s.to_uppercase());
     }
@@ -428,7 +533,36 @@ fn source(app: &App, h: &Host) -> &'static str {
 }
 
 /// Réseau, batterie et heure, alignés à droite en `right`.
+/// Les pastilles de l'en-tête sur KyberNow Link OS (maquette) : texte en
+/// Martian Mono 16 dans un contour arrondi de 40 pt, alignées à droite de `right`.
+pub(super) fn pills(cv: &mut Canvas, right: f32, cy: f32, items: &[(String, Rgba)]) {
+    let mono = Text::new(Font::Mono, 16.0, MUTED);
+    let widths: Vec<f32> = items.iter().map(|(s, _)| cv.text_width(mono, s) + 32.0).collect();
+    let total: f32 = widths.iter().sum::<f32>() + 16.0 * items.len().saturating_sub(1) as f32;
+    let mut x = right - total;
+    for ((s, c), w) in items.iter().zip(widths) {
+        cv.rrect(x, cy - 20.0, w, 40.0, 20.0, Rgba(9, 13, 18, 191));
+        cv.rrect_stroke(x, cy - 20.0, w, 40.0, 20.0, 1.0, if *c == WARN { WARN.alpha(0.4) } else { LINE_2 });
+        cv.text(x + 16.0, cy + 6.0, mono.color(*c), s);
+        x += w + 16.0;
+    }
+}
+
 fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
+    if app.is_os() && app.layout == Layout::Tv {
+        let mut items: Vec<(String, Rgba)> = Vec::new();
+        if let crate::app::UpdateState::Available { version, .. } = &app.update {
+            items.push((format!("{version} {} · {}", tr("prête", "ready"), tr("redémarrer", "restart")), WARN));
+        }
+        match app.net.kind {
+            NetKind::Wifi => items.push((match &app.net.band { Some(b) => format!("Wi-Fi · {b}"), None => "Wi-Fi".into() }, MUTED)),
+            NetKind::Ethernet => items.push((match app.net.link_mbps { Some(m) => format!("Ethernet {}", gbit(m)), None => "Ethernet".into() }, MUTED)),
+            NetKind::Unknown => {}
+        }
+        items.push((clock(), MUTED));
+        pills(cv, right, y - 6.0 * u, &items);
+        return;
+    }
     let mono = Text::new(Font::Mono, 13.0 * u, MUTED);
     let mut parts: Vec<(Option<Icon>, String)> = Vec::new();
     match app.net.kind {
@@ -461,7 +595,7 @@ fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
     }
 }
 
-fn gbit(m: u32) -> String {
+pub fn gbit(m: u32) -> String {
     if m % 1000 == 0 { format!("{} Gbit/s", m / 1000) } else { format!("{} Gbit/s", decimal(m as f64 / 1000.0, 1)) }
 }
 

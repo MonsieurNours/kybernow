@@ -1,0 +1,16 @@
+plymouth
+plymouth-themes
+bluez
+pi-bluetooth
+network-manager
+alsa-utils
+libasound2-plugins
+v4l-utils
+xz-utils
+parted
+sudo
+libegl1
+libegl-mesa0
+libgles2
+libgbm1
+libgl1-mesa-dri

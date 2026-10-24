@@ -1,8 +1,8 @@
-# Installing KyberNow Link on Linux and the Steam Deck
+# Installing KyberNow Link on Linux, the Steam Deck and the Raspberry Pi
 
 English · [Français](INSTALLATION.md)
 
-KyberNow Link for Linux is a **Flatpak** package, attached to every release published on GitHub: `KyberNow-Link-Linux-x86_64.flatpak` (Steam Deck, PC) and `KyberNow-Link-Linux-aarch64.flatpak` (ARM machines). It installs without administrator rights; the freedesktop runtime comes from Flathub on first install.
+KyberNow Link for Linux is a **Flatpak** package, attached to every release published on GitHub: `KyberNow-Link-Linux-x86_64.flatpak` (Steam Deck, PC) and `KyberNow-Link-Linux-aarch64.flatpak` (ARM machines). It installs without administrator rights; the freedesktop runtime comes from Flathub on first install. For the **Raspberry Pi**, it is a **.deb** package (`KyberNow-Link-RaspberryPi-arm64.deb`), see below.
 
 ## Steam Deck (SteamOS)
 
@@ -34,9 +34,50 @@ flatpak run fr.leslignesclaires.kybernow
 
 KyberNow Link also shows up in the applications menu. Session shortcuts: **Ctrl+Alt+Shift+D** disconnect, **Ctrl+Alt+Shift+F** full screen, **Ctrl+Alt+Shift+M** game or desktop mouse, **Esc** held for a second releases the mouse.
 
+## Raspberry Pi (Raspberry Pi OS)
+
+For a Raspberry Pi 3, 4 or 5 (Pi 400, 500 and Compute Modules included) on **64-bit Raspberry Pi OS** (Debian 13 "trixie", desktop, or Lite with a desktop), the package is a `.deb` that uses the chip's decoders: HEVC on Pi 4 and 5 (up to 4K at 60 Hz), H.264 on Pi 3 and 4.
+
+1. **Download** `KyberNow-Link-RaspberryPi-arm64.deb` from the releases page (https://github.com/MonsieurNours/kybernow/releases).
+2. **Install** (a terminal, or a double-click in the file manager):
+
+   ```sh
+   sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb
+   ```
+
+   apt also installs what is missing (SDL2, libopus, libdrm…). KyberNow Link shows up in the menu, Games category; on the command line: `kybernow`.
+3. **On a TV, with a controller**: App settings › Interface › Living room gives the ten-foot interface (A confirms, B goes back, Y settings, X add; session menu by L1 + R1 + Start + Select). `kybernow --ui tv` does the same.
+
+What the Pi allows is stated in Settings › Picture (greyed choices, "Pi decoder" and "CPU" tags): 4K at 60 Hz at most on the HDMI output of Pi 4 and 5, 1080p at 120 Hz when the TV announces it, no variable refresh; on the Pi 5, H.264 goes through the CPU (1080p), HEVC through the chip; 4:4:4 colour through the CPU, 1080p at most.
+
+**apt repository** (once published): updates will then come with `sudo apt upgrade`. The repository is declared once:
+
+```sh
+curl -fsSL https://www.kybernow.app/apt/kybernow.gpg | sudo tee /usr/share/keyrings/kybernow.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/kybernow.gpg] https://www.kybernow.app/apt stable main" | sudo tee /etc/apt/sources.list.d/kybernow.list
+sudo apt update && sudo apt install kybernow-link
+```
+
+Uninstalling: `sudo apt remove kybernow-link`; computers, settings and the log are in `~/.config/kybernow/`.
+
+**Not yet tried on a board** (23/10/2026): the package is built and installed in an ARM64 virtual machine; the Pi's HEVC decoder, the HDMI output and Bluetooth controllers remain to be verified on a real Raspberry Pi. The aarch64 Flatpak also works on the Pi, but without the chip's decoder (HEVC on the CPU).
+
+## KyberNow Link OS (the image to flash)
+
+A Raspberry Pi that does nothing else: the card boots into KyberNow Link, on a TV with a controller or at a desk, with no Linux desktop. Pi 3, 4 and 5 (Pi 400, 500, Compute Module); in-place (A/B) updates need a Pi 4 or 5.
+
+1. **Flash** `KyberNow-Link-OS.img.xz` (releases page) onto a microSD card of at least 8 GB (or an SSD) with **Raspberry Pi Imager**: Choose OS › Use custom, and the file; or paste the KyberNow repository into Imager › Settings › Custom repository: `https://www.kybernow.app/updates/rpi-imager.json`, and "KyberNow Link OS" shows up in the list. No OS customisation to do in Imager: everything is set at first boot.
+2. **Plug in**: HDMI to the TV (the HDMI 0 socket, next to the power, on Pi 4 and 5), Ethernet if you can, power. The mark shows, then lights up with sound.
+3. **First boot, with a controller**: put it in pairing mode (Xbox: pairing button near the USB port; DualSense: Create + PS; Switch Pro: SYNC), it is accepted without a code; a USB controller, the TV remote (HDMI-CEC) or a keyboard work too. Then the language, the network (Ethernet recognised, otherwise Wi-Fi and its password), the use (Living room or Desktop), and the computer (the six-digit code, accepted in Admin › Link devices).
+4. Afterwards: ☰ on the home screen opens the **Device settings** (network, controllers, screen, sound, update, language, SSH); **Start held three seconds** switches Living room ⇄ Desktop; Guide (or PS) puts the device to standby, a key wakes it.
+
+**Updating the OS**: Device settings › Update. The new version downloads (as soon as it is out, when "Automatic" is on), then "Restart on X" tries it in the card's other slot; if it does not boot up to the home screen, the Pi goes back to the previous version by itself. Computers and settings live on a separate partition and stay.
+
+**Not yet tried on a board** (23/10/2026): the image builds, but no Raspberry Pi has booted it yet. See [os/README.en.md](os/README.en.md).
+
 ## Updating
 
-A Flatpak installed from a file does not update itself: the app announces a new version ("Version X available"), installed the same way (`flatpak install --user` of the new file; computers and settings stay).
+A Flatpak installed from a file does not update itself: the app announces a new version ("Version X available"), installed the same way (`flatpak install --user` of the new file; computers and settings stay). The same goes for the Raspberry Pi `.deb` (`sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`), as long as the apt repository is not declared.
 
 ## Uninstalling
 

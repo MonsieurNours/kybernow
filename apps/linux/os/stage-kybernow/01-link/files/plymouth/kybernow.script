@@ -1,0 +1,21 @@
+// KyberNow Link OS : l'image fixe du démarrage. mark.png est rendue par
+// l'app (`kybernow --splash`, 1920 × 1080) : l'encre #05070A et le symbole
+// éteint, exactement sa première image ; ici elle est mise à l'échelle de
+// l'écran (par la hauteur) et centrée. Rien d'autre : pas de barre, pas de
+// texte, le son et l'allumage viennent avec l'app.
+Window.SetBackgroundTopColor(0.0196, 0.0275, 0.0392);
+Window.SetBackgroundBottomColor(0.0196, 0.0275, 0.0392);
+
+splash.image = Image("mark.png");
+scale = Window.GetHeight() / splash.image.GetHeight();
+splash.scaled = splash.image.Scale(splash.image.GetWidth() * scale, splash.image.GetHeight() * scale);
+splash.sprite = Sprite(splash.scaled);
+splash.sprite.SetX((Window.GetWidth() - splash.scaled.GetWidth()) / 2);
+splash.sprite.SetY((Window.GetHeight() - splash.scaled.GetHeight()) / 2);
+splash.sprite.SetZ(0);
+
+// Les messages du système ne s'affichent pas (mot de passe de disque : non utilisé).
+fun message_callback(text) {}
+Plymouth.SetMessageFunction(message_callback);
+fun quit_callback() {}
+Plymouth.SetQuitFunction(quit_callback);

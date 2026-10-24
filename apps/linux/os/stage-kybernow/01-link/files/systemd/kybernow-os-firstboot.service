@@ -1,0 +1,14 @@
+[Unit]
+Description=KyberNow Link OS : premier démarrage (partition de données agrandie)
+DefaultDependencies=no
+After=local-fs.target
+Before=kybernow-link.service
+ConditionPathExists=!/var/lib/kybernow/.grown
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kybernow-os-firstboot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

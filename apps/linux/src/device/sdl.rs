@@ -323,6 +323,7 @@ unsafe extern "C" {
     pub fn SDL_OpenAudioDevice(device: *const c_char, iscapture: c_int, desired: *const SDL_AudioSpec, obtained: *mut SDL_AudioSpec, allowed: c_int) -> u32;
     pub fn SDL_PauseAudioDevice(dev: u32, pause_on: c_int);
     pub fn SDL_CloseAudioDevice(dev: u32);
+    pub fn SDL_QueueAudio(dev: u32, data: *const c_void, len: u32) -> c_int;
     pub fn SDL_GetDefaultAudioInfo(name: *mut *mut c_char, spec: *mut SDL_AudioSpec, iscapture: c_int) -> c_int;
 }
 
@@ -375,7 +376,7 @@ pub fn display_mode(window: *mut SDL_Window) -> ((u32, u32), u32, String) {
 }
 
 /// La sortie son par défaut : nom et voies (SDL 2.24 et après).
-pub fn default_audio() -> Option<(String, u32)> {
+pub fn default_audio() -> Option<(String, u32, u32)> {
     unsafe {
         let mut name: *mut c_char = std::ptr::null_mut();
         let mut spec = SDL_AudioSpec::empty();
@@ -386,7 +387,7 @@ pub fn default_audio() -> Option<(String, u32)> {
         if !name.is_null() {
             SDL_free(name as *mut c_void);
         }
-        Some((n, spec.channels as u32))
+        Some((n, spec.channels as u32, spec.freq.max(0) as u32))
     }
 }
 

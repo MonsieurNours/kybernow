@@ -206,7 +206,7 @@ pub fn run(dir: &Path, lang: &str) {
         shot(&mut app, &mut cv, None, dir, &p("01-accueil"));
         app.pointer = None;
         app.images.clear();
-        app.update = crate::app::UpdateState::Available { version: "0.4.7".into(), channel: "stable".into(), page: String::new() };
+        app.update = crate::app::UpdateState::Available { version: "0.4.7".into(), channel: "stable".into(), page: String::new(), file: String::new(), url: String::new(), sha256: String::new(), size: 0 };
         shot(&mut app, &mut cv, None, dir, &p("02-accueil-signature"));
         app.update = crate::app::UpdateState::Unknown;
         app.images.insert("a".into(), demo_image(1));
@@ -294,6 +294,160 @@ pub fn run(dir: &Path, lang: &str) {
         app.session = Some(s);
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
+    }
+
+    // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
+    // écrans des maquettes « App sur Raspberry Pi OS », en pixels simples.
+    let mut app = demo(en, Layout::Desktop);
+    raspberry(&mut app);
+    let mut cv = Canvas::new();
+    cv.resize(1280, 800, 1.0);
+    app.go(Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-01-accueil");
+    app.open_settings(false, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07-reglages-image");
+    app.section = 2;
+    shot(&mut app, &mut cv, None, dir, "rpi-07b-reglages-son");
+    app.section = 3;
+    shot(&mut app, &mut cv, None, dir, "rpi-07c-reglages-manettes");
+    app.section = 6;
+    shot(&mut app, &mut cv, None, dir, "rpi-07d-reglages-compte");
+    app.open_settings(true, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
+
+    os_shots(en, dir);
+}
+
+/// L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première
+/// image de l'allumage (l'encre, le symbole éteint), aux pixels de l'app.
+pub fn splash(out: &Path, w: u32, h: u32) {
+    let mut app = App::new(Store::default(), Layout::Tv);
+    app.screen = Screen::Launch;
+    app.launched = Instant::now();
+    let mut cv = Canvas::new();
+    cv.resize(w.max(320), h.max(200), 1.0);
+    ui::draw(&app, &mut cv);
+    match ui::canvas::encode_png(&cv.pix) {
+        Some(bytes) => {
+            if let Err(e) = std::fs::write(out, bytes) {
+                eprintln!("{} : {e}", out.display());
+                std::process::exit(1);
+            }
+            println!("{}", out.display());
+        }
+        None => {
+            eprintln!("PNG non produit");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Les écrans de KyberNow Link OS (maquettes « KyberNow Link OS ») : le
+/// lancement avec son chargement, le premier démarrage, l'accueil salon, les
+/// réglages de l'appareil.
+fn os_shots(en: bool, dir: &Path) {
+    use crate::app::{BtDevice, OsInfo, SetupStep, UpdateState, WifiNet, OS_SECTIONS};
+    let mut app = demo(en, Layout::Tv);
+    raspberry(&mut app);
+    app.os = Some(OsInfo { version: "0.6.0".into(), slot: "A".into(), other: "B".into(), other_version: String::new(), ab: true, pending: String::new(), tryboot: false, ssh: false, built: "2026-10-02".into() });
+    app.machine.display = (3840, 2160);
+    app.machine.refresh = 60;
+    app.machine.max_hz_1080p = 120;
+    app.machine.audio_channels = 6;
+    app.machine.audio_name = "vc4hdmi0".into();
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.profile = Profile::Jeu;
+        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "4K HEVC 60 Hz".into(), mbps: 60.0, at: 0 });
+    }
+    let mut cv = Canvas::new();
+    cv.resize(1920, 1080, 1.0);
+    // Le lancement : la scène tient, le chargement sous le nom.
+    app.screen = Screen::Launch;
+    app.launched = Instant::now() - Duration::from_millis(1500);
+    app.screen_since = Instant::now() - Duration::from_millis(2000);
+    app.os_loading = Some((if en { "network · bluetooth" } else { "réseau · bluetooth" }.into(), 0.45));
+    shot(&mut app, &mut cv, None, dir, "os-00-demarrage-chargement");
+    app.os_loading = None;
+    // Le premier démarrage.
+    app.start_setup();
+    app.setup.bt_listening = true;
+    app.setup.bt = vec![BtDevice { mac: "AC:8E:BD:12:34:56".into(), name: "Xbox Wireless Controller".into(), paired: true, connected: true }];
+    shot(&mut app, &mut cv, None, dir, "os-01-manette");
+    app.setup.step = SetupStep::Language;
+    app.go(Screen::Setup);
+    shot(&mut app, &mut cv, None, dir, "os-02-langue");
+    app.setup.step = SetupStep::Network;
+    app.net.kind = NetKind::Unknown;
+    app.setup.wifi = vec![
+        WifiNet { ssid: "Maison".into(), signal: 92, secured: true, active: false },
+        WifiNet { ssid: "Maison 5 GHz".into(), signal: 80, secured: true, active: false },
+        WifiNet { ssid: "Freebox-7A2C".into(), signal: 54, secured: true, active: false },
+        WifiNet { ssid: "Invités".into(), signal: 31, secured: false, active: false },
+    ];
+    app.go(Screen::Setup);
+    shot(&mut app, &mut cv, None, dir, "os-03-reseau");
+    app.setup.wifi_pick = Some(0);
+    app.setup.password = "corrige".into();
+    app.go(Screen::Setup);
+    shot(&mut app, &mut cv, None, dir, "os-03b-reseau-mot-de-passe");
+    app.setup.wifi_pick = None;
+    app.net.kind = NetKind::Ethernet;
+    app.net.link_mbps = Some(1000);
+    app.setup.step = SetupStep::Usage;
+    app.go(Screen::Setup);
+    shot(&mut app, &mut cv, None, dir, "os-04-usage");
+    // L'accueil salon, une version prête.
+    app.setup.active = false;
+    app.store.app.os_setup_done = true;
+    app.update = UpdateState::Available { version: "0.6.1".into(), channel: "stable".into(), page: String::new(), file: "KyberNow-Link-OS.img.xz".into(), url: String::new(), sha256: String::new(), size: 412_000_000 };
+    app.os_update.ready = Some(Path::new("/var/lib/kybernow/update/KyberNow-Link-OS.img.xz").to_path_buf());
+    app.go(Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "os-10-accueil");
+    // Les réglages de l'appareil : la mise à jour, puis l'écran.
+    app.open_device_settings(Screen::Home);
+    app.device_section = OS_SECTIONS.iter().position(|s| *s == crate::app::Section::OsUpdate).unwrap_or(5);
+    app.focus = Target::DeviceSection(app.device_section);
+    shot(&mut app, &mut cv, None, dir, "os-11-reglages-appareil");
+    app.device_section = 3;
+    app.focus = Target::DeviceSection(3);
+    shot(&mut app, &mut cv, None, dir, "os-11b-reglages-ecran");
+    app.device_section = 2;
+    app.focus = Target::DeviceSection(2);
+    shot(&mut app, &mut cv, None, dir, "os-11c-reglages-manettes");
+}
+
+/// La machine de démonstration devient un Raspberry Pi 5 (8 Go, Raspberry Pi
+/// OS Trixie, HEVC par rpivid, téléviseur 1080p à 120 Hz au plus, Ethernet).
+fn raspberry(app: &mut App) {
+    app.device_name = "Raspberry Pi 5".into();
+    let m = &mut app.machine;
+    m.os = "Raspberry Pi OS (Trixie)".into();
+    m.desktop = "labwc, Wayland".into();
+    m.model = "Raspberry Pi 5".into();
+    m.gpu = "VideoCore VII".into();
+    m.vaapi = false;
+    m.hw_h264 = false;
+    m.hw_hevc = true;
+    m.hw_av1 = false;
+    m.hw_hevc444 = false;
+    m.display = (1920, 1080);
+    m.refresh = 60;
+    m.vrr = Some(false);
+    m.display_name = "LG C4".into();
+    m.audio_name = "PipeWire".into();
+    m.audio_rate = 48000;
+    m.audio_channels = 2;
+    m.battery = None;
+    m.pi = Some(crate::app::Pi { model: "Raspberry Pi 5".into(), generation: 5, ram_gb: 8, v4l2_h264: false, v4l2_hevc: true });
+    m.temp_c = Some(52.0);
+    m.max_hz_1080p = 120;
+    m.max_mode = (3840, 2160, 60);
+    app.net.kind = NetKind::Ethernet;
+    app.net.link_mbps = Some(1000);
+    app.net.band = None;
+    if let Some(h) = app.store.host_mut("a") {
+        h.settings.profile = Profile::Bureau;
+        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1080p HEVC".into(), mbps: 28.0, at: 0 });
     }
 }
 

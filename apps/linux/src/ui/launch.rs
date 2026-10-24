@@ -47,17 +47,23 @@ fn ease(p: f32) -> f32 {
 pub fn header_logo(layout: Layout) -> (f32, f32, f32) {
     match layout {
         Layout::Tv => (96.0, 31.0, 34.0),
-        _ => (40.0, 15.0, 26.0),
+        Layout::Desktop => (16.0, 9.0, 22.0),
+        Layout::Handheld => (40.0, 15.0, 26.0),
     }
 }
 
 pub fn draw(app: &App, cv: &mut Canvas) {
-    let t = app.launched.elapsed().as_secs_f32();
+    let mut t = app.launched.elapsed().as_secs_f32();
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
     let reduced = app.reduce_motion;
     let handover_start = if reduced { 0.45 } else { 1.8 };
     let total = if reduced { TOTAL_REDUCED } else { TOTAL };
+    // KyberNow Link OS : la scène tient tant que quelque chose se prépare.
+    let loading = app.os_loading.clone();
+    if loading.is_some() {
+        t = t.min(handover_start - 0.01);
+    }
     let p = ease((t - handover_start) / (total - handover_start));
 
     // L'accueil arrive dessous, en fondu.
@@ -107,5 +113,20 @@ pub fn draw(app: &App, cv: &mut Canvas) {
             let tw = 126.8 * tag_h / 36.4;
             cv.link_tag(cx - tw / 2.0, base_y + 22.0 * u, tag_h, tag_alpha);
         }
+    }
+    // Le chargement (OS), seulement s'il y a à attendre : la couture se remplit sous le nom.
+    if let Some((label, progress)) = loading
+        && named >= 1.0
+    {
+        let bw = 320.0 * u / 1.5;
+        let bx = cx - bw / 2.0;
+        let by = base_y + 22.0 * u + tag_h + 36.0 * u;
+        let since = (app.screen_since.elapsed().as_secs_f32() - 1.2).max(0.0);
+        let a = (since / 0.4).clamp(0.0, 1.0);
+        cv.rrect(bx, by, bw, 3.0, 1.5, INK_3.alpha(a));
+        let fill = progress.clamp(0.04, 1.0);
+        cv.gradient(bx, by, bw * fill, 3.0, true, &[(0.0, FLAT.alpha(a)), (1.0, SPECTRE.alpha(a))]);
+        let style = super::canvas::Text::new(super::canvas::Font::Mono, 14.0 * u / 1.5, FAINT.alpha(a)).tracking(1.1).align(super::canvas::Align::Center);
+        cv.text(cx, by + 16.0 + 14.0 * u / 1.5, style, &label.to_uppercase());
     }
 }

@@ -10,14 +10,20 @@
 #      (statique, LGPL 2.1) dans le préfixe ;
 #   4. l'app (cargo build -p kybernow-linux).
 #
-# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--prefix DIR] [--install DIR]
+# Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--prefix DIR] [--install DIR]
 #   --deps-only  s'arrête après libkynput et FFmpeg (module du Flatpak mis en cache)
+#   --rpi     Raspberry Pi : le FFmpeg de Raspberry Pi (jc-kynesim/rpi-ffmpeg,
+#             branche dev/7.1.1/rpi_import_1) à la place du 7.1.1 officiel, avec
+#             le hwaccel HEVC V4L2 « request » (rpivid, Pi 4 et 5), les images
+#             SAND et libudev ; préfixe third_party/linux-<arch>-rpi ; l'app est
+#             compilée avec KYBERNOW_V4L2_REQUEST=1 (build.rs). Le décodeur H.264
+#             V4L2 M2M (bcm2835-codec, Pi 3 et 4) est dans tous les FFmpeg Linux.
 #   --prefix  où poser libkynput et FFmpeg (par défaut third_party/linux-<arch>)
 #   --install où copier l'app (bin/kybernow), sinon elle reste dans apps/target
 #
 # Dépendances (Ubuntu/Debian) : build-essential pkg-config nasm clang libclang-dev
-# libsdl2-dev libva-dev libdrm-dev libopus-dev, Rust 1.89 ou après et cargo-c.
-# Dans le SDK de freedesktop : extensions rust-stable et llvm.
+# libsdl2-dev libva-dev libdrm-dev libopus-dev (et libudev-dev pour --rpi),
+# Rust 1.89 ou après et cargo-c. Dans le SDK de freedesktop : extensions rust-stable et llvm.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -25,22 +31,25 @@ APPS="$(cd "$HERE/.." && pwd)"
 ROOT="$(cd "$APPS/.." && pwd)"
 KYSDK="$ROOT/third_party/kyber-desktop/kysdk"
 ARCH="$(uname -m)"
-PREFIX="$ROOT/third_party/linux-$ARCH"
+PREFIX=""
 COMMAND=build
 PROFILE=release
 INSTALL=""
 DEPS_ONLY=0
+RPI=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) COMMAND=check ;;
         --debug) PROFILE=debug ;;
         --deps-only) DEPS_ONLY=1 ;;
+        --rpi) RPI=1 ;;
         --prefix) PREFIX="$2"; shift ;;
         --install) INSTALL="$2"; shift ;;
         *) echo "Option inconnue : $1" >&2; exit 1 ;;
     esac
     shift
 done
+[ -n "$PREFIX" ] || PREFIX="$ROOT/third_party/linux-$ARCH$([ "$RPI" = 1 ] && echo -rpi)"
 [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"
@@ -82,27 +91,47 @@ if [ ! -f "$PREFIX/lib/pkgconfig/kynput.pc" ]; then
     [ -f "$PREFIX/lib/pkgconfig/kynput.pc" ] || { echo "libkynput non installée dans $PREFIX" >&2; exit 1; }
 fi
 
-# 3. FFmpeg réduit au décodage (VA-API).
+# 3. FFmpeg réduit au décodage (VA-API ; V4L2 M2M partout sur Linux ; avec --rpi,
+#    le FFmpeg de Raspberry Pi et son hwaccel HEVC V4L2 request).
 FFMPEG_VERSION=7.1.1
+RPI_FFMPEG_BRANCH="dev/7.1.1/rpi_import_1"
 if [ ! -f "$PREFIX/lib/libavcodec.a" ]; then
-    src="${FFMPEG_SRC:-$PREFIX/build/ffmpeg-$FFMPEG_VERSION}"
-    if [ ! -f "$src/configure" ]; then
-        echo "==> sources de FFmpeg $FFMPEG_VERSION"
-        mkdir -p "$PREFIX/build"
-        curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" | tar xJ -C "$PREFIX/build"
+    if [ "$RPI" = 1 ]; then
+        src="${FFMPEG_SRC:-$PREFIX/build/rpi-ffmpeg}"
+        if [ ! -f "$src/configure" ]; then
+            echo "==> sources du FFmpeg de Raspberry Pi ($RPI_FFMPEG_BRANCH)"
+            mkdir -p "$PREFIX/build" && rm -rf "$src" && mkdir -p "$src"
+            curl -fsSL "https://github.com/jc-kynesim/rpi-ffmpeg/archive/refs/heads/$RPI_FFMPEG_BRANCH.tar.gz" | tar xz -C "$src" --strip-components=1
+        fi
+        extra=(--enable-v4l2-request --enable-libudev --enable-sand --enable-hwaccel=hevc_v4l2request --extra-version=kybernow-rpi)
+        what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M et HEVC V4L2 request du Pi"
+    else
+        src="${FFMPEG_SRC:-$PREFIX/build/ffmpeg-$FFMPEG_VERSION}"
+        if [ ! -f "$src/configure" ]; then
+            echo "==> sources de FFmpeg $FFMPEG_VERSION"
+            mkdir -p "$PREFIX/build"
+            curl -fsSL "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz" | tar xJ -C "$PREFIX/build"
+        fi
+        extra=()
+        what="décodeurs H.264, HEVC, AV1, VA-API, V4L2 M2M"
     fi
-    echo "==> libavcodec (décodeurs H.264, HEVC, AV1, VA-API) dans $PREFIX"
+    echo "==> libavcodec ($what) dans $PREFIX"
     build="$PREFIX/build/ffmpeg-build"
     rm -rf "$build" && mkdir -p "$build"
-    (cd "$build" && "$src/configure" --prefix="$PREFIX" --libdir="$PREFIX/lib" \
+    if ! (cd "$build" && "$src/configure" --prefix="$PREFIX" --libdir="$PREFIX/lib" \
         --disable-everything --disable-programs --disable-doc --disable-network --disable-autodetect \
         --enable-static --disable-shared --enable-pic --disable-debug \
         --enable-avcodec --enable-avutil --disable-avformat --disable-avfilter --disable-avdevice --disable-swresample --disable-swscale \
-        --enable-vaapi --enable-libdrm \
-        --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=av1 \
+        --enable-vaapi --enable-libdrm --enable-v4l2-m2m \
+        --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=av1 --enable-decoder=h264_v4l2m2m \
         --enable-hwaccel=h264_vaapi --enable-hwaccel=hevc_vaapi --enable-hwaccel=av1_vaapi \
-        --enable-parser=h264 --enable-parser=hevc --enable-parser=av1 >/dev/null \
-        && make -j"$JOBS" >/dev/null && make install >/dev/null)
+        --enable-parser=h264 --enable-parser=hevc --enable-parser=av1 "${extra[@]}" > "$build/configure.log" 2>&1); then
+        tail -30 "$build/configure.log" >&2
+        [ -f "$build/ffbuild/config.log" ] && tail -40 "$build/ffbuild/config.log" >&2
+        echo "configure de FFmpeg en échec (journal : $build/configure.log)" >&2
+        exit 1
+    fi
+    (cd "$build" && make -j"$JOBS" >/dev/null && make install >/dev/null)
     [ -f "$PREFIX/lib/libavcodec.a" ] || { echo "libavcodec non construite" >&2; exit 1; }
 fi
 
@@ -121,6 +150,7 @@ fi
 
 # 4. L'app.
 export KYBERNOW_PREFIX="$PREFIX"
+export KYBERNOW_V4L2_REQUEST="$RPI"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export CARGO_PROFILE_RELEASE_STRIP=false
 flags=()

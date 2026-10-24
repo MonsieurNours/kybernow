@@ -1,15 +1,21 @@
-// Décodage de l'image par FFmpeg : VA-API (carte graphique) quand elle sait le
-// format, sinon le processeur. Une interface C réduite, appelée depuis Rust
+// Décodage de l'image par FFmpeg : un décodeur matériel quand la machine en a
+// un pour le format (VA-API sur PC ; sur le Raspberry Pi, les décodeurs V4L2 de
+// la puce : HEVC par rpivid, API « request », et H.264 par bcm2835-codec, M2M),
+// sinon le processeur. Une interface C réduite, appelée depuis Rust
 // (src/device/video.rs), pour ne pas dépendre de la disposition des
 // structures de FFmpeg côté Rust.
 //
-// Les images VA-API sont recopiées en NV12 dans la mémoire du processeur
-// (av_hwframe_transfer_data) puis montrées par SDL : une copie par image,
-// négligeable à la taille du Steam Deck. Plus tard : import DMA-BUF sans copie.
+// Les images VA-API et DRM (Pi) sont recopiées en NV12 dans la mémoire du
+// processeur (av_hwframe_transfer_data ; sur le Pi, le format en colonnes
+// « SAND » du décodeur y devient linéaire) puis montrées par SDL : une copie par
+// image, négligeable à la taille du Steam Deck. Plus tard : import DMA-BUF sans copie.
 //
 // 4:4:4 (en option, HEVC) : SDL n'a pas de texture YUV 4:4:4 ; les images sont
 // converties ici en BGRA (virgule fixe, sur quelques fils), sur le fil du
 // décodeur, et montrées telles quelles.
+//
+// KN_V4L2_REQUEST (build.rs, quand build.sh compile le FFmpeg de Raspberry Pi,
+// --rpi) : le hwaccel hevc_v4l2request existe, avec un périphérique DRM.
 
 #include <stdint.h>
 #include <stdio.h>
@@ -33,6 +39,11 @@
 #define KN_FMT_I420 2
 #define KN_FMT_BGRA 3
 
+// Décodeur matériel demandé : aucun, VA-API, V4L2 (Raspberry Pi).
+#define KN_HW_NONE 0
+#define KN_HW_VAAPI 1
+#define KN_HW_V4L2 2
+
 typedef struct kn_frame {
     int width, height, format;
     uint8_t *data[3];
@@ -48,6 +59,8 @@ typedef struct kn_decoder {
     AVPacket *pkt;
     AVFrame *frame, *sw, *out;
     int hw_active;
+    // Le format d'image du décodeur matériel (VAAPI, DRM_PRIME), ou NONE.
+    enum AVPixelFormat hw_fmt;
     char name[64];
     // Image 4:4:4 convertie en BGRA.
     uint8_t *rgb;
@@ -145,12 +158,16 @@ static int to_bgra(kn_decoder *d, const AVFrame *f, int bt709, int full) {
     return 0;
 }
 
+// Le format que FFmpeg propose : celui du décodeur matériel s'il est là,
+// sinon le premier format logiciel.
 static enum AVPixelFormat get_format(AVCodecContext *ctx, const enum AVPixelFormat *fmts) {
     kn_decoder *d = ctx->opaque;
-    for (const enum AVPixelFormat *p = fmts; *p != AV_PIX_FMT_NONE; p++) {
-        if (*p == AV_PIX_FMT_VAAPI && d->hw) {
-            d->hw_active = 1;
-            return *p;
+    if (d->hw && d->hw_fmt != AV_PIX_FMT_NONE) {
+        for (const enum AVPixelFormat *p = fmts; *p != AV_PIX_FMT_NONE; p++) {
+            if (*p == d->hw_fmt) {
+                d->hw_active = 1;
+                return *p;
+            }
         }
     }
     d->hw_active = 0;
@@ -170,18 +187,58 @@ static void set_err(char *err, int len, const char *what, int code) {
 
 void kn_log_quiet(void) { av_log_set_level(AV_LOG_ERROR); }
 
-// codec : 0 H.264, 1 HEVC, 2 AV1. hw : essayer VA-API.
+// Le périphérique DRM du Pi pour le hwaccel V4L2 request : la première carte qui s'ouvre.
+#ifdef KN_V4L2_REQUEST
+static int open_drm_device(AVBufferRef **hw) {
+    int r = AVERROR(ENOENT);
+    for (int card = 0; card < 4; card++) {
+        char path[32];
+        snprintf(path, sizeof path, "/dev/dri/card%d", card);
+        if (access(path, R_OK) != 0) continue;
+        r = av_hwdevice_ctx_create(hw, AV_HWDEVICE_TYPE_DRM, path, NULL, 0);
+        if (r >= 0) return 0;
+    }
+    return r;
+}
+#endif
+
+// codec : 0 H.264, 1 HEVC, 2 AV1. hw : KN_HW_NONE, KN_HW_VAAPI ou KN_HW_V4L2.
 kn_decoder *kn_decoder_open(int codec, int hw, int threads, char *err, int errlen) {
     enum AVCodecID id = codec == 1 ? AV_CODEC_ID_HEVC : codec == 2 ? AV_CODEC_ID_AV1 : AV_CODEC_ID_H264;
-    const AVCodec *c = avcodec_find_decoder(id);
-    if (!c) { set_err(err, errlen, "décodeur absent de FFmpeg", 0); return NULL; }
+    const AVCodec *c = NULL;
     kn_decoder *d = calloc(1, sizeof *d);
     if (!d) return NULL;
-    if (hw) {
+    d->hw_fmt = AV_PIX_FMT_NONE;
+    int m2m = 0;
+    if (hw == KN_HW_V4L2) {
+        if (codec == 0) {
+            // H.264 par bcm2835-codec : un décodeur à part (M2M), images en mémoire.
+            c = avcodec_find_decoder_by_name("h264_v4l2m2m");
+            if (!c) { set_err(err, errlen, "décodeur H.264 V4L2 absent de FFmpeg", 0); free(d); return NULL; }
+            m2m = 1;
+        } else if (codec == 1) {
+#ifdef KN_V4L2_REQUEST
+            int r = open_drm_device(&d->hw);
+            if (r < 0) { set_err(err, errlen, "périphérique DRM pour le décodeur HEVC du Pi", r); d->hw = NULL; free(d); return NULL; }
+            d->hw_fmt = AV_PIX_FMT_DRM_PRIME;
+#else
+            set_err(err, errlen, "HEVC V4L2 request absent de cette compilation", 0);
+            free(d);
+            return NULL;
+#endif
+        } else {
+            set_err(err, errlen, "AV1 : rien ne le décode sur le Pi", 0);
+            free(d);
+            return NULL;
+        }
+    } else if (hw == KN_HW_VAAPI) {
         int r = av_hwdevice_ctx_create(&d->hw, AV_HWDEVICE_TYPE_VAAPI, NULL, NULL, 0);
         if (r < 0) { d->hw = NULL; if (codec == 2) { set_err(err, errlen, "VA-API indisponible", r); free(d); return NULL; } }
+        if (d->hw) d->hw_fmt = AV_PIX_FMT_VAAPI;
     }
-    if (codec == 2 && !d->hw) { set_err(err, errlen, "AV1 sans VA-API", 0); free(d); return NULL; }
+    if (!c) c = avcodec_find_decoder(id);
+    if (!c) { set_err(err, errlen, "décodeur absent de FFmpeg", 0); av_buffer_unref(&d->hw); free(d); return NULL; }
+    if (codec == 2 && !d->hw) { set_err(err, errlen, "AV1 sans décodeur matériel", 0); free(d); return NULL; }
     d->ctx = avcodec_alloc_context3(c);
     d->ctx->opaque = d;
     d->ctx->get_format = get_format;
@@ -189,6 +246,8 @@ kn_decoder *kn_decoder_open(int codec, int hw, int threads, char *err, int errle
     d->ctx->flags2 |= AV_CODEC_FLAG2_FAST;
     if (d->hw) {
         d->ctx->hw_device_ctx = av_buffer_ref(d->hw);
+        d->ctx->thread_count = 1;
+    } else if (m2m) {
         d->ctx->thread_count = 1;
     } else {
         // Fils par tranches seulement : les fils par image ajoutent une image de retard chacun.
@@ -203,16 +262,19 @@ kn_decoder *kn_decoder_open(int codec, int hw, int threads, char *err, int errle
         free(d);
         return NULL;
     }
+    if (m2m) d->hw_active = 1;
     d->pkt = av_packet_alloc();
     d->frame = av_frame_alloc();
     d->sw = av_frame_alloc();
-    snprintf(d->name, sizeof d->name, "%s %s", d->hw ? "VA-API" : "CPU", codec == 1 ? "HEVC" : codec == 2 ? "AV1" : "H.264");
+    const char *who = (hw == KN_HW_V4L2) ? "Pi" : d->hw ? "VA-API" : "CPU";
+    snprintf(d->name, sizeof d->name, "%s %s", who, codec == 1 ? "HEVC" : codec == 2 ? "AV1" : "H.264");
     return d;
 }
 
 const char *kn_decoder_name(kn_decoder *d) {
-    if (d->hw && !d->hw_active && d->ctx->pix_fmt != AV_PIX_FMT_NONE && d->ctx->pix_fmt != AV_PIX_FMT_VAAPI) {
-        // VA-API refusé par FFmpeg pour ce flux : le processeur décode.
+    if (d->hw && !d->hw_active && d->ctx->pix_fmt != AV_PIX_FMT_NONE && d->ctx->pix_fmt != d->hw_fmt) {
+        // Le décodeur matériel refusé par FFmpeg pour ce flux : le processeur décode.
+        if (strncmp(d->name, "VA-API", 6) == 0) memmove(d->name, d->name + 3, strlen(d->name + 3) + 1);
         memcpy(d->name, "CPU", 3);
     }
     return d->name;
@@ -239,13 +301,20 @@ int kn_decoder_receive(kn_decoder *d, kn_frame *out) {
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) break;
         if (r < 0) return r;
         AVFrame *src = d->frame;
-        if (d->frame->format == AV_PIX_FMT_VAAPI) {
+        if (d->frame->format == AV_PIX_FMT_VAAPI || d->frame->format == AV_PIX_FMT_DRM_PRIME) {
             av_frame_unref(d->sw);
-            // NV12 en 4:2:0 ; en 4:4:4, le format des surfaces (VUYX, 444P…).
+            // NV12 en 4:2:0 (VA-API : le format des surfaces en 4:4:4, VUYX, 444P…).
+            // Sur le Pi, les images SAND du décodeur deviennent du NV12 linéaire ici.
             enum AVPixelFormat swf = AV_PIX_FMT_NV12;
-            if (d->frame->hw_frames_ctx) swf = ((AVHWFramesContext *)d->frame->hw_frames_ctx->data)->sw_format;
+            if (d->frame->format == AV_PIX_FMT_VAAPI && d->frame->hw_frames_ctx) swf = ((AVHWFramesContext *)d->frame->hw_frames_ctx->data)->sw_format;
             d->sw->format = swf;
             r = av_hwframe_transfer_data(d->sw, d->frame, 0);
+            if (r < 0 && d->frame->format == AV_PIX_FMT_DRM_PRIME && swf == AV_PIX_FMT_NV12) {
+                // Le FFmpeg du Pi préfère parfois le 4:2:0 planaire.
+                av_frame_unref(d->sw);
+                d->sw->format = AV_PIX_FMT_YUV420P;
+                r = av_hwframe_transfer_data(d->sw, d->frame, 0);
+            }
             if (r < 0) { av_frame_unref(d->frame); return r; }
             d->sw->pts = d->frame->pts;
             d->sw->colorspace = d->frame->colorspace;
@@ -301,6 +370,18 @@ void kn_decoder_close(kn_decoder *d) {
     av_buffer_unref(&d->hw);
     free(d);
 }
+
+// Le FFmpeg de cette compilation sait-il le HEVC du Pi (hwaccel V4L2 request) ?
+int kn_v4l2_request_built(void) {
+#ifdef KN_V4L2_REQUEST
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+// Le décodeur H.264 V4L2 (M2M) est-il dans ce FFmpeg ?
+int kn_v4l2_m2m_built(void) { return avcodec_find_decoder_by_name("h264_v4l2m2m") != NULL; }
 
 // Ce que décode VA-API : bit 0 H.264, bit 1 HEVC, bit 2 AV1, bit 3 HEVC 4:4:4.
 // `vendor` : le pilote (« Mesa Gallium driver … for AMD Custom GPU 0405 »).
