@@ -62,6 +62,19 @@ Désinstaller : `sudo apt remove kybernow-link` ; les ordinateurs, réglages et 
 
 **Pas encore essayé sur une carte** (23/10/2026) : le paquet est construit et installé dans une machine virtuelle ARM64 ; le décodeur HEVC du Pi, la sortie HDMI et les manettes Bluetooth restent à vérifier sur un vrai Raspberry Pi. Le Flatpak aarch64 marche aussi sur le Pi, mais sans le décodeur de la puce (HEVC par le processeur).
 
+## KyberNow Link OS (l'image à flasher)
+
+Un Raspberry Pi qui ne fait que ça : la carte démarre sur KyberNow Link, au téléviseur à la manette ou au bureau, sans bureau Linux. Pi 3, 4 et 5 (Pi 400, 500, Compute Module) ; la mise à jour en place (A/B) demande un Pi 4 ou 5.
+
+1. **Flasher** `KyberNow-Link-OS.img.xz` (page des versions) sur une carte microSD de 8 Go au moins (ou un SSD), avec **Raspberry Pi Imager** : Choisir l'OS › Utiliser une image personnalisée, et le fichier ; ou collez le dépôt KyberNow dans Imager › Réglages › Dépôt personnalisé : `https://www.kybernow.app/updates/rpi-imager.json`, et « KyberNow Link OS » apparaît dans la liste. Pas de personnalisation d'OS à faire dans Imager : tout se règle au premier démarrage.
+2. **Brancher** : HDMI au téléviseur (la prise HDMI 0, près de l'alimentation, sur Pi 4 et 5), Ethernet si possible, l'alimentation. Le symbole s'affiche, puis s'allume avec son.
+3. **Premier démarrage, à la manette** : mettez-la en mode association (Xbox : bouton d'association près du port USB ; DualSense : Create + PS ; Switch Pro : SYNC), elle est acceptée sans code ; une manette USB, la télécommande du téléviseur (HDMI-CEC) ou un clavier marchent aussi. Puis la langue, le réseau (Ethernet reconnu, sinon le Wi-Fi et son mot de passe), l'usage (Salon ou Bureau), et l'ordinateur (le code à six chiffres, accepté dans Admin › Appareils Link).
+4. Ensuite : ☰ sur l'accueil ouvre les **Réglages de l'appareil** (réseau, manettes, écran, son, mise à jour, langue, SSH) ; **Start tenu trois secondes** bascule Salon ⇄ Bureau ; Guide (ou PS) met en veille, une touche réveille.
+
+**Mettre à jour l'OS** : Réglages de l'appareil › Mise à jour. La nouvelle version se télécharge (dès sa sortie, si « Automatique » est coché), puis « Redémarrer sur la X » l'essaie dans l'autre emplacement de la carte ; si elle ne démarre pas jusqu'à l'accueil, le Pi revient tout seul à la version d'avant. Les ordinateurs et réglages sont sur une partition à part et restent.
+
+**Pas encore essayé sur une carte** (23/10/2026) : l'image se construit, mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
+
 ## Mettre à jour
 
 Un Flatpak installé depuis un fichier ne se met pas à jour seul : l'app signale une nouvelle version (« Version X disponible »), qu'on installe de la même façon (`flatpak install --user` du nouveau fichier ; les ordinateurs et réglages restent). Même chose pour le `.deb` du Raspberry Pi (`sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`), tant que le dépôt apt n'est pas déclaré.

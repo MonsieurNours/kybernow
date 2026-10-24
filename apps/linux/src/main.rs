@@ -20,6 +20,14 @@ fn main() {
         preview::run(std::path::Path::new(&dir), &lang);
         return;
     }
+    if let Some(i) = args.iter().position(|a| a == "--splash") {
+        // L'image fixe du démarrage de KyberNow Link OS (Plymouth) : la première image de l'allumage.
+        let out = args.get(i + 1).cloned().unwrap_or_else(|| "splash.png".into());
+        let w: u32 = args.get(i + 2).and_then(|v| v.parse().ok()).unwrap_or(1920);
+        let h: u32 = args.get(i + 3).and_then(|v| v.parse().ok()).unwrap_or(1080);
+        preview::splash(std::path::Path::new(&out), w, h);
+        return;
+    }
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("KyberNow Link {}", env!("CARGO_PKG_VERSION"));
         return;

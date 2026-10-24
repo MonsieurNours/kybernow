@@ -1,0 +1,28 @@
+[Unit]
+Description=KyberNow Link (plein écran sur KMS/DRM)
+After=multi-user.target network-online.target bluetooth.service kybernow-os-firstboot.service
+Wants=network-online.target bluetooth.service kybernow-os-firstboot.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=kybernow
+Group=kybernow
+SupplementaryGroups=video render input audio plugdev netdev
+WorkingDirectory=/var/lib/kybernow
+RuntimeDirectory=kybernow
+Environment=XDG_RUNTIME_DIR=/run/kybernow
+Environment=XDG_CONFIG_HOME=/var/lib/kybernow/config
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_AUDIODRIVER=alsa
+Environment=KYBERNOW_OS=1
+# Plymouth garde son image à l'écran jusqu'à la première image de l'app.
+ExecStartPre=-/usr/bin/plymouth quit --retain-splash
+ExecStart=/usr/bin/kybernow
+Restart=always
+RestartSec=2
+TTYPath=/dev/tty1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+// KyberNow Link OS : l'app (compte kybernow, sans session interactive) règle le
+// réseau par NetworkManager (nmcli : liste des Wi-Fi, connexion) et consulte
+// Bluetooth ; polkit l'accepterait sinon seulement depuis une session active.
+polkit.addRule(function(action, subject) {
+    if (subject.user == "kybernow" && action.id.indexOf("org.freedesktop.NetworkManager.") == 0) {
+        return polkit.Result.YES;
+    }
+});

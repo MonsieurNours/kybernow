@@ -197,7 +197,51 @@ pub const DEB: &str = "KyberNow-Link-RaspberryPi-arm64.deb";
 /// Le fichier que cette installation cherche dans une version publiée : le
 /// Flatpak dans le bac à sable, le .deb hors de lui sur ARM (Raspberry Pi).
 pub fn asset() -> &'static str {
-    if !crate::app::flatpak() && cfg!(target_arch = "aarch64") { DEB } else { FLATPAK }
+    if super::os::is_os() {
+        OS_IMAGE
+    } else if !crate::app::flatpak() && cfg!(target_arch = "aarch64") {
+        DEB
+    } else {
+        FLATPAK
+    }
+}
+/// L'image de KyberNow Link OS (mise à jour A/B).
+pub const OS_IMAGE: &str = "KyberNow-Link-OS.img.xz";
+
+/// La dernière version trouvée, gardée pour la télécharger.
+static AVAILABLE: std::sync::Mutex<Option<kybernow_core::update::Available>> = std::sync::Mutex::new(None);
+
+pub fn remember(a: kybernow_core::update::Available) {
+    *AVAILABLE.lock().unwrap() = Some(a);
+}
+
+/// KyberNow Link OS : télécharge l'image publiée dans le dossier des mises à
+/// jour (partition de données), vérifiée par le cœur (taille, SHA-256 du
+/// manifeste signé), puis la signale prête.
+pub fn download_os(tx: Sender<Event>) {
+    let Some(a) = AVAILABLE.lock().unwrap().clone() else {
+        let _ = tx.send(Event::OsDownloaded(Err(crate::i18n::tr("Aucune version à télécharger", "No version to download").into())));
+        return;
+    };
+    std::thread::Builder::new()
+        .name("os-update".into())
+        .spawn(move || {
+            let dir = super::os::update_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            let dest = dir.join(&a.file);
+            let total = a.size;
+            let tx2 = tx.clone();
+            let last = std::sync::Mutex::new(std::time::Instant::now());
+            let r = kybernow_core::update::download(&a, &dest, move |done| {
+                let mut l = last.lock().unwrap();
+                if l.elapsed() > std::time::Duration::from_millis(400) {
+                    *l = std::time::Instant::now();
+                    let _ = tx2.send(Event::OsDownload(done, total));
+                }
+            });
+            let _ = tx.send(Event::OsDownloaded(r.map(|_| dest)));
+        })
+        .ok();
 }
 
 /// La dernière version du canal qui publie le paquet de cette installation,

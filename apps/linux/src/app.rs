@@ -458,6 +458,21 @@ pub enum Setting {
     UpdateChannel,
     CheckUpdate,
     KeepImage,
+    /// KyberNow Link OS (réglages de l'appareil).
+    OsUsage,
+    OsWifi,
+    OsBtPair,
+    OsHdmi,
+    OsCec,
+    OsAutoUpdate,
+    OsSsh,
+    OsReboot,
+    OsPoweroff,
+    OsUpdateApply,
+    OsUpdateLater,
+    OsRollback,
+    OsStandby,
+    OsInfo,
 }
 
 /// Une rubrique des réglages.
@@ -473,6 +488,15 @@ pub enum Section {
     /// Réglages de l'app.
     App,
     Gamepads,
+    /// KyberNow Link OS : réglages de l'appareil.
+    OsUsage,
+    OsNetwork,
+    OsControllers,
+    OsScreen,
+    OsSound,
+    OsUpdate,
+    OsLanguage,
+    OsAdvanced,
 }
 
 impl Section {
@@ -487,8 +511,41 @@ impl Section {
             Section::Account => tr("Compte", "Account"),
             Section::App => tr("KyberNow Link", "KyberNow Link"),
             Section::Gamepads => tr("Manettes", "Controllers"),
+            Section::OsUsage => tr("Usage", "Use"),
+            Section::OsNetwork => tr("Réseau", "Network"),
+            Section::OsControllers => tr("Manettes", "Controllers"),
+            Section::OsScreen => tr("Écran", "Screen"),
+            Section::OsSound => tr("Son", "Sound"),
+            Section::OsUpdate => tr("Mise à jour", "Update"),
+            Section::OsLanguage => tr("Langue", "Language"),
+            Section::OsAdvanced => tr("Avancé", "Advanced"),
         }
     }
+}
+
+/// Les rubriques des réglages de l'appareil (KyberNow Link OS), dans l'ordre de la maquette.
+pub const OS_SECTIONS: [Section; 8] = [Section::OsUsage, Section::OsNetwork, Section::OsControllers, Section::OsScreen, Section::OsSound, Section::OsUpdate, Section::OsLanguage, Section::OsAdvanced];
+
+/// Ce que l'app demande à KyberNow Link OS.
+#[derive(Clone, Debug, PartialEq)]
+pub enum OsAction {
+    /// Bluetooth à l'écoute : les manettes qui se présentent sont acceptées.
+    BtListen(bool),
+    WifiScan,
+    WifiConnect { ssid: String, password: String },
+    /// Le premier démarrage est fini (usage choisi, interface appliquée).
+    SetupDone,
+    Status,
+    /// Télécharger l'image publiée, puis l'écrire dans l'autre emplacement.
+    UpdateDownload,
+    UpdateApply,
+    Rollback,
+    Ssh(bool),
+    Reboot,
+    Poweroff,
+    Standby(bool),
+    /// Mode HDMI pour le prochain démarrage.
+    Hdmi(String),
 }
 
 /// Débits proposés (Mbit/s, 0 : celui du profil) : jusqu'à 500, quand
@@ -556,13 +613,109 @@ impl Tag {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
-    /// Lancement animé (interfaces console).
+    /// Lancement animé (interfaces console, et KyberNow Link OS).
     Launch,
     Home,
     Add,
     Settings,
     Gamepads,
     Session,
+    /// KyberNow Link OS : premier démarrage (manette, langue, réseau, usage, ordinateur).
+    Setup,
+    /// KyberNow Link OS : réglages de l'appareil.
+    Device,
+    /// KyberNow Link OS : veille (écran éteint ; une touche réveille).
+    Standby,
+}
+
+/// KyberNow Link OS : les étapes du premier démarrage, dans l'ordre.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupStep {
+    Controller,
+    Language,
+    Network,
+    Usage,
+    Computer,
+}
+
+impl SetupStep {
+    pub const ALL: [SetupStep; 5] = [SetupStep::Controller, SetupStep::Language, SetupStep::Network, SetupStep::Usage, SetupStep::Computer];
+}
+
+/// Une manette vue par Bluetooth (association, connexion).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BtDevice {
+    pub mac: String,
+    pub name: String,
+    pub paired: bool,
+    pub connected: bool,
+}
+
+/// Un réseau Wi-Fi vu par NetworkManager.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WifiNet {
+    pub ssid: String,
+    /// 0 à 100.
+    pub signal: u8,
+    pub secured: bool,
+    pub active: bool,
+}
+
+/// Le premier démarrage (et les écrans Manette et Réseau rouverts depuis les
+/// réglages de l'appareil : `active` faux).
+#[derive(Clone, Debug)]
+pub struct SetupState {
+    /// Le premier démarrage complet (sinon une étape seule, depuis les réglages).
+    pub active: bool,
+    pub step: SetupStep,
+    pub bt: Vec<BtDevice>,
+    pub bt_listening: bool,
+    pub wifi: Vec<WifiNet>,
+    pub wifi_scanning: bool,
+    /// Réseau choisi (mot de passe en cours de saisie).
+    pub wifi_pick: Option<usize>,
+    pub password: String,
+    pub shift: bool,
+    pub net_message: Option<String>,
+    pub net_busy: bool,
+    /// 0 : English, 1 : Français.
+    pub lang: usize,
+    /// 0 : salon, 1 : bureau.
+    pub usage: usize,
+}
+
+impl Default for SetupState {
+    fn default() -> Self {
+        Self { active: false, step: SetupStep::Controller, bt: Vec::new(), bt_listening: false, wifi: Vec::new(), wifi_scanning: false, wifi_pick: None, password: String::new(), shift: false, net_message: None, net_busy: false, lang: 1, usage: 0 }
+    }
+}
+
+/// Ce que l'app sait de KyberNow Link OS (`kybernow-os-update status`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OsInfo {
+    pub version: String,
+    /// « A » ou « B », et l'autre.
+    pub slot: String,
+    pub other: String,
+    pub other_version: String,
+    /// Le tryboot A/B existe (Pi 4 et 5).
+    pub ab: bool,
+    /// Un essai est en cours (version qui attend d'être inscrite).
+    pub pending: String,
+    pub tryboot: bool,
+    pub ssh: bool,
+    pub built: String,
+}
+
+/// La mise à jour de l'OS : téléchargement de l'image, puis écriture.
+#[derive(Clone, Debug, Default)]
+pub struct OsUpdate {
+    /// (reçu, total) pendant le téléchargement.
+    pub downloading: Option<(u64, u64)>,
+    /// L'image téléchargée et vérifiée, prête à écrire.
+    pub ready: Option<std::path::PathBuf>,
+    pub applying: bool,
+    pub error: Option<String>,
 }
 
 /// Ce qu'on peut choisir.
@@ -608,6 +761,16 @@ pub enum Target {
     BarQuit,
     /// Une mise à jour est publiée : sa page.
     UpdateNotice,
+    /// KyberNow Link OS : premier démarrage.
+    SetupContinue,
+    SetupSkip,
+    SetupLang(usize),
+    SetupUsage(usize),
+    SetupWifi(usize),
+    SetupRescan,
+    KeyShift,
+    /// KyberNow Link OS : rubrique des réglages de l'appareil.
+    DeviceSection(usize),
 }
 
 /// Ce que l'app demande au pilote.
@@ -642,6 +805,8 @@ pub enum Action {
     Minimize,
     Maximize,
     Quit,
+    /// KyberNow Link OS.
+    Os(OsAction),
 }
 
 /// Où en est la recherche de mise à jour.
@@ -651,8 +816,10 @@ pub enum UpdateState {
     Unknown,
     Checking,
     UpToDate,
-    /// Plus récente, signée : version, canal (`stable`, `beta`), page de la version.
-    Available { version: String, channel: String, page: String },
+    /// Plus récente, signée : version, canal (`stable`, `beta`), page de la
+    /// version ; le fichier publié pour cette installation (adresse,
+    /// empreinte, taille), que l'OS télécharge.
+    Available { version: String, channel: String, page: String, file: String, url: String, sha256: String, size: u64 },
     Failed(String),
 }
 
@@ -700,6 +867,17 @@ pub struct App {
     pub reduce_motion: bool,
     /// Le nom de cet appareil pour Admin (« Steam Deck », nom de la machine).
     pub device_name: String,
+    /// KyberNow Link OS : ce que l'app sait de l'OS (`None` ailleurs).
+    pub os: Option<OsInfo>,
+    pub setup: SetupState,
+    /// Rubrique des réglages de l'appareil.
+    pub device_section: usize,
+    pub os_update: OsUpdate,
+    /// Au lancement sur l'OS : ce qui se prépare encore (libellé, avancement 0 à 1) ;
+    /// la scène du lancement tient tant que c'est là.
+    pub os_loading: Option<(String, f32)>,
+    /// Veille : écran éteint.
+    pub standby: bool,
 }
 
 impl App {
@@ -743,7 +921,46 @@ impl App {
             maximized: false,
             reduce_motion: false,
             device_name: String::new(),
+            os: None,
+            setup: SetupState::default(),
+            device_section: 0,
+            os_update: OsUpdate::default(),
+            os_loading: None,
+            standby: false,
         }
+    }
+
+    /// KyberNow Link OS.
+    pub fn is_os(&self) -> bool {
+        self.os.is_some()
+    }
+
+    /// Sur l'OS : le premier démarrage, depuis sa première étape.
+    pub fn start_setup(&mut self) {
+        self.setup = SetupState { active: true, lang: if crate::i18n::english() { 0 } else { 1 }, ..SetupState::default() };
+        self.go(Screen::Setup);
+    }
+
+    /// Un écran du premier démarrage seul (Manette, Réseau), depuis les réglages de l'appareil.
+    pub fn open_setup_step(&mut self, step: SetupStep) {
+        self.setup.active = false;
+        self.setup.step = step;
+        self.setup.wifi_pick = None;
+        self.setup.password.clear();
+        self.setup.net_message = None;
+        self.back_to = Screen::Device;
+        self.go(Screen::Setup);
+    }
+
+    pub fn open_device_settings(&mut self, from: Screen) {
+        self.back_to = from;
+        self.scroll = 0.0;
+        self.go(Screen::Device);
+    }
+
+    /// Les rubriques des réglages de l'appareil.
+    pub fn device_section(&self) -> Section {
+        OS_SECTIONS[self.device_section.min(OS_SECTIONS.len() - 1)]
     }
 
     /// L'ordinateur choisi sur l'accueil.
@@ -817,6 +1034,25 @@ impl App {
             }
             Screen::Gamepads => Target::Pad(self.pad_selected.min(self.pads.len().saturating_sub(1))),
             Screen::Session => Target::Menu(MenuItem::Resume),
+            Screen::Setup => match self.setup.step {
+                SetupStep::Controller => Target::SetupContinue,
+                SetupStep::Language => Target::SetupLang(self.setup.lang),
+                SetupStep::Network => {
+                    if self.setup.wifi_pick.is_some() {
+                        Target::KeyOk
+                    } else if self.net.kind == NetKind::Ethernet {
+                        Target::SetupContinue
+                    } else if self.setup.wifi.is_empty() {
+                        Target::SetupRescan
+                    } else {
+                        Target::SetupWifi(0)
+                    }
+                }
+                SetupStep::Usage => Target::SetupUsage(self.setup.usage),
+                SetupStep::Computer => Target::SetupContinue,
+            },
+            Screen::Device => Target::DeviceSection(self.device_section),
+            Screen::Standby => Target::Back,
         };
     }
 
@@ -824,10 +1060,83 @@ impl App {
         self.rows(self.current_section()).into_iter().find(|r| r.enabled && !matches!(r.kind, RowKind::Info(_))).map(|r| r.setting)
     }
 
+    fn first_device_setting(&self) -> Option<Setting> {
+        let s = self.device_section();
+        if s == Section::OsUpdate {
+            return Some(if self.os.as_ref().is_some_and(|o| !o.pending.is_empty()) || matches!(self.update, UpdateState::Available { .. }) { Setting::OsUpdateApply } else { Setting::OsAutoUpdate });
+        }
+        self.rows(s).into_iter().find(|r| r.enabled && !matches!(r.kind, RowKind::Info(_))).map(|r| r.setting)
+    }
+
+    /// Le mot de passe d'un réseau Wi-Fi est en cours de saisie.
+    pub fn typing_password(&self) -> bool {
+        self.screen == Screen::Setup && self.setup.step == SetupStep::Network && self.setup.wifi_pick.is_some()
+    }
+
+    /// L'étape suivante du premier démarrage (ou la fin de l'étape seule).
+    fn setup_next(&mut self) -> Vec<Action> {
+        let mut acts = Vec::new();
+        if !self.setup.active {
+            if self.setup.step == SetupStep::Controller {
+                acts.push(Action::Os(OsAction::BtListen(false)));
+            }
+            self.open_device_settings(Screen::Home);
+            return acts;
+        }
+        match self.setup.step {
+            SetupStep::Controller => {
+                acts.push(Action::Os(OsAction::BtListen(false)));
+                self.setup.step = SetupStep::Language;
+            }
+            SetupStep::Language => {
+                self.store.app.language = if self.setup.lang == 0 { "en".into() } else { "fr".into() };
+                acts.push(Action::Language);
+                acts.push(Action::Save);
+                self.setup.step = SetupStep::Network;
+                if self.net.kind != NetKind::Ethernet {
+                    self.setup.wifi_scanning = true;
+                    acts.push(Action::Os(OsAction::WifiScan));
+                }
+            }
+            SetupStep::Network => {
+                self.setup.wifi_pick = None;
+                self.setup.step = SetupStep::Usage;
+            }
+            SetupStep::Usage => {
+                self.store.app.interface = if self.setup.usage == 0 { "tv".into() } else { "desktop".into() };
+                acts.push(Action::Save);
+                self.setup.step = SetupStep::Computer;
+                // L'ordinateur : l'écran d'ajout par code, puis la fin.
+                self.add.step = AddStep::Code;
+                self.add.message = None;
+                self.go(Screen::Add);
+                acts.push(Action::StartPairing);
+                return acts;
+            }
+            SetupStep::Computer => {
+                return self.finish_setup();
+            }
+        }
+        self.go(Screen::Setup);
+        acts
+    }
+
+    /// Fin du premier démarrage : l'usage choisi s'applique, l'accueil.
+    pub fn finish_setup(&mut self) -> Vec<Action> {
+        self.setup.active = false;
+        self.store.app.os_setup_done = true;
+        self.go(Screen::Home);
+        vec![Action::Save, Action::Interface, Action::Os(OsAction::SetupDone), Action::StopPairing]
+    }
+
     /// Fin du lancement animé : l'accueil prend la main.
     pub fn launch_done(&mut self) {
         if self.screen == Screen::Launch {
-            self.go(Screen::Home);
+            if self.is_os() && !self.store.app.os_setup_done {
+                self.start_setup();
+            } else {
+                self.go(Screen::Home);
+            }
         }
     }
 
@@ -899,6 +1208,11 @@ impl App {
             }
             Nav::Menu => {
                 if self.screen == Screen::Home {
+                    // Sur l'OS, ☰ ouvre les réglages de l'appareil (ceux de l'app y sont une rubrique).
+                    if self.is_os() {
+                        self.open_device_settings(Screen::Home);
+                        return vec![Action::Os(OsAction::Status)];
+                    }
                     return self.activate(Target::AppSettings);
                 }
                 Vec::new()
@@ -915,6 +1229,12 @@ impl App {
                         }
                         vec![Action::Save]
                     }
+                    Screen::Device => {
+                        self.device_section = cycle(self.device_section, OS_SECTIONS.len(), dir);
+                        self.scroll = 0.0;
+                        self.focus = Target::DeviceSection(self.device_section);
+                        Vec::new()
+                    }
                     Screen::Settings => {
                         let first = self.first_desktop_section();
                         let n = self.sections().len() - first;
@@ -927,13 +1247,13 @@ impl App {
                 }
             }
             Nav::Char(c) => {
-                if self.screen == Screen::Add && self.add.step == AddStep::Address {
+                if self.screen == Screen::Add && self.add.step == AddStep::Address || self.typing_password() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
-                if self.screen == Screen::Add && self.add.step == AddStep::Address {
+                if self.screen == Screen::Add && self.add.step == AddStep::Address || self.typing_password() {
                     return self.activate(Target::KeyErase);
                 }
                 Vec::new()
@@ -992,7 +1312,7 @@ impl App {
         }
     }
 
-    fn back(&mut self) -> Vec<Action> {
+    pub fn back(&mut self) -> Vec<Action> {
         match self.screen {
             Screen::Launch => {
                 self.launch_done();
@@ -1006,6 +1326,7 @@ impl App {
                 }
             }
             Screen::Add => match self.add.step {
+                AddStep::Code if self.setup.active => self.finish_setup(),
                 AddStep::Code => {
                     self.go(Screen::Home);
                     vec![Action::StopPairing]
@@ -1017,6 +1338,52 @@ impl App {
                     Vec::new()
                 }
             },
+            Screen::Standby => {
+                self.standby = false;
+                self.go(Screen::Home);
+                vec![Action::Os(OsAction::Standby(false))]
+            }
+            Screen::Setup => {
+                // Un mot de passe en cours : revenir à la liste ; une étape seule : les réglages ;
+                // le premier démarrage : l'étape précédente (la première ne recule pas).
+                if self.setup.wifi_pick.is_some() {
+                    self.setup.wifi_pick = None;
+                    self.setup.net_message = None;
+                    self.go(Screen::Setup);
+                    return Vec::new();
+                }
+                if !self.setup.active {
+                    let stop = if self.setup.step == SetupStep::Controller { vec![Action::Os(OsAction::BtListen(false))] } else { Vec::new() };
+                    self.open_device_settings(Screen::Home);
+                    return stop;
+                }
+                let i = SetupStep::ALL.iter().position(|s| *s == self.setup.step).unwrap_or(0);
+                if i > 0 {
+                    self.setup.step = SetupStep::ALL[i - 1];
+                    let mut acts = Vec::new();
+                    if self.setup.step == SetupStep::Controller {
+                        acts.push(Action::Os(OsAction::BtListen(true)));
+                    }
+                    self.go(Screen::Setup);
+                    return acts;
+                }
+                Vec::new()
+            }
+            Screen::Device => {
+                if matches!(self.focus, Target::Setting(_) | Target::Choice(..)) {
+                    self.focus = Target::DeviceSection(self.device_section);
+                    return Vec::new();
+                }
+                let to = self.back_to;
+                self.back_to = Screen::Home;
+                if to == Screen::Session && self.session.is_some() {
+                    self.screen = Screen::Session;
+                    self.focus = Target::Menu(MenuItem::Resume);
+                } else {
+                    self.go(Screen::Home);
+                }
+                Vec::new()
+            }
             Screen::Settings | Screen::Gamepads => {
                 if self.screen == Screen::Settings && self.layout.console() && matches!(self.focus, Target::Setting(_) | Target::Choice(..)) {
                     self.focus = Target::Section(self.section);
@@ -1124,13 +1491,87 @@ impl App {
                 vec![Action::OpenKeyboard]
             }
             Target::Key(c) => {
-                if self.add.address.len() < 60 {
+                if self.typing_password() {
+                    if self.setup.password.chars().count() < 63 {
+                        let c = if self.setup.shift { c.to_uppercase().next().unwrap_or(c) } else { c };
+                        self.setup.password.push(c);
+                        self.setup.shift = false;
+                    }
+                } else if self.add.address.len() < 60 {
                     self.add.address.push(c);
                 }
                 Vec::new()
             }
             Target::KeyErase => {
-                self.add.address.pop();
+                if self.typing_password() {
+                    self.setup.password.pop();
+                } else {
+                    self.add.address.pop();
+                }
+                Vec::new()
+            }
+            Target::KeyShift => {
+                self.setup.shift = !self.setup.shift;
+                Vec::new()
+            }
+            Target::KeyOk if self.typing_password() => {
+                let Some(i) = self.setup.wifi_pick else { return Vec::new() };
+                let Some(n) = self.setup.wifi.get(i) else { return Vec::new() };
+                let ssid = n.ssid.clone();
+                self.setup.net_busy = true;
+                self.setup.net_message = Some(format!("{} {ssid}…", tr("Connexion à", "Connecting to")));
+                self.focus = Target::KeyOk;
+                vec![Action::Os(OsAction::WifiConnect { ssid, password: self.setup.password.clone() })]
+            }
+            Target::SetupContinue => self.setup_next(),
+            Target::SetupSkip => {
+                // Le réseau : passer (Ethernet plus tard, ou le Wi-Fi depuis les réglages).
+                if self.setup.step == SetupStep::Network {
+                    self.setup.wifi_pick = None;
+                    return self.setup_next();
+                }
+                Vec::new()
+            }
+            Target::SetupLang(i) => {
+                self.setup.lang = i;
+                self.store.app.language = if i == 0 { "en".into() } else { "fr".into() };
+                self.focus = Target::SetupLang(i);
+                vec![Action::Language, Action::Save]
+            }
+            Target::SetupUsage(i) => {
+                self.setup.usage = i;
+                self.focus = Target::SetupUsage(i);
+                Vec::new()
+            }
+            Target::SetupWifi(i) => {
+                let Some(n) = self.setup.wifi.get(i).cloned() else { return Vec::new() };
+                if n.active {
+                    return self.setup_next();
+                }
+                self.setup.password.clear();
+                self.setup.shift = false;
+                self.setup.net_message = None;
+                if n.secured {
+                    self.setup.wifi_pick = Some(i);
+                    self.focus = Target::Key('a');
+                    Vec::new()
+                } else {
+                    self.setup.net_busy = true;
+                    self.setup.net_message = Some(format!("{} {}…", tr("Connexion à", "Connecting to"), n.ssid));
+                    vec![Action::Os(OsAction::WifiConnect { ssid: n.ssid, password: String::new() })]
+                }
+            }
+            Target::SetupRescan => {
+                self.setup.wifi_scanning = true;
+                self.setup.net_message = None;
+                vec![Action::Os(OsAction::WifiScan)]
+            }
+            Target::DeviceSection(i) => {
+                self.device_section = i.min(OS_SECTIONS.len() - 1);
+                self.scroll = 0.0;
+                if let Some(s) = self.first_device_setting() {
+                    self.focus = Target::Setting(s);
+                }
                 Vec::new()
             }
             Target::KeyOk => {
@@ -1170,6 +1611,10 @@ impl App {
                 Vec::new()
             }
             Target::AppSettings => {
+                if self.is_os() {
+                    self.open_device_settings(Screen::Home);
+                    return vec![Action::Os(OsAction::Status)];
+                }
                 self.open_settings(true, Screen::Home);
                 Vec::new()
             }
@@ -1375,6 +1820,9 @@ impl App {
             };
             return vec![Row { setting: Setting::Pads, label: tr("Tester les manettes", "Test the controllers").into(), hint, kind: RowKind::Action(format!("{n}")), enabled: true, tag: None }];
         }
+        if let Some(rows) = self.os_rows(section) {
+            return rows;
+        }
         let Some(h) = self.selected() else { return Vec::new() };
         let st = &h.settings;
         match section {
@@ -1524,13 +1972,91 @@ impl App {
                     tag: None,
                 },
             ],
-            Section::App | Section::Gamepads => Vec::new(),
+            _ => Vec::new(),
         }
+    }
+
+    /// Les lignes des réglages de l'appareil (KyberNow Link OS) ; `None` pour
+    /// les autres rubriques. La mise à jour a son propre panneau (`ui/device.rs`).
+    fn os_rows(&self, section: Section) -> Option<Vec<Row>> {
+        let choice = |setting, label: &str, hint: String, options: Vec<String>, current: usize, disabled: Vec<bool>| Row { setting, label: label.to_string(), hint, kind: RowKind::Choice { options, current, disabled, tags: Vec::new() }, enabled: true, tag: None };
+        let toggle = |setting, label: &str, hint: String, on: bool| Row { setting, label: label.to_string(), hint, kind: RowKind::Toggle(on), enabled: true, tag: None };
+        let action = |setting, label: &str, hint: String, verb: &str| Row { setting, label: label.to_string(), hint, kind: RowKind::Action(verb.to_string()), enabled: true, tag: None };
+        let info = |label: &str, hint: String, value: String| Row { setting: Setting::OsInfo, label: label.to_string(), hint, kind: RowKind::Info(value), enabled: true, tag: None };
+        let a = &self.store.app;
+        let m = &self.machine;
+        let rows = match section {
+            Section::OsUsage => vec![choice(
+                Setting::OsUsage,
+                tr("Usage de ce Raspberry Pi", "What this Raspberry Pi is for"),
+                tr("Salon : au téléviseur, à la manette · Bureau : écran, clavier et souris · Start tenu trois secondes bascule", "Living room: on a TV, with a controller · Desktop: screen, keyboard and mouse · Start held three seconds switches").into(),
+                vec![tr("Salon", "Living room").into(), tr("Bureau", "Desktop").into()],
+                (a.interface == "desktop") as usize,
+                vec![false; 2],
+            )],
+            Section::OsNetwork => {
+                let state = match self.net.kind {
+                    NetKind::Ethernet => match self.net.link_mbps {
+                        Some(mb) => format!("Ethernet · {}", crate::ui::gbit_label(mb)),
+                        None => "Ethernet".into(),
+                    },
+                    NetKind::Wifi => match &self.net.band {
+                        Some(b) => format!("Wi-Fi · {b}"),
+                        None => "Wi-Fi".into(),
+                    },
+                    NetKind::Unknown => tr("Pas de réseau", "No network").into(),
+                };
+                vec![
+                    info(tr("Liaison", "Link"), tr("Ethernet dès qu'un câble est branché ; le Wi-Fi sinon", "Ethernet as soon as a cable is plugged in; Wi-Fi otherwise").into(), state),
+                    action(Setting::OsWifi, tr("Réseau Wi-Fi", "Wi-Fi network"), tr("La liste des réseaux, le mot de passe à la manette", "The list of networks, the password with the controller").into(), tr("Choisir", "Choose")),
+                ]
+            }
+            Section::OsControllers => {
+                let mut v: Vec<Row> = self.pads.iter().map(|p| info(&format!("{} {}", tr("Joueur", "Player"), p.slot + 1), p.battery.clone().unwrap_or_default(), p.name.clone())).collect();
+                if v.is_empty() {
+                    v.push(info(tr("Aucune manette", "No controller"), tr("Branchez-la en USB, ou associez-la", "Plug it in over USB, or pair it").into(), String::new()));
+                }
+                v.push(action(Setting::OsBtPair, tr("Associer une manette", "Pair a controller"), tr("Bluetooth à l'écoute : la manette en mode association est acceptée sans code", "Bluetooth listening: a controller in pairing mode is accepted without a code").into(), tr("Associer", "Pair")));
+                v.push(action(Setting::Pads, tr("Tester les manettes", "Test the controllers"), tr("Boutons, sticks, vibrations", "Buttons, sticks, rumble").into(), &format!("{}", self.pads.len())));
+                v
+            }
+            Section::OsScreen => {
+                let modes = ["auto", "2160p60", "1080p120", "1080p60"];
+                let labels = vec!["Auto".into(), "4K · 60 Hz".into(), "1080p · 120 Hz".into(), "1080p · 60 Hz".into()];
+                let off = vec![false, m.max_height() < 2160, m.max_hz(1080) < 120, false];
+                vec![
+                    choice(Setting::OsHdmi, tr("Sortie HDMI", "HDMI output"), tr("Au prochain démarrage · Auto : le mode que le téléviseur préfère", "At the next boot · Auto: the mode the TV prefers").into(), labels, modes.iter().position(|v| *v == a.os_hdmi).unwrap_or(0), off),
+                    toggle(Setting::OsCec, "HDMI-CEC", tr("« KyberNow Link » annoncé au téléviseur ; la télécommande réveille et met en veille", "“KyberNow Link” announced to the TV; the remote wakes and puts to standby").into(), a.os_cec),
+                    info(tr("Écran", "Screen"), m.display_name.clone(), format!("{} × {} · {} Hz", m.display.0, m.display.1, m.refresh)),
+                ]
+            }
+            Section::OsSound => vec![
+                info(tr("Sortie", "Output"), tr("La première prise HDMI de la puce", "The chip's first HDMI socket").into(), format!("HDMI · {} {}", m.audio_channels, tr("voies", "channels"))),
+                info(tr("Par ordinateur", "Per computer"), tr("Stéréo, 5.1 ou 7.1 : Réglages de l'ordinateur › Son", "Stereo, 5.1 or 7.1: Computer settings › Sound").into(), String::new()),
+            ],
+            Section::OsUpdate => Vec::new(),
+            Section::OsLanguage => {
+                let lang = ["auto", "fr", "en"].iter().position(|v| *v == a.language).unwrap_or(0);
+                vec![choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3])]
+            }
+            Section::OsAdvanced => {
+                let o = self.os.clone().unwrap_or_default();
+                vec![
+                    toggle(Setting::OsSsh, "SSH", tr("Accès au système depuis un autre ordinateur, compte kybernow, par clé", "Access to the system from another computer, kybernow account, by key").into(), o.ssh),
+                    action(Setting::OsReboot, tr("Redémarrer", "Restart"), tr("Le Raspberry Pi redémarre sur le système en cours", "The Raspberry Pi restarts on the current system").into(), tr("Redémarrer", "Restart")),
+                    action(Setting::OsPoweroff, tr("Éteindre", "Shut down"), tr("Arrêt complet ; le bouton du Pi 5 rallume", "Full shutdown; the Pi 5's button turns it back on").into(), tr("Éteindre", "Shut down")),
+                    info("KyberNow Link OS", format!("{} · {} {}", o.built, tr("emplacement", "slot"), o.slot), o.version),
+                ]
+            }
+            _ => return None,
+        };
+        Some(rows)
     }
 
     /// Change un réglage (gauche / droite, ou OK pour la valeur suivante).
     fn adjust(&mut self, s: Setting, dir: i32) -> Vec<Action> {
-        let row = self.sections().iter().flat_map(|sec| self.rows(*sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
+        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
+        let row = secs.iter().flat_map(|sec| self.rows(*sec)).find(|r| r.setting == s && !matches!(r.kind, RowKind::Info(_)));
         if let Some(row) = row
             && let RowKind::Choice { options, current, disabled, .. } = &row.kind
         {
@@ -1575,6 +2101,68 @@ impl App {
                 self.store.app.keep_last_image = !self.store.app.keep_last_image;
                 return vec![Action::Save];
             }
+            // KyberNow Link OS.
+            Setting::OsUsage => {
+                let desktop = if i == usize::MAX { self.store.app.interface != "desktop" } else { i == 1 };
+                self.store.app.interface = if desktop { "desktop".into() } else { "tv".into() };
+                return vec![Action::Save, Action::Interface];
+            }
+            Setting::OsHdmi => {
+                let modes = ["auto", "2160p60", "1080p120", "1080p60"];
+                let cur = modes.iter().position(|m| *m == self.store.app.os_hdmi).unwrap_or(0);
+                let i = if i == usize::MAX { (cur + 1) % modes.len() } else { i.min(modes.len() - 1) };
+                self.store.app.os_hdmi = modes[i].into();
+                return vec![Action::Save, Action::Os(OsAction::Hdmi(modes[i].into()))];
+            }
+            Setting::OsCec => {
+                self.store.app.os_cec = !self.store.app.os_cec;
+                return vec![Action::Save];
+            }
+            Setting::OsAutoUpdate => {
+                self.store.app.os_auto_update = !self.store.app.os_auto_update;
+                return vec![Action::Save];
+            }
+            Setting::OsSsh => {
+                let on = !self.os.as_ref().is_some_and(|o| o.ssh);
+                if let Some(o) = self.os.as_mut() {
+                    o.ssh = on;
+                }
+                return vec![Action::Os(OsAction::Ssh(on))];
+            }
+            Setting::OsReboot => return vec![Action::Os(OsAction::Reboot)],
+            Setting::OsPoweroff => return vec![Action::Os(OsAction::Poweroff)],
+            Setting::OsStandby => {
+                self.standby = true;
+                self.go(Screen::Standby);
+                return vec![Action::Os(OsAction::Standby(true))];
+            }
+            Setting::OsUpdateApply => {
+                if self.os_update.ready.is_some() {
+                    self.os_update.applying = true;
+                    return vec![Action::Os(OsAction::UpdateApply)];
+                }
+                if matches!(self.update, UpdateState::Available { .. }) && self.os_update.downloading.is_none() {
+                    self.os_update.error = None;
+                    self.os_update.downloading = Some((0, 0));
+                    return vec![Action::Os(OsAction::UpdateDownload)];
+                }
+                return Vec::new();
+            }
+            Setting::OsUpdateLater => {
+                self.toast(tr("La mise à jour attendra la prochaine veille", "The update will wait for the next standby"));
+                return Vec::new();
+            }
+            Setting::OsRollback => return vec![Action::Os(OsAction::Rollback)],
+            Setting::OsWifi => {
+                self.open_setup_step(SetupStep::Network);
+                self.setup.wifi_scanning = true;
+                return vec![Action::Os(OsAction::WifiScan)];
+            }
+            Setting::OsBtPair => {
+                self.open_setup_step(SetupStep::Controller);
+                return vec![Action::Os(OsAction::BtListen(true))];
+            }
+            Setting::OsInfo => return Vec::new(),
             _ => {}
         }
         let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };

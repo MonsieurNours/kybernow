@@ -241,8 +241,8 @@ fn pi_panel(app: &App, cv: &mut Canvas, h: &Host, at: Rect) {
             None => "Ethernet".into(),
         },
         NetKind::Wifi => match &app.net.band {
-            Some(b) => format!("Wi‑Fi {b}"),
-            None => "Wi‑Fi".into(),
+            Some(b) => format!("Wi-Fi {b}"),
+            None => "Wi-Fi".into(),
         },
         NetKind::Unknown => tr("Réseau", "Network").to_string(),
     };
@@ -487,9 +487,26 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if host.is_some() {
         legend(cv, x, gy, g, &["L1", "R1"], tr("Profil", "Profile"));
     }
-    let label = tr("Réglages de l'app", "App settings");
+    let label = if app.is_os() { tr("Réglages de l'appareil", "Device settings") } else { tr("Réglages de l'app", "App settings") };
     let lw = legend_width(cv, g, &["☰"], label);
-    let r = Rect::new(w - x0 - lw - 8.0, gy - g * 0.7, lw + 16.0, g * 1.4);
+    let mut rx = w - x0 - lw;
+    if app.is_os() {
+        // ⏻ Veille, à gauche de ☰ (le bouton Guide ou PS de la manette aussi).
+        let sl = tr("Veille", "Standby");
+        let sw = legend_width(cv, g, &["⏻"], sl);
+        let sx = rx - 28.0 * u - sw;
+        let sr = Rect::new(sx - 8.0, gy - g * 0.7, sw + 16.0, g * 1.4);
+        let (sf, sh) = f.state(Target::Setting(crate::app::Setting::OsStandby), sr);
+        if sf || sh {
+            cv.rrect(sr.x, sr.y, sr.w, sr.h, 8.0, Rgba(227, 237, 240, 18));
+        }
+        if sf {
+            widgets::ring(cv, sr, 8.0);
+        }
+        legend(cv, sx, gy, g, &["⏻"], sl);
+        rx = w - x0 - lw;
+    }
+    let r = Rect::new(rx - 8.0, gy - g * 0.7, lw + 16.0, g * 1.4);
     let (focused, hover) = f.state(Target::AppSettings, r);
     if focused || hover {
         cv.rrect(r.x, r.y, r.w, r.h, 8.0, Rgba(227, 237, 240, 18));
@@ -497,8 +514,11 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame, host: Option<&Host>, logo:
     if focused {
         widgets::ring(cv, r, 8.0);
     }
-    legend(cv, w - x0 - lw, gy, g, &["☰"], label);
-    if let crate::app::UpdateState::Available { version, .. } = &app.update {
+    legend(cv, rx, gy, g, &["☰"], label);
+    // Sur l'OS, la pastille de l'en-tête le dit déjà.
+    if let crate::app::UpdateState::Available { version, .. } = &app.update
+        && !app.is_os()
+    {
         let s = format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available"));
         cv.text(w - x0 - lw - 28.0 * u, gy + 5.0 * u, Text::new(Font::Mono, 12.0 * u, SPECTRE).align(Align::Right), &s.to_uppercase());
     }
@@ -513,7 +533,36 @@ fn source(app: &App, h: &Host) -> &'static str {
 }
 
 /// Réseau, batterie et heure, alignés à droite en `right`.
+/// Les pastilles de l'en-tête sur KyberNow Link OS (maquette) : texte en
+/// Martian Mono 16 dans un contour arrondi de 40 pt, alignées à droite de `right`.
+pub(super) fn pills(cv: &mut Canvas, right: f32, cy: f32, items: &[(String, Rgba)]) {
+    let mono = Text::new(Font::Mono, 16.0, MUTED);
+    let widths: Vec<f32> = items.iter().map(|(s, _)| cv.text_width(mono, s) + 32.0).collect();
+    let total: f32 = widths.iter().sum::<f32>() + 16.0 * items.len().saturating_sub(1) as f32;
+    let mut x = right - total;
+    for ((s, c), w) in items.iter().zip(widths) {
+        cv.rrect(x, cy - 20.0, w, 40.0, 20.0, Rgba(9, 13, 18, 191));
+        cv.rrect_stroke(x, cy - 20.0, w, 40.0, 20.0, 1.0, if *c == WARN { WARN.alpha(0.4) } else { LINE_2 });
+        cv.text(x + 16.0, cy + 6.0, mono.color(*c), s);
+        x += w + 16.0;
+    }
+}
+
 fn status_line(app: &App, cv: &mut Canvas, right: f32, y: f32, u: f32) {
+    if app.is_os() && app.layout == Layout::Tv {
+        let mut items: Vec<(String, Rgba)> = Vec::new();
+        if let crate::app::UpdateState::Available { version, .. } = &app.update {
+            items.push((format!("{version} {} · {}", tr("prête", "ready"), tr("redémarrer", "restart")), WARN));
+        }
+        match app.net.kind {
+            NetKind::Wifi => items.push((match &app.net.band { Some(b) => format!("Wi-Fi · {b}"), None => "Wi-Fi".into() }, MUTED)),
+            NetKind::Ethernet => items.push((match app.net.link_mbps { Some(m) => format!("Ethernet {}", gbit(m)), None => "Ethernet".into() }, MUTED)),
+            NetKind::Unknown => {}
+        }
+        items.push((clock(), MUTED));
+        pills(cv, right, y - 6.0 * u, &items);
+        return;
+    }
     let mono = Text::new(Font::Mono, 13.0 * u, MUTED);
     let mut parts: Vec<(Option<Icon>, String)> = Vec::new();
     match app.net.kind {

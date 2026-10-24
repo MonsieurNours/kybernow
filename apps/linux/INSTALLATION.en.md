@@ -62,6 +62,19 @@ Uninstalling: `sudo apt remove kybernow-link`; computers, settings and the log a
 
 **Not yet tried on a board** (23/10/2026): the package is built and installed in an ARM64 virtual machine; the Pi's HEVC decoder, the HDMI output and Bluetooth controllers remain to be verified on a real Raspberry Pi. The aarch64 Flatpak also works on the Pi, but without the chip's decoder (HEVC on the CPU).
 
+## KyberNow Link OS (the image to flash)
+
+A Raspberry Pi that does nothing else: the card boots into KyberNow Link, on a TV with a controller or at a desk, with no Linux desktop. Pi 3, 4 and 5 (Pi 400, 500, Compute Module); in-place (A/B) updates need a Pi 4 or 5.
+
+1. **Flash** `KyberNow-Link-OS.img.xz` (releases page) onto a microSD card of at least 8 GB (or an SSD) with **Raspberry Pi Imager**: Choose OS › Use custom, and the file; or paste the KyberNow repository into Imager › Settings › Custom repository: `https://www.kybernow.app/updates/rpi-imager.json`, and "KyberNow Link OS" shows up in the list. No OS customisation to do in Imager: everything is set at first boot.
+2. **Plug in**: HDMI to the TV (the HDMI 0 socket, next to the power, on Pi 4 and 5), Ethernet if you can, power. The mark shows, then lights up with sound.
+3. **First boot, with a controller**: put it in pairing mode (Xbox: pairing button near the USB port; DualSense: Create + PS; Switch Pro: SYNC), it is accepted without a code; a USB controller, the TV remote (HDMI-CEC) or a keyboard work too. Then the language, the network (Ethernet recognised, otherwise Wi-Fi and its password), the use (Living room or Desktop), and the computer (the six-digit code, accepted in Admin › Link devices).
+4. Afterwards: ☰ on the home screen opens the **Device settings** (network, controllers, screen, sound, update, language, SSH); **Start held three seconds** switches Living room ⇄ Desktop; Guide (or PS) puts the device to standby, a key wakes it.
+
+**Updating the OS**: Device settings › Update. The new version downloads (as soon as it is out, when "Automatic" is on), then "Restart on X" tries it in the card's other slot; if it does not boot up to the home screen, the Pi goes back to the previous version by itself. Computers and settings live on a separate partition and stay.
+
+**Not yet tried on a board** (23/10/2026): the image builds, but no Raspberry Pi has booted it yet. See [os/README.en.md](os/README.en.md).
+
 ## Updating
 
 A Flatpak installed from a file does not update itself: the app announces a new version ("Version X available"), installed the same way (`flatpak install --user` of the new file; computers and settings stay). The same goes for the Raspberry Pi `.deb` (`sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`), as long as the apt repository is not declared.

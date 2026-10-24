@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=KyberNow Link
+Description=Le symbole éteint sur l'encre : la première image de l'allumage de KyberNow Link, que l'app reprend sans coupure.
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/kybernow
+ScriptFile=/usr/share/plymouth/themes/kybernow/kybernow.script

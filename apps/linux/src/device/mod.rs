@@ -5,9 +5,11 @@
 //! est une texture YUV ; l'interface (barre, menu, capsules) est posée
 //! par-dessus, avec le pointeur de l'ordinateur.
 
+mod chime;
 mod jobs;
 mod log_file;
 mod media;
+mod os;
 mod pads;
 pub mod sdl;
 mod session;
@@ -26,7 +28,7 @@ use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
 use kybernow_core::session::Status;
 
-use crate::app::{Action, AddStep, App, Found, HostLive, Layout, Nav, Online, Phase, Screen, SessionUi, Stats, Target};
+use crate::app::{Action, AddStep, App, Found, HostLive, Layout, Nav, Online, OsAction, Phase, Screen, SessionUi, Stats, Target};
 use crate::i18n::{self, tr};
 use crate::model::{now_secs, LastSession, Store};
 use crate::ui::{self, canvas::Canvas};
@@ -51,6 +53,17 @@ pub enum Event {
     GameFullscreen(bool),
     DecoderFailed(String),
     Update(Result<Option<kybernow_core::update::Available>, String>),
+    /// KyberNow Link OS.
+    Bt(Vec<crate::app::BtDevice>),
+    Wifi(Result<Vec<crate::app::WifiNet>, String>),
+    WifiDone(Result<String, String>),
+    OsStatus(crate::app::OsInfo),
+    OsApplied(Result<(), String>),
+    OsDownload(u64, u64),
+    OsDownloaded(Result<std::path::PathBuf, String>),
+    /// Ce qui se prépare au lancement : avancement, réseau, Bluetooth.
+    OsLoading(f32, bool, bool),
+    OsReady,
 }
 
 /// Règles de la souris Auto : le jeu doit aussi cacher son pointeur (comme Mac et Windows).
@@ -238,13 +251,19 @@ pub fn run(args: &[String]) {
         let mut m = sdl::SDL_DisplayMode::default();
         if sdl::SDL_GetCurrentDisplayMode(0, &mut m) == 0 { (m.w.max(1) as u32, m.h.max(1) as u32) } else { (1280, 800) }
     };
-    let layout = system::layout(&store.app.interface, ui_arg, display);
+    let os = os::is_os();
+    let layout = if os {
+        // KyberNow Link OS : le premier démarrage se fait au salon ; ensuite l'usage choisi.
+        if !store.app.os_setup_done || store.app.interface != "desktop" { Layout::Tv } else { Layout::Desktop }
+    } else {
+        system::layout(&store.app.interface, ui_arg, display)
+    };
     log::info!("interface : {layout:?} (écran {} × {}, gamescope {})", display.0, display.1, system::gamescope());
 
     // La fenêtre.
     let title = CString::new("KyberNow Link").unwrap();
-    let (ww, wh, flags) = match layout {
-        Layout::Desktop => {
+    let (ww, wh, flags) = match (layout, os) {
+        (Layout::Desktop, false) => {
             let w = 1280.min((display.0 as f32 * 0.9) as i32);
             let h = 800.min((display.1 as f32 * 0.9) as i32);
             (w, h, sdl::SDL_WINDOW_SHOWN | sdl::SDL_WINDOW_RESIZABLE | sdl::SDL_WINDOW_BORDERLESS | sdl::SDL_WINDOW_ALLOW_HIGHDPI)
@@ -293,6 +312,11 @@ pub fn run(args: &[String]) {
 
     // L'app.
     let mut app = App::new(store, layout);
+    if os {
+        app.os = Some(os::info());
+        app.screen = Screen::Launch;
+        app.fullscreen = false;
+    }
     set_language(&app);
     app.machine = system::machine(window);
     app.device_name = system::device_name(&app.machine);
@@ -311,7 +335,7 @@ pub fn run(args: &[String]) {
             app.image_is_last.insert(h.id.clone(), false);
         }
     }
-    if !layout.console() {
+    if !layout.console() && !os {
         app.go(Screen::Home);
     }
 
@@ -326,6 +350,19 @@ pub fn run(args: &[String]) {
     let mut pairing: Vec<Arc<AtomicBool>> = Vec::new();
     let mut last_poll = Instant::now() - Duration::from_secs(60);
     let mut last_net = Instant::now();
+    // KyberNow Link OS : le son de l'allumage, ce qui se prépare, le nom CEC, l'état A/B.
+    let mut chime: Option<u32> = None;
+    let mut start_down: Option<Instant> = None;
+    let mut os_committed = false;
+    if os {
+        app.os_loading = Some((tr("réseau · bluetooth · son · écran", "network · bluetooth · sound · screen").into(), 0.0));
+        chime = chime::play();
+        os::readiness(tx.clone());
+        os::status(tx.clone());
+        if app.store.app.os_cec {
+            os::ctl(&["cec-name"]);
+        }
+    }
     let mut last_clip = Instant::now();
     let mut dirty = true;
     let mut present = true;
@@ -346,7 +383,7 @@ pub fn run(args: &[String]) {
         let mut actions: Vec<Action> = Vec::new();
         if unsafe { sdl::SDL_WaitEventTimeout(&mut ev, timeout) } != 0 {
             loop {
-                handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut win, &cv, &mut actions, &mut dirty, &mut present, &mut quit);
+                handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut win, &cv, &mut actions, &mut dirty, &mut present, &mut quit, &mut start_down);
                 if unsafe { sdl::SDL_PollEvent(&mut ev) } == 0 {
                     break;
                 }
@@ -371,14 +408,36 @@ pub fn run(args: &[String]) {
             }
             handle_event(e, &mut app, &mut pads, &mut live, &mut win, &mut actions, &mut pairing);
         }
-        for a in actions {
+        for a in actions.drain(..) {
             perform(a, &mut app, &mut pads, &mut live, &mut win, &tx, &mut pairing, &mut quit);
             dirty = true;
         }
 
         // Lancement fini : l'accueil.
-        if app.screen == Screen::Launch && app.launched.elapsed().as_secs_f32() >= if app.reduce_motion { ui::LAUNCH_REDUCED } else { ui::LAUNCH } {
+        if app.screen == Screen::Launch && app.os_loading.is_none() && app.launched.elapsed().as_secs_f32() >= if app.reduce_motion { ui::LAUNCH_REDUCED } else { ui::LAUNCH } {
             app.launch_done();
+            dirty = true;
+            if let Some(dev) = chime.take() {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_secs(4));
+                    chime::stop(dev);
+                });
+            }
+            if app.screen == Screen::Setup {
+                os::listen(true, tx.clone());
+                app.setup.bt_listening = true;
+            } else if os && !os_committed {
+                // L'accueil s'affiche : un essai A/B en cours devient le défaut.
+                os_committed = true;
+                os::commit();
+            }
+        }
+        // Le premier démarrage finit quand l'ordinateur est ajouté (ou passé).
+        if app.setup.active && app.screen == Screen::Home {
+            actions.extend(app.finish_setup());
+        }
+        for a in actions.drain(..) {
+            perform(a, &mut app, &mut pads, &mut live, &mut win, &tx, &mut pairing, &mut quit);
             dirty = true;
         }
 
@@ -648,7 +707,7 @@ fn host_point(win: &Win, l: &Live, x: i32, y: i32) -> Option<(i16, i16)> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, win: &mut Win, cv: &Canvas, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool) {
+fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, win: &mut Win, cv: &Canvas, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool, start_down: &mut Option<Instant>) {
     let kind = ev.kind();
     if kind == video::FRAME_EVENT.load(Ordering::Relaxed) {
         return;
@@ -689,6 +748,14 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
         sdl::SDL_KEYDOWN | sdl::SDL_KEYUP => {
             let down = kind == sdl::SDL_KEYDOWN;
             let (sc, repeat, mods) = ev.key();
+            if app.screen == Screen::Standby {
+                // Une touche réveille.
+                if down && !repeat {
+                    actions.extend(app.back());
+                    *dirty = true;
+                }
+                return;
+            }
             let app_combo = mods & sdl::KMOD_CTRL != 0 && mods & sdl::KMOD_ALT != 0 && mods & sdl::KMOD_SHIFT != 0;
             // Raccourcis de l'app : Ctrl+Alt+Maj + D (se déconnecter), F (plein écran), M (souris).
             if app_combo && matches!(sc, sdl::SC_D | sdl::SC_F | sdl::SC_M) {
@@ -909,6 +976,33 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
             if app.screen == Screen::Gamepads {
                 *dirty = true;
             }
+            if app.is_os() && is_button {
+                if app.screen == Screen::Standby {
+                    if down {
+                        actions.extend(app.back());
+                        *dirty = true;
+                    }
+                    return;
+                }
+                // ☰ tenu trois secondes : Salon ⇄ Bureau.
+                if which == 6 {
+                    if down {
+                        *start_down = Some(Instant::now());
+                    } else if start_down.take().is_some_and(|t| t.elapsed() >= Duration::from_secs(3)) {
+                        app.store.app.interface = if app.store.app.interface == "desktop" { "tv".into() } else { "desktop".into() };
+                        actions.push(Action::Save);
+                        actions.push(Action::Interface);
+                        *dirty = true;
+                        return;
+                    }
+                }
+                // Guide / PS sur l'accueil : la veille.
+                if which == 5 && down && app.screen == Screen::Home {
+                    actions.extend(app.activate(Target::Setting(crate::app::Setting::OsStandby)));
+                    *dirty = true;
+                    return;
+                }
+            }
             if app.screen == Screen::Launch && is_button && down {
                 app.launch_done();
                 *dirty = true;
@@ -1114,11 +1208,84 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 s.notice = Some((format!("{} ({e})", tr("Décodeur indisponible", "Decoder unavailable")), Instant::now()));
             }
         }
+        Event::Bt(list) => {
+            app.setup.bt = list;
+        }
+        Event::Wifi(r) => {
+            app.setup.wifi_scanning = false;
+            match r {
+                Ok(l) => app.setup.wifi = l,
+                Err(e) => app.setup.net_message = Some(e),
+            }
+            if app.screen == Screen::Setup && app.setup.wifi_pick.is_none() {
+                app.go(Screen::Setup);
+            }
+        }
+        Event::WifiDone(r) => {
+            app.setup.net_busy = false;
+            match r {
+                Ok(ssid) => {
+                    app.setup.net_message = Some(format!("{} {ssid}", tr("Connecté à", "Connected to")));
+                    app.net = system::net();
+                    app.setup.wifi_pick = None;
+                    if app.setup.active {
+                        actions.extend(app.activate(Target::SetupContinue));
+                    } else {
+                        app.go(Screen::Setup);
+                    }
+                }
+                Err(e) => app.setup.net_message = Some(e),
+            }
+        }
+        Event::OsStatus(info) => app.os = Some(info),
+        Event::OsApplied(r) => {
+            app.os_update.applying = false;
+            if let Err(e) = r {
+                app.os_update.error = Some(e);
+            }
+        }
+        Event::OsDownload(done, total) => app.os_update.downloading = Some((done, total)),
+        Event::OsDownloaded(r) => {
+            app.os_update.downloading = None;
+            match r {
+                Ok(p) => {
+                    app.os_update.ready = Some(p);
+                    app.toast(tr("Nouvelle version prête : Réglages de l'appareil › Mise à jour", "New version ready: Device settings › Update"));
+                }
+                Err(e) => app.os_update.error = Some(e),
+            }
+        }
+        Event::OsLoading(p, net, bt) => {
+            if let Some((label, progress)) = app.os_loading.as_mut() {
+                *progress = p;
+                let mut parts = Vec::new();
+                if !net {
+                    parts.push(tr("réseau", "network"));
+                }
+                if !bt {
+                    parts.push("bluetooth");
+                }
+                *label = if parts.is_empty() { tr("prêt", "ready").into() } else { parts.join(" · ") };
+            }
+        }
+        Event::OsReady => {
+            if app.os_loading.take().is_some() {
+                let hs = if app.reduce_motion { 0.45 } else { 1.8 };
+                if app.launched.elapsed().as_secs_f32() > hs {
+                    app.launched = Instant::now() - Duration::from_secs_f32(hs);
+                }
+            }
+        }
         Event::Update(r) => {
             app.update = match r {
                 Ok(Some(a)) => {
                     log::info!("mise à jour : version {} ({}) disponible, {}", a.version, a.channel.as_str(), a.page);
-                    crate::app::UpdateState::Available { version: a.version, channel: a.channel.as_str().into(), page: a.page }
+                    jobs::remember(a.clone());
+                    if app.is_os() && app.store.app.os_auto_update && app.os_update.ready.is_none() && app.os_update.downloading.is_none() {
+                        app.os_update.downloading = Some((0, a.size));
+                        actions.push(Action::Os(OsAction::UpdateDownload));
+                    }
+                    crate::app::UpdateState::Available { version: a.version.clone(), channel: a.channel.as_str().into(), page: a.page.clone(), file: a.file.clone(), url: a.url.clone(), sha256: a.sha256.clone(), size: a.size }
                 }
                 Ok(None) => crate::app::UpdateState::UpToDate,
                 Err(e) => {
@@ -1199,16 +1366,45 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         Action::Language => set_language(app),
         Action::Interface => {
             let display = app.machine.display;
-            let layout = system::layout(&app.store.app.interface, None, display);
+            let layout = if app.is_os() { if app.store.app.interface == "desktop" { Layout::Desktop } else { Layout::Tv } } else { system::layout(&app.store.app.interface, None, display) };
             if layout != app.layout {
                 app.layout = layout;
                 app.keyboard_focus = layout.console();
                 let full = layout.console();
                 unsafe { sdl::SDL_SetWindowFullscreen(win.window, if full { sdl::SDL_WINDOW_FULLSCREEN_DESKTOP } else { 0 }) };
-                app.fullscreen = full;
-                app.open_settings(true, Screen::Home);
+                app.fullscreen = full && !app.is_os();
+                if app.is_os() {
+                    app.go(Screen::Home);
+                } else {
+                    app.open_settings(true, Screen::Home);
+                }
             }
         }
+        Action::Os(o) => match o {
+            OsAction::BtListen(on) => {
+                os::listen(on, tx.clone());
+                app.setup.bt_listening = on;
+            }
+            OsAction::WifiScan => os::wifi_scan(tx.clone()),
+            OsAction::WifiConnect { ssid, password } => os::wifi_connect(ssid, password, tx.clone()),
+            OsAction::SetupDone => os::listen(false, tx.clone()),
+            OsAction::Status => {
+                os::status(tx.clone());
+                os::paired(tx.clone());
+            }
+            OsAction::UpdateDownload => jobs::download_os(tx.clone()),
+            OsAction::UpdateApply => {
+                if let Some(p) = app.os_update.ready.clone() {
+                    os::apply(p, tx.clone());
+                }
+            }
+            OsAction::Rollback => os::rollback(tx.clone()),
+            OsAction::Ssh(on) => os::ctl(&["ssh", if on { "on" } else { "off" }]),
+            OsAction::Reboot => os::ctl(&["reboot"]),
+            OsAction::Poweroff => os::ctl(&["poweroff"]),
+            OsAction::Standby(on) => os::ctl(&["standby", if on { "on" } else { "off" }]),
+            OsAction::Hdmi(m) => os::ctl(&["hdmi", &m]),
+        },
         Action::CheckUpdate => {
             app.update = crate::app::UpdateState::Checking;
             jobs::check_update(app.store.app.beta, tx.clone());

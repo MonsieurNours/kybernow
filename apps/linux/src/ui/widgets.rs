@@ -252,7 +252,7 @@ pub fn dot(cv: &mut Canvas, x: f32, y: f32, r: f32, c: Rgba, glow: bool) {
 pub fn pad_glyph(cv: &mut Canvas, x: f32, cy: f32, size: f32, label: &str) -> f32 {
     let round = label.chars().count() == 1 && label.chars().all(|c| c.is_ascii_alphabetic());
     let style = Text::new(Font::MonoMedium, size * 0.46, FROST);
-    let drawn = label == "☰" || label == "⧉";
+    let drawn = label == "☰" || label == "⧉" || label == "⏻";
     let w = if round || drawn { size } else { (cv.text_width(style, label) + size * 0.55).max(size) };
     if round {
         cv.rrect_stroke(x, cy - size / 2.0, size, size, size / 2.0, 1.5, MUTED);
@@ -271,6 +271,13 @@ pub fn pad_glyph(cv: &mut Canvas, x: f32, cy: f32, size: f32, label: &str) -> f3
         "⧉" => {
             cv.rrect_stroke(gx - s * 0.62, gy - s * 0.62, s * 0.85, s * 0.85, 1.5, 1.4, FROST);
             cv.rrect_stroke(gx - s * 0.22, gy - s * 0.22, s * 0.85, s * 0.85, 1.5, 1.4, FROST);
+        }
+        "⏻" => {
+            // Un arc ouvert en haut, un trait vertical : marche / veille.
+            let r = s * 0.8;
+            let pts: Vec<(f32, f32)> = (0..=24).map(|i| { let a = 0.25 * std::f32::consts::PI + i as f32 / 24.0 * 1.5 * std::f32::consts::PI; (gx + r * (a - std::f32::consts::FRAC_PI_2).cos(), gy + r * (a - std::f32::consts::FRAC_PI_2).sin()) }).collect();
+            cv.polyline(&pts, 1.6, FROST);
+            cv.line(gx, gy - r * 1.05, gx, gy - r * 0.1, 1.6, FROST);
         }
         _ => {
             cv.text(gx, cy + size * 0.17, style.align(Align::Center), label);
@@ -295,7 +302,7 @@ pub fn legend_width(cv: &mut Canvas, size: f32, keys: &[&str], s: &str) -> f32 {
     let style = Text::new(Font::MonoMedium, size * 0.46, FROST);
     let mut w = 0.0;
     for k in keys {
-        let round = (k.chars().count() == 1 && k.chars().all(|c| c.is_ascii_alphabetic())) || *k == "☰" || *k == "⧉";
+        let round = (k.chars().count() == 1 && k.chars().all(|c| c.is_ascii_alphabetic())) || *k == "☰" || *k == "⧉" || *k == "⏻";
         w += if round { size } else { (cv.text_width(style, k) + size * 0.55).max(size) } + size * 0.2;
     }
     w + size * 0.15 + cv.text_width(Text::new(Font::Regular, size * 0.54, MUTED), s)

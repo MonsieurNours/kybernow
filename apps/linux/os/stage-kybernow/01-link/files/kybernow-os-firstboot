@@ -1,0 +1,20 @@
+#!/bin/bash
+# Premier démarrage de KyberNow Link OS : la partition de données (la
+# dernière, logique) prend tout le reste de la carte, avec la partition
+# étendue qui la contient ; puis le système de fichiers suit.
+set -u
+. /etc/kybernow-os/layout 2>/dev/null || exit 0
+DATA_DEV="$(findmnt -no SOURCE /var/lib/kybernow 2>/dev/null)"
+[ -n "$DATA_DEV" ] || exit 0
+DISK="/dev/$(lsblk -no PKNAME "$DATA_DEV")"
+EXT=4
+if ! echo ", +" | sfdisk --no-reread --force -N "$EXT" "$DISK" >/dev/null 2>&1; then
+    echo "partition étendue non agrandie" >&2
+fi
+if echo ", +" | sfdisk --no-reread --force -N "$DATA" "$DISK" >/dev/null 2>&1; then
+    partx -u "$DISK" 2>/dev/null || partprobe "$DISK" 2>/dev/null || true
+    resize2fs "$DATA_DEV" >/dev/null 2>&1 || true
+fi
+touch /var/lib/kybernow/.grown
+chown kybernow:kybernow /var/lib/kybernow /var/lib/kybernow/.grown 2>/dev/null || true
+exit 0

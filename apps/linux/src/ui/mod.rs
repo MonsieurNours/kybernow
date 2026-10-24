@@ -13,12 +13,14 @@ mod pads;
 mod pair;
 mod session;
 mod settings;
+mod setup;
+mod device;
 pub mod theme;
 mod widgets;
 
 use std::time::Instant;
 
-pub use home::profile_label;
+pub use home::{gbit as gbit_label, profile_label};
 #[allow(unused_imports)]
 pub use launch::{TOTAL as LAUNCH, TOTAL_REDUCED as LAUNCH_REDUCED};
 
@@ -56,6 +58,9 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
         Screen::Settings => settings::draw(app, cv, &mut f),
         Screen::Gamepads => pads::draw(app, cv, &mut f),
         Screen::Session => session::draw(app, cv, &mut f),
+        Screen::Setup => setup::draw(app, cv, &mut f),
+        Screen::Device => device::draw(app, cv, &mut f),
+        Screen::Standby => cv.clear(INK),
     }
     if let Some((msg, at)) = &app.toast
         && at.elapsed().as_secs_f32() < 4.0
@@ -164,7 +169,8 @@ pub fn title_bar(app: &App, cv: &mut Canvas, f: &mut Frame) -> f32 {
     cv.rect(0.0, h - 1.0, cv.w, 1.0, LINE);
     let lw = cv.logo_link(16.0, 9.0, 22.0, 1.0);
     let mut x = cv.w - 10.0;
-    for (t, icon) in [(Target::WinClose, icons::Icon::Close), (Target::WinMaximize, icons::Icon::Square), (Target::WinMinimize, icons::Icon::Minus)] {
+    let buttons = if app.is_os() { Vec::new() } else { vec![(Target::WinClose, icons::Icon::Close), (Target::WinMaximize, icons::Icon::Square), (Target::WinMinimize, icons::Icon::Minus)] };
+    for (t, icon) in buttons {
         x -= 34.0;
         let r = Rect::new(x, 3.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, r);

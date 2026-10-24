@@ -220,7 +220,8 @@ pub fn machine(window: *mut sdl::SDL_Window) -> Machine {
     if let Some((name, ch, rate)) = sdl::default_audio() {
         m.audio_channels = ch.max(2);
         m.audio_rate = rate;
-        m.audio_name = if name.is_empty() { sdl::audio_driver() } else { name };
+        // Sur le Pi (ALSA), la carte s'appelle vc4hdmi0 : « HDMI » suffit.
+        m.audio_name = if name.is_empty() { sdl::audio_driver() } else if name.starts_with("vc4hdmi") || name.contains("vc4-hdmi") { "HDMI".into() } else { name };
     } else {
         m.audio_name = sdl::audio_driver();
     }

@@ -150,11 +150,22 @@ pub struct AppSettings {
     pub interface: String,
     /// Garder la dernière image de chaque session pour l'accueil.
     pub keep_last_image: bool,
+    /// KyberNow Link OS : le premier démarrage (manette, langue, réseau, usage,
+    /// ordinateur) est fait.
+    pub os_setup_done: bool,
+    /// KyberNow Link OS : HDMI-CEC (nom au téléviseur, veille et réveil par la télécommande).
+    pub os_cec: bool,
+    /// KyberNow Link OS : télécharger les versions dès qu'elles sortent, les
+    /// installer pendant la veille.
+    pub os_auto_update: bool,
+    /// KyberNow Link OS : mode de la sortie HDMI au démarrage : `auto`,
+    /// `2160p60`, `1080p120`, `1080p60`.
+    pub os_hdmi: String,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true }
+        Self { language: "auto".into(), beta: false, interface: "auto".into(), keep_last_image: true, os_setup_done: false, os_cec: true, os_auto_update: true, os_hdmi: "auto".into() }
     }
 }
 

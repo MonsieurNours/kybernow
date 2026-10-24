@@ -217,7 +217,7 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
     primary(cv, f, Target::KeyOk, kx, y + 3.0 * (kh + gap), kh, tr("Continuer", "Continue"), false);
 }
 
-fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, label: &str, u: f32) {
+pub(super) fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, label: &str, u: f32) {
     let (focused, hover) = f.state(t, r);
     if focused {
         widgets::ring(cv, r, 8.0 * u);

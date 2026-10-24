@@ -88,8 +88,8 @@ fn device_card(app: &App) -> (&'static str, String, Vec<String>) {
             (NetKind::Ethernet, Some(mb)) => format!("Ethernet {}", gbit(mb)),
             (NetKind::Ethernet, None) => "Ethernet".into(),
             (NetKind::Wifi, _) => match &app.net.band {
-                Some(b) => format!("Wi‑Fi {b}"),
-                None => "Wi‑Fi".into(),
+                Some(b) => format!("Wi-Fi {b}"),
+                None => "Wi-Fi".into(),
             },
             _ => tr("Réseau", "Network").into(),
         };
@@ -131,7 +131,7 @@ fn subtitle(app: &App, s: Section) -> String {
         Section::Account => tr("Le compte de cet appareil sur l'ordinateur, accordé par le code.", "This device's account on the computer, granted by the code.").into(),
         Section::App => tr("Langue, interface et mises à jour de l'app sur cet appareil.", "Language, interface and updates of the app on this device.").into(),
         Section::Gamepads => tr("Les manettes que voit cet appareil.", "The controllers this device sees.").into(),
-        Section::Profile => String::new(),
+        _ => String::new(),
     };
     format!("{lead}{rest}")
 }
@@ -363,7 +363,7 @@ fn console(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
 /// Une ligne de réglage à la manette : libellé et aide à gauche, valeur à droite.
 #[allow(clippy::too_many_arguments)]
-fn row_console(cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f32, w: f32, h: f32, u: f32) {
+pub(super) fn row_console(cv: &mut Canvas, f: &mut Frame, r: &Row, x: f32, y: f32, w: f32, h: f32, u: f32) {
     let rect = Rect::new(x - 14.0 * u, y + 4.0, w + 28.0 * u, h - 8.0);
     let selectable = r.enabled && !matches!(r.kind, RowKind::Info(_));
     let (focused, hover) = if selectable { f.state(Target::Setting(r.setting), rect) } else { (false, false) };

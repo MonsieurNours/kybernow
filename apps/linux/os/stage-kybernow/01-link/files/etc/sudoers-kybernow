@@ -1,0 +1,2 @@
+# KyberNow Link OS : ce que l'app (compte kybernow) peut demander au système.
+kybernow ALL=(root) NOPASSWD: /usr/local/sbin/kybernow-os-update, /usr/local/sbin/kybernow-os-ctl

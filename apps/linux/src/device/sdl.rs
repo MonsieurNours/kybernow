@@ -323,6 +323,7 @@ unsafe extern "C" {
     pub fn SDL_OpenAudioDevice(device: *const c_char, iscapture: c_int, desired: *const SDL_AudioSpec, obtained: *mut SDL_AudioSpec, allowed: c_int) -> u32;
     pub fn SDL_PauseAudioDevice(dev: u32, pause_on: c_int);
     pub fn SDL_CloseAudioDevice(dev: u32);
+    pub fn SDL_QueueAudio(dev: u32, data: *const c_void, len: u32) -> c_int;
     pub fn SDL_GetDefaultAudioInfo(name: *mut *mut c_char, spec: *mut SDL_AudioSpec, iscapture: c_int) -> c_int;
 }
 
