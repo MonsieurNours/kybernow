@@ -109,7 +109,8 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 - On a phone, the 3D symbol moves to the top of the screen, smaller (`MOBILE` in `scene.js`), so it never goes under the text.
 - The app screens and the video sit in front of the symbol, never the other way round.
 - A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/ecran`).
-- Resolution and refresh rate: the site talks about “your display's resolution and refresh rate” and gives examples (4K at 120 Hz, 5K, 6K, 240 Hz), stating that the only limit is the graphics card's encoder. The latency figures are those of a measurement, presented as such.
+- Resolution and refresh rate: the site talks about “your display's resolution and refresh rate” and only quotes what has been checked (up to 3840 × 2160 at 160 Hz). The latency figures are those of a measurement, presented as such, with their conditions (see [docs/ton-du-site.en.md](../docs/ton-du-site.en.md)).
+- Vertical rhythm: the same space around every section (`--section-space`, 56 to 96 px) and between a heading and its content (`--section-head`, 32 to 48 px), with no per-section exception; every content block takes the grid's width (`.wrap`), FAQ and video included.
 - “Reduce motion”: the symbol stays in place, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.
 - Without WebGL: the lit symbol as SVG instead of the scene.
 

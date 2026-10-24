@@ -109,7 +109,8 @@ Rien n'est chargé depuis un CDN. Seule requête externe : l'API GitHub, pour af
 - Sur téléphone, le symbole 3D se range en haut de l'écran, plus petit (`MOBILE` dans `scene.js`), pour ne jamais passer sous le texte.
 - Les écrans des apps et la vidéo passent devant le symbole, jamais l'inverse.
 - Un seul bouton principal par vue ; au téléchargement, il suit le système du visiteur (Mac : l'app KyberNow Link, Windows : l'installateur de KyberNow Station, tablette, téléphone et le reste : Link dans le navigateur, `/ecran`).
-- Définition et fréquence : le site parle de « la définition et la fréquence de votre écran » et cite des exemples (4K à 120 Hz, 5K, 6K, 240 Hz) en précisant que la seule limite est l'encodeur de la carte graphique. Les chiffres de latence sont ceux d'une mesure, présentés comme tels.
+- Définition et fréquence : le site parle de « la définition et la fréquence de votre écran » et ne cite que ce qui est vérifié (jusqu'en 3840 × 2160 à 160 Hz). Les chiffres de latence sont ceux d'une mesure, présentés comme tels, avec leurs conditions (voir [docs/ton-du-site.md](../docs/ton-du-site.md)).
+- Rythme vertical : le même espace autour de chaque section (`--section-space`, de 56 à 96 px) et entre un titre et son contenu (`--section-head`, de 32 à 48 px), sans exception par section ; tous les contenus prennent la largeur de la grille (`.wrap`), FAQ et vidéo comprises.
 - « Réduire les animations » : le symbole reste en place, pas de grésillement ni de respiration, apparitions en simple fondu. « Réduire la transparence » : surfaces opaques, pas de halo.
 - Sans WebGL : symbole allumé en SVG à la place de la scène.
 
