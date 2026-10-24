@@ -1,4 +1,4 @@
-// www.kybernow.app — défilement, apparitions, menu, langue, trajet d'une image, simulation QUIC, profils, téléchargements.
+// www.kybernow.app — défilement, apparitions, menu, langue, vidéo de présentation, écrans des apps, trajet d'une image, simulation QUIC, profils, téléchargements.
 // Partagé par toutes les pages : chaque bloc ne s'active que si ses éléments sont présents.
 
 const root = document.documentElement;
@@ -21,6 +21,7 @@ const T = EN ? {
   start: 'Scroll: from capture to display.',
   final: 'End to end, median, measured at 3840 × 2160 and 160 Hz.',
   of: ' of ', lanes: ['COMPUTER', 'NETWORK', 'DEVICE'], version: 'Version ', mb: ' MB',
+  videoPlay: 'Play the presentation', videoPause: 'Pause', autoplay: 'Plays as you scroll · no sound', paused: 'Paused · no sound', reduced: 'No sound · press play', dateLocale: 'en-GB',
   profiles: {
     jeu: { title: 'Lowest latency', text: 'The highest refresh rate your screen can show, relative mouse, gamepad. 4:2:0 colour to save every millisecond.', chips: ['Maximum refresh rate', 'Relative mouse', 'Gamepad'] },
     bureau: { title: 'Sharp text', text: '4:4:4 colour for text as sharp as on the computer, shared clipboard, a cursor that never hides.', chips: ['4:4:4', 'Clipboard', 'Cursor always visible'] },
@@ -38,6 +39,7 @@ const T = EN ? {
   start: 'Faites défiler : de la capture à l’affichage.',
   final: 'De bout en bout, en médiane, mesuré en 3840 × 2160 à 160 Hz.',
   of: ' sur ', lanes: ['ORDINATEUR', 'RÉSEAU', 'APPAREIL'], version: 'Version ', mb: ' Mo',
+  videoPlay: 'Lire la présentation', videoPause: 'Mettre en pause', autoplay: 'Lecture automatique au défilement · sans son', paused: 'En pause · sans son', reduced: 'Sans son · lancez la lecture', dateLocale: 'fr',
   profiles: {
     jeu: { title: 'Latence minimale', text: 'La fréquence la plus haute que votre écran affiche, la souris relative, la manette. Les couleurs en 4:2:0 pour gagner chaque milliseconde.', chips: ['Fréquence maximale', 'Souris relative', 'Manette'] },
     bureau: { title: 'Texte net', text: 'Les couleurs en 4:4:4 pour un texte aussi net que sur l’ordinateur, le presse-papiers partagé, un curseur toujours visible.', chips: ['4:4:4', 'Presse-papiers', 'Curseur toujours visible'] },
@@ -344,6 +346,67 @@ if (osTiles.length) {
   });
   // Lien vers une installation depuis la page (FAQ, mises à jour…).
   addEventListener('hashchange', () => open(location.hash.slice(1) === 'android-tv' ? 'android' : location.hash.slice(1), true));
+}
+
+/* ---------- Écrans des apps (accueil) : dessinés à leur taille, réduits à celle de leur carte ---------- */
+const shots = [...document.querySelectorAll('.shot[style*="--w"]')];
+if (shots.length) {
+  const fit = shot => {
+    const w = parseFloat(getComputedStyle(shot).getPropertyValue('--w'));
+    if (w) shot.style.setProperty('--s', (shot.clientWidth / w).toFixed(4));
+  };
+  const ro = new ResizeObserver(entries => entries.forEach(e => fit(e.target)));
+  shots.forEach(shot => { fit(shot); ro.observe(shot); });
+}
+
+/* ---------- La présentation : sans son, lecture automatique au défilement ---------- */
+// Démarre quand la vidéo est à l'écran, s'arrête quand elle le quitte. Avec « Réduire les
+// animations », rien ne démarre seul. Sans fichier vidéo (404), la figure garde son image d'attente.
+const video = $('video-el');
+if (video) {
+  const fig = $('video'), state = $('video-state');
+  const toggle = fig.querySelector('[data-video="toggle"]');
+  let wanted = !reduceMotion; // ce que le visiteur veut : lecture (défaut) ou pause
+  let started = false;
+  const sync = () => {
+    const playing = !video.paused && !video.ended;
+    fig.classList.toggle('is-playing', playing);
+    if (started) fig.classList.add('has-started');
+    toggle.setAttribute('aria-label', playing ? T.videoPause : T.videoPlay);
+    state.textContent = reduceMotion ? T.reduced : playing || !started ? T.autoplay : T.paused;
+  };
+  const play = () => { video.play().then(() => { started = true; sync(); }).catch(() => {}); };
+  video.addEventListener('play', sync); video.addEventListener('pause', sync); video.addEventListener('ended', sync);
+  video.addEventListener('error', () => fig.classList.add('no-source'), true);
+  fig.querySelector('[data-video="play"]').addEventListener('click', () => { wanted = true; play(); });
+  toggle.addEventListener('click', () => { wanted = video.paused; if (wanted) play(); else video.pause(); });
+  fig.querySelector('[data-video="restart"]').addEventListener('click', () => { video.currentTime = 0; wanted = true; play(); });
+  fig.querySelector('[data-video="fullscreen"]').addEventListener('click', () => {
+    const el = video;
+    if (el.requestFullscreen) el.requestFullscreen(); else if (el.webkitEnterFullscreen) el.webkitEnterFullscreen();
+  });
+  if (!reduceMotion) new IntersectionObserver(([e]) => {
+    if (e.isIntersecting && wanted && video.paused) play();
+    else if (!e.isIntersecting && !video.paused) video.pause();
+  }, { threshold: .45 }).observe(fig);
+  sync();
+}
+
+/* ---------- Déjà entre vos mains : versions publiées (si GitHub répond) ---------- */
+// Les valeurs écrites dans la page restent si l'API ne répond pas.
+if ($('proof-count')) {
+  fetch('https://api.github.com/repos/MonsieurNours/kybernow/releases?per_page=100', { headers: { Accept: 'application/vnd.github+json' } })
+    .then(r => r.ok ? r.json() : Promise.reject())
+    .then(list => {
+      const releases = list.filter(r => !r.draft);
+      if (!releases.length) return;
+      $('proof-count').textContent = String(releases.length);
+      const latest = releases.find(r => !r.prerelease) || releases[0];
+      $('proof-version').textContent = latest.tag_name.replace(/^v/, '');
+      const d = new Date(latest.published_at);
+      $('proof-date').textContent = d.toLocaleDateString(T.dateLocale, { day: 'numeric', month: 'long', year: 'numeric' });
+    })
+    .catch(() => {});
 }
 
 /* ---------- Dernière version publiée (si GitHub répond) ---------- */

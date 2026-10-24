@@ -33,6 +33,7 @@
 <link rel="preload" href="/fonts/Archivo-wdth-wght.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/kybernow.css">
 <link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/screens.css">
 <script type="importmap">
 { "imports": {
   "three": "/vendor/three/three.module.min.js",
@@ -72,6 +73,7 @@
    "applicationSubCategory": "Streaming de jeux et bureau à distance",
    "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, navigateur web",
    "softwareHelp": "https://www.kybernow.app/guide/",
+   "subjectOf": "https://www.kybernow.app/technologie/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "releaseNotes": "https://github.com/MonsieurNours/kybernow/releases/latest",
    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
@@ -89,9 +91,12 @@
    "keywords": "jeu à distance, bureau à distance, streaming de jeux, cloud gaming à la maison, remote play, alternative à Moonlight, alternative à Sunshine, streaming PC vers Mac, streaming PC vers Apple TV, streaming PC vers Steam Deck",
    "featureList": [
     "Latence médiane de 9,4 ms de la capture à l'affichage (réseau local, 4K à 160 Hz)",
+    "Écran virtuel à la définition et à la fréquence de l'appareil : 4K à 120 Hz, 5K, 6K, 240 Hz, la seule limite étant l'encodeur de la carte graphique",
+    "Fréquence variable (VRR), presse-papiers partagé, couleurs 4:4:4 pour un texte net",
+    "Navigation à la manette intégrée, menu de session à la manette, toutes les manettes avec vibrations",
+    "Une app lancée au début de la session selon l'appareil (Steam Big Picture, Playnite…) : l'ordinateur devient une console",
     "Transport QUIC (RFC 9000), chiffré en TLS 1.3, un seul port",
-    "Écran virtuel à la définition et à la fréquence de l'appareil (4K, 5K, 6K, 120 Hz et plus)",
-    "Son Opus jusqu'au 7.1, manettes Xbox et PlayStation, vibrations",
+    "Son Opus jusqu'au 7.1, jusqu'à la qualité studio",
     "Apps natives KyberNow Link et leur version web servie par la Station, sur tous vos appareils",
     "Appairage par Bonjour, QR code ou code à accepter, empreinte du certificat vérifiée",
     "Encodage sur toute carte graphique NVIDIA, AMD, Intel, ou sur le processeur"
@@ -193,11 +198,10 @@
 <header class="nav" id="nav">
   <a class="nav-logo" href="/" aria-label="KyberNow, version bêta, accueil"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Bêta</span></a>
   <nav class="nav-links" aria-label="Sections">
-    <a href="/#pourquoi">Pourquoi</a>
-    <a href="/#trajet">Le trajet</a>
-    <a href="/#quic">QUIC</a>
-    <a href="/#kyber">Kyber</a>
-    <a href="/#comparer">Comparer</a>
+    <a href="/#apps">Les apps</a>
+    <a href="/#appareils">Appareils</a>
+    <a href="/technologie/">Technologie</a>
+    <a href="/technologie/#comparer">Comparer</a>
     <a href="/guide/">Guide</a>
   </nav>
   <div class="nav-actions">
@@ -209,11 +213,11 @@
 </header>
 <div class="menu" id="menu" hidden>
   <nav aria-label="Menu">
-    <a href="/#pourquoi">Pourquoi</a>
-    <a href="/#trajet">Le trajet d'une image</a>
-    <a href="/#quic">QUIC</a>
-    <a href="/#kyber">Kyber</a>
-    <a href="/#comparer">Comparer</a>
+    <a href="/#presentation">La présentation</a>
+    <a href="/#apps">Les apps</a>
+    <a href="/#appareils">Appareils</a>
+    <a href="/technologie/">Technologie</a>
+    <a href="/technologie/#comparer">Comparer</a>
     <a href="/guide/">Guide et FAQ</a>
     <a href="/#telecharger">Télécharger</a>
   </nav>
@@ -226,15 +230,15 @@
 <main>
 
 <!-- 1 · Accueil -->
-<section class="hero" id="top" data-scene="hero">
-  <div class="wrap hero-grid">
+<section class="hero" id="top" data-scene="hero-soft">
+  <div class="wrap hero-grid hero-grid-2">
     <div class="hero-copy">
       <p class="label" data-reveal>Streaming d'ordinateur · nouvelle génération <span class="beta">Bêta</span></p>
       <h1 class="display" data-split>Votre ordinateur<br><strong>accessible partout,<br>tout&nbsp;le&nbsp;temps.</strong></h1>
-      <p class="lede" data-reveal style="--d:.35s">Le bureau, les jeux et toute la puissance de votre ordinateur, sur tous vos appareils, en 9,4&nbsp;ms. Dans l'app, ou simplement dans le navigateur. Votre propre cloud&#8239;: sans abonnement, sans machine louée, avec celle que vous avez déjà.</p>
+      <p class="lede" data-reveal style="--d:.35s">Le bureau, les jeux et toute la puissance de votre ordinateur, sur tous vos appareils, en 9,4&nbsp;ms. Dans l'app, ou simplement dans le navigateur. Sans abonnement, sans machine louée&#8239;: la vôtre.</p>
       <div class="hero-cta" data-reveal style="--d:.5s">
         <a class="btn kn-primary" href="#telecharger" id="hero-cta">Télécharger</a>
-        <a class="btn btn-ghost" href="#trajet">Comment ça marche<svg class="ic"><use href="/assets/icons.svg#arrow-down"/></svg></a>
+        <a class="btn btn-ghost" href="#presentation"><svg class="ic"><use href="/assets/icons.svg#play"/></svg>Voir la présentation</a>
       </div>
       <dl class="hero-facts" data-reveal style="--d:.65s">
         <div><dt>Latence médiane</dt><dd>9,4&nbsp;ms</dd></div>
@@ -242,318 +246,490 @@
         <div><dt>Transport</dt><dd>QUIC, chiffré</dd></div>
       </dl>
     </div>
-    <img class="hero-fallback" src="/assets/img/kybernow-mark-now-lit-dark.svg" alt="" width="360" height="360">
-  </div>
-  <a class="scroll-hint" href="#pourquoi" aria-label="Faire défiler"><span></span></a>
-</section>
-
-<!-- 2 · Positionnement -->
-<section class="section" id="pourquoi" data-scene="split">
-  <div class="wrap">
-    <p class="label" data-reveal>Le cloud, à la maison</p>
-    <h2 class="title" data-split><strong>Toute la puissance</strong> de votre ordinateur, sur <strong>chacun de vos appareils.</strong></h2>
-    <p class="body-lg" data-reveal>Le cloud gaming vous loue un ordinateur à des centaines de kilomètres. KyberNow fait l'inverse&#8239;: il rend <em>votre</em> ordinateur accessible depuis vos autres appareils, sur votre réseau ou par votre VPN. Votre carte graphique, vos logiciels, vos fichiers, vos parties. Aucun serveur tiers entre vous et lui.</p>
-
-    <div class="pillars">
-      <article class="pillar" data-reveal style="--d:.05s">
-        <svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg>
-        <h3>Jouer</h3>
-        <p>Manette, souris relative, la fréquence de votre écran&#8239;: 120, 144&nbsp;Hz ou plus. Le mode jeu s'enclenche seul quand un jeu passe en plein écran.</p>
-      </article>
-      <article class="pillar" data-reveal style="--d:.15s">
-        <svg class="ic-lg"><use href="/assets/icons.svg#monitor"/></svg>
-        <h3>Travailler</h3>
-        <p>Un bureau à distance au texte net en 4:4:4, presse-papiers partagé, la définition exacte de votre écran&#8239;: 4K, 5K, 6K.</p>
-      </article>
-      <article class="pillar" data-reveal style="--d:.25s">
-        <svg class="ic-lg"><use href="/assets/icons.svg#broadcast"/></svg>
-        <h3>Partout</h3>
-        <p>Des apps pour Mac, Windows, Apple TV, iPhone et iPad, et n'importe quel navigateur&#8239;: ordinateur, tablette, téléphone. Chez vous, ou de loin par votre VPN.</p>
-      </article>
+    <div class="hero-shots" data-reveal style="--d:.3s">
+      <div class="shot shot-mac" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link pour Mac : l'accueil, avec l'ordinateur « Atelier » en ligne, le bouton Se connecter et les profils Jeu, Bureau et Max">
+        <div class="sc sc-mac" aria-hidden="true">
+          <div class="sc-bg"><i style="left:720px;top:120px;width:420px;height:260px"></i><i style="left:860px;top:220px;width:360px;height:240px"></i></div>
+          <div class="sc-lights"><i></i><i></i><i></i></div>
+          <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg>Scanner un QR code</span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
+          <section class="sc-host">
+            <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+            <p class="sc-name">Atelier</p>
+            <p class="sc-meta">Windows 11 Pro 24H2 · NVIDIA GeForce RTX 3080 Ti · 192.168.1.20</p>
+            <p class="sc-line">Un écran de 3456 × 2234 à 120 Hz l'attend, taillé pour cet écran.</p>
+            <p class="sc-hint">Latence minimale&#8239;: la fréquence la plus haute de cet écran, la souris relative, la manette.</p>
+            <div class="sc-actions"><span class="sc-primary"><b>↵</b>Se connecter<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Jeu</b><span>Bureau</span><span>Max</span></span><span class="sc-ghost">Réglages de Atelier</span></div>
+          </section>
+          <aside class="sc-card sc-last">
+            <p class="sc-eyebrow">Dernière session</p>
+            <p class="sc-sub">aujourd'hui, 09:12 · 1&nbsp;h&nbsp;05</p>
+            <p class="sc-big"><b>9,4</b><span>ms médiane</span></p>
+            <p class="sc-faint">95&nbsp;% des images sous 12,1&nbsp;ms</p>
+            <hr>
+            <p class="sc-eyebrow">Image affichée</p>
+            <ul class="sc-steps"><li class="on">Dernière session</li><li>Aperçu demandé à la Station</li><li>Signature</li></ul>
+          </aside>
+          <section class="sc-bottom">
+            <div class="sc-bottom-head"><p class="sc-eyebrow">Vos autres ordinateurs</p><p class="sc-hint">Windows, macOS ou Linux&#8239;: ils s'ouvrent tous de la même façon.</p></div>
+            <div class="sc-tiles">
+              <div class="sc-tile on"><i></i><b>Atelier</b><small>En ligne · 192.168.1.20</small></div>
+              <div class="sc-tile off"><i></i><b>Portable</b><small>Hors ligne</small></div>
+              <div class="sc-tile found"><span><em>Trouvé sur le réseau</em><b>Salon-PC</b><small>192.168.1.34:8080</small></span><span class="sc-ghost">Ajouter</span></div>
+              <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Ajouter un ordinateur</div>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="shot shot-phone" style="--w:390;--h:844" role="img" aria-label="KyberNow Link sur iPhone : le même accueil, en portrait">
+        <div class="sc sc-phone" aria-hidden="true">
+          <div class="sc-bg"></div>
+          <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
+          <section class="sc-host">
+            <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+            <p class="sc-name">Atelier</p>
+            <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti<br>192.168.1.20</p>
+            <p class="sc-line">Un écran de 2556 × 1179 à 120 Hz l'attend.</p>
+          </section>
+          <div class="sc-cta"><span class="sc-primary">Se connecter<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Jeu</b><span>Bureau</span><span>Max</span></span></div>
+          <aside class="sc-card sc-last"><span><p class="sc-eyebrow">Dernière session</p><p class="sc-sub">hier, 21:40 · 48&nbsp;min</p></span><p class="sc-big"><b>12,8</b><span>ms médiane</span></p></aside>
+          <section class="sc-bottom">
+            <p class="sc-eyebrow">Vos autres ordinateurs</p>
+            <div class="sc-tiles">
+              <div class="sc-tile off"><i></i><span><b>Portable</b><small>Hors ligne</small></span></div>
+              <div class="sc-tile found"><i></i><span><b>Salon-PC</b><em>Trouvé sur le réseau</em></span><span class="sc-ghost">Ajouter</span></div>
+              <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Ajouter un ordinateur</div>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
+  </div>
+  <a class="scroll-hint" href="#presentation" aria-label="Faire défiler"><span></span></a>
+</section>
 
+<!-- 2 · La présentation : motion design, sans voix, lecture automatique au défilement -->
+<section class="section presentation" id="presentation" data-scene="edge-r">
+  <div class="wrap">
+    <p class="label" data-reveal>La présentation</p>
+    <h2 class="title" data-split>KyberNow <strong>en une minute trente.</strong></h2>
+    <figure class="video" id="video" data-reveal>
+      <video id="video-el" muted playsinline loop preload="metadata" poster="/assets/video/presentation-poster.jpg" aria-label="Présentation animée de KyberNow, sans son">
+        <source src="/assets/video/presentation.webm" type="video/webm">
+        <source src="/assets/video/presentation.mp4" type="video/mp4">
+      </video>
+      <button class="video-big" type="button" data-video="play" aria-label="Lire la présentation"><svg class="ic"><use href="/assets/icons.svg#play"/></svg></button>
+      <p class="video-state mono-label" id="video-state">Lecture automatique au défilement · sans son</p>
+      <div class="video-ctl">
+        <button type="button" data-video="toggle" aria-label="Mettre en pause"><svg class="ic when-playing"><use href="/assets/icons.svg#pause"/></svg><svg class="ic when-paused"><use href="/assets/icons.svg#play"/></svg></button>
+        <button type="button" data-video="restart" aria-label="Revoir depuis le début"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg></button>
+        <button type="button" data-video="fullscreen" aria-label="Plein écran"><svg class="ic"><use href="/assets/icons.svg#corners-out"/></svg></button>
+      </div>
+    </figure>
+    <p class="video-note" data-reveal>Sans voix, sans son&#8239;: la vidéo démarre d'elle-même quand elle arrive à l'écran, et s'arrête quand elle le quitte. Avec «&#8239;Réduire les animations&#8239;», elle attend que vous la lanciez.</p>
   </div>
 </section>
 
-<!-- 3 · La famille KyberNow : Station, Admin, Link -->
-<section class="section famille" id="famille" data-scene="split">
+<!-- 3 · Les trois apps, chacune avec son écran -->
+<section class="section famille" id="apps" data-scene="edge-r">
   <div class="wrap">
     <p class="label" data-reveal>La famille KyberNow</p>
     <h2 class="title" data-split>Trois apps, <strong>un seul KyberNow.</strong></h2>
-    <p class="body-lg" data-reveal>Installez KyberNow Station sur votre ordinateur, puis retrouvez-le sur tous vos appareils avec KyberNow Link. Et pour régler le tout, KyberNow Admin s'ouvre dans votre navigateur.</p>
+    <p class="body-lg" data-reveal>Installez KyberNow Station sur votre ordinateur, retrouvez-le sur tous vos appareils avec KyberNow Link, et réglez le tout avec KyberNow Admin, dans votre navigateur.</p>
 
     <div class="fam">
       <article class="fam-card" data-reveal style="--d:.05s">
-        <h3><img src="/assets/img/kybernow-station-dark.svg" alt="KyberNow Station" width="218" height="40"></h3>
+        <div class="shot" style="--w:960;--h:640" role="img" aria-label="L'installateur de KyberNow Station : étape Bienvenue, « Cet ordinateur, sur tous vos écrans », avec l'analyse de l'ordinateur (carte graphique, pilote, réseau, ports, écran, alimentation, son)">
+          <div class="sc sc-setup" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <div class="sc-titlebar"><span><img src="/assets/img/kybernow-mark-now-dark.svg" alt="">Installation de KyberNow Station</span><em><span>—</span><span>☐</span><span>✕</span></em></div>
+            <div class="sc-body">
+              <nav class="sc-rail"><img src="/assets/img/kybernow-station-dark.svg" alt="" width="218" height="40"><ol><li class="on"><i>1</i>Bienvenue</li><li><i>2</i>Options</li><li><i>3</i>Installation</li><li><i>4</i>Terminé</li></ol><small>Version 0.4.7 · À propos</small></nav>
+              <div class="sc-main">
+                <p class="sc-eyebrow">Bienvenue</p>
+                <h4>Cet ordinateur, sur tous vos écrans.</h4>
+                <p class="sc-line">Trois minutes. Rien ne change sur cet ordinateur avant que vous cliquiez sur Installer.</p>
+                <ul class="sc-checks">
+                  <li><i>✓</i><span><b>Carte graphique</b><br>NVIDIA GeForce RTX 3080 Ti · encodage matériel NVENC</span></li>
+                  <li><i>✓</i><span><b>Pilote graphique</b><br>Version 581.57</span></li>
+                  <li><i>✓</i><span><b>Réseau local</b><br>Ethernet · 192.168.1.20</span></li>
+                  <li><i>✓</i><span><b>Ports réseau</b><br>Libres&#8239;: stream 8080 · Admin 8443</span></li>
+                  <li><i>✓</i><span><b>Écran principal</b><br>3840 × 2160 · 160 Hz</span></li>
+                  <li class="warn"><i>!</i><span><b>Mode d'alimentation&#8239;: Équilibré</b><br>Le GPU ralentit pour économiser l'énergie. Nous proposerons de le régler à l'étape Options.</span></li>
+                  <li class="wide"><i>✓</i><span><b>Son à distance</b><br>Haut-parleurs virtuels de Steam disponibles&#8239;: pendant le stream, l'ordinateur se tait et le son part en stéréo, 5.1 ou 7.1.</span></li>
+                </ul>
+                <div class="sc-foot"><span class="sc-primary">Continuer<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <img class="fam-logo" src="/assets/img/kybernow-station-dark.svg" alt="KyberNow Station" width="218" height="40">
         <p class="mono-label">Sur votre ordinateur</p>
-        <p>À installer une fois sur l'ordinateur que vous voulez retrouver. Elle travaille en arrière-plan et prépare tout le reste&#8239;: l'écran, le son, les manettes.</p>
+        <p>Un installateur, trois minutes. Elle prépare tout le reste&#8239;: le moteur, l'écran et le son virtuels, les manettes, le pare-feu.</p>
       </article>
       <article class="fam-card" data-reveal style="--d:.15s">
-        <h3><img src="/assets/img/kybernow-admin-dark.svg" alt="KyberNow Admin" width="219" height="40"></h3>
+        <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Admin dans le navigateur : la vue d'ensemble, avec l'écran de l'ordinateur, l'état du serveur, de l'écran virtuel et du son, les appareils et les journaux">
+          <div class="sc sc-admin" aria-hidden="true">
+            <div class="sc-chrome"><div class="sc-lights"><i></i><i></i><i></i></div><div class="sc-url"><span><svg class="ic"><use href="/assets/icons.svg#lock-simple"/></svg>https://atelier.local:8443/#/ensemble</span></div></div>
+            <div class="sc-body">
+              <nav class="sc-side">
+                <div class="sc-host"><img src="/assets/img/kybernow-mark-now-dark.svg" alt=""><div><b>Atelier</b><small>En marche · prêt à recevoir</small></div></div>
+                <ul><li class="on"><svg class="ic"><use href="/assets/icons.svg#devices"/></svg>Vue d'ensemble</li><li><svg class="ic"><use href="/assets/icons.svg#monitor"/></svg>Image et son</li><li><svg class="ic"><use href="/assets/icons.svg#plugs"/></svg>Appareils Link</li><li><svg class="ic"><use href="/assets/icons.svg#list"/></svg>Utilisateurs</li><li><svg class="ic"><use href="/assets/icons.svg#gear"/></svg>Système</li></ul>
+                <p class="sc-user">Administrateur<br><u>Se déconnecter</u></p>
+              </nav>
+              <div class="sc-main">
+                <div class="sc-main-head"><b>Vue d'ensemble</b><small>KyberNow Admin · 0.4.7</small></div>
+                <div class="sc-hero">
+                  <div class="sc-preview"><i></i><i></i><i></i><div class="sc-tags"><span>L'écran de cet ordinateur</span><span>Aperçu · il y a 10 s</span></div></div>
+                  <div><b>Atelier attend vos appareils</b><p>Personne n'est connecté. Dernière session&#8239;: MacBook Pro, aujourd'hui 09:12, pendant 1&nbsp;h&nbsp;05.</p><div class="sc-actions"><span class="sc-primary">Ajouter un appareil</span><span class="sc-ghost">Ouvrir dans le navigateur</span></div></div>
+                </div>
+                <p class="sc-label">État</p>
+                <div class="sc-tiles4">
+                  <div><small>Serveur</small><b class="ok">En marche</b><span>Flux sur le port 8080</span></div>
+                  <div><small>Écran virtuel</small><b class="ok">Prêt</b><span>À la taille de chaque appareil</span></div>
+                  <div><small>Son</small><b class="ok">Prêt</b><span>Jusqu'au 7.1, l'ordinateur se tait</span></div>
+                  <div><small>Mise à jour</small><b>À jour</b><span>Version 0.4.7</span></div>
+                </div>
+                <div class="sc-cols">
+                  <div><p class="sc-label">Appareils<u>Tous les appareils</u></p><ul><li><span><b>MacBook Pro</b> · Mac</span><small>médiane 9,4 ms · aujourd'hui</small></li><li><span><b>Apple TV salon</b> · tvOS</span><small>médiane 14,6 ms · hier</small></li><li><span><b>Steam Deck</b> · Linux</span><small>médiane 11,2 ms · il y a 3 jours</small></li></ul></div>
+                  <div><p class="sc-label">Journaux · Aujourd'hui</p><ul><li class="log"><small>09:12</small><span>MacBook Pro s'est déconnecté · 1&nbsp;h&nbsp;05</span></li><li class="log"><small>08:07</small><span>MacBook Pro connecté · profil Jeu · 3456 × 2234 à 120 Hz</span></li><li class="log"><small>07:58</small><span>Serveur démarré · flux sur le port 8080</span></li></ul></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <img class="fam-logo" src="/assets/img/kybernow-admin-dark.svg" alt="KyberNow Admin" width="219" height="40">
         <p class="mono-label">Dans le navigateur</p>
-        <p>Pour choisir qui peut se connecter, régler l'image et le son, installer les mises à jour. Rien à installer&#8239;: elle s'ouvre depuis l'icône près de l'horloge, ou depuis n'importe quel navigateur chez vous.</p>
+        <p>Qui peut se connecter, l'image et le son, l'app qui s'ouvre au début de chaque session, les mises à jour. Rien à installer&#8239;: elle s'ouvre depuis l'icône près de l'horloge.</p>
       </article>
       <article class="fam-card" data-reveal style="--d:.25s">
-        <h3><img src="/assets/img/kybernow-link-dark.svg" alt="KyberNow Link" width="219" height="40"></h3>
+        <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link pour Mac : l'accueil, avec l'ordinateur « Atelier » en ligne et le bouton Se connecter">
+          <div class="sc sc-mac" aria-hidden="true">
+            <div class="sc-bg"><i style="left:720px;top:120px;width:420px;height:260px"></i><i style="left:860px;top:220px;width:360px;height:240px"></i></div>
+            <div class="sc-lights"><i></i><i></i><i></i></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg>Scanner un QR code</span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
+            <section class="sc-host">
+              <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+              <p class="sc-name">Atelier</p>
+              <p class="sc-meta">Windows 11 Pro 24H2 · NVIDIA GeForce RTX 3080 Ti · 192.168.1.20</p>
+              <p class="sc-line">Un écran de 3456 × 2234 à 120 Hz l'attend, taillé pour cet écran.</p>
+              <p class="sc-hint">Latence minimale&#8239;: la fréquence la plus haute de cet écran, la souris relative, la manette.</p>
+              <div class="sc-actions"><span class="sc-primary"><b>↵</b>Se connecter<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Jeu</b><span>Bureau</span><span>Max</span></span><span class="sc-ghost">Réglages de Atelier</span></div>
+            </section>
+            <aside class="sc-card sc-last">
+              <p class="sc-eyebrow">Dernière session</p>
+              <p class="sc-sub">aujourd'hui, 09:12 · 1&nbsp;h&nbsp;05</p>
+              <p class="sc-big"><b>9,4</b><span>ms médiane</span></p>
+              <p class="sc-faint">95&nbsp;% des images sous 12,1&nbsp;ms</p>
+              <hr>
+              <p class="sc-eyebrow">Image affichée</p>
+              <ul class="sc-steps"><li class="on">Dernière session</li><li>Aperçu demandé à la Station</li><li>Signature</li></ul>
+            </aside>
+            <section class="sc-bottom">
+              <div class="sc-bottom-head"><p class="sc-eyebrow">Vos autres ordinateurs</p><p class="sc-hint">Windows, macOS ou Linux&#8239;: ils s'ouvrent tous de la même façon.</p></div>
+              <div class="sc-tiles">
+                <div class="sc-tile on"><i></i><b>Atelier</b><small>En ligne · 192.168.1.20</small></div>
+                <div class="sc-tile off"><i></i><b>Portable</b><small>Hors ligne</small></div>
+                <div class="sc-tile found"><span><em>Trouvé sur le réseau</em><b>Salon-PC</b><small>192.168.1.34:8080</small></span><span class="sc-ghost">Ajouter</span></div>
+                <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Ajouter un ordinateur</div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <img class="fam-logo" src="/assets/img/kybernow-link-dark.svg" alt="KyberNow Link" width="219" height="40">
         <p class="mono-label">Sur vos appareils</p>
-        <p>L'app qui vous ramène sur votre ordinateur, en plein écran, avec clavier, souris et manette. Pas envie d'installer quoi que ce soit&#8239;? Link s'ouvre aussi dans un navigateur.</p>
+        <p>L'app qui vous ramène sur votre ordinateur, en plein écran, avec clavier, souris et manette. Ou dans un navigateur, sans rien installer.</p>
       </article>
     </div>
   </div>
 </section>
 
-<!-- 4 · Le trajet d'une image (épinglé) -->
-<section class="trajet" id="trajet" data-scene="flow">
-  <div class="trajet-sticky">
-    <div class="wrap">
-      <div class="trajet-head">
-        <p class="label">Le trajet d'une image</p>
-        <h2 class="title">De la carte graphique <strong>à votre écran.</strong></h2>
-      </div>
-
-      <div class="counter" aria-live="off">
-        <span class="counter-value" id="counter">0,00</span><span class="counter-unit">ms</span>
-        <p class="counter-caption" id="counter-caption">Faites défiler&#8239;: de la capture à l'affichage.</p>
-      </div>
-
-      <ol class="stages" id="stages">
-        <li data-ms="0"><span class="stage-n">01</span><b>Capture</b><span>L'écran virtuel, à la définition de votre appareil</span><em>t&nbsp;=&nbsp;0</em></li>
-        <li data-ms="5.19"><span class="stage-n">02</span><b>Encodage</b><span>Sur la carte graphique ou le processeur</span><em>5,19&nbsp;ms</em></li>
-        <li data-ms="0.12"><span class="stage-n">03</span><b>Envoi</b><span>Kyber, sur QUIC</span><em>0,12&nbsp;ms</em></li>
-        <li data-ms="0.66"><span class="stage-n">04</span><b>Réseau</b><span>Câble ou Wi-Fi, chiffré</span><em>0,66&nbsp;ms</em></li>
-        <li data-ms="2.50"><span class="stage-n">05</span><b>Décodage</b><span>Matériel, sur votre appareil</span><em>2,50&nbsp;ms</em></li>
-        <li data-ms="0.62"><span class="stage-n">06</span><b>Affichage</b><span>Dès que l'image est prête</span><em>0,62&nbsp;ms</em></li>
-      </ol>
-      <div class="track" aria-hidden="true"><div class="track-fill" id="track-fill"></div><div class="track-pulse" id="track-pulse"></div></div>
-
-      <p class="footnote">Mesuré le 19&nbsp;octobre 2026&#8239;: ordinateur RTX&nbsp;3080&nbsp;Ti en 3840&nbsp;×&nbsp;2160 à 160&nbsp;Hz, vers un MacBook Pro M4&nbsp;Max, réseau local, H.264, 3&#8239;263 images. Médianes par étape&#8239;; le total est la médiane du trajet complet. À 160&nbsp;Hz, une image dure 6,25&nbsp;ms.</p>
-    </div>
-  </div>
-</section>
-
-<!-- 5 · QUIC -->
-<section class="section" id="quic" data-scene="side">
+<!-- 4 · Link, sur chaque appareil -->
+<section class="section" id="appareils" data-scene="edge-r">
   <div class="wrap">
-    <p class="label" data-reveal>Le transport</p>
-    <h2 class="title" data-split><strong>QUIC</strong>&#8239;: quatre voies, <strong>aucune n'attend les autres.</strong></h2>
-    <p class="body-lg" data-reveal>Kyber transporte l'image, le son et les commandes sur QUIC, le protocole de HTTP/3 normalisé par l'IETF (RFC&nbsp;9000). Là où un flux unique s'arrête au premier paquet perdu, QUIC garde chaque voie indépendante et répare les pertes à l'arrivée.</p>
+    <p class="label" data-reveal>Sur vos appareils</p>
+    <h2 class="title" data-split>Link, <strong>sur chacun de vos écrans.</strong></h2>
+    <p class="body-lg" data-reveal>Même accueil, mêmes profils Jeu, Bureau et Max, même session&#8239;: seules les commandes changent. Télécommande au salon, manette sur le Deck, doigt sur le téléphone.</p>
 
-    <div class="sim" data-reveal>
-      <div class="sim-bar">
-        <div class="segmented" role="radiogroup" aria-label="Transport simulé">
-          <button role="radio" aria-checked="true" data-mode="quic"><svg class="ic"><use href="/assets/icons.svg#stack"/></svg>QUIC</button>
-          <button role="radio" aria-checked="false" data-mode="single"><svg class="ic"><use href="/assets/icons.svg#minus"/></svg>Un seul flux</button>
+    <div class="devices">
+      <figure class="dev-tv" data-reveal>
+        <div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link sur un téléviseur : l'accueil à trois mètres, avec la colonne « Prêt à jouer » (téléviseur, réseau, manettes, dernière session) et les raccourcis de la télécommande">
+          <div class="sc sc-tv" aria-hidden="true">
+            <div class="sc-bg"><i style="left:1100px;top:0;width:820px;height:650px;border-radius:0;background:linear-gradient(180deg,#121a2e,#1a1f44 60%,#0a1a28);opacity:.5;box-shadow:none"></i><i style="left:1180px;top:230px;width:260px;height:260px;border-radius:50%;background:#8a7a58;opacity:.5;box-shadow:none"></i></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-ghost"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg>Réglages</span></header>
+            <section class="sc-host">
+              <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+              <p class="sc-name">Atelier</p>
+              <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti · 192.168.1.20</p>
+              <p class="sc-meta">Écran virtuel prêt&#8239;: 3840 × 2160 à 120 Hz</p>
+              <div class="sc-actions"><span class="sc-focus">Se connecter</span><span class="sc-pills"><b>Jeu</b><span>Bureau</span><span>Max</span></span><span class="sc-ghost" style="margin-left:16px"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg>Réglages de l'ordinateur</span></div>
+            </section>
+            <aside class="sc-card sc-ready">
+              <p class="sc-eyebrow">Prêt à jouer</p>
+              <dl>
+                <div><dt>Téléviseur</dt><dd>OLED83G2 · 4K · 120 Hz</dd><dd class="m">webOS 25 · HEVC, AV1</dd></div>
+                <div><dt>Réseau</dt><dd>Wi-Fi</dd><dd class="m">plafond 95 Mbit/s</dd></div>
+                <div><dt>Manettes</dt><dd class="row"><span><b>J1</b>DualSense</span><small>vibrations</small></dd><dd class="row"><span><b>J2</b>Xbox Wireless Contr…</span><small>vibrations</small></dd></div>
+                <div><dt>Dernière session</dt><dd class="big">14,6 ms</dd><dd class="m">médiane · 4K 120 Hz · HEVC · 1 h 05</dd></div>
+              </dl>
+            </aside>
+            <div class="sc-tiles">
+              <div class="sc-tile on"><i></i><b>Atelier</b></div>
+              <div class="sc-tile off"><i></i><b>Portable<small>hors ligne</small></b></div>
+              <div class="sc-tile found"><i>Sur le réseau</i><b>Salon-PC</b></div>
+              <div class="sc-tile add"><i>+</i><b>Ajouter</b></div>
+            </div>
+            <footer class="sc-foot"><div><span><kbd>OK</kbd>Se connecter</span><span><kbd>···</kbd>Réglages de l'ordinateur</span><span><kbd>↶</kbd>Quitter</span><span><kbd>↖</kbd>Pointeur de la Magic Remote ou croix</span></div><em>KyberNow Link 0.4.7</em></footer>
+          </div>
         </div>
-        <div class="sim-stats"><p class="sim-stat"><span class="mono-label">Voies bloquées</span> <b id="sim-blocked">0 sur 4</b></p><p class="sim-stat"><span class="mono-label">Pertes réparées</span> <b id="sim-fixed">0</b></p></div>
-      </div>
-      <div class="sim-body">
-        <ul class="sim-lanes" aria-hidden="true"><li>Image</li><li>Son</li><li>Manette</li><li>Presse-papiers</li></ul>
-        <canvas id="sim" height="240" aria-label="Simulation : paquets de quatre voies traversant le réseau, avec des pertes"></canvas>
-      </div>
-      <p class="sim-legend"><span><i class="lg lg-pkt"></i>Paquet</span><span><i class="lg lg-lost"></i>Perdu</span><span><i class="lg lg-fix"></i>Réparé à l'arrivée</span><span class="sim-note">Pertes exagérées pour la démonstration.</span></p>
+        <figcaption><h3>Apple TV, téléviseurs LG, Android TV</h3><span class="mono-label">Siri Remote, Magic Remote, manettes</span></figcaption>
+      </figure>
+      <figure class="dev-phone" data-reveal style="--d:.08s">
+        <div class="shot" style="--w:390;--h:844" role="img" aria-label="KyberNow Link sur iPhone : l'accueil en portrait">
+          <div class="sc sc-phone" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
+            <section class="sc-host">
+              <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+              <p class="sc-name">Atelier</p>
+              <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti<br>192.168.1.20</p>
+              <p class="sc-line">Un écran de 2556 × 1179 à 120 Hz l'attend.</p>
+            </section>
+            <div class="sc-cta"><span class="sc-primary">Se connecter<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Jeu</b><span>Bureau</span><span>Max</span></span></div>
+            <aside class="sc-card sc-last"><span><p class="sc-eyebrow">Dernière session</p><p class="sc-sub">hier, 21:40 · 48&nbsp;min</p></span><p class="sc-big"><b>12,8</b><span>ms médiane</span></p></aside>
+            <section class="sc-bottom">
+              <p class="sc-eyebrow">Vos autres ordinateurs</p>
+              <div class="sc-tiles">
+                <div class="sc-tile off"><i></i><span><b>Portable</b><small>Hors ligne</small></span></div>
+                <div class="sc-tile found"><i></i><span><b>Salon-PC</b><em>Trouvé sur le réseau</em></span><span class="sc-ghost">Ajouter</span></div>
+                <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Ajouter un ordinateur</div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <figcaption><h3>iPhone et iPad, Android</h3><span class="mono-label">Toucher direct ou pavé tactile</span></figcaption>
+      </figure>
+      <figure class="dev-deck" data-reveal>
+        <div class="deck-shell">
+          <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link sur le Steam Deck, en mode Jeu : l'accueil à la manette, avec les raccourcis A, B, X, Y, L1, R1 et Start">
+            <div class="sc sc-deck" aria-hidden="true">
+              <div class="sc-bg"></div>
+              <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-status"><svg class="ic" style="width:16px;height:16px;fill:currentColor"><use href="/assets/icons.svg#wifi-high"/></svg>Wi-Fi · 14:32 · 78 %</span></header>
+              <section class="sc-host">
+                <p class="sc-eyebrow"><i></i>En ligne · Réseau local</p>
+                <p class="sc-name">Atelier</p>
+                <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti · 192.168.1.20</p>
+                <p class="sc-meta">Écran virtuel prêt&#8239;: 1280 × 800 à 90 Hz · VRR</p>
+                <div class="sc-actions"><span class="sc-focus">Se connecter</span><span class="sc-pills"><b>Jeu</b><span>Bureau</span><span>Max</span></span></div>
+              </section>
+              <aside class="sc-card sc-ready">
+                <p class="sc-eyebrow">Prêt à jouer</p>
+                <dl>
+                  <div><dt>Écran</dt><dd>Steam Deck OLED · 1280 × 800 · 90 Hz</dd><dd class="m">HEVC · VRR</dd></div>
+                  <div><dt>Manette</dt><dd class="row"><span><b>J1</b>Steam Deck · intégrée</span></dd></div>
+                  <div><dt>Dernière session</dt><dd class="big">11,2 ms</dd><dd class="m">médiane · 800p 90 Hz · 42 min</dd></div>
+                </dl>
+              </aside>
+              <div class="sc-tiles">
+                <div class="sc-tile on"><i></i><b>Atelier</b></div>
+                <div class="sc-tile off"><i></i><b>Portable<small>hors ligne</small></b></div>
+                <div class="sc-tile found"><i>Sur le réseau</i><b>Salon-PC</b></div>
+                <div class="sc-tile add"><i>+</i><b>Ajouter</b></div>
+              </div>
+              <footer class="sc-foot"><div><span><kbd>A</kbd>Se connecter</span><span><kbd>B</kbd>Retour</span><span><kbd>Y</kbd>Réglages de l'ordinateur</span><span><kbd>X</kbd>Ajouter un ordinateur</span><span><kbd>L1 R1</kbd>Profil</span><span><kbd>Start</kbd>Réglages de l'app</span></div><em>KyberNow Link 0.4.7 · Flatpak</em></footer>
+            </div>
+          </div>
+        </div>
+        <figcaption><h3>Steam Deck, SteamOS, Linux</h3><span class="mono-label">Flatpak · tout à la manette en mode Jeu</span></figcaption>
+      </figure>
+      <figure class="dev-mac" data-reveal style="--d:.08s">
+        <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link en session : l'image de l'ordinateur en plein écran, avec la barre de mesures en haut (9,4 ms, 120 images par seconde, 3456 × 2234, HEVC, 82 Mbit/s, aucune perte)">
+          <div class="sc sc-session" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <div class="sc-win"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="sc-art"></div>
+            <div class="sc-dock"><i></i><i></i><i class="on"></i><i></i></div>
+            <div class="sc-bar"><span>Atelier</span><span class="ms"><i></i>9,4 ms</span><span class="m">120 i/s</span><span class="m small">3456 × 2234 · HEVC 4:2:0 · 82 Mbit/s · 0 perte</span><span>Souris jeu</span><span>Stéréo</span><span><i><svg class="ic"><use href="/assets/icons.svg#gauge"/></svg></i><i><svg class="ic"><use href="/assets/icons.svg#corners-out"/></svg></i><i class="bad"><svg class="ic"><use href="/assets/icons.svg#x"/></svg></i></span></div>
+            <p class="sc-tip">Les commandes sont en haut de l'écran, au survol. ⌃⌥⌘F&#8239;: fenêtre · ⌃⌥⌘D&#8239;: quitter.</p>
+          </div>
+        </div>
+        <figcaption><h3>Mac, Windows, et le navigateur</h3><span class="mono-label">En session&#8239;: mesures en haut de l'écran, au survol</span></figcaption>
+      </figure>
     </div>
 
-    <div class="points">
-      <div class="point" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Chiffré d'office</h3><p>TLS&nbsp;1.3 fait partie de QUIC&#8239;: l'image et vos frappes ne circulent jamais en clair, même chez vous.</p></div>
-      <div class="point" data-reveal style="--d:.08s"><svg class="ic-lg"><use href="/assets/icons.svg#stack"/></svg><h3>Voies indépendantes</h3><p>Pas de blocage en tête de file&#8239;: un paquet d'image perdu ne retarde ni le son, ni la manette.</p></div>
-      <div class="point" data-reveal style="--d:.16s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>Pertes réparées</h3><p>Correction d'erreurs à l'arrivée&#8239;; au-delà, l'app demande aussitôt une image complète.</p></div>
-      <div class="point" data-reveal style="--d:.24s"><svg class="ic-lg"><use href="/assets/icons.svg#plugs"/></svg><h3>Un seul port</h3><p>TCP et UDP sur le même numéro&#8239;: une règle de pare-feu, un passage dans le VPN.</p></div>
-    </div>
+    <ul class="platforms" data-reveal>
+      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone et iPad</li><li class="tag">Android et Android TV</li><li class="tag">Téléviseurs LG</li><li class="tag">Navigateur</li>
+    </ul>
   </div>
 </section>
 
-<!-- 6 · Kyber -->
-<section class="section" id="kyber" data-scene="rest-r">
+<!-- 5 · Fonctions phares : tout, tout de suite -->
+<section class="section" id="fonctions" data-scene="edge-r">
   <div class="wrap">
-    <p class="label" data-reveal>La fondation</p>
-    <h2 class="title" data-split>Construit sur <strong>Kyber.</strong></h2>
-    <p class="body-lg" data-reveal>KyberNow utilise <a href="https://kyber.tech" rel="noopener">Kyber</a>, un moteur de streaming libre (AGPL-3.0) conçu par des développeurs de VLC. Écrit en Rust, appuyé sur FFmpeg et QUIC, il vise quelques millisecondes de latence. KyberNow en fait un produit complet, prêt à installer.</p>
-
-    <div class="split-cols">
-      <div class="col" data-reveal>
-        <p class="mono-label">Ce que fait Kyber</p>
-        <ul class="ticks">
-          <li>Capture et encodage, sur toute carte graphique ou le processeur</li>
-          <li>Transport QUIC et correction d'erreurs</li>
-          <li>Clavier, souris et manettes à distance</li>
-          <li>Kit de développement pour les clients</li>
-        </ul>
-      </div>
-      <div class="col" data-reveal style="--d:.1s">
-        <p class="mono-label">Ce qu'ajoute KyberNow</p>
-        <ul class="ticks ticks-on">
-          <li>KyberNow Station&#8239;: installateur, administration dans le navigateur (KyberNow Admin) et mises à jour</li>
-          <li>Écran et haut-parleurs virtuels par session</li>
-          <li>KyberNow Link&#8239;: apps natives pour Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, Linux et Steam Deck (décodage et affichage par l'app), et sa version web</li>
-          <li>Correctifs du moteur, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">publiés et décrits</a></li>
-        </ul>
-      </div>
-    </div>
-
-    <aside class="notice" data-reveal>
-      <svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg>
-      <div>
-        <h3>Un projet communautaire, non commercial</h3>
-        <p>KyberNow est gratuit et libre&#8239;: pas de compte, pas d'abonnement, pas de publicité, et tout le code est ouvert. Il est développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow n'est pas affilié à Kyber&#8239;: il n'est ni édité, ni approuvé par son équipe.</p>
-        <p class="notice-links"><a href="https://kyber.tech" rel="noopener">Découvrir Kyber<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Code source de KyberNow<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
-      </div>
-    </aside>
-  </div>
-</section>
-
-<!-- 7 · Comparaison -->
-<section class="section" id="comparer" data-scene="rest-l">
-  <div class="wrap">
-    <p class="label" data-reveal>Comparer</p>
-    <h2 class="title" data-split><strong>KyberNow</strong>, l'alternative à Sunshine + Moonlight.</h2>
-    <p class="body-lg" data-reveal>Sunshine et Moonlight ont rendu le streaming d'ordinateur libre accessible à tous, et restent d'excellents logiciels. KyberNow part d'un moteur plus récent et pense l'ensemble comme un seul produit, de l'installation à l'image.</p>
-
-    <div class="compare" data-reveal role="table" aria-label="Comparaison">
-      <div class="cmp-row cmp-head" role="row"><span role="columnheader"></span><span role="columnheader" class="cmp-us">KyberNow</span><span role="columnheader">Sunshine + Moonlight</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Transport</span><span class="yes" role="cell">QUIC, normalisé (RFC&nbsp;9000)</span><span role="cell">GameStream (RTSP et UDP maison)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Chiffrement de l'image</span><span class="yes" role="cell">Toujours (TLS&nbsp;1.3)</span><span role="cell">En option, désactivé par défaut sur le réseau local</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Ports à ouvrir</span><span class="yes" role="cell">Un seul, TCP et UDP</span><span role="cell">Plusieurs ports TCP et UDP</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Écran à la définition de l'appareil</span><span class="yes" role="cell">Intégré, créé et retiré à chaque session</span><span role="cell">Hors de Sunshine (fork Apollo ou pilote à ajouter)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Appairage</span><span class="yes" role="cell">Bonjour, QR code ou lien, empreinte vérifiée</span><span role="cell">Code PIN à saisir sur la page du serveur</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Son</span><span class="yes" role="cell">Opus HD, jusqu'au 7.1 à 768&nbsp;kbit/s</span><span role="cell">Stéréo, 5.1 et 7.1</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Sur Mac</span><span class="yes" role="cell">App native (SwiftUI, VideoToolbox, Metal)</span><span role="cell">Multiplateforme (Qt)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Dans le navigateur</span><span class="yes" role="cell">Oui, servi par la Station elle-même</span><span role="cell">Non</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">Un installateur&#8239;: moteur, écran et son virtuels, manettes, pare-feu</span><span role="cell">Le serveur, puis les compléments à la main</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Pas encore (limite de Kyber&nbsp;0.29)</span><span role="cell">Oui</span></div>
-    </div>
-    <p class="footnote" data-reveal>Comparaison établie en octobre 2026, logiciels dans leur configuration par défaut. Une erreur&#8239;? <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">Dites-le-nous</a>.</p>
-  </div>
-</section>
-
-<!-- 8 · Fonctions -->
-<section class="section" id="fonctions" data-scene="rest-r">
-  <div class="wrap">
-    <p class="label" data-reveal>Dans le détail</p>
-    <h2 class="title" data-split>Pensé jusqu'au <strong>dernier pixel.</strong></h2>
+    <p class="label" data-reveal>Prêt à l'emploi</p>
+    <h2 class="title" data-split>Tout, <strong>tout de suite.</strong></h2>
+    <p class="body-lg" data-reveal>Aucune autre solution ne réunit tout cela, prête à l'emploi, à ce niveau de latence. Chez KyberNow, c'est le réglage par défaut&#8239;: installez, connectez, rien d'autre.</p>
 
     <div class="bento">
       <article class="card card-feature" data-reveal>
         <svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg>
-        <h3>Votre écran, au pixel près</h3>
-        <p>À chaque session, l'ordinateur crée un écran virtuel à la définition et à la fréquence de votre appareil (4K, 5K, 6K, 120&nbsp;Hz et plus), éteint ses propres écrans, puis les rallume à la fin. Rien à régler.</p>
-        <div class="res-demo" aria-hidden="true"><span>2560&nbsp;×&nbsp;1440</span><span>3840&nbsp;×&nbsp;2160</span><span>5120&nbsp;×&nbsp;2880</span></div>
+        <h3>4K à 120&nbsp;Hz, 5K, 6K, 240&nbsp;Hz&#8239;: la définition et la fréquence de votre écran</h3>
+        <p>À chaque session, l'ordinateur crée un écran virtuel exactement à la taille et à la fréquence de l'appareil qui se connecte, éteint ses propres écrans, puis les rallume à la fin. La seule limite est celle de l'encodeur de votre carte graphique.</p>
+        <div class="res-demo res-demo-3" aria-hidden="true"><span>2560&nbsp;×&nbsp;1440 · 240&nbsp;Hz</span><span>3840&nbsp;×&nbsp;2160 · 120&nbsp;Hz</span><span>6016&nbsp;×&nbsp;3384 · 60&nbsp;Hz</span></div>
       </article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Son HD, jusqu'au 7.1</h3><p>Une sortie virtuelle à la place des haut-parleurs de l'ordinateur, des paquets de 10&nbsp;ms, une vingtaine de millisecondes de tampon.</p></article>
-      <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Fréquence variable</h3><p>Chaque image s'affiche dès qu'elle est décodée&#8239;: sur un écran à fréquence variable, l'écran se cale sur le flux.</p></article>
-      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Appairage en un regard</h3><p>L'ordinateur apparaît tout seul sur votre réseau. Sinon, un QR code ou un lien depuis KyberNow Admin, et son empreinte est vérifiée.</p></article>
-      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Sans rien installer</h3><p>La Station sert aussi Link en version web&#8239;: ouvrez son adresse dans un navigateur, sur ordinateur, tablette ou téléphone, au pavé tactile ou au doigt.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Mises à jour en un clic</h3><p>Depuis Admin pour la Station, depuis l'app pour vos appareils. Chaque paquet est vérifié avant d'être installé.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Son 7.1, jusqu'à la qualité studio</h3><p>Opus en stéréo, 5.1 ou 7.1 vers votre ampli, par paquets de 10&nbsp;ms, jusqu'au maximum du codec. L'ordinateur se tait, l'appareil écoute.</p></article>
+      <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Fréquence variable</h3><p>Chaque image s'affiche dès qu'elle est décodée&#8239;: ProMotion, Adaptive-Sync, le VRR du téléviseur ou du Deck se calent sur le flux.</p></article>
+      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#clipboard-text"/></svg><h3>Presse-papiers partagé, texte net</h3><p>Copiez ici, collez là-bas&#8239;: le texte circule dans les deux sens. Couleurs complètes en 4:4:4 pour un texte sans bavure, sur les appareils qui le décodent.</p></article>
+      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><h3>Toutes les manettes, vibrations comprises</h3><p>Xbox, PlayStation, Nintendo, Steam Deck, toute manette que votre appareil reconnaît, vibrations comprises. Le mode jeu s'enclenche seul quand un jeu passe en plein écran.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Chiffré, un seul port, zéro compte</h3><p>QUIC et TLS&nbsp;1.3 toujours, une règle de pare-feu, un passage dans le VPN. Pas de serveur tiers, pas d'inscription.</p></article>
     </div>
 
-    <div class="profiles" data-reveal>
-      <div>
-        <p class="mono-label">Trois profils</p>
-        <div class="segmented segmented-lg" role="radiogroup" aria-label="Profil">
-          <button role="radio" aria-checked="true" data-profile="jeu"><svg class="ic"><use href="/assets/icons.svg#game-controller"/></svg>Jeu</button>
-          <button role="radio" aria-checked="false" data-profile="bureau"><svg class="ic"><use href="/assets/icons.svg#monitor"/></svg>Bureau</button>
-          <button role="radio" aria-checked="false" data-profile="max"><svg class="ic"><use href="/assets/icons.svg#lightning"/></svg>Max</button>
+    <div class="console">
+      <article class="card" data-reveal>
+        <svg class="ic-lg"><use href="/assets/icons.svg#rocket-launch"/></svg>
+        <h3>Votre ordinateur devient une console</h3>
+        <p>Pour chaque appareil, choisissez dans KyberNow Admin l'app qui s'ouvre sur l'ordinateur dès que la session commence&#8239;: Steam Big Picture sur l'Apple TV, Playnite sur le Deck, rien sur le Mac. Elle se ferme à la fin. Sans chemin à taper&#8239;: les apps viennent du menu Démarrer, avec leurs icônes.</p>
+        <div class="launch-demo" aria-hidden="true">
+          <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Apple TV salon</b><span>Steam Big Picture</span></div>
+          <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#game-controller"/></svg>Steam Deck</b><span>Playnite</span></div>
+          <div><b><svg class="ic"><use href="/assets/icons.svg#monitor"/></svg>MacBook Pro</b><span>Aucune app</span></div>
         </div>
-      </div>
-      <div class="profile-panel" id="profile-panel" aria-live="polite">
-        <h3 data-p="title">Latence minimale</h3>
-        <p data-p="text">La fréquence la plus haute que votre écran affiche, la souris relative, la manette. Les couleurs en 4:2:0 pour gagner chaque milliseconde.</p>
-        <ul class="chips" data-p="chips"><li>Fréquence maximale</li><li>Souris relative</li><li>Manette</li></ul>
-      </div>
+      </article>
+      <article class="card" data-reveal style="--d:.08s">
+        <svg class="ic-lg"><use href="/assets/icons.svg#cursor-click"/></svg>
+        <h3>Tout à la manette, intégré</h3>
+        <p>Sur le téléviseur, le Deck ou Android TV, l'app se parcourt entièrement à la manette&#8239;: l'accueil, les profils, les réglages, le menu de session. Rien à ajouter, aucun logiciel tiers.</p>
+        <div class="pad-demo" aria-hidden="true"><span><kbd>A</kbd>Se connecter</span><span><kbd>B</kbd>Retour</span><span><kbd>L1</kbd><kbd>R1</kbd>Profil</span><span><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd>Menu de session</span></div>
+      </article>
     </div>
-    <p class="footnote" data-reveal>Les profils se ramènent à ce que votre appareil sait décoder&#8239;: sans 4:4:4 matériel, plus de débit en 4:2:0.</p>
+    <p class="footnote" data-reveal>Comment tout cela tient en 9,4&nbsp;ms&#8239;: <a href="/technologie/">la page Technologie</a>, avec la comparaison avec Sunshine et Moonlight.</p>
   </div>
 </section>
 
-<!-- 9 · Téléchargement -->
+<!-- 6 · Preuves : un produit réel -->
+<section class="section" id="reel" data-scene="edge-r">
+  <div class="wrap">
+    <p class="label" data-reveal>Déjà entre vos mains</p>
+    <h2 class="title" data-split>Un produit <strong>qui s'installe aujourd'hui.</strong></h2>
+    <p class="body-lg" data-reveal>Pas une démonstration&#8239;: des versions publiées chaque semaine, signées, vérifiables, avec leurs notes. KyberNow est en bêta, et déjà en service au quotidien.</p>
+
+    <div class="proofs">
+      <article class="card proof" data-reveal><p class="mono-label">Dernière version</p><b id="proof-version">0.4.7</b><span><span id="proof-date">23 octobre 2026</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">notes de version</a></span></article>
+      <article class="card proof" data-reveal style="--d:.05s"><p class="mono-label">Versions publiées</p><b id="proof-count">20</b><span>depuis la 0.2.0, <a href="https://github.com/MonsieurNours/kybernow/blob/main/CHANGELOG.md" rel="noopener">journal complet</a> dans le dépôt</span></article>
+      <article class="card proof" data-reveal style="--d:.1s"><p class="mono-label">Latence mesurée</p><b>9,4&nbsp;ms</b><span>médiane, de la capture à l'affichage, 4K à 160&nbsp;Hz. <a href="/technologie/#trajet">Le trajet</a></span></article>
+      <article class="card proof" data-reveal style="--d:.15s"><p class="mono-label">Code</p><b>AGPL-3.0</b><span>tout le code est <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">ouvert</a>, correctifs de Kyber publiés</span></article>
+    </div>
+    <div class="proofs-2">
+      <article class="card" data-reveal><h3>Signée et vérifiable</h3><p>App Mac signée et notarisée par Apple, APK Android signé, empreintes SHA-256 de chaque fichier publiées avec la version.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><h3>Mises à jour en un clic</h3><p>La Station depuis Admin, les apps depuis elles-mêmes. Chaque paquet est vérifié avant d'être installé.</p></article>
+      <article class="card" data-reveal style="--d:.1s"><h3>Une communauté</h3><p>Aide à l'installation, idées et annonces sur Discord, en français et en anglais. Les défauts se signalent sur GitHub.</p><p class="notice-links"><a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Rejoindre le Discord<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p></article>
+    </div>
+  </div>
+</section>
+
+<!-- 7 · Trois étapes, et la technologie en résumé -->
+<section class="section" id="comment">
+  <div class="wrap two-cols">
+    <div>
+      <p class="label" data-reveal>Comment ça marche</p>
+      <h2 class="title" data-split>Prêt en <strong>trois étapes.</strong></h2>
+      <ol class="steps" data-reveal>
+        <li><span>1</span>Installez KyberNow Station sur l'ordinateur à partager.</li>
+        <li><span>2</span>Sur chaque appareil, ouvrez KyberNow Link&#8239;: l'app, ou le navigateur.</li>
+        <li><span>3</span>Connectez-vous&#8239;: l'ordinateur est déjà là, trouvé sur le réseau.</li>
+      </ol>
+      <p class="guide-link" data-reveal>Première installation&#8239;? Suivez le <a href="/guide/">guide pas à pas</a>.</p>
+    </div>
+    <div>
+      <p class="label" data-reveal>Sous le capot</p>
+      <h2 class="title" data-split>Mesuré, <strong>pas promis.</strong></h2>
+      <div class="tech-links" data-reveal>
+        <a class="card" href="/technologie/#trajet"><b>9,4&nbsp;ms</b><span>Le trajet d'une image, de la carte graphique à votre écran, en six étapes mesurées.</span></a>
+        <a class="card" href="/technologie/#quic"><b>QUIC</b><span>Quatre voies, chiffrées en TLS&nbsp;1.3, un seul port. Aucune n'attend les autres.</span></a>
+        <a class="card" href="/technologie/#kyber"><b>Kyber</b><span>Un moteur libre en Rust, conçu par des développeurs de VLC. KyberNow en fait un produit complet.</span></a>
+      </div>
+      <a class="tech-more" href="/technologie/#comparer" data-reveal>La comparaison avec Sunshine et Moonlight<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
+    </div>
+  </div>
+</section>
+
+<!-- 8 · Téléchargement -->
 <section class="section downloads" id="telecharger">
-  <div class="scene-anchor" data-scene="assemble" aria-hidden="true"></div>
+  <div class="scene-anchor scene-anchor-soft" data-scene="assemble-soft" aria-hidden="true"></div>
   <div class="wrap">
     <p class="label" data-reveal>Télécharger</p>
-    <h2 class="title" data-split>Prêt en <strong>trois étapes.</strong></h2>
+    <h2 class="title" data-split>Gratuit, libre, <strong>sans compte.</strong></h2>
+    <p class="release release-lead" data-reveal><span id="release-version">Version 0.4.7</span> <span class="beta">Bêta</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Notes de version</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">Empreintes SHA-256</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Code source</a></p>
 
-    <ol class="steps" data-reveal>
-      <li><span>1</span>Installez KyberNow Station sur l'ordinateur à partager.</li>
-      <li><span>2</span>Sur chaque appareil, ouvrez KyberNow Link&#8239;: l'app Mac, l'app Windows, l'app Apple TV, l'app iPhone et iPad, l'app Android, l'app des téléviseurs LG, l'app Linux et Steam Deck ou le navigateur.</li>
-      <li><span>3</span>Connectez-vous&#8239;: l'ordinateur est déjà là.</li>
-    </ol>
-
-    <aside class="notice notice-beta" data-reveal>
-      <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>
-      <div>
-        <h3>KyberNow est en bêta</h3>
-        <p>Il n'est pas encore en version&nbsp;1.0. Les versions 0.x s'utilisent déjà au quotidien, mais des défauts subsistent, et réglages comme fonctions peuvent encore changer d'une version à l'autre. Gardez la Station et vos apps à jour, et signalez ce qui coince sur <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</p>
-      </div>
-    </aside>
-
-    <div class="dl-grid">
+    <div class="dl-grid dl-grid-3">
       <article class="dl-card" data-reveal data-os="windows">
         <img class="dl-logo" src="/assets/img/kybernow-station-dark.svg" alt="" width="218" height="40">
         <p class="mono-label">Sur l'ordinateur à partager</p>
         <h3>KyberNow Station pour Windows</h3>
-        <ul class="specs"><li>Windows 10 ou 11, toute carte graphique (NVIDIA, AMD, Intel, eGPU) ou le processeur</li><li>Moteur Kyber, KyberNow Admin, écran et son virtuels, manettes</li><li data-size="KyberNow-Station-Setup.exe">77,3&nbsp;Mo</li></ul>
+        <ul class="specs"><li>Windows 10 ou 11, toute carte graphique (NVIDIA, AMD, Intel, eGPU) ou le processeur</li><li data-size="KyberNow-Station-Setup.exe">77,3&nbsp;Mo</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Station-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Télécharger KyberNow Station</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.08s" data-os="mac">
+      <article class="dl-card" data-reveal style="--d:.05s" data-os="mac">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre Mac</p>
         <h3>KyberNow Link pour Mac</h3>
-        <ul class="specs"><li>Mac à puce Apple, macOS 14 ou plus récent</li><li>Signée et notarisée par Apple</li><li data-size="KyberNow-Link-macOS.zip">43,2&nbsp;Mo</li></ul>
+        <ul class="specs"><li>Mac à puce Apple, macOS 14 ou plus récent. Signée et notarisée par Apple</li><li data-size="KyberNow-Link-macOS.zip">43,2&nbsp;Mo</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip"><svg class="ic"><use href="/assets/icons.svg#apple-logo"/></svg>Télécharger l'app</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.16s" data-os="windows-app">
+      <article class="dl-card" data-reveal style="--d:.1s" data-os="windows-app">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre PC</p>
         <h3>KyberNow Link pour Windows</h3>
-        <ul class="specs"><li>Windows 10 22H2 ou Windows 11, PC x64 ou ARM64 (Snapdragon)</li><li>Sans droits d'administrateur, se met à jour seule</li><li data-size="KyberNow-Link-Setup.exe">27,2&nbsp;Mo</li></ul>
+        <ul class="specs"><li>Windows 10 22H2 ou Windows 11, x64 ou ARM64. Sans droits d'administrateur, se met à jour seule</li><li data-size="KyberNow-Link-Setup.exe">27,2&nbsp;Mo</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Setup.exe"><svg class="ic"><use href="/assets/icons.svg#windows-logo"/></svg>Télécharger l'app</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.24s" data-os="linux">
+      <article class="dl-card" data-reveal style="--d:.15s" data-os="linux">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre PC Linux ou votre Steam Deck</p>
         <h3>KyberNow Link pour Linux</h3>
-        <ul class="specs"><li>Linux (GNOME, KDE…), Steam Deck, SteamOS au salon&#8239;; x86_64 ou ARM</li><li>Souris et clavier sur le bureau, tout à la manette en mode Jeu, fréquence variable quand l'écran la permet</li><li data-size="KyberNow-Link-Linux-x86_64.flatpak">Paquet Flatpak</li></ul>
+        <ul class="specs"><li>GNOME, KDE, Steam Deck, SteamOS au salon&#8239;; x86_64 ou ARM. Paquet Flatpak, sans droits d'administrateur</li><li data-size="KyberNow-Link-Linux-x86_64.flatpak">Paquet Flatpak</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-x86_64.flatpak"><svg class="ic"><use href="/assets/icons.svg#linux-logo"/></svg>Télécharger l'app</a>
         <a class="dl-more" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Linux-aarch64.flatpak">Pour une machine ARM (aarch64)</a>
         <a class="dl-more" href="/guide/#steam-deck">Installer sur le Steam Deck</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.32s" data-os="tv">
+      <article class="dl-card" data-reveal style="--d:.2s" data-os="tv">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre Apple TV</p>
         <h3>KyberNow Link pour Apple TV</h3>
-        <ul class="specs"><li>Apple TV 4K de 2021 ou plus récente, tvOS 18 ou plus récent</li><li>Jusqu'à quatre manettes, Siri Remote en souris, son 5.1 et 7.1</li><li>Installée depuis un Mac avec Xcode, en attendant l'App Store</li></ul>
+        <ul class="specs"><li>Apple TV 4K de 2021 ou plus récente, tvOS 18. Jusqu'à quatre manettes, Siri Remote en souris, son 5.1 et 7.1</li><li>Installée depuis un Mac avec Xcode, en attendant l'App Store</li></ul>
         <a class="btn btn-ghost" href="/guide/#apple-tv"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Installer sur l'Apple TV</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.40s" data-os="ios">
+      <article class="dl-card" data-reveal style="--d:.25s" data-os="ios">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre iPhone ou votre iPad</p>
         <h3>KyberNow Link pour iPhone et iPad</h3>
-        <ul class="specs"><li>iOS ou iPadOS 18 ou plus récent</li><li>Pavé tactile ou toucher direct, clavier et trackpad de l'iPad, manettes, écran externe</li><li>Installée depuis un Mac avec Xcode, en attendant TestFlight et l'App Store</li></ul>
+        <ul class="specs"><li>iOS ou iPadOS 18. Pavé tactile ou toucher direct, clavier et trackpad de l'iPad, manettes, écran externe</li><li>Installée depuis un Mac avec Xcode, en attendant TestFlight et l'App Store</li></ul>
         <a class="btn btn-ghost" href="/guide/#iphone"><svg class="ic"><use href="/assets/icons.svg#device-mobile"/></svg>Installer sur l'iPhone ou l'iPad</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.48s" data-os="android">
+      <article class="dl-card" data-reveal style="--d:.3s" data-os="android">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre appareil Android</p>
         <h3>KyberNow Link pour Android</h3>
-        <ul class="specs"><li>Android 11 ou plus récent&#8239;: téléphone, tablette, téléviseur (Android TV, Google TV, NVIDIA Shield)</li><li>Jusqu'à la 4K à 60&nbsp;Hz, manettes, télécommande, se met à jour seule</li><li data-size="KyberNow-Link-Android.apk">APK signé</li></ul>
+        <ul class="specs"><li>Android 11 ou plus récent&#8239;: téléphone, tablette, téléviseur (Android TV, Google TV, NVIDIA Shield). Jusqu'à la 4K à 60&nbsp;Hz, manettes, télécommande</li><li data-size="KyberNow-Link-Android.apk">APK signé</li></ul>
         <a class="btn btn-ghost" href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-Android.apk"><svg class="ic"><use href="/assets/icons.svg#android-logo"/></svg>Télécharger l'app</a>
         <a class="dl-more" href="/guide/#android">Installer sur un téléviseur</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.56s" data-os="lg">
+      <article class="dl-card" data-reveal style="--d:.35s" data-os="lg">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur votre téléviseur LG</p>
         <h3>KyberNow Link pour téléviseurs LG</h3>
-        <ul class="specs"><li>webOS 5 ou plus récent (téléviseurs LG de 2020 et après)</li><li>Jusqu'à la 4K à 120&nbsp;Hz, manettes, Magic Remote, son 5.1 Dolby vers un ampli</li><li>Installée depuis un ordinateur, en mode développeur</li></ul>
+        <ul class="specs"><li>webOS 5 ou plus récent (téléviseurs de 2020 et après). Jusqu'à la 4K à 120&nbsp;Hz, manettes, Magic Remote, son 5.1 Dolby vers un ampli</li><li>Installée depuis un ordinateur, en mode développeur</li></ul>
         <a class="btn btn-ghost" href="/guide/#lg"><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Installer sur le téléviseur</a>
       </article>
-      <article class="dl-card" data-reveal style="--d:.64s" data-os="web">
+      <article class="dl-card" data-reveal style="--d:.4s" data-os="web">
         <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
         <p class="mono-label">Sur tous vos appareils</p>
         <h3>KyberNow Link dans le navigateur</h3>
-        <ul class="specs"><li>Ordinateur, tablette ou téléphone</li><li>Servi par la Station, rien à installer</li><li class="addr">https://<i>ordinateur</i>:<i>port</i>/ecran</li></ul>
+        <ul class="specs"><li>Ordinateur, tablette ou téléphone. Servi par la Station, rien à installer</li><li class="addr">https://<i>ordinateur</i>:<i>port</i>/ecran</li></ul>
         <a class="btn btn-ghost" href="/guide/#navigateur"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg>Comment l'ouvrir</a>
       </article>
     </div>
 
+    <!-- KyberLink OS (Raspberry Pi) : à ajouter ici en carte de téléchargement, et dans « Sur vos appareils », quand il sera publié. -->
     <div class="soon" data-reveal>
       <p class="mono-label">Apps Link à venir</p>
       <ul>
@@ -562,16 +738,14 @@
       <p class="soon-note">En attendant, le Raspberry Pi peut déjà ouvrir Link dans le navigateur.</p>
     </div>
 
-    <p class="release" data-reveal><span id="release-version">Version 0.2.5</span> <span class="beta">Bêta</span> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">Notes de version</a> · <a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/SHA256SUMS" rel="noopener">Empreintes SHA-256</a> · <a href="https://github.com/MonsieurNours/kybernow" rel="noopener">Code source</a></p>
-    <aside class="community" data-reveal>
-      <svg class="ic-lg"><use href="/assets/icons.svg#discord-logo"/></svg>
+    <aside class="notice notice-beta" data-reveal>
+      <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>
       <div>
-        <h3>Une question, une idée&#8239;?</h3>
-        <p>Rejoignez la communauté sur Discord&#8239;: aide à l'installation, idées, annonces des nouvelles versions. En français et en anglais.</p>
+        <h3>KyberNow est en bêta</h3>
+        <p>Il n'est pas encore en version&nbsp;1.0. Les versions 0.x s'utilisent déjà au quotidien, mais des défauts subsistent, et réglages comme fonctions peuvent encore changer d'une version à l'autre. Gardez la Station et vos apps à jour, et signalez ce qui coince sur <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> ou sur <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</p>
       </div>
       <a class="btn btn-ghost" href="https://discord.gg/sVy2mu5WdT" rel="noopener">Rejoindre le Discord<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a>
     </aside>
-    <p class="guide-link" data-reveal>Première installation&#8239;? Suivez le <a href="/guide/">guide pas à pas</a>.</p>
   </div>
 </section>
 
@@ -581,10 +755,11 @@
   <div class="wrap footer-grid">
     <div>
       <img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18">
-      <p class="footer-mention">KyberNow utilise <a href="https://kyber.tech" rel="noopener">Kyber</a>, logiciel libre publié sous licence AGPL-3.0. KyberNow est un projet communautaire et non commercial, développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>&#8239;; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Sunshine, Moonlight, Discord, Windows, macOS, Apple TV, Android, Linux et Raspberry Pi appartiennent à leurs propriétaires respectifs.</p>
+      <p class="footer-mention">KyberNow utilise <a href="https://kyber.tech" rel="noopener">Kyber</a>, logiciel libre publié sous licence AGPL-3.0. KyberNow est un projet communautaire et non commercial, développé par <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>&#8239;; il n'est ni édité, ni approuvé par l'équipe de Kyber, et n'y est pas affilié. Sunshine, Moonlight, Steam, Playnite, Discord, Windows, macOS, Apple TV, Android, Linux et Raspberry Pi appartiennent à leurs propriétaires respectifs.</p>
     </div>
     <ul class="footer-links">
       <li><a href="/guide/"><svg class="ic"><use href="/assets/icons.svg#book-open-text"/></svg>Guide et FAQ</a></li>
+      <li><a href="/technologie/"><svg class="ic"><use href="/assets/icons.svg#cpu"/></svg>Technologie</a></li>
       <li><a href="https://discord.gg/sVy2mu5WdT" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#discord-logo"/></svg>Discord</a></li>
       <li><a href="https://github.com/MonsieurNours/kybernow" rel="noopener"><svg class="ic"><use href="/assets/icons.svg#github-logo"/></svg>GitHub</a></li>
       <li><a href="/mentions-legales/"><svg class="ic"><use href="/assets/icons.svg#scales"/></svg>Mentions légales</a></li>
