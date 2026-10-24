@@ -40,13 +40,17 @@ LB="$(losetup --show --find --partscan "$BASE")"
 sleep 1
 [ -b "${LB}p1" ] && [ -b "${LB}p2" ] || { echo "la base n'a pas deux partitions ($LB)" >&2; exit 1; }
 # rootA et rootB : ce que la base occupe (pas sa partition, que pi-gen laisse
-# large), plus 15 % et 128 Mo pour les mises à jour du système ; le tout doit
-# tenir sur une carte de 8 Go (environ 7 580 Mio utilisables).
+# large), plus un gigaoctet ; le tout doit tenir sur une carte de 8 Go
+# (environ 7 580 Mio utilisables).
 SRC="$(mktemp -d)"
 mount -o ro "${LB}p2" "$SRC"
 USED_MB=$(du -sm -x "$SRC" | cut -f1)
 umount "$SRC"; rmdir "$SRC"
-ROOT_MB=$(( USED_MB * 115 / 100 + 128 ))
+# Un gigaoctet libre pour apt et le journal, dans la limite d'une carte de 8 Go
+# (deux fois 256 Mo de démarrage, 256 Mo de données, 8 Mo d'alignement : 7 200 Mo
+# au plus, certaines cartes « 8 Go » n'offrant que 7 400 Mio).
+ROOT_MB=$(( USED_MB + 1024 ))
+[ "$ROOT_MB" -le 3200 ] || ROOT_MB=3200
 ROOT_MB=$(( (ROOT_MB + 7) / 8 * 8 ))
 
 # La sortie : partitions alignées sur 8 Mo.

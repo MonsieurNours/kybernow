@@ -23,7 +23,7 @@ A microSD card (or SSD) that boots nothing but KyberNow Link: the Raspberry Pi b
 | Partition | Role |
 |---|---|
 | p1 `BOOTA` (FAT32, 256 MB) | boot A, and `autoboot.txt` (the firmware always reads it from partition 1) |
-| p2 `rootA` (ext4) | system A (the image's): what the base uses, plus 15 % and 128 MB |
+| p2 `rootA` (ext4) | system A (the image's): what the base uses, plus one gigabyte (3.4 GB at most) |
 | p3 `BOOTB` (FAT32, 256 MB) | boot B (empty: the first update writes it) |
 | p4 | extended |
 | p5 `rootB` (ext4) | system B (empty) |
@@ -54,6 +54,8 @@ apps/linux/os/
 ├── make-ab-image.sh             the A/B layout and the data partition (root)
 ├── release-image.sh             from the Mac, in the VM; .info for Imager
 ├── imager-json.sh               site/updates/rpi-imager.json
+├── emulate.sh                   the image in QEMU, without a Raspberry Pi (in the VM)
+├── emulate/                     qmp.py (captures, keys), gbmshim.c (XRGB for virtio-gpu)
 └── stage-kybernow/
     ├── prerun.sh, EXPORT_IMAGE
     ├── 00-packages/00-packages  plymouth, bluez, network-manager, alsa, v4l-utils, parted…
@@ -68,6 +70,22 @@ apps/linux/os/
             ├── plymouth/        kybernow.plymouth, kybernow.script (mark.png rendered at build time)
             └── etc/             sudoers, asound.conf, bluetooth (JustWorks)
 ```
+
+## Trying the image without a Raspberry Pi (QEMU)
+
+In the VM (`apt install qemu-system-arm gcc python3`):
+
+```sh
+apps/linux/os/emulate.sh [apps/linux/dist/KyberNow-Link-OS.img.xz] [--size 8G] [--fresh]
+ssh -p 2222 -i ~/kybernow-os/qemu/id_ed25519 kybernow@localhost   # inside the emulated OS (sudo open, for the test)
+python3 apps/linux/os/emulate/qmp.py shot home                     # → ~/kybernow-os/qemu/shots/home.png
+python3 apps/linux/os/emulate/qmp.py key ret left ret              # keys: ret, up, down, left, right, esc, tab, spc…
+apps/linux/os/emulate.sh --stop
+```
+
+`emulate.sh` decompresses the image into `~/kybernow-os/qemu/kn.img`, grows it (first boot then grows the data partition) and prepares it by mounting: the VM's kernel replaces the Pi's (QEMU "virt" does not boot a Raspberry Pi kernel; its modules go into the rootfs), ssh with a key created there and sudo for `kybernow`, and `emulate/gbmshim.c` (LD_PRELOAD through a service drop-in) which replaces the ARGB8888 SDL asks for with XRGB8888, the only format the virtual card (`virtio-gpu`) accepts for scanout; Plymouth is cut (`plymouth.enable=0`), the initrd being the VM's (its Ubuntu theme would show, and its plymouthd would keep the screen). QEMU runs without a window: captures and keys go through QMP, the serial log is in `serial.log`. Verified this way on 2026-10-24: the system pi-gen builds boots (accounts, services, Link full screen on KMS/DRM as user `kybernow`), first boot (data partition grown, screens Controller → Language → Network (Ethernet) → Use → Computer, with a keyboard), `kybernow-os-update status`. Not verifiable there: the Pi firmware (`config.txt`, `autoboot.txt`, tryboot), Plymouth and its hand-off to the app, the V4L2 decoder, sound, Bluetooth, CEC.
+
+Pitfalls met in emulation, fixed in the image: the EGL/GBM/GLES libraries (`libegl1`, `libegl-mesa0`, `libgles2`, `libgbm1`, `libgl1-mesa-dri`) are missing from Lite; `userconfig.service` (Raspberry Pi OS's username wizard) held tty1 and blocked `multi-user.target` (masked); `plymouthd` stays DRM master while it runs and SDL then says "kmsdrm not available" (`plymouth quit --retain-splash` before the app, else `pkill`, as root: `ExecStartPre=+-…`, the `kybernow` account cannot touch it); `bluetoothctl` waits for the bus forever without `bluetoothd` (board without an adapter): the app bounds its calls to 3 s and only says "listening" with an adapter; choosing a card (language, use) continues first boot.
 
 ## On the app side
 

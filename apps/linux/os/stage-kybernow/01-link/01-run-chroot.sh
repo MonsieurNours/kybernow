@@ -21,7 +21,13 @@ update-initramfs -u -k all || true
 systemctl enable kybernow-os-firstboot.service kybernow-link.service
 systemctl disable getty@tty1.service
 systemctl mask plymouth-quit.service plymouth-quit-wait.service
+# L'assistant de Raspberry Pi OS qui demande un nom d'utilisateur au premier
+# démarrage (userconfig) n'a pas lieu d'être : le compte est fixé.
+systemctl mask userconfig.service 2>/dev/null || true
+rm -f /etc/systemd/system/multi-user.target.wants/userconfig.service
 systemctl enable NetworkManager.service bluetooth.service
+# NetworkManager gère le réseau : l'attente de systemd-networkd échouerait.
+systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl disable ssh.service 2>/dev/null || true
 # Bluetooth : pas de discovery automatique au démarrage, l'app la lance.
 systemctl disable hciuart.service 2>/dev/null || true; systemctl enable hciuart.service 2>/dev/null || true

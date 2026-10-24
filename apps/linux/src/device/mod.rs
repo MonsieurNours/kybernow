@@ -424,8 +424,7 @@ pub fn run(args: &[String]) {
                 });
             }
             if app.screen == Screen::Setup {
-                os::listen(true, tx.clone());
-                app.setup.bt_listening = true;
+                app.setup.bt_listening = os::listen(true, tx.clone());
             } else if os && !os_committed {
                 // L'accueil s'affiche : un essai A/B en cours devient le défaut.
                 os_committed = true;
@@ -1382,12 +1381,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
         }
         Action::Os(o) => match o {
             OsAction::BtListen(on) => {
-                os::listen(on, tx.clone());
-                app.setup.bt_listening = on;
+                app.setup.bt_listening = os::listen(on, tx.clone());
             }
             OsAction::WifiScan => os::wifi_scan(tx.clone()),
             OsAction::WifiConnect { ssid, password } => os::wifi_connect(ssid, password, tx.clone()),
-            OsAction::SetupDone => os::listen(false, tx.clone()),
+            OsAction::SetupDone => {
+                os::listen(false, tx.clone());
+            }
             OsAction::Status => {
                 os::status(tx.clone());
                 os::paired(tx.clone());

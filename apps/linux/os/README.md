@@ -23,7 +23,7 @@ Une carte microSD (ou un SSD) qui ne démarre que KyberNow Link : le Raspberry P
 | Partition | Rôle |
 |---|---|
 | p1 `BOOTA` (FAT32, 256 Mo) | démarrage A, et `autoboot.txt` (le firmware le lit toujours sur la partition 1) |
-| p2 `rootA` (ext4) | le système A (celui de l'image) : ce que la base occupe, plus 15 % et 128 Mo |
+| p2 `rootA` (ext4) | le système A (celui de l'image) : ce que la base occupe, plus un gigaoctet (3,4 Go au plus) |
 | p3 `BOOTB` (FAT32, 256 Mo) | démarrage B (vide : la première mise à jour l'écrit) |
 | p4 | étendue |
 | p5 `rootB` (ext4) | le système B (vide) |
@@ -54,6 +54,8 @@ apps/linux/os/
 ├── make-ab-image.sh             la disposition A/B et la partition de données (root)
 ├── release-image.sh             depuis le Mac, dans la VM ; .info pour Imager
 ├── imager-json.sh               site/updates/rpi-imager.json
+├── emulate.sh                   l'image dans QEMU, sans Raspberry Pi (dans la VM)
+├── emulate/                     qmp.py (captures, touches), gbmshim.c (XRGB pour virtio-gpu)
 └── stage-kybernow/
     ├── prerun.sh, EXPORT_IMAGE
     ├── 00-packages/00-packages  plymouth, bluez, network-manager, alsa, v4l-utils, parted…
@@ -68,6 +70,22 @@ apps/linux/os/
             ├── plymouth/        kybernow.plymouth, kybernow.script (mark.png rendue à la construction)
             └── etc/             sudoers, asound.conf, bluetooth (JustWorks)
 ```
+
+## Essayer l'image sans Raspberry Pi (QEMU)
+
+Dans la VM (`apt install qemu-system-arm gcc python3`) :
+
+```sh
+apps/linux/os/emulate.sh [apps/linux/dist/KyberNow-Link-OS.img.xz] [--size 8G] [--fresh]
+ssh -p 2222 -i ~/kybernow-os/qemu/id_ed25519 kybernow@localhost   # dans l'OS émulé (sudo ouvert, pour l'essai)
+python3 apps/linux/os/emulate/qmp.py shot accueil                  # → ~/kybernow-os/qemu/shots/accueil.png
+python3 apps/linux/os/emulate/qmp.py key ret left ret              # touches : ret, up, down, left, right, esc, tab, spc…
+apps/linux/os/emulate.sh --stop
+```
+
+`emulate.sh` décompresse l'image dans `~/kybernow-os/qemu/kn.img`, l'agrandit (le premier démarrage agrandit alors la partition de données) et la prépare par montage : le noyau de la VM remplace celui du Pi (QEMU « virt » ne démarre pas un noyau Raspberry Pi ; ses modules vont dans le rootfs), ssh avec une clé créée là et sudo pour `kybernow`, et `emulate/gbmshim.c` (LD_PRELOAD par un drop-in du service) qui remplace l'ARGB8888 demandé par SDL par du XRGB8888, le seul format que la carte virtuelle (`virtio-gpu`) accepte à l'affichage ; Plymouth est coupé (`plymouth.enable=0`), l'initrd étant celui de la VM (son thème Ubuntu s'afficherait, et son plymouthd garderait l'écran). QEMU tourne sans fenêtre : captures et touches par QMP, journal série dans `serial.log`. Vérifié ainsi le 24/10/2026 : le système construit par pi-gen démarre (comptes, services, Link en plein écran sur KMS/DRM en utilisateur `kybernow`), le premier démarrage (partition de données agrandie, écrans Manette → Langue → Réseau (Ethernet) → Usage → Ordinateur, au clavier), `kybernow-os-update status`. Pas vérifiable là : le firmware du Pi (`config.txt`, `autoboot.txt`, tryboot), Plymouth et sa continuité vers l'app, le décodeur V4L2, le son, le Bluetooth, le CEC.
+
+Pièges rencontrés en émulation, corrigés dans l'image : les bibliothèques EGL/GBM/GLES (`libegl1`, `libegl-mesa0`, `libgles2`, `libgbm1`, `libgl1-mesa-dri`) manquent à Lite ; `userconfig.service` (l'assistant de nom d'utilisateur de Raspberry Pi OS) tenait tty1 et bloquait `multi-user.target` (masqué) ; `plymouthd` reste maître DRM tant qu'il tourne et SDL dit alors « kmsdrm not available » (`plymouth quit --retain-splash` avant l'app, sinon `pkill`, en root : `ExecStartPre=+-…`, le compte `kybernow` ne peut rien sur lui) ; `bluetoothctl` attend indéfiniment le bus sans `bluetoothd` (carte sans adaptateur) : l'app borne ses appels à 3 s et ne dit « à l'écoute » qu'avec un adaptateur ; choisir une carte (langue, usage) continue le premier démarrage.
 
 ## Côté app
 

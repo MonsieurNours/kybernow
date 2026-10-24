@@ -1532,16 +1532,14 @@ impl App {
                 }
                 Vec::new()
             }
+            // Une carte (langue, usage) : la choisir, c'est continuer (A « Choisir »).
             Target::SetupLang(i) => {
                 self.setup.lang = i;
-                self.store.app.language = if i == 0 { "en".into() } else { "fr".into() };
-                self.focus = Target::SetupLang(i);
-                vec![Action::Language, Action::Save]
+                self.setup_next()
             }
             Target::SetupUsage(i) => {
                 self.setup.usage = i;
-                self.focus = Target::SetupUsage(i);
-                Vec::new()
+                self.setup_next()
             }
             Target::SetupWifi(i) => {
                 let Some(n) = self.setup.wifi.get(i).cloned() else { return Vec::new() };

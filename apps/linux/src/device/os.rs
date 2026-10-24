@@ -173,6 +173,11 @@ pub struct BtListener {
 
 impl BtListener {
     pub fn start(tx: Sender<Event>) -> Option<BtListener> {
+        // Sans adaptateur (carte sans Bluetooth, émulation), bluetoothd ne
+        // tourne pas et bluetoothctl attendrait le bus : pas d'écoute.
+        if std::fs::read_dir("/sys/class/bluetooth").map(|d| d.count() == 0).unwrap_or(true) {
+            return None;
+        }
         let mut child = Command::new("bluetoothctl").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().ok()?;
         let mut stdin = child.stdin.take()?;
         let stdout = child.stdout.take()?;
@@ -275,25 +280,34 @@ fn strip_ansi(s: &str) -> String {
 
 static LISTENER: Mutex<Option<BtListener>> = Mutex::new(None);
 
-/// Le Bluetooth à l'écoute (écran Manette, Réglages › Manettes), ou plus.
-pub fn listen(on: bool, tx: Sender<Event>) {
+/// Le Bluetooth à l'écoute (écran Manette, Réglages › Manettes), ou plus ;
+/// rend vrai si l'écoute est en place.
+pub fn listen(on: bool, tx: Sender<Event>) -> bool {
     let mut l = LISTENER.lock().unwrap();
     if on {
         if l.is_none() {
             *l = BtListener::start(tx);
             if l.is_none() {
-                log::warn!("bluetoothctl indisponible : pas d'association");
+                log::warn!("Bluetooth indisponible : pas d'association");
             }
         }
     } else {
         *l = None;
     }
+    l.is_some()
+}
+
+/// `bluetoothctl` en une commande, bornée à 3 s : sans bluetoothd (carte sans
+/// Bluetooth, service arrêté, émulation) il attend le bus indéfiniment, et le
+/// lancement resterait sur « bluetooth » pour toujours.
+fn btctl(args: &[&str]) -> Option<std::process::Output> {
+    Command::new("timeout").arg("3").arg("bluetoothctl").args(args).output().ok().filter(|o| o.status.success())
 }
 
 /// Les manettes déjà associées (`bluetoothctl devices Paired`), pour les réglages.
 pub fn paired(tx: Sender<Event>) {
     std::thread::spawn(move || {
-        let Ok(o) = Command::new("bluetoothctl").args(["devices", "Paired"]).output() else { return };
+        let Some(o) = btctl(&["devices", "Paired"]) else { return };
         let list: Vec<BtDevice> = String::from_utf8_lossy(&o.stdout)
             .lines()
             .filter_map(|l| {
@@ -313,7 +327,7 @@ pub fn readiness(tx: Sender<Event>) {
         let start = Instant::now();
         loop {
             let net = super::system::net().kind != crate::app::NetKind::Unknown;
-            let bt = Command::new("bluetoothctl").arg("show").output().is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("Powered: yes"));
+            let bt = btctl(&["show"]).is_some_and(|o| String::from_utf8_lossy(&o.stdout).contains("Powered: yes"));
             let done = [net, bt].iter().filter(|b| **b).count();
             let _ = tx.send(Event::OsLoading(done as f32 / 2.0, net, bt));
             if done == 2 || start.elapsed() > Duration::from_secs(8) {

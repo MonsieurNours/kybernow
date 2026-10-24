@@ -32,7 +32,7 @@ tryboot_flag() { local f=/proc/device-tree/chosen/bootloader/tryboot; [ -f "$f" 
 booted_partition() { local f=/proc/device-tree/chosen/bootloader/partition; [ -f "$f" ] && printf "%d" "0x$(od "$f" -v -An -t x1 | tr -d ' ')" || echo 0; }
 if [ "$ROOT_SRC" = "$(part "$ROOT_A")" ]; then CUR=A; else CUR=B; fi
 if [ "$CUR" = A ]; then CUR_BOOT=$BOOT_A; CUR_ROOT=$ROOT_A; NEW=B; NEW_BOOT=$BOOT_B; NEW_ROOT=$ROOT_B; else CUR_BOOT=$BOOT_B; CUR_ROOT=$ROOT_B; NEW=A; NEW_BOOT=$BOOT_A; NEW_ROOT=$ROOT_A; fi
-GEN="$(tr -d '\0' < /proc/device-tree/compatible 2>/dev/null | grep -o 'bcm27[0-9]*' | head -1)"
+GEN="$( (tr -d '\0' < /proc/device-tree/compatible 2>/dev/null | grep -o 'bcm27[0-9]*' | head -1) || true)"
 AB_OK=1; case "$GEN" in bcm2711|bcm2712) ;; *) AB_OK=0 ;; esac
 
 # autoboot.txt vit sur la partition 1 (bootA) : montée au besoin.
