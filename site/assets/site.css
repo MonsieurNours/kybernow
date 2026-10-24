@@ -471,6 +471,9 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .video-ctl .ic { width: 16px; height: 16px; }
 .video-ctl .when-playing, .video.is-playing .video-ctl .when-paused { display: none; }
 .video.is-playing .video-ctl .when-playing { display: block; }
+.video video { cursor: pointer; }
+.video-ctl .when-sound, .video.has-sound .video-ctl .when-muted { display: none; }
+.video.has-sound .video-ctl .when-sound { display: block; }
 .video-big { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px; border: 0; border-radius: 50%; background: var(--kn-signal-strong); color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 0 0 10px rgb(109 91 255 / .18), 0 0 40px rgb(109 91 255 / .5); transition: opacity var(--kn-t-enter), transform var(--kn-t-enter) var(--kn-ease-out); }
 .video-big .ic { width: 34px; height: 34px; }
 .video.is-playing .video-big, .video.has-started .video-big { opacity: 0; transform: scale(.8); pointer-events: none; }

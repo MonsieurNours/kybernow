@@ -21,7 +21,7 @@ const T = EN ? {
   start: 'Scroll: from capture to display.',
   final: 'End to end, median, measured at 3840 × 2160 and 160 Hz.',
   of: ' of ', lanes: ['COMPUTER', 'NETWORK', 'DEVICE'], version: 'Version ', mb: ' MB',
-  videoPlay: 'Play the presentation', videoPause: 'Pause', autoplay: 'Plays as you scroll · no sound', paused: 'Paused · no sound', reduced: 'No sound · press play', dateLocale: 'en-GB',
+  videoPlay: 'Play the presentation', videoPause: 'Pause', autoplay: 'Muted · click to hear it', paused: 'Paused', reduced: 'Press play', soundOn: 'Sound on', unmute: 'Turn sound on', mute: 'Mute', dateLocale: 'en-GB',
   profiles: {
     jeu: { title: 'Lowest latency', text: 'The highest refresh rate your screen can show, relative mouse, gamepad. 4:2:0 colour to save every millisecond.', chips: ['Maximum refresh rate', 'Relative mouse', 'Gamepad'] },
     bureau: { title: 'Sharp text', text: '4:4:4 colour for text as sharp as on the computer, shared clipboard, a cursor that never hides.', chips: ['4:4:4', 'Clipboard', 'Cursor always visible'] },
@@ -39,7 +39,7 @@ const T = EN ? {
   start: 'Faites défiler : de la capture à l’affichage.',
   final: 'De bout en bout, en médiane, mesuré en 3840 × 2160 à 160 Hz.',
   of: ' sur ', lanes: ['ORDINATEUR', 'RÉSEAU', 'APPAREIL'], version: 'Version ', mb: ' Mo',
-  videoPlay: 'Lire la présentation', videoPause: 'Mettre en pause', autoplay: 'Lecture automatique au défilement · sans son', paused: 'En pause · sans son', reduced: 'Sans son · lancez la lecture', dateLocale: 'fr',
+  videoPlay: 'Lire la présentation', videoPause: 'Mettre en pause', autoplay: 'Son coupé · cliquez pour l\'entendre', paused: 'En pause', reduced: 'Lancez la lecture', soundOn: 'Avec le son', unmute: 'Activer le son', mute: 'Couper le son', dateLocale: 'fr',
   profiles: {
     jeu: { title: 'Latence minimale', text: 'La fréquence la plus haute que votre écran affiche, la souris relative, la manette. Les couleurs en 4:2:0 pour gagner chaque milliseconde.', chips: ['Fréquence maximale', 'Souris relative', 'Manette'] },
     bureau: { title: 'Texte net', text: 'Les couleurs en 4:4:4 pour un texte aussi net que sur l’ordinateur, le presse-papiers partagé, un curseur toujours visible.', chips: ['4:4:4', 'Presse-papiers', 'Curseur toujours visible'] },
@@ -359,13 +359,13 @@ if (shots.length) {
   shots.forEach(shot => { fit(shot); ro.observe(shot); });
 }
 
-/* ---------- La présentation : sans son, lecture automatique au défilement ---------- */
+/* ---------- La présentation : lecture automatique au défilement, son coupé jusqu'au clic ---------- */
 // Démarre quand la vidéo est à l'écran, s'arrête quand elle le quitte. Avec « Réduire les
 // animations », rien ne démarre seul. Sans fichier vidéo (404), la figure garde son image d'attente.
 const video = $('video-el');
 if (video) {
   const fig = $('video'), state = $('video-state');
-  const toggle = fig.querySelector('[data-video="toggle"]');
+  const toggle = fig.querySelector('[data-video="toggle"]'), sound = fig.querySelector('[data-video="sound"]');
   let wanted = !reduceMotion; // ce que le visiteur veut : lecture (défaut) ou pause
   let started = false;
   const sync = () => {
@@ -373,7 +373,10 @@ if (video) {
     fig.classList.toggle('is-playing', playing);
     if (started) fig.classList.add('has-started');
     toggle.setAttribute('aria-label', playing ? T.videoPause : T.videoPlay);
-    state.textContent = reduceMotion ? T.reduced : playing || !started ? T.autoplay : T.paused;
+    fig.classList.toggle('has-sound', !video.muted);
+    sound.setAttribute('aria-label', video.muted ? T.unmute : T.mute);
+    sound.setAttribute('aria-pressed', String(!video.muted));
+    state.textContent = reduceMotion && !started ? T.reduced : started && !playing ? T.paused : video.muted ? T.autoplay : T.soundOn;
   };
   // Qualité selon le débit : HLS en 720p, 1080p et 4K (60 i/s), natif dans Safari, par
   // hls.js ailleurs (chargé à l'approche de la vidéo), plafonné à la taille du lecteur ;
@@ -400,9 +403,13 @@ if (video) {
   }));
   new IntersectionObserver(([e], o) => { if (e.isIntersecting) { attach(); o.disconnect(); } }, { rootMargin: '600px' }).observe(fig);
   const play = () => { attach().then(() => video.play()).then(() => { started = true; sync(); }).catch(() => {}); };
-  video.addEventListener('play', sync); video.addEventListener('pause', sync); video.addEventListener('ended', sync);
+  video.addEventListener('play', sync); video.addEventListener('pause', sync); video.addEventListener('ended', sync); video.addEventListener('volumechange', sync);
+  // Le son, d'un geste du visiteur : le bouton, ou un clic sur la vidéo (qui, son activé, met en pause ou relance).
+  const unmute = () => { video.muted = false; wanted = true; if (video.paused) play(); else sync(); };
+  sound.addEventListener('click', () => { if (video.muted) unmute(); else video.muted = true; });
+  video.addEventListener('click', () => { if (video.muted) unmute(); else { wanted = video.paused; if (wanted) play(); else video.pause(); } });
   video.addEventListener('error', () => { if (!video.currentSrc || /\.mp4$/.test(video.currentSrc)) fig.classList.add('no-source'); }, true);
-  fig.querySelector('[data-video="play"]').addEventListener('click', () => { wanted = true; play(); });
+  fig.querySelector('[data-video="play"]').addEventListener('click', () => { video.muted = false; wanted = true; play(); });
   toggle.addEventListener('click', () => { wanted = video.paused; if (wanted) play(); else video.pause(); });
   fig.querySelector('[data-video="restart"]').addEventListener('click', () => { video.currentTime = 0; wanted = true; play(); });
   fig.querySelector('[data-video="fullscreen"]').addEventListener('click', () => {

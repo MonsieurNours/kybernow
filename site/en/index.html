@@ -309,24 +309,25 @@
   <a class="scroll-hint" href="#presentation" aria-label="Scroll down"><span></span></a>
 </section>
 
-<!-- 2 · The presentation: motion design, no voice, plays as you scroll -->
+<!-- 2 · The presentation: motion design with music, plays as you scroll, muted until clicked -->
 <section class="section presentation" id="presentation" data-scene="edge-r">
   <div class="wrap">
     <p class="label" data-reveal>The presentation</p>
     <h2 class="title" data-split>KyberNow <strong>in ninety seconds.</strong></h2>
     <figure class="video" id="video" data-reveal>
-      <video id="video-el" muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Animated presentation of KyberNow, without sound">
+      <video id="video-el" muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Animated presentation of KyberNow, with music; the sound stays off until you turn it on">
         <source src="/assets/video/presentation-720p.mp4" type="video/mp4">
       </video>
       <button class="video-big" type="button" data-video="play" aria-label="Play the presentation"><svg class="ic"><use href="/assets/icons.svg#play"/></svg></button>
-      <p class="video-state mono-label" id="video-state">Plays as you scroll · no sound</p>
+      <p class="video-state mono-label" id="video-state">Muted · click to hear it</p>
       <div class="video-ctl">
+        <button type="button" data-video="sound" aria-label="Turn sound on" aria-pressed="false"><svg class="ic when-muted"><use href="/assets/icons.svg#speaker-simple-slash"/></svg><svg class="ic when-sound"><use href="/assets/icons.svg#speaker-simple-high"/></svg></button>
         <button type="button" data-video="toggle" aria-label="Pause"><svg class="ic when-playing"><use href="/assets/icons.svg#pause"/></svg><svg class="ic when-paused"><use href="/assets/icons.svg#play"/></svg></button>
         <button type="button" data-video="restart" aria-label="Watch again from the start"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg></button>
         <button type="button" data-video="fullscreen" aria-label="Full screen"><svg class="ic"><use href="/assets/icons.svg#corners-out"/></svg></button>
       </div>
     </figure>
-    <p class="video-note" data-reveal>No voice, no sound: the video starts on its own when it comes on screen, and stops when it leaves. With “Reduce motion”, it waits for you to press play.</p>
+    <p class="video-note" data-reveal>The video starts on its own when it comes on screen, muted, and stops when it leaves. Click it, or the sound button, to hear it. With “Reduce motion”, it waits for you to press play.</p>
   </div>
 </section>
 

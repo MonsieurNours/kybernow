@@ -309,24 +309,25 @@
   <a class="scroll-hint" href="#presentation" aria-label="Faire défiler"><span></span></a>
 </section>
 
-<!-- 2 · La présentation : motion design, sans voix, lecture automatique au défilement -->
+<!-- 2 · La présentation : motion design en musique, lecture automatique au défilement, son coupé jusqu'au clic -->
 <section class="section presentation" id="presentation" data-scene="edge-r">
   <div class="wrap">
     <p class="label" data-reveal>La présentation</p>
     <h2 class="title" data-split>KyberNow <strong>en une minute trente.</strong></h2>
     <figure class="video" id="video" data-reveal>
-      <video id="video-el" muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Présentation animée de KyberNow, sans son">
+      <video id="video-el" muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Présentation animée de KyberNow, en musique ; le son est coupé jusqu'à ce que vous l'activiez">
         <source src="/assets/video/presentation-720p.mp4" type="video/mp4">
       </video>
       <button class="video-big" type="button" data-video="play" aria-label="Lire la présentation"><svg class="ic"><use href="/assets/icons.svg#play"/></svg></button>
-      <p class="video-state mono-label" id="video-state">Lecture automatique au défilement · sans son</p>
+      <p class="video-state mono-label" id="video-state">Son coupé · cliquez pour l'entendre</p>
       <div class="video-ctl">
+        <button type="button" data-video="sound" aria-label="Activer le son" aria-pressed="false"><svg class="ic when-muted"><use href="/assets/icons.svg#speaker-simple-slash"/></svg><svg class="ic when-sound"><use href="/assets/icons.svg#speaker-simple-high"/></svg></button>
         <button type="button" data-video="toggle" aria-label="Mettre en pause"><svg class="ic when-playing"><use href="/assets/icons.svg#pause"/></svg><svg class="ic when-paused"><use href="/assets/icons.svg#play"/></svg></button>
         <button type="button" data-video="restart" aria-label="Revoir depuis le début"><svg class="ic"><use href="/assets/icons.svg#arrows-clockwise"/></svg></button>
         <button type="button" data-video="fullscreen" aria-label="Plein écran"><svg class="ic"><use href="/assets/icons.svg#corners-out"/></svg></button>
       </div>
     </figure>
-    <p class="video-note" data-reveal>Sans voix, sans son&#8239;: la vidéo démarre d'elle-même quand elle arrive à l'écran, et s'arrête quand elle le quitte. Avec «&#8239;Réduire les animations&#8239;», elle attend que vous la lanciez.</p>
+    <p class="video-note" data-reveal>La vidéo démarre d'elle-même quand elle arrive à l'écran, son coupé, et s'arrête quand elle le quitte. Cliquez dessus, ou sur le bouton du son, pour l'entendre. Avec «&#8239;Réduire les animations&#8239;», elle attend que vous la lanciez.</p>
   </div>
 </section>
 
