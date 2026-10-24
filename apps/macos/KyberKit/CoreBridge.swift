@@ -1,6 +1,6 @@
 // Le cœur Rust (apps/core, par le pont C apps/apple) vu de Swift : journal,
 // langue, et les petits outils communs à la console et au moteur de session.
-// Mac et Apple TV (docs/coeur-apple.md).
+// Mac, Apple TV, iPhone et iPad (docs/coeur-apple.md).
 
 import Foundation
 import os

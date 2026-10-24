@@ -229,7 +229,7 @@ final class SessionController: NSObject, ObservableObject {
     }
 
     /// Fenêtre plus visible (autre espace, réduite dans le Dock, recouverte) :
-    /// plus de rendu (`nextDrawable` attendait jusqu'à 1 s) et débit plafonné
+    /// plus de rendu (`nextDrawable` y attendrait jusqu'à 1 s par image) et débit plafonné
     /// à 20 Mb/s ; au retour, rendu et débit du profil reviennent.
     private func occlusionChanged() {
         guard let window else { return }

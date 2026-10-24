@@ -10,7 +10,8 @@ import UIKit
 // MARK: - Écran
 
 enum DeviceDisplay {
-    /// iPad (barre au survol, clavier et trackpad, écran externe) ou iPhone.
+    /// iPad (orientation libre en session, colonne « Prêt à jouer », mesures
+    /// en panneau) ou iPhone.
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// Pixels réels de l'écran, en paysage, et sa fréquence la plus haute.
@@ -103,7 +104,8 @@ final class Preferences: ObservableObject {
     @Published var appleISOKeyboard: Bool { didSet { d.set(appleISOKeyboard, forKey: "appleISOKeyboard") } }
     /// Pavé tactile virtuel (le doigt déplace le pointeur) ou toucher direct (le doigt est le pointeur).
     @Published var directTouch: Bool { didSet { d.set(directTouch, forKey: "directTouch") } }
-    /// Données mobiles autorisées pour une session (sinon, avertissement).
+    /// Réglage « Sessions en données mobiles » : enregistré et affiché, mais
+    /// aucune session ne le lit (pas d'avertissement avant de se connecter).
     @Published var allowCellular: Bool { didSet { d.set(allowCellular, forKey: "allowCellular") } }
     /// Vitesse du pointeur au pavé tactile et à la manette.
     @Published var pointerSpeed: Double { didSet { d.set(pointerSpeed, forKey: "pointerSpeed") } }
@@ -128,7 +130,7 @@ final class Preferences: ObservableObject {
 // MARK: - Images des ordinateurs
 
 /// L'image d'un ordinateur sur l'accueil : la dernière image de sa dernière
-/// session, un aperçu demandé à sa console, sinon sa signature (Backdrops).
+/// session, un aperçu demandé à Admin, sinon sa signature (Backdrops).
 @MainActor
 final class HostImagery: ObservableObject {
     enum Source: Equatable { case lastSession, preview }

@@ -44,7 +44,7 @@ final class VideoDecoder {
 
     private(set) var codec: Codec = .hevc
     /// Jeux de paramètres par (type de NAL, identifiant) : deux PPS qui
-    /// alternent ne refont plus la session à chaque image.
+    /// alternent ne refont pas la session à chaque image.
     private var parameterSets: [UInt16: Data] = [:]
     /// AV1 : dernier en-tête de séquence reçu.
     private var av1Sequence: AV1.OBU?

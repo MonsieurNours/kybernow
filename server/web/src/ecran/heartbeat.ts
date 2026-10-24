@@ -1,7 +1,7 @@
 // Signal de vie de la session, toutes les 5 s, depuis un Worker dédié. Dans
 // un onglet masqué, les minuteries de la page sont ralenties (une fois par
-// minute dans Chrome au bout de cinq minutes) : la console abandonnait la
-// session au bout de 30 s et affichait « Libre » alors que l'image continuait.
+// minute dans Chrome au bout de cinq minutes) : sans signal de vie pendant
+// 20 s, la console abandonnerait la session alors que l'image continue.
 // Le Worker est intégré à la page (URL `blob:`), donc de la même origine et
 // sous la même isolation ; il reçoit l'adresse complète de la console. Sans
 // Worker, ou s'il n'a jamais de réponse, la page envoie elle-même.

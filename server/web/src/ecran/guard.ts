@@ -2,13 +2,13 @@
 // toute la fenêtre (`window`, en propagation) et le clavier sur `document`,
 // sans regarder la cible ni le focus. Installée avant lui, en capture :
 // - elle ne lui laisse que les appuis de souris qui visent l'image (un clic
-//   dans la barre de session cliquait aussi sur l'ordinateur, sous la barre) ;
+//   dans la barre de session cliquerait aussi sur l'ordinateur, sous la barre) ;
 // - elle suit les touches et les boutons enfoncés, et les relâche sur
 //   l'ordinateur quand la page perd la main (autre fenêtre, onglet masqué,
-//   souris rendue) : sinon Maj, Alt ou un clic restaient tenus là-bas ;
+//   souris rendue) : sinon Maj, Alt ou un clic resteraient tenus là-bas ;
 // - elle remet la molette en pixels : le moteur ignore tout `deltaMode` autre
-//   que DOM_DELTA_PIXEL (Firefox compte en lignes : sa molette était muette),
-//   et sur la couche tactile, qui recouvre la toile, la molette n'atteignait
+//   que DOM_DELTA_PIXEL (Firefox compte en lignes : sa molette serait muette),
+//   et sur la couche tactile, qui recouvre la toile, la molette n'atteindrait
 //   pas le moteur (il l'écoute sur la toile).
 //
 // `click` et `auxclick` ne sont pas arrêtés : le moteur ne les lit pas, et les

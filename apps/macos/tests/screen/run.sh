@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test d'affichage réel (deux passages de deux secondes, avec et sans la garde « une image en vol »), voir main.swift.
+# Test d'affichage réel (deux passages de 2,5 s, avec et sans la garde « une image en vol »), voir main.swift.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$HERE/../../KyberKit"

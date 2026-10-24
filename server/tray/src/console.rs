@@ -4,7 +4,7 @@
 //! Les routes `/api/local/*` exigent, en plus de l'adresse locale, le jeton
 //! que la console tire à son démarrage et à chaque ouverture de session, et
 //! qu'un agent copie dans le profil du compte (`%LOCALAPPDATA%\KyberNow\local-token`,
-//! lisible par ce compte seulement) : l'icône l'envoie dans `x-kyber-local`.
+//! lisible par ce compte et les administrateurs) : l'icône l'envoie dans `x-kyber-local`.
 
 use std::path::PathBuf;
 use std::time::Duration;

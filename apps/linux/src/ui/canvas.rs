@@ -618,13 +618,13 @@ pub fn decode_jpeg(bytes: &[u8]) -> Option<Pixmap> {
     Some(pix)
 }
 
-/// Décode une image PNG (logo) en image prémultipliée.
+/// Décode une image PNG (dernière image de la session) en image prémultipliée.
 pub fn decode_png(bytes: &[u8]) -> Option<Pixmap> {
     Pixmap::decode_png(bytes).ok()
 }
 
-/// Encode l'image en JPEG… pas besoin : la dernière image de la session est
-/// gardée telle quelle (aperçu d'Admin). Ici, l'encodage PNG des captures.
+/// Encode l'image en PNG : la dernière image de la session (`images/<id>.png`,
+/// à côté de l'aperçu d'Admin en JPEG), les captures, l'image de Plymouth.
 pub fn encode_png(pix: &Pixmap) -> Option<Vec<u8>> {
     pix.encode_png().ok()
 }

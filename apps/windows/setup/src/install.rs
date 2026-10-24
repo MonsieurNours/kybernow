@@ -156,7 +156,8 @@ fn place_files(setup: &Path, arch: payload::Arch, dir: &Path, progress: &dyn Fn(
         // programme) : on échange fichier par fichier, avec retour arrière.
         sys::log("ancien dossier verrouillé : échange fichier par fichier");
         swap_files(&new, dir).tr_context("errors.replaceFiles", &[])?;
-        // Désinstalleur de l'ancien installateur (NSIS), remplacé par uninstall.exe.
+        // `Desinstaller.exe` : désinstalleur d'une installation faite par
+        // l'installateur NSIS des premières versions ; uninstall.exe en tient lieu.
         let _ = std::fs::remove_file(dir.join("Desinstaller.exe"));
         let _ = remove_dir(&new);
         return Ok(count);

@@ -1,6 +1,7 @@
-// Top Shelf de KyberNow : « Reprendre sur un ordinateur », une carte 16:9 par
-// ordinateur avec sa dernière image. Un clic (ou Lecture) ouvre directement
-// la session ; un appui long sur la carte ouvre l'app sur cet ordinateur.
+// Top Shelf de KyberNow Link : « Reprendre sur un ordinateur », une carte 16:9
+// par ordinateur avec sa dernière image, le plus récemment ouvert en premier.
+// Lecture ouvre directement la session ; un clic aussi, ou l'app sur cet
+// ordinateur s'il est hors ligne.
 
 import TVServices
 

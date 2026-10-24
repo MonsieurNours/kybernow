@@ -33,7 +33,7 @@ pub struct KyberConfig {
     backup_dir: PathBuf,
     /// Une seule lecture-modification-écriture à la fois : deux changements
     /// simultanés (un appairage accepté depuis la console et depuis l'icône,
-    /// un réglage appliqué pendant un appairage) ne s'écrasent plus.
+    /// un réglage appliqué pendant un appairage) ne s'écrasent pas.
     write: Mutex<()>,
     /// Comptes lus la dernière fois, avec la date du fichier : les appels des
     /// appareils (signal de vie chaque seconde) ne relisent pas le TOML à chaque fois.
@@ -144,9 +144,9 @@ impl KyberConfig {
     }
 
     /// Clé HS256 des jetons JWT acceptés par Kyber, posée par `init` : dans
-    /// le fichier `key = { file = … }` (depuis 0.2.6), ou en clair
-    /// (`key = { plain = … }`, installations précédentes, déplacée au
-    /// démarrage suivant de la console).
+    /// le fichier `key = { file = … }`, ou en clair (`key = { plain = … }`,
+    /// installation d'avant 0.2.6, déplacée au démarrage suivant de la
+    /// console).
     pub fn jwt_secret(&self) -> Option<String> {
         let doc = self.load().ok()?;
         let jwt = table(&doc, &["kycontroller", "auth", "jwt"])?;
@@ -167,7 +167,7 @@ impl KyberConfig {
     /// Clé HS256 écrite dans `file` (dans le dossier de données, réservé à
     /// SYSTEM et aux Administrateurs, que Kyber lit puisqu'il tourne en
     /// SYSTEM) et désignée par `key = { file = … }` : `kyber_config.toml`,
-    /// sous Program Files, ne contient plus la clé.
+    /// sous Program Files, ne contient pas la clé.
     pub fn set_jwt_secret_file(&self, file: &Path, secret: &str) -> Result<()> {
         if let Some(dir) = file.parent() {
             fs::create_dir_all(dir)?;

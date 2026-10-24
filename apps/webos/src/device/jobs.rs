@@ -1,6 +1,7 @@
 //! Ce qui se fait en arrière-plan, sur des fils à part : sondage d'Admin
 //! (état, système, aperçu), découverte des Stations (mDNS `_kybernow._tcp`),
-//! ajout par code ou par adresse. Les résultats reviennent à la boucle
+//! ajout par code ou par adresse, recherche de mises à jour ; et le réveil
+//! (Wake-on-LAN), envoyé tout de suite. Les résultats reviennent à la boucle
 //! principale par le canal des événements.
 
 use std::collections::HashMap;

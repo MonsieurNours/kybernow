@@ -11,7 +11,8 @@ import android.view.View
 /**
  * Le pointeur de l'ordinateur, dessiné par l'app à la position qu'elle tient
  * (Windows masque le sien sans souris branchée). Sa forme est celle de
- * l'ordinateur (une flèche en attendant), deux fois plus grande au téléviseur.
+ * l'ordinateur (une flèche tant qu'il ne l'a pas envoyée), deux fois plus
+ * grande au téléviseur.
  */
 class PointerView(context: Context, private val factor: Float) : View(context) {
     private var shape: Bitmap? = null

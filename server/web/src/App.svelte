@@ -21,7 +21,8 @@
     { id: 'utilisateurs', label: t('app.spaces.users'), short: t('app.spaces.usersShort'), icon: 'user', component: Users },
     { id: 'systeme', label: t('app.spaces.system'), short: t('app.spaces.systemShort'), icon: 'gear', component: System },
   ])
-  // Anciennes adresses (console 0.2, espace Accès d'avant la 0.4.4) : vers l'espace qui les reprend.
+  // Adresses des versions précédentes, qui peuvent rester en favori : vers
+  // l'espace qui les reprend.
   const legacy: Record<string, string> = {
     dashboard: 'ensemble',
     display: 'image-son',

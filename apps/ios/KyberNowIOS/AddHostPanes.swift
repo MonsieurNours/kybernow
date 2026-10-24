@@ -387,9 +387,9 @@ struct AddHostNetworkPane: View {
 
 // MARK: - Code à l'écran
 
-/// L'appareil tire un code et le présente à toutes les consoles trouvées sur
-/// le réseau ; la première qui l'accepte (Appareils Link) lui donne son
-/// propre accès. Valable cinq minutes, puis un autre code est tiré.
+/// L'appareil tire un code et le présente à toutes les Stations trouvées sur
+/// le réseau (Bonjour) ; la première qui l'accepte (Appareils Link) lui donne
+/// son propre accès. Valable cinq minutes, puis un autre code est tiré.
 struct AddHostCodePane: View {
     @EnvironmentObject private var app: AppModel
     @EnvironmentObject private var discovery: Discovery
@@ -494,7 +494,7 @@ struct AddHostCodePane: View {
         let id: String
     }
 
-    /// Demande envoyée à chaque console trouvée (et à celles qui arrivent
+    /// Demande envoyée à chaque Station trouvée (et à celles qui arrivent
     /// pendant l'attente), puis attente de la réponse.
     private func pairLoop() async {
         var asked: Set<String> = []
@@ -616,9 +616,9 @@ struct AddHostAddressPane: View {
 
 // MARK: - Vérifier l'empreinte
 
-/// La console présente son certificat : son empreinte est comparée à celle
-/// du lien ou de l'annonce (vérifiée toute seule), sinon montrée pour être
-/// comparée à l'œil avec celle de la console.
+/// Admin présente son certificat : son empreinte est comparée à celle du
+/// lien ou de l'annonce (vérifiée toute seule), sinon montrée pour être
+/// comparée à l'œil avec celle qu'affiche Admin.
 struct AddHostVerifyPane: View {
     let candidate: Candidate
     @EnvironmentObject private var flow: AddHostFlow
@@ -741,7 +741,7 @@ struct AddHostAccountPane: View {
         self.verified = verified
     }
 
-    /// Par adresse, le nom de l'ordinateur n'est connu qu'après coup (la console le donne).
+    /// Par adresse, le nom de l'ordinateur n'est connu qu'après coup (Admin le donne).
     private var named: Bool { candidate.name != candidate.address }
 
     var body: some View {
@@ -794,7 +794,7 @@ struct AddHostAccountPane: View {
             .font(Theme.sans(wide ? 14 : 12.5)).foregroundStyle(Theme.faint)
     }
 
-    /// Vérifie le compte auprès de la console (certificat épinglé), puis enregistre.
+    /// Vérifie le compte auprès d'Admin (certificat épinglé), puis enregistre.
     private func add() {
         guard !username.isEmpty, !password.isEmpty, !checking else { return }
         checking = true
@@ -809,7 +809,8 @@ struct AddHostAccountPane: View {
                 error = String(localized: "Identifiant ou mot de passe refusé.")
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
             } catch ConsoleError.http(404, _) {
-                // Console d'une version précédente : le compte n'a pas pu être vérifié.
+                // Admin d'une version qui ne connaît pas cet appel : le compte
+                // n'a pas pu être vérifié, il est gardé tel quel.
                 save(name: candidate.name, fingerprint: fingerprint)
             } catch {
                 self.error = error.localizedDescription

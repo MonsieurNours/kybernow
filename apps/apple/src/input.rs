@@ -1,4 +1,4 @@
-//! Pont C du module d'entrées du cœur (`kybernow_core::input`, jalon 2 de
+//! Pont C du module d'entrées du cœur (`kybernow_core::input`, voir
 //! docs/coeur-apple.md) : la couche de pointeur de la vue de session
 //! (`KnPointer`, une par vue, qui survit aux relances de l'image) et la
 //! chaîne d'entrées d'une image (`KnInput`, prêtée à la session par

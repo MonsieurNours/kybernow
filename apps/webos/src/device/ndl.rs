@@ -8,8 +8,9 @@
 //! - `NDL_DirectMediaInit` au premier chargement, pas au lancement ;
 //! - chaque chargement porte un plan de son Opus stéréo, amorcé de trames
 //!   vides : sans lui, NDL ne cale pas les images sur leur horodatage et
-//!   l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son, lui,
-//!   sort par SDL (moteur du cœur) ;
+//!   l'image saccade au-dessus du 1080p sur une dalle à 120 Hz. Le son réel
+//!   n'y passe qu'en 5.1 PCM (plan PCM 6 voies) ; sinon il sort par SDL
+//!   (moteur du cœur) ou par la chaîne Dolby (`esplayer.rs`) ;
 //! - un chargement avec plan de son ne se termine (`LOADCOMPLETED`, 0x16)
 //!   qu'une fois ce plan nourri : une seule trame ne suffit pas à tous les
 //!   téléviseurs (webOS 26 sur une G2 : image noire, sans erreur). Des
@@ -42,7 +43,7 @@ const PCM_SILENCE_51: [u8; 240 * 6 * 2] = [0; 240 * 6 * 2];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AudioPlane {
     /// Opus stéréo, jamais nourri de son réel : il cale les images sur leur
-    /// horodatage (le son sort par SDL).
+    /// horodatage (le son sort par SDL ou par la chaîne Dolby).
     OpusClock,
     /// PCM S16LE 6 voies (G, D, C, LFE, arrière G, arrière D), le PCM
     /// multicanal de la TV vers l'HDMI (Sortie son numérique en Pass-Through,

@@ -99,8 +99,8 @@ fn gdi_name(path: &DISPLAYCONFIG_PATH_INFO) -> Option<String> {
 /// parmi les chemins qu'il connaît sans être active, disposition fournie avec
 /// ce seul chemin (les écrans physiques s'éteignent du même coup, mode choisi
 /// par Windows). Rend ce qui a été vu et tenté, pour le message d'erreur si
-/// rien n'y fait : sans cela, l'échec ne disait pas si la cible était absente
-/// ou présente mais inactive, ni ce que Windows avait répondu.
+/// rien n'y fait : il dit si la cible est absente ou présente mais
+/// inactive, et ce que Windows a répondu.
 fn activate(luid_low: u32, luid_high: i32, target: u32, attempt: u32, forced: &mut bool) -> String {
     let extend = || unsafe { SetDisplayConfig(0, null(), 0, null(), SDC_APPLY | SDC_TOPOLOGY_EXTEND) };
     if attempt == 0 {

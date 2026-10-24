@@ -53,7 +53,7 @@ final class AppModel: ObservableObject {
         }
         #endif
         #if DEBUG
-        // Vérification des écrans sans télécommande : `-screen add|gamepads|settings`.
+        // Vérification des écrans sans télécommande : `-screen add|gamepads|settings|menu|passage`.
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": screen = .addHost
         case "gamepads": screen = .gamepads

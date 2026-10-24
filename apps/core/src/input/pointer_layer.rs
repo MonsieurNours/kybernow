@@ -1,7 +1,7 @@
 //! Pointeur de l'ordinateur et mode de la souris : ce que les vues de session
-//! du Mac, de l'Apple TV et de Windows ont en commun. Les vues ne font plus
-//! que dessiner (NSCursor et couche sur Mac, couche sur Apple TV, curseur
-//! Win32 sur Windows) et capter les événements de leur plateforme.
+//! des apps ont en commun. Les vues ne font que dessiner (NSCursor et couche
+//! sur Mac, couche sur Apple TV, iPhone et iPad, curseur Win32 sur Windows…)
+//! et capter les événements de leur plateforme.
 //!
 //! Pointeur : l'ordinateur annonce la forme, le point chaud, la position et la
 //! visibilité de son pointeur (kyber-patches 0006 : positions seules sans

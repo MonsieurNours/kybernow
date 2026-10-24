@@ -60,7 +60,7 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     public var mouseMode: MouseMode = .auto { didSet { updateRelative() } }
     private static let rules = MouseModeRules(needsHiddenPointer: false)
 
-    /// Un jeu est en plein écran sur l'ordinateur (d'après la console).
+    /// Un jeu est en plein écran sur l'ordinateur (d'après Admin).
     public var pcGameFullscreen = false {
         didSet {
             guard pcGameFullscreen != oldValue else { return }

@@ -1,11 +1,14 @@
 #!/bin/bash
 # Test hors ligne du décodage (VideoToolbox) et du rendu (Metal) de KyberKit,
-# sans ordinateur distant : flux HEVC/H.264 générés par ffmpeg (x265, x264).
+# sans ordinateur distant : flux HEVC, H.264 et AV1 générés par ffmpeg (x265,
+# x264, SVT-AV1).
 #   - decode : nombre d'images, temps de décodage, format de sortie lisible ;
 #   - recovery : perte d'une image dans un flux à rafraîchissement progressif,
 #              reprise sur l'image clé suivante ;
 #   - color  : couleur rendue au centre d'images unies (BT.709, plage vidéo),
-#              à ±4 près de la couleur attendue (en 4:2:0, la conversion de ffmpeg arrondit).
+#              à ±4 près de la couleur attendue (en 4:2:0, la conversion de ffmpeg arrondit) ;
+#   - av1    : flux AV1 (SVT-AV1) décodé par VideoToolbox, et ses couleurs
+#              (puces M3 et suivantes).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KIT="$HERE/../../KyberKit"

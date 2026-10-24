@@ -1,9 +1,12 @@
 # Versions des outils avec lesquelles les binaires Kyber de KyberNow sont
 # compilés et vérifiés (voir docs/build-notes.md). Lu par
 # server/kyber-patches/build.sh, apps/macos/scripts/build-kyclient.sh,
-# apps/tvos/scripts/build-kyber-tvos.sh, apps/windows/scripts/*.sh et
-# apps/core/scripts/build-apple.sh : une version différente n'arrête pas
-# la compilation, elle est signalée. Après une mise à jour vérifiée, changer la
+# apps/tvos/scripts/build-kyber-tvos.sh, apps/core/scripts/build-apple.sh,
+# apps/apple/scripts/build-apple.sh et build-apple-mobile.sh,
+# apps/windows/scripts/build.sh et build-arm64-deps.sh,
+# apps/android/scripts/build-native.sh, apps/webos/scripts/build.sh et
+# scripts/release.sh : une version différente n'arrête pas la compilation,
+# elle est signalée. Après une mise à jour vérifiée, changer la
 # valeur ici et dans docs/build-notes.md.
 
 KYBER_RUSTC=1.89.0            # Rust stable : serveur Windows, client macOS, cœur client pour iOS
@@ -12,15 +15,14 @@ KYBER_CARGO_C=0.10.15         # cargo-c (cargo cinstall)
 KYBER_MINGW=14.0.0            # mingw-w64 (Homebrew), en-têtes et UCRT
 KYBER_MINGW_GCC=16.2.0        # x86_64-w64-mingw32-gcc
 KYBER_MESON=1.11.2
-# shellcheck disable=SC2034  # lu par scripts/release.sh et apps/windows/scripts/build.sh
+# shellcheck disable=SC2034  # lu par scripts/release.sh, apps/windows/scripts/build.sh et build-arm64-deps.sh
 KYBER_LLVM_MINGW=20261006     # llvm-mingw (ucrt, macOS) : client Windows ARM64, dans third_party/toolchains
 KYBER_WASM_BINDGEN=0.2.100    # wasm-bindgen-cli : celle du Cargo.lock de kyber-web
 KYBER_BINARYEN=133            # wasm-opt (Homebrew binaryen) : moteur web
 
 # kyber_toolchain_check outil… : avertit pour chaque outil dont la version
 # diffère (rustc, nightly, cargo-c, mingw, meson, wasm-bindgen, binaryen). À
-# appeler une fois le PATH
-# de la compilation posé.
+# appeler une fois le PATH de la compilation posé.
 kyber_toolchain_check() {
     local tool have want inc
     for tool in "$@"; do

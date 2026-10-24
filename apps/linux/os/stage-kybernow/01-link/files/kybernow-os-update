@@ -49,7 +49,7 @@ write_autoboot() { # défaut, essai
     printf '[all]\ntryboot_a_b=1\nboot_partition=%s\n[tryboot]\nboot_partition=%s\n' "$1" "$2" > "$p"
     autoboot_done
 }
-slot_version() { # boot partition number → version du système qui s'y trouve (lue dans son rootfs), ou vide
+slot_version() { # numéro de la partition racine → version du système qui s'y trouve (lue dans son rootfs), ou vide
     local root="$1" m v=""
     m="$(mktemp -d)"
     if mount -o ro "$(part "$root")" "$m" 2>/dev/null; then

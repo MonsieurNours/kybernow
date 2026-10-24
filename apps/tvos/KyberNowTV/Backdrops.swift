@@ -1,6 +1,7 @@
 // Les images des ordinateurs : en plein écran sur l'accueil (le décor vit,
 // la dernière image respire doucement), en vignette sur les cartes. À défaut
-// d'image, la signature de l'ordinateur, tirée de l'empreinte de sa console.
+// d'image, la signature de l'ordinateur, tirée de l'empreinte du certificat
+// d'Admin.
 
 import SwiftUI
 
@@ -64,8 +65,8 @@ struct HostBackdrop: View {
 
 // MARK: - Signature
 
-/// Deux lueurs dont la teinte et la place viennent de l'empreinte de la
-/// console (dans l'aire du Spectre), et le symbole immense, très sombre.
+/// Deux lueurs dont la teinte et la place viennent de l'empreinte du
+/// certificat d'Admin (dans l'aire du Spectre), et le symbole immense, très sombre.
 /// La même que sur le Mac.
 struct Signature: View {
     let seed: String

@@ -1,5 +1,5 @@
-// Test d'affichage réel : une petite fenêtre (deux secondes à l'écran par
-// passage) avec la surface Metal de la session, alimentée par un flux HEVC
+// Test d'affichage réel : une petite fenêtre (2,5 s de flux par passage)
+// avec la surface Metal de la session, alimentée par un flux HEVC
 // 60 i/s. On compte les images que l'écran confirme avoir montrées
 // (presentedTime), et on compare le délai commit → écran avec et sans la
 // garde « une image en vol » (KN_INFLIGHT_GUARD).
@@ -42,7 +42,7 @@ struct Pass {
 }
 var results: [Pass] = []
 
-/// Un passage du flux (2,6 s), avec ou sans la garde.
+/// Un passage du flux (2,5 s, relevé à 2,8 s), avec ou sans la garde.
 func pass(guard inFlightGuard: Bool, then next: @escaping () -> Void) {
     let renderer = VideoRenderer()!
     renderer.inFlightGuard = inFlightGuard

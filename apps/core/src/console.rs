@@ -1,5 +1,6 @@
-//! Client de KyberNow Admin (kyber-admin) : les routes `/api/stream/*`
-//! que les apps appellent pendant une session, comme `ConsoleClient.swift`.
+//! Client de KyberNow Admin (kyber-admin) : les routes `/api/stream/*` d'une
+//! session et de l'accueil (info, aperçu), et `/api/pair/*` (appairage par
+//! code). Les apps Apple y passent par `ConsoleClient` (ConsoleClientCore.swift).
 //!
 //! Compte : Basic, le même que pour Kyber. Certificat : auto-signé, épinglé
 //! par son empreinte (`sha256:aa:bb:…`, SHA-256 du certificat DER).

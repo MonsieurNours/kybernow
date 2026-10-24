@@ -1,6 +1,6 @@
 #!/bin/bash
-# Installe KyberNow sur votre Apple TV, signée avec votre propre compte Apple,
-# en attendant l'App Store. Mode d'emploi : apps/tvos/SIDELOAD.md.
+# Installe KyberNow Link sur votre Apple TV, signée avec votre propre compte
+# Apple, sans passer par l'App Store. Mode d'emploi : apps/tvos/SIDELOAD.md.
 #
 #   apps/tvos/scripts/sideload.sh --team ABCDE12345
 #   apps/tvos/scripts/sideload.sh --team ABCDE12345 --full --device "Salon"
@@ -10,7 +10,7 @@
 #   --full         compte payant : garde iCloud, le Top Shelf et les profils tvOS
 #                  (sans lui, l'app s'installe avec un compte gratuit, sans ces trois-là)
 #   --device NOM   nom ou identifiant de l'Apple TV (défaut : la seule appairée)
-#   --version X    version du SDK à télécharger (défaut : la dernière publiée)
+#   --version X    version du SDK à télécharger si Vendor/ ne l'a pas (défaut : la dernière publiée)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"

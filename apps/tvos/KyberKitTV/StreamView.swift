@@ -6,8 +6,8 @@
 // Souris, comme l'app Mac en mode bureau : l'Apple TV tient la position du
 // pointeur et envoie des positions absolues. Windows masque son pointeur sans
 // souris branchée (ou à la moindre frappe) et ne le réaffiche que sur une
-// position absolue : avec des déplacements relatifs, il restait masqué et
-// l'app le perdait. Le pointeur est dessiné par l'app à cette position,
+// position absolue : avec des déplacements relatifs, il resterait masqué et
+// l'app le perdrait. Le pointeur est dessiné par l'app à cette position,
 // toujours visible, avec la forme de celui de l'ordinateur. Seule une souris
 // Bluetooth dans un jeu en plein écran envoie des déplacements bruts.
 //
@@ -15,7 +15,7 @@
 // dans le cœur Rust (PointerLayer, InputCore.swift), comme sur Mac :
 // manettes, télécommande et souris Bluetooth le déplacent depuis la file des
 // entrées de GameController (`InputQueue.device`), sans passer par le fil
-// principal ; seul le dessin y remonte. La vue ne fait plus que dessiner.
+// principal ; seul le dessin y remonte. La vue ne fait que dessiner.
 //
 // Même rôle que StreamView sur Mac (apps/macos/KyberKit) ; SessionEngine
 // l'utilise de la même façon.
@@ -34,7 +34,7 @@ public final class StreamView: UIView {
     public typealias MouseMode = KyberKit.MouseMode
     private static let rules = MouseModeRules(needsHiddenPointer: false)
 
-    /// Un jeu est en plein écran sur l'ordinateur (d'après la console) : la
+    /// Un jeu est en plein écran sur l'ordinateur (d'après Admin) : la
     /// souris Bluetooth envoie des déplacements bruts, sans pointeur dessiné.
     public var pcGameFullscreen = false {
         didSet {

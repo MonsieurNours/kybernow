@@ -19,8 +19,7 @@ final class KeyboardMouse {
     private var queue: DispatchQueue { GamepadBridge.queue }
     /// Sur la file seulement.
     private weak var input: InputPipeline?
-    /// Touches et modificateurs (usages HID) tenus : resynchronisation des
-    /// modificateurs quand les entrées sont reliées de nouveau (ReleaseAll).
+    /// Copie du réglage « Clavier Apple ISO », lue sur la file seulement.
     private var iso = false
     private var activitySent = false
     private var observers: [NSObjectProtocol] = []
@@ -35,8 +34,8 @@ final class KeyboardMouse {
     }
 
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
-    /// observateurs précédents sont retirés d'abord, sinon ils s'empilaient
-    /// et chaque clavier branché était réglé autant de fois.
+    /// observateurs précédents sont retirés d'abord, sinon ils s'empileraient
+    /// et chaque clavier branché serait réglé autant de fois.
     func attach(_ input: InputPipeline, pointer: PointerLayer) {
         observers.forEach(NotificationCenter.default.removeObserver)
         queue.sync {
@@ -139,8 +138,8 @@ final class KeyboardMouse {
     /// le lit SDL sur iOS et tvOS (`SDL_uikitevents.m`). kynput attend la même
     /// unité et les mêmes signes (`MouseWheel` : dx positif = droite, dy
     /// positif = bas), mais au plus un cran par paquet : un grand coup de
-    /// molette part en plusieurs paquets. Avant, x et y partaient tels quels,
-    /// donc échangés : la molette défilait de côté.
+    /// molette part en plusieurs paquets. Envoyer x et y tels quels les
+    /// échangerait : la molette défilerait de côté.
     private func scrolled(first: Float, second: Float) {
         if scrollLogged < 8, first != 0 || second != 0 {
             // Unités à confirmer sur une vraie souris : les premières valeurs au journal.

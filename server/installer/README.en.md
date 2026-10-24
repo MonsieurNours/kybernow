@@ -7,28 +7,26 @@ English · [Français](README.md)
 ## Architecture
 
 ```
-KyberNow-Station-Setup.exe = [lanceur][contenu tar.zst][pied 32 o « KNPAYLD1 »]
+KyberNow-Station-Setup.exe = [launcher][tar.zst payload][32-byte “KNPAYLD1” footer]
 ```
 
-(Launcher, tar.zst payload, 32-byte “KNPAYLD1” footer.)
-
-- **Launcher** (`src/bin/setup.rs`): without WebView2, administrator rights. It drops the interface and `WebView2Loader.dll` into `C:\Program Files\KyberNow\.setup` (deleted afterwards), then launches the interface. Not into `%TEMP%`: the interface would run there as administrator next to files any of the user's programs can drop (a DLL loaded in its place, a UAC bypass). WebView2's data folder (profile, cache: no code), on the other hand, stays in `%TEMP%`: WebView2's sandboxed processes cannot write under Program Files and Edge would refuse to start. With `--uninstall`, it uninstalls (it is also `uninstall.exe` once installed).
+- **Launcher** (`src/bin/setup.rs`): does not use WebView2, administrator rights. It checks that the payload is attached to the file, and that WebView2 is present on the computer (otherwise it says so and opens Microsoft's download page). It drops the interface and `WebView2Loader.dll` into `C:\Program Files\KyberNow\.setup` (deleted afterwards), then launches the interface. Not into `%TEMP%`: the interface would run there as administrator next to files any of the user's programs can drop (a DLL loaded in its place, a UAC bypass). WebView2's data folder (profile, cache: no code), on the other hand, stays in `%TEMP%`: WebView2's sandboxed processes cannot write under Program Files and Edge would refuse to start. With `--uninstall`, it uninstalls (it is also `uninstall.exe` once installed).
 - **Interface** (`src/bin/ui.rs` + `ui/`): borderless window (tao + wry/WebView2) that serves the Svelte app through the `kn://` protocol. JSON messages: `window.ipc.postMessage` one way, `window.__knReceive` the other (`src/events.rs`). v2 identity (KyberNow Station signed logo, `ui/src/lib/Logo.svelte`, taken from `brand/v2/tools/geometry.json`; “server” symbol; Archivo and Martian Mono embedded), four steps in the left column, whose seam fills up as you go: **Welcome** (the computer is already being analysed alongside, ports can be changed; nothing changes before “Install”), **Your account**, **Options** (virtual display, gamepads, sound, start with the computer, performance), **Installation** then “Done” (address, Admin's QR code, `/ecran` in a browser, restart for the gamepads). Version shown: the one in `Cargo.toml`.
 - **Core** (`src/`): `checks` (diagnosis; graphics card and encoder, see below), `ports` (random draw, reserved ranges, TCP + UDP), `install` (tasks), `uninstall`, `payload` (payload format). The stream and Admin ports are drawn at random in 20000–44999, outside the ranges Windows reserves (IPv4 and IPv6, TCP and UDP) and Steam's (27000–27100), and are only checked to be free at installation time.
 
 ## What the installation does
 
 1. Stops and removes a previous version or official Kyber (NSIS uninstaller launched with `_?=` to wait for it).
-2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)). Right after: `kybernow.json`, `uninstall.exe` and the entry in “Installed apps” (display name “KyberNow Station”, `DISPLAY_NAME`; key `…\Uninstall\KyberNow`, `PRODUCT`, the folders' name, which does not change: existing installations, Admin and `update.ps1` depend on it), so that an installation interrupted further on can be uninstalled normally.
+2. Extracts the payload into `C:\Program Files\KyberNow\` (`kyber\`, `admin\`, `tray\`, `drivers\`, `licenses\`). In `kyber\`, the Kyber 0.29 files are overlaid by the patched overlay (`kyavserver.exe`, txproto and their runtime, `kycontroller.exe`, the input server `kynput.dll` and `kynputserver.exe`, the web client engine in `webclient\`, see [docs/kyber-changes.en.md](../../docs/kyber-changes.en.md)). Right after: `kybernow.json`, `uninstall.exe` and the entry in “Installed apps” (display name “KyberNow Station”, `DISPLAY_NAME`; key `…\Uninstall\KyberNow`, `PRODUCT`, the folders' name, which does not change: existing installations, Admin and `update.ps1` depend on it), so that an installation interrupted further on can be uninstalled normally.
 3. Generates Kyber's TLS certificate (`cert-gen.exe`).
 4. `kyber-admin init`: port, encoder (see “Choosing the encoder”), single account (Kyber Basic + Admin, recorded as the installation account), random JWT secret instead of Kyber's development key, written to `C:\ProgramData\KyberNow\kyber-jwt.key` (`kyber_config.toml` only carries the path). Just before, and again after: `kyber\kyber_config.toml`, Kyber's certificate and key (`kybertest_cert.pem`, `kybertest_key.pem`) are reserved to SYSTEM and Administrators (`src/acl.rs`, `secure_file`, descriptor `O:BAD:PAI(A;;FA;;;SY)(A;;FA;;;BA)`), also with “Keep my settings”: Program Files is readable by everyone and these files hold the accounts' password hashes. Admin reapplies these permissions at every start.
 5. Creates the `kyber` service (display name “KyberNow Station - serveur de streaming” or “KyberNow Station - streaming server” depending on the language, quoted path, automatic restart on failure) and opens its start and stop to interactive users (`sc sdset`, see below).
-6. Firewall: stream ports (TCP/UDP) and Admin port (TCP), Admin's Bonjour announcement (UDP 5353, so the apps can find the computer), on the private and domain profiles; a “Public” network is switched to “Private”.
+6. Firewall: stream ports (TCP/UDP) and Admin port (TCP), Admin's Bonjour announcement (UDP 5353, so the apps can find the computer), one rule per program for `kycontroller.exe`, `kyavserver.exe` and `kynputserver.exe`, on the private and domain profiles; a “Public” network is switched to “Private”.
 7. SudoVDA: certificate in Root + Trusted Publishers, device node and driver through `nefconc`.
 8. ViGEmBus, if it is not already present (`/quiet /norestart`).
 8. bis. Remote sound (option): Steam's virtual speakers (`SteamStreamingSpeakers.inf` through `pnputil /add-driver /install`) if Steam is installed. Admin switches Windows output to them during sessions: the sound leaves the computer's speakers and goes out with the right number of channels.
 9. `kyber-admin` service (KyberNow Admin, display name set by `kyber-admin service install`, same permissions as `kyber`), High performance power mode (option unticked by default if the computer already uses it; recreated with `powercfg /duplicatescheme` when missing, as on many laptops; if Windows refuses it, the step ends with a warning and the installation goes on), “KyberNow Admin” (`.url`) and “KyberNow Station” (the icon, `.lnk`) shortcuts in the Start menu's `KyberNow` folder; those of versions 0.3.1 and earlier (“Console KyberNow”, “KyberNow console”, “KyberNow”) are removed (`LEGACY_SHORTCUTS`). An update, through `update.ps1` as through Admin's applicator (`server/admin/src/update/apply.rs`), removes these shortcuts the same way and sets the current display names (services, “Installed apps”).
-10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with Windows” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
+10. Notification area icon: launched at the end of the installation, and at each sign-in if “Start with the computer” is ticked (`KyberNow` value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`). Without this option, both services switch to manual start.
 11. Checked start: the installer waits for the `kyber` service to be running (`sc query`, state 4) and then for the server and Admin to accept a connection on their ports; otherwise a “ATTENTION” line says so in the log.
 
 ## Reinstalling over KyberNow Station
@@ -102,7 +100,7 @@ French and English, following the rule in [docs/i18n.en.md](../../docs/i18n.en.m
 
 ## Building (from the Mac)
 
-`build.sh` produces `dist/KyberNow-Station-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1` and `version.txt`, plus `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
+`build.sh` produces `dist/KyberNow-Station-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1`, `version.txt` and `requirements.json`, which `update.ps1` does not read; plus `dist/update.ps1` and `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md); `scripts/release.sh` also publishes the installer under its old names, `KyberNow-Server-Setup.exe` and `KyberNow-Setup.exe`, identical, for Admin 0.3.1 and earlier and existing links (see “Old installer names”). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
 
 ```bash
 server/installer/build.sh      # → server/installer/dist/KyberNow-Station-Setup.exe
@@ -113,7 +111,9 @@ Prerequisites: `brew install mingw-w64 zstd`, `rustup target add x86_64-pc-windo
 ## Developing the interface
 
 ```bash
-npm --prefix server/installer/ui run dev     # navigateur : backend simulé (ui/src/lib/backend.ts)
+npm --prefix server/installer/ui run dev     # browser: simulated backend (ui/src/lib/backend.ts)
 ```
 
-(In a browser, with a simulated backend; `?lang=en` for English, `&existant` simulates a reinstallation.) Outside Windows, `kybernow-ui` also works with a simulated installation run.
+In English: `http://localhost:5173/?lang=en` (`&existant` simulates a reinstallation).
+
+Outside Windows, `kybernow-ui` also works with a simulated installation run.

@@ -172,7 +172,7 @@ final class Preferences: ObservableObject {
 // MARK: - Images des ordinateurs
 
 /// L'image d'un ordinateur sur l'accueil : la dernière image de sa dernière
-/// session, un aperçu demandé à sa console, sinon sa signature. Les images
+/// session, un aperçu demandé à Admin, sinon sa signature. Les images
 /// vivent dans le conteneur partagé, pour le Top Shelf.
 @MainActor
 final class HostImagery: ObservableObject {

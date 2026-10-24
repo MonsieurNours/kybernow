@@ -2,6 +2,8 @@
 
 [English](mesures.en.md) · Français
 
+> **Archive.** Instantané du 20 octobre 2026 : il décrit le projet tel qu'il était alors, pas tel qu'il est. L'état actuel est dans la doc vivante ; le prévu, dans [ROADMAP.md](../../ROADMAP.md).
+
 Quatre mesures demandées par l'audit du 20 octobre 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), section 16, ligne « Vérifications acceptées »). Chacune se fait sur le matériel de l'auteur et tranche une décision : sans son résultat, le chantier correspondant reste en attente. Aucune n'a encore de résultat.
 
 | # | Mesure | Où | Tranche |
@@ -208,7 +210,7 @@ Sans compte standard, le même `dir` dans une fenêtre PowerShell **non élevée
 Une icône relancée par Admin avec le jeton complet d'un administrateur tourne en haute intégrité. Le test n'a de sens que sur un compte **administrateur** : sur un compte standard, le jeton est déjà limité.
 
 1. Avant la mise à jour, mesure l'icône lancée à l'ouverture de session (référence) avec l'un des outils ci-dessous : elle doit être en intégrité moyenne.
-2. Lance une mise à jour depuis Admin (page **Mises à jour › Installer**). S'il n'y a pas de version plus récente, sers un paquet depuis le Mac (voir [releases.md](releases.md), « Pour essayer un paquet servi depuis le Mac »). Attends environ une minute : l'icône réapparaît.
+2. Lance une mise à jour depuis Admin (page **Mises à jour › Installer**). S'il n'y a pas de version plus récente, sers un paquet depuis le Mac (voir [releases.md](../releases.md), « Pour essayer un paquet servi depuis le Mac »). Attends environ une minute : l'icône réapparaît.
 3. Vérifie que tu regardes l'icône relancée par la mise à jour, pas l'ancienne :
 
 ```powershell
@@ -240,7 +242,7 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
 
 ## 3. Wi-Fi saturé
 
-**But.** Savoir si la file profonde (8 Mio, la politique d'envoi par défaut) fait du bufferbloat quand le Wi-Fi sature, et ce que donne la file courte (3 Mio). Le réglage : [kyber-changes.md](kyber-changes.md#mesurer-la-politique-denvoi-0010). L'audit (§3, §8) estime que 0,7 à 2,2 s d'images périmées partent avant d'être jetées : 8 Mio, c'est 67 Mbit, soit 0,67 s à 100 Mbit/s et 2,2 s à 30 Mbit/s.
+**But.** Savoir si la file profonde (8 Mio, la politique d'envoi par défaut) fait du bufferbloat quand le Wi-Fi sature, et ce que donne la file courte (3 Mio). Le réglage : [kyber-changes.md](../kyber-changes.md#mesurer-la-politique-denvoi-0010). L'audit (§3, §8) estime que 0,7 à 2,2 s d'images périmées partent avant d'être jetées : 8 Mio, c'est 67 Mbit, soit 0,67 s à 100 Mbit/s et 2,2 s à 30 Mbit/s.
 
 ### Matériel et réglages
 
@@ -303,7 +305,7 @@ Fais la série complète deux fois, avec la même app Mac et la même version de
 1. **file profonde** (`datagram_send_queue = "deep"`, par défaut) ;
 2. **file courte** (`datagram_send_queue = "short"`).
 
-La politique se choisit dans Admin (Système › Avancé › File d'envoi de l'image) ou dans `kyber_config.toml`. Après chaque changement, redémarre Kyber (Admin le propose) et vérifie la ligne `Datagram send queue: …` du journal du contrôleur (voir [kyber-changes.md](kyber-changes.md#mesurer-la-politique-denvoi-0010)).
+La politique se choisit dans Admin (Système › Avancé › File d'envoi de l'image) ou dans `kyber_config.toml`. Après chaque changement, redémarre Kyber (Admin le propose) et vérifie la ligne `Datagram send queue: …` du journal du contrôleur (voir [kyber-changes.md](../kyber-changes.md#mesurer-la-politique-denvoi-0010)).
 
 | Condition | p50 (ms) | p95 (ms) | Pertes (images / paquets / images clés) | Remarque |
 |---|---|---|---|---|

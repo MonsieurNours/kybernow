@@ -11,8 +11,9 @@
 # kybernow.gpg (format binaire, pour /usr/share/keyrings). Sans clé, le dépôt
 # n'est pas signé : apt le refuse sans `[trusted=yes]`, à réserver aux essais.
 #
-# Le dossier se publie tel quel (site statique : www.kybernow.app/apt, par
-# exemple). Côté Pi :
+# Le dossier se sert tel quel par un site statique ; release.sh ne l'appelle
+# pas et aucun dépôt n'est publié. Côté Pi, pour un dépôt servi à
+# https://www.kybernow.app/apt :
 #   curl -fsSL https://www.kybernow.app/apt/kybernow.gpg | sudo tee /usr/share/keyrings/kybernow.gpg >/dev/null
 #   echo "deb [signed-by=/usr/share/keyrings/kybernow.gpg] https://www.kybernow.app/apt stable main" | sudo tee /etc/apt/sources.list.d/kybernow.list
 #   sudo apt update && sudo apt install kybernow-link

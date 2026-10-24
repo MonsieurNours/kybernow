@@ -681,9 +681,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
     tokio::spawn(async move {
         shutdown.await;
         tracing::info!("arrêt de kyber-admin : écrans et son rendus à l'ordinateur");
-        // Sans cela, un `Stop-Service` en pleine session laissait le son sur
+        // Sans cela, un `Stop-Service` en pleine session laisserait le son sur
         // les haut-parleurs virtuels et les écrans éteints jusqu'au prochain
-        // démarrage (où `recover` les aurait rendus).
+        // démarrage (où `recover` les rend).
         let st = on_shutdown.clone();
         let _ = tokio::task::spawn_blocking(move || {
             st.foreground.stop();

@@ -8,7 +8,7 @@
 // Les images VA-API et DRM (Pi) sont recopiées en NV12 dans la mémoire du
 // processeur (av_hwframe_transfer_data ; sur le Pi, le format en colonnes
 // « SAND » du décodeur y devient linéaire) puis montrées par SDL : une copie par
-// image, négligeable à la taille du Steam Deck. Plus tard : import DMA-BUF sans copie.
+// image, négligeable à la taille du Steam Deck.
 //
 // 4:4:4 (en option, HEVC) : SDL n'a pas de texture YUV 4:4:4 ; les images sont
 // converties ici en BGRA (virgule fixe, sur quelques fils), sur le fil du
@@ -383,9 +383,7 @@ int kn_v4l2_request_built(void) {
 // Le décodeur H.264 V4L2 (M2M) est-il dans ce FFmpeg ?
 int kn_v4l2_m2m_built(void) { return avcodec_find_decoder_by_name("h264_v4l2m2m") != NULL; }
 
-// Ce que décode VA-API : bit 0 H.264, bit 1 HEVC, bit 2 AV1, bit 3 HEVC 4:4:4.
-// `vendor` : le pilote (« Mesa Gallium driver … for AMD Custom GPU 0405 »).
-// -1 : pas de VA-API (pas de nœud de rendu, pas de pilote).
+// Le profil a un point d'entrée de décodage (VLD).
 static int has_vld(VADisplay dpy, VAProfile p) {
     int n = vaMaxNumEntrypoints(dpy);
     if (n <= 0) return 0;
@@ -396,6 +394,10 @@ static int has_vld(VADisplay dpy, VAProfile p) {
     return 0;
 }
 
+// Ce que décode VA-API (premier nœud de rendu qui s'initialise) : bit 0 H.264,
+// bit 1 HEVC, bit 2 AV1, bit 3 HEVC 4:4:4. `vendor` : le pilote (« Mesa Gallium
+// driver … for AMD Custom GPU 0405 »). -1 : pas de VA-API (pas de nœud de
+// rendu, pas de pilote).
 int kn_vaapi_probe(char *vendor, int len) {
     for (int node = 128; node < 136; node++) {
         char path[32];

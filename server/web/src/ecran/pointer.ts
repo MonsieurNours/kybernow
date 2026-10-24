@@ -1,7 +1,8 @@
 // Souris : le moteur de Kyber capture le pointeur (déplacements bruts) dès
 // que l'ordinateur masque son curseur, ce que Windows fait sans cesse quand
 // aucune souris n'y est branchée. Comme l'app Mac, on décide nous-mêmes :
-// capturé en mode jeu seulement.
+// capturé en mode Jeu, ou en Auto quand un jeu est en plein écran sur
+// l'ordinateur (`pointerAllowed()` dans Session.svelte).
 
 const original = Element.prototype.requestPointerLock
 let allowed: () => boolean = () => true

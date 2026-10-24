@@ -1,8 +1,9 @@
 //! Ce que l'app sait de cette machine : système (celui de l'hôte, même dans
 //! le bac à sable Flatpak : `/run/host/os-release`), bureau et compositeur,
 //! modèle (Steam Deck LCD ou OLED, d'après le DMI), carte graphique et
-//! décodeurs (VA-API), écran et fréquence variable (DRM), son, batterie,
-//! réseau. Et l'interface à prendre (bureau, portable, salon).
+//! décodeurs (VA-API), Raspberry Pi (arbre des périphériques, décodeurs V4L2,
+//! température), écran et fréquence variable (DRM), son, batterie, réseau. Et
+//! l'interface à prendre (bureau, portable, salon).
 
 use std::ffi::{c_char, c_int};
 
@@ -255,8 +256,9 @@ pub fn machine(window: *mut sdl::SDL_Window) -> Machine {
     m
 }
 
-/// L'interface : réglage de l'app, sinon `--ui`, sinon console sous gamescope
-/// (portable si l'écran ne dépasse pas 1280 × 800, salon au-delà), bureau ailleurs.
+/// L'interface : `--ui`, sinon `KYBERNOW_UI`, sinon le réglage de l'app (hors
+/// Auto), sinon console sous gamescope (portable si l'écran ne dépasse pas
+/// 1280 × 800, ou 800 de haut sur un Steam Deck ; salon au-delà), bureau ailleurs.
 pub fn layout(setting: &str, arg: Option<&str>, display: (u32, u32)) -> Layout {
     let pick = |s: &str| match s {
         "desktop" | "bureau" => Some(Layout::Desktop),
@@ -324,7 +326,8 @@ pub fn net() -> NetInfo {
     info
 }
 
-/// Le bureau demande-t-il moins d'animations (GNOME, réglage d'accessibilité).
+/// Moins d'animations, demandé par `KYBERNOW_REDUCE_MOTION=1` (le réglage
+/// d'accessibilité du bureau n'est pas lu).
 pub fn reduce_motion() -> bool {
     std::env::var("KYBERNOW_REDUCE_MOTION").is_ok_and(|v| v == "1")
 }

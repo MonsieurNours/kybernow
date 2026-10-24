@@ -16,11 +16,11 @@
 // Fils : tout GameController (manettes, télécommande, clavier et souris
 // Bluetooth) arrive sur une seule file série `userInteractive`
 // (`InputQueue.device`, partagée avec la couche de pointeur), jamais sur le
-// fil principal, où une animation SwiftUI retardait une touche de plusieurs
+// fil principal, où une animation SwiftUI retarderait une touche de plusieurs
 // millisecondes (pics au-delà de 16 ms). L'état interne (places, menu pris,
 // manette en souris, axes en attente, moteurs) n'est touché que sur cette
-// file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, et le rappel
-// vers l'interface (`onMenuRequest`) remontent sur le fil principal. Les
+// file ; seuls `pads`, `live`, `lastKind`, `remoteConnected`, `notice` et le
+// rappel vers l'interface (`onMenuRequest`) remontent sur le fil principal. Les
 // réglages venus de l'interface sont recopiés sur la file.
 
 import Combine
@@ -417,7 +417,7 @@ public final class GamepadBridge: ObservableObject {
 
     private func connected(_ c: GCController) {
         onQueue()
-        // Ses gestionnaires seront appelés sur la file, plus sur le fil principal.
+        // Ses gestionnaires sont appelés sur la file, pas sur le fil principal.
         c.handlerQueue = queue
         if c.extendedGamepad == nil {
             if c.microGamepad != nil { setUpRemote(c) }
@@ -934,8 +934,7 @@ public final class GamepadBridge: ObservableObject {
     /// Pavé de la Siri Remote en souris (positions absolues de -1 à 1) : le
     /// déplacement du doigt devient un déplacement du pointeur, avec la courbe
     /// de la manette en souris appliquée à la vitesse du doigt, et rapporté à
-    /// l'écran de l'ordinateur (avant : 900 px par demi-pavé quelle que soit
-    /// la définition, lent en 4K).
+    /// la largeur de l'écran de l'ordinateur (un gain fixe serait lent en 4K).
     private func remoteMoved(x: Float, y: Float, touched: Bool?, input: InputPipeline) {
         let now = ProcessInfo.processInfo.systemUptime
         let lifted = touched.map { !$0 } ?? (x == 0 && y == 0)
@@ -1045,9 +1044,9 @@ extension PadButton {
 
 /// Deux moteurs quand la manette les expose (poignées gauche et droite),
 /// sinon un seul. Chaque moteur joue en boucle un motif continu dont
-/// l'intensité suit chaque paquet `Rumble` (`hapticIntensityControl`) : plus
-/// de lecteur recréé à chaque paquet, qui hachait la vibration (effet
-/// « mitraillette ») et coûtait plusieurs millisecondes. Le moteur Core
+/// l'intensité suit chaque paquet `Rumble` (`hapticIntensityControl`) : un
+/// lecteur recréé à chaque paquet hacherait la vibration (effet
+/// « mitraillette ») et coûterait plusieurs millisecondes. Le moteur Core
 /// Haptics reste démarré pendant la session ; la vibration ne s'arrête vraiment
 /// que sur (0, 0), au bout de la durée demandée, ou en fin de session.
 ///

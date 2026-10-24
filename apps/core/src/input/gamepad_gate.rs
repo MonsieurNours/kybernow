@@ -1,6 +1,7 @@
-//! Manettes lues par kynput lui-même via SDL (Mac, Windows) : la
-//! combinaison L1 + R1 + Start + Select, et la manette prise par l'app quand
-//! sa barre s'ouvre. Port de `GamepadGate.swift`.
+//! Manettes lues par kynput lui-même via SDL, sur Mac : la combinaison
+//! L1 + R1 + Start + Select, et la manette prise par l'app quand sa barre
+//! s'ouvre. (Windows lit aussi ses manettes par SDL dans kynput, sans ce
+//! hook : pas de combinaison.)
 //!
 //! Branché comme « hook » du routeur kynput : chaque paquet de manette y
 //! passe avant de partir vers l'ordinateur. Le routeur appelle le hook sous
@@ -12,12 +13,11 @@
 //! s'ouvre vraiment. Hors session (connexion, reconnexion), rien n'est pris.
 //!
 //! Manette prise : appuis et axes en mouvement restent à l'app (touches de
-//! navigation) ; relâchements et axes au repos passent toujours. Swift
-//! n'autorisait que les relâchements qu'il injectait lui-même, une fois
-//! chacun, avec une autorisation à réarmer à chaque réessai (le hook la
-//! consommait avant que la file d'envoi se prononce). Un relâchement ou un
-//! repos de plus ne change rien pour l'ordinateur : la règle simple suffit,
-//! et les réessais de la file de secours ne peuvent plus être avalés.
+//! navigation) ; relâchements et axes au repos passent toujours, quelle que
+//! soit leur origine. Un relâchement ou un repos de plus ne change rien pour
+//! l'ordinateur, et une règle aussi simple ne peut pas avaler les réessais de
+//! la file de secours (une autorisation à usage unique, consommée par le
+//! hook avant que la file d'envoi se prononce, les perdrait).
 //!
 //! Hors prise : un axe qui n'a pas bougé (au 1/512 de la course) ne repart
 //! pas. Une manette Bluetooth bavarde remplirait sinon la file d'envoi de

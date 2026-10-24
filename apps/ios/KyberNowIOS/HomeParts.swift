@@ -335,7 +335,7 @@ struct HomeHostCard: View {
         .frame(width: m.width, height: m.height, alignment: .topLeading)
         .overlay(alignment: .bottom) {
             // À l'intérieur de la carte, au-dessus de son filet : posé sur le
-            // bord, il le chevauchait.
+            // bord, il le chevaucherait.
             if selected {
                 Capsule()
                     .fill(Theme.accent)

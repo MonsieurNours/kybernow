@@ -4,9 +4,9 @@
 //!
 //! La chaîne kynput produit déjà certaines entrées sur Mac et Windows
 //! (manettes via SDL, presse-papiers sur Windows) ; l'app produit les autres
-//! depuis les événements de sa plateforme et les donne ici. Sur l'Apple TV
-//! et iOS, kynput ne produit rien lui-même : manettes, clavier, souris et
-//! texte viennent de GameController et du clavier à l'écran
+//! depuis les événements de sa plateforme et les donne ici. Ailleurs (Apple
+//! TV, iPhone, iPad, Android, Linux, webOS), kynput ne produit rien lui-même :
+//! manettes, clavier, souris et texte viennent de l'app
 //! (`Options::gamepads_from_app`).
 //!
 //! Tout ce que l'app produit passe par [`PacketQueue`] : envoi à kynput,
@@ -56,15 +56,16 @@ pub struct GamepadRumble {
 /// Rappels vers l'interface de l'app. Les fils sont dits à chaque méthode :
 /// la plateforme repasse sur son fil principal si elle en a besoin.
 pub trait InputPlatform: Send + Sync {
-    /// Vibration des manettes (Apple TV : kynput ne les joue pas lui-même).
-    /// Sur le fil réseau de kynput.
+    /// Vibration des manettes produites par l'app (kynput ne les joue pas
+    /// lui-même). Sur le fil réseau de kynput.
     fn rumble(&self, _rumble: GamepadRumble) {}
     /// Combinaison L1 + R1 + Start + Select formée pour cette manette (sur le
     /// fil qui appelle `poll`). La suite est au contrôleur de session :
     /// prendre la manette, ou la rendre.
     fn combo_formed(&self, _pad: PadId) {}
     /// Les entrées rejoignent l'ordinateur (début de session, reconnexion) :
-    /// l'Apple TV y réannonce ses manettes. Sur le fil de `network_connected`.
+    /// une app qui produit ses manettes les y réannonce. Sur le fil de
+    /// `network_connected`.
     fn connected(&self) {}
     /// Touche de navigation d'une manette SDL prise par l'app (barre ouverte,
     /// voir [`InputPipeline::install_gamepad_gate`]). Sur le fil de kynput,
@@ -80,9 +81,9 @@ pub struct Options {
     /// Presse-papiers partagé ; `None` : désactivé dans les réglages, plateforme
     /// sans presse-papiers (tvOS), ou kynput s'en charge lui-même (Windows).
     pub clipboard: Option<Arc<dyn Pasteboard>>,
-    /// Manettes produites par l'app (Apple TV, iOS : GameController) : types
-    /// annoncés à kynput, vibrations reçues. `false` : kynput les lit via SDL
-    /// (Mac, Windows) et joue les vibrations.
+    /// Manettes produites par l'app (Apple TV, iPhone, iPad : GameController ;
+    /// Android, Linux, webOS) : types annoncés à kynput, vibrations reçues.
+    /// `false` : kynput les lit via SDL (Mac, Windows) et joue les vibrations.
     pub gamepads_from_app: bool,
 }
 
@@ -117,7 +118,7 @@ pub struct InputPipeline {
     /// Paquets du presse-papiers reçus, à traiter hors du routeur.
     received: Mutex<VecDeque<OwnedPacket>>,
     driver: Arc<Driver>,
-    /// Manettes SDL lues par kynput (Mac, Windows) : combinaison et prise.
+    /// Manettes SDL lues par kynput (Mac) : combinaison et prise.
     gate: OnceLock<GamepadGate>,
 }
 
@@ -267,8 +268,8 @@ impl InputPipeline {
         &self.held
     }
 
-    /// Manettes lues par kynput via SDL (Mac, Windows) : chaque paquet de
-    /// manette passe par la combinaison L1 + R1 + Start + Select, et la
+    /// Manettes lues par kynput via SDL (le Mac l'installe ; Windows non) :
+    /// chaque paquet de manette passe par la combinaison L1 + R1 + Start + Select, et la
     /// manette peut être prise par l'app ([`Self::set_gamepad_captured`]).
     /// Une fois par chaîne ; sans effet avec `gamepads_from_app`.
     pub fn install_gamepad_gate(self: &Arc<Self>) {
@@ -462,7 +463,7 @@ impl InputPipeline {
         }
     }
 
-    // Manettes produites par l'app (Apple TV).
+    // Manettes produites par l'app (Apple TV, iPhone, iPad, Android, Linux, webOS).
 
     pub fn gamepad_plug(&self, id: PadId, vendor_id: Option<u16>, product_id: Option<u16>) {
         self.combo.note(id);
@@ -511,7 +512,7 @@ impl InputPipeline {
     // Axes : un axe ne part que s'il a bougé (au 1/512 de la course), et les
     // axes d'une tranche de 4 ms partent ensemble : GameController signale X et
     // Y d'un stick même si un seul a changé, et une DualSense en Bluetooth
-    // produisait jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
+    // produit jusqu'à ~1 500 paquets par seconde, de quoi remplir la file
     // d'envoi de kynput (64 paquets, jetés sans retour) et perdre des
     // relâchements. Un axe en mouvement se rattrape au suivant ; son retour au
     // repos, non : il part par la file de secours. Une valeur refusée (file

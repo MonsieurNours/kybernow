@@ -1,10 +1,10 @@
 // Ajouter un ordinateur (maquette « 2 · Ajouter un ordinateur ») : sans rien
 // taper à la télécommande, de préférence. Depuis le Mac (iCloud), trouvé sur
 // le réseau (compte à saisir, au clavier de l'iPhone), code à accepter dans
-// la console de l'ordinateur, ou adresse (VPN).
+// KyberNow Admin sur l'ordinateur, ou adresse (VPN).
 //
-// Chaque fois, l'empreinte du certificat de la console est retenue (et
-// comparée à celle de l'annonce Bonjour quand il y en a une).
+// Chaque fois, l'empreinte du certificat d'Admin est retenue (et comparée à
+// celle de l'annonce Bonjour quand il y en a une).
 
 import Combine
 import CoreImage.CIFilterBuiltins
@@ -361,9 +361,9 @@ private struct LoginForm: View {
 
 // MARK: - Code à l'écran
 
-/// L'Apple TV tire un code et le présente à toutes les consoles trouvées sur
-/// le réseau ; la première qui l'accepte (Appareils › Accepter) lui donne
-/// son accès.
+/// L'Apple TV tire un code (valable cinq minutes) et le présente à toutes
+/// les Stations trouvées par Bonjour, jamais par VPN ; la première qui
+/// l'accepte (Admin, Appareils Link › Accepter) lui donne son accès.
 private struct CodePane: View {
     @EnvironmentObject private var app: AppModel
     @State private var code = String(format: "%06d", Int.random(in: 0...999_999))
@@ -458,7 +458,7 @@ private struct CodePane: View {
         refused = nil
     }
 
-    /// QR code de la première console trouvée (sa page, sur le téléphone).
+    /// QR code d'Admin sur la première Station trouvée (sa page, sur le téléphone).
     private var qrImage: UIImage? {
         guard let consoleURL else { return nil }
         let filter = CIFilter.qrCodeGenerator()
@@ -468,7 +468,7 @@ private struct CodePane: View {
         return UIImage(cgImage: cg)
     }
 
-    /// Demande envoyée à chaque console trouvée, puis attente de la réponse.
+    /// Demande envoyée à chaque Station trouvée, puis attente de la réponse.
     private func pairLoop() async {
         var requests: [(Candidate, ConsoleClient, String)] = []
         var anySupported = false

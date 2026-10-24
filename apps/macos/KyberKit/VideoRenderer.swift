@@ -4,9 +4,9 @@
 // à l'écran dès qu'elle est décodée ; celles qui arrivent pendant qu'un
 // rendu attend son tampon remplacent la précédente au lieu de faire la
 // queue (coalescence `scheduled`), et Core Animation montre la plus récente
-// au balayage, en écartant les autres (`presentedTime == 0`). L'ancienne
-// garde « une image en vol » (N+1 attend que l'écran ait montré N, soit un
-// rafraîchissement complet) reste disponible avec KN_INFLIGHT_GUARD=1. Sur
+// au balayage, en écartant les autres (`presentedTime == 0`). La garde
+// « une image en vol » (N+1 attend que l'écran ait montré N, soit un
+// rafraîchissement complet) se remet avec KN_INFLIGHT_GUARD=1, pour comparer. Sur
 // un écran à fréquence variable (ProMotion, Adaptive-Sync), l'écran se cale
 // sur l'arrivée des images. Sans synchro, chaque image part tout de suite
 // (déchirure possible).
@@ -152,8 +152,8 @@ final class VideoRenderer {
     private var present = (lags: [Double](), rendered: 0, discarded: 0, estimated: 0)
 
     /// GPU, file de commandes et pipeline, compilés une fois par processus
-    /// (le shader était compilé depuis la source à chaque flux, 30 à 150 ms
-    /// sur le fil principal).
+    /// (compilé depuis la source à chaque flux, le shader coûterait 30 à
+    /// 150 ms sur le fil principal).
     private struct Core {
         let device: MTLDevice
         let queue: MTLCommandQueue
@@ -190,7 +190,7 @@ final class VideoRenderer {
         configure(layer)
     }
 
-    /// Dessine désormais dans `layer` (nil : dans une couche à soi, hors écran).
+    /// Dessine dans `layer` à partir de cet appel (nil : dans une couche à soi, hors écran).
     func attach(to layer: CAMetalLayer?) {
         renderQueue.sync {
             self.layer = layer ?? CAMetalLayer()
@@ -322,7 +322,7 @@ final class VideoRenderer {
         // Apple TV : l'instant de présentation quand l'écran le donne (c'est
         // lui qui mesure vraiment l'attente du balayage à 60 Hz). Sans
         // rappel 100 ms après la fin du GPU, ou avec un instant nul, on
-        // estime comme avant : une image n'est jamais tenue pour écartée
+        // estime (fin du GPU plus un rafraîchissement à 120 Hz) : une image n'est jamais tenue pour écartée
         // ici, un 0 sur tvOS peut vouloir dire « inconnu », et la couche
         // n'est pas refaite pour cela.
         let once = PresentOnce()

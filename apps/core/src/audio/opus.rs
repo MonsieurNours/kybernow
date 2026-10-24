@@ -1,5 +1,5 @@
-//! libopus, décodeur multistream (stéréo, 5.1, 7.1) : liaisons C minimales,
-//! comme `apps/windows/src/audio.rs`. L'encodeur ne sert qu'aux tests.
+//! libopus, décodeur multistream (stéréo, 5.1, 7.1) : liaisons C minimales.
+//! L'encodeur ne sert qu'aux tests.
 
 use std::ffi::c_void;
 

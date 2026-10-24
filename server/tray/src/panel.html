@@ -194,7 +194,7 @@ function render() {
     ? `<div class="code"><span>${esc(t('setupCode'))}</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">${esc(t('copyCode'))}</button></div>`
     : ''
   // Appareils qui demandent l'accès par code (Apple TV) : le code ne passe
-  // pas par l'icône, il se compare dans la console (Accès), qui accepte.
+  // pas par l'icône, il se compare dans la console (Appareils Link), qui accepte.
   const pair = ((s.console && s.console.pairRequests) || []).map((r) => `<div class="pair" role="group" aria-label="${esc(t('pairRequest', { name: r.name }))}">
       <span class="lbl">${esc(t('pairRequest', { name: r.name }))}</span>
       <span class="hint">${esc(t('pairHint'))}</span>

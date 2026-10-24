@@ -2,7 +2,7 @@
 
 Hello,
 
-We run Kyber 0.29 as the streaming host of a Windows PC, with our own macOS, Apple TV and web clients built on kyclient and kyclient_wasm. Along the way we fixed a few defects in Kyber itself. These patches are the ones we believe are useful to every Kyber user, rewritten for upstream: one subject per patch, no change of default behaviour unless the old behaviour is a plain bug, and new behaviours behind options that default to off.
+We run Kyber 0.29 as the streaming host of a Windows PC, with our own clients (desktop, mobile, TV and web) built on kyclient and kyclient_wasm. Along the way we fixed a few defects in Kyber itself. These patches are the ones we believe are useful to every Kyber user, rewritten for upstream: one subject per patch, no change of default behaviour unless the old behaviour is a plain bug, and new behaviours behind options that default to off.
 
 We are happy to sign the CLA, to rework anything, and to split or merge patches the way you prefer.
 

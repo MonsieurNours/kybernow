@@ -72,8 +72,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/preview", get(admin_preview))
         // Client web (/ecran) : jeton Kyber pour la session de la console.
         .route("/api/web/ticket", get(web_ticket))
-        // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
+        // Lien d'appairage (QR code de la page Appareils Link, session de la console).
         .route("/api/pairing", get(pairing))
+        // Appels des appareils (apps KyberNow), authentifiés par un compte Kyber.
         .route("/api/stream/info", get(stream_info))
         .route("/api/stream/prepare", post(stream_prepare))
         .route("/api/stream/heartbeat", post(stream_heartbeat))
@@ -687,9 +688,9 @@ struct PrepareBody {
     mode_policy: Option<PolicyChoice>,
 }
 
-/// Lien d'appairage pour les apps (aussi affiché en QR code par la console) :
-/// adresse, port et empreinte du certificat, pour une première connexion
-/// vérifiée sans question.
+/// Lien d'appairage pour les apps (`kybernow://…`), que la console affiche en
+/// lien et en QR code (session de la console requise) : adresse, port et
+/// empreinte du certificat, pour une première connexion vérifiée sans question.
 async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     let hostname = hostname::get().ok().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
     let address = crate::tls::lan_ip().unwrap_or_else(|| "localhost".into());
@@ -1088,7 +1089,7 @@ async fn kyber_busy(s: &AppState, except: Option<&str>) -> bool {
 }
 
 /// Redémarre Kyber pour qu'il lise les comptes en attente, s'il ne sert
-/// personne d'autre que `except`. Vrai si Kyber connaît désormais tous les
+/// personne d'autre que `except`. Vrai si Kyber connaît alors tous les
 /// comptes qui attendaient. `context` complète l'événement du fil
 /// (« , maintenant que personne n'est connecté »).
 async fn apply_pending_access(s: &AppState, except: Option<&str>, context: Option<&str>) -> bool {

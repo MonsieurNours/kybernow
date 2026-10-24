@@ -1,7 +1,9 @@
 #!/bin/bash
-# Recompile kyavserver.exe (et txproto) et kycontroller.exe pour Windows avec les correctifs
-# KyberNow, depuis macOS, puis assemble la surcouche posée par l'installateur
-# par-dessus les fichiers de Kyber 0.29.
+# Recompile pour Windows, depuis macOS et avec les correctifs KyberNow,
+# kyavserver.exe (et txproto), kycontroller.exe, le serveur d'entrées
+# (kynput.dll, kynputserver.exe) et le moteur du client web (kyclient_wasm),
+# puis assemble la surcouche posée par l'installateur par-dessus les fichiers
+# de Kyber 0.29.
 #
 # Correctifs :
 #   0001  son HD : débit Opus selon le nombre de canaux, réglages

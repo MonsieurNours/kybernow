@@ -7,14 +7,15 @@
 # version minimale déjà installée pour une mise à jour depuis Admin, s'il faut
 # repasser par KyberNow-Station-Setup.exe, et l'empreinte SHA-256 et la taille
 # de chaque fichier publié présent dans le dossier. KyberNow Admin (service
-# kyber-admin) refuse tout paquet dont le manifeste n'est pas signé par la clé
-# publique compilée en lui : server/admin/src/update/kybernow-release.pub.
+# kyber-admin) et le cœur Rust des apps (apps/core/src/update.rs) refusent tout
+# paquet dont le manifeste n'est pas signé par la clé publique compilée en eux :
+# server/admin/src/update/kybernow-release.pub.
 #
-# Les installateurs y figurent sous leurs nouveaux noms (KyberNow-Station-Setup.exe,
-# KyberNow-Link-Setup.exe) et sous leurs anciens noms, copies identiques
-# publiées quelques versions encore : l'app Windows en 0.3.1 et avant cherche
-# KyberNow-Client-Setup.exe ici (docs/releases.md, « Anciens noms des
-# installateurs »).
+# Les installateurs et l'archive Mac y figurent sous leurs nouveaux noms
+# (KyberNow-Station-Setup.exe, KyberNow-Link-Setup.exe, KyberNow-Link-macOS.zip)
+# et sous leurs anciens noms, copies identiques : l'app Windows en 0.3.1 et
+# avant cherche KyberNow-Client-Setup.exe ici (docs/releases.md, « Anciens noms
+# des installateurs »).
 #
 # Clé privée : ~/Library/Application Support/KyberNow/minisign.key, chiffrée
 # par un mot de passe aléatoire gardé dans le Trousseau (élément

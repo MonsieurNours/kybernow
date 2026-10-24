@@ -1,9 +1,8 @@
 //! Une session : préparation par la console (écran virtuel, son), connexion à
 //! Kyber, choix de l'écran, image et son vers l'app, signal de vie, reprise
-//! après une perte, fin propre. Même déroulé que `SessionController.swift`
-//! de l'app Mac, dont le cœur reprend aussi la continuité de l'image : image
-//! clé redemandée puis flux relancé, repli quand aucune image ne vient,
-//! taille de l'écran de l'ordinateur suivie, politique de mode (« Remettre »),
+//! après une perte, fin propre ; et la continuité de l'image : image clé
+//! redemandée puis flux relancé, repli quand aucune image ne vient, taille
+//! de l'écran de l'ordinateur suivie, politique de mode (« Remettre »),
 //! adaptation à un nouveau mode de l'écran de l'appareil.
 //!
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
@@ -31,9 +30,9 @@ use crate::latency::{LatencyTracker, Second};
 use crate::media::{PacketHandler, packet_sink};
 use crate::profile::StreamSettings;
 
-/// Reprise de l'image, comme l'app Mac. Par défaut (Windows), la plateforme
-/// tient elle-même ses veilles et appelle [`Session::request_keyframe`] et
-/// [`Session::no_image`].
+/// Reprise de l'image par le cœur (apps Apple, Android, Linux, webOS). Par
+/// défaut (Windows), la plateforme tient elle-même ses veilles et appelle
+/// [`Session::request_keyframe`] et [`Session::no_image`].
 #[derive(Debug, Clone, Default)]
 pub struct Recovery {
     /// Le cœur veille lui-même à la première image (4 s après le démarrage du
@@ -42,7 +41,7 @@ pub struct Recovery {
     /// à 1,5 s).
     pub watch_image: bool,
     /// Sans image : le flux est d'abord allégé, pour cette session seulement
-    /// (débit ramené à ce plafond, puis 4:2:0), avant d'être relancé.
+    /// (débit ramené à ce plafond, en bit/s, puis 4:2:0), avant d'être relancé.
     pub fallback_bitrate: Option<u32>,
 }
 
@@ -290,13 +289,13 @@ impl Session {
 
     /// Aucune image depuis le démarrage du flux : il est relancé (ce qui
     /// relance aussi le service vidéo de Kyber sur l'ordinateur), trois fois
-    /// au plus, puis la session s'arrête avec la raison. Comme l'app Mac.
+    /// au plus, puis la session s'arrête avec la raison.
     pub fn no_image(&self) {
         self.send(Msg::NoImage);
     }
 
     /// Change de profil pendant la session (barre) : nouveau débit sur-le-champ,
-    /// ou flux relancé si le format, le 4:4:4 ou le transport changent. Comme sur Mac.
+    /// ou flux relancé si le format, le 4:4:4 ou le transport changent.
     pub fn set_settings(&self, settings: StreamSettings) {
         self.send(Msg::Settings(settings));
     }
@@ -853,7 +852,7 @@ impl Worker {
             });
         }
         if r.active == Some(false) {
-            // Comme sur Mac : redemandé, au plus une fois par 30 s.
+            // Redemandé, au plus une fois toutes les 30 s.
             let recent = self.last_restore.is_some_and(|t| t.elapsed() < Duration::from_secs(30));
             if self.virtual_display() && self.streaming.is_some() && !self.adapting && !recent {
                 info!("la console n'a plus d'écran virtuel : redemandé");

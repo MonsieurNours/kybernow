@@ -1,6 +1,6 @@
 //! Tester les manettes : la liste (joueur, nom, moteurs), et pour celle
 //! choisie, ses touches, sticks et gâchettes en direct et une vibration
-//! d'essai par moteur.
+//! d'essai par moteur, aux deux, et aux gâchettes quand la manette en a.
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text, H};
 use super::theme::*;

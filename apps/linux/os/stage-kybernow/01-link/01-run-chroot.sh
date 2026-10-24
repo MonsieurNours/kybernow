@@ -16,8 +16,8 @@ plymouth-set-default-theme kybernow
 update-initramfs -u -k all || true
 
 # Services : Link en plein écran sur KMS/DRM, le premier démarrage (partition
-# de données agrandie) ; plus de console texte ni de sortie de Plymouth à
-# l'arrivée d'un getty (c'est l'app qui la lui demande).
+# de données agrandie) ; pas de console texte sur tty1, et Plymouth ne quitte
+# pas à l'arrivée d'un getty (c'est le service de l'app qui le lui demande).
 systemctl enable kybernow-os-firstboot.service kybernow-link.service
 systemctl disable getty@tty1.service
 systemctl mask plymouth-quit.service plymouth-quit-wait.service
@@ -29,5 +29,6 @@ systemctl enable NetworkManager.service bluetooth.service
 # NetworkManager gère le réseau : l'attente de systemd-networkd échouerait.
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
 systemctl disable ssh.service 2>/dev/null || true
-# Bluetooth : pas de discovery automatique au démarrage, l'app la lance.
+# hciuart (le Bluetooth de la puce, sur l'UART) reste activé ; la recherche
+# d'appareils, c'est l'app qui la lance.
 systemctl disable hciuart.service 2>/dev/null || true; systemctl enable hciuart.service 2>/dev/null || true

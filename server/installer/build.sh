@@ -29,7 +29,7 @@ echo "==> Contenu à installer"
 rm -rf "$STAGE" && mkdir -p "$STAGE"/{kyber,admin,tray,drivers/sudovda,drivers/vigembus,licenses}
 rsync -a --exclude '$PLUGINSDIR' --exclude '*.bat' --exclude 'INSTALL.md' \
     "$PAYLOAD_SRC/kyber-0.29.0/" "$STAGE/kyber/"
-# Correctifs KyberNow (son HD, curseur stable) : server/kyber-patches/build.sh
+# Surcouche corrigée de Kyber (server/kyber-patches/build.sh, docs/kyber-changes.md)
 if [ -d "$PAYLOAD_SRC/kyber-overlay" ]; then
     # -R : la surcouche a des sous-dossiers (webclient/, moteur du client web).
     cp -R "$PAYLOAD_SRC/kyber-overlay/." "$STAGE/kyber/"

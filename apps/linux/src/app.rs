@@ -1,5 +1,5 @@
 //! L'état de l'interface et ce que font les touches, sans SDL ni cœur : les
-//! écrans se dessinent aussi sans l'app (captures, `scripts/preview.sh`).
+//! écrans se dessinent aussi sans l'app (captures, `kybernow --preview`).
 //!
 //! Trois interfaces, d'après les maquettes (https://claude.ai/artifact/MgBJNBJ4WEMFvVB6Ujfxhc) :
 //! **bureau** (fenêtre, souris et clavier), **portable** (Steam Deck et
@@ -187,8 +187,8 @@ impl Pi {
     }
 
     /// La fréquence la plus haute que le Pi sort à cette hauteur : 4K et 1440p
-    /// à 60 Hz ; 1080p à 120 Hz sur les Pi 4 et 5 (bande passante HDMI 2.0, à
-    /// vérifier sur le matériel), 60 Hz avant.
+    /// à 60 Hz ; 1080p à 120 Hz sur les Pi 4 et 5 (bande passante HDMI 2.0, pas
+    /// encore vérifié sur une carte), 60 Hz avant.
     pub fn max_hz(&self, height: u32) -> u32 {
         if height <= 1080 && self.generation >= 4 { 120 } else { 60 }
     }
@@ -198,7 +198,7 @@ impl Pi {
         if self.generation >= 4 { "HDMI 2.0" } else { "HDMI 1.4" }
     }
 
-    /// Les deux chiffres de la carte graphique : « VideoCore VII ».
+    /// Le nom de la carte graphique de la puce : « VideoCore VII ».
     pub fn gpu(&self) -> &'static str {
         match self.generation {
             5 => "VideoCore VII",
@@ -863,7 +863,7 @@ pub struct App {
     /// Fenêtre plein écran, agrandie (bureau).
     pub fullscreen: bool,
     pub maximized: bool,
-    /// Le bureau réduit les animations (GNOME, KDE).
+    /// Moins d'animations (`KYBERNOW_REDUCE_MOTION=1`).
     pub reduce_motion: bool,
     /// Le nom de cet appareil pour Admin (« Steam Deck », nom de la machine).
     pub device_name: String,
@@ -1208,7 +1208,7 @@ impl App {
             }
             Nav::Menu => {
                 if self.screen == Screen::Home {
-                    // Sur l'OS, ☰ ouvre les réglages de l'appareil (ceux de l'app y sont une rubrique).
+                    // Sur l'OS, ☰ ouvre les réglages de l'appareil (la langue y est une rubrique).
                     if self.is_os() {
                         self.open_device_settings(Screen::Home);
                         return vec![Action::Os(OsAction::Status)];
@@ -2211,8 +2211,8 @@ impl App {
         (width, height, fps)
     }
 
-    /// Le format choisi : celui demandé s'il est décodé, sinon HEVC (ou H.264
-    /// quand la carte ne décode pas HEVC).
+    /// Le format choisi : celui demandé s'il est décodé (AV1 : si l'ordinateur
+    /// l'encode aussi), sinon HEVC, que la carte ou le processeur décode.
     pub fn codec_for(&self, h: &Host) -> &'static str {
         let m = &self.machine;
         let hevc_ok = m.decodes("hevc");

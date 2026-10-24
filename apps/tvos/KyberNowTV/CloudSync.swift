@@ -1,10 +1,14 @@
-// Ordinateurs suivis par iCloud : ceux ajoutés dans KyberNow sur le Mac
-// arrivent sur l'Apple TV avec leurs accès, sans rien taper.
+// Ordinateurs suivis par iCloud : ceux ajoutés dans KyberNow Link sur le Mac
+// arrivent sur l'Apple TV (et l'iPhone, l'iPad : fichier repris par apps/ios)
+// avec leurs accès, sans rien taper. Lecture seule : l'app Mac les publie
+// (apps/macos/KyberNow/CloudPublisher.swift).
 //
 // La liste vit dans le magasin clé-valeur d'iCloud (clé « hosts », partagé
-// par les deux apps : même identifiant), les mots de passe dans le Trousseau
-// iCloud (éléments synchronisables, service « fr.leslignesclaires.kybernow.cloud »).
-// L'app Mac doit publier ses ordinateurs de la même façon (à brancher).
+// par les apps : même identifiant, même équipe), les mots de passe dans le
+// Trousseau iCloud (éléments synchronisables, service
+// « fr.leslignesclaires.kybernow.cloud »). Une app signée par une autre
+// équipe (scripts/sideload.sh) a son propre magasin : elle ne voit pas ce
+// que publie l'app Mac de KyberNow.
 
 import Combine
 import Foundation

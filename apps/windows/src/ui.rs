@@ -152,8 +152,9 @@ pub fn load_prefs() -> Prefs {
 
 /// Installateur publié : un seul pour x64 et ARM64, il pose la version du
 /// processeur (une app x64 émulée sur ARM passe ainsi à la version ARM64).
-/// Son nom actuel d'abord, puis celui d'avant le renommage en KyberNow Link
-/// (publié aussi pendant quelques versions ; seul nom des versions 0.3.1 et avant).
+/// `KyberNow-Link-Setup.exe` d'abord, puis `KyberNow-Client-Setup.exe`, seul
+/// nom que listent les manifestes des versions 0.3.1 et avant (publié en copie
+/// pour l'app de ces versions).
 const INSTALLER: &[&str] = &["KyberNow-Link-Setup.exe", "KyberNow-Client-Setup.exe"];
 
 impl UiState {

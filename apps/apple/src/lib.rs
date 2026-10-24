@@ -1,8 +1,9 @@
 //! Pont C du cœur KyberNow pour les apps Apple (voir docs/coeur-apple.md).
 //!
 //! Tout ce que Swift appelle passe par ici : la console (hors session), la
-//! session (préparation, Kyber, image, reconnexion, fin) et la latence. Les
-//! objets sont opaques (`KnConsole`, `KnSession`), les résultats composés
+//! session (préparation, Kyber, image, reconnexion, fin) et la latence ; les
+//! entrées et le son dans `input.rs` et `audio.rs`. Les objets sont opaques
+//! (`KnConsole`, `KnSession`, `KnInput`, `KnPointer`, `KnAudio`, `KnCombo`), les résultats composés
 //! voyagent en JSON, les mesures de chaque seconde et les paquets d'image et
 //! de son en structures C plates. Les rappels de `KnPlatform` sont appelés
 //! depuis les fils du cœur (fil de session, fil réseau de Kyber pour les
@@ -319,7 +320,7 @@ pub const KN_PACKET_CLOSED: u32 = 3;
 pub struct KnPacket {
     pub kind: u32,
     pub stream: u64,
-    /// FourCC : `h264`, `hevc`, `av01`, `opus`.
+    /// FourCC : `h264`, `h265` (HEVC), `av1` (AV1, 0x00617631), `opus`.
     pub codec: u32,
     pub is_config: bool,
     pub is_key: bool,

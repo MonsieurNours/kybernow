@@ -494,8 +494,9 @@ impl Screen {
     }
 }
 
-/// Une image réduite à `width` de large, en RVB (BT.709, plage limitée sauf
-/// mention), pour l'accueil : la dernière image de la session.
+/// Une image réduite à `width` de large, en RVB (BT.709 ou BT.601, plage
+/// limitée ou complète, selon l'image), pour l'accueil : la dernière image de
+/// la session.
 pub fn snapshot(f: &Frame, width: u32) -> Option<tiny_skia::Pixmap> {
     if f.width == 0 || f.height == 0 || f.planes[0].is_empty() {
         return None;

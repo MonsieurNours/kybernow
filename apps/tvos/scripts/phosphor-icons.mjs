@@ -1,7 +1,7 @@
 // Copie les icônes Phosphor utilisées par l'app dans le catalogue d'images,
 // en vectoriel et en modèle (elles prennent la couleur du texte).
 //
-//   node scripts/phosphor-icons.mjs (apps/tvos)
+//   (depuis apps/tvos)
 //   node scripts/phosphor-icons.mjs <…/node_modules/@phosphor-icons/core/assets>
 //
 // Dans le code : Icon("game-controller") ou Icon("x", bold: true).

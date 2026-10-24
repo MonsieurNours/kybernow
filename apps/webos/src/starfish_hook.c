@@ -2,8 +2,8 @@
  * décodeur du téléviseur (NDL DirectMedia, chargé par dlopen dans ce
  * processus) pilote par des documents JSON. Le symbole, exporté par le
  * binaire, passe devant celui de libplayerAPIs pour les bibliothèques
- * chargées ensuite : on voit le document, et on peut le réécrire (son
- * Dolby) avant de le remettre au vrai Load. */
+ * chargées ensuite : le document est journalisé, puis remis au vrai Load
+ * (tel quel : kybernow_starfish_rewrite rend NULL). */
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -66,7 +66,8 @@ int _ZN17StarfishMediaAPIs4LoadEPKcPFvixS1_E(void *self, const char *payload, st
 /* Feed(const char *payload) rend une std::string : sur l'ABI ARM, l'adresse
  * du résultat vient en premier (r0), puis l'objet, puis le document. Le
  * document ({"bufferAddr":"…","bufferSize":N,"pts":T,"esData":E}) est
- * transmis tel quel, sauf l'horodatage, mis à l'échelle de la chaîne chargée. */
+ * transmis tel quel, sauf l'horodatage, multiplié par
+ * kybernow_starfish_pts_scale() (1 : tel quel aussi). */
 typedef void *(*starfish_feed)(void *ret, void *self, const char *payload);
 
 void *_ZN17StarfishMediaAPIs4FeedB5cxx11EPKc(void *ret, void *self, const char *payload) {

@@ -12,7 +12,7 @@
 # KyberNow-Station-Setup.exe. --min-installer : version minimale de KyberNow déjà
 # installée pour accepter le paquet. release.sh passe les mêmes options à
 # scripts/sign-manifest.sh, dont le manifeste signé fait foi ; le paquet en
-# garde une copie (requirements.json) pour la mise à jour à la main.
+# garde une copie (requirements.json), que update.ps1 ne lit pas.
 set -euo pipefail
 MIN_INSTALLER="" REQUIRES_SETUP=false
 while [ $# -gt 0 ]; do
@@ -42,14 +42,15 @@ cp "$HERE/update.ps1" "$STAGE/"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/server/admin/Cargo.toml" | head -1)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version de server/admin/Cargo.toml illisible : $VERSION" >&2; exit 1; }
 printf '%s\r\n' "$VERSION" > "$STAGE/version.txt"
-# Sans --min-installer : 0.2.0, première console qui se met à jour, même
+# Sans --min-installer : 0.2.0, première version d'Admin qui se met à jour, même
 # défaut que scripts/sign-manifest.sh.
 MIN_INSTALLER="${MIN_INSTALLER:-0.2.0}"
 [[ "$MIN_INSTALLER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "--min-installer : version X.Y.Z attendue ($MIN_INSTALLER)" >&2; exit 1; }
 num() { local a b c; IFS=. read -r a b c <<< "$1"; echo $((a * 1000000 + b * 1000 + c)); }
 [ "$(num "$MIN_INSTALLER")" -le "$(num "$VERSION")" ] || { echo "--min-installer $MIN_INSTALLER est plus récent que le paquet $VERSION" >&2; exit 1; }
 # Mêmes champs que kybernow-release.json (scripts/sign-manifest.sh), qui fait
-# foi ; cette copie sert au chemin à la main (update.ps1), sans manifeste.
+# foi ; cette copie accompagne le paquet du chemin à la main (update.ps1, sans
+# manifeste), qui ne la vérifie pas.
 printf '{"version": "%s", "min_installer_version": "%s", "requires_setup": %s}\r\n' \
     "$VERSION" "$MIN_INSTALLER" "$REQUIRES_SETUP" > "$STAGE/requirements.json"
 # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII.

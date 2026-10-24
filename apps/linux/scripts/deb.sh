@@ -10,7 +10,7 @@
 #
 # L'app est compilée par build.sh --rpi (FFmpeg de Raspberry Pi, décodeur HEVC
 # V4L2 request) ; les dépendances du paquet sont lues sur le binaire
-# (dpkg-shlibdeps : libsdl2, libopus, libva, libdrm, libudev, libssl…), pour
+# (dpkg-shlibdeps : libsdl2, libopus, libva, libdrm, libudev…), pour
 # les noms de paquets de Debian. Le paquet s'installe par
 # `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`.
 #

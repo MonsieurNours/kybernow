@@ -2,6 +2,8 @@
 
 [English](prototype-A.en.md) · Français
 
+> **Archive.** Instantané du 19 octobre 2026 : il décrit le projet tel qu'il était alors, pas tel qu'il est. L'état actuel est dans la doc vivante ; le prévu, dans [ROADMAP.md](../../ROADMAP.md).
+
 Objectif : un serveur Kyber qui tourne sur le PC NVIDIA, le client macOS en ligne de commande qui s'y connecte, et une **mesure de latence de référence** avant d'écrire la moindre ligne de notre code.
 
 ## 1. Côté PC Windows

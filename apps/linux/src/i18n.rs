@@ -1,5 +1,6 @@
-//! Français et anglais, comme les autres apps : français si le téléviseur est
-//! réglé en français, anglais sinon ; réglage Auto / Français / English.
+//! Français et anglais, comme les autres apps : français si la première langue
+//! préférée du système (SDL, sinon `LANG`) est le français, anglais sinon ;
+//! réglage Auto / Français / English.
 //! Les textes sont écrits en paires, sur place : `tr("…", "…")`.
 
 use std::sync::atomic::{AtomicBool, Ordering};

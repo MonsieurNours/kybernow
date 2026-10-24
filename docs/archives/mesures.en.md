@@ -2,6 +2,8 @@
 
 English · [Français](mesures.md)
 
+> **Archive.** Snapshot of 20 October 2026: it describes the project as it was then, not as it is now. The current state is in the living docs; planned work is in [ROADMAP.en.md](../../ROADMAP.en.md).
+
 Four measurements asked for by the audit of 20 October 2026 ([audit-2026-10-20.md](audit-2026-10-20.md), in French only, section 16, row “Vérifications acceptées”, accepted checks). Each one is done on the author's hardware and settles a decision: without its result, the matching work item stays on hold. None has a result yet.
 
 | # | Measurement | Where | Settles |
@@ -208,7 +210,7 @@ Without a standard account, the same `dir` in a **non-elevated** PowerShell wind
 An icon relaunched by Admin with an administrator's full token runs at high integrity. The test only makes sense on an **administrator** account: on a standard account, the token is already limited.
 
 1. Before the update, measure the icon started at sign-in (reference) with one of the tools below: it must be at medium integrity.
-2. Start an update from Admin (page **Updates › Install**). If there is no newer version, serve a package from the Mac (see [releases.en.md](releases.en.md), “To try a package served from the Mac”). Wait about a minute: the icon reappears.
+2. Start an update from Admin (page **Updates › Install**). If there is no newer version, serve a package from the Mac (see [releases.en.md](../releases.en.md), “To try a package served from the Mac”). Wait about a minute: the icon reappears.
 3. Check that you are looking at the icon relaunched by the update, not the old one:
 
 ```powershell
@@ -240,7 +242,7 @@ Get-Process kybernow-tray | Select-Object Id,Path,StartTime
 
 ## 3. Saturated Wi-Fi
 
-**Goal.** Find out whether the deep queue (8 MiB, the default send policy) causes bufferbloat when the Wi-Fi saturates, and what the short queue (3 MiB) gives. The setting: [kyber-changes.en.md](kyber-changes.en.md#measuring-the-send-policy-0010). The audit (§3, §8) estimates that 0.7 to 2.2 s of stale frames are sent before being dropped: 8 MiB is 67 Mbit, i.e. 0.67 s at 100 Mbit/s and 2.2 s at 30 Mbit/s.
+**Goal.** Find out whether the deep queue (8 MiB, the default send policy) causes bufferbloat when the Wi-Fi saturates, and what the short queue (3 MiB) gives. The setting: [kyber-changes.en.md](../kyber-changes.en.md#measuring-the-send-policy-0010). The audit (§3, §8) estimates that 0.7 to 2.2 s of stale frames are sent before being dropped: 8 MiB is 67 Mbit, i.e. 0.67 s at 100 Mbit/s and 2.2 s at 30 Mbit/s.
 
 ### Hardware and settings
 
@@ -303,7 +305,7 @@ Do the complete series twice, with the same Mac app and the same Station version
 1. **deep queue** (`datagram_send_queue = "deep"`, the default);
 2. **short queue** (`datagram_send_queue = "short"`).
 
-The policy is chosen in Admin (System › Advanced › Image send queue) or in `kyber_config.toml`. After each change, restart Kyber (Admin offers to) and check the `Datagram send queue: …` line in the controller log (see [kyber-changes.en.md](kyber-changes.en.md#measuring-the-send-policy-0010)).
+The policy is chosen in Admin (System › Advanced › Image send queue) or in `kyber_config.toml`. After each change, restart Kyber (Admin offers to) and check the `Datagram send queue: …` line in the controller log (see [kyber-changes.en.md](../kyber-changes.en.md#measuring-the-send-policy-0010)).
 
 | Condition | p50 (ms) | p95 (ms) | Losses (frames / packets / keyframes) | Remark |
 |---|---|---|---|---|

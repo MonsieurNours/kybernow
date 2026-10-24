@@ -8,8 +8,8 @@
 //! demandes. Fonctions C : kyber-patches/0002-kynput.
 //!
 //! Le presse-papiers lui-même est celui de la plateforme ([`Pasteboard`] :
-//! NSPasteboard sur Mac, UIPasteboard sur iOS, rien sur tvOS, celui de
-//! Windows si l'app ne laisse pas kynput s'en charger). Les paquets de
+//! NSPasteboard sur Mac, UIPasteboard sur iOS, ceux d'Android et de Linux,
+//! rien sur tvOS ni webOS ; sous Windows, kynput s'en charge lui-même). Les paquets de
 //! l'ordinateur arrivent par [`ClipboardBridge::received`], hors du verrou du
 //! routeur kynput (`InputPipeline` les met en attente et les traite sur son
 //! fil des entrées) : les réponses repartent par `send` sans réentrer dans

@@ -1,11 +1,11 @@
 // Une session avec un ordinateur, sur l'Apple TV, vue de l'interface : le
 // passage, le menu (bouton Retour ou L1 + R1 + Start + Select), les
 // capsules, les mesures, la fréquence du téléviseur. Le déroulé lui-même
-// (préparation par la console : écran virtuel à la taille du téléviseur, 4K
+// (préparation par Admin : écran virtuel à la taille du téléviseur, 4K
 // à 60 Hz au plus, son au format de la sortie ; connexion à Kyber, choix de
 // l'écran, relances, reconnexions, repli quand l'image ne passe pas, signal
 // de vie, fin vérifiée) est dans le cœur Rust, par `SessionEngine`, comme
-// sur Mac (docs/coeur-apple.md, jalon 4).
+// sur Mac (docs/coeur-apple.md).
 
 import AVFoundation
 import AVKit
@@ -215,7 +215,7 @@ final class SessionController: ObservableObject {
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
         case .ending:
-            // Fin demandée par la console : comme une fin voulue.
+            // Fin demandée par Admin : comme une fin voulue.
             if phase != .ending, phase != .ended { end() }
         case let .ended(error, _):
             if let error, phase != .ending, phase != .ended {
@@ -265,7 +265,7 @@ final class SessionController: ObservableObject {
         }
     }
 
-    /// « Remettre » : la console remet le mode demandé au début de la session.
+    /// « Remettre » : Admin remet le mode demandé au début de la session.
     func restoreMode() {
         modeRestoreOffer = nil
         engine?.restoreMode()
@@ -357,7 +357,7 @@ final class SessionController: ObservableObject {
 
     // MARK: - Fin
 
-    /// Fin de session : le cœur rend la main à la console (écrans et son de
+    /// Fin de session : le cœur rend la main à Admin (écrans et son de
     /// l'ordinateur rétablis, latence de la session donnée à ses appareils).
     func end() {
         guard phase != .ending && phase != .ended else { return }

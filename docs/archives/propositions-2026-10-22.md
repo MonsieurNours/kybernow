@@ -1,5 +1,7 @@
 # Propositions du 22 octobre 2026 : HDR, latence Apple TV, app au démarrage
 
+> **Archive.** Instantané du 22 octobre 2026 : il décrit le projet tel qu'il était alors, pas tel qu'il est. L'état actuel est dans la doc vivante ; le prévu, dans [ROADMAP.md](../../ROADMAP.md).
+
 Trois sujets étudiés à la demande du 22 octobre 2026, sources à l'appui : le dépôt KyberNow (0.4.3), et les sources de Kyber 0.29.0 telles que KyberNow les compile (kymedia 0.29.0, txproto `7f84b9e`, libavconv `5ca80cc`, kysdk `ebca32a` avec kyctl `92c632f` et kymux `af10dbb`, FFmpeg n8.1 et nv-codec-headers 12.1.14 d'après les `wrap` de kymedia). Rien n'a été compilé ni mesuré : ce document propose, chiffre et pose les questions à trancher avant de coder.
 
 ## 1. HDR : ce qui manque dans Kyber, ce que coûterait un correctif
@@ -50,7 +52,7 @@ Ce qui est déjà en place et ne change pas :
 
 ### Est-ce possible ici ?
 
-Écrire, oui : les sources de Kyber sont lisibles depuis cette session (clonées pour cette étude), les correctifs C, HLSL et Rust peuvent être produits et vérifiés applicables (`patch --dry-run` sur les sources exactes de 0.29). Compiler et vérifier, non : la chaîne MinGW/meson décrite dans [build-notes.md](build-notes.md) vit sur le Mac, et l'essai exige le PC avec sa carte NVIDIA, Windows 11 24H2 et un écran ou téléviseur HDR. Le découpage naturel : une série `0016-txproto-capture-hdr`, `0017-libavgrab-capture-hdr`, `0018-kyavservice-hdr`, `0019-kycontroller-hdr`, côté client `0004-kyclient-hdr`, produite ici, compilée par `build.sh` sur le Mac, essayée sur le PC. Les deux correctifs de capture sont remontables à Kyber tels quels (la série `upstream/` existe déjà).
+Écrire, oui : les sources de Kyber sont lisibles depuis cette session (clonées pour cette étude), les correctifs C, HLSL et Rust peuvent être produits et vérifiés applicables (`patch --dry-run` sur les sources exactes de 0.29). Compiler et vérifier, non : la chaîne MinGW/meson décrite dans [build-notes.md](../build-notes.md) vit sur le Mac, et l'essai exige le PC avec sa carte NVIDIA, Windows 11 24H2 et un écran ou téléviseur HDR. Le découpage naturel : une série `0016-txproto-capture-hdr`, `0017-libavgrab-capture-hdr`, `0018-kyavservice-hdr`, `0019-kycontroller-hdr`, côté client `0004-kyclient-hdr`, produite ici, compilée par `build.sh` sur le Mac, essayée sur le PC. Les deux correctifs de capture sont remontables à Kyber tels quels (la série `upstream/` existe déjà).
 
 ### Questions
 

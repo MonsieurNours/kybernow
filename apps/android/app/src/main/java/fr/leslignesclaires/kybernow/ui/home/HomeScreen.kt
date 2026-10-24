@@ -445,7 +445,7 @@ private fun TallHome(host: Host, st: HostStatus, state: HomeState, actions: Home
     }
 }
 
-/** Premier lancement : rien encore. */
+/** Aucun ordinateur ajouté : la bienvenue et l'ajout. */
 @Composable
 private fun Welcome(announced: List<Announced>, actions: HomeActions) {
     val s = LocalScale.current

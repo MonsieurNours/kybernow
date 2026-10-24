@@ -3,8 +3,8 @@
 // VideoToolbox dit si un codec est décodé en matériel, mais pas pour le
 // 4:4:4 : on décode pour de bon une petite image HEVC 4:4:4 (64 × 64), en
 // exigeant le décodeur matériel. Ainsi l'app ne propose que ce que la
-// machine affiche sans peine, sur n'importe quel Mac (et plus tard iPhone,
-// iPad, Apple TV).
+// machine affiche sans peine, sur n'importe quel Mac, iPhone, iPad ou
+// Apple TV (le même code sert partout).
 
 import CoreMedia
 import Foundation

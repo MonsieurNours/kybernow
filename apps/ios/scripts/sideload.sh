@@ -1,6 +1,6 @@
 #!/bin/bash
-# Installe KyberNow sur votre iPhone ou votre iPad, signée avec votre propre
-# compte Apple, en attendant TestFlight et l'App Store. Mode d'emploi :
+# Installe KyberNow Link sur votre iPhone ou votre iPad, signée avec votre
+# propre compte Apple, sans passer par l'App Store. Mode d'emploi :
 # apps/ios/SIDELOAD.md.
 #
 #   apps/ios/scripts/sideload.sh --team ABCDE12345
@@ -8,11 +8,11 @@
 #
 #   --team ID      identifiant d'équipe de votre compte Apple (Xcode › Réglages › Comptes)
 #   --bundle ID    identifiant de l'app (défaut : kybernow.<équipe>)
-#   --full         compte payant : garde iCloud et le Trousseau partagé (ajout des
-#                  ordinateurs « Depuis votre Mac ») ; sans lui, l'app s'installe
-#                  avec un compte gratuit, sans ces deux-là
+#   --full         compte payant : garde iCloud et le Trousseau partagé (« Depuis
+#                  votre Mac », avec une app Mac signée par la même équipe) ; sans
+#                  lui, l'app s'installe avec un compte gratuit, sans ces deux-là
 #   --device NOM   nom ou identifiant de l'appareil (défaut : le seul branché)
-#   --version X    version du SDK à télécharger (défaut : la dernière publiée)
+#   --version X    version du SDK à télécharger si Vendor/ ne l'a pas (défaut : la dernière publiée)
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"

@@ -134,7 +134,7 @@ interface SessionListener {
     fun onVideoSize(width: Int, height: Int)
     fun onDecoder(name: String)
     fun onAudioOutput(channels: Int, bufferMs: Double)
-    /** Intensités 0 à 65535 (gros moteur grave, petit aigu) ; durée en ms (0 : jusqu'au suivant). */
+    /** Intensités 0 à 65535 (gros moteur grave, petit aigu) ; durée en ms (0 : sans durée, 5 s au plus côté app, voir `Gamepads.rumble`). */
     fun onRumble(pad: Int, large: Int, small: Int, durationMs: Int)
     fun onCombo(pad: Int)
     /** Pointeur de l'ordinateur ; `pixels` (ARGB prémultiplié) seulement quand la forme change. */

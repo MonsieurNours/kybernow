@@ -514,7 +514,7 @@ mod tests {
     use crate::audio::ManualClock;
     use crate::audio::opus::Encoder;
 
-    /// Le banc du test Swift (apps/macos/tests/audio) : un la (440 Hz) encodé
+    /// Le banc d'essai : un la (440 Hz) encodé
     /// en Opus par paquets de 20 ms (ou 10), envoyé au moteur au rythme du
     /// serveur avec des à-coups et quelques pertes, la sortie tirant 5 ms à
     /// la fois ; le temps est celui d'une horloge simulée, par pas de 1 ms.

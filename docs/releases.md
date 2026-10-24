@@ -4,7 +4,7 @@
 
 Les versions de KyberNow sont publiées sur GitHub : https://github.com/MonsieurNours/kybernow/releases. Le dépôt est public : les mises à jour se téléchargent sans jeton, et le code reste disponible comme l'exige l'AGPL (avec les correctifs de Kyber, voir [kyber-changes.md](kyber-changes.md)).
 
-Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, icône, services), KyberNow Admin et les apps KyberNow Link (Windows, Mac, Apple TV, iPhone/iPad) changent ensemble (l'app iPhone/iPad n'est pas encore distribuée : `release.sh` publie son SDK, pas l'app).
+Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, icône, services), KyberNow Admin et toutes les apps KyberNow Link changent ensemble. L'espace de travail `apps/` (`apps/Cargo.toml`) donne le numéro du cœur et des apps Windows, Android, webOS et Linux ; les `project.yml`, celui des apps Mac, Apple TV et iPhone/iPad. Les apps Apple TV et iPhone/iPad ne sont pas publiées en fichier : `release.sh` publie leur SDK, que leurs scripts de sideload téléchargent.
 
 ## Ce que contient une version
 
@@ -19,18 +19,18 @@ Un seul numéro de version pour tout KyberNow : KyberNow Station (installateur, 
 | `KyberNow-Link-Android.apk` | KyberNow Link pour Android et Android TV (arm64-v8a, armeabi-v7a, x86_64), signé par la clé de publication : première installation et mises à jour de l'app (voir [apps/android/README.md](../apps/android/README.md)) |
 | `KyberNow-Link-webOS.ipk` | KyberNow Link pour les téléviseurs LG (webOS 5 et après, armv7), paquet installé en mode développeur (webOS Dev Manager ou `ares-install`, voir [apps/webos/INSTALLATION.md](../apps/webos/INSTALLATION.md)) : première installation et mises à jour |
 | `KyberNow-Link-Linux-x86_64.flatpak`, `KyberNow-Link-Linux-aarch64.flatpak` | KyberNow Link pour Linux, le Steam Deck et SteamOS (runtime org.freedesktop.Platform 25.08, tiré de Flathub), paquet Flatpak par architecture installé par `flatpak install --user` (voir [apps/linux/INSTALLATION.md](../apps/linux/INSTALLATION.md)) : première installation et mises à jour |
-| `KyberNow-Link-RaspberryPi-arm64.deb` | KyberNow Link pour le Raspberry Pi sous Raspberry Pi OS (Debian 13, arm64 ; Pi 3, 4 et 5, décodeurs de la puce par V4L2), paquet Debian installé par `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`, ou par le dépôt apt KyberNow (`apps/linux/scripts/apt-repo.sh`), voir [apps/linux/INSTALLATION.md](../apps/linux/INSTALLATION.md) : première installation et mises à jour |
+| `KyberNow-Link-RaspberryPi-arm64.deb` | KyberNow Link pour le Raspberry Pi sous Raspberry Pi OS (Debian 13, arm64 ; Pi 3, 4 et 5, décodeurs de la puce par V4L2), paquet Debian installé par `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`, voir [apps/linux/INSTALLATION.md](../apps/linux/INSTALLATION.md) : première installation et mises à jour |
 | `KyberNow-Link-OS.img.xz` | KyberNow Link OS : l'image à flasher sur un Raspberry Pi (Pi 3, 4 et 5, arm64 ; Raspberry Pi OS Lite + Link seul, disposition A/B), avec Raspberry Pi Imager (fichier, ou le dépôt `https://www.kybernow.app/updates/rpi-imager.json`), voir [apps/linux/INSTALLATION.md](../apps/linux/INSTALLATION.md) : première installation ; les mises à jour A/B, l'OS les télécharge lui-même dans chaque version (voir [apps/linux/os/README.md](../apps/linux/os/README.md)) |
 | `KyberSDK-tvOS.zip` | SDK de Kyber et cœur KyberNow (`KyberNow.xcframework`) compilés pour l'Apple TV, que télécharge `apps/tvos/scripts/sideload.sh` pour installer l'app sans l'App Store ([SIDELOAD.md](../apps/tvos/SIDELOAD.md)) |
 | `KyberSDK-iOS.zip` | Cœur KyberNow, libkynput, libopus et leurs en-têtes compilés pour l'iPhone et l'iPad (`apps/ios/Vendor`, joint aux versions 0.4.0 et suivantes), que télécharge `apps/ios/scripts/sideload.sh` pour installer l'app sans TestFlight ni App Store ([SIDELOAD.md](../apps/ios/SIDELOAD.md)) |
-| `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe` | Anciens noms des installateurs, copies identiques : voir « Anciens noms des installateurs » ci-dessous |
+| `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, `KyberNow-macOS.zip` | Anciens noms des installateurs et de l'archive Mac, copies identiques : voir « Anciens noms des installateurs » ci-dessous |
 | `kybernow-release.json` | Manifeste de la version : numéro, canal (`stable` ou `beta`), date, version minimale déjà installée pour une mise à jour depuis Admin, réinstallation nécessaire ou non, empreinte SHA-256 et taille de chaque fichier ci-dessus (anciens noms compris) |
 | `kybernow-release.json.minisig` | Signature du manifeste (minisign, ed25519), vérifiée par Admin avant toute installation |
 | `SHA256SUMS` | Empreintes de tous les fichiers (anciens noms compris) |
 
 ### Anciens noms des installateurs
 
-Les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `KyberNow-Link-Setup.exe` (l'app Windows). Leurs noms jusqu'à la 0.3.1 sont aussi publiés, **à l'identique** (copies faites par `release.sh`, même empreinte) :
+Les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `KyberNow-Link-Setup.exe` (l'app Windows), l'archive de l'app Mac `KyberNow-Link-macOS.zip`. Leurs anciens noms sont aussi publiés, **à l'identique** (copies faites par `release.sh`, même empreinte) :
 
 | Ancien nom | Copie de | Pourquoi il reste |
 |---|---|---|
@@ -41,9 +41,9 @@ Les installateurs s'appellent `KyberNow-Station-Setup.exe` (la Station) et `Kybe
 
 Admin et l'app Windows cherchent d'abord le nouveau nom, puis l'ancien s'il manque (manifeste d'une version antérieure à la 0.4.0). Le manifeste signé et `SHA256SUMS` listent les deux noms, avec la même empreinte.
 
-**Quand les retirer.** Les copies peuvent disparaître (listes `LEGACY_STATION` et `LEGACY_LINK` de `release.sh`, `FILES` de `scripts/sign-manifest.sh`) une fois que les installations en 0.3.1 et avant sont passées à une version qui connaît les nouveaux noms : au moins deux ou trois versions stables après la 0.4.0. Au-delà, une app Windows restée en 0.3.1 ne trouverait plus sa mise à jour, et Admin en 0.3.1 renverrait vers un fichier absent : il faudrait réinstaller à la main avec le nouveau fichier.
+**Pourquoi elles restent.** Sans elles, une app Windows restée en 0.3.1 ou avant ne trouverait plus sa mise à jour, et Admin en 0.3.1 ou avant renverrait vers un fichier absent : il faudrait réinstaller à la main avec le nouveau fichier. Les copies sont listées dans `LEGACY_STATION`, `LEGACY_LINK` et `LEGACY_MAC` de `release.sh` et dans `FILES` de `scripts/sign-manifest.sh` ; les retirer de ces listes les retire des versions suivantes.
 
-**Piège.** Le site est mis en ligne à chaque push sur `main` qui touche `site/` : un lien `releases/latest/download/` vers un nouveau nom de fichier ne mène à rien tant que la version qui contient ce fichier n'est pas publiée. Pour les installateurs renommés, `site/assets/main.js` (table `LEGACY`) retombe sur l'ancien nom tant que la dernière version ne publie que lui ; tout autre nouveau nom de fichier attend la publication.
+**Piège.** Le site est mis en ligne à chaque push sur `main` qui touche `site/` : un lien `releases/latest/download/` vers un nouveau nom de fichier ne mène à rien tant que la version qui contient ce fichier n'est pas publiée. Pour les fichiers renommés (installateurs, archive Mac), `site/assets/main.js` (table `LEGACY`) retombe sur l'ancien nom tant que la dernière version ne publie que lui ; tout autre nouveau nom de fichier attend la publication.
 
 ## Mettre à jour
 
@@ -73,7 +73,7 @@ irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps
 
 Le script télécharge `kybernow-update.zip` et `SHA256SUMS`, vérifie l'empreinte du paquet, puis fait la même bascule avec contrôle de santé. En cas d'échec, il le dit en rouge (« Mise a jour non installee… ») après avoir tout redémarré.
 
-**Chemin manuel : intégrité seulement, tant que rien n'est signé Authenticode.** `update.ps1` vérifie que le paquet n'est pas abîmé (`SHA256SUMS`), pas qu'il vient de KyberNow : `SHA256SUMS` est publié au même endroit que le paquet, et vérifier le manifeste minisign demanderait un outil téléchargé lui aussi (`kyber-admin.exe` de la version), ce qui tourne en rond. Le script lui-même n'est pas signé. Il n'apporte donc pas les garanties d'Admin : à réserver au dépannage, sur une version dont vous connaissez la page GitHub. La signature Authenticode des `.exe` et de `update.ps1` comblerait ce manque (voir « Signature Windows (Authenticode) : en attente »).
+**Chemin manuel : intégrité seulement.** `update.ps1` vérifie que le paquet n'est pas abîmé (`SHA256SUMS`), pas qu'il vient de KyberNow : `SHA256SUMS` est publié au même endroit que le paquet, et vérifier le manifeste minisign demanderait un outil téléchargé lui aussi (`kyber-admin.exe` de la version), ce qui tourne en rond. Le script lui-même n'est pas signé. Il n'apporte donc pas les garanties d'Admin : à réserver au dépannage, sur une version dont vous connaissez la page GitHub. Les `.exe` et `update.ps1` ne sont pas signés Authenticode (voir « Signature Windows (Authenticode) »).
 
 Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_UPDATE_BASE = 'http://<adresse-du-Mac>:8000'`, puis la même commande, avec `python3 -m http.server 8000` lancé dans `server/installer/dist` (`package-update.sh` y écrit aussi `SHA256SUMS`).
 
@@ -87,7 +87,7 @@ Pour essayer un paquet servi depuis le Mac avant de le publier : `$env:KYBERNOW_
 
 **L'app des téléviseurs LG.** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal qui publie `KyberNow-Link-webOS.ipk` (Réglages › Ce téléviseur › Mises à jour : stables, ou aussi les bêtas), vérifiée par le cœur Rust comme pour Android (manifeste signé, empreinte et taille du paquet). Une app installée en mode développeur ne peut pas s'installer elle-même : elle affiche « Version X disponible » sur l'accueil et dans ses réglages, et le paquet s'installe depuis l'ordinateur (webOS Dev Manager ou `ares-install`). `release.sh` le construit avec `apps/webos/scripts/build.sh` (chaîne webOS téléchargée au premier appel, cible Rust `armv7-unknown-linux-gnueabi`, sources de Kyber).
 
-**L'app Linux.** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal qui publie le Flatpak de son architecture (`KyberNow-Link-Linux-x86_64.flatpak` ou `-aarch64`), vérifié par le cœur Rust (manifeste signé, empreinte et taille). Un paquet Flatpak installé à la main ne se met pas à jour seul : l'app affiche « Version X disponible » et le nouveau paquet s'installe par-dessus (`flatpak install --user`). `release.sh` construit les deux paquets avec `apps/linux/scripts/release-flatpaks.sh`, dans la VM Parallels « KyberNow Linux » (Ubuntu ARM64, Rosetta pour x86_64, dépôt en dossier partagé), démarrée au besoin ; le même script y construit ensuite le paquet .deb du Raspberry Pi (`apps/linux/scripts/deb.sh`, FFmpeg de Raspberry Pi). Sur le Pi, un paquet installé depuis le fichier se met à jour comme le Flatpak (« Version X disponible », puis `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`) ; par le dépôt apt (`apt-repo.sh`, à publier sur un site statique et à signer d'une clé GPG), `apt upgrade` l'installe avec le système. **KyberNow Link OS** : `release.sh` construit ensuite l'image dans la même VM (`apps/linux/os/release-image.sh`, pi-gen, long) et écrit le dépôt JSON de Raspberry Pi Imager (`apps/linux/os/imager-json.sh` → `site/updates/rpi-imager.json`, commité avec le flux du site) ; sur le Pi, l'OS cherche `KyberNow-Link-OS.img.xz` dans chaque version (manifeste signé), la télécharge et l'écrit dans l'autre emplacement A/B (Réglages de l'appareil › Mise à jour).
+**L'app Linux.** Elle cherche au lancement puis toutes les 6 heures la dernière version de son canal qui publie le Flatpak de son architecture (`KyberNow-Link-Linux-x86_64.flatpak` ou `-aarch64`), vérifié par le cœur Rust (manifeste signé, empreinte et taille). Un paquet Flatpak installé à la main ne se met pas à jour seul : l'app affiche « Version X disponible » et le nouveau paquet s'installe par-dessus (`flatpak install --user`). `release.sh` construit les deux paquets avec `apps/linux/scripts/release-flatpaks.sh`, dans la VM Parallels « KyberNow Linux » (Ubuntu ARM64, Rosetta pour x86_64, dépôt en dossier partagé), démarrée au besoin ; le même script y construit ensuite le paquet .deb du Raspberry Pi (`apps/linux/scripts/deb.sh`, FFmpeg de Raspberry Pi). Sur le Pi, un paquet installé depuis le fichier se met à jour comme le Flatpak (« Version X disponible », puis `sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`) . `apps/linux/scripts/apt-repo.sh` assemble un dépôt apt depuis les paquets .deb (signé si une clé GPG est donnée), à servir par un site statique ; `release.sh` ne l'appelle pas et aucun dépôt n'est publié. **KyberNow Link OS** : `release.sh` construit ensuite l'image dans la même VM (`apps/linux/os/release-image.sh`, pi-gen, long) et écrit le dépôt JSON de Raspberry Pi Imager (`apps/linux/os/imager-json.sh` → `site/updates/rpi-imager.json`, commité avec le flux du site) ; sur le Pi, l'OS cherche `KyberNow-Link-OS.img.xz` dans chaque version (manifeste signé), la télécharge et l'écrit dans l'autre emplacement A/B (Réglages de l'appareil › Mise à jour).
 
 **L'app Mac.**
 - Sparkle vérifie chaque jour, et à la demande (menu KyberNow Link › Rechercher des mises à jour…). L'app télécharge l'archive, vérifie sa signature EdDSA avec la clé publique de l'app (`SUPublicEDKey`), la remplace et se relance.
@@ -102,7 +102,7 @@ Sans elle, aucune mise à jour de l'app ne pourrait plus être signée. Pour la 
 
 ## Clé de signature des mises à jour (minisign)
 
-Chaque version publie un manifeste, `kybernow-release.json`, signé avec une clé ed25519 (minisign) :
+Chaque version publie un manifeste, `kybernow-release.json`, signé avec une clé ed25519 (minisign), que vérifient Admin et le cœur Rust des apps qui se mettent à jour seules ou signalent leurs versions (Windows, Android, téléviseurs LG, Linux, KyberNow Link OS) :
 
 ```json
 {
@@ -118,7 +118,7 @@ Chaque version publie un manifeste, `kybernow-release.json`, signé avec une cl�
 }
 ```
 
-`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-Link-macOS.zip`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, `KyberNow-Link-Android.apk`, `KyberNow-Link-webOS.ipk`, `KyberNow-Link-Linux-x86_64.flatpak`, `KyberNow-Link-Linux-aarch64.flatpak`, `KyberNow-Link-RaspberryPi-arm64.deb`, `KyberNow-Link-OS.img.xz`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
+`files` liste ceux des fichiers publiés qui sont présents (`KyberNow-Station-Setup.exe`, `kybernow-update.zip`, `update.ps1`, `KyberNow-Link-macOS.zip`, `KyberNow-macOS.zip`, `appcast.xml`, `KyberSDK-tvOS.zip`, `KyberSDK-iOS.zip`, `KyberNow-Link-Setup.exe`, `KyberNow-Link-Android.apk`, `KyberNow-Link-webOS.ipk`, `KyberNow-Link-Linux-x86_64.flatpak`, `KyberNow-Link-Linux-aarch64.flatpak`, `KyberNow-Link-RaspberryPi-arm64.deb`, `KyberNow-Link-OS.img.xz`, et les anciens noms des installateurs `KyberNow-Server-Setup.exe`, `KyberNow-Setup.exe`, `KyberNow-Client-Setup.exe`, voir « Anciens noms des installateurs »). La signature détachée, `kybernow-release.json.minisig`, porte le commentaire de confiance `kybernow <version> <canal>`. La clé publique est dans le dépôt, `server/admin/src/update/kybernow-release.pub` (identifiant `D63B24FFFC7E79D1`), et compilée dans Admin et dans le cœur des apps (`apps/core/src/update.rs`) : une empreinte SHA-256 seule protège d'un téléchargement abîmé, pas d'une version falsifiée par qui aurait la main sur le compte GitHub ; la signature, si.
 
 Le manifeste s'écrit et se signe avec :
 
@@ -172,9 +172,9 @@ security find-generic-password -s kybernow-android-keystore -w     # mot de pass
 ## Publier une version
 
 0. Vérifier que la CI est verte sur `main` (onglet Actions du dépôt, voir « Intégration continue ») : elle ne couvre pas l'app Mac, que `--dry-run` compile.
-1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par Admin et par les apps. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié. Les deux langues partent avec la version ([docs/i18n.md](i18n.md)) : la release GitHub porte la section française, une ligne `<!-- en -->`, puis l'anglaise (Admin et l'app Windows prennent la partie de leur langue) ; dans le flux Sparkle, l'anglais est la description par défaut et le français un lien par langue (`xml:lang="fr"`) vers `site/updates/notes/X.Y.Z/KyberNow-macOS.fr.html` (`scripts/notes-html.py`), commité avec le flux du site.
+1. Ajouter une section `## X.Y.Z` en haut de `CHANGELOG.md` : ce sont les notes affichées par Admin et par les apps. Ajouter la même section, en anglais, à `CHANGELOG.en.md`. Commiter : le script refuse un arbre modifié. Les deux langues partent avec la version ([docs/i18n.md](i18n.md)) : la release GitHub porte la section française, une ligne `<!-- en -->`, puis l'anglaise (Admin et les apps qui se mettent à jour par le cœur Rust prennent la partie de leur langue) ; dans le flux Sparkle, l'anglais est la description par défaut et le français un lien par langue (`xml:lang="fr"`) vers `site/updates/notes/X.Y.Z/KyberNow-Link-macOS.fr.html` (`scripts/notes-html.py`), commité avec le flux du site.
 2. Si les correctifs de Kyber ont changé : `server/kyber-patches/build.sh` (il écrit `third_party/payload/kyber-overlay.stamp`, l'empreinte des correctifs compilés, que le script compare à ceux du dépôt).
-3. Quitter la KyberNow compilée en Release si elle est ouverte (une autre copie ne gêne pas), puis, depuis `main` :
+3. Quitter KyberNow Link s'il est ouvert (le script refuse de tourner tant qu'un processus « KyberNow Link » existe : le cœur Rust de l'app Mac et ses bibliothèques sont recompilés), puis, depuis `main` :
 
 ```bash
 scripts/release.sh X.Y.Z --check     # vérifications seules
@@ -184,10 +184,10 @@ scripts/release.sh X.Y.Z             # publication
 
 **Ordre.** Les binaires publiés doivent être ceux du commit étiqueté (l'AGPL oblige à publier le code exact des binaires) :
 1. vérifications préalables, toutes affichées d'un coup ; une seule en échec et rien n'est modifié ;
-2. alignement des versions (Admin, icône, installateur de la Station, apps Windows, Mac, Apple TV et iPhone/iPad, `Cargo.lock` et projets Xcode compris) et commit « KyberNow X.Y.Z » ; un commit refusé arrête tout ;
-3. construction depuis ce commit : installateur de la Station, paquet de mise à jour, cœur Rust des apps Apple (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, aucune KyberNow ouverte), app Mac signée Developer ID, SDK de Kyber pour l'Apple TV (cœur compris dans `KyberSDK-tvOS.zip`) et app Apple TV, cœur et bibliothèques de l'app iPhone/iPad (`KyberSDK-iOS.zip`, l'app elle-même compilée sans signature pour vérifier), app Windows et son installateur `KyberNow-Link-Setup.exe` ; copies des installateurs sous leurs anciens noms ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
+2. alignement des versions (Admin, icône, installateur de la Station, espace de travail `apps/` — cœur et apps Windows, Android, webOS et Linux —, installateur et `tauri.conf.json` de l'app Windows, projets Xcode des apps Mac, Apple TV et iPhone/iPad, fiche AppStream du Flatpak, `Cargo.lock` compris) et commit « KyberNow X.Y.Z » ; un commit refusé arrête tout ;
+3. construction depuis ce commit : installateur de la Station, paquet de mise à jour, cœur Rust des apps Apple (`apps/apple/scripts/build-apple.sh`, `build-apple-mobile.sh tvos`, aucune KyberNow ouverte), app Mac signée Developer ID, SDK de Kyber pour l'Apple TV (cœur compris dans `KyberSDK-tvOS.zip`) et app Apple TV, cœur et bibliothèques de l'app iPhone/iPad (`KyberSDK-iOS.zip`, l'app elle-même compilée sans signature pour vérifier), app Windows (x64 et ARM64) et son installateur `KyberNow-Link-Setup.exe`, APK Android signé (`apps/android/scripts/release-apk.sh`), paquet webOS (`apps/webos/scripts/build.sh`), Flatpak Linux et paquet .deb du Raspberry Pi (`apps/linux/scripts/release-flatpaks.sh`), image KyberNow Link OS (`apps/linux/os/release-image.sh`), ces trois derniers dans la VM « KyberNow Linux » ; copies des installateurs sous leurs anciens noms ; si la construction modifie un fichier suivi, le script s'arrête (les binaires ne correspondraient plus au commit) ;
 4. notarisation de l'app Mac, agrafage du ticket, vérification Gatekeeper ;
-5. flux Sparkle signé, `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ; flux cumulatif du site (`site/updates/appcast.xml`) complété par cette version et commité par-dessus le commit de version (« Flux des mises à jour : KyberNow X.Y.Z ») ;
+5. flux Sparkle signé, flux cumulatif du site (`site/updates/appcast.xml`) complété par cette version, notes françaises (`site/updates/notes/X.Y.Z/`) et dépôt de Raspberry Pi Imager (`site/updates/rpi-imager.json`, `apps/linux/os/imager-json.sh`), commités par-dessus le commit de version (« Flux des mises à jour : KyberNow X.Y.Z ») ; `SHA256SUMS`, manifeste signé `kybernow-release.json` (`scripts/sign-manifest.sh`, minisign) ;
 6. release GitHub créée **en brouillon** avec tous les fichiers ;
 7. tag `vX.Y.Z` sur le commit de version ; 8. push de `main` (commit de version et commit du flux) et du tag, en une fois (`--atomic`) : le workflow Pages publie le flux ;
 9. publication du brouillon.
@@ -203,12 +203,17 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 | Branche `main`, arbre propre (`git status --porcelain` vide, fichiers ignorés exceptés, ainsi que les schémas partagés des projets Xcode, qu'Xcode ouvert réécrit dans son format), `origin/main` inclus | commiter, `git switch main`, `git pull` |
 | Section `## X.Y.Z` dans `CHANGELOG.md` et `CHANGELOG.en.md` | l'ajouter aux deux |
 | Surcouche Kyber compilée avec les correctifs du dépôt : empreinte de `server/kyber-patches/*.patch` et `build.sh` égale à `kyber-overlay.stamp` ; sans empreinte, surcouche plus récente que tous ces fichiers | `server/kyber-patches/build.sh` |
-| SDK de Kyber de l'app Mac (`apps/macos/Vendor`) présent | `apps/macos/scripts/build-kyclient.sh` |
+| SDK de Kyber de l'app Mac (`apps/macos/Vendor`) présent ; en essai, celui de l'Apple TV (`apps/tvos/Vendor/KyberSDK.xcframework`) | `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh` |
+| App Windows : `libavcodec.a` et `kynput.dll` des rootfs x64 et ARM64, llvm-mingw de `scripts/kyber-toolchain.sh` | `server/kyber-patches/build.sh`, `apps/windows/scripts/build-arm64-deps.sh` |
+| App Android : clé de publication et outils (`release-apk.sh --check`) | « Clé de signature de l'app Android » |
+| App webOS : sources de Kyber (`third_party/kyber-desktop/kysdk`), cible Rust `armv7-unknown-linux-gnueabi` | `rustup target add armv7-unknown-linux-gnueabi` |
+| App Linux et KyberNow Link OS : la VM « KyberNow Linux » répond et peut construire (`release-flatpaks.sh --check`, `release-image.sh --check`) | [apps/linux/README.md](../apps/linux/README.md), [apps/linux/os/README.md](../apps/linux/os/README.md) |
+| Aucune KyberNow Link ouverte | la quitter (⌘Q) |
 | Ni tag `vX.Y.Z` ailleurs que sur le commit de version, ni release `vX.Y.Z` déjà publiée | `git tag -d vX.Y.Z` s'il reste d'un essai |
 | `gh` connecté, profil `notarytool` « kybernow » lisible (Mac déverrouillé) | `gh auth login`, voir plus bas |
 | `scripts/sign-manifest.sh` présent | sans manifeste signé, Admin refuse la mise à jour |
 | Flux cumulatif `site/updates/appcast.xml` présent | `scripts/rebuild-appcast.sh`, une fois, puis commiter |
-| Outils : xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip, python3, xmllint | Homebrew (python3 et xmllint : outils de Xcode) |
+| Outils : xcodegen, xcodebuild, npm, cargo, zstd, MinGW, zip, ditto, python3, xmllint | Homebrew (ditto, python3 et xmllint : macOS et outils de Xcode) |
 
 **Canaux.** Une version stable est la « dernière version » de GitHub (`releases/latest`), celle que voient Admin et l'app Mac. `--beta` publie une *prerelease*, jamais marquée « dernière » : son manifeste porte `"channel": "beta"` et son flux Sparkle `<sparkle:channel>beta</sparkle:channel>`. Le numéro reste `X.Y.Z` (Admin refuse tout autre format) : une bêta prend le numéro suivant, et la stable qui la suit un numéro plus haut. L'app Mac lit le flux cumulatif du site, qui réunit les deux canaux : elle ne propose une bêta que si l'utilisateur les a demandées (« Flux des mises à jour de l'app Mac », plus bas).
 
@@ -216,13 +221,13 @@ Les fichiers restent dans `dist/vX.Y.Z/`. La version que Windows affiche pour `K
 
 **Exigences d'une mise à jour.** `--min-installer A.B.C` (version de KyberNow déjà installée en dessous de laquelle le paquet est refusé, 0.2.0 par défaut) et `--requires-setup` (la mise à jour exige l'installateur) sont passés à `package-update.sh`, qui en garde une copie dans le paquet (`requirements.json`), et à `scripts/sign-manifest.sh`, dont le manifeste signé fait foi. Quand s'en servir : « Migrations des réglages », plus bas.
 
-**Ce que l'auteur prépare une fois** : `gh auth login` avec un jeton limité au dépôt `MonsieurNours/kybernow` (jeton *fine-grained*, permission Contents en lecture et écriture : releases, tags et push de `main` ; plus Workflows si `main` pousse un changement de `.github/workflows/`), le profil de notarisation et le certificat Developer ID (« Signature et notarisation de l'app Mac »), la clé Sparkle (plus haut) et la clé minisign (en-tête de `scripts/sign-manifest.sh`).
+**Ce que l'auteur prépare une fois** : `gh auth login` (jeton et droits : « Réglages GitHub qui protègent les publications » ; un jeton *fine-grained* limité au dépôt demande Contents en lecture et écriture, plus Workflows si `main` pousse un changement de `.github/workflows/`), le profil de notarisation et le certificat Developer ID (« Signature et notarisation de l'app Mac »), la clé Sparkle (plus haut) et la clé minisign (en-tête de `scripts/sign-manifest.sh`).
 
 ## Flux des mises à jour de l'app Mac
 
 L'app Mac lit `https://www.kybernow.app/updates/appcast.xml` (`SUFeedURL` dans `apps/macos/project.yml`) : le fichier `site/updates/appcast.xml` du dépôt, publié par le workflow Pages à chaque push sur `main` qui touche `site/`.
 
-- **Toutes les versions publiées**, stables et bêtas, la plus récente en premier. Chaque entrée est celle du `appcast.xml` joint à sa release, recopiée telle quelle par `scripts/merge-appcast.py` : lien de téléchargement vers `releases/download/vX.Y.Z/KyberNow-macOS.zip`, longueur, signature EdDSA, notes. Rien n'est re-signé : l'app vérifie toujours l'archive avec `SUPublicEDKey`.
+- **Toutes les versions publiées**, stables et bêtas, la plus récente en premier. Chaque entrée est celle du `appcast.xml` joint à sa release, recopiée telle quelle par `scripts/merge-appcast.py` : lien de téléchargement vers `releases/download/vX.Y.Z/KyberNow-Link-macOS.zip` (`KyberNow-macOS.zip` jusqu'à la 0.4.2), longueur, signature EdDSA, notes. Rien n'est re-signé : l'app vérifie toujours l'archive avec `SUPublicEDKey`.
 - **Canaux.** Les entrées d'une bêta portent `<sparkle:channel>beta</sparkle:channel>`, les stables aucun canal. L'app (délégué Sparkle dans `KyberNowApp.swift`) demande le canal `beta` quand « Recevoir les versions bêta » est coché dans KyberNow Link › Réglages… (`UserDefaults`, clé `receiveBetaUpdates`), aucun sinon. Sparkle propose la plus récente des entrées permises : une stable plus récente qu'une bêta installée est proposée normalement, même case cochée ; décocher la case ne fait pas revenir à la stable précédente, l'app attend la stable suivante.
 - **Apps Mac en 0.2.6 et avant.** Elles lisent `releases/latest/download/appcast.xml`, que GitHub résout vers la dernière stable. Chaque release garde donc son `appcast.xml` : ces apps y trouvent la dernière stable, qui lit ensuite le flux du site.
 - **Délai.** GitHub Pages met en cache environ 10 minutes, et le flux arrive en ligne une minute ou deux après le push, alors que la release est publiée quelques secondes après : l'app ne voit en pratique jamais une entrée dont l'archive est encore en brouillon (sauf échec entre le push et la publication : relancer la même commande publie le brouillon).
@@ -246,17 +251,18 @@ git add site/updates/appcast.xml && git commit -m "Flux des mises à jour : reco
 | App Apple TV | macOS | `xcodegen`, puis `xcodebuild` pour le simulateur, sans signature, avec le `KyberSDK-tvOS.zip` de la dernière release |
 
 Ce qu'elle ne couvre pas :
-- **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part. Pour la compiler en CI, il faudrait joindre à chaque release un `KyberSDK-macOS.zip` (le contenu de `apps/macos/Vendor`), comme `KyberSDK-tvOS.zip` pour l'Apple TV.
+- **L'app Mac.** Elle lie le SDK client de Kyber et VLC (`apps/macos/Vendor`, 88 Mo, compilés depuis les sources de Kyber par `build-kyclient.sh`), publiés nulle part.
 - **L'app Apple TV quand les correctifs client ou le cœur Rust ont changé** depuis la dernière release (`apps/macos/kyber-patches`, `build-kyber-tvos.sh`, `apps/core`, `apps/apple`) : le SDK publié ne correspond plus au code, la compilation est sautée avec un avertissement jusqu'à la release suivante.
+- **Le cœur Rust et les autres apps KyberNow Link** (`apps/core`, Windows, Android, webOS, Linux, iPhone et iPad) : ni compilés ni testés en CI ; ils demandent les sources de Kyber (`third_party/`).
 - **Les binaires Windows liés et Kyber** : la CI vérifie le code, elle ne produit ni `KyberNow-Station-Setup.exe` ni la surcouche (correctifs de Kyber, `third_party/` absent), et ne lance rien sous Windows.
-- **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign). Une CI qui construit les binaires Windows serait l'étape suivante, pour les faire signer Authenticode par SignPath (programme gratuit pour les projets libres, qui exige une construction en CI).
+- **Rien n'est signé ni publié** : la publication reste `scripts/release.sh`, sur le Mac de l'auteur (notarisation, clés Sparkle et minisign).
 
 ## Signature et notarisation de l'app Mac
 
-La version diffusée (configuration Release) est signée « Developer ID Application: Mathieu Requenna (P6DB682S4K) », avec le runtime renforcé et un horodatage sécurisé, sans autorisation de débogage. Seule autorisation demandée : la caméra (`KyberNow/KyberNow.entitlements`, pour le QR code). Les compilations de développement (Debug) gardent le certificat de développement, plus rapide.
+La version diffusée (configuration Release) est signée « Developer ID Application: Mathieu Requenna (P6DB682S4K) », avec le runtime renforcé et un horodatage sécurisé, sans autorisation de débogage. Autorisations (`apps/macos/KyberNow/KyberNow.entitlements`) : la caméra (QR code d'appairage), et le magasin clé-valeur iCloud et le groupe du Trousseau partagés avec l'app Apple TV (ordinateurs publiés pour l'Apple TV), qui exigent un profil de provisionnement. Les compilations de développement (Debug) gardent le certificat de développement, plus rapide.
 
-- `scripts/embed-kyber.sh` signe les bibliothèques de Kyber et de VLC selon la configuration.
-- `scripts/sign-release.sh`, après `xcodebuild`, re-signe les outils de Sparkle, du plus profond au framework, puis l'app. Xcode copie Sparkle après les phases du projet, avec la signature de Sparkle, que la notarisation refuse.
+- `apps/macos/scripts/embed-kyber.sh` signe les bibliothèques de Kyber et de VLC selon la configuration.
+- `apps/macos/scripts/sign-release.sh`, après `xcodebuild`, re-signe les outils de Sparkle, du plus profond au framework, puis l'app. Xcode copie Sparkle après les phases du projet, avec la signature de Sparkle, que la notarisation refuse.
 - `scripts/release.sh` envoie l'app à Apple (`notarytool`, profil `kybernow`), agrafe le ticket (`stapler`) et vérifie avec Gatekeeper avant de publier.
 
 Mise en place, une fois par Mac qui publie :
@@ -288,20 +294,21 @@ Les réglages d'Admin (`C:\ProgramData\KyberNow\kyber-admin.toml`) portent la ve
 
 Ajouter une migration : une fonction `to_N` dans `migrate.rs`, ajoutée à `MIGRATIONS`, `CURRENT` passé à N, un test sur un fichier de la version N-1, et une ligne dans ce tableau.
 
-**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et Admin refuse alors « Installer » en renvoyant vers `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` pour Admin en 0.3.1 et avant, d'où sa copie). De même, `--min-installer A.B.C` refuse le paquet sur une Station installée avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`, que `update.ps1`, sans manifeste, ne vérifie pas encore) ; le manifeste signé fait foi.
+**Mise à jour qui exige l'installateur.** Certaines versions ne peuvent pas s'installer par le paquet de mise à jour : nouveau pilote (écran virtuel, manettes), service à recréer, droits à reposer. Elles se publient avec `scripts/release.sh X.Y.Z --requires-setup` : le manifeste signé porte `"requires_setup": true` et Admin refuse alors « Installer » en renvoyant vers `KyberNow-Station-Setup.exe` (`KyberNow-Server-Setup.exe` pour Admin en 0.3.1 et avant, d'où sa copie). De même, `--min-installer A.B.C` refuse le paquet sur une Station installée avant la version A.B.C (`min_installer_version`). Le paquet en garde une copie (`requirements.json`, que `update.ps1`, sans manifeste, ne vérifie pas) ; le manifeste signé fait foi.
 
 ## Clés, compte GitHub et signature Windows
 
 ### Sauvegarde des clés de signature
 
-Deux clés privées ne doivent jamais se perdre : une nouvelle clé ferait refuser toutes les mises à jour par ce qui est déjà installé, qu'il faudrait réinstaller à la main.
+Trois clés privées ne doivent jamais se perdre : une nouvelle clé ferait refuser toutes les mises à jour par ce qui est déjà installé, qu'il faudrait réinstaller à la main.
 
 | Clé | Où elle vit | Clé publique attendue |
 |---|---|---|
 | Sparkle (app Mac, EdDSA) | Trousseau de session, élément créé par `generate_keys` | `SUPublicEDKey` dans `apps/macos/project.yml` |
-| minisign (versions Windows) | `~/Library/Application Support/KyberNow/minisign.key`, chiffrée par le mot de passe de l'élément `kybernow-minisign` du Trousseau | `server/admin/src/update/kybernow-release.pub` |
+| minisign (manifeste de chaque version, vérifié par Admin et par le cœur Rust des apps) | `~/Library/Application Support/KyberNow/minisign.key`, chiffrée par le mot de passe de l'élément `kybernow-minisign` du Trousseau | `server/admin/src/update/kybernow-release.pub` (compilée dans Admin et dans `apps/core/src/update.rs`) |
+| Android (APK publié) | `~/Library/Application Support/KyberNow/android-release.jks`, mot de passe dans l'élément `kybernow-android-keystore` du Trousseau | empreinte dans `apps/android/scripts/release-cert.sha256` (voir « Clé de signature de l'app Android ») |
 
-La sauvegarde (faite le 2026-10-21) est une image disque chiffrée en AES-256, `kybernow-cles.dmg`, volume `KyberNow-Cles`. Elle contient :
+La sauvegarde des clés Sparkle et minisign (faite le 2026-10-21) est une image disque chiffrée en AES-256, `kybernow-cles.dmg`, volume `KyberNow-Cles`. Elle contient :
 - `sparkle-kybernow.key`, la clé Sparkle exportée par `generate_keys -x`, en clair à l'intérieur de l'image ;
 - `kybernow-minisign.key` et son mot de passe `minisign-motdepasse.txt`, tiré du Trousseau sans passer par l'écran ;
 - `kybernow-minisign.pub` ;
@@ -357,8 +364,8 @@ printf 'add-generic-password -a kybernow -s kybernow-minisign -l kybernow-minisi
   - `tags-v-creation` : seul le rôle admin peut créer un tag `v*`. Le `GITHUB_TOKEN` des Actions ne le peut pas.
   - `tags-v-figes` : aucun tag `v*` ne peut être déplacé ni supprimé, sans exception. Si une publication échoue après le push du tag, publiez la version suivante, ou désactivez la règle le temps du nettoyage.
   - `main-legere` : `main` ne peut être ni supprimée ni réécrite (force push). Les pushes directs restent permis.
-- **`gh` sur le Mac de publication** : jeton OAuth de `gh` (droits larges, Mac de développement). `release.sh` s'en sert pour les releases ; les `git push` passent par SSH. Un jeton à granularité fine limité au dépôt aurait besoin au minimum de *Contents: Read and write* : GitHub n'a pas de permission plus étroite pour les releases, et ce jeton permettrait donc aussi de pousser. Retirer le droit inutile `admin:public_key`, qui permet d'ajouter une clé SSH au compte : `gh auth refresh -h github.com --remove-scopes admin:public_key`.
-- **CI** : les workflows utilisent le `GITHUB_TOKEN` fourni à chaque exécution, réduit à `contents: read`. Le réglage par défaut du dépôt est aussi la lecture seule. Aucun secret à créer.
+- **`gh` sur le Mac de publication** : jeton OAuth de `gh` (droits larges, Mac de développement). `release.sh` s'en sert pour les releases ; les `git push` passent par SSH. Un jeton à granularité fine limité au dépôt aurait besoin au minimum de *Contents: Read and write* : GitHub n'a pas de permission plus étroite pour les releases, et ce jeton permettrait donc aussi de pousser. Le droit `admin:public_key` (ajouter une clé SSH au compte) ne sert pas à la publication : `gh auth refresh -h github.com --remove-scopes admin:public_key` le retire.
+- **CI** : les workflows utilisent le `GITHUB_TOKEN` fourni à chaque exécution, réduit à `contents: read` (plus `pages: write` et `id-token: write` pour le workflow du site, qu'exige le déploiement sur Pages). Le réglage par défaut du dépôt est aussi la lecture seule. Aucun secret à créer.
 
 Relire les règles :
 
@@ -367,48 +374,10 @@ gh api repos/MonsieurNours/kybernow/rulesets --jq '.[].name'
 gh api repos/MonsieurNours/kybernow/immutable-releases
 ```
 
-### Signature Windows (Authenticode) : en attente
+### Signature Windows (Authenticode)
 
-`KyberNow-Station-Setup.exe`, `KyberNow-Link-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` et `update.ps1` ne sont pas signés : Windows affiche « Éditeur inconnu » (SmartScreen, UAC). Cette signature ne remplacerait pas minisign. Authenticode dit qui a signé ; minisign prouve que c'est la clé de KyberNow, gravée dans Admin, ce qui protège aussi contre un compte GitHub compromis.
+`KyberNow-Station-Setup.exe`, `KyberNow-Link-Setup.exe`, `kyber-admin.exe`, `kybernow-tray.exe` et `update.ps1` ne sont pas signés Authenticode : Windows affiche « Éditeur inconnu » (SmartScreen, UAC). Authenticode ne remplacerait pas minisign : il dit qui a signé ; minisign prouve que c'est la clé de KyberNow, gravée dans Admin, ce qui protège aussi contre un compte GitHub compromis.
 
-Décision du 2026-10-21 : **reportée**, à reprendre quand le build Windows sera plus mûr. L'option visée est SignPath Foundation (gratuite).
+Le pilote d'écran virtuel (SudoVDA) est autosigné : l'installateur de la Station ajoute son certificat, `sudovda.cer` (usage « Code Signing »), aux magasins Root et TrustedPublisher (`server/installer/src/install.rs`), et le désinstalleur l'en retire.
 
-À savoir avant d'y revenir (vérifié le 2026-10-21) :
-- **Nom affiché.** Le SIREN 510 178 577 figure dans SIRENE au nom de « MATTHIEU REQUENNA », sans nom commercial. Aucun certificat ne peut donc porter « Les Lignes Claires » tant que ce nom n'est pas déclaré au registre (guichet unique de l'INPI, à vérifier).
-- **Durée maximale** d'un certificat : 460 jours depuis le 2026-03-01.
-- **SmartScreen.** Aucun certificat, EV compris, ne donne de réputation immédiate. Elle se construit avec les installations et se garde tant que l'identité de signature ne change pas.
-
-| Option | Prix (2026-10) | Éditeur affiché | Signature depuis le Mac | Remarques |
-|---|---|---|---|---|
-| SignPath Foundation | gratuit | « SignPath Foundation » | non | build Windows obligatoire sur les runners GitHub, approbation manuelle de chaque version |
-| Certum Open Source | 69 € (carte + lecteur) ou 49 € (nuage SimplySign) par an | « Open Source Developer, Matthieu Requenna » | oui, `jsign` (carte) | réservé aux personnes physiques |
-| Azure Artifact Signing | 9,99 $/mois | nom légal | oui, `jsign` | particuliers : États-Unis et Canada seulement ; EI française non documentée |
-| IV / OV (SSL.com, Sectigo, Certum) | IV 129 $/an + jeton ou nuage ; OV ≈ 200–400 $/an | « Matthieu Requenna » | oui, `jsign` | clé sur jeton ou dans le nuage, obligatoire |
-| EV | ≈ 330–380 €/an | « Matthieu Requenna » | oui, `jsign` | indispensable pour un pilote attesté |
-
-Ce que SignPath demandera :
-- **Construire toute la partie Windows dans GitHub Actions** : Admin, icône, installateurs, **surcouche Kyber** (`server/kyber-patches/build.sh`), et paquets tiers téléchargés puis vérifiés par empreinte.
-- Une requête de signature par version (`signpath/github-action-submit-signing-request`, jeton d'API en secret Actions), avec approbation manuelle sur signpath.io.
-- Sur www.kybernow.app :
-  - une page « Code signing policy », avec la phrase « Free code signing provided by SignPath.io, certificate by SignPath Foundation » ;
-  - les rôles (auteur, relecteur, approbateur) ;
-  - une déclaration de confidentialité, qui mentionne la vérification des mises à jour auprès de GitHub toutes les 6 heures.
-- Dans chaque fichier signé, `ProductName = KyberNow` et la même version.
-- La 2FA sur le compte SignPath.
-- Deux points à déclarer, qui peuvent bloquer l'admission :
-  - l'installateur ajoute `sudovda.cer` (autosigné, usage « Code Signing ») aux magasins Root et TrustedPublisher ;
-  - `WebView2Loader.dll` est un composant Microsoft redistribuable, pas open source.
-
-Intégration, quelle que soit l'option, dans cet ordre :
-1. signer `kyber-admin.exe`, `kybernow-tray.exe` et `update.ps1` ;
-2. construire `kybernow-update.zip` et `KyberNow-Station-Setup.exe`, puis signer l'installateur (de même `KyberNow-Link-Setup.exe`) ; copier ensuite les installateurs signés sous leurs anciens noms ;
-3. calculer `SHA256SUMS` et signer le manifeste minisign, en dernier, car la signature Authenticode change les empreintes.
-
-`jsign` (Homebrew) signe depuis le Mac les `.exe`, `.cab` et scripts PowerShell. Avec SignPath, `release.sh` récupérerait les fichiers signés par la CI (`gh run download`) avant l'étape 3.
-
-Pilote d'écran virtuel attesté (pour remplacer SudoVDA autosigné, plus tard) :
-- un certificat **EV** ;
-- un compte Partner Center « Hardware » (gratuit, l'EV sert à l'inscription) ;
-- la soumission d'un `.cab` signé EV, que Microsoft renvoie signé, valable sur Windows 10/11 de bureau.
-
-Azure Artifact Signing n'est pas accepté pour cela. À vérifier avant d'acheter : que Partner Center accepte une EI française.
+**Piège, pour toute signature Authenticode** : elle change les empreintes des fichiers signés. `SHA256SUMS` et le manifeste minisign se calculent après elle, et les copies sous les anciens noms se font depuis les fichiers signés.

@@ -1,8 +1,10 @@
 #!/bin/bash
 # Compile KyberNow Link pour les téléviseurs LG (webOS) : le binaire natif
-# kybernow-webos (cœur client apps/core et couche webOS apps/webos), avec les
-# correctifs KyberNow de kyclient (apps/macos/kyber-patches), libkynput (sans
-# SDL : les manettes passent par l'app), libopus et les fonctions vides de VLC.
+# kybernow-webos (cœur client apps/core et couche webOS apps/webos), avec la
+# SDL2 de webOS (et apps/webos/sdl-patches), les correctifs KyberNow de Kyber
+# (apps/macos/kyber-patches, puis apps/webos/kyber-patches), libkynput (sans
+# SDL : les manettes passent par l'app), libopus, les encodeurs ac3 et eac3 de
+# FFmpeg et les fonctions vides de VLC.
 # Puis le paquet .ipk (scripts/package.sh), sauf avec --no-package.
 #
 #   apps/webos/scripts/build.sh               binaire et paquet
@@ -12,7 +14,8 @@
 #
 # Chaîne de compilation : celle de webosbrew (openlgtv/buildroot-nc4, gcc 16,
 # glibc 2.12, armv7 softfp), dans third_party/webos-toolchain ou WEBOS_TOOLCHAIN ;
-# téléchargée si absente (Linux x86_64). Cible Rust armv7-unknown-linux-gnueabi.
+# téléchargée si absente (Linux x86_64, ou native-toolchain sur Mac Apple
+# Silicon). Cible Rust armv7-unknown-linux-gnueabi.
 #
 # S'arrête à la première erreur sans toucher au binaire déjà en place.
 set -euo pipefail

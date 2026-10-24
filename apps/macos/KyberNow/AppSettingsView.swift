@@ -1,4 +1,4 @@
-// Réglages de l'app (KyberNow > Réglages…, ⌘,) : ce qui vaut pour tous les
+// Réglages de l'app (KyberNow Link › Réglages…, ⌘,) : ce qui vaut pour tous les
 // ordinateurs. Les réglages de connexion, eux, vont par ordinateur.
 
 import KyberKit

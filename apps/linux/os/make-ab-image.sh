@@ -17,7 +17,8 @@
 # L'identifiant de disque est fixe (0x4b79624e) : les PARTUUID le sont aussi
 # (4b79624e-01 … -06), écrits dans cmdline.txt et fstab. autoboot.txt :
 # [all] tryboot_a_b=1 boot_partition=1 / [tryboot] boot_partition=3 ; la mise à
-# jour (kybernow-os-update) écrit bootB et rootB, essaie B, puis l'inscrit.
+# jour (kybernow-os-update) écrit l'emplacement libre (B, puis A, puis B…),
+# l'essaie, puis l'inscrit par défaut.
 set -euo pipefail
 BASE="$1"; OUT="$2"
 [ "$(id -u)" = 0 ] || { echo "à lancer en root (losetup, mount)" >&2; exit 1; }

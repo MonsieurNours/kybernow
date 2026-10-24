@@ -1,8 +1,8 @@
 //! Son de la session : Opus décodé par le moteur du cœur (tampon adaptatif,
 //! masquage des pertes, dérive des horloges, mixage vers le bas), tiré par le
-//! rappel de SDL (PipeWire ou PulseAudio), aux voies de la sortie : stéréo,
-//! 5.1 ou 7.1, dans l'ordre de SDL (celui de Windows : G, D, C, LFE, arrière,
-//! côtés).
+//! rappel de SDL (PipeWire ou PulseAudio ; ALSA sur KyberNow Link OS), aux
+//! voies de la sortie : stéréo, 5.1 ou 7.1, dans l'ordre de SDL (celui de
+//! Windows : G, D, C, LFE, arrière, côtés).
 
 use std::ffi::{c_int, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};

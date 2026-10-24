@@ -62,6 +62,6 @@ enum AudioOutput {
     /// Canaux à demander à l'ordinateur. Stéréo par défaut : le nombre de
     /// sorties d'une carte son ne dit rien des enceintes branchées (une
     /// Focusrite à 8 sorties pilote souvent une simple paire). Le 5.1 et le
-    /// 7.1 viendront d'un choix explicite dans les réglages de l'app.
+    /// 7.1 se choisissent dans les réglages de l'ordinateur (`AudioChoice`).
     static func channels() -> Int { 2 }
 }

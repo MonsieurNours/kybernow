@@ -1,4 +1,4 @@
-//! Pont C du moteur de son du cœur (`kybernow_core::audio`, jalon 3 de
+//! Pont C du moteur de son du cœur (`kybernow_core::audio`, voir
 //! docs/coeur-apple.md) : Opus, tampon adaptatif, dérive, masquage, mixage
 //! descendant. Swift ne garde que la sortie (Core Audio, RemoteIO) : son fil
 //! temps réel tire les échantillons par `kn_audio_fill`.

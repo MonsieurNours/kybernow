@@ -5,9 +5,9 @@
 	<!-- Runtime renforcé : la caméra lit le QR code d'appairage de la console. -->
 	<key>com.apple.security.device.camera</key>
 	<true/>
-	<!-- iCloud : ordinateurs publiés pour l'Apple TV (même magasin clé-valeur
-	     et même groupe du Trousseau que l'app Apple TV). Exigent un profil de
-	     provisionnement. -->
+	<!-- iCloud : ordinateurs publiés pour l'Apple TV, l'iPhone et l'iPad (même
+	     magasin clé-valeur et même groupe du Trousseau que leurs apps).
+	     Exigent un profil de provisionnement. -->
 	<key>com.apple.developer.ubiquity-kvstore-identifier</key>
 	<string>$(TeamIdentifierPrefix)fr.leslignesclaires.kybernow</string>
 	<key>keychain-access-groups</key>

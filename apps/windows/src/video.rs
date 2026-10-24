@@ -231,7 +231,8 @@ fn run(
     let mut hw_allowed = opts.hardware;
     let mut unsupported_logged = false;
     let mut last_request = Instant::now() - Duration::from_secs(1);
-    // Diagnostic : ce qui arrive vraiment (le journal disait seulement « rien »).
+    // Diagnostic : le journal note le format annoncé, les paramètres, les
+    // premières données et la première image clé.
     let (mut seen_codec, mut seen_config, mut seen_frame, mut seen_key) = (false, false, false, false);
     let mut dropped: u64 = 0;
     // Format voulu par la session, et s'il a été annoncé depuis son dernier changement.

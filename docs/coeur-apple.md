@@ -2,7 +2,7 @@
 
 [English](coeur-apple.en.md) · Français
 
-Les apps Mac, Apple TV, iPhone et iPad reposent sur le cœur client en Rust (`apps/core`, crate `kybernow-core`), celui de l'app Windows. Tout ce qui ne dépend pas de l'affichage y est : la session (dialogue avec Admin, Kyber, reconnexion, image clé, écran, latence, profils), les entrées et le son. Le décodage (VideoToolbox), le rendu (Metal), les vues et les API du système restent en Swift. Un seul code pour quatre apps.
+Les apps Mac, Apple TV, iPhone et iPad reposent sur le cœur client en Rust (`apps/core`, crate `kybernow-core`), celui de toutes les apps KyberNow Link ([apps/core/README.md](../apps/core/README.md)). Tout ce qui ne dépend pas de l'affichage y est : la session (dialogue avec Admin, Kyber, reconnexion, image clé, écran, latence, profils), les entrées et le son. Le décodage (VideoToolbox), le rendu (Metal), les vues et les API du système restent en Swift. Un seul code pour toutes les apps.
 
 ## Ce qui va où
 
@@ -27,7 +27,7 @@ vu de Swift                                 son : Opus, tampon adaptatif, dériv
 
 Le cœur ne sait rien de l'affichage : la plateforme lui donne un `Platform` (fenêtre, où envoyer les paquets d'image et de son, la chaîne d'entrées kynput, les rappels d'état). Sur Mac, Apple TV, iPhone et iPad, c'est `SessionEngine.swift` (KyberKit commun) qui le fournit, à travers l'API C.
 
-L'app Windows utilise la même session, le même module d'entrées et le même moteur de son ; son presse-papiers reste celui de kynput. Ce que la session sait pour les apps Apple (trajet d'une image et pertes dans la latence, demande d'image clé répétée toutes les 300 ms puis flux relancé à 1,5 s, repli quand aucune image ne vient en 4 s — débit ramené à 250 Mbit/s, puis 4:2:0, pour cette session seulement —, suivi de la taille de l'écran de l'ordinateur, politique de mode avec « Remettre », adaptation à un nouveau mode de l'écran de l'appareil, choix d'un écran dans la barre, plafond de débit, compte rendu de fin) est désactivable ou sans effet pour Windows, qui garde ses propres veilles d'image clé et de première image.
+L'app Windows utilise la même session, le même module d'entrées et le même moteur de son ; son presse-papiers reste celui de kynput. Ce que la session sait pour les apps Apple (trajet d'une image et pertes dans la latence, demande d'image clé répétée toutes les 300 ms puis flux relancé à 1,5 s, repli quand aucune image ne vient en 4 s — débit ramené à 250 Mbit/s, puis 4:2:0, pour cette session seulement —, suivi de la taille de l'écran de l'ordinateur, politique de mode avec « Remettre », adaptation à un nouveau mode de l'écran de l'appareil, choix d'un écran dans la barre, plafond de débit, compte rendu de fin) est désactivable ou sans effet pour Windows, qui garde ses propres veilles d'image clé et de première image. Les apps Android, Linux et webOS se servent des veilles du cœur, comme les apps Apple.
 
 ## Chaque app
 
@@ -48,15 +48,15 @@ Une API C écrite à la main (préfixe `kn_`), en-tête `kybernow.h` produit par
 Règles de l'API :
 
 - **Objets opaques** (`KnConsole`, `KnSession`, `KnInput`, `KnPointer`, `KnAudio`, `KnCombo`) créés et libérés par le cœur ; aucune structure Rust n'est exposée.
-- **Résultats composés en JSON** (`char *`, libéré par `kn_string_free`) : les réponses d'Admin, les réglages d'une session. Les mesures de chaque seconde (`KnSecond`) et les paquets (`KnPacket`) sont des structures C plates : chemin chaud, sans copie ni allocation.
+- **Résultats composés en JSON** (`char *`, libéré par `kn_string_free`) : les réponses d'Admin, les réglages d'une session. L'aperçu JPEG d'Admin arrive en octets, libérés par `kn_bytes_free`. Les mesures de chaque seconde (`KnSecond`) et les paquets (`KnPacket`) sont des structures C plates : chemin chaud, sans copie ni allocation.
 - **Rappels** (`KnPlatform`) : des pointeurs de fonction et un `userdata` ; le cœur les appelle depuis ses propres fils (fil de session, fil réseau de Kyber pour les paquets). Swift remonte sur le fil principal ce qui touche l'interface ; les paquets vont directement au décodeur.
-- **Paquets** : `video_packet` et `audio_packet` reçoivent `KnPacket` (format, configuration ou image, image clé, pts, données en place, trou avec le nombre d'échantillons manquants) ; le dernier appel d'un flux porte `KN_PACKET_CLOSED`, après quoi le cœur ne rappelle plus pour ce flux : Swift arrête alors son décodeur ou sa sortie du son.
+- **Paquets** : `video_packet` et `audio_packet` reçoivent `KnPacket` (numéro du flux, format, configuration ou image, image clé, pts, données en place, trou avec le nombre d'échantillons manquants) ; un nouveau numéro de flux, un nouveau décodeur ; le dernier appel d'un flux porte `KN_PACKET_CLOSED`, après quoi le cœur ne rappelle plus pour ce flux : Swift arrête alors son décodeur ou sa sortie du son.
 - **Chaîne d'entrées** : `input_pipeline()` rend la chaîne kynput d'un `KnInput` (`kn_input_new`, sur la couche de pointeur `KnPointer` de la vue, `kn_input_kynput`) ; le cœur la passe à Kyber avec la session d'image. Swift ne fait que donner les événements captés (`kn_input_key`, `mouse`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, modificateurs tenus et resynchronisés) et dessiner le pointeur (`on_changed` de `KnPointerCallbacks`, forme en ARGB prémultiplié) ; les rappels d'interface (combinaison, touches de navigation, entrées reliées, vibrations, presse-papiers) passent par `KnInputCallbacks`.
 - **Son** : un `KnAudio` par flux (`kn_audio_new`, ordre des voies de la sortie) reçoit les paquets (`configure`, `decode`, `conceal`) ; le fil temps réel de la sortie tire les échantillons par `kn_audio_fill` et les mesures par `kn_audio_take_stats`.
 - **Latence** : le rendu Metal dit au cœur chaque image montrée (`kn_session_frame_displayed`, instants en µs sur `CLOCK_MONOTONIC`, `kn_now_micros`), remplacée, les octets reçus et les trous ; le cœur rend chaque seconde un `KnSecond` (médiane, trajet d'une image, pertes, mesures rejetées, aller-retour, débit) par `on_second`.
 - **États** (`on_status`) : préparation, connexion, premières images, image, reconnexion (essai, maximum), fin, terminée (avec la raison si elle n'était pas voulue, et le compte rendu d'Admin : écrans et son rétablis).
 - **Avis** (`on_notice`) : ce que la session montre dans une capsule, sans texte (Swift le traduit) : image relancée, mode de l'ordinateur changé ou revenu (avec la taille), repli (niveau), adaptation à l'écran (demandée, faite, refusée), « Remettre » proposé ou retiré.
-- **Commandes** : arrêt, image clé perdue ou revenue, nouveaux réglages (profil depuis la barre), plafond de débit (fenêtre occultée), écran choisi, nouveau mode (adaptation à l'écran de l'appareil), remise du mode.
+- **Commandes** : arrêt, image clé perdue ou revenue, nouveaux réglages (profil depuis la barre), plafond de débit (fenêtre occultée), image figée par l'app (`kn_session_set_hidden` : la veille « aucune image » attend le retour), taille des images décodées (`kn_session_decoded_size`), écran choisi, nouveau mode (adaptation à l'écran de l'appareil), remise du mode.
 - **Journal** : le cœur écrit par la crate `log` ; `kn_set_log_callback` l'envoie à `KyberLog` (journal unifié, catégorie `core`).
 
 ## Compiler et livrer
@@ -83,6 +83,6 @@ cd apps/macos && xcodegen generate && xcodebuild -scheme KyberNow -configuration
 
 ## État
 
-- Vérifié sur le matériel : session Mac complète, entrées et son compris ; session sur un iPhone 15 Pro Max (22/10/2026).
-- Pas encore essayé : l'app Apple TV (installée sur une Apple TV, pas encore lancée) ; l'iPad (absent du profil de provisionnement) ; l'écran externe et Stage Manager ; le client Windows avec ses entrées et son son sur le cœur.
-- L'app iPhone et iPad n'est pas encore distribuée : TestFlight interne à venir (profil App Store à créer) ; installation depuis un Mac avec Xcode en attendant ([apps/ios/SIDELOAD.md](../apps/ios/SIDELOAD.md)).
+- Vérifié sur le matériel : session Mac complète, entrées et son compris ; session sur un iPhone 15 Pro Max (22/10/2026) ; session sur une Apple TV et sur un iPad ; le client Windows avec les entrées et le son du cœur.
+- Pas encore essayé : l'écran externe et Stage Manager.
+- L'app iPhone et iPad s'installe depuis un Mac avec Xcode, signée avec son propre compte Apple ([apps/ios/SIDELOAD.md](../apps/ios/SIDELOAD.md)) ; pas de TestFlight ni d'App Store.

@@ -11,20 +11,25 @@
 # Ordre, pour que les binaires publiés soient ceux du commit étiqueté :
 #   1. vérifications préalables (branche main, arbre propre et à jour avec
 #      origin, CHANGELOG.md et CHANGELOG.en.md, surcouche Kyber compilée avec
-#      les correctifs du dépôt, gh connecté, profil notarytool, sign-manifest.sh) ;
+#      les correctifs du dépôt, SDK et bibliothèques natives des apps, clé de
+#      l'app Android, VM « KyberNow Linux », outils, gh connecté, profil
+#      notarytool, sign-manifest.sh, aucune KyberNow Link ouverte) ;
 #   2. alignement des versions (Admin, icône, installateur de la Station, apps
 #      KyberNow Link) et commit « KyberNow X.Y.Z » ;
 #   3. construction depuis ce commit : installateur de la Station, paquet de
 #      mise à jour, app Mac (Developer ID), apps Apple TV et iPhone/iPad et leurs
 #      SDK, app Windows et son installateur, app Android (APK signé), app des
-#      téléviseurs LG (paquet webOS), app Linux (deux Flatpak, construits
-#      dans la VM « KyberNow Linux ») ; l'arbre doit rester propre (sinon
-#      les binaires ne correspondraient pas au commit) ;
+#      téléviseurs LG (paquet webOS), app Linux (deux Flatpak) et paquet .deb
+#      du Raspberry Pi, image KyberNow Link OS (ces trois-là dans la VM
+#      « KyberNow Linux ») ; l'arbre doit rester propre (sinon les binaires ne
+#      correspondraient pas au commit) ;
 #   4. notarisation de l'app Mac (Apple), agrafage, Gatekeeper ;
-#   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta),
-#      SHA256SUMS, manifeste signé (scripts/sign-manifest.sh, minisign) ;
-#      flux cumulatif du site (site/updates/appcast.xml, stables et bêtas,
-#      lu par l'app Mac) mis à jour et commité après le commit de version ;
+#   5. flux Sparkle signé EdDSA (sparkle:channel beta pour une bêta) ; flux
+#      cumulatif du site (site/updates/appcast.xml, stables et bêtas, lu par
+#      l'app Mac), notes françaises (site/updates/notes/) et dépôt de Raspberry
+#      Pi Imager (site/updates/rpi-imager.json) mis à jour et commités après le
+#      commit de version ; SHA256SUMS, manifeste signé (scripts/sign-manifest.sh,
+#      minisign) ;
 #   6. release GitHub en brouillon, avec tous les fichiers ;
 #   7. tag vX.Y.Z sur le commit de version, 8. push de main (commit de
 #      version et flux du site) et du tag (atomique), 9. publication.
@@ -39,7 +44,9 @@
 # build-kyclient.sh), gh connecté, clé Sparkle dans le Trousseau, certificat
 # Developer ID et profil de notarisation « kybernow », clé minisign de
 # sign-manifest.sh, clé de l'app Android (apps/android/scripts/release-apk.sh),
-# Android Studio (SDK et NDK 27.2.12479018) et cibles Rust Android. Voir docs/releases.md.
+# Android Studio (SDK et NDK 27.2.12479018) et cibles Rust Android, bibliothèques
+# natives de l'app Windows (x64 et ARM64, llvm-mingw), cible Rust de webOS, VM
+# Parallels « KyberNow Linux » (Flatpak, .deb, KyberNow Link OS). Voir docs/releases.md.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO="MonsieurNours/kybernow"
@@ -94,7 +101,7 @@ SITE_FEED="site/updates/appcast.xml"
 FEED_SUBJECT="Flux des mises à jour : KyberNow $VERSION"
 # Installateurs : KyberNow-Station-Setup.exe (la Station) et
 # KyberNow-Link-Setup.exe (app Windows). Leurs anciens noms sont publiés à
-# l'identique (copies) quelques versions encore : l'app Windows en 0.3.1 et
+# l'identique (copies) : l'app Windows en 0.3.1 et
 # avant cherche KyberNow-Client-Setup.exe dans le manifeste et la release,
 # Admin en 0.3.1 et avant renvoie vers KyberNow-Server-Setup.exe, et les liens
 # existants (…/latest/download/) mènent à KyberNow-Setup.exe (nom d'avant la

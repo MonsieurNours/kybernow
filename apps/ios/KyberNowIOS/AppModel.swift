@@ -121,7 +121,7 @@ final class AppModel: ObservableObject {
         controller.start()
     }
 
-    /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console,
+    /// kybernow://adresse:port?name=…&fp=… (QR code ou lien d'Admin,
     /// AirDrop, Messages) : l'ajout s'ouvre, pré-rempli.
     func open(_ url: URL) {
         guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }

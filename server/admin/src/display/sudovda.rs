@@ -1,5 +1,5 @@
 //! Client du pilote d'écran virtuel SudoVDA (interface IOCTL d'Apollo,
-//! `third-party/sudovda/sudovda-ioctl.h`, protocole 0.2).
+//! `third-party/sudovda/sudovda-ioctl.h` dans les sources d'Apollo, protocole 0.2).
 //!
 //! Le pilote retire tout seul ses écrans s'il ne reçoit plus de signal de vie
 //! (`ping`) pendant la durée de son chien de garde (3 s par défaut).

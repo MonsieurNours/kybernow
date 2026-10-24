@@ -1,6 +1,6 @@
 //! Son sans VLC : paquets Opus de Kyber → libopus → la sortie de la
-//! plateforme (Core Audio, WASAPI), comme `AudioPlayer.swift` des apps
-//! Apple, écrit une fois en Rust.
+//! plateforme (Core Audio, WASAPI, AAudio, SDL), écrit une fois en Rust pour
+//! toutes les apps.
 //!
 //! Latence : un petit tampon entre la réception (un paquet de 10 ou 20 ms à
 //! la fois, plus ou moins régulier) et la carte son (qui réclame quelques

@@ -29,13 +29,15 @@ use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThre
 use windows::core::{HSTRING, Interface, PCWSTR};
 
 /// Identité des notifications (inscrite dans HKCU\Software\Classes\AppUserModelId).
-/// Elle ne change pas : seul son nom affiché ([`DISPLAY_NAME`]) a changé.
+/// Ne pas la changer : c'est celle déjà inscrite sur les PC où l'app est
+/// installée ; le nom montré est [`DISPLAY_NAME`].
 pub const AUMID: &str = "LesLignesClaires.KyberNow";
 /// Nom affiché de l'app : notifications, lien `kybernow://`, raccourcis.
 pub const DISPLAY_NAME: &str = "KyberNow Link";
 /// Raccourcis du menu Démarrer et du Bureau.
 const SHORTCUT: &str = "KyberNow Link.lnk";
-/// Nom des raccourcis jusqu'à la 0.3.1 : retiré quand les nouveaux sont posés.
+/// Nom des raccourcis posés par les versions 0.3.1 et avant : retiré quand les
+/// nouveaux sont posés.
 const OLD_SHORTCUT: &str = "KyberNow.lnk";
 
 fn exe() -> PathBuf {

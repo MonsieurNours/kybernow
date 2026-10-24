@@ -6,7 +6,9 @@
 //!   chaque image clé qui (re)démarre le décodeur ; après une perte, rien
 //!   avant l'image clé suivante, redemandée par le cœur.
 //! - Son : Opus décodé par le moteur du cœur (tampon adaptatif, masquage,
-//!   mixage en stéréo), tiré par le rappel de SDL (PulseAudio du téléviseur).
+//!   mixage en stéréo), tiré par le rappel de SDL (PulseAudio du téléviseur) ;
+//!   en 5.1, décodé par l'app et donné en PCM 6 voies au plan de son de NDL,
+//!   ou encodé en E-AC-3 pour la chaîne Dolby (`esplayer.rs`).
 
 use std::ffi::{c_int, c_void};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -157,7 +159,9 @@ impl Feeder {
     }
 
     fn frame(&mut self, key: bool, pts: u64, data: &[u8], received: i64) {
-        // Nouveau jeu de paramètres sur une image clé : le décodeur est refait.
+        // Nouveau jeu de paramètres sur une image clé : `ndl::ensure` recharge
+        // NDL si le format, la taille ou le plan de son ont changé, et les
+        // paramètres repartent devant cette image clé.
         let stale = key && !self.config.is_empty() && self.loaded_config.as_ref().is_some_and(|c| *c != self.config);
         if self.loaded_config.is_none() || stale {
             if !key {
@@ -262,8 +266,9 @@ enum Route {
 /// arrière D, LFE).
 const PCM_ORDER: [usize; 6] = [0, 2, 1, 5, 3, 4];
 
-/// Le son de la session : 5.1 par NDL quand il est demandé et que le flux
-/// s'y prête, sinon moteur du cœur et sortie SDL en stéréo.
+/// Le son de la session : 5.1 (PCM au plan de NDL, ou E-AC-3 à la chaîne
+/// Dolby) quand il est demandé et que le flux s'y prête, sinon moteur du cœur
+/// et sortie SDL en stéréo.
 pub struct AudioSink {
     engine: Arc<AudioEngine>,
     device: Mutex<u32>,
@@ -271,21 +276,21 @@ pub struct AudioSink {
     holder: Mutex<Option<Box<Arc<AudioEngine>>>>,
     surround: bool,
     route: Mutex<Route>,
-    /// L'en-tête Opus, pour repasser par SDL si NDL refuse le son.
+    /// L'en-tête Opus, pour repasser par SDL si NDL ou la chaîne Dolby refusent le son.
     head: Mutex<Vec<u8>>,
-    /// Décodeur 5.1 de la route NDL, et ses tampons.
+    /// Décodeur 5.1 des routes NDL et Dolby, et ses tampons.
     decoder: Mutex<Option<(opus::Decoder, Vec<f32>, Vec<u8>)>>,
     /// Encodeur E-AC-3 de la route Dolby.
     encoder: Mutex<Option<eac3::Encoder>>,
     /// Son 5.1 demandé : PCM (`false`) ou Dolby (`true`).
     dolby: bool,
-    /// Paquets donnés à NDL (journal).
+    /// Paquets donnés à NDL ou à la chaîne Dolby (journal).
     ndl_packets: Mutex<u64>,
 }
 
 impl AudioSink {
-    /// `surround` : le son 5.1 est demandé à l'ordinateur et confié à NDL ;
-    /// `dolby` : encodé en E-AC-3 plutôt que donné en PCM.
+    /// `surround` : le son 5.1 est demandé à l'ordinateur et décodé par l'app ;
+    /// `dolby` : encodé en E-AC-3 pour la chaîne Dolby plutôt que donné en PCM à NDL.
     pub fn new(surround: bool, dolby: bool) -> Arc<Self> {
         let engine = Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), OutputOrder::Windows));
         Arc::new(Self {
@@ -302,7 +307,7 @@ impl AudioSink {
         })
     }
 
-    /// Les trames E-AC-3 de ce PCM 5.1 (ordre G, D, C, LFE, arrière G, arrière D) à NDL.
+    /// Les trames E-AC-3 de ce PCM 5.1 (ordre G, D, C, LFE, arrière G, arrière D) à la chaîne Dolby.
     fn feed_dolby(&self, pcm: &[f32]) {
         let frames = {
             let mut g = self.encoder.lock().unwrap();
@@ -329,8 +334,8 @@ impl AudioSink {
         }
     }
 
-    /// Décode un paquet (ou masque `conceal` images) en PCM S16LE 6 voies
-    /// dans l'ordre de NDL, et le lui donne.
+    /// Décode un paquet (ou masque `conceal` images) en PCM 6 voies dans
+    /// l'ordre de NDL, et le donne à NDL (S16LE) ou à l'encodeur E-AC-3.
     fn feed_ndl(&self, data: Option<&[u8]>, conceal: usize) {
         let mut g = self.decoder.lock().unwrap();
         let Some((dec, pcm, bytes)) = g.as_mut() else { return };

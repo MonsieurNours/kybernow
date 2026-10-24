@@ -2,7 +2,7 @@
 
 English · [Français](coeur-apple.md)
 
-The Mac, Apple TV, iPhone and iPad apps rest on the Rust client core (`apps/core`, crate `kybernow-core`), the one the Windows app uses. Everything that does not depend on display lives there: the session (talking to Admin, Kyber, reconnection, keyframe, display, latency, profiles), the inputs and the sound. Decoding (VideoToolbox), rendering (Metal), the views and the system APIs stay in Swift. One code for four apps.
+The Mac, Apple TV, iPhone and iPad apps rest on the Rust client core (`apps/core`, crate `kybernow-core`), the one every KyberNow Link app uses ([apps/core/README.en.md](../apps/core/README.en.md)). Everything that does not depend on display lives there: the session (talking to Admin, Kyber, reconnection, keyframe, display, latency, profiles), the inputs and the sound. Decoding (VideoToolbox), rendering (Metal), the views and the system APIs stay in Swift. One code for every app.
 
 ## What goes where
 
@@ -27,7 +27,7 @@ as seen from Swift                          sound: Opus, adaptive buffer, drift,
 
 The core knows nothing of display: the platform hands it a `Platform` (window, where to send picture and sound packets, the kynput input chain, state callbacks). On the Mac, Apple TV, iPhone and iPad, `SessionEngine.swift` (shared KyberKit) provides it, through the C API.
 
-The Windows app uses the same session, the same input module and the same sound engine; its clipboard stays kynput's. What the session does for the Apple apps (path of a frame and losses in the latency, keyframe request repeated every 300 ms then the stream relaunched at 1.5 s, fallback when no picture comes within 4 s — bitrate brought down to 250 Mbit/s, then 4:2:0, for this session only —, tracking of the computer's display size, mode policy with “Restore”, adapting to a new mode of the device's screen, choosing a display from the bar, bitrate cap, end report) can be switched off or has no effect for Windows, which keeps its own keyframe and first-picture watches.
+The Windows app uses the same session, the same input module and the same sound engine; its clipboard stays kynput's. What the session does for the Apple apps (path of a frame and losses in the latency, keyframe request repeated every 300 ms then the stream relaunched at 1.5 s, fallback when no picture comes within 4 s — bitrate brought down to 250 Mbit/s, then 4:2:0, for this session only —, tracking of the computer's display size, mode policy with “Restore”, adapting to a new mode of the device's screen, choosing a display from the bar, bitrate cap, end report) can be switched off or has no effect for Windows, which keeps its own keyframe and first-picture watches. The Android, Linux and webOS apps use the core's watches, like the Apple apps.
 
 ## Each app
 
@@ -48,15 +48,15 @@ A hand-written C API (`kn_` prefix), `kybernow.h` header produced by cbindgen th
 API rules:
 
 - **Opaque objects** (`KnConsole`, `KnSession`, `KnInput`, `KnPointer`, `KnAudio`, `KnCombo`) created and freed by the core; no Rust structure is exposed.
-- **Composite results as JSON** (`char *`, freed by `kn_string_free`): Admin's replies, a session's settings. Each second's measurements (`KnSecond`) and packets (`KnPacket`) are flat C structs: hot path, no copy, no allocation.
+- **Composite results as JSON** (`char *`, freed by `kn_string_free`): Admin's replies, a session's settings. Admin's JPEG preview comes as bytes, freed by `kn_bytes_free`. Each second's measurements (`KnSecond`) and packets (`KnPacket`) are flat C structs: hot path, no copy, no allocation.
 - **Callbacks** (`KnPlatform`): function pointers and a `userdata`; the core calls them from its own threads (session thread, Kyber's network thread for packets). Swift hops to the main thread for what touches the interface; packets go straight to the decoder.
-- **Packets**: `video_packet` and `audio_packet` receive a `KnPacket` (format, configuration or frame, keyframe, pts, data in place, hole with the number of missing samples); the last call of a stream carries `KN_PACKET_CLOSED`, after which the core never calls again for that stream: Swift then stops its decoder or its sound output.
+- **Packets**: `video_packet` and `audio_packet` receive a `KnPacket` (stream number, format, configuration or frame, keyframe, pts, data in place, hole with the number of missing samples); a new stream number, a new decoder; the last call of a stream carries `KN_PACKET_CLOSED`, after which the core never calls again for that stream: Swift then stops its decoder or its sound output.
 - **Input chain**: `input_pipeline()` returns the kynput chain of a `KnInput` (`kn_input_new`, on the view's `KnPointer` pointer layer, `kn_input_kynput`); the core passes it to Kyber with the picture session. Swift only hands over the captured events (`kn_input_key`, `mouse`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, held and resynced modifiers) and draws the pointer (`on_changed` of `KnPointerCallbacks`, shape in premultiplied ARGB); interface callbacks (combination, navigation keys, inputs connected, rumble, clipboard) go through `KnInputCallbacks`.
 - **Sound**: one `KnAudio` per stream (`kn_audio_new`, the output's channel order) receives the packets (`configure`, `decode`, `conceal`); the output's real-time thread pulls samples with `kn_audio_fill` and measurements with `kn_audio_take_stats`.
 - **Latency**: the Metal renderer tells the core each frame shown (`kn_session_frame_displayed`, instants in µs on `CLOCK_MONOTONIC`, `kn_now_micros`), replaced, the bytes received and the holes; every second the core returns a `KnSecond` (median, path of a frame, losses, rejected measurements, round trip, bitrate) through `on_second`.
 - **States** (`on_status`): preparing, connecting, first images, picture, reconnecting (attempt, maximum), ending, ended (with the reason when it was not wanted, and Admin's report: displays and sound restored).
 - **Notices** (`on_notice`): what the session shows in a capsule, without text (Swift translates it): picture relaunched, computer's mode changed or back (with the size), fallback (level), adapting to the screen (requested, done, refused), “Restore” offered or withdrawn.
-- **Commands**: stop, keyframe lost or back, new settings (profile from the bar), bitrate cap (occluded window), chosen display, new mode (adapting to the device's screen), mode restore.
+- **Commands**: stop, keyframe lost or back, new settings (profile from the bar), bitrate cap (occluded window), picture frozen by the app (`kn_session_set_hidden`: the “no picture” watch waits for its return), size of the decoded frames (`kn_session_decoded_size`), chosen display, new mode (adapting to the device's screen), mode restore.
 - **Log**: the core writes through the `log` crate; `kn_set_log_callback` sends it to `KyberLog` (unified log, `core` category).
 
 ## Building and shipping
@@ -83,6 +83,6 @@ cd apps/macos && xcodegen generate && xcodebuild -scheme KyberNow -configuration
 
 ## Status
 
-- Checked on the hardware: full Mac session, inputs and sound included; session on an iPhone 15 Pro Max (22/10/2026).
-- Not tried yet: the Apple TV app (installed on an Apple TV, not launched yet); the iPad (not in the provisioning profile); the external display and Stage Manager; the Windows client with its inputs and sound on the core.
-- The iPhone and iPad app is not distributed yet: internal TestFlight to come (App Store profile to be created); installation from a Mac with Xcode in the meantime ([apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md)).
+- Checked on the hardware: full Mac session, inputs and sound included; session on an iPhone 15 Pro Max (22/10/2026); session on an Apple TV and on an iPad; the Windows client with the core's inputs and sound.
+- Not tried yet: the external display and Stage Manager.
+- The iPhone and iPad app is installed from a Mac with Xcode, signed with one's own Apple account ([apps/ios/SIDELOAD.en.md](../apps/ios/SIDELOAD.en.md)); no TestFlight or App Store.

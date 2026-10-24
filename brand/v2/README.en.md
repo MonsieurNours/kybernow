@@ -7,7 +7,7 @@ KyberNow's identity (20 October 2026), Spectre signal, used by the apps, Admin, 
 ## In short
 
 - **“Relay” symbol**: a square cut in two by a 45° seam. Top left the computer, bottom right you, between the two the link. No letter: it survives a name change.
-- **Three products, three states**: **KyberNow Link** (the Mac, Apple TV, iPhone, iPad and Windows apps, and the ecosystem: state `now`, the lower half in signal colour), **KyberNow Station** (the server on the Windows computer: state `server`, the upper half), **KyberNow Admin** (the Station's administration in the browser: state `console`, the seam alone). The state names stay those of the files and the code.
+- **Three products, three states**: **KyberNow Link** (the apps on every device, the web client, and the ecosystem: state `now`, the lower half in signal colour), **KyberNow Station** (the server on the Windows computer: state `server`, the upper half), **KyberNow Admin** (the Station's administration in the browser: state `console`, the seam alone). The state names stay those of the files and the code.
 - **Signature**: in logos, the product signs under “KyberNow” in Martian Mono capitals, on a tag with its corner cut at 45° like the seam, right-aligned on the foot of the “w”. Below 32 px high, the symbol and the name only.
 - **Name**: Archivo width 125, “Kyber” at weight 420, “Now” at 720, outlined.
 - **Colours**: ink `#05070A`, frost `#E3EDF0`, Spectre signal `#9A8CFF` (flat `#6D5BFF`, on a light background `#5340E6`). The Frost and Tally directions are set aside; `generate.mjs` can produce them.
@@ -47,8 +47,10 @@ python3 brand/v2/tools/outline.py '{"station":{"text":"STATION","wght":540,"wdth
 
 (The first command generates the SVGs, Spectre by default. The guidelines need the Phosphor icons: `npm i @phosphor-icons/core@2.1.1` in a working folder. The outlined name and the product signatures only need regenerating if the font or the settings change; fontTools required.)
 
+`brand/v2/tools/build.sh <…>/node_modules/@phosphor-icons/core/assets` runs the first two in a row (direction chosen by `PISTE`, `spectre` by default).
+
 The symbol's geometry is in `tools/generate.mjs` (grid of 48, seam of 4, radii of 7 and 1.2); `tools/geometry.json` is its output (with the layout of the signed logos), used by the guidelines and the 3D scene.
 
-## To decide before release
+## Name and trademark
 
-The name: “KyberNow” contains a third party's trademark. See section 14 of the guidelines (“Rapport à Kyber”, the relationship with Kyber).
+The name “KyberNow” contains a third party's trademark, Kyber: see section 14 of the guidelines (“Rapport à Kyber”, the relationship with Kyber).

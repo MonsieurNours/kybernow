@@ -4,7 +4,7 @@ English · [Français](build-notes.md)
 
 ## Tool versions
 
-KyberNow's Kyber binaries (server overlay, Mac, Apple TV, iPhone and iPad app libraries) are built and checked with these versions. They are written in `scripts/kyber-toolchain.sh`, read by the build scripts: a different version stops nothing, it is reported at the start ("Attention : rustc 1.90.0, versions vérifiées : 1.89.0"). After a checked update, change both places.
+KyberNow's binaries built on Kyber (server overlay, Rust core and libraries of the KyberNow Link apps) are built and checked with these versions. Those of Rust, cargo-c, MinGW, meson, llvm-mingw, wasm-bindgen and binaryen are written in `scripts/kyber-toolchain.sh`, read by the build scripts (server, Mac, Apple TV, Apple apps' core and bridge, Windows, Android, webOS, and `scripts/release.sh`): a different version stops nothing, it is reported at the start ("Attention : rustc 1.90.0, versions vérifiées : 1.89.0"). The Android NDK is checked by `build-native.sh` itself. After a checked update, change both places.
 
 | Tool | Version | For |
 |---|---|---|
@@ -18,13 +18,14 @@ KyberNow's Kyber binaries (server overlay, Mac, Apple TV, iPhone and iPad app li
 | binaryen (`wasm-opt`) | 133 | web client engine |
 | Android NDK | r27c (27.2.12479018), checked with rustc 1.97.0 on Linux (failing that, `build-native.sh` uses the newest installed one, with a warning); Rust targets `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | client core and JNI bridge for Android (`apps/android/scripts/build-native.sh`) |
 | webOS toolchain | webosbrew's (`openlgtv/buildroot-nc4`, gcc 16.2, glibc 2.12, armv7 softfp), downloaded by `apps/webos/scripts/build.sh` into `third_party/webos-toolchain` on Linux x86_64; on an Apple Silicon Mac, `webosbrew/native-toolchain`'s (`webos-d7ed7ee.6`, darwin-arm64, gcc 12.2, glibc 2.12) into `third_party/webos-toolchain-mac` (the release toolchain); Rust target `armv7-unknown-linux-gnueabi`, checked with rustc 1.89.0 (Mac) and 1.97.0 (Linux); webosbrew SDL2 `release-2.30.12-webos.6` with the patches in `apps/webos/sdl-patches`; FFmpeg 7.1.1 reduced to the ac3 and eac3 encoders (libavcodec, libavutil, static) | webOS app (`apps/webos`) |
-| Android SDK, Gradle | platform 36, Android Gradle Plugin 8.13, Gradle 8.14 (wrapper), Kotlin 2.4, JDK 17 or later | Android app (`apps/android`) |
+| Android SDK, Gradle | platform 36, Android Gradle Plugin 8.13.2, Gradle 8.14.3 (wrapper), Kotlin 2.4.21 (`gradle/libs.versions.toml`), JDK 17 or later | Android app (`apps/android`) |
+| Linux, Flatpak | Rust 1.89 or later (`rust-version` in `apps/Cargo.toml`) and cargo-c; Flatpak: `org.freedesktop.Platform` 25.08 runtime, `rust-stable` and `llvm20` extensions; FFmpeg 7.1.1 reduced to decoding, or Raspberry Pi's (`jc-kynesim/rpi-ffmpeg`, `dev/7.1.1/rpi_import_1` branch) with `--rpi` | Linux, Steam Deck and Raspberry Pi app (`apps/linux/scripts/build.sh`, see [apps/linux/README.en.md](../apps/linux/README.en.md)) |
 
 Kyber's repositories have no `rust-toolchain.toml`: rustup's default toolchain does the build.
 
 ## Build scripts: real failure
 
-`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh`, `apps/core/scripts/build-apple.sh`, `apps/apple/scripts/build-apple.sh` and `apps/apple/scripts/build-apple-mobile.sh` stop at the first error and then replace nothing (overlay, `Vendor/`):
+`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh`, `apps/core/scripts/build-apple.sh`, `apps/apple/scripts/build-apple.sh`, `apps/apple/scripts/build-apple-mobile.sh`, `apps/android/scripts/build-native.sh` and `apps/webos/scripts/build.sh` stop at the first error and then replace nothing (overlay, `Vendor/`, `jniLibs/`, webOS binary):
 
 - **cargo**: its output is filtered (progress lines removed) without the filter deciding the exit code (`set -o pipefail`). Do not put `| grep … || true` on the command itself: a failed build would go unnoticed and the old binary would go into the overlay.
 - **Stale binary**: `build.sh` refuses `kyavserver.exe`, `libtxproto-0.dll`, `kycontroller.exe`, `kynput.dll`, `kynputserver.exe` and `kyclient_wasm.wasm` if they are older than its start (it resets the sources every time, so they are always rebuilt). `cargo cinstall` keeps the date of the library already built: the client scripts (and `build.sh` for `kynput.dll`) instead remove the library installed by a previous build before compiling, and the copy fails if this build did not install it again.
@@ -58,7 +59,7 @@ Checking a library (must print 0):
 s=$(otool -l rootfs-arm64-macos/lib/libkyclient.0.1.0.dylib | awk '/stroff/{print $2}'); echo $((s % 8))
 ```
 
-To report to Kyber. All of KyberNow's Rust build scripts set `CARGO_PROFILE_RELEASE_STRIP=false`.
+KyberNow's build scripts set `CARGO_PROFILE_RELEASE_STRIP=false`, except `apps/android/scripts/build-native.sh` and `apps/windows/scripts/build.sh` (ELF libraries and PE executables, which the problem does not affect: they remove the debug information themselves, `llvm-strip` and `strip`); the `apps/` workspace has `strip = false` in its release profile anyway.
 
 ### libkyclient with the KyberNow patches
 
@@ -87,7 +88,7 @@ To report to Kyber. All of KyberNow's Rust build scripts set `CARGO_PROFILE_RELE
 
 ## Browsers
 
-The Kyber web client works in Chrome. In Safari, the screen stays black (WebKit is not supported, as Kyber's docs state).
+Kyber's own web client page works in Chrome; in Safari, the screen stays black (WebKit is not supported, as Kyber's docs state). KyberNow's web client (`/ecran`) also works in Safari and on iPhone and iPad, over WebSocket (their WebTransport does not check a certificate by its fingerprint): see [server/README.en.md](../server/README.en.md).
 
 ## Kyber 0.29 server for Windows (kyavserver), from macOS
 

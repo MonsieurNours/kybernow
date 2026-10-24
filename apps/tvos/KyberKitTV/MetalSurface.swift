@@ -7,10 +7,10 @@
 // présenté des images avant d'être posée dans une fenêtre reste hors écran
 // pour toujours sur iOS : toutes ses images sont écartées (`presentedTime`
 // à 0), jusqu'à un passage en arrière-plan (essai du 2026-10-22, iPhone 15
-// Pro Max). Le rendu, qui démarre sur le fil réseau dès la première image
-// décodée, dessinait dans sa propre couche, attachée un peu plus tard sur le
-// fil principal : l'écran restait noir. Si l'écran écarte quand même tout
-// pendant deux secondes, la couche est refaite (`heal`).
+// Pro Max). Le rendu démarre sur le fil réseau dès la première image
+// décodée : s'il dessinait dans sa propre couche, attachée plus tard sur le
+// fil principal, l'écran resterait noir. Si l'écran écarte quand même tout
+// pendant deux secondes, la couche est refaite (`heal`, trois fois au plus).
 
 import QuartzCore
 import UIKit

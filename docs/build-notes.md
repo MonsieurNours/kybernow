@@ -4,7 +4,7 @@
 
 ## Versions des outils
 
-Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac, Apple TV, iPhone et iPad) sont compilés et vérifiés avec ces versions. Elles sont écrites dans `scripts/kyber-toolchain.sh`, que lisent les scripts de compilation : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Après une mise à jour vérifiée, changer les deux endroits.
+Les binaires de KyberNow construits sur Kyber (surcouche serveur, cœur Rust et bibliothèques des apps KyberNow Link) sont compilés et vérifiés avec ces versions. Celles de Rust, cargo-c, MinGW, meson, llvm-mingw, wasm-bindgen et binaryen sont écrites dans `scripts/kyber-toolchain.sh`, que lisent les scripts de compilation (serveur, Mac, Apple TV, cœur et pont des apps Apple, Windows, Android, webOS, et `scripts/release.sh`) : une version différente n'arrête rien, elle est signalée au début (« Attention : rustc 1.90.0, versions vérifiées : 1.89.0 »). Le NDK d'Android est vérifié par `build-native.sh` lui-même. Après une mise à jour vérifiée, changer les deux endroits.
 
 | Outil | Version | Pour |
 |---|---|---|
@@ -18,13 +18,14 @@ Les binaires Kyber de KyberNow (surcouche serveur, bibliothèques des apps Mac, 
 | binaryen (`wasm-opt`) | 133 | moteur du client web |
 | NDK d'Android | r27c (27.2.12479018), vérifiée avec rustc 1.97.0 sur Linux (à défaut, `build-native.sh` prend le plus récent installé, avec un avertissement) ; cibles Rust `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android` | cœur client et pont JNI pour Android (`apps/android/scripts/build-native.sh`) |
 | Chaîne webOS | celle de webosbrew (`openlgtv/buildroot-nc4`, gcc 16.2, glibc 2.12, armv7 softfp), téléchargée par `apps/webos/scripts/build.sh` dans `third_party/webos-toolchain` sur Linux x86_64 ; sur un Mac Apple Silicon, celle de `webosbrew/native-toolchain` (`webos-d7ed7ee.6`, darwin-arm64, gcc 12.2, glibc 2.12) dans `third_party/webos-toolchain-mac` (chaîne de la publication) ; cible Rust `armv7-unknown-linux-gnueabi`, vérifiée avec rustc 1.89.0 (Mac) et 1.97.0 (Linux) ; SDL2 de webosbrew `release-2.30.12-webos.6` avec les correctifs d'`apps/webos/sdl-patches` ; FFmpeg 7.1.1 réduit aux encodeurs ac3 et eac3 (libavcodec, libavutil, statiques) | app webOS (`apps/webos`) |
-| SDK Android, Gradle | plateforme 36, Android Gradle Plugin 8.13, Gradle 8.14 (wrapper), Kotlin 2.4, JDK 17 ou plus | app Android (`apps/android`) |
+| SDK Android, Gradle | plateforme 36, Android Gradle Plugin 8.13.2, Gradle 8.14.3 (wrapper), Kotlin 2.4.21 (`gradle/libs.versions.toml`), JDK 17 ou plus | app Android (`apps/android`) |
+| Linux, Flatpak | Rust 1.89 ou après (`rust-version` d'`apps/Cargo.toml`) et cargo-c ; Flatpak : runtime `org.freedesktop.Platform` 25.08, extensions `rust-stable` et `llvm20` ; FFmpeg 7.1.1 réduit au décodage, ou celui de Raspberry Pi (`jc-kynesim/rpi-ffmpeg`, branche `dev/7.1.1/rpi_import_1`) avec `--rpi` | app Linux, Steam Deck et Raspberry Pi (`apps/linux/scripts/build.sh`, voir [apps/linux/README.md](../apps/linux/README.md)) |
 
 Les dépôts de Kyber n'ont pas de `rust-toolchain.toml` : c'est la chaîne par défaut de rustup qui compile.
 
 ## Scripts de compilation : échec réel
 
-`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh`, `apps/core/scripts/build-apple.sh`, `apps/apple/scripts/build-apple.sh` et `apps/apple/scripts/build-apple-mobile.sh` s'arrêtent à la première erreur et ne remplacent alors rien (surcouche, `Vendor/`) :
+`server/kyber-patches/build.sh`, `apps/macos/scripts/build-kyclient.sh`, `apps/tvos/scripts/build-kyber-tvos.sh`, `apps/core/scripts/build-apple.sh`, `apps/apple/scripts/build-apple.sh`, `apps/apple/scripts/build-apple-mobile.sh`, `apps/android/scripts/build-native.sh` et `apps/webos/scripts/build.sh` s'arrêtent à la première erreur et ne remplacent alors rien (surcouche, `Vendor/`, `jniLibs/`, binaire webOS) :
 
 - **cargo** : sa sortie est filtrée (lignes de progression retirées) sans que le filtre décide du code de retour (`set -o pipefail`). Ne pas écrire `| grep … || true` sur la commande elle-même : une compilation ratée passerait inaperçue et l'ancien binaire partirait dans la surcouche.
 - **Binaire périmé** : `build.sh` refuse `kyavserver.exe`, `libtxproto-0.dll`, `kycontroller.exe`, `kynput.dll`, `kynputserver.exe` et `kyclient_wasm.wasm` s'ils sont plus anciens que son lancement (il remet les sources à l'origine à chaque fois, donc ils sont toujours recompilés). `cargo cinstall` garde la date de la bibliothèque déjà compilée : les scripts client (et `build.sh` pour `kynput.dll`) retirent plutôt la bibliothèque installée par un build précédent avant de compiler, et la copie échoue si ce build ne l'a pas réinstallée.
@@ -56,7 +57,7 @@ Vérification d'une bibliothèque (doit afficher 0) :
 s=$(otool -l rootfs-arm64-macos/lib/libkyclient.0.1.0.dylib | awk '/stroff/{print $2}'); echo $((s % 8))
 ```
 
-À remonter à Kyber. Tous les scripts de compilation Rust de KyberNow posent `CARGO_PROFILE_RELEASE_STRIP=false`.
+Les scripts de compilation de KyberNow posent `CARGO_PROFILE_RELEASE_STRIP=false`, sauf `apps/android/scripts/build-native.sh` et `apps/windows/scripts/build.sh` (bibliothèques ELF et exécutables PE, que le problème ne touche pas : ils retirent les informations de débogage eux-mêmes, `llvm-strip` et `strip`) ; l'espace de travail `apps/` a de toute façon `strip = false` dans son profil release.
 
 ### libkyclient avec les correctifs KyberNow
 
@@ -85,7 +86,7 @@ s=$(otool -l rootfs-arm64-macos/lib/libkyclient.0.1.0.dylib | awk '/stroff/{prin
 
 ## Navigateurs
 
-Le client web Kyber fonctionne dans Chrome. Dans Safari, l'écran reste noir (WebKit n'est pas pris en charge, comme l'indique la doc Kyber).
+La page d'origine du client web de Kyber fonctionne dans Chrome ; dans Safari, l'écran reste noir (WebKit n'est pas pris en charge, comme l'indique la doc Kyber). Le client web de KyberNow (`/ecran`) passe aussi dans Safari et sur iPhone et iPad, par WebSocket (leur WebTransport ne vérifie pas un certificat par son empreinte) : voir [server/README.md](../server/README.md).
 
 ## Serveur Kyber 0.29 pour Windows (kyavserver), depuis macOS
 

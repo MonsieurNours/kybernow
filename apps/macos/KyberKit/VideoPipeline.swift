@@ -1,5 +1,5 @@
 // Chemin de l'image : paquets de Kyber → VideoToolbox → Metal.
-// (Le son suit le même principe : AudioPlayer.)
+// (Le son suit le même principe : AudioPlayer, AudioPlayerCore.swift.)
 //
 // Kyber appelle `handle` depuis son fil réseau, un paquet à la fois ; on
 // remet l'image à VideoToolbox et on rend la main tout de suite (décodage

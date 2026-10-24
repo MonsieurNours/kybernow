@@ -93,9 +93,9 @@ pub fn read_footer(path: &Path) -> Result<(Footer, u64)> {
     Ok((footer, exe_len))
 }
 
-/// Fin du contenu : une signature Authenticode (à venir) s'ajoute après le
-/// pied, avec au plus 7 octets nuls d'alignement. La table des certificats de
-/// l'en-tête PE dit où elle commence.
+/// Fin du contenu : une signature Authenticode, si l'installateur est signé,
+/// s'ajoute après le pied, avec au plus 7 octets nuls d'alignement. La table
+/// des certificats de l'en-tête PE dit où elle commence.
 fn content_end(f: &mut File) -> Result<u64> {
     let len = f.metadata()?.len();
     let read_u32 = |f: &mut File, at: u64| -> Option<u32> {

@@ -1,4 +1,4 @@
-// Son du Mac sur le cœur Rust (jalon 3 de docs/coeur-apple.md) : Opus, le
+// Son des apps Apple sur le cœur Rust (docs/coeur-apple.md) : Opus, le
 // tampon adaptatif (marge qui grandit après un trou et redescend sans trou),
 // le masquage des pertes, le rattrapage de la dérive et le mixage
 // descendant sont dans `kybernow_core::audio`, par l'API C de apps/apple.
@@ -7,7 +7,7 @@
 // (`kn_audio_fill`), suivie quand elle change (AirPods branchés : voies,
 // tampon et latence relus, unité recréée).
 //
-// Mac et Apple TV ; la sortie RemoteIO sert aussi à iOS.
+// Mac (DefaultOutput), Apple TV, iPhone et iPad (RemoteIO).
 
 import AudioToolbox
 import Foundation

@@ -1,5 +1,6 @@
-// Ordinateurs publiés dans iCloud : l'Apple TV connectée au même compte les
-// récupère avec leurs accès, sans rien taper (CloudSync de l'app Apple TV).
+// Ordinateurs publiés dans iCloud : l'Apple TV, l'iPhone et l'iPad connectés
+// au même compte les récupèrent avec leurs accès, sans rien taper (CloudSync
+// de l'app Apple TV, repris par l'app iPhone et iPad).
 //
 // La liste va dans le magasin clé-valeur d'iCloud (clé « hosts », tableau JSON
 // de CloudHost), les mots de passe dans le Trousseau iCloud (éléments

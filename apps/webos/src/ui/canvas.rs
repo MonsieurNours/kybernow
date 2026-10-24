@@ -417,7 +417,7 @@ fn blit_coverage(pix: &mut Pixmap, x: i32, y: i32, w: usize, h: usize, cov: &[u8
     }
 }
 
-/// Décode une image JPEG (aperçu d'Admin, dernière image) en image prémultipliée.
+/// Décode une image JPEG (aperçu d'Admin) en image prémultipliée.
 pub fn decode_jpeg(bytes: &[u8]) -> Option<Pixmap> {
     use zune_jpeg::JpegDecoder;
     use zune_jpeg::zune_core::colorspace::ColorSpace;
@@ -436,8 +436,7 @@ pub fn decode_png(bytes: &[u8]) -> Option<Pixmap> {
     Pixmap::decode_png(bytes).ok()
 }
 
-/// Encode l'image en JPEG… pas besoin : la dernière image de la session est
-/// gardée telle quelle (aperçu d'Admin). Ici, l'encodage PNG des captures.
+/// Encode l'image en PNG (captures de `--preview`).
 pub fn encode_png(pix: &Pixmap) -> Option<Vec<u8>> {
     pix.encode_png().ok()
 }

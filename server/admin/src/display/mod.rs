@@ -628,7 +628,7 @@ impl Manager {
             // Écran physique rallumé pendant la session.
             if o.others > 0 && !s.reisolate_gave_up {
                 let since = *s.others_since.get_or_insert(now);
-                // Après un échec, les essais s'espacent (10, 20, 40 s).
+                // 10 s entre deux isolements, doublés après chaque échec (20, puis 40 s).
                 let cooldown = REISOLATE_COOLDOWN * (1 << s.reisolate_failures.min(4));
                 let cooled = s.last_reisolate.is_none_or(|t| now.duration_since(t) >= cooldown);
                 if now.duration_since(since) >= PHYSICAL_DEBOUNCE && cooled {

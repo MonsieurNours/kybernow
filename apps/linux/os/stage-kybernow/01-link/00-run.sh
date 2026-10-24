@@ -37,7 +37,8 @@ install -d -m 755 "${ROOTFS_DIR}/usr/share/plymouth/themes/kybernow"
 install -m 644 "$F/plymouth/kybernow.plymouth" "${ROOTFS_DIR}/usr/share/plymouth/themes/kybernow/kybernow.plymouth"
 install -m 644 "$F/plymouth/kybernow.script" "${ROOTFS_DIR}/usr/share/plymouth/themes/kybernow/kybernow.script"
 
-# config.txt : pilote KMS, pas d'arc-en-ciel, 4K à 60 Hz sur Pi 4, son HDMI ; cmdline.txt : silence et Plymouth.
+# config.txt : pilote KMS, pas d'arc-en-ciel, 4K à 60 Hz sur Pi 4, son analogique
+# coupé (le son va au HDMI) ; cmdline.txt : silence et Plymouth.
 CFG="${ROOTFS_DIR}/boot/firmware/config.txt"
 grep -q "^disable_splash=1" "$CFG" || cat >> "$CFG" <<'EOF'
 
@@ -54,6 +55,6 @@ CMD="${ROOTFS_DIR}/boot/firmware/cmdline.txt"
 if ! grep -q "plymouth" "$CMD"; then
     sed -i -E 's/[[:space:]]*$//' "$CMD"
     sed -i -E 's/$/ quiet splash plymouth.ignore-serial-consoles logo.nologo vt.global_cursor_default=0 consoleblank=0 loglevel=3/' "$CMD"
-    # Le mode texte ne sert plus.
+    # Pas de console texte sur l'écran (Plymouth, puis l'app).
     sed -i -E 's/ console=tty1//' "$CMD"
 fi

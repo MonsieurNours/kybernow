@@ -6,9 +6,9 @@
 #
 # L'app Mac n'est pas compilée ici : elle lie le SDK client de Kyber et VLC
 # (apps/macos/Vendor, 88 Mo, compilés depuis les sources de Kyber par
-# apps/macos/scripts/build-kyclient.sh), qui ne sont publiés nulle part. Pour
-# la compiler en CI, il faudrait joindre à chaque release un KyberSDK-macOS.zip
-# (le contenu de apps/macos/Vendor), comme KyberSDK-tvOS.zip pour l'Apple TV.
+# apps/macos/scripts/build-kyclient.sh), qui ne sont publiés nulle part. Le
+# cœur Rust (apps/core) et les autres apps KyberNow Link ne le sont pas non
+# plus : ils demandent les sources de Kyber (third_party/).
 #
 # Rien n'est signé ni publié : la publication reste scripts/release.sh, sur le
 # Mac de l'auteur (notarisation, clés Sparkle et minisign).

@@ -230,7 +230,7 @@ pub enum AddStep {
 pub struct AddState {
     pub step: AddStep,
     pub code: String,
-    /// Stations à qui le code a été présenté : (nom, adresse, accepté ?).
+    /// Stations à qui le code a été présenté : (nom, adresse).
     pub asked: Vec<(String, String)>,
     pub address: String,
     pub message: Option<String>,
@@ -338,7 +338,7 @@ pub enum Target {
 pub enum Action {
     Connect { host: String, profile: Profile },
     Save,
-    /// Présenter le code aux Stations trouvées (et à `address`, si donnée).
+    /// Présenter le code aux Stations trouvées à qui il ne l'a pas encore été.
     StartPairing,
     StopPairing,
     PairAddress { address: String, port: u16, fingerprint: String },
@@ -379,7 +379,7 @@ pub struct App {
     /// Pointeur de la Magic Remote (hors session), s'il est montré.
     pub pointer: Option<(f32, f32)>,
     pub live: HashMap<String, HostLive>,
-    /// Image de chaque ordinateur (dernière session, sinon aperçu d'Admin).
+    /// Image de chaque ordinateur : son aperçu d'Admin.
     pub images: HashMap<String, Pixmap>,
     pub found: Vec<Found>,
     pub tv: TvInfo,

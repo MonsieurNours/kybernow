@@ -1,11 +1,11 @@
 // Une session avec un ordinateur, sur l'iPhone ou l'iPad, vue de
-// l'interface : le passage, la barre (languette ou glissement depuis le bord
-// haut sur iPhone, survol du bord haut au trackpad sur iPad), le clavier et
-// sa rangée de touches, le menu Touches, les mesures, les capsules. Le
-// déroulé lui-même (préparation par la console, connexion à Kyber, choix de
-// l'écran, relances, reconnexions, repli, signal de vie, fin vérifiée) est
-// dans le cœur Rust, par `SessionEngine`, comme sur Mac et Apple TV
-// (docs/coeur-apple.md, jalon 5).
+// l'interface : le passage, la barre (languette, glissement depuis le bord
+// haut, ou L1 + R1 + Start + Select à la manette), le clavier et sa rangée
+// de touches, le menu Touches, les mesures, les capsules. Le déroulé
+// lui-même (préparation par Admin, connexion à Kyber, choix de l'écran,
+// relances, reconnexions, repli, signal de vie, fin vérifiée) est dans le
+// cœur Rust, par `SessionEngine`, comme sur Mac et Apple TV
+// (docs/coeur-apple.md).
 //
 // Écran externe : l'image y passe, à sa définition, et l'appareil devient le
 // pupitre (pavé tactile sur toute la surface, barre permanente, mesures,
@@ -176,7 +176,7 @@ final class SessionController: ObservableObject {
     }
 
     /// L'image passe sur l'écran externe, ou revient sur l'appareil. En cours
-    /// de session (`adapt`), la console refait l'écran virtuel à la taille du
+    /// de session (`adapt`), Admin refait l'écran virtuel à la taille du
     /// nouvel écran, puis l'image repart dessus (avis « adaptation »).
     private func useExternal(_ on: Bool, adapt: Bool) {
         guard on != external, phase != .ending, phase != .ended else { return }
@@ -417,7 +417,7 @@ final class SessionController: ObservableObject {
         engine?.pickDisplay(id)
     }
 
-    /// « Remettre » : la console remet le mode demandé au début de la session.
+    /// « Remettre » : Admin remet le mode demandé au début de la session.
     func restoreMode() {
         modeRestoreOffer = nil
         engine?.restoreMode()
@@ -477,7 +477,7 @@ final class SessionController: ObservableObject {
 
     // MARK: - Fin
 
-    /// Fin de session : le cœur rend la main à la console (écrans et son de
+    /// Fin de session : le cœur rend la main à Admin (écrans et son de
     /// l'ordinateur rétablis, latence donnée à ses appareils).
     func end() {
         guard phase != .ending && phase != .ended else { return }

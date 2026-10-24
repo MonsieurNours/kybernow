@@ -9,7 +9,8 @@
 // subjective) passe la souris en relative, en mode Auto (RelativeMouse).
 //
 // L'état du pointeur de l'ordinateur (position, forme, visibilité) et les
-// règles Auto / Bureau / Jeu sont dans PointerLayer, partagé avec l'Apple TV ;
+// règles Auto / Bureau / Jeu sont dans PointerLayer (le cœur), partagé avec
+// l'Apple TV, l'iPhone et l'iPad ;
 // ici, le dessin (NSCursor, couche en mode jeu), la souris relative et les
 // événements AppKit. La couche de pointeur est tenue sur le fil principal,
 // où AppKit livre la souris et où vit l'état de la fenêtre.

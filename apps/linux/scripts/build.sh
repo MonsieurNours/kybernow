@@ -6,8 +6,8 @@
 #      celui de webOS qui fait de kynput un client seul (cfg kybernow_webos :
 #      sans l'injection d'entrées du serveur, libinput, libevdev, X11) ;
 #   2. libkynput (statique, cargo cinstall) dans le préfixe ;
-#   3. FFmpeg 7.1.1 réduit au décodage H.264, HEVC et AV1, VA-API compris
-#      (statique, LGPL 2.1) dans le préfixe ;
+#   3. FFmpeg 7.1.1 réduit au décodage H.264, HEVC et AV1, VA-API et V4L2 M2M
+#      compris (statique, LGPL 2.1) dans le préfixe ;
 #   4. l'app (cargo build -p kybernow-linux).
 #
 # Usage : apps/linux/scripts/build.sh [--check] [--debug] [--deps-only] [--rpi] [--prefix DIR] [--install DIR]

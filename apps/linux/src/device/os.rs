@@ -3,7 +3,8 @@
 //! la mise à jour A/B (`kybernow-os-update`, par sudo), le reste par
 //! `kybernow-os-ctl` (SSH, veille, CEC, redémarrage, mode HDMI), le réseau
 //! par NetworkManager (`nmcli`), les manettes Bluetooth par `bluetoothctl`
-//! (agent sans code, à l'écoute le temps de l'écran Manette). Tout passe par
+//! (agent sans code, à l'écoute le temps de l'écran Manette, au premier
+//! démarrage ou depuis Réglages de l'appareil › Manettes). Tout passe par
 //! des fils : la boucle principale ne bloque jamais.
 
 use std::io::{BufRead, BufReader, Write};
@@ -164,8 +165,9 @@ pub fn wifi_connect(ssid: String, password: String, tx: Sender<Event>) {
 // MARK: - Manettes Bluetooth
 
 /// Une écoute Bluetooth : `bluetoothctl` tenu ouvert avec un agent sans code,
-/// en recherche ; chaque manette qui se présente est associée, approuvée,
-/// connectée. Les appareils vus partent à la boucle (`Event::Bt`).
+/// en recherche ; chaque appareil qui se présente avec un nom
+/// (`looks_like_gamepad`) est associé, approuvé, connecté. Les appareils vus
+/// partent à la boucle (`Event::Bt`).
 pub struct BtListener {
     child: Child,
     stop: Arc<Mutex<bool>>,
@@ -214,7 +216,7 @@ impl BtListener {
                     if !tail.is_empty() && tail != mac.replace(':', "-") {
                         entry.name = tail.clone();
                     }
-                    // Une manette qui se présente : association, approbation, connexion.
+                    // Un appareil nommé qui se présente : association, approbation, connexion.
                     if looks_like_gamepad(&tail) {
                         let _ = writeln!(stdin, "pair {mac}\ntrust {mac}\nconnect {mac}");
                         let _ = stdin.flush();
@@ -320,7 +322,7 @@ pub fn paired(tx: Sender<Event>) {
     });
 }
 
-/// Ce qui se prépare au lancement : réseau, Bluetooth, son. La boucle montre
+/// Ce qui se prépare au lancement : réseau, Bluetooth. La boucle montre
 /// la couture qui se remplit tant que ce n'est pas prêt (8 s au plus).
 pub fn readiness(tx: Sender<Event>) {
     std::thread::spawn(move || {

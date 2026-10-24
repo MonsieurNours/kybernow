@@ -321,7 +321,7 @@ private fun UpdateRow() {
 @Composable
 private fun colors() = OutlinedTextFieldDefaults.colors(focusedBorderColor = Kn.spectre, unfocusedBorderColor = Kn.line, focusedLabelColor = Kn.spectre, cursorColor = Kn.spectre)
 
-/** Réglages de l'app : langue, appareil, à propos. */
+/** Réglages de l'app : langue, appareil, mises à jour, à propos. */
 @Composable
 fun AppSettingsScreen(onBack: () -> Unit) {
     val app = KyberNowApp.instance

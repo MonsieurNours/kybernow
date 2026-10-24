@@ -41,7 +41,7 @@ data class HostSettings(
     val xbox360: Boolean = true,
     /** L1 + R1 + Start + Select ouvrent le menu. */
     val combo: Boolean = true,
-    /** Bouton Retour de la télécommande : ouvre le menu (sinon il part au jeu comme B). */
+    /** Bouton Retour de la télécommande : ouvre le menu (sinon il part à l'ordinateur comme Échap). */
     val backOpensMenu: Boolean = true,
     /** Bouton Guide : `game` (part au jeu), `long` (Start tenu 600 ms), `system`. */
     val guide: String = "game",

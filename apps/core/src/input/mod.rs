@@ -1,13 +1,13 @@
-//! Module d'entrées partagé des apps KyberNow Link : ce que les apps Mac et
-//! Apple TV tenaient dans KyberKit (`InputPipeline`, `PacketQueue`, `Keymap`,
-//! `PadCombo`, `ReleaseAll`, `PointerLayer`, `ClipboardBridge`), écrit une
-//! fois en Rust au-dessus de la chaîne kynput de Kyber, pour le Mac, l'Apple
-//! TV et Windows.
+//! Module d'entrées partagé des apps KyberNow Link (`InputPipeline`,
+//! `PacketQueue`, `Keymap`, `PadCombo`, `ReleaseAll`, `PointerLayer`,
+//! `ClipboardBridge`), écrit une fois en Rust au-dessus de la chaîne kynput
+//! de Kyber : Mac, Apple TV, iPhone et iPad (par apps/apple), Windows,
+//! Android (par JNI), Linux et webOS.
 //!
 //! Rien ici n'appelle un système : la plateforme fournit l'horloge
 //! ([`Clock`]), son presse-papiers ([`clipboard::Pasteboard`]) et reçoit les
 //! rappels vers son interface ([`pipeline::InputPlatform`]) ; elle capte ses
-//! événements (AppKit, GameController, Win32) et les donne à
+//! événements (AppKit, GameController, Win32, SDL, Android…) et les donne à
 //! [`pipeline::InputPipeline`], qui les envoie à l'ordinateur.
 //!
 //! Minuteries : aucun fil n'est créé par les modules eux-mêmes. Chaque

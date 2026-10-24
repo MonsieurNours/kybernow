@@ -6,7 +6,7 @@
 # l'en-tête de kynput, dans Vendor/).
 #
 # KyberKit est le même module que sur Mac et Apple TV, cœur compris
-# (docs/coeur-apple.md, jalon 5) : ses fichiers communs viennent
+# (docs/coeur-apple.md) : ses fichiers communs viennent
 # d'apps/macos/KyberKit (seuls ceux d'AppKit sont exclus), la surface Metal,
 # le clavier et la souris Bluetooth et les manettes de l'Apple TV
 # (apps/tvos/KyberKitTV, GameController), la vue de session tactile de

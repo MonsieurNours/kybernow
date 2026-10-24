@@ -132,7 +132,7 @@ def main():
         print()
     print("Note : « réseau » et « TOTAL » dépendent de la précision du recalage d'horloge "
           "(± la dispersion ci-dessus). Le délai d'affichage écran n'est pas inclus : "
-          "voir le test caméra dans docs/prototype-A.md (§3.2).")
+          "voir le test caméra dans docs/archives/prototype-A.md (§3.2).")
 
 
 if __name__ == "__main__":

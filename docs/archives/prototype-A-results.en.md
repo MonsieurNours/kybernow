@@ -2,6 +2,8 @@
 
 English · [Français](prototype-A-results.md)
 
+> **Archive.** Snapshot of 19 October 2026: it describes the project as it was then, not as it is now. The current state is in the living docs; planned work is in [ROADMAP.en.md](../../ROADMAP.en.md).
+
 ## Run 1 — reference (2026-10-19 16:41, `tools/latency/runs/20261019-164146`)
 
 **Configuration**: Kyber 0.29.0 server (official installer) on a Windows NVIDIA computer `192.168.1.100`, NVENC, h264, default bitrate. `kyclient` 0.29.0 client built locally, MacBook Pro M4 Max. Network: QUIC RTT 0.66 ms (LAN). Computer's display: **4K at 160 Hz**.

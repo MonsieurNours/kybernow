@@ -1,8 +1,8 @@
 // Dialogue avec KyberNow Admin (kyber-admin) sur l'ordinateur, hors session : info,
 // aperçu de l'écran, empreinte, appairage par code. Le cœur Rust fait les
-// appels (certificat épinglé, `Accept-Language`) ; ici la même façade
-// qu'avant le cœur, en Swift asynchrone. La préparation, le signal de vie et la fin de session sont
-// dans le cœur, avec la session (SessionEngine).
+// appels (certificat épinglé, `Accept-Language`) ; ici, leur façade en
+// Swift asynchrone. La préparation, le signal de vie et la fin de session
+// sont dans le cœur, avec la session (SessionEngine).
 
 import Foundation
 #if os(iOS)

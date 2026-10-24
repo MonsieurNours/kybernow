@@ -1,12 +1,12 @@
-// Les entrées des apps Apple sur le cœur Rust (jalons 2 et 4 de
-// docs/coeur-apple.md) : chaîne kynput, file de secours, clavier,
-// combinaison et prise des manettes, tout relâcher, pointeur de
-// l'ordinateur, presse-papiers sont dans `kybernow_core::input`, par l'API C
-// de apps/apple. Ce fichier garde les noms qu'utilisaient les vues et les
-// ponts de manettes (InputPipeline, PointerLayer, PadCombo, Keymap,
-// MouseModeRules) ; chaque plateforme ne fait plus que capter ses événements
-// (AppKit sur Mac, GameController sur Apple TV), dessiner le pointeur et,
-// sur Mac, traduire kVK → HID (KeymapMac.swift).
+// Les entrées des apps Apple sur le cœur Rust (docs/coeur-apple.md) : chaîne
+// kynput, file de secours, clavier, combinaison et prise des manettes, tout
+// relâcher, pointeur de l'ordinateur, presse-papiers sont dans
+// `kybernow_core::input`, par l'API C de apps/apple. Ce fichier en donne la
+// façade Swift aux vues et aux ponts de manettes (InputPipeline,
+// PointerLayer, PadCombo, Keymap, MouseModeRules) ; chaque plateforme ne fait
+// que capter ses événements (AppKit sur Mac ; GameController et UIKit sur
+// Apple TV, iPhone et iPad), dessiner le pointeur et, sur Mac, traduire
+// kVK → HID (KeymapMac.swift).
 
 #if os(macOS)
 import AppKit
@@ -383,7 +383,7 @@ final class InputPipeline: @unchecked Sendable {
     /// fil des minuteries peut encore appeler pendant qu'elle se défait).
     private let box: Callbacks
 
-    /// Vibrations des manettes (Apple TV : kynput ne les joue pas lui-même) ; fil de kynput.
+    /// Vibrations des manettes produites par l'app (Apple TV, iPhone, iPad : kynput ne les joue pas lui-même) ; fil de kynput.
     var onRumble: ((GamepadRumble) -> Void)? {
         get { box.lock.withLock { box.rumble } }
         set { box.lock.withLock { box.rumble = newValue } }
@@ -467,7 +467,7 @@ final class InputPipeline: @unchecked Sendable {
         )
         core = kn_input_new(options, pointer.core, callbacks)
         gamepad.owner = self
-        // Apple TV : la combinaison est suivie par le pont de manettes (PadCombo), avant l'envoi.
+        // Apple TV, iPhone, iPad : la combinaison est suivie par le pont de manettes (PadCombo), avant l'envoi.
         if Self.gamepadsFromApp { kn_input_set_combo_enabled(core, false) }
     }
 

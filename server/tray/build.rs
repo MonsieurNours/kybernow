@@ -18,7 +18,7 @@ fn main() {
 /// Écrit `<nom>.rc` et `<nom>.manifest` dans OUT_DIR à partir des gabarits
 /// `resources/<nom>.rc.in` et `.manifest.in` : version du paquet Cargo (celle
 /// que release.sh aligne) au lieu d'un numéro figé, chemins absolus (le .rc
-/// n'est plus à côté de l'icône).
+/// est écrit dans OUT_DIR, loin de l'icône).
 fn version_resources(name: &str, icon: &str) -> PathBuf {
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("resources");

@@ -153,10 +153,10 @@ pub fn command(data_dir: &Path, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// 0 → 1 : `listen` devient une adresse « IP:port » valide. Avant, une
-/// adresse sans port (`listen = "0.0.0.0"`) empêchait la console de démarrer
-/// (« adresse d'écoute invalide »), et un port seul (`listen = 9443`) rendait
-/// tout le fichier illisible : il était mis de côté, mot de passe compris.
+/// 0 → 1 : `listen` devient une adresse « IP:port » valide. Sans cela, une
+/// adresse sans port (`listen = "0.0.0.0"`) empêche la console de démarrer
+/// (« adresse d'écoute invalide »), et un port seul (`listen = 9443`) rend
+/// tout le fichier illisible : il est mis de côté, mot de passe compris.
 fn to_1(doc: &mut DocumentMut) -> Vec<String> {
     enum Fix {
         Keep,

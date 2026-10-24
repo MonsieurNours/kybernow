@@ -1,4 +1,4 @@
-//! KyberNow Link pour Linux, le Steam Deck et SteamOS, voir apps/linux/README.md.
+//! KyberNow Link pour Linux, le Steam Deck, SteamOS et le Raspberry Pi, voir apps/linux/README.md.
 
 // Sans l'app (captures), une partie de l'état ne sert pas.
 #![cfg_attr(not(feature = "device"), allow(dead_code))]

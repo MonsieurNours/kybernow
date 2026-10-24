@@ -7,8 +7,11 @@
 //! - libopus (moteur de son du cœur) et SDL2 par pkg-config, liées
 //!   dynamiquement (le runtime de freedesktop les fournit) ;
 //! - FFmpeg réduit au décodage (H.264, HEVC, AV1 par VA-API, H.264 et HEVC
-//!   par le processeur), en statique, derrière `src/native/decoder.c` ;
-//! - libva et libdrm (runtime) : sonde des décodeurs et du VRR, `src/native/`.
+//!   par le processeur ; avec `KYBERNOW_V4L2_REQUEST=1`, le FFmpeg de
+//!   Raspberry Pi et son HEVC V4L2 request, lié à libudev), en statique,
+//!   derrière `src/native/decoder.c` ;
+//! - libva et libdrm (runtime) : sonde des décodeurs, du VRR et des modes de
+//!   l'écran, `src/native/`.
 
 use std::path::PathBuf;
 use std::{env, fs};

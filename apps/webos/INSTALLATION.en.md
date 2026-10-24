@@ -47,7 +47,7 @@ ares-setup-device --add tv -i "host=192.168.1.50" -i "port=9922" -i "username=pr
 ares-novacom --device tv --getkey          # asks for the passphrase from step 2
 
 # For each release
-ares-install --device tv fr.leslignesclaires.kybernow_0.4.4_arm.ipk
+ares-install --device tv KyberNow-Link-webOS.ipk
 ares-launch --device tv fr.leslignesclaires.kybernow
 ```
 

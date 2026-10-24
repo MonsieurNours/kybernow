@@ -15,7 +15,7 @@
 # 2. make-ab-image.sh refait l'image en deux emplacements A/B (tryboot du
 #    firmware) et une partition de données.
 #
-# → apps/linux/dist/KyberNow-Link-OS.img.xz (et .img sans --no-compress retiré).
+# → apps/linux/dist/KyberNow-Link-OS.img.xz (KyberNow-Link-OS.img avec --no-compress).
 #
 # Variables : KYBERNOW_OS_WORK (dossier de travail, hors dossier partagé :
 # pi-gen monte des systèmes de fichiers), KYBERNOW_OS_DEB (le .deb),
@@ -87,7 +87,7 @@ STAGE_LIST="stage0 stage1 stage2 stage-kybernow"
 EOF
 # Le mot de passe du compte : pi-gen en exige un pour ne pas renommer le compte
 # au premier démarrage ; tiré au hasard et jamais écrit ailleurs, puis le compte
-# est verrouillé dans le chroot (pas de session interactive ; SSH se active dans
+# est verrouillé dans le chroot (pas de session interactive ; SSH s'active dans
 # Réglages de l'appareil › Avancé, par clé seulement).
 echo "==> pi-gen : Raspberry Pi OS Lite + KyberNow Link $VERSION (long : debootstrap, paquets)"
 (cd "$PIGEN" && sudo -n ./build.sh > "$WORK/pi-gen.log" 2>&1) || { tail -30 "$WORK/pi-gen.log" >&2; echo "pi-gen en échec (journal : $WORK/pi-gen.log)" >&2; exit 1; }

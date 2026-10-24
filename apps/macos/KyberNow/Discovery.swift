@@ -1,5 +1,6 @@
 // Trouver un ordinateur : lien ou QR code de sa console (`kybernow://`),
-// annonce Bonjour sur le réseau local. Commun au Mac et à l'Apple TV.
+// annonce Bonjour sur le réseau local. Commun au Mac, à l'Apple TV, à
+// l'iPhone et à l'iPad.
 
 import Combine
 import Foundation

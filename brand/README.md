@@ -1,8 +1,10 @@
 # Logo KyberNow
 
+[English](README.en.md) · Français
+
 > Logo précédent, gardé comme archive : ni les apps, ni Admin, ni les installateurs, ni le site ne s'en servent. L'identité en vigueur est [`v2/`](v2/README.md) (symbole « Relais », signal Spectre).
 
-Le K en ruban plié, traversé par trois lignes de signal qui pulsent dans son ouverture : l'image qui part du PC et arrive sur l'écran.
+Le K en ruban plié, traversé par trois lignes de signal qui pulsent dans son ouverture : l'image qui part de l'ordinateur et arrive sur l'écran.
 
 ## Fichiers
 
@@ -10,10 +12,11 @@ Le K en ruban plié, traversé par trois lignes de signal qui pulsent dans son o
 |---|---|
 | `kybernow-logo.svg` | Logo vertical (symbole + nom), fond sombre |
 | `kybernow-logo-light.svg` | Logo vertical, fond clair |
-| `kybernow-logo-horizontal.svg` | Logo horizontal, fond sombre (en-têtes, installateur) |
+| `kybernow-logo-horizontal.svg` | Logo horizontal, fond sombre |
 | `kybernow-logo-horizontal-light.svg` | Logo horizontal, fond clair |
 | `kybernow-mark.svg` / `kybernow-mark-light.svg` | Symbole seul |
 | `kybernow-app-icon.svg` | Icône d'application (fond nuit arrondi) |
+| `kybernow-app-icon-1024.png` | La même, en PNG 1024 × 1024 |
 | `kybernow-mark-animated.svg` | Démonstration d'animation |
 | `preview.html` | Planche de toutes les déclinaisons |
 
@@ -24,12 +27,12 @@ Le nom est vectorisé (Bricolage Grotesque, graisse 700) : aucun fichier ne dép
 | Rôle | Fond sombre | Fond clair |
 |---|---|---|
 | K, « Kyber » | `#F4F7FA` | `#151B23` |
-| Signal, « Now » | `#6FE3C1` (menthe de l'installateur) | `#12A37E` |
+| Signal, « Now » | `#6FE3C1` (menthe) | `#12A37E` |
 | Ombre du bras | `#9AA6B4` → `#DCE3EA` | `#5B6878` → `#2A3441` |
 | Plis du ruban | `#B6C1CD` | `#46525F` |
 | Fond d'icône | `#0D1117` | — |
 
-## Structure prévue pour l'animation
+## Structure pour l'animation
 
 Chaque pièce est un élément séparé, nommé, sans transformation intermédiaire :
 
@@ -69,4 +72,4 @@ Pour l'insérer dans une page et l'animer, inclure le SVG en ligne (pas en `<img
 
 ## Régénérer
 
-Les fichiers sont produits par un script à partir de la géométrie du symbole et de la police ; ne pas les retoucher à la main sans reporter les changements dans les autres déclinaisons.
+Le script qui produit ces fichiers à partir de la géométrie du symbole et de la police n'est pas dans le dépôt : une retouche à la main se reporte dans toutes les déclinaisons.

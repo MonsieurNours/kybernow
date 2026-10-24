@@ -1,5 +1,6 @@
-# Clients KyberNow écrits en Rust : le cœur partagé (core), l'app Windows et
-# le pont C des apps Apple (apple, voir docs/coeur-apple.md).
+# Clients KyberNow écrits en Rust : le cœur partagé (core), les apps Windows,
+# webOS et Linux, le pont C des apps Apple (apple, voir docs/coeur-apple.md)
+# et le pont JNI de l'app Android (android/jni).
 #
 # Les briques de Kyber 0.29 viennent de third_party/kyber-desktop/kysdk, avec
 # les correctifs KyberNow des apps (apps/macos/kyber-patches) : voir

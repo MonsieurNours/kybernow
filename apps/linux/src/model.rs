@@ -153,10 +153,12 @@ pub struct AppSettings {
     /// KyberNow Link OS : le premier démarrage (manette, langue, réseau, usage,
     /// ordinateur) est fait.
     pub os_setup_done: bool,
-    /// KyberNow Link OS : HDMI-CEC (nom au téléviseur, veille et réveil par la télécommande).
+    /// KyberNow Link OS : HDMI-CEC, l'annonce du nom « KyberNow Link » au
+    /// téléviseur au lancement (la veille et le réveil passent par CEC sans
+    /// le lire).
     pub os_cec: bool,
-    /// KyberNow Link OS : télécharger les versions dès qu'elles sortent, les
-    /// installer pendant la veille.
+    /// KyberNow Link OS : télécharger les versions dès qu'elles sortent ;
+    /// l'installation attend « Redémarrer sur la X ».
     pub os_auto_update: bool,
     /// KyberNow Link OS : mode de la sortie HDMI au démarrage : `auto`,
     /// `2160p60`, `1080p120`, `1080p60`.
@@ -264,7 +266,6 @@ impl Store {
     }
 }
 
-/// Un identifiant aléatoire au format UUID v4.
 /// On peut créer le dossier et y écrire.
 fn writable(d: &std::path::Path) -> bool {
     let probe = d.join(".probe");
@@ -273,6 +274,7 @@ fn writable(d: &std::path::Path) -> bool {
     ok
 }
 
+/// Un identifiant aléatoire au format UUID v4.
 pub fn new_id() -> String {
     let mut b = [0u8; 16];
     if getrandom::getrandom(&mut b).is_err() {

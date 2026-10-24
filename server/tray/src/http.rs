@@ -2,7 +2,7 @@
 //!
 //! Tout compte interactif peut arrêter le service de la console (c'est
 //! voulu : l'icône le fait) et servir autre chose sur son port. L'icône
-//! n'ignore donc plus le certificat : elle compare l'empreinte SHA-256 de
+//! vérifie donc le certificat : elle compare l'empreinte SHA-256 de
 //! celui que le serveur présente à `console_fingerprint` de
 //! `C:\Program Files\KyberNow\kybernow.json` (écrit par `kyber-admin init`
 //! et par la console à chaque démarrage ; le dossier n'est modifiable que

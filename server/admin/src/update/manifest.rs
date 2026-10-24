@@ -23,9 +23,9 @@ pub const SIGNATURE: &str = "kybernow-release.json.minisig";
 pub const RELEASE_KEY: &str = include_str!("kybernow-release.pub");
 /// Installateur de KyberNow Station, publié avec chaque version.
 pub const SETUP: &str = "KyberNow-Station-Setup.exe";
-/// Nom de l'installateur jusqu'à la 0.3.1 : encore publié à l'identique (et
-/// listé par le manifeste) pendant quelques versions, seul nom connu des
-/// manifestes plus anciens.
+/// Nom de l'installateur jusqu'à la 0.3.1 : publié en copie à l'identique (et
+/// listé par le manifeste), parce que c'est le seul nom que connaissent les
+/// manifestes de ces versions.
 pub const LEGACY_SETUP: &str = "KyberNow-Server-Setup.exe";
 
 /// Canal de mises à jour suivi par l'ordinateur (réglage `update_channel`).

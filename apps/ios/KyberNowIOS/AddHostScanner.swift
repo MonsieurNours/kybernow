@@ -1,8 +1,8 @@
-// QR code de la console, lu à la caméra (AVCaptureMetadataOutput) : le lien
+// QR code d'Admin, lu à la caméra (AVCaptureMetadataOutput) : le lien
 // `kybernow://adresse:port?name=…&fp=…` donne l'adresse, le port et
 // l'empreinte, vérifiée ensuite toute seule. Caméra arrière sur iPhone,
 // avant sur iPad (l'iPad posé face à l'écran de l'ordinateur). Un lien copié
-// depuis la console se colle aussi.
+// depuis Admin se colle aussi.
 
 import AVFoundation
 import KyberKit

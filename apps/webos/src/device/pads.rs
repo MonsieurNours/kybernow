@@ -1,6 +1,6 @@
 //! Les manettes (SDL GameController) : quatre joueurs au plus, dans l'ordre
-//! d'arrivée ; vibrations des deux moteurs (et des gâchettes quand la
-//! manette en a) ; la manette pilote l'app hors du jeu (croix et stick :
+//! d'arrivée ; vibrations des deux moteurs (et, à l'essai, des gâchettes
+//! quand la manette en a) ; la manette pilote l'app hors du jeu (croix et stick :
 //! flèches, A : OK, B : retour, Y : options) ; manette en souris.
 //! Et la conversion des touches du clavier (codes USB de SDL) en scancodes
 //! de Windows, ceux qu'attend kynput.

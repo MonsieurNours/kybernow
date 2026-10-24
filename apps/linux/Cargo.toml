@@ -26,7 +26,7 @@ getrandom = "0.2"
 
 [features]
 # L'app : cœur, FFmpeg, SDL. Sans elle (--no-default-features), seule
-# l'interface se compile : captures des écrans (scripts/preview.sh), sur Mac aussi.
+# l'interface se compile : captures des écrans (`--preview`), sur Mac aussi.
 default = ["device"]
 device = ["dep:kybernow-core", "dep:kynput-sys", "dep:keycode"]
 

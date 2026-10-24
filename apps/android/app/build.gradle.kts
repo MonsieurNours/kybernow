@@ -31,7 +31,7 @@ android {
     }
 
     // Signature de publication : keystore donné par l'environnement
-    // (scripts/release.sh) ; sans lui, l'APK de publication n'est pas signé.
+    // (scripts/release-apk.sh) ; sans lui, l'APK de publication n'est pas signé.
     val keystore = System.getenv("KYBERNOW_ANDROID_KEYSTORE")
     if (keystore != null) {
         signingConfigs.create("release") {

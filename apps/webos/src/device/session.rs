@@ -31,7 +31,7 @@ pub struct Shared {
     mode: Mutex<Mode>,
     refresh: AtomicU32,
     has_audio: bool,
-    /// Son 5.1 par NDL.
+    /// Son 5.1, décodé par l'app.
     surround: bool,
     /// … encodé en E-AC-3.
     dolby: bool,

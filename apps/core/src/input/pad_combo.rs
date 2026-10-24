@@ -1,6 +1,7 @@
 //! Combinaison manette L1 + R1 + Start + Select, et touches tenues de chaque
-//! manette : ce que le Mac (manettes SDL vues par le hook de kynput),
-//! l'Apple TV (GameController) et Windows ont en commun.
+//! manette : ce que le Mac (manettes SDL vues par le hook de kynput), l'Apple
+//! TV, l'iPhone et l'iPad (GameController), Android, Linux et webOS ont en
+//! commun. Windows ne s'en sert pas.
 //!
 //! La combinaison ouvre la barre ou le menu : la manette pilote alors
 //! KyberNow et le jeu ne reçoit plus rien. Ici, on ne décide pas : on

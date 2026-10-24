@@ -2,6 +2,8 @@
 
 English · [Français](prototype-A.md)
 
+> **Archive.** Snapshot of 19 October 2026: it describes the project as it was then, not as it is now. The current state is in the living docs; planned work is in [ROADMAP.en.md](../../ROADMAP.en.md).
+
 Goal: a Kyber server running on the NVIDIA computer, the command-line macOS client connecting to it, and a **reference latency measurement** before writing a single line of our own code.
 
 ## 1. On the Windows computer
@@ -57,7 +59,7 @@ From **Chrome** on the Mac (not Safari: black screen): `https://<IP-du-PC>:8080/
 
 ## 2. On the Mac (native client)
 
-The client is built from source (`third_party/kyber-desktop`, tag `0.29.0`, arm64): `third_party/kyber-desktop/Kyber-Client.app` (see `docs/build-notes.md` ([English](build-notes.en.md)) for the Xcode 27 workaround).
+The client is built from source (`third_party/kyber-desktop`, tag `0.29.0`, arm64): `third_party/kyber-desktop/Kyber-Client.app` (see `docs/build-notes.md` ([English](../build-notes.en.md)) for the Xcode 27 workaround).
 
 ```bash
 tools/latency/run_client.sh 192.168.1.100 matthieu            # options kyclient en plus si besoin

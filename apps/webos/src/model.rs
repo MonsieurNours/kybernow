@@ -44,9 +44,11 @@ pub struct HostSettings {
     pub fps: u32,
     /// `auto`, `hevc`, `h264`, `av1`.
     pub codec: String,
-    /// 0 : celui du profil, plafonné par le lien (Ethernet : 100 Mbit/s).
+    /// 0 : celui du profil ; plafonné dans tous les cas par le réseau
+    /// (`NetInfo::cap_mbps` : 80 Mbit/s en Ethernet à 100 Mbit/s, 95 sinon).
     pub mbps: u32,
-    /// `auto`, `stereo`, `5.1`, `computer` (le son reste sur l'ordinateur).
+    /// `auto` (stéréo), `stereo`, `dolby` (5.1 en E-AC-3), `surround` (5.1 en
+    /// PCM), `computer` (le son reste sur l'ordinateur).
     pub audio: String,
     /// Toutes les manettes vues comme des Xbox 360 par l'ordinateur.
     pub xbox360: bool,
@@ -54,11 +56,12 @@ pub struct HostSettings {
     pub combo: bool,
     /// Bouton Retour de la Magic Remote : ouvre le menu (sinon Échap).
     pub back_opens_menu: bool,
+    /// Sans effet : pas de presse-papiers sur webOS (la session le coupe).
     pub clipboard: bool,
     pub reconnect: bool,
     /// Transport fiable même en profil Jeu (Wi-Fi chargé).
     pub reliable: bool,
-    /// Ne plus rappeler de passer la télé en Optimiseur de jeu.
+    /// Rappeler, dans le menu de session, de passer la télé en Optimiseur de jeu.
     pub game_mode_hint: bool,
 }
 
@@ -229,7 +232,7 @@ impl Store {
         }
     }
 
-    /// Dossier des dernières images de session (une par ordinateur).
+    /// Aperçu d'Admin gardé pour l'accueil (un fichier par ordinateur).
     pub fn image_path(id: &str) -> PathBuf {
         let d = Self::dir().join("images");
         let _ = std::fs::create_dir_all(&d);
@@ -237,7 +240,6 @@ impl Store {
     }
 }
 
-/// Un identifiant aléatoire au format UUID v4.
 /// On peut créer le dossier et y écrire.
 fn writable(d: &std::path::Path) -> bool {
     let probe = d.join(".probe");
@@ -246,6 +248,7 @@ fn writable(d: &std::path::Path) -> bool {
     ok
 }
 
+/// Un identifiant aléatoire au format UUID v4.
 pub fn new_id() -> String {
     let mut b = [0u8; 16];
     if getrandom::getrandom(&mut b).is_err() {

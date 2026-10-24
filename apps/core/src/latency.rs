@@ -1,6 +1,6 @@
 //! Latence de bout en bout et temps de chaque étape de la chaîne : capture,
 //! encodage et envoi sur l'ordinateur, réseau, décodage et affichage sur
-//! l'appareil. Port de `LatencyTracker.swift` (app Mac).
+//! l'appareil.
 //!
 //! Le serveur horodate chaque image à chaque étape (« acquired », « encoding »,
 //! « encoded », « sent », sur son horloge) et l'envoie avec les mesures de

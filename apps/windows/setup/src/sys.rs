@@ -17,13 +17,15 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2, 
 
 use crate::payload::Arch;
 
-/// Dossiers de l'app et de ses données : inchangés depuis la première version.
+/// Dossiers de l'app et de ses données : ceux des installations existantes,
+/// à ne pas renommer.
 pub const PRODUCT: &str = "KyberNow";
 /// Nom affiché (« Applications installées », fenêtres et messages).
 pub const DISPLAY_NAME: &str = "KyberNow Link";
 /// Raccourcis du menu Démarrer et du Bureau (posés par l'app, `--setup-shell`).
 const SHORTCUT: &str = "KyberNow Link.lnk";
-/// Nom des raccourcis jusqu'à la 0.3.1 : retiré à l'installation et à la désinstallation.
+/// Nom des raccourcis posés par les versions 0.3.1 et avant : retiré à
+/// l'installation et à la désinstallation.
 const OLD_SHORTCUT: &str = "KyberNow.lnk";
 /// Mutex de l'app ouverte (apps/windows/src/instance.rs).
 const APP_MUTEX: &str = r"Local\KyberNow.App";

@@ -1,7 +1,8 @@
 // Clavier du Mac : codes virtuels kVK (indépendants de la disposition) →
 // usages USB HID (page 7), disposition physique du clavier (ISO ou non), et
 // touches de modification vues par AppKit. Le reste (scancodes, échange ISO,
-// « ⌘ envoyée comme Ctrl ») est dans Keymap.swift, partagé avec l'Apple TV.
+// « ⌘ envoyée comme Ctrl ») est dans le cœur (`keymap.rs`), par `Keymap`
+// (InputCore.swift), partagé avec l'Apple TV, l'iPhone et l'iPad.
 
 import AppKit
 import Carbon.HIToolbox
@@ -46,7 +47,7 @@ extension Keymap {
     ]
 
     /// Usage HID brut d'une touche du Mac (avant « ⌘ envoyée comme Ctrl » et
-    /// l'échange ISO, voir `Keymap.usage(hid:commandAsControl:iso:)`).
+    /// l'échange ISO, voir `Keymap.scancode(hid:commandAsControl:iso:)`).
     static func hid(keyCode: UInt16) -> UInt16? {
         hid[Int(keyCode)]
     }

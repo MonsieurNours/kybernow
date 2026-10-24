@@ -4,7 +4,8 @@
 #
 #   kybernow-os-ctl ssh on|off          SSH (Réglages de l'appareil › Avancé)
 #   kybernow-os-ctl reboot | poweroff
-#   kybernow-os-ctl standby on|off      sortie HDMI éteinte (veille) ou rallumée, et le téléviseur par CEC
+#   kybernow-os-ctl standby on|off      veille du téléviseur par CEC (on), ou réveil et prise de l'entrée (off) ;
+#                                       la sortie HDMI reste allumée (l'app affiche l'encre)
 #   kybernow-os-ctl cec-name            annonce « KyberNow Link » au téléviseur (CEC)
 #   kybernow-os-ctl cec-wake            réveille le téléviseur et prend la source (CEC)
 #   kybernow-os-ctl hostname NOM

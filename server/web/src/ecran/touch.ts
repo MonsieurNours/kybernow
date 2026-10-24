@@ -140,7 +140,7 @@ export class TouchInput {
       const t = touches[0]
       const prev = this.last.get(t.identifier)
       if (prev) {
-        // Par crans entiers : de petits pas (0,13 cran) se perdaient dans
+        // Par crans entiers : de petits pas (0,13 cran) se perdent dans
         // les applications qui attendent un cran complet.
         this.scrollAcc += (prev.y - t.clientY) * SCROLL_GAIN
         const notches = Math.trunc(this.scrollAcc / WHEEL_NOTCH)
@@ -280,7 +280,8 @@ const HARDWARE_TEXT_MS = 150
  * l'ordinateur (AZERTY…), avec majuscules, accents et composition (iOS,
  * Android, dictée). Il est lu sur `beforeinput` et `compositionend`, jamais
  * pendant une composition, et le champ n'est vidé qu'en dehors d'elle.
- * Les touches (Entrée, Retour, flèches, Échap, Tab) restent des touches.
+ * Les touches (Entrée, Retour, Suppr, flèches, Début, Fin, pages, Échap,
+ * Tab : `DEVICE_KEYS`) restent des touches.
  *
  * Un vrai clavier (iPad avec clavier, clavier Bluetooth) donne un `code` à
  * ses frappes : le moteur les envoie déjà ; le texte qu'elles produisent

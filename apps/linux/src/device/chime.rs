@@ -16,8 +16,7 @@
 //! Tout est rendu dans un tampon stéréo à 48 kHz (environ 5 s), avec une
 //! réverbération simple (quatre peignes et deux passe-tout, à la Schroeder) et
 //! un compresseur doux, puis mis en file sur une sortie SDL à part (le son de
-//! la session a la sienne). Une esquisse fidèle à l'intention ; la bande
-//! définitive pourra la remplacer par un fichier.
+//! la session a la sienne).
 
 use std::ffi::c_void;
 

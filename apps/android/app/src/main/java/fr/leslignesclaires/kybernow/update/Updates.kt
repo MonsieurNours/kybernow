@@ -58,8 +58,10 @@ sealed interface UpdateState {
  * l'empreinte SHA-256 du manifeste ; Android vérifie ensuite qu'il est signé
  * par la même clé que l'app installée.
  *
- * Recherche au lancement puis toutes les 6 heures ; téléchargement et
- * installation à la demande (Android demande toujours de confirmer).
+ * Une recherche toutes les 6 heures au plus (au lancement, au retour dans
+ * l'app, pendant qu'elle tourne). Téléchargement à la demande, installation
+ * aussitôt après ; Android demande de confirmer quand il l'exige
+ * (`STATUS_PENDING_USER_ACTION`).
  */
 class Updates(private val context: Context) {
     private val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)

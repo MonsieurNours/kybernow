@@ -6,11 +6,12 @@
 #   apps/linux/os/emulate.sh --stop
 #
 # Ce que ça vérifie : le système tel que pi-gen l'a construit (comptes, services,
-# Plymouth, le service Link sur KMS/DRM en utilisateur kybernow, le premier
-# démarrage : partition de données agrandie, écrans à la manette ou au clavier,
-# nmcli, kybernow-os-update status). Ce que ça ne vérifie pas : le firmware du
-# Pi (config.txt, autoboot.txt, tryboot), le décodeur V4L2, le son, le
-# Bluetooth, le CEC — voir « À vérifier sur une carte » dans le README.
+# le service Link sur KMS/DRM en utilisateur kybernow, le premier démarrage :
+# partition de données agrandie, écrans à la manette ou au clavier, nmcli,
+# kybernow-os-update status). Ce que ça ne vérifie pas : le firmware du Pi
+# (config.txt, autoboot.txt, tryboot), Plymouth (coupé ici), le décodeur V4L2,
+# le son, le Bluetooth, le CEC — voir « Pas encore vérifié sur une carte » dans
+# le README.
 #
 # Comment : l'image (.xz décompressée) est copiée dans DOSSIER/kn.img et agrandie
 # (--size), puis préparée pour QEMU, par montage : le noyau de la VM remplace

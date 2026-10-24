@@ -8,7 +8,7 @@
 // En WebTransport, les entrées passent dans un flux du moteur où l'on ne peut
 // rien glisser : ces envois échouent (`false`).
 // Avec le moteur corrigé (hors Safari, iPhone et iPad), la page n'envoie
-// plus rien elle-même : voir `engineInputs()`.
+// rien elle-même : voir `engineInputs()`.
 
 import { isWebKit } from './device'
 import { isFixedEngine } from './engine'

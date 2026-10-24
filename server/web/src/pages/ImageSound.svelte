@@ -44,9 +44,10 @@
   ])
 
   const INPUTS = ['input.clipboard_allow_copy', 'input.clipboard_allow_paste', 'input.gamepad_force_xbox360', 'input.keyboard_key_repeat']
-  // Depuis KyberNow 0.2.6, les apps Mac et Apple TV choisissent par ordinateur
-  // la manette vue par l'ordinateur (Xbox 360 ou fidèle) et l'imposent à la
-  // session : l'option de la console n'est plus qu'un défaut pour les autres clients.
+  // Les apps KyberNow Link choisissent par ordinateur la manette vue par
+  // l'ordinateur (Xbox 360 ou fidèle) et l'imposent à la session
+  // (`gamepad_force_xbox360`) : l'option de la console n'est qu'un défaut pour
+  // les autres clients (client web, ligne de commande).
   const INPUT_NOTES: Record<string, string> = $derived({
     'input.gamepad_force_xbox360': t('imageSound.inputNotes.gamepad'),
   })

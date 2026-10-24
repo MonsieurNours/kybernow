@@ -1,6 +1,6 @@
 // Ajouter un ordinateur (maquettes iOS, planche 2) : les quatre voies de
 // l'Apple TV (depuis le Mac par iCloud, sur le réseau, code à l'écran,
-// adresse), plus le QR code de la console lu à la caméra.
+// adresse), plus le QR code d'Admin lu à la caméra.
 //
 // Sur iPhone, et sur iPad en Split View étroit, une fiche aux étapes
 // empilées : les voies, le volet de la voie, la vérification de l'empreinte,
@@ -26,7 +26,7 @@ enum AddHostMethod: Int, CaseIterable, Identifiable {
 enum AddHostStage: Equatable {
     /// Le volet de la voie (liste, code, adresse, caméra).
     case pane
-    /// Un ordinateur trouvé : l'empreinte de sa console, à vérifier.
+    /// Un ordinateur trouvé : l'empreinte du certificat d'Admin, à vérifier.
     case verify(Candidate)
     /// L'empreinte retenue : le compte à saisir.
     case account(Candidate, fingerprint: String?, verified: Bool)
@@ -100,7 +100,7 @@ final class AddHostFlow: ObservableObject {
     }
 }
 
-/// Empreinte du certificat de la console (« sha256:ab:cd:… »).
+/// Empreinte du certificat d'Admin (« sha256:ab:cd:… »).
 enum AddHostFingerprint {
     static func hex(_ fp: String) -> String {
         fp.replacingOccurrences(of: "sha256:", with: "", options: .caseInsensitive)
@@ -113,7 +113,7 @@ enum AddHostFingerprint {
         return hex(a) == hex(b)
     }
 
-    /// Groupes de quatre caractères, comme la console les affiche (Appareils Link).
+    /// Groupes de quatre caractères, comme Admin les affiche (Appareils Link).
     static func groups(_ fp: String) -> [String] {
         let h = Array(hex(fp))
         return stride(from: 0, to: h.count, by: 4).map { String(h[$0 ..< min($0 + 4, h.count)]) }

@@ -4,17 +4,18 @@
 # haut-parleurs virtuels de Steam, pare-feu, raccourcis du menu Demarrer et
 # noms affiches des services).
 #
-# Depuis la 0.2.6, la console n'utilise plus ce script : son applicateur
+# La console en 0.2.6 et apres n'utilise pas ce script : son applicateur
 # (kyber-admin update apply) verifie le manifeste signe de la version et fait
-# la bascule lui-meme. Ce script reste pour :
+# la bascule lui-meme. Ce script sert a :
 #   - les consoles 0.2.5 et plus anciennes, qui le lancent avec -Source apres
-#     avoir verifie l'empreinte du paquet (passage a la 0.2.6) ;
+#     avoir verifie l'empreinte du paquet (compatibilite : c'est leur seul
+#     chemin de mise a jour) ;
 #   - la mise a jour a la main, dans PowerShell en administrateur, derniere
 #     version publiee :
 #       irm https://github.com/MonsieurNours/kybernow/releases/latest/download/update.ps1 | iex
-#     Integrite seulement, jusqu'a la signature Authenticode : SHA256SUMS dit
-#     que le paquet n'est pas abime, pas qu'il vient de KyberNow (il est publie
-#     au meme endroit). Voir docs/releases.md ;
+#     Integrite seulement : SHA256SUMS dit que le paquet n'est pas abime, pas
+#     qu'il vient de KyberNow (il est publie au meme endroit). Voir
+#     docs/releases.md ;
 #   - pour tester un paquet servi depuis le Mac : definir KYBERNOW_UPDATE_BASE
 #     (ex. http://192.168.1.105:8000) avant la commande ci-dessus.
 #
@@ -214,8 +215,9 @@ try {
         New-Item -ItemType Directory -Force "$cur.new" | Out-Null
         if (Test-Path $cur) {
             # Tout le dossier actuel (reglages et certificat de Kyber compris),
-            # sauf les journaux de Kyber, deplaces apres la bascule, et
-            # l'ancienne sauvegarde avant-maj (remplacee par kyber.prev).
+            # sauf les journaux de Kyber, deplaces apres la bascule, et le
+            # dossier avant-maj des anciennes mises a jour (la version
+            # precedente est gardee dans kyber.prev).
             Get-ChildItem -LiteralPath $cur -Force | Where-Object { -not ($p -eq 'kyber' -and $_.Name -in 'log', 'avant-maj') } |
                 ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination "$cur.new" -Recurse -Force }
         }
@@ -256,7 +258,7 @@ try {
     }
 
     Write-Host '==> Menu Demarrer'
-    # Le dossier KyberNow reste. Raccourcis renommes avec KyberNow Station :
+    # Le dossier KyberNow reste. Raccourcis des versions 0.3.1 et avant :
     # KyberNow.lnk -> KyberNow Station.lnk (icone), Console KyberNow.url et
     # KyberNow console.url -> KyberNow Admin.url (meme adresse, ecrite par
     # l'installateur avec le port de la console).

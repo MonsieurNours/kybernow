@@ -2,7 +2,7 @@
 
 English · [Français](README.md)
 
-What the KyberNow Link apps have in common, written once in Rust: talking to KyberNow Admin, the Kyber session, profiles and bitrate, latency, updates, the input module and the sound engine. Every app rests on it: Windows ([apps/windows](../windows/README.en.md)) directly, Mac, Apple TV, iPhone and iPad ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) through the C bridge `apps/apple` ([docs/coeur-apple.en.md](../../docs/coeur-apple.en.md)).
+What the KyberNow Link apps have in common, written once in Rust: talking to KyberNow Admin, the Kyber session, profiles and bitrate, latency, updates, the input module and the sound engine. Every app rests on it: Windows, Linux and webOS ([apps/windows](../windows/README.en.md), [apps/linux](../linux/README.en.md), [apps/webos](../webos/README.en.md)) directly, Android ([apps/android](../android/README.en.md)) through JNI (`apps/android/jni`), Mac, Apple TV, iPhone and iPad ([apps/macos](../macos/README.en.md), [apps/tvos](../tvos/README.en.md), [apps/ios](../ios/README.en.md)) through the C bridge `apps/apple` ([docs/coeur-apple.en.md](../../docs/coeur-apple.en.md)).
 
 The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core Audio. What the platform provides goes through traits (the window, decoders, sound output and inputs through `session::Platform`; the clock, pasteboard and callbacks to the interface through the input module's traits; the sound output pulls sound from the engine itself). Kyber 0.29's building blocks come from `third_party/kyber-desktop/kysdk` with KyberNow's patches (`apps/macos/kyber-patches`), see [apps/windows/README.en.md](../windows/README.en.md).
 
@@ -10,20 +10,20 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 
 | File | Contents |
 |---|---|
-| `src/console.rs` | Admin client (`info`, `prepare`, `heartbeat`, `foreground`, `end`), pinned certificate, `Accept-Language` |
+| `src/console.rs` | Admin client: session (`prepare`, `heartbeat`, `foreground`, `end`), home and adding (`info`, `probe`, `preview`, `pair_request`, `pair_status`), pinned certificate, `Accept-Language` |
 | `src/i18n.rs` | Language (detection, choice), text catalogues, release notes per language ([docs/i18n.en.md](../../docs/i18n.en.md)) |
 | `src/session.rs` | A session's flow on a dedicated thread; what the platform provides: `Platform` |
 | `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second |
 | `src/latency.rs` | End-to-end latency, Kyber's clock |
-| `src/update.rs` | Updates: signed manifest (minisign), channel, download; installer looked up under its current name, then its former name (`KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe`, the only name in releases 0.3.1 and earlier) |
+| `src/update.rs` | Updates (Windows, Android, Linux, webOS): signed manifest (minisign), channel, verified download (size, SHA-256); the app's file is looked up under its current name, then its former names (Windows: `KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe`, the only name in releases 0.3.1 and earlier) |
 | `src/input/` | Shared input module (below) |
 | `src/audio/` | Sound engine (below) |
 | `build.rs` | libopus through pkg-config when it knows it; otherwise the executable links it itself |
 
 ## Shared input module (`src/input/`)
 
-The inputs of every app (Mac, Apple TV, iPhone and iPad through `apps/apple` and `InputCore.swift`; Windows directly), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`): chain and fallback queue, keyboard, gamepad combination, release everything, the computer's pointer, clipboard (see “Inputs” in [apps/macos/README.en.md](../macos/README.en.md)).
+The inputs of every app (Mac, Apple TV, iPhone and iPad through `apps/apple` and `InputCore.swift`; Android through JNI; Windows, Linux and webOS directly), on top of Kyber's kynput chain (`kynput_rs`, `kynput_sys`): chain and fallback queue, keyboard, gamepad combination, release everything, the computer's pointer, clipboard (see “Inputs” in [apps/macos/README.en.md](../macos/README.en.md)).
 
 | Module | What it holds |
 |---|---|
@@ -35,8 +35,8 @@ The inputs of every app (Mac, Apple TV, iPhone and iPad through `apps/apple` and
 | `release_all.rs` | `ReleaseAll`: what the device holds down (scancodes, buttons, modifiers in the platform's identifier), release everything (buttons then keys), forget, modifiers really held sent again on return |
 | `pointer_layer.rs` | `PointerLayer`: position, shape (ARGB pixels as kynput delivers them, `Shape::premultiplied` for CGImage and Win32), hot spot and visibility of the computer's pointer; position held by the device (Apple TV, `holds_position`) that the computer takes back when inputs are idle (0.4 s), screen size change, resend after reconnection; `MouseMode`, `MouseModeRules` (Auto / Desktop / Game, 0.6 s tolerance for a pointer shown again, recheck at 0.7 s); drawing scale and frame |
 | `clipboard.rs` | `ClipboardBridge` on the `Pasteboard` trait: text both ways (announce, immediate request, answer, 60 KB), the device's pasteboard looked at twice a second, our own write does not go back; where reading the text disturbs the user (`reading_asks_user`, iOS), it is only read when the computer asks and changes are announced without reading (`has_text`); C functions of patch `kyber-patches/0002` |
-| `gamepad_gate.rs` | Gamepads read by kynput through SDL (Mac, Windows): router hook passing every gamepad packet to the combination and dropping, while the app holds the gamepad (bar open), presses and moving axes (navigation keys handed to the app); releases and axes at rest always go through; outside capture, axes unchanged at 1/512 are dropped. `InputPipeline::install_gamepad_gate`, `set_gamepad_captured` (releases and the six axes at rest sent at capture) |
-| `pipeline.rs` | `InputPipeline`: assembles everything on top of a kynput chain: keyboard, absolute and relative mouse, wheel, Unicode text, FlushKeys, gamepads produced by the app (plug, buttons, axes filtered to 1/512 of the travel and grouped by 4 ms, returns to rest retried, reset to rest), release everything; reception of the pointer (shape deduplicated, fully transparent shape discarded), rumble and clipboard |
+| `gamepad_gate.rs` | Gamepads read by kynput through SDL, on the Mac (Windows also reads its own through SDL in kynput, without this hook): router hook passing every gamepad packet to the combination and dropping, while the app holds the gamepad (bar open), presses and moving axes (navigation keys handed to the app); releases and axes at rest always go through; outside capture, axes unchanged at 1/512 are dropped. `InputPipeline::install_gamepad_gate`, `set_gamepad_captured` (releases and the six axes at rest sent at capture) |
+| `pipeline.rs` | `InputPipeline`: assembles everything on top of a kynput chain: keyboard, absolute and relative mouse, wheel, Unicode text, FlushKeys, gamepads produced by the app (`gamepads_from_app`: Apple TV, iPhone, iPad, Android, Linux, webOS; plug, buttons, axes filtered to 1/512 of the travel and grouped by 4 ms, returns to rest retried, reset to rest), release everything; reception of the pointer (shape deduplicated, fully transparent shape discarded), rumble and clipboard |
 
 **Timers.** No module creates a thread or a queue: each exposes `poll()` and `next_deadline()`, and `InputPipeline::poll` calls them all (retries, axes, combo, clipboard, received packets). The platform calls `poll()` by the deadline at the latest from whichever queue it wants, or lets `InputPipeline::spawn_driver` run a thread (`kybernow-entrees`) that sleeps until the deadline or a wake-up (`wake()`, triggered by anything that creates a wait). The tests advance a `ManualClock` and call `poll()` themselves.
 
@@ -50,7 +50,7 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> Duration;
 }
 
-// Text pasteboard (NSPasteboard, UIPasteboard; None on tvOS).
+// Text pasteboard (NSPasteboard, UIPasteboard, Android, Linux; None on tvOS and webOS; kynput's own on Windows).
 pub trait Pasteboard: Send + Sync {
     fn change_count(&self) -> u64;
     fn text(&self) -> Option<String>;
@@ -71,13 +71,13 @@ pub trait PacketSink: Send + Sync {
 }
 ```
 
-And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac and Windows, `false` on Apple TV, iPhone and iPad); the Mac's and Windows' SDL gamepads stay read by kynput, filtered by the router hook (`install_gamepad_gate`), which hands navigation keys back through `InputPlatform::navigate`.
+And, outside the traits: **event capture** (AppKit, GameController, Win32, Raw Input, SDL, Android) translated into `InputPipeline` calls (`key`, `mouse`, `mouse_move`, `mouse_button`, `wheel`, `type_text`, `gamepad_*`, `release_all`, `flush_keys`); each key's **HID usage** and the **ISO layout** (`keymap::scancode(hid, command_as_control, || iso)`); **drawing** the pointer on the main thread from `PointerLayer::set_on_changed`; the **mouse mode rule** (`MouseModeRules { needs_hidden_pointer }`, `true` on Mac, Windows and Linux, `false` on Apple TV, iPhone, iPad and Android); the Mac's and Windows' SDL gamepads stay read by kynput; on the Mac, the router hook (`install_gamepad_gate`) filters them and hands navigation keys back through `InputPlatform::navigate`.
 
 Creation: `InputPipeline::new(Options { display_id, host_size, clipboard, gamepads_from_app }, pointer, platform, clock)` returns an `Arc`; `kynput()` gives the chain to `session::Platform::input_pipeline`; `start_clipboard()` once the network is connected; `stop()` at the end of the session (direct FlushKeys, total losses logged), `shutdown()` to stop kynput's handlers.
 
 ## Sound engine (`src/audio/`)
 
-The sound of every app, without the output: the platform (Core Audio, WASAPI) pulls sound from the engine from its real-time thread. Mac, Apple TV, iPhone and iPad go through `kn_audio_*` (`AudioPlayerCore.swift`), Windows directly (`apps/windows/src/audio.rs`).
+The sound of every app, without the output: the platform (Core Audio, WASAPI, AAudio, SDL) pulls sound from the engine from its real-time thread. Mac, Apple TV, iPhone and iPad go through `kn_audio_*` (`AudioPlayerCore.swift`), Windows directly (`apps/windows/src/audio.rs`), Android through AAudio (`apps/android/jni/src/audio.rs`), Linux and webOS through SDL (`apps/linux/src/device/media.rs`, `apps/webos/src/device/media.rs`; in 5.1, webOS hands the sound to the TV's player).
 
 | Module | What it holds |
 |---|---|

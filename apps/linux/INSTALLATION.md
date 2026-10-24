@@ -2,7 +2,7 @@
 
 [English](INSTALLATION.en.md) · Français
 
-KyberNow Link pour Linux est un paquet **Flatpak**, joint à chaque version publiée sur GitHub : `KyberNow-Link-Linux-x86_64.flatpak` (Steam Deck, PC) et `KyberNow-Link-Linux-aarch64.flatpak` (machines ARM). Il s'installe sans droits d'administrateur ; le runtime de freedesktop vient de Flathub au premier lancement. Pour le **Raspberry Pi**, c'est un paquet **.deb** (`KyberNow-Link-RaspberryPi-arm64.deb`), voir plus bas.
+KyberNow Link pour Linux est un paquet **Flatpak**, joint à chaque version publiée sur GitHub : `KyberNow-Link-Linux-x86_64.flatpak` (Steam Deck, PC) et `KyberNow-Link-Linux-aarch64.flatpak` (machines ARM). Il s'installe sans droits d'administrateur ; le runtime de freedesktop vient de Flathub à l'installation. Pour le **Raspberry Pi**, c'est un paquet **.deb** (`KyberNow-Link-RaspberryPi-arm64.deb`), voir plus bas.
 
 ## Steam Deck (SteamOS)
 
@@ -50,17 +50,11 @@ Pour un Raspberry Pi 3, 4 ou 5 (Pi 400, 500 et Compute Module compris) sous **Ra
 
 Ce que le Pi permet est dit dans Réglages › Image (choix grisés, étiquettes « décodeur du Pi » et « processeur ») : 4K à 60 Hz au plus sur la sortie HDMI des Pi 4 et 5, 1080p à 120 Hz si le téléviseur l'annonce, pas de fréquence variable ; sur le Pi 5 le H.264 passe par le processeur (1080p), le HEVC par la puce ; les couleurs 4:4:4 par le processeur, 1080p au plus.
 
-**Dépôt apt** (quand il sera publié) : les mises à jour viendront alors avec `sudo apt upgrade`. Le dépôt se déclare une fois :
-
-```sh
-curl -fsSL https://www.kybernow.app/apt/kybernow.gpg | sudo tee /usr/share/keyrings/kybernow.gpg >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/kybernow.gpg] https://www.kybernow.app/apt stable main" | sudo tee /etc/apt/sources.list.d/kybernow.list
-sudo apt update && sudo apt install kybernow-link
-```
+Pas de dépôt apt publié : une nouvelle version s'installe depuis son fichier (voir « Mettre à jour »).
 
 Désinstaller : `sudo apt remove kybernow-link` ; les ordinateurs, réglages et le journal sont dans `~/.config/kybernow/`.
 
-**Pas encore essayé sur une carte** (23/10/2026) : le paquet est construit et installé dans une machine virtuelle ARM64 ; le décodeur HEVC du Pi, la sortie HDMI et les manettes Bluetooth restent à vérifier sur un vrai Raspberry Pi. Le Flatpak aarch64 marche aussi sur le Pi, mais sans le décodeur de la puce (HEVC par le processeur).
+**Pas encore essayé sur une carte** : le paquet est construit et installé dans une machine virtuelle ARM64 ; le décodeur HEVC du Pi, la sortie HDMI et les manettes Bluetooth ne sont pas vérifiés sur un vrai Raspberry Pi. Le Flatpak aarch64 marche aussi sur le Pi, mais sans le décodeur de la puce (HEVC par le processeur).
 
 ## KyberNow Link OS (l'image à flasher)
 
@@ -69,15 +63,15 @@ Un Raspberry Pi qui ne fait que ça : la carte démarre sur KyberNow Link, au t�
 1. **Flasher** `KyberNow-Link-OS.img.xz` (page des versions) sur une carte microSD de 8 Go au moins (ou un SSD), avec **Raspberry Pi Imager** : Choisir l'OS › Utiliser une image personnalisée, et le fichier ; ou collez le dépôt KyberNow dans Imager › Réglages › Dépôt personnalisé : `https://www.kybernow.app/updates/rpi-imager.json`, et « KyberNow Link OS » apparaît dans la liste. Pas de personnalisation d'OS à faire dans Imager : tout se règle au premier démarrage.
 2. **Brancher** : HDMI au téléviseur (la prise HDMI 0, près de l'alimentation, sur Pi 4 et 5), Ethernet si possible, l'alimentation. Le symbole s'affiche, puis s'allume avec son.
 3. **Premier démarrage, à la manette** : mettez-la en mode association (Xbox : bouton d'association près du port USB ; DualSense : Create + PS ; Switch Pro : SYNC), elle est acceptée sans code ; une manette USB, la télécommande du téléviseur (HDMI-CEC) ou un clavier marchent aussi. Puis la langue, le réseau (Ethernet reconnu, sinon le Wi-Fi et son mot de passe), l'usage (Salon ou Bureau), et l'ordinateur (le code à six chiffres, accepté dans Admin › Appareils Link).
-4. Ensuite : ☰ sur l'accueil ouvre les **Réglages de l'appareil** (réseau, manettes, écran, son, mise à jour, langue, SSH) ; **Start tenu trois secondes** bascule Salon ⇄ Bureau ; Guide (ou PS) met en veille, une touche réveille.
+4. Ensuite : ☰ sur l'accueil ouvre les **Réglages de l'appareil** (réseau, manettes, écran, son, mise à jour, langue, SSH) ; **Start tenu trois secondes** bascule Salon ⇄ Bureau ; sur l'accueil, Guide (ou PS) met en veille (écran noir, téléviseur en veille par HDMI-CEC), une touche ou un bouton réveille.
 
 **Mettre à jour l'OS** : Réglages de l'appareil › Mise à jour. La nouvelle version se télécharge (dès sa sortie, si « Automatique » est coché), puis « Redémarrer sur la X » l'essaie dans l'autre emplacement de la carte ; si elle ne démarre pas jusqu'à l'accueil, le Pi revient tout seul à la version d'avant. Les ordinateurs et réglages sont sur une partition à part et restent.
 
-**Pas encore essayé sur une carte** (24/10/2026) : l'image se construit et démarre en émulation QEMU (premier démarrage compris), mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
+**Pas encore essayé sur une carte** : l'image se construit et démarre en émulation QEMU (vérifié le 24/10/2026, premier démarrage compris), mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
 
 ## Mettre à jour
 
-Un Flatpak installé depuis un fichier ne se met pas à jour seul : l'app signale une nouvelle version (« Version X disponible »), qu'on installe de la même façon (`flatpak install --user` du nouveau fichier ; les ordinateurs et réglages restent). Même chose pour le `.deb` du Raspberry Pi (`sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb`), tant que le dépôt apt n'est pas déclaré.
+Un Flatpak installé depuis un fichier ne se met pas à jour seul : l'app signale une nouvelle version (« Version X disponible »), qu'on installe de la même façon (`flatpak install --user` du nouveau fichier ; les ordinateurs et réglages restent). Même chose pour le `.deb` du Raspberry Pi (`sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb` du nouveau fichier).
 
 ## Désinstaller
 
@@ -88,4 +82,4 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow   # ordinateurs, réglages, journ
 
 ## Journal
 
-`~/.var/app/fr.leslignesclaires.kybernow/config/kybernow/kybernow.log` (le précédent en `.1`). Lancée depuis un terminal (`flatpak run fr.leslignesclaires.kybernow`), l'app écrit aussi le journal à l'écran.
+`~/.var/app/fr.leslignesclaires.kybernow/config/kybernow/kybernow.log` (le précédent en `.1`) ; `~/.config/kybernow/kybernow.log` pour le `.deb` ; `/var/lib/kybernow/config/kybernow/kybernow.log` sur KyberNow Link OS. Lancée depuis un terminal (`flatpak run fr.leslignesclaires.kybernow`, `kybernow`), l'app écrit aussi le journal à l'écran.

@@ -1,7 +1,9 @@
-//! Cœur des apps KyberNow Link écrit en Rust (Windows d'abord) : dialogue avec
-//! KyberNow Admin, session Kyber, profils et débit, mesure de la latence. Rien
-//! ici ne dépend d'un système : décodage, rendu, son et entrées sont fournis
-//! par l'app à travers [`session::Platform`].
+//! Cœur des apps KyberNow Link écrit en Rust : dialogue avec KyberNow Admin,
+//! session Kyber, profils et débit, mesure de la latence, module d'entrées,
+//! moteur de son, mises à jour. Rien ici ne dépend d'un système : la fenêtre,
+//! le décodage, le rendu, la sortie du son et la capture des entrées sont
+//! fournis par l'app à travers [`session::Platform`] et les traits des
+//! modules [`input`] et [`audio`].
 
 pub mod audio;
 pub mod console;

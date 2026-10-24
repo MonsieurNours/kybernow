@@ -416,7 +416,7 @@ pub struct Handle {
 }
 
 /// Démarre une session ; même JSON que `kn_session_start` des apps Apple
-/// (voir docs/coeur-apple.md), plus `combo` (la combinaison ouvre le menu).
+/// (voir apps/apple/src/lib.rs), plus `combo` (la combinaison ouvre le menu).
 pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>, refresh: u32) -> Result<Handle, String> {
     let wire: ParamsWire = serde_json::from_str(params_json).map_err(|e| e.to_string())?;
     let settings = wire.settings.settings()?;

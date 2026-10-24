@@ -17,7 +17,7 @@ export type WebSocketReason = 'touch' | 'webkit' | 'firefox' | 'unsupported'
  *   texte tapé (paquets Unicode) et la position du doigt quand le pointeur de
  *   l'ordinateur est masqué ; en WebTransport, le moteur ne laisse rien
  *   glisser dans son flux. Le moteur corrigé fait ces envois lui-même
- *   (`engineInputs()`) : plus besoin de WebSocket pour eux ;
+ *   (`engineInputs()`) : WebSocket n'est pas nécessaire pour eux ;
  * - dans Safari et sur iPhone et iPad : leur WebTransport ne vérifie pas un
  *   certificat par son empreinte ;
  * - dans Firefox (avec H.264 par défaut), la combinaison retenue pour lui ;
