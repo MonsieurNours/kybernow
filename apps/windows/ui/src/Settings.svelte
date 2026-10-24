@@ -9,7 +9,7 @@
   import Icon from './lib/Icon.svelte'
   import { untrack } from 'svelte'
   import type { Computer, Settings, ThisPc } from './lib/api'
-  import { invoke, isCustom } from './lib/api'
+  import { invoke, isCustom, profileBase, sessionPlan } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let { computer, thisPc, onremoved }: { computer: Computer; thisPc: ThisPc | null; onremoved: () => void } = $props()
@@ -34,39 +34,14 @@
   )
 
   /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs). */
-  const base = $derived.by(() => {
-    const hevc = thisPc?.hevc ?? true
-    const codec: 'h264' | 'hevc' = hevc ? 'hevc' : 'h264'
-    let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false] }[s.profile] as [boolean, number, boolean]
-    if (yuv444 && !(codec === 'hevc' && thisPc?.hevc444)) {
-      yuv444 = false
-      mbps += Math.floor(mbps / 3)
-    }
-    if (codec === 'h264') mbps += Math.floor(mbps / 2)
-    return { codec, yuv444, mbps, reliable }
-  })
+  const base = $derived(profileBase(s.profile, thisPc))
 
   const codec = $derived(s.codec ?? base.codec)
   const yuv444 = $derived(s.yuv444 ?? base.yuv444)
   const reliable = $derived(s.reliable ?? base.reliable)
 
-  /** Débit réel d'une session à l'écran de ce PC. */
-  const realMbps = $derived.by(() => {
-    if (s.mbps != null) return s.mbps
-    if (!thisPc && !s.custom) return base.mbps
-    const mode = s.custom ?? thisPc!
-    const hz = s.battery === 'alleger' && thisPc?.on_battery ? Math.min(30, mode.refresh) : mode.refresh
-    // Même ajustement de l'écran que plan.rs (au plus 4K).
-    let { width: w, height: h } = mode
-    if (!s.custom && s.max_4k && (w > 3840 || h > 2160)) {
-      const k = Math.min(3840 / w, 2160 / h)
-      w = Math.floor(w * k)
-      h = Math.floor(h * k)
-    }
-    const ratio = (w * h * hz) / (3840 * 2160 * 60)
-    const k = Math.min(3, Math.max(0.4, Math.pow(ratio, 0.75)))
-    return Math.round(base.mbps * k)
-  })
+  /** Débit réel d'une session : celui que plan.rs demandera. */
+  const realMbps = $derived(sessionPlan(s, thisPc)?.mbps ?? s.mbps ?? base.mbps)
 
   function pickProfile(p: Settings['profile']) {
     save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })

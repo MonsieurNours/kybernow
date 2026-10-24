@@ -18,7 +18,7 @@ update-initramfs -u -k all || true
 # Services : Link en plein écran sur KMS/DRM, le premier démarrage (partition
 # de données agrandie) ; pas de console texte sur tty1, et Plymouth ne quitte
 # pas à l'arrivée d'un getty (c'est le service de l'app qui le lui demande).
-systemctl enable kybernow-os-firstboot.service kybernow-link.service
+systemctl enable kybernow-os-firstboot.service kybernow-os-ssh.service kybernow-link.service
 systemctl disable getty@tty1.service
 systemctl mask plymouth-quit.service plymouth-quit-wait.service
 # L'assistant de Raspberry Pi OS qui demande un nom d'utilisateur au premier
@@ -28,7 +28,11 @@ rm -f /etc/systemd/system/multi-user.target.wants/userconfig.service
 systemctl enable NetworkManager.service bluetooth.service
 # NetworkManager gère le réseau : l'attente de systemd-networkd échouerait.
 systemctl disable systemd-networkd-wait-online.service 2>/dev/null || true
+# SSH éteint par défaut : Réglages de l'appareil › Avancé, ou une clé déposée
+# sur la partition de démarrage (kybernow-os-ssh.service) l'allument.
 systemctl disable ssh.service 2>/dev/null || true
-# hciuart (le Bluetooth de la puce, sur l'UART) reste activé ; la recherche
-# d'appareils, c'est l'app qui la lance.
-systemctl disable hciuart.service 2>/dev/null || true; systemctl enable hciuart.service 2>/dev/null || true
+# hciuart (le Bluetooth de la puce, sur l'UART, paquet pi-bluetooth) reste
+# activé ; la recherche d'appareils, c'est l'app qui la lance. (Absent ou
+# remplacé par le pilote du noyau selon la version de Raspberry Pi OS : pas
+# d'erreur.)
+systemctl enable hciuart.service 2>/dev/null || true

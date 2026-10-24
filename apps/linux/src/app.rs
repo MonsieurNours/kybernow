@@ -418,6 +418,10 @@ pub enum AddStep {
     Address,
     /// Empreinte du certificat à comparer avec celle d'Admin.
     Verify { address: String, port: u16, fingerprint: String },
+    /// L'adresse MAC de l'ordinateur choisi, pour le réveil par le réseau
+    /// (Réglages de l'ordinateur › Compte) : même champ et même pavé, en
+    /// hexadécimal.
+    Mac,
 }
 
 #[derive(Clone, Debug)]
@@ -427,6 +431,8 @@ pub struct AddState {
     /// Stations à qui le code a été présenté : (nom, adresse).
     pub asked: Vec<(String, String)>,
     pub address: String,
+    /// L'adresse MAC en cours de saisie (`AddStep::Mac`).
+    pub mac: String,
     pub message: Option<String>,
     pub busy: bool,
     pub started: Instant,
@@ -452,6 +458,8 @@ pub enum Setting {
     Clipboard,
     Reliable,
     Reconnect,
+    /// L'adresse MAC de l'ordinateur (réveil par le réseau).
+    WakeMac,
     Remove,
     Language,
     Interface,
@@ -543,7 +551,10 @@ pub enum OsAction {
     Ssh(bool),
     Reboot,
     Poweroff,
+    /// Veille (vrai) ou réveil : le téléviseur suit par HDMI-CEC si le réglage le permet.
     Standby(bool),
+    /// HDMI-CEC allumé (le nom annoncé au téléviseur) ou coupé (l'adresse CEC rendue).
+    Cec(bool),
     /// Mode HDMI pour le prochain démarrage.
     Hdmi(String),
 }
@@ -902,6 +913,7 @@ impl App {
                 code: String::new(),
                 asked: Vec::new(),
                 address: String::new(),
+                mac: String::new(),
                 message: None,
                 busy: false,
                 started: Instant::now(),
@@ -1022,7 +1034,7 @@ impl App {
                 AddStep::Code => {
                     if self.new_found().is_empty() { Target::AddByAddress } else { Target::AddFound(0) }
                 }
-                AddStep::Address => Target::KeyOk,
+                AddStep::Address | AddStep::Mac => Target::KeyOk,
                 AddStep::Verify { .. } => Target::VerifyOk,
             },
             Screen::Settings => {
@@ -1066,6 +1078,11 @@ impl App {
             return Some(if self.os.as_ref().is_some_and(|o| !o.pending.is_empty()) || matches!(self.update, UpdateState::Available { .. }) { Setting::OsUpdateApply } else { Setting::OsAutoUpdate });
         }
         self.rows(s).into_iter().find(|r| r.enabled && !matches!(r.kind, RowKind::Info(_))).map(|r| r.setting)
+    }
+
+    /// L'adresse MAC de l'ordinateur est en cours de saisie.
+    pub fn typing_mac(&self) -> bool {
+        self.screen == Screen::Add && self.add.step == AddStep::Mac
     }
 
     /// Le mot de passe d'un réseau Wi-Fi est en cours de saisie.
@@ -1247,13 +1264,13 @@ impl App {
                 }
             }
             Nav::Char(c) => {
-                if self.screen == Screen::Add && self.add.step == AddStep::Address || self.typing_password() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() {
                     return self.activate(Target::Key(c));
                 }
                 Vec::new()
             }
             Nav::Erase => {
-                if self.screen == Screen::Add && self.add.step == AddStep::Address || self.typing_password() {
+                if self.screen == Screen::Add && matches!(self.add.step, AddStep::Address | AddStep::Mac) || self.typing_password() {
                     return self.activate(Target::KeyErase);
                 }
                 Vec::new()
@@ -1330,6 +1347,10 @@ impl App {
                 AddStep::Code => {
                     self.go(Screen::Home);
                     vec![Action::StopPairing]
+                }
+                AddStep::Mac => {
+                    self.leave_mac();
+                    Vec::new()
                 }
                 _ => {
                     self.add.step = AddStep::Code;
@@ -1497,6 +1518,11 @@ impl App {
                         self.setup.password.push(c);
                         self.setup.shift = false;
                     }
+                } else if self.typing_mac() {
+                    if (c.is_ascii_hexdigit() || matches!(c, ':' | '-')) && self.add.mac.len() < 17 {
+                        self.add.mac.push(if c == '-' { ':' } else { c.to_ascii_uppercase() });
+                        self.add.message = None;
+                    }
                 } else if self.add.address.len() < 60 {
                     self.add.address.push(c);
                 }
@@ -1505,6 +1531,8 @@ impl App {
             Target::KeyErase => {
                 if self.typing_password() {
                     self.setup.password.pop();
+                } else if self.typing_mac() {
+                    self.add.mac.pop();
                 } else {
                     self.add.address.pop();
                 }
@@ -1522,6 +1550,21 @@ impl App {
                 self.setup.net_message = Some(format!("{} {ssid}…", tr("Connexion à", "Connecting to")));
                 self.focus = Target::KeyOk;
                 vec![Action::Os(OsAction::WifiConnect { ssid, password: self.setup.password.clone() })]
+            }
+            Target::KeyOk if self.typing_mac() => {
+                // Douze chiffres hexadécimaux, séparés ou non ; vide : plus de réveil.
+                let hex: String = self.add.mac.chars().filter(char::is_ascii_hexdigit).collect();
+                if !hex.is_empty() && hex.len() != 12 {
+                    self.add.message = Some(tr("Six paires de chiffres hexadécimaux, par exemple 3C:7C:3F:12:AB:CD", "Six pairs of hexadecimal digits, for example 3C:7C:3F:12:AB:CD").into());
+                    return Vec::new();
+                }
+                let mac = (!hex.is_empty()).then(|| hex.as_bytes().chunks(2).map(|p| String::from_utf8_lossy(p).into_owned()).collect::<Vec<_>>().join(":"));
+                let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
+                if let Some(h) = self.store.host_mut(&id) {
+                    h.mac = mac;
+                }
+                self.leave_mac();
+                vec![Action::Save]
             }
             Target::SetupContinue => self.setup_next(),
             Target::SetupSkip => {
@@ -1702,11 +1745,21 @@ impl App {
             code: crate::model::pair_code(),
             asked: Vec::new(),
             address: self.add.address.clone(),
+            mac: String::new(),
             message: None,
             busy: false,
             started: Instant::now(),
         };
         self.go(Screen::Add);
+    }
+
+    /// Fin de la saisie de l'adresse MAC : retour aux réglages de l'ordinateur, sur sa ligne.
+    fn leave_mac(&mut self) {
+        self.add.step = AddStep::Code;
+        self.add.message = None;
+        self.screen = Screen::Settings;
+        self.screen_since = Instant::now();
+        self.focus = Target::Setting(Setting::WakeMac);
     }
 
     fn menu(&mut self, item: MenuItem) -> Vec<Action> {
@@ -1800,7 +1853,7 @@ impl App {
                     if flatpak() {
                         tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée", "The Flatpak does not update itself: the app tells you when a version is published").into()
                     } else {
-                        tr("Par le dépôt apt, l'app se met à jour avec le système ; sinon elle prévient quand une version est publiée", "Through the apt repository the app updates with the system; otherwise it tells you when a version is published").into()
+                        tr("Le paquet .deb ne se met pas à jour seul : l'app prévient quand une version est publiée", "The .deb package does not update itself: the app tells you when a version is published").into()
                     },
                     vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()],
                     self.store.app.beta as usize,
@@ -1914,7 +1967,7 @@ impl App {
             Section::Controllers => vec![
                 choice(
                     Setting::Xbox360,
-                    tr("Manette vue par l'ordinateur", "Controller seen by the computer"),
+                    tr("Manette vue par l'ordinateur", "Gamepad seen by the computer"),
                     tr("Xbox 360 : reconnue par tous les jeux · Fidèle : le modèle branché", "Xbox 360: recognised by every game · Faithful: the actual model").into(),
                     vec!["Xbox 360".into(), tr("Fidèle", "Faithful").into()],
                     (!st.xbox360) as usize,
@@ -1958,6 +2011,17 @@ impl App {
                     label: tr("Compte", "Account").into(),
                     hint: format!("{} · {}", h.user, h.fingerprint.as_deref().map(short_fp).unwrap_or_default()),
                     kind: RowKind::Info(format!("{}:{}", h.address, h.port)),
+                    enabled: true,
+                    tag: None,
+                },
+                Row {
+                    setting: Setting::WakeMac,
+                    label: tr("Réveil par le réseau", "Wake on LAN").into(),
+                    hint: match &h.mac {
+                        Some(m) => format!("{m} · {}", tr("« Réveiller l'ordinateur » apparaît sur l'accueil quand il est hors ligne", "“Wake the computer” appears on the home screen when it is offline")),
+                        None => tr("L'adresse MAC de la carte réseau de l'ordinateur : « Réveiller l'ordinateur » apparaît sur l'accueil quand il est hors ligne", "The computer's network card MAC address: “Wake the computer” appears on the home screen when it is offline").into(),
+                    },
+                    kind: RowKind::Action(if h.mac.is_some() { tr("Changer", "Change") } else { tr("Saisir", "Enter") }.into()),
                     enabled: true,
                     tag: None,
                 },
@@ -2024,7 +2088,7 @@ impl App {
                 let off = vec![false, m.max_height() < 2160, m.max_hz(1080) < 120, false];
                 vec![
                     choice(Setting::OsHdmi, tr("Sortie HDMI", "HDMI output"), tr("Au prochain démarrage · Auto : le mode que le téléviseur préfère", "At the next boot · Auto: the mode the TV prefers").into(), labels, modes.iter().position(|v| *v == a.os_hdmi).unwrap_or(0), off),
-                    toggle(Setting::OsCec, "HDMI-CEC", tr("« KyberNow Link » annoncé au téléviseur ; la télécommande réveille et met en veille", "“KyberNow Link” announced to the TV; the remote wakes and puts to standby").into(), a.os_cec),
+                    toggle(Setting::OsCec, "HDMI-CEC", tr("Nom annoncé, télécommande, veille et réveil du téléviseur avec l'appareil", "Name announced, remote, TV standby and wake with the device").into(), a.os_cec),
                     info(tr("Écran", "Screen"), m.display_name.clone(), format!("{} × {} · {} Hz", m.display.0, m.display.1, m.refresh)),
                 ]
             }
@@ -2040,7 +2104,7 @@ impl App {
             Section::OsAdvanced => {
                 let o = self.os.clone().unwrap_or_default();
                 vec![
-                    toggle(Setting::OsSsh, "SSH", tr("Accès au système depuis un autre ordinateur, compte kybernow, par clé", "Access to the system from another computer, kybernow account, by key").into(), o.ssh),
+                    toggle(Setting::OsSsh, "SSH", tr("Compte kybernow, par clé : kybernow-ssh.pub déposé sur la carte", "kybernow account, by key: kybernow-ssh.pub dropped on the card").into(), o.ssh),
                     action(Setting::OsReboot, tr("Redémarrer", "Restart"), tr("Le Raspberry Pi redémarre sur le système en cours", "The Raspberry Pi restarts on the current system").into(), tr("Redémarrer", "Restart")),
                     action(Setting::OsPoweroff, tr("Éteindre", "Shut down"), tr("Arrêt complet ; le bouton du Pi 5 rallume", "Full shutdown; the Pi 5's button turns it back on").into(), tr("Éteindre", "Shut down")),
                     info("KyberNow Link OS", format!("{} · {} {}", o.built, tr("emplacement", "slot"), o.slot), o.version),
@@ -2114,7 +2178,7 @@ impl App {
             }
             Setting::OsCec => {
                 self.store.app.os_cec = !self.store.app.os_cec;
-                return vec![Action::Save];
+                return vec![Action::Save, Action::Os(OsAction::Cec(self.store.app.os_cec))];
             }
             Setting::OsAutoUpdate => {
                 self.store.app.os_auto_update = !self.store.app.os_auto_update;
@@ -2147,7 +2211,8 @@ impl App {
                 return Vec::new();
             }
             Setting::OsUpdateLater => {
-                self.toast(tr("La mise à jour attendra la prochaine veille", "The update will wait for the next standby"));
+                // Rien ne s'installe sans « Redémarrer sur la … » (Réglages de l'appareil › Mise à jour).
+                self.toast(tr("La mise à jour attend ici : rien ne s'installe sans vous", "The update waits here: nothing installs without you"));
                 return Vec::new();
             }
             Setting::OsRollback => return vec![Action::Os(OsAction::Rollback)],
@@ -2164,6 +2229,14 @@ impl App {
             _ => {}
         }
         let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
+        if s == Setting::WakeMac {
+            self.add.mac = self.store.host(&id).and_then(|h| h.mac.clone()).unwrap_or_default();
+            self.add.step = AddStep::Mac;
+            self.add.message = None;
+            self.add.busy = false;
+            self.go(Screen::Add);
+            return vec![Action::OpenKeyboard];
+        }
         if s == Setting::Remove {
             self.store.remove(&id);
             self.toast(tr("Ordinateur retiré de cet appareil", "Computer removed from this device"));
@@ -2396,6 +2469,34 @@ mod tests {
         assert_eq!(app.codec_for(&h), "hevc");
         h.settings.codec = "h264".into();
         assert_eq!(app.codec_for(&h), "h264");
+    }
+
+    #[test]
+    fn wake_mac() {
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(host());
+        app.open_settings(false, Screen::Home);
+        assert_eq!(app.choose(Setting::WakeMac, usize::MAX), vec![Action::OpenKeyboard]);
+        assert!(app.typing_mac());
+        // Minuscules, tirets, caractères hors hexadécimal : remis en forme.
+        for c in "3c-7c-3fz12ab".chars() {
+            app.nav(Nav::Char(c));
+        }
+        app.activate(Target::KeyOk);
+        assert!(app.add.message.is_some(), "dix chiffres : refusé");
+        for c in "cd".chars() {
+            app.nav(Nav::Char(c));
+        }
+        assert_eq!(app.activate(Target::KeyOk), vec![Action::Save]);
+        assert_eq!(app.selected().unwrap().mac.as_deref(), Some("3C:7C:3F:12:AB:CD"));
+        assert_eq!((app.screen, app.focus), (Screen::Settings, Target::Setting(Setting::WakeMac)));
+        // Vide : plus de réveil.
+        app.choose(Setting::WakeMac, usize::MAX);
+        while !app.add.mac.is_empty() {
+            app.nav(Nav::Erase);
+        }
+        app.activate(Target::KeyOk);
+        assert_eq!(app.selected().unwrap().mac, None);
     }
 
     #[test]

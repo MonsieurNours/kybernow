@@ -21,6 +21,8 @@ final class KeyboardMouse {
     private weak var input: InputPipeline?
     /// Copie du réglage « Clavier Apple ISO », lue sur la file seulement.
     private var iso = false
+    /// Copie du réglage « ⌘ envoyée comme Ctrl », lue sur la file seulement.
+    private var commandControl = false
     private var activitySent = false
     private var observers: [NSObjectProtocol] = []
     /// Une souris bouge : le pointeur doit s'afficher (fil principal).
@@ -31,6 +33,11 @@ final class KeyboardMouse {
     /// les claviers Apple.
     var appleISO = false {
         didSet { let v = appleISO; queue.async { self.iso = v } }
+    }
+    /// Réglage « ⌘ envoyée comme Ctrl » (iPhone et iPad) : ⌘ part comme Ctrl
+    /// sur l'ordinateur. L'Apple TV ne le propose pas.
+    var commandAsControl = false {
+        didSet { let v = commandAsControl; queue.async { self.commandControl = v } }
     }
 
     /// Rappelé à chaque redémarrage de l'image (profil, repli, écran) : les
@@ -85,7 +92,7 @@ final class KeyboardMouse {
             guard let input = self.input else { return }
             input.forgetModifiers()
             for usage in input.resyncModifiers(held: down) {
-                guard let scancode = Keymap.scancode(usage: usage) else { continue }
+                guard let scancode = Keymap.scancode(hid: usage, commandAsControl: self.commandControl, iso: false) else { continue }
                 input.key(scancode: scancode, pressed: true)
             }
         }
@@ -97,7 +104,7 @@ final class KeyboardMouse {
         keyboard.keyboardInput?.keyChangedHandler = { [weak self] _, _, keyCode, pressed in
             guard let self, let input = self.input else { return }
             let usage = UInt16(truncatingIfNeeded: keyCode.rawValue)
-            guard let scancode = Keymap.scancode(hid: usage, iso: apple && self.iso) else { return }
+            guard let scancode = Keymap.scancode(hid: usage, commandAsControl: self.commandControl, iso: apple && self.iso) else { return }
             if Keymap.isModifier(usage) { input.modifier(usage, pressed: pressed) }
             input.key(scancode: scancode, pressed: pressed)
         }

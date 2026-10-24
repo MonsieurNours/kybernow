@@ -181,7 +181,7 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
     match (&app.update, &app.os_update.ready, &app.os_update.downloading) {
         (UpdateState::Available { version, .. }, Some(_), _) => {
             bx += primary(cv, f, Target::Setting(Setting::OsUpdateApply), bx, by, 72.0, &format!("{} {version}", tr("Redémarrer sur la", "Restart on")), false) + 20.0;
-            widgets::ghost(cv, f, Target::Setting(Setting::OsUpdateLater), bx, by, 72.0, 24.0, None, tr("Plus tard, à la prochaine veille", "Later, at the next standby"), MUTED);
+            widgets::ghost(cv, f, Target::Setting(Setting::OsUpdateLater), bx, by, 72.0, 24.0, None, tr("Plus tard", "Later"), MUTED);
         }
         (UpdateState::Available { .. }, None, Some(_)) => {
             widgets::ghost(cv, f, Target::Setting(Setting::OsUpdateLater), bx, by, 72.0, 24.0, None, tr("Téléchargement en cours…", "Downloading…"), MUTED);
@@ -202,7 +202,7 @@ fn update_panel(app: &App, cv: &mut Canvas, f: &mut Frame, x: f32, y: f32, w: f3
     let col = (w - 56.0 - 40.0) / 2.0;
     let cx1 = x + 28.0;
     eyebrow(cv, cx1, py + 22.0 + 11.0, 15.0, FAINT, tr("Automatique", "Automatic"));
-    let auto_text = tr("Télécharger les versions dès qu'elles sortent, les installer pendant la veille.", "Download versions as soon as they are out, install them during standby.");
+    let auto_text = tr("Télécharger les versions dès qu'elles sortent ; l'installation attend « Redémarrer sur la … ».", "Download versions as soon as they are out; installing waits for “Restart on …”.");
     cv.paragraph(cx1, py + 22.0 + 20.0 + 8.0 + 21.0, Text::new(Font::Regular, 21.0, MUTED), auto_text, col - 90.0, 31.0);
     let tr_ = Rect::new(cx1 + col - 74.0, py + 22.0 + 20.0 + 10.0, 74.0, 44.0);
     let (focused, _) = f.state(Target::Setting(Setting::OsAutoUpdate), tr_);

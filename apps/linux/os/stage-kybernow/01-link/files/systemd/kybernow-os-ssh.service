@@ -1,0 +1,14 @@
+[Unit]
+Description=KyberNow Link OS : clés SSH (clé d'hôte, clés déposées sur la partition de démarrage)
+# Avant sshd : la clé d'hôte existe quand il démarre, une clé déposée est importée.
+After=local-fs.target kybernow-os-firstboot.service
+Before=ssh.service
+RequiresMountsFor=/var/lib/kybernow
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kybernow-os-ctl ssh-keys
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

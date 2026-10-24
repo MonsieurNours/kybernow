@@ -762,6 +762,7 @@ impl SettingsWire {
 struct RecoveryWire {
     #[serde(default)]
     watch_image: bool,
+    /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
     fallback_bitrate: Option<u32>,
 }
 

@@ -4,6 +4,7 @@
 
 import Combine
 import KyberKit
+import Network
 import SwiftUI
 
 @MainActor
@@ -30,15 +31,21 @@ final class AppModel: ObservableObject {
     /// Le lancement animé (une fois par démarrage de l'app).
     @Published var launched = false
     @Published var toast: String?
+    /// Ordinateur à ouvrir une fois l'accord donné : l'appareil est en
+    /// données mobiles et « Sessions en données mobiles » est coupé.
+    @Published var mobileDataAsk: UUID?
 
     let store = HostStore()
     let discovery = Discovery()
     let cloud = CloudSync()
     let prefs = Preferences.shared
     private var bag: Set<AnyCancellable> = []
+    /// Chemin réseau de l'appareil, lu au moment de se connecter.
+    private let path = NWPathMonitor()
 
     init() {
         discovery.start()
+        path.start(queue: DispatchQueue(label: "fr.leslignesclaires.kybernow.path"))
         selected = store.ordered.first?.id
         // iCloud : les ordinateurs du Mac arrivent tout seuls si la synchro est active.
         cloud.$hosts
@@ -110,8 +117,14 @@ final class AppModel: ObservableObject {
 
     // MARK: - Session
 
-    func connect(_ id: UUID) {
+    /// `mobileDataOK` : l'accord est donné (alerte de l'accueil), la session
+    /// part même en données mobiles.
+    func connect(_ id: UUID, mobileDataOK: Bool = false) {
         guard session == nil, let host = store.host(id) else { return }
+        if !mobileDataOK, !prefs.allowCellular, onMobileData {
+            mobileDataAsk = id
+            return
+        }
         selected = id
         sheet = nil
         let controller = SessionController(host: host, store: store) { [weak self] _ in
@@ -119,6 +132,14 @@ final class AppModel: ObservableObject {
         }
         session = controller
         controller.start()
+    }
+
+    /// Données mobiles, ou partage de connexion d'un iPhone (Wi-Fi « coûteux »
+    /// pour le système) : c'est le forfait qui paie la session. Ethernet et
+    /// Wi-Fi ordinaire ne demandent rien.
+    private var onMobileData: Bool {
+        let p = path.currentPath
+        return p.status == .satisfied && (p.usesInterfaceType(.cellular) || p.isExpensive)
     }
 
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien d'Admin,

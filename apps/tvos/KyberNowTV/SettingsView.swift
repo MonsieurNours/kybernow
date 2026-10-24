@@ -229,9 +229,15 @@ struct SettingsView: View {
             if prefs.menuCombo, !prefs.menuBack { return }
             prefs.menuCombo.toggle()
         }
-        toggle("mouse", String(localized: "Télécommande en souris"), String(localized: "Toujours active en profil Bureau"), s.mouse == .desktop || s.profile == .bureau) {
+        // En profil Bureau, la session met la télécommande en souris d'office
+        // (SessionController) : l'interrupteur le montre, sans se laisser changer.
+        let bureau = s.profile == .bureau
+        toggle("mouse", String(localized: "Télécommande en souris"),
+               bureau ? String(localized: "Toujours active en profil Bureau ; un autre profil la rend réglable") : String(localized: "Pavé : pointeur, clic : clic gauche ; toujours active en profil Bureau"),
+               bureau || s.mouse == .desktop) {
             edit { st in st.mouse = st.mouse == .desktop ? .auto : .desktop }
         }
+        .disabled(bureau)
         seg("gamepad", String(localized: "Manette vue par l'ordinateur"), s.gamepad.hint, GamepadChoice.allCases.map { ($0.rawValue, $0.label) }, s.gamepad.rawValue) { v in
             edit { st in st.gamepad = GamepadChoice(rawValue: v) ?? .xbox360 }
         }

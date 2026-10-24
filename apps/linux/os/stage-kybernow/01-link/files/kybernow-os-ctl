@@ -3,18 +3,71 @@
 # (sudoers : la liste ci-dessous, rien d'autre) :
 #
 #   kybernow-os-ctl ssh on|off          SSH (Réglages de l'appareil › Avancé)
+#   kybernow-os-ctl ssh-keys            au démarrage (kybernow-os-ssh.service) : clé d'hôte sur la
+#                                       partition de données, et import des clés déposées sur une
+#                                       partition de démarrage (kybernow-ssh.pub, authorized_keys),
+#                                       qui allume SSH ; le fichier déposé est effacé
 #   kybernow-os-ctl reboot | poweroff
 #   kybernow-os-ctl standby on|off      veille du téléviseur par CEC (on), ou réveil et prise de l'entrée (off) ;
 #                                       la sortie HDMI reste allumée (l'app affiche l'encre)
-#   kybernow-os-ctl cec-name            annonce « KyberNow Link » au téléviseur (CEC)
+#   kybernow-os-ctl cec-name            annonce « KyberNow Link » au téléviseur (CEC) : l'appareil
+#                                       prend une adresse de lecteur, la télécommande lui parle
+#   kybernow-os-ctl cec-off             rend l'adresse CEC (réglage HDMI-CEC coupé)
 #   kybernow-os-ctl cec-wake            réveille le téléviseur et prend la source (CEC)
 #   kybernow-os-ctl hostname NOM
 #   kybernow-os-ctl hdmi auto|2160p60|1080p120|1080p60   mode de la sortie HDMI au prochain démarrage (cmdline.txt)
 set -euo pipefail
 CEC="${CEC_DEVICE:-/dev/cec0}"
+# SSH : tout ce qui doit survivre aux mises à jour A/B vit sur la partition de
+# données (sshd-kybernow.conf y fait pointer sshd).
+SSH_DIR=/var/lib/kybernow/ssh
+SSH_KEYS="$SSH_DIR/kybernow/authorized_keys"
+ssh_host_key() {
+    # Dossiers à root, non inscriptibles par d'autres (StrictModes de sshd).
+    install -d -m 755 -o root -g root "$SSH_DIR" "$SSH_DIR/kybernow"
+    [ -f "$SSH_DIR/ssh_host_ed25519_key" ] || ssh-keygen -q -t ed25519 -N "" -C "kybernow-link" -f "$SSH_DIR/ssh_host_ed25519_key"
+}
+ssh_import() { # fichier déposé → clés ajoutées (sans doublon), fichier effacé ; rend 0 si une clé est entrée
+    local f="$1" added=1 line
+    [ -f "$f" ] || return 1
+    touch "$SSH_KEYS"; chmod 644 "$SSH_KEYS"
+    # Une ligne de clé publique par clé (fin de ligne Windows tolérée) ; le reste est ignoré.
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        case "$line" in ssh-ed25519\ * | ssh-rsa\ * | ecdsa-sha2-*\ * | sk-*\ *) ;; *) continue ;; esac
+        grep -qxF "$line" "$SSH_KEYS" || { echo "$line" >> "$SSH_KEYS"; added=0; }
+    done < "$f"
+    rm -f "$f"
+    return $added
+}
 case "${1:-}" in
 ssh)
-    if [ "${2:-}" = on ]; then systemctl enable --now ssh.service; else systemctl disable --now ssh.service; fi
+    if [ "${2:-}" = on ]; then ssh_host_key; systemctl enable --now ssh.service; else systemctl disable --now ssh.service; fi
+    ;;
+ssh-keys)
+    ssh_host_key
+    # La partition de démarrage en cours, et la première (BOOTA : celle qu'un
+    # ordinateur montre d'abord) quand l'appareil tourne sur l'emplacement B.
+    dirs=(/boot/firmware)
+    m=""
+    . /etc/kybernow-os/layout 2>/dev/null || true
+    p1="/dev/disk/by-partuuid/${DISK_ID:-none}-01"
+    if [ -b "$p1" ] && ! findmnt -no TARGET "$p1" >/dev/null 2>&1; then
+        m="$(mktemp -d)"
+        if mount "$p1" "$m" 2>/dev/null; then dirs+=("$m"); else rmdir "$m"; m=""; fi
+    fi
+    on=1
+    for d in "${dirs[@]}"; do
+        for f in kybernow-ssh.pub authorized_keys; do
+            ssh_import "$d/$f" && on=0
+        done
+    done
+    [ -n "$m" ] && { sync; umount "$m"; rmdir "$m"; }
+    # Une clé déposée allume SSH (sans attendre sshd, ordonné après ce service).
+    if [ "$on" = 0 ]; then
+        systemctl enable ssh.service
+        systemctl start --no-block ssh.service
+    fi
     ;;
 reboot) systemctl reboot ;;
 poweroff) systemctl poweroff ;;
@@ -27,6 +80,9 @@ standby)
     ;;
 cec-name)
     [ -e "$CEC" ] && cec-ctl -d "$CEC" --playback --osd-name "KyberNow Link" >/dev/null 2>&1 || true
+    ;;
+cec-off)
+    [ -e "$CEC" ] && cec-ctl -d "$CEC" --clear >/dev/null 2>&1 || true
     ;;
 cec-wake)
     [ -e "$CEC" ] && { cec-ctl -d "$CEC" --to 0 --image-view-on >/dev/null 2>&1; cec-ctl -d "$CEC" --active-source phys-addr="$(cec-ctl -d "$CEC" 2>/dev/null | sed -n 's/.*Physical Address *: *\([0-9a-f.]*\).*/\1/p' | head -1)" >/dev/null 2>&1; } || true
@@ -48,7 +104,7 @@ hostname)
     hostnamectl set-hostname "$n"
     ;;
 *)
-    echo "usage : kybernow-os-ctl ssh on|off | reboot | poweroff | standby on|off | cec-name | cec-wake | hostname NOM | hdmi MODE" >&2
+    echo "usage : kybernow-os-ctl ssh on|off | ssh-keys | reboot | poweroff | standby on|off | cec-name | cec-off | cec-wake | hostname NOM | hdmi MODE" >&2
     exit 2
     ;;
 esac

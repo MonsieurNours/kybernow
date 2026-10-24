@@ -232,6 +232,11 @@ pub fn run(dir: &Path, lang: &str) {
         app.add.step = AddStep::Verify { address: "192.168.1.20".into(), port: 24811, fingerprint: "sha256:7c:3a:91:e0:4b:2d:a8:1f".into() };
         app.go(Screen::Add);
         shot(&mut app, &mut cv, None, dir, &p("06-ajout-empreinte"));
+        app.add.step = AddStep::Mac;
+        app.add.mac = "3C:7C:3F:12:A".into();
+        app.go(Screen::Add);
+        app.focus = Target::Key('B');
+        shot(&mut app, &mut cv, None, dir, &p("06b-reveil-mac"));
 
         app.open_settings(false, Screen::Home);
         if layout.console() {

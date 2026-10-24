@@ -118,8 +118,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         root.addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(root)
 
-        state.onCombo = { if (host.settings.combo) toggleMenu() }
-        pads.mouse.onCombo = { if (host.settings.combo) toggleMenu() }
+        state.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
+        pads.mouse.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
         state.onInputConnected = { pads.reconnected() }
         start()
         observe()
@@ -231,7 +231,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("gamepad_xbox360", host.settings.xbox360)
             .put("clipboard", host.settings.clipboard && !tv)
             .put("combo", host.settings.combo)
-            .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150))
+            .put("recovery", JSONObject().put("watch_image", true).put("fallback_bitrate", 150_000_000))
         handle = Native.sessionStart(params.toString(), null, state, refresh)
         if (handle == 0L) finish()
     }
@@ -268,6 +268,21 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                         .collect { visible -> overlay.visibility = if (visible) View.VISIBLE else View.GONE }
                 }
                 launch { state.ended.collect { if (it?.error != null) overlay.visibility = View.VISIBLE } }
+                launch {
+                    // La barre se ferme, quelle que soit la façon (B, la croix, le clavier de l'écran) :
+                    // la manette qui la pilotait revient à l'ordinateur.
+                    snapshotFlow { ui.barOpen }.collect { open ->
+                        if (!open && ui.padBar) {
+                            ui.padBar = false
+                            if (!quitting) {
+                                padDowns.clear()
+                                pads.release()
+                                // Le clavier de l'écran (ouvert depuis la barre) garde son champ.
+                                if (!ui.keyboardOpen) surfaceView.requestFocus()
+                            }
+                        }
+                    }
+                }
             }
         }
         app.gamepads.start()
@@ -389,12 +404,26 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     // MARK: - Menu et barre
 
-    private fun toggleMenu() {
+    /**
+     * Le menu (téléviseur) ou la barre. Hors téléviseur, la combinaison de la manette ouvre la
+     * barre pilotée à la manette (consoles portables) : la manette est prise par l'app comme sous
+     * le menu du téléviseur, jusqu'à ce que la barre se ferme (voir `observe`).
+     */
+    private fun toggleMenu(fromPad: Boolean = false) {
         if (tv) {
             if (ui.menuOpen) resume() else {
                 padDowns.clear()
                 ui.menuOpen = true
                 pads.capture()
+            }
+        } else if (fromPad) {
+            if (ui.padBar) ui.barOpen = false else {
+                padDowns.clear()
+                pads.capture()
+                // Hors du mode tactile : sans cela, les éléments de Compose ne prennent pas le focus.
+                surfaceView.requestFocusFromTouch()
+                ui.padBar = true
+                ui.barOpen = true
             }
         } else {
             ui.barOpen = !ui.barOpen
@@ -623,6 +652,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         return super.dispatchKeyEvent(event)
     }
 
+    /** Ce qui prend les touches. La barre pilotée à la manette passe par `pads.captured`. */
     private fun SessionUi.anythingModal() = menuOpen || keysOpen || typing
 
     private fun isKeyboard(e: KeyEvent): Boolean {

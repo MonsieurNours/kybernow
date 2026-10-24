@@ -22,8 +22,8 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             y + 64.0,
             Text::new(Font::Regular, 23.0, FROST_2),
             tr(
-                "Aucune manette. Associez-la à la télé : Réglages › Général › Appareils › Manettes, ou en Bluetooth. Xbox, DualSense, DualShock 4 et Switch Pro marchent.",
-                "No controller. Pair it with the TV: Settings › General › Devices › Gamepads, or over Bluetooth. Xbox, DualSense, DualShock 4 and Switch Pro work.",
+                "Aucune manette. Associez-la à la télé en Bluetooth, dans ses réglages (le chemin varie selon la version de webOS). Xbox, DualSense, DualShock 4 et Switch Pro marchent.",
+                "No controller. Pair it with the TV over Bluetooth, in its settings (the path depends on the webOS version). Xbox, DualSense, DualShock 4 and Switch Pro work.",
             ),
             630.0,
             34.0,

@@ -67,6 +67,8 @@ A Raspberry Pi that does nothing else: the card boots into KyberNow Link, on a T
 
 **Updating the OS**: Device settings › Update. The new version downloads (as soon as it is out, when "Automatic" is on), then "Restart on X" tries it in the card's other slot; if it does not boot up to the home screen, the Pi goes back to the previous version by itself. Computers and settings live on a separate partition and stay.
 
+**SSH** (for those who want to get their hands in): off, key-only. From a computer, drop your public key renamed `kybernow-ssh.pub` at the root of the card's `BOOTA` partition, then boot the Pi: the key is added, the file deleted, SSH turned on (`ssh kybernow@<the Pi's address>`). Keys stay across updates; Device settings › Advanced › SSH turns it off.
+
 **Not yet tried on a board**: the image builds and boots under QEMU emulation (verified on 2026-10-24, first boot included), but no Raspberry Pi has booted it yet. See [os/README.en.md](os/README.en.md).
 
 ## Updating

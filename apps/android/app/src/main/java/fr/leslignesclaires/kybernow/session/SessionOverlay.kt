@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -99,6 +100,8 @@ class SessionUi(
     var directTouch by mutableStateOf(false)
     var remoteMouse by mutableStateOf(false)
     var padMouse by mutableStateOf(false)
+    /** Hors téléviseur, la barre ouverte par la combinaison de la manette : la manette la pilote, le jeu ne reçoit rien. */
+    var padBar by mutableStateOf(false)
     /** Modificateurs collants de la rangée de touches (Ctrl, Alt, ⊞). */
     var sticky by mutableStateOf(emptySet<Int>())
 
@@ -226,7 +229,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
     val s = LocalScale.current
     val c by ui.state.capsule.collectAsState()
     val restore by ui.state.restoreOffer.collectAsState()
-    Column(modifier.padding(top = s.dp(if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
+    Column(modifier.padding(top = s.dp(if (ui.barOpen && ui.padBar) 116f else if (ui.barOpen) 84f else 14f)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(s.dp(8f))) {
         c?.let { capsule ->
             Row(
                 Modifier.panel(999.dp).padding(horizontal = s.dp(16f), vertical = s.dp(9f)),
@@ -280,28 +283,55 @@ private fun Tab(ui: SessionUi, modifier: Modifier) {
 private fun PhoneBar(ui: SessionUi) {
     val s = LocalScale.current
     val sec by ui.state.second.collectAsState()
-    Row(
-        Modifier.padding(s.dp(10f)).panel(16.dp).horizontalScroll(rememberScrollState()).padding(s.dp(8f)),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
-    ) {
-        FocusCard({ ui.statsOpen = !ui.statsOpen }) {
-            Column(Modifier.padding(horizontal = s.dp(8f))) {
-                Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
-                Mono("${sec?.fps ?: 0} i/s · ${fmt("%.0f", sec?.mbps ?: 0.0)} Mbit/s", size = 9f)
-            }
+    val first = remember { FocusRequester() }
+    // Ouverte à la manette : le focus sur le premier élément, et de nouveau quand la feuille des
+    // touches se ferme. Une image d'attente : la vue d'interface vient de passer de GONE à visible.
+    LaunchedEffect(ui.padBar, ui.keysOpen) {
+        if (ui.padBar && !ui.keysOpen) {
+            withFrameNanos { }
+            runCatching { first.requestFocus() }
         }
-        Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
-        GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
-        GlassButton(
-            stringResource(R.string.session_mouse, stringResource(listOf(R.string.settings_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode])),
-            { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
-        )
-        BarIcon(KnIcons.keyboard) { ui.actions.openKeyboard(true) }
-        GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
-        BarIcon(KnIcons.close) { ui.barOpen = false }
-        GlassButton(stringResource(R.string.session_quit), { ui.actions.quit() })
     }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(
+            Modifier.padding(s.dp(10f)).panel(16.dp).horizontalScroll(rememberScrollState()).padding(s.dp(8f)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
+        ) {
+            FocusCard({ ui.statsOpen = !ui.statsOpen }, Modifier.focusRequester(first)) {
+                Column(Modifier.padding(horizontal = s.dp(8f))) {
+                    Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
+                    Mono("${sec?.fps ?: 0} i/s · ${fmt("%.0f", sec?.mbps ?: 0.0)} Mbit/s", size = 9f)
+                }
+            }
+            Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
+            GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
+            GlassButton(
+                stringResource(R.string.session_mouse, stringResource(listOf(R.string.settings_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode])),
+                { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
+            )
+            screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
+            BarIcon(KnIcons.keyboard) { ui.actions.openKeyboard(true) }
+            GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+            BarIcon(KnIcons.close) { ui.barOpen = false }
+            GlassButton(stringResource(R.string.session_quit), { ui.actions.quit() })
+        }
+        if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
+    }
+}
+
+/** L'écran de l'ordinateur à l'image : son rang, sa taille, et le suivant (un toucher passe à lui). */
+private class ScreenChoice(val index: Int, val count: Int, val width: Int, val height: Int, val next: Int)
+
+/** Sans écran virtuel, quand l'ordinateur a plusieurs écrans ; `null` sinon. */
+@Composable
+private fun screenChoice(ui: SessionUi): ScreenChoice? {
+    val list by ui.state.displays.collectAsState()
+    val shown by ui.state.display.collectAsState()
+    val virtual by ui.state.virtualDisplay.collectAsState()
+    if (virtual || list.size < 2) return null
+    val i = list.indexOfFirst { it.id == shown?.id }.coerceAtLeast(0)
+    return ScreenChoice(i, list.size, list[i].width, list[i].height, list[(i + 1) % list.size].id)
 }
 
 @Composable
@@ -413,6 +443,8 @@ private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audi
         Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, ms) -> stringResource(R.string.session_sound_detail, c, ms) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
         Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
+        // Le menu reste ouvert : on passe d'un écran à l'autre en voyant l'image derrière.
+        screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
         Tile(KnIcons.keys, stringResource(R.string.session_keys), "Ctrl+Alt+Suppr, Alt+Tab…") { ui.keysOpen = true }
         Tile(KnIcons.pulse, stringResource(R.string.session_stats), decoder) { ui.statsOpen = !ui.statsOpen }

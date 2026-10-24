@@ -19,6 +19,10 @@
 #   - pour tester un paquet servi depuis le Mac : definir KYBERNOW_UPDATE_BASE
 #     (ex. http://192.168.1.105:8000) avant la commande ci-dessus.
 #
+# Comme Admin, le script refuse, avant d'arreter quoi que ce soit, une
+# version qui exige l'installateur ou une Station trop ancienne pour le
+# paquet (requirements.json du paquet).
+#
 # Bascule sans etat intermediaire : les nouveaux fichiers sont prepares dans
 # kyber.new, admin.new et tray.new, puis chaque dossier est renomme
 # (kyber -> kyber.prev, kyber.new -> kyber). Apres le redemarrage, la console
@@ -120,6 +124,52 @@ function Get-PackageVersion([string]$Package) {
     throw "version du paquet illisible ($text)"
 }
 
+# Version de KyberNow Station installee ici : kybernow.json (installateur et
+# mises a jour), sinon celle de la console installee. Vide si illisible.
+function Get-InstalledVersion {
+    $json = Join-Path $dir 'kybernow.json'
+    if (Test-Path $json) {
+        try {
+            $record = Get-Content -Raw -Encoding UTF8 $json | ConvertFrom-Json
+            if ([string]$record.version -match '^\d+\.\d+\.\d+$') { return [string]$record.version }
+        } catch {
+            # kybernow.json abime : la console installee le dit
+        }
+    }
+    $exe = Join-Path $dir 'admin\kyber-admin.exe'
+    if (Test-Path $exe) {
+        try {
+            if ([string](& $exe --version) -match '(\d+\.\d+\.\d+)') { return $Matches[1] }
+        } catch {
+            # console absente ou qui ne se lance pas
+        }
+    }
+    return ''
+}
+
+# Exigences du paquet (requirements.json, paquets 0.2.6 et suivants) : copie
+# de celles du manifeste signe, qu'Admin verifie avant d'installer en un clic.
+# Une version qui exige l'installateur, ou une Station installee avant
+# min_installer_version, est refusee avant d'arreter quoi que ce soit. Paquet
+# sans ce fichier (plus ancien) : rien a verifier.
+function Assert-Requirements([string]$Package, [string]$Version) {
+    $file = Join-Path $Package 'requirements.json'
+    if (-not (Test-Path $file)) { return }
+    $setup = 'KyberNow-Station-Setup.exe'
+    try {
+        $req = Get-Content -Raw -Encoding UTF8 $file | ConvertFrom-Json
+    } catch {
+        throw "requirements.json illisible dans le paquet : $($_.Exception.Message)"
+    }
+    if ($req.requires_setup -eq $true) { throw "la version $Version s'installe avec $setup : reinstallez avec lui" }
+    $min = [string]$req.min_installer_version
+    if (-not $min) { return }
+    if ($min -notmatch '^\d+\.\d+\.\d+$') { throw "requirements.json : version minimale inattendue ($min)" }
+    $installed = Get-InstalledVersion
+    if (-not $installed) { throw "version de KyberNow Station installee illisible : reinstallez avec $setup" }
+    if ([version]$min -gt [version]$installed) { throw "la version $Version demande au moins la $min (installee : $installed) : reinstallez avec $setup" }
+}
+
 # Langue de l'installation : celle que l'installateur a donnee au nom affiche
 # du service kyber (langue de Windows a l'installation), sinon celle de Windows.
 function Test-French {
@@ -197,6 +247,7 @@ try {
     }
     $version = Get-PackageVersion $pkg
     Write-Host "==> KyberNow Station $version"
+    Assert-Requirements $pkg $version
     $french = Test-French
 
     Write-Host '==> Arret du serveur Kyber, de KyberNow Admin, puis de l''icone'

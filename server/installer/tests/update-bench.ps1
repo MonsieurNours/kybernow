@@ -4,7 +4,8 @@
 # reels, dans un dossier temporaire. Le controle de sante est une vraie
 # connexion TCP : la console simulee ouvre son port, sauf si son exe contient
 # le mot 'broken'. Scenarios : mise a jour reussie (deux fois de suite),
-# console muette (retour arriere), paquet incomplet, renommage bloque.
+# console muette (retour arriere), paquet incomplet, renommage bloque, paquet
+# qui exige l'installateur ou une Station plus recente (requirements.json).
 param([string]$Script = (Join-Path $PSScriptRoot '../update.ps1'))
 
 $ErrorActionPreference = 'Stop'
@@ -56,7 +57,7 @@ function global:Rename-Item {
     Microsoft.PowerShell.Management\Rename-Item -LiteralPath $LiteralPath -NewName $NewName
 }
 
-function New-Sandbox([string]$AdminContent, [switch]$NoTrayInPackage) {
+function New-Sandbox([string]$AdminContent, [switch]$NoTrayInPackage, [string]$MinInstaller = '0.2.5', [string]$RequiresSetup = 'false') {
     $root = Join-Path ([IO.Path]::GetTempPath()) ("kn-" + [guid]::NewGuid())
     $env:ProgramFiles = Join-Path $root 'pf'
     $env:ProgramData = Join-Path $root 'pd'
@@ -79,6 +80,7 @@ function New-Sandbox([string]$AdminContent, [switch]$NoTrayInPackage) {
     Set-Content (Join-Path $pkg 'admin/kyber-admin.exe') $AdminContent
     if (-not $NoTrayInPackage) { Set-Content (Join-Path $pkg 'tray/kybernow-tray.exe') 'nouvelle icone' }
     Set-Content (Join-Path $pkg 'version.txt') '0.2.6'
+    Set-Content (Join-Path $pkg 'requirements.json') ('{"version": "0.2.6", "min_installer_version": "' + $MinInstaller + '", "requires_setup": ' + $RequiresSetup + '}')
     $global:svc = @{ 'kyber' = 'Running'; 'kyber-admin' = 'Running' }
     return [pscustomobject]@{ Dir = $dir; Data = $data; Pkg = $pkg; Root = $root }
 }
@@ -153,6 +155,25 @@ Check ((Read-File "$($sb.Dir)/kyber/kyavserver.exe") -match 'ancien') 'kyber rem
 Check ((Read-File "$($sb.Dir)/admin/kyber-admin.exe") -match 'ancienne') 'admin intact'
 Check (-not (Test-Path "$($sb.Dir)/admin.prev") -and -not (Test-Path "$($sb.Dir)/kyber.prev")) 'aucun .prev qui traine'
 Check ($global:svc['kyber'] -eq 'Running' -and $global:svc['kyber-admin'] -eq 'Running') 'services redemarres'
+if ($global:listener) { $global:listener.Stop(); $global:listener = $null }
+
+Write-Host '5. Version qui exige l''installateur : rien n''est arrete'
+$sb = New-Sandbox 'nouvelle console' -RequiresSetup 'true'
+$err = Invoke-Update $sb
+Check ($err -match 'rien n''a ete remplace' -and $err -match 'KyberNow-Station-Setup\.exe') "erreur annoncee ($err)"
+Check ($global:svc['kyber'] -eq 'Running' -and $global:svc['kyber-admin'] -eq 'Running') 'services jamais arretes'
+Check ((Read-File "$($sb.Dir)/kyber/kyavserver.exe") -match 'ancien') 'kyber intact'
+Check (-not (Test-Path "$($sb.Dir)/kyber.prev") -and -not (Test-Path "$($sb.Dir)/kyber.new")) 'ni .prev, ni .new'
+Check (-not (Test-Path "$($sb.Data)/update/resultat.json")) 'pas de resultat.json (la console tourne encore)'
+Check ((Get-Content -Raw "$($sb.Dir)/kybernow.json" | ConvertFrom-Json).version -eq '0.2.5') 'kybernow.json reste en 0.2.5'
+if ($global:listener) { $global:listener.Stop(); $global:listener = $null }
+
+Write-Host '6. Station installee avant min_installer_version : rien n''est arrete'
+$sb = New-Sandbox 'nouvelle console' -MinInstaller '0.2.6'
+$err = Invoke-Update $sb
+Check ($err -match 'rien n''a ete remplace' -and $err -match 'au moins la 0\.2\.6' -and $err -match 'installee : 0\.2\.5') "erreur annoncee ($err)"
+Check ($global:svc['kyber'] -eq 'Running' -and $global:svc['kyber-admin'] -eq 'Running') 'services jamais arretes'
+Check ((Read-File "$($sb.Dir)/admin/kyber-admin.exe") -match 'ancienne') 'console intacte'
 if ($global:listener) { $global:listener.Stop(); $global:listener = $null }
 
 Write-Host ''

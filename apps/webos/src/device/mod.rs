@@ -44,7 +44,8 @@ pub enum Event {
     PairAccepted(crate::model::Host),
     PairFailed(String),
     Status(Status),
-    Mode(Mode),
+    /// Mode de l'écran de la session, et si c'est l'écran virtuel.
+    Mode { mode: Mode, virtual_display: bool },
     Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String },
     Notice(String),
     Pointer { position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
@@ -72,6 +73,10 @@ struct Live {
     latencies: Vec<f64>,
     mbps: Vec<f64>,
     mode: String,
+    /// Mode demandé (`App::session_mode`), et le premier mode de l'écran déjà
+    /// retenu pour l'accueil (`HostLive::ready`).
+    asked: (u32, u32, u32),
+    ready_seen: bool,
     /// Dernière position du pointeur de la Magic Remote (souris).
     remote: Option<(f32, f32)>,
     game_fullscreen: bool,
@@ -648,9 +653,21 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.focus = crate::app::Target::Back;
             }
         }
-        Event::Mode(m) => {
+        Event::Mode { mode: m, virtual_display } => {
             if let Some(l) = live.as_mut() {
                 l.mode = format!("{} × {}", m.width, m.height);
+                // Le premier mode est celui que l'ordinateur a donné à l'écran
+                // virtuel pour cette demande (les suivants viennent d'une
+                // adaptation ou d'un changement sur l'ordinateur) : l'accueil le
+                // montre ensuite.
+                if !l.ready_seen
+                    && let Some(s) = app.session.as_ref()
+                {
+                    l.ready_seen = true;
+                    let fps = if m.refresh > 0 { m.refresh } else { l.asked.2 };
+                    let ready = virtual_display.then(|| (l.asked, format!("{} × {} {} {fps} Hz", m.width, m.height, tr("à", "at"))));
+                    app.live.entry(s.host.clone()).or_default().ready = ready;
+                }
             }
         }
         Event::Second { latency_ms, fps, mbps, lost, codec } => {
@@ -785,6 +802,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 latencies: Vec::new(),
                 mbps: Vec::new(),
                 mode: format!("{} × {}", mode.0, mode.1),
+                asked: mode,
+                ready_seen: false,
                 remote: None,
                 game_fullscreen: false,
             });

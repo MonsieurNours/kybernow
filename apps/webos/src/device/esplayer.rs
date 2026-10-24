@@ -12,9 +12,13 @@
 //! `NDL_ES_Load(lecteur, json, rappel, données)`, `NDL_ES_Feed(lecteur, json)`
 //! → 0 Ok, −2 BufferFull, −3 NotReady, `NDL_ES_Play`, `NDL_ES_Unload`,
 //! `NDL_ES_DeletePlayer`. Horodatages en nanosecondes.
+//!
+//! Le téléviseur décharge cette chaîne de lui-même avec celle de jeu (sa
+//! politique de ressources, à l'arrêt du son) : `feed` la recharge alors en
+//! fond, après le décodeur d'image, et les trames sont sautées en attendant.
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -38,6 +42,11 @@ struct State {
     /// Lecture lancée (après la confirmation).
     playing: bool,
     last_pts_ns: i64,
+    /// Trame de silence du dernier chargement (amorce d'un rechargement).
+    silence: Vec<u8>,
+    /// Une trame acceptée depuis la confirmation : une erreur de `feed` vaut
+    /// alors un rechargement (une seule fois, pas en boucle).
+    fed: bool,
 }
 
 unsafe impl Send for State {}
@@ -45,6 +54,18 @@ unsafe impl Send for State {}
 static ES: Mutex<Option<State>> = Mutex::new(None);
 static LOADED: AtomicBool = AtomicBool::new(false);
 static FAILED: AtomicBool = AtomicBool::new(false);
+/// Déchargée par le téléviseur lui-même (`UNLOADCOMPLETED` sans demande).
+static TV_UNLOADED: AtomicBool = AtomicBool::new(false);
+/// Rechargement en cours, en fond.
+static RELOADING: AtomicBool = AtomicBool::new(false);
+/// Rechargement raté : l'erreur, rendue par `feed` (le son repasse par SDL).
+static RELOAD_FAILED: Mutex<Option<String>> = Mutex::new(None);
+/// Change à chaque chargement et déchargement demandés : un rechargement en
+/// fond d'une session finie ou remplacée s'arrête là.
+static EPOCH: AtomicU64 = AtomicU64::new(0);
+
+/// Erreur de `feed` pendant un rechargement : trame sautée.
+pub const RELOADING_ERR: &str = "rechargement en cours";
 
 const LOAD_BUDGET: Duration = Duration::from_millis(2500);
 /// Durée d'une trame E-AC-3 (1536 images à 48 kHz).
@@ -63,7 +84,16 @@ extern "C" fn on_event(kind: c_int, num: i64, s: *const c_char, _data: *mut c_vo
             LOADED.store(true, Ordering::Release);
             log::info!("son : chaîne Dolby chargée (confirmé) {s}");
         }
-        0x17 => log::info!("son : chaîne Dolby déchargée {s}"),
+        0x17 => {
+            // `unload` baisse LOADED avant de décharger : levé ici, le
+            // déchargement vient du téléviseur.
+            if LOADED.swap(false, Ordering::AcqRel) {
+                TV_UNLOADED.store(true, Ordering::Release);
+                log::warn!("son : chaîne Dolby déchargée par le téléviseur {s}");
+            } else {
+                log::info!("son : chaîne Dolby déchargée {s}");
+            }
+        }
         0x1a => log::info!("son : chaîne Dolby en lecture {s}"),
         0x1f | 0x20 | 0x2712 => {
             log::warn!("son : chaîne Dolby, événement 0x{kind:02x} ({num:#x}) {s}");
@@ -101,7 +131,7 @@ fn open() -> Result<(), String> {
         {
             return Err("NDL_ESMediaInit a échoué".into());
         }
-        *g = Some(State { api, player: std::ptr::null_mut(), loaded_at: None, playing: false, last_pts_ns: 0 });
+        *g = Some(State { api, player: std::ptr::null_mut(), loaded_at: None, playing: false, last_pts_ns: 0, silence: Vec::new(), fed: false });
     }
     Ok(())
 }
@@ -109,6 +139,14 @@ fn open() -> Result<(), String> {
 /// Charge la chaîne audio E-AC-3 5.1 et l'amorce de `silence` (une trame)
 /// jusqu'à la confirmation ; faux si le téléviseur ne la confirme pas.
 pub fn load(silence: &[u8]) -> Result<(), String> {
+    let epoch = EPOCH.fetch_add(1, Ordering::AcqRel) + 1;
+    *RELOAD_FAILED.lock().unwrap() = None;
+    start(silence, epoch)
+}
+
+/// Le chargement, pour `load` et pour un rechargement en fond : abandonné
+/// dès que `EPOCH` n'est plus `epoch` (session finie, autre chargement).
+fn start(silence: &[u8], epoch: u64) -> Result<(), String> {
     open()?;
     let doc = serde_json::json!({
         "args": [{
@@ -138,16 +176,22 @@ pub fn load(silence: &[u8]) -> Result<(), String> {
     .to_string();
     let json = CString::new(doc).map_err(|e| e.to_string())?;
     let app = CString::new(crate::APP_ID).unwrap();
+    let current = || EPOCH.load(Ordering::Acquire) == epoch;
     // Après l'image : le décodeur de jeu prend ses décodeurs d'abord (une
-    // reconnexion le recharge ; chargée avant lui, cette chaîne le bloque).
+    // reconnexion le recharge, le téléviseur aussi après avoir tout
+    // déchargé ; chargée avant lui, cette chaîne le bloque).
     let started = Instant::now();
-    while !super::ndl::is_loaded() && started.elapsed() < LOAD_BUDGET {
+    while !super::ndl::is_loaded() && started.elapsed() < LOAD_BUDGET && current() {
         std::thread::sleep(Duration::from_millis(20));
     }
-    unload();
     {
         let mut g = ES.lock().unwrap();
+        if !current() {
+            return Err(CANCELLED.into());
+        }
         let st = g.as_mut().ok_or("NDL_ES absent")?;
+        release(st);
+        st.silence = silence.to_vec();
         unsafe {
             if st.player.is_null() {
                 st.player = (st.api.create)(app.as_ptr());
@@ -158,30 +202,41 @@ pub fn load(silence: &[u8]) -> Result<(), String> {
             LOADED.store(false, Ordering::Release);
             FAILED.store(false, Ordering::Release);
             if (st.api.load)(st.player, json.as_ptr(), on_event, std::ptr::null_mut()) != 0 {
-                return Err("NDL_ES_Load a échoué".into());
+                // Refusé (lecteur laissé en mauvais état par un déchargement
+                // du téléviseur…) : un nouveau lecteur, puis un nouvel essai.
+                log::warn!("son : NDL_ES_Load refusé ; nouveau lecteur");
+                (st.api.delete)(st.player);
+                st.player = (st.api.create)(app.as_ptr());
+                if st.player.is_null() || (st.api.load)(st.player, json.as_ptr(), on_event, std::ptr::null_mut()) != 0 {
+                    return Err("NDL_ES_Load a échoué".into());
+                }
             }
         }
         st.loaded_at = Some(Instant::now());
         st.playing = false;
         st.last_pts_ns = 0;
+        st.fed = false;
     }
     // Amorçage : une trame de silence toutes les 32 ms jusqu'à la confirmation.
     let started = Instant::now();
     let mut primed = 0;
-    while !LOADED.load(Ordering::Acquire) && !FAILED.load(Ordering::Acquire) && started.elapsed() < LOAD_BUDGET {
-        if feed(silence).is_ok() {
+    while !LOADED.load(Ordering::Acquire) && !FAILED.load(Ordering::Acquire) && started.elapsed() < LOAD_BUDGET && current() {
+        if ES.lock().unwrap().as_mut().is_some_and(|st| push(st, silence).is_ok()) {
             primed += 1;
         }
         std::thread::sleep(Duration::from_millis(32));
     }
+    let mut g = ES.lock().unwrap();
+    if !current() {
+        // Déchargée ou rechargée entre-temps par un autre : rien à faire ici.
+        return Err(CANCELLED.into());
+    }
+    let st = g.as_mut().ok_or("NDL_ES absent")?;
     if !LOADED.load(Ordering::Acquire) {
-        unload();
+        release(st);
         return Err(format!("chaîne Dolby pas confirmée après {} ms ({primed} trames de silence)", started.elapsed().as_millis()));
     }
-    let mut g = ES.lock().unwrap();
-    if let Some(st) = g.as_mut()
-        && !st.playing
-    {
+    if !st.playing {
         unsafe {
             (st.api.play)(st.player);
         }
@@ -191,35 +246,103 @@ pub fn load(silence: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Une trame E-AC-3, horodatée à l'horloge du chargement (jamais en arrière).
-pub fn feed(frame: &[u8]) -> Result<(), String> {
-    let mut g = ES.lock().unwrap();
-    let st = g.as_mut().ok_or("NDL_ES absent")?;
-    let Some(at) = st.loaded_at else { return Err("chaîne Dolby pas chargée".into()) };
+/// Erreur d'un chargement abandonné (`EPOCH` a changé).
+const CANCELLED: &str = "chargement abandonné";
+
+/// Une trame à la chaîne, horodatée à l'horloge du chargement (jamais en
+/// arrière) ; rend le code de `NDL_ES_Feed` s'il n'est pas 0.
+fn push(st: &mut State, frame: &[u8]) -> Result<(), c_int> {
+    let Some(at) = st.loaded_at else { return Err(-3) };
     let pts = (at.elapsed().as_nanos() as i64).max(st.last_pts_ns + FRAME_NS);
     st.last_pts_ns = pts;
     let doc = format!("{{\"bufferAddr\":\"{:#x}\",\"bufferSize\":{},\"pts\":{pts},\"esData\":2}}", frame.as_ptr() as usize, frame.len());
-    let json = CString::new(doc).map_err(|e| e.to_string())?;
-    let r = unsafe { (st.api.feed)(st.player, json.as_ptr()) };
-    match r {
+    let Ok(json) = CString::new(doc) else { return Err(-1) };
+    match unsafe { (st.api.feed)(st.player, json.as_ptr()) } {
         0 => Ok(()),
-        -2 => Err("tampon plein".into()),
-        -3 => Err("pas prête".into()),
-        n => Err(format!("NDL_ES_Feed : {n}")),
+        n => Err(n),
     }
 }
 
-/// Décharge la chaîne (fin de session, repli).
-pub fn unload() {
+/// Une trame E-AC-3 à la chaîne. Déchargée par le téléviseur, ou en erreur
+/// après avoir marché, elle est rechargée en fond : `RELOADING_ERR` en
+/// attendant (trame sautée), l'erreur du rechargement s'il rate.
+pub fn feed(frame: &[u8]) -> Result<(), String> {
+    if RELOADING.load(Ordering::Acquire) {
+        return Err(RELOADING_ERR.into());
+    }
+    if let Some(e) = RELOAD_FAILED.lock().unwrap().take() {
+        return Err(e);
+    }
     let mut g = ES.lock().unwrap();
-    if let Some(st) = g.as_mut()
-        && st.loaded_at.take().is_some()
-    {
+    let st = g.as_mut().ok_or("NDL_ES absent")?;
+    if st.loaded_at.is_none() {
+        return Err("chaîne Dolby pas chargée".into());
+    }
+    if TV_UNLOADED.load(Ordering::Acquire) {
+        return reload(st, "déchargée par le téléviseur");
+    }
+    match push(st, frame) {
+        Ok(()) => {
+            st.fed = true;
+            Ok(())
+        }
+        Err(-2) => Err("tampon plein".into()),
+        // Elle marchait : déchargée sans que l'événement soit arrivé,
+        // probablement. Un seul essai, jusqu'à la prochaine trame acceptée.
+        Err(n) if st.fed => {
+            st.fed = false;
+            reload(st, &format!("NDL_ES_Feed : {n}"))
+        }
+        Err(-3) => Err("pas prête".into()),
+        Err(n) => Err(format!("NDL_ES_Feed : {n}")),
+    }
+}
+
+/// Lance le rechargement en fond (il attend le décodeur d'image, rechargé à
+/// l'image clé suivante) ; rend `RELOADING_ERR`.
+fn reload(st: &mut State, why: &str) -> Result<(), String> {
+    log::warn!("son : chaîne Dolby {why} ; rechargement");
+    let silence = st.silence.clone();
+    let epoch = EPOCH.load(Ordering::Acquire);
+    RELOADING.store(true, Ordering::Release);
+    let spawned = std::thread::Builder::new().name("kybernow-dolby".into()).spawn(move || {
+        match start(&silence, epoch) {
+            Ok(()) => log::info!("son : chaîne Dolby rechargée"),
+            Err(e) if EPOCH.load(Ordering::Acquire) != epoch => log::info!("son : rechargement de la chaîne Dolby abandonné ({e})"),
+            Err(e) => *RELOAD_FAILED.lock().unwrap() = Some(format!("rechargement : {e}")),
+        }
+        RELOADING.store(false, Ordering::Release);
+    });
+    if let Err(e) = spawned {
+        RELOADING.store(false, Ordering::Release);
+        return Err(format!("rechargement impossible ({e})"));
+    }
+    Err(RELOADING_ERR.into())
+}
+
+/// Décharge la chaîne si elle est chargée ; déjà déchargée par le téléviseur,
+/// rien à décharger.
+fn release(st: &mut State) {
+    let by_tv = TV_UNLOADED.swap(false, Ordering::AcqRel);
+    if st.loaded_at.take().is_some() {
+        st.playing = false;
+        if by_tv {
+            return;
+        }
+        LOADED.store(false, Ordering::Release);
         unsafe {
             (st.api.unload)(st.player);
         }
-        st.playing = false;
         log::info!("son : chaîne Dolby déchargée");
+    }
+}
+
+/// Décharge la chaîne (fin de session, repli) et arrête un rechargement en cours.
+pub fn unload() {
+    EPOCH.fetch_add(1, Ordering::AcqRel);
+    let mut g = ES.lock().unwrap();
+    if let Some(st) = g.as_mut() {
+        release(st);
     }
 }
 

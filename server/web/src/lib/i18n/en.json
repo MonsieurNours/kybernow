@@ -237,7 +237,7 @@
       "pathWebkit": "WebSocket in Safari: its WebTransport cannot verify the computer’s certificate (a little more latency).",
       "pathFirefox": "WebSocket in Firefox, with H.264 in Auto: the combination chosen for this browser (a little more latency).",
       "pathUnsupported": "WebSocket: this browser does not have WebTransport (a little more latency).",
-      "pathDirect": "WebTransport, direct; if the picture does not arrive within 12 s of connecting, the page switches to WebSocket.",
+      "pathDirect": "WebTransport, direct; if the picture does not arrive within 12 s of the computer starting it (25 s after connecting if it does not start it), the page switches to WebSocket.",
       "transport": "Transport",
       "transportSub": "Reliable: every frame arrives. Fast: a lost frame is skipped.",
       "reliable": "Reliable",
@@ -765,7 +765,7 @@
       "surround71Hint": "Eight channels, even if the device asks for nothing."
     },
     "inputNotes": {
-      "gamepad": "The KyberNow Link apps for Mac and Apple TV choose for themselves, per computer (the “Gamepad seen by the computer” setting): this is only the default for other connections."
+      "gamepad": "The KyberNow Link apps choose for themselves, per computer (the “Gamepad seen by the computer” setting, or “Controllers seen as Xbox 360” on LG TVs): this is only the default for other connections."
     },
     "toast": {
       "defaultMode": "Default mode saved.",

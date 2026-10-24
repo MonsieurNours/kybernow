@@ -545,18 +545,18 @@
         }
       }
     },
-    "Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation." : {
+    "Affichés dans KyberNow Admin, Appareils Link › « Ajouter un appareil ». Le port a été tiré au hasard à l'installation." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shown in KyberNow Admin, Access page, “Add a device”. The port was picked at random during installation."
+            "value" : "Shown in KyberNow Admin, Link devices › “Add a device”. The port was picked at random during installation."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation."
+            "value" : "Affichés dans KyberNow Admin, Appareils Link › « Ajouter un appareil ». Le port a été tiré au hasard à l'installation."
           }
         }
       }
@@ -785,18 +785,18 @@
         }
       }
     },
-    "Appareils › « %@ » demande l'accès › Accepter." : {
+    "Appareils Link › « %@ » demande l'accès › Accepter." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Devices › “%@” is asking for access › Accept."
+            "value" : "Link devices › “%@” is asking for access › Accept."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Appareils › « %@ » demande l'accès › Accepter."
+            "value" : "Appareils Link › « %@ » demande l'accès › Accepter."
           }
         }
       }
@@ -977,18 +977,18 @@
         }
       }
     },
-    "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac." : {
+    "Auto : stéréo, quelle que soit la sortie de ce Mac." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto: stereo for now, whatever this Mac's output."
+            "value" : "Auto: stereo, whatever this Mac's output."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac."
+            "value" : "Auto : stéréo, quelle que soit la sortie de ce Mac."
           }
         }
       }
@@ -1793,18 +1793,18 @@
         }
       }
     },
-    "Empreinte de la Station : %@ — à comparer à celle de la page Accès de KyberNow Admin." : {
+    "Empreinte de la Station : %@ — à comparer à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil »." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Station fingerprint: %@ — compare it with the one on the Access page of KyberNow Admin."
+            "value" : "Station fingerprint: %@ — compare it with the one in KyberNow Admin, Link devices › “Add a device”."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Empreinte de la Station : %@ — à comparer à celle de la page Accès de KyberNow Admin."
+            "value" : "Empreinte de la Station : %@ — à comparer à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil »."
           }
         }
       }
@@ -4369,18 +4369,18 @@
         }
       }
     },
-    "Toujours active en profil Bureau" : {
+    "Toujours active en profil Bureau ; un autre profil la rend réglable" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Always on with the Desktop profile"
+            "value" : "Always on with the Desktop profile; another profile makes it adjustable"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Toujours active en profil Bureau"
+            "value" : "Toujours active en profil Bureau ; un autre profil la rend réglable"
           }
         }
       }
@@ -4497,18 +4497,18 @@
         }
       }
     },
-    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse." : {
+    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par l'adresse." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow Station running. Over VPN, use the code or the address."
+            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow Station running. Over VPN, use the address."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse."
+            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par l'adresse."
           }
         }
       }
@@ -5101,6 +5101,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "−"
+          }
+        }
+      }
+    },
+    "Pavé : pointeur, clic : clic gauche ; toujours active en profil Bureau" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Touch surface: pointer, click: left click; always on with the Desktop profile"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pavé : pointeur, clic : clic gauche ; toujours active en profil Bureau"
           }
         }
       }

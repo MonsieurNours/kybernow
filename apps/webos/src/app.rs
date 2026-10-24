@@ -66,8 +66,10 @@ pub enum Online {
 #[derive(Clone, Debug, Default)]
 pub struct HostLive {
     pub online: Online,
-    /// Mode que l'écran virtuel prendra (`3840 × 2160 à 120 Hz`).
-    pub ready: Option<String>,
+    /// Mode que l'écran virtuel a pris à la dernière session (`3840 × 2160 à
+    /// 120 Hz`, d'après l'ordinateur, qui peut l'adapter), et le mode demandé
+    /// alors (`App::session_mode`) : il ne vaut que pour la même demande.
+    pub ready: Option<((u32, u32, u32), String)>,
 }
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.

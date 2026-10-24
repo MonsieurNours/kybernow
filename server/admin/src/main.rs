@@ -93,7 +93,7 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Efface le mot de passe administrateur (un nouveau code d'initialisation sera émis)
+    /// Efface le mot de passe administrateur : Admin émet un nouveau code d'initialisation à son redémarrage
     ResetPassword,
     /// Agent d'affichage, lancé par le service dans la session de l'écran
     #[command(hide = true)]

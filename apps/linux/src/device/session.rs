@@ -354,7 +354,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         auto_reconnect: host.settings.reconnect,
         gamepad_xbox360: host.settings.xbox360,
         clipboard: host.settings.clipboard,
-        recovery: Recovery { watch_image: true, fallback_bitrate: Some(20) },
+        recovery: Recovery { watch_image: true, fallback_bitrate: Some(20_000_000) },
     };
     let session = Session::start(params, Arc::new(LinuxPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

@@ -100,7 +100,7 @@ French and English, following the rule in [docs/i18n.en.md](../../docs/i18n.en.m
 
 ## Building (from the Mac)
 
-`build.sh` produces `dist/KyberNow-Station-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1`, `version.txt` and `requirements.json`, which `update.ps1` does not read; plus `dist/update.ps1` and `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md); `scripts/release.sh` also publishes the installer under its old names, `KyberNow-Server-Setup.exe` and `KyberNow-Setup.exe`, identical, for Admin 0.3.1 and earlier and existing links (see “Old installer names”). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
+`build.sh` produces `dist/KyberNow-Station-Setup.exe`; `package-update.sh` then produces the update package for a computer that is already installed (`dist/kybernow-update.zip`, with `update.ps1`, `version.txt` and `requirements.json`, requirements that `update.ps1` checks before stopping anything; plus `dist/update.ps1` and `dist/SHA256SUMS`). Publishing: [docs/releases.en.md](../../docs/releases.en.md); `scripts/release.sh` also publishes the installer under its old names, `KyberNow-Server-Setup.exe` and `KyberNow-Setup.exe`, identical, for Admin 0.3.1 and earlier and existing links (see “Old installer names”). `update.ps1` can be tested without Windows with `pwsh -NoProfile -File tests/update-bench.ps1`.
 
 ```bash
 server/installer/build.sh      # → server/installer/dist/KyberNow-Station-Setup.exe

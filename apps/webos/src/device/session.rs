@@ -132,9 +132,9 @@ impl Platform for WebOsPlatform {
         self.0.pointer.set_host_size((d.width as f64, d.height as f64));
     }
 
-    fn on_mode(&self, mode: Mode, _virtual_display: bool) {
+    fn on_mode(&self, mode: Mode, virtual_display: bool) {
         *self.0.mode.lock().unwrap() = mode;
-        self.0.send(Event::Mode(mode));
+        self.0.send(Event::Mode { mode, virtual_display });
     }
 
     fn on_stream_stopped(&self) {
@@ -293,7 +293,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         auto_reconnect: host.settings.reconnect,
         gamepad_xbox360: host.settings.xbox360,
         clipboard: false,
-        recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20)) },
+        recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000) },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

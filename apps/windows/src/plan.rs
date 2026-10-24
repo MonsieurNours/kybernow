@@ -42,9 +42,6 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
         mode.refresh = mode.refresh.min(30);
     }
     let mut settings = StreamSettings::for_profile(c.profile.unwrap_or(Profile::Jeu), caps);
-    // Un réglage retouché rend le profil « Personnalisé » : son débit est
-    // celui que le profil donnait pour ce mode.
-    let profile_mbps = settings.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
     let mut custom = c.profile.is_none();
     if let Some(codec) = c.codec {
         if codec != settings.codec {
@@ -72,13 +69,18 @@ pub fn plan(c: &Choices, caps: Capabilities, screen: Mode) -> (StreamSettings, M
     if c.mbps.is_some() {
         custom = true;
     }
-    if custom {
-        settings.profile = None;
-        settings.mbps = c.mbps.unwrap_or(profile_mbps);
-    }
     // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
     if settings.codec == Codec::H264 {
         mode = fit(mode, 4096, 4096);
+    }
+    // Un réglage retouché rend le profil « Personnalisé » : son débit est
+    // celui que le profil donnait pour ce mode, le mode demandé (après la
+    // réduction de l'H.264), comme pour un profil. L'interface refait ce
+    // calcul (`sessionPlan`, ui/src/lib/api.ts).
+    if custom {
+        let profile_mbps = settings.bitrate(mode.width, mode.height, mode.refresh) / 1_000_000;
+        settings.profile = None;
+        settings.mbps = c.mbps.unwrap_or(profile_mbps);
     }
     (settings, mode)
 }

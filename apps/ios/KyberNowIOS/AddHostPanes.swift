@@ -316,7 +316,7 @@ struct AddHostNetworkPane: View {
                 Button { pick(found) } label: { row(found) }
                     .buttonStyle(AddHostPressStyle())
             }
-            Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par le code ou l'adresse.")
+            Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code.")
                 .font(Theme.sans(wide ? 15 : 13.5)).foregroundStyle(Theme.muted)
                 .lineSpacing(3)
                 .frame(maxWidth: wide ? 600 : .infinity, alignment: .leading)
@@ -677,7 +677,7 @@ struct AddHostVerifyPane: View {
 
     @ViewBuilder private func manual(_ fp: String) -> some View {
         let groups = AddHostFingerprint.groups(fp)
-        AddHostParagraph(String(localized: "Comparez ces quatre groupes avec ceux de KyberNow Admin (Accès › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."))
+        AddHostParagraph(String(localized: "Comparez ces quatre groupes avec ceux de KyberNow Admin (Appareils Link › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."))
         HStack(spacing: wide ? 12 : 8) {
             ForEach(Array(groups.prefix(4).enumerated()), id: \.offset) { _, g in
                 Text(verbatim: g)

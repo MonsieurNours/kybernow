@@ -324,6 +324,9 @@ impl AudioSink {
                     }
                 }
                 Err(e) if e == "tampon plein" => log::debug!("son : chaîne Dolby, trame sautée (tampon plein)"),
+                // Déchargée par le téléviseur (avec le décodeur d'image) : elle se
+                // recharge en fond, après lui ; les trames d'ici là sont sautées.
+                Err(e) if e == esplayer::RELOADING_ERR => log::debug!("son : chaîne Dolby, trame sautée (rechargement)"),
                 Err(e) => {
                     log::warn!("son : chaîne Dolby : {e} ; stéréo par SDL pour la suite de la session");
                     esplayer::unload();

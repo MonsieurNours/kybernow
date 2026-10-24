@@ -377,6 +377,7 @@ pub fn parse_settings(json: &str) -> Result<StreamSettings, String> {
 struct RecoveryWire {
     #[serde(default)]
     watch_image: bool,
+    /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
     fallback_bitrate: Option<u32>,
 }
 

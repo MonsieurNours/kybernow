@@ -1316,18 +1316,18 @@
         }
       }
     },
-    "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac." : {
+    "Auto : stéréo, quelle que soit la sortie de ce Mac." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto: stereo for now, whatever this Mac's output."
+            "value" : "Auto: stereo, whatever this Mac's output."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac."
+            "value" : "Auto : stéréo, quelle que soit la sortie de ce Mac."
           }
         }
       }
@@ -1492,18 +1492,18 @@
         }
       }
     },
-    "Bureau : texte net (4:4:4), pavé tactile, aucune image perdue." : {
+    "Bureau : texte net (4:4:4), aucune image perdue." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desktop: sharp text (4:4:4), trackpad, no dropped frames."
+            "value" : "Desktop: sharp text (4:4:4), no dropped frames."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bureau : texte net (4:4:4), pavé tactile, aucune image perdue."
+            "value" : "Bureau : texte net (4:4:4), aucune image perdue."
           }
         }
       }
@@ -2020,18 +2020,18 @@
         }
       }
     },
-    "Comparez ces quatre groupes avec ceux de KyberNow Admin (Accès › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur." : {
+    "Comparez ces quatre groupes avec ceux de KyberNow Admin (Appareils Link › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Compare these four groups with the ones in KyberNow Admin (Access › Add a device). They are the computer's certificate fingerprint."
+            "value" : "Compare these four groups with the ones in KyberNow Admin (Link devices › Add a device). They are the computer's certificate fingerprint."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Comparez ces quatre groupes avec ceux de KyberNow Admin (Accès › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."
+            "value" : "Comparez ces quatre groupes avec ceux de KyberNow Admin (Appareils Link › Ajouter un appareil). Ils sont l'empreinte du certificat de l'ordinateur."
           }
         }
       }
@@ -2948,18 +2948,18 @@
         }
       }
     },
-    "Hors Wi-Fi, KyberNow Link prévient avant de se connecter." : {
+    "En données mobiles, KyberNow Link demande avant de se connecter." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Off Wi-Fi, KyberNow Link warns you before connecting."
+            "value" : "On mobile data, KyberNow Link asks before connecting."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Hors Wi-Fi, KyberNow Link prévient avant de se connecter."
+            "value" : "En données mobiles, KyberNow Link demande avant de se connecter."
           }
         }
       }
@@ -3268,18 +3268,18 @@
         }
       }
     },
-    "Jeu : latence minimale, %lld Hz, manette Bluetooth prête, toucher direct." : {
+    "Jeu : latence minimale, %lld Hz, manette Bluetooth prête." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Game: lowest latency, %lld Hz, Bluetooth gamepad ready, direct touch."
+            "value" : "Game: lowest latency, %lld Hz, Bluetooth gamepad ready."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Jeu : latence minimale, %lld Hz, manette Bluetooth prête, toucher direct."
+            "value" : "Jeu : latence minimale, %lld Hz, manette Bluetooth prête."
           }
         }
       }
@@ -6356,18 +6356,18 @@
         }
       }
     },
-    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par le code ou l'adresse." : {
+    "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow Station installed. Over VPN, use the code or the address."
+            "value" : "Computer not showing up? It must be on, on the same network, with KyberNow Station installed. Over VPN, use the address or the QR code."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par le code ou l'adresse."
+            "value" : "Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station installée. Par VPN, passez par l'adresse ou le QR code."
           }
         }
       }
@@ -7440,6 +7440,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "⌘ envoyée comme Ctrl · pointeur de l'ordinateur"
+          }
+        }
+      }
+    },
+    "Se connecter en données mobiles ?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect on mobile data?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se connecter en données mobiles ?"
+          }
+        }
+      }
+    },
+    "Toujours autoriser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always allow"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toujours autoriser"
           }
         }
       }

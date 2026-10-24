@@ -20,9 +20,8 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Kidd virtual display** once Kyber ships it, behind the interface already in place.
 - **KyberNow-signed audio driver** (EV certificate + Partner Center), should Steam's speakers no longer be enough.
 - **Attested virtual display driver** (EV + Partner Center), so SudoVDA's certificate no longer has to be added to the root authorities.
-- **`update.ps1` checks `requirements.json`**: a manual update that requires the installer must not install.
 - **Authenticode signing** of the installer, the Windows app and the manual update package (SignPath targeted; prerequisite: Windows binaries built in CI).
-- **Wake-on-LAN**: Admin gives the computer's MAC address to the apps, and every app offers to wake it (today: Android only, address typed by hand).
+- **Wake-on-LAN**: Admin gives the computer's MAC address to the apps, and every app offers to wake it (today: Android and Linux, address typed by hand).
 - **Controller API**: list what `kycontroller` exposes over HTTP (session state, metrics).
 - **Open question**: several simultaneous users on the same computer?
 

@@ -237,7 +237,7 @@
       "pathWebkit": "WebSocket dans Safari : son WebTransport ne sait pas vérifier le certificat de l’ordinateur (un peu plus de latence).",
       "pathFirefox": "WebSocket dans Firefox, et le format H.264 en Auto : la combinaison retenue pour ce navigateur (un peu plus de latence).",
       "pathUnsupported": "WebSocket : ce navigateur n’a pas WebTransport (un peu plus de latence).",
-      "pathDirect": "WebTransport, en direct ; si l’image ne vient pas dans les 12 s qui suivent la connexion, la page passe par WebSocket.",
+      "pathDirect": "WebTransport, en direct ; si l’image n’arrive pas dans les 12 s qui suivent son démarrage par l’ordinateur (25 s après la connexion s’il ne la démarre pas), la page passe par WebSocket.",
       "transport": "Transport",
       "transportSub": "Fiable : chaque image arrive. Rapide : une image perdue est sautée.",
       "reliable": "Fiable",
@@ -765,7 +765,7 @@
       "surround71Hint": "Huit canaux, même si l’appareil ne demande rien."
     },
     "inputNotes": {
-      "gamepad": "Les apps KyberNow Link pour Mac et Apple TV choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur ») : ici, seulement le défaut pour les autres connexions."
+      "gamepad": "Les apps KyberNow Link choisissent elles-mêmes, par ordinateur (réglage « Manette vue par l’ordinateur », ou « Manettes vues comme des Xbox 360 » sur les téléviseurs LG) : ici, seulement le défaut pour les autres connexions."
     },
     "toast": {
       "defaultMode": "Mode par défaut enregistré.",

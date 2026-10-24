@@ -20,9 +20,8 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Écran virtuel Kidd** quand Kyber le publiera, derrière l'interface déjà en place.
 - **Pilote audio signé KyberNow** (certificat EV + Partner Center), si les haut-parleurs de Steam ne suffisent plus.
 - **Pilote d'écran virtuel attesté** (EV + Partner Center), pour ne plus ajouter le certificat de SudoVDA aux autorités racines.
-- **`update.ps1` vérifie `requirements.json`** : une mise à jour manuelle qui exige l'installateur ne doit pas s'installer.
 - **Signature Authenticode** de l'installateur, de l'app Windows et du paquet de mise à jour manuelle (SignPath visé ; préalable : binaires Windows construits en CI).
-- **Wake-on-LAN** : Admin donne l'adresse MAC de l'ordinateur aux apps, et toutes les apps proposent le réveil (aujourd'hui : Android seul, adresse saisie à la main).
+- **Wake-on-LAN** : Admin donne l'adresse MAC de l'ordinateur aux apps, et toutes les apps proposent le réveil (aujourd'hui : Android et Linux, adresse saisie à la main).
 - **API du contrôleur** : inventorier ce que `kycontroller` expose en HTTP (état de session, métriques).
 - **Question ouverte** : plusieurs utilisateurs simultanés sur le même ordinateur ?
 

@@ -153,9 +153,10 @@ pub struct AppSettings {
     /// KyberNow Link OS : le premier démarrage (manette, langue, réseau, usage,
     /// ordinateur) est fait.
     pub os_setup_done: bool,
-    /// KyberNow Link OS : HDMI-CEC, l'annonce du nom « KyberNow Link » au
-    /// téléviseur au lancement (la veille et le réveil passent par CEC sans
-    /// le lire).
+    /// KyberNow Link OS : HDMI-CEC, tout ou rien : l'annonce du nom
+    /// « KyberNow Link » au téléviseur au lancement (qui donne aussi à
+    /// l'appareil son adresse CEC, sans laquelle la télécommande ne lui parle
+    /// pas), la veille et le réveil du téléviseur avec l'appareil.
     pub os_cec: bool,
     /// KyberNow Link OS : télécharger les versions dès qu'elles sortent ;
     /// l'installation attend « Redémarrer sur la X ».

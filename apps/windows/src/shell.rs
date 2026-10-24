@@ -217,8 +217,11 @@ fn build_jump_list(computers: &[(String, String)]) -> windows::core::Result<()> 
         let mut slots = 0u32;
         let removed: IObjectArray = list.BeginList(&mut slots)?;
         let removed = removed_args(&removed);
+        // `slots` : les éléments que Windows montre au plus (réglage du
+        // nombre d'éléments récents, 10 par défaut) ; les suivants seraient
+        // coupés.
         let wanted: Vec<&(String, String)> =
-            computers.iter().filter(|(id, _)| !removed.contains(&format!("--connect {id}"))).take(slots.max(5) as usize).collect();
+            computers.iter().filter(|(id, _)| !removed.contains(&format!("--connect {id}"))).take(slots as usize).collect();
         if !wanted.is_empty() {
             let items: IObjectCollection = CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
             for (id, name) in wanted {

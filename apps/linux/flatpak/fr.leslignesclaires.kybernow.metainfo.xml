@@ -7,8 +7,8 @@
   <summary>Votre ordinateur sur tous vos appareils</summary>
   <summary xml:lang="en">Your computer on all your devices</summary>
   <description>
-    <p>KyberNow Link retrouve votre ordinateur (KyberNow Station) en plein écran, avec l'image, le son, le clavier, la souris et les manettes, à faible latence. Sur un Linux de bureau, le Steam Deck et SteamOS au salon.</p>
-    <p xml:lang="en">KyberNow Link brings your computer (KyberNow Station) full screen, with picture, sound, keyboard, mouse and controllers, at low latency. On desktop Linux, the Steam Deck and SteamOS in the living room.</p>
+    <p>KyberNow Link retrouve votre ordinateur (KyberNow Station) en plein écran, avec l'image, le son, le clavier, la souris et les manettes, à faible latence. Au bureau, dans la main ou au salon : la même app, à la souris comme à la manette.</p>
+    <p xml:lang="en">KyberNow Link brings your computer (KyberNow Station) full screen, with picture, sound, keyboard, mouse and controllers, at low latency. At the desk, in your hands or in the living room: the same app, with a mouse or a controller.</p>
   </description>
   <launchable type="desktop-id">fr.leslignesclaires.kybernow.desktop</launchable>
   <developer id="fr.leslignesclaires">

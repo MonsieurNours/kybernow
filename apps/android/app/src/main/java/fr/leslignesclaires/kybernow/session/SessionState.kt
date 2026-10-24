@@ -63,6 +63,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     val display = MutableStateFlow<DisplayInfo?>(null)
     val displays = MutableStateFlow<List<DisplayInfo>>(emptyList())
     val mode = MutableStateFlow<Triple<Int, Int, Int>?>(null)
+    /** La session passe par un écran virtuel : pas de choix d'écran (vrai tant que le cœur ne l'a pas dit). */
+    val virtualDisplay = MutableStateFlow(true)
     val videoSize = MutableStateFlow<Pair<Int, Int>?>(null)
     val decoder = MutableStateFlow<String?>(null)
     val audioOutput = MutableStateFlow<Pair<Int, Double>?>(null)
@@ -115,6 +117,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
 
     override fun onMode(width: Int, height: Int, refresh: Int, virtualDisplay: Boolean) {
         mode.value = Triple(width, height, refresh)
+        this.virtualDisplay.value = virtualDisplay
     }
 
     override fun onSecond(values: DoubleArray) {

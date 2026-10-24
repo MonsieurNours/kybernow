@@ -52,13 +52,16 @@ impl AudioOutput {
 }
 
 /// Voies de la sortie son par défaut (2, 6 ou 8), à demander à la console.
+/// Stéréo si elle ne se lit pas, même sans sortie du tout : le son vient
+/// alors sur ce PC (0 le laisserait sur l'ordinateur) et le fil du son
+/// ouvre la sortie dès qu'elle apparaît (casque branché en session).
 pub fn default_output_channels() -> u16 {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let Ok(enumerator) = CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL) else {
             return 2;
         };
-        let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) else { return 0 };
+        let Ok(device) = enumerator.GetDefaultAudioEndpoint(eRender, eConsole) else { return 2 };
         let Ok(client) = device.Activate::<IAudioClient>(CLSCTX_ALL, None) else { return 2 };
         let Ok(mix) = client.GetMixFormat() else { return 2 };
         let ch = (*mix).nChannels;
@@ -81,10 +84,20 @@ pub fn spawn(clock: Arc<dyn Clock>) -> AudioOutput {
             unsafe {
                 let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
             }
+            // Sans sortie, l'ouverture échoue toutes les 500 ms : la même
+            // erreur n'est notée qu'une fois de suite.
+            let mut last = String::new();
             while !s.load(Ordering::Relaxed) {
-                if let Err(e) = unsafe { play(&e, &s) } {
-                    log::warn!("son : {e}");
-                    std::thread::sleep(Duration::from_millis(500));
+                match unsafe { play(&e, &s) } {
+                    Ok(()) => last.clear(),
+                    Err(e) => {
+                        let msg = e.to_string();
+                        if msg != last {
+                            log::warn!("son : {msg}");
+                            last = msg;
+                        }
+                        std::thread::sleep(Duration::from_millis(500));
+                    }
                 }
             }
         })

@@ -176,7 +176,9 @@ fun HostSettingsScreen(hostId: String, onBack: () -> Unit, onRemoved: () -> Unit
             listOf(0 to stringResource(R.string.settings_bitrate_profile), 20 to "20", 40 to "40", 60 to "60", 90 to "90", 150 to "150", 300 to "300"), set.mbps,
         ) { v -> update { it.copy(mbps = v) } }
         InfoRow(stringResource(R.string.settings_444), if (d.hevc444) stringResource(R.string.settings_available) else stringResource(R.string.settings_unavailable), stringResource(R.string.settings_444_help))
-        if (tv || screen.modes.size > 1) {
+        // Au téléviseur seulement : la sortie HDMI change de mode. Le téléphone et la tablette prennent
+        // déjà la fréquence de la session à leur définition (SessionActivity.applyDisplay).
+        if (tv) {
             SwitchRow(stringResource(R.string.settings_match_display), stringResource(R.string.settings_match_display_help), set.matchDisplay) { v -> update { it.copy(matchDisplay = v) } }
         }
         SwitchRow(stringResource(R.string.settings_game_mode), stringResource(if (screen.minimalPostProcessing) R.string.settings_game_mode_help else R.string.settings_game_mode_unsupported), set.gameMode && screen.minimalPostProcessing, enabled = screen.minimalPostProcessing) { v -> update { it.copy(gameMode = v) } }

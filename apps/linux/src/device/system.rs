@@ -6,6 +6,9 @@
 //! l'interface à prendre (bureau, portable, salon).
 
 use std::ffi::{c_char, c_int};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use super::sdl;
 use crate::app::{Layout, Machine, NetInfo, NetKind, Pi};
@@ -317,6 +320,7 @@ pub fn net() -> NetInfo {
         if path.join("wireless").exists() || path.join("phy80211").exists() || name.starts_with("wl") {
             if info.kind == NetKind::Unknown {
                 info.kind = NetKind::Wifi;
+                info.band = wifi_band();
             }
         } else if name.starts_with("eth") || name.starts_with("en") || name.starts_with("usb") {
             info.kind = NetKind::Ethernet;
@@ -324,6 +328,38 @@ pub fn net() -> NetInfo {
         }
     }
     info
+}
+
+/// La bande du Wi-Fi en service (« 2,4 GHz », « 5 GHz », « 6 GHz »), lue par
+/// NetworkManager (`nmcli`, la fréquence du réseau actif). `net()` tourne sur
+/// la boucle principale : nmcli part sur un fil, et la bande lue sert au
+/// relevé suivant (5 s plus tard ; une lecture toutes les 4 s au plus, le
+/// lancement de l'OS appelant `net()` plus souvent). Sans nmcli (Flatpak, autre gestionnaire
+/// de réseau) : pas de bande, « Wi-Fi » seul.
+fn wifi_band() -> Option<String> {
+    static BAND: Mutex<Option<String>> = Mutex::new(None);
+    static LAST: Mutex<Option<Instant>> = Mutex::new(None);
+    static READING: AtomicBool = AtomicBool::new(false);
+    let due = LAST.lock().unwrap().is_none_or(|t| t.elapsed() > Duration::from_secs(4));
+    if due && !READING.swap(true, Ordering::AcqRel) {
+        *LAST.lock().unwrap() = Some(Instant::now());
+        std::thread::spawn(|| {
+            let out = std::process::Command::new("nmcli").args(["-t", "-f", "ACTIVE,FREQ", "dev", "wifi", "list", "--rescan", "no"]).output();
+            let mhz = out.ok().filter(|o| o.status.success()).and_then(|o| {
+                String::from_utf8_lossy(&o.stdout).lines().find_map(|l| l.strip_prefix("yes:").and_then(|f| f.split_whitespace().next()?.parse::<u32>().ok()))
+            });
+            *BAND.lock().unwrap() = mhz.map(|f| {
+                match f {
+                    0..=3000 => crate::i18n::tr("2,4 GHz", "2.4 GHz"),
+                    3001..=5924 => "5 GHz",
+                    _ => "6 GHz",
+                }
+                .to_string()
+            });
+            READING.store(false, Ordering::Release);
+        });
+    }
+    BAND.lock().unwrap().clone()
 }
 
 /// Moins d'animations, demandé par `KYBERNOW_REDUCE_MOTION=1` (le réglage

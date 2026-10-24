@@ -177,7 +177,7 @@
     <string name="updates_home" formatted="true">Version %1$s</string>
     <string name="app_settings_about_body">KyberNow Link, by Les Lignes Claires. Built on Kyber, not affiliated with it.</string>
     <string name="app_settings_licenses">Licences</string>
-    <string name="app_settings_licenses_body">KyberNow and Kyber: AGPL-3.0. Archivo and Martian Mono: SIL OFL 1.1. zxing: Apache 2.0.</string>
+    <string name="app_settings_licenses_body">KyberNow and Kyber: AGPL-3.0. Archivo and Martian Mono: SIL OFL 1.1. AndroidX (including Jetpack Compose and CameraX), Kotlin and kotlinx.coroutines, zxing, JmDNS: Apache 2.0.</string>
     <string name="gamepads_title">Test gamepads</string>
     <string name="gamepads_none">No gamepad: turn one on, or plug it in.</string>
     <string name="gamepads_four">Four players at most on the computer. A fifth gamepad waits for the first free slot.</string>
@@ -219,6 +219,9 @@
     <string name="session_mouse" formatted="true">Mouse %1$s</string>
     <string name="session_losses" formatted="true">%1$d loss(es)</string>
     <string name="session_restore" formatted="true">Restore %1$d × %2$d</string>
+    <string name="session_screen" formatted="true">Display %1$d · %2$d × %3$d</string>
+    <string name="session_computer_screen">Computer display</string>
+    <string name="session_pad_bar">The gamepad drives the bar and the game receives nothing; B closes it.</string>
     <string name="session_ended_title">The session stopped</string>
     <string name="session_not_restored">The computer\'s displays or sound were not restored: see KyberNow Admin.</string>
     <string name="session_back_home">Back to home</string>

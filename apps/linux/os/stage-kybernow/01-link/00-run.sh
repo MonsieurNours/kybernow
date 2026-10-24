@@ -1,6 +1,6 @@
 #!/bin/bash -e
 # Côté hôte : les fichiers de KyberNow Link OS dans le rootfs (le paquet,
-# les services, Plymouth, le son, Bluetooth, sudoers, config.txt, cmdline.txt).
+# les services, Plymouth, le son, Bluetooth, SSH, sudoers, config.txt, cmdline.txt).
 : "${ROOTFS_DIR:?}"
 F="$(dirname "$0")/files"
 
@@ -9,6 +9,7 @@ install -m 644 "$F/kybernow-link.deb" "${ROOTFS_DIR}/tmp/kybernow-link.deb"
 # Services.
 install -m 644 "$F/systemd/kybernow-link.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-link.service"
 install -m 644 "$F/systemd/kybernow-os-firstboot.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-firstboot.service"
+install -m 644 "$F/systemd/kybernow-os-ssh.service" "${ROOTFS_DIR}/etc/systemd/system/kybernow-os-ssh.service"
 install -m 755 "$F/kybernow-os-firstboot" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-firstboot"
 install -m 755 "$F/kybernow-os-update" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-update"
 install -m 755 "$F/kybernow-os-ctl" "${ROOTFS_DIR}/usr/local/sbin/kybernow-os-ctl"
@@ -24,6 +25,9 @@ EOF
 
 # Droits de l'app (mise à jour A/B, réseau, Bluetooth, SSH, redémarrage).
 install -m 440 "$F/etc/sudoers-kybernow" "${ROOTFS_DIR}/etc/sudoers.d/kybernow"
+# SSH : par clé, clés et clé d'hôte sur la partition de données (gardées par les mises à jour).
+install -d -m 755 "${ROOTFS_DIR}/etc/ssh/sshd_config.d"
+install -m 644 "$F/etc/sshd-kybernow.conf" "${ROOTFS_DIR}/etc/ssh/sshd_config.d/kybernow.conf"
 # NetworkManager depuis l'app (pas de session interactive) : règle polkit.
 install -d -m 755 "${ROOTFS_DIR}/etc/polkit-1/rules.d"
 install -m 644 "$F/etc/polkit-kybernow.rules" "${ROOTFS_DIR}/etc/polkit-1/rules.d/50-kybernow.rules"

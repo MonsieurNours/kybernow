@@ -104,8 +104,9 @@ final class Preferences: ObservableObject {
     @Published var appleISOKeyboard: Bool { didSet { d.set(appleISOKeyboard, forKey: "appleISOKeyboard") } }
     /// Pavé tactile virtuel (le doigt déplace le pointeur) ou toucher direct (le doigt est le pointeur).
     @Published var directTouch: Bool { didSet { d.set(directTouch, forKey: "directTouch") } }
-    /// Réglage « Sessions en données mobiles » : enregistré et affiché, mais
-    /// aucune session ne le lit (pas d'avertissement avant de se connecter).
+    /// « Sessions en données mobiles » (aussi « Autoriser les données
+    /// mobiles » dans les réglages d'un ordinateur) : coupé, l'accueil demande
+    /// avant d'ouvrir une session en données mobiles (`AppModel.connect`).
     @Published var allowCellular: Bool { didSet { d.set(allowCellular, forKey: "allowCellular") } }
     /// Vitesse du pointeur au pavé tactile et à la manette.
     @Published var pointerSpeed: Double { didSet { d.set(pointerSpeed, forKey: "pointerSpeed") } }

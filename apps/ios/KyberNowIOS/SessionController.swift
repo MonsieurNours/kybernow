@@ -202,6 +202,7 @@ final class SessionController: ObservableObject {
         streamView.directTouch = prefs.directTouch
         streamView.pointerSpeed = prefs.pointerSpeed
         streamView.appleISOKeyboard = prefs.appleISOKeyboard
+        streamView.commandAsControl = host.settings.commandAsControl
         streamView.mouseMode = host.settings.mouse.streamMode
         streamView.onTap = { [weak self] in self?.setBar(false) }
         streamView.onTopEdgeSwipe = { [weak self] in self?.setBar(true) }

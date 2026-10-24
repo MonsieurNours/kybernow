@@ -1187,7 +1187,12 @@ impl Worker {
         }
         let usable_count = self.displays.iter().filter(|d| usable(d)).count();
         if usable_count == 0 {
-            if deadline_passed && self.wait_until.is_some() {
+            if self.wait_until.is_none() {
+                // Aucun écran utilisable dans la liste (Kyber n'annonce que des
+                // écrans 0 × 0) : on attend 6 s qu'il en vienne un, puis la
+                // session échoue au lieu de rester sur « Connexion ».
+                self.wait_until = Some(Instant::now() + Duration::from_secs(6));
+            } else if deadline_passed {
                 self.wait_until = None;
                 let _ = self.tx.send(Msg::Fail(t("session.no_display", &[])));
             }

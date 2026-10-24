@@ -16,6 +16,17 @@
 # dit « défaut = en cours, essai = nouveau », et `reboot "0 tryboot"` l'essaie :
 # si l'app n'y arrive pas jusqu'à l'accueil (commit), le prochain démarrage
 # revient tout seul au défaut (le drapeau tryboot ne dure qu'un démarrage).
+#
+# Coupure de courant : le firmware lit autoboot.txt sur p1, toujours. Avant
+# toute écriture, autoboot.txt pointe donc les deux démarrages (défaut et
+# essai) sur l'emplacement en cours, et l'emplacement libre est marqué
+# incomplet (status ne le propose plus, rollback le refuse) jusqu'à la fin.
+# Quand l'emplacement libre est A (on tourne sur B), p1 n'est pas réécrite par
+# dd, qui effacerait autoboot.txt le temps de l'écriture : la partition de
+# démarrage de l'image est décompressée à part (fichier creux sur la partition
+# de données), montée, et ses fichiers remplacent ceux de p1, autoboot.txt
+# gardé. Une coupure à n'importe quel moment redémarre sur l'emplacement en
+# cours. autoboot.txt s'écrit à côté puis se renomme (jamais à moitié écrit).
 # Le tryboot demande le firmware des Pi 4, 400, CM4, 5, 500 et CM5 ; un Pi 3
 # n'a pas d'A/B (apply refuse).
 set -euo pipefail
@@ -35,18 +46,23 @@ if [ "$CUR" = A ]; then CUR_BOOT=$BOOT_A; CUR_ROOT=$ROOT_A; NEW=B; NEW_BOOT=$BOO
 GEN="$( (tr -d '\0' < /proc/device-tree/compatible 2>/dev/null | grep -o 'bcm27[0-9]*' | head -1) || true)"
 AB_OK=1; case "$GEN" in bcm2711|bcm2712) ;; *) AB_OK=0 ;; esac
 
-# autoboot.txt vit sur la partition 1 (bootA) : montée au besoin.
+# autoboot.txt vit sur la partition 1 (bootA) : montée au besoin. Pas de
+# $(…) ici : le montage temporaire doit être connu du shell qui le démonte.
 AUTOBOOT_MNT=""
-autoboot_path() {
-    if [ "$CUR_BOOT" = "$BOOT_A" ]; then echo /boot/firmware/autoboot.txt; return; fi
+AUTOBOOT=""
+autoboot_mount() {
+    if [ "$CUR_BOOT" = "$BOOT_A" ]; then AUTOBOOT=/boot/firmware/autoboot.txt; return; fi
     AUTOBOOT_MNT="$(mktemp -d)"
     mount "$(part "$BOOT_A")" "$AUTOBOOT_MNT"
-    echo "$AUTOBOOT_MNT/autoboot.txt"
+    AUTOBOOT="$AUTOBOOT_MNT/autoboot.txt"
 }
 autoboot_done() { [ -n "$AUTOBOOT_MNT" ] && { sync; umount "$AUTOBOOT_MNT"; rmdir "$AUTOBOOT_MNT"; AUTOBOOT_MNT=""; }; return 0; }
 write_autoboot() { # défaut, essai
-    local p; p="$(autoboot_path)"
-    printf '[all]\ntryboot_a_b=1\nboot_partition=%s\n[tryboot]\nboot_partition=%s\n' "$1" "$2" > "$p"
+    autoboot_mount
+    printf '[all]\ntryboot_a_b=1\nboot_partition=%s\n[tryboot]\nboot_partition=%s\n' "$1" "$2" > "$AUTOBOOT.new"
+    sync "$AUTOBOOT.new" 2>/dev/null || sync
+    mv -f "$AUTOBOOT.new" "$AUTOBOOT"
+    sync
     autoboot_done
 }
 slot_version() { # numéro de la partition racine → version du système qui s'y trouve (lue dans son rootfs), ou vide
@@ -65,6 +81,8 @@ case "$cmd" in
 status)
     cur_v="$(sed -n 's/^VERSION="\(.*\)"/\1/p' /etc/kybernow-os/release)"
     other_v="$(slot_version "$NEW_ROOT")"
+    # Une écriture interrompue : l'autre emplacement n'a pas de système utilisable.
+    [ "$(cat "$STATE/incomplete" 2>/dev/null || true)" = "$NEW" ] && other_v=""
     printf '{"current":"%s","version":"%s","other":"%s","other_version":"%s","tryboot":%s,"booted_partition":%s,"ab":%s,"pending":"%s"}\n' \
         "$CUR" "$cur_v" "$NEW" "$other_v" "$(tryboot_flag)" "$(booted_partition)" "$AB_OK" "$(cat "$STATE/pending" 2>/dev/null || true)"
     ;;
@@ -84,20 +102,46 @@ apply)
     done
     bs=$(( $(blockdev --getsize64 "$(part "$NEW_BOOT")") / 512 )); rs=$(( $(blockdev --getsize64 "$(part "$NEW_ROOT")") / 512 ))
     [ "$n1" -le "$bs" ] && [ "$n2" -le "$rs" ] || { echo "l'image ne tient pas dans l'emplacement $NEW ($n1/$bs, $n2/$rs secteurs)" >&2; exit 6; }
+    # Avant d'écrire : les deux démarrages sur l'emplacement en cours, l'autre marqué incomplet.
+    rm -f "$STATE/pending"
+    echo "$NEW" > "$STATE/incomplete"
+    write_autoboot "$CUR_BOOT" "$CUR_BOOT"
     echo "==> emplacement $NEW : démarrage ($n1 secteurs)"
-    xz -dc "$IMG" | dd of="$(part "$NEW_BOOT")" bs=512 skip="$s1" count="$n1" iflag=fullblock conv=fsync status=none
+    if [ "$NEW_BOOT" = "$BOOT_A" ]; then
+        # p1 porte autoboot.txt : ses fichiers sont remplacés, pas la partition.
+        bimg="$STATE/boot.img"
+        rm -f "$bimg"
+        xz -dc "$IMG" | dd of="$bimg" bs=512 skip="$s1" count="$n1" iflag=fullblock conv=sparse status=none
+        src="$(mktemp -d)"; dst="$(mktemp -d)"
+        # Un échec en route ne laisse pas p1 montée (le prochain essai la refuserait).
+        trap 'umount -q "$src" "$dst" 2>/dev/null; rm -f "$bimg"' EXIT
+        mount -o loop,ro "$bimg" "$src"
+        mount "$(part "$NEW_BOOT")" "$dst"
+        find "$dst" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec rm -rf {} +
+        sync
+        find "$src" -mindepth 1 -maxdepth 1 ! -name autoboot.txt -exec cp -r {} "$dst/" \;
+        sync
+        umount "$src" "$dst"; rmdir "$src" "$dst"
+        trap - EXIT
+        rm -f "$bimg"
+    else
+        xz -dc "$IMG" | dd of="$(part "$NEW_BOOT")" bs=512 skip="$s1" count="$n1" iflag=fullblock conv=fsync status=none
+    fi
     echo "==> emplacement $NEW : système ($n2 secteurs)"
     xz -dc "$IMG" | dd of="$(part "$NEW_ROOT")" bs=512 skip="$s2" count="$n2" iflag=fullblock conv=fsync status=none
     # Le nouvel emplacement : sa racine, sa partition de démarrage, les données.
     m="$(mktemp -d)"
     mount "$(part "$NEW_BOOT")" "$m"
     sed -i -E "s#root=[^ ]+#root=PARTUUID=$DISK_ID-0$NEW_ROOT#" "$m/cmdline.txt"
-    rm -f "$m/autoboot.txt"
+    # L'autoboot.txt de l'image (B écrit par dd) ne sert pas : seul celui de p1 compte.
+    [ "$NEW_BOOT" = "$BOOT_A" ] || rm -f "$m/autoboot.txt"
     umount "$m"
     mount "$(part "$NEW_ROOT")" "$m"
     sed -i -E "s#^PARTUUID=$DISK_ID-0[0-9]+( +/boot/firmware )#PARTUUID=$DISK_ID-0$NEW_BOOT\1#; s#^PARTUUID=$DISK_ID-0[0-9]+( +/ )#PARTUUID=$DISK_ID-0$NEW_ROOT\1#" "$m/etc/fstab"
     new_v="$(sed -n 's/^VERSION="\(.*\)"/\1/p' "$m/etc/kybernow-os/release" 2>/dev/null || echo "?")"
     umount "$m"; rmdir "$m"
+    sync
+    rm -f "$STATE/incomplete"
     echo "$new_v" > "$STATE/pending"
     write_autoboot "$CUR_BOOT" "$NEW_BOOT"
     sync
@@ -116,6 +160,7 @@ commit)
     ;;
 rollback)
     [ -n "$(slot_version "$NEW_ROOT")" ] || { echo "l'emplacement $NEW n'a pas de système" >&2; exit 7; }
+    [ "$(cat "$STATE/incomplete" 2>/dev/null || true)" != "$NEW" ] || { echo "l'emplacement $NEW n'a pas fini d'être écrit" >&2; exit 7; }
     write_autoboot "$NEW_BOOT" "$CUR_BOOT"
     rm -f "$STATE/pending"
     echo "==> retour à l'emplacement $NEW au redémarrage"

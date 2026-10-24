@@ -12,7 +12,7 @@
 //! le serveur puis la console, prépare chaque dossier (copie du dossier actuel,
 //! réglages et certificat de Kyber compris, puis le paquet par-dessus), bascule
 //! par renommage (`kyber` → `kyber.prev`, `.staging\<version>\kyber` →
-//! `kyber`, de même pour `admin`, `tray` et `webclient` s'il y en a un), remet
+//! `kyber`, de même pour `admin` et `tray`), remet
 //! les droits des services, relance et contrôle la santé : la console doit
 //! répondre sur son port en 60 s avec la nouvelle version. Sinon tout est remis
 //! en place. Le résultat va dans `update\resultat.json` et le journal dans
@@ -35,9 +35,8 @@ use serde_json::{Value, json};
 use super::manifest::{self, Channel, Manifest};
 use super::{PACKAGE, RESULT, valid_version};
 
-/// Dossiers remplacés, dans l'ordre de la bascule (les trois premiers sont obligatoires).
-pub const PARTS: [&str; 4] = ["kyber", "admin", "tray", "webclient"];
-const REQUIRED: [&str; 3] = ["kyber", "admin", "tray"];
+/// Dossiers remplacés, dans l'ordre de la bascule ; le paquet doit les avoir tous.
+pub const PARTS: [&str; 3] = ["kyber", "admin", "tray"];
 /// Nom de la copie de la console qui applique la mise à jour (jamais arrêtée
 /// avec les processus `kyber-admin.exe`).
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -91,7 +90,7 @@ impl Layout {
     }
     /// Version précédente gardée par la dernière mise à jour.
     pub fn has_previous(&self) -> bool {
-        REQUIRED.iter().all(|p| self.with_suffix(p, "prev").is_dir())
+        PARTS.iter().all(|p| self.with_suffix(p, "prev").is_dir())
     }
 }
 
@@ -345,16 +344,14 @@ fn prune_updates(layout: &Layout, keep: &str) {
 /// Un dossier basculé : `part` a pris la place de l'ancien, venu de `incoming`.
 struct Swap {
     part: &'static str,
-    /// D'où vient le nouveau dossier (`.staging\<version>\kyber`, ou
-    /// `kyber.prev`) ; rien si le dossier est seulement retiré (`webclient`
-    /// apporté par la version qu'on quitte).
-    incoming: Option<PathBuf>,
+    /// D'où vient le nouveau dossier (`.staging\<version>\kyber`, ou `kyber.prev`).
+    incoming: PathBuf,
     /// Où est parti l'ancien (`kyber.prev`, ou `kyber.bad`), s'il existait.
     old: Option<PathBuf>,
 }
 
-/// Plan d'une bascule : chaque dossier et son remplaçant (rien : retiré).
-type Plan = Vec<(&'static str, Option<PathBuf>)>;
+/// Plan d'une bascule : chaque dossier et son remplaçant.
+type Plan = Vec<(&'static str, PathBuf)>;
 
 /// Bascule : chaque dossier actuel part dans `old_suffix`, son remplaçant prend sa place.
 fn switch(layout: &Layout, plan: &Plan, old_suffix: &str, swaps: &mut Vec<Swap>, log: &mut Journal) -> Result<()> {
@@ -367,13 +364,8 @@ fn switch(layout: &Layout, plan: &Plan, old_suffix: &str, swaps: &mut Vec<Swap>,
             rename_retry(&current, &old)?;
         }
         swaps.push(Swap { part, incoming: incoming.clone(), old: had.then_some(old) });
-        match incoming {
-            Some(incoming) => {
-                rename_retry(incoming, &current)?;
-                log.line(format!("    {part} remplacé"));
-            }
-            None => log.line(format!("    {part} retiré")),
-        }
+        rename_retry(incoming, &current)?;
+        log.line(format!("    {part} remplacé"));
     }
     Ok(())
 }
@@ -389,13 +381,8 @@ fn undo(layout: &Layout, swaps: &mut Vec<Swap>, log: &mut Journal) -> Result<()>
         }
         let step = (|| -> Result<()> {
             if current.exists() {
-                match &s.incoming {
-                    Some(incoming) => {
-                        remove_dir(incoming)?;
-                        rename_retry(&current, incoming)?;
-                    }
-                    None => bail!("{} réapparu pendant la mise à jour", current.display()),
-                }
+                remove_dir(&s.incoming)?;
+                rename_retry(&current, &s.incoming)?;
             }
             if let Some(old) = &s.old {
                 rename_retry(old, &current)?;
@@ -460,7 +447,7 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
     let package = staged.join("paquet");
     log.line(format!("==> Extraction dans {}", package.display()));
     let extracted = remove_dir(&staged).and_then(|_| extract(zip, &package)).and_then(|n| {
-        for p in REQUIRED {
+        for p in PARTS {
             if !package.join(p).is_dir() {
                 bail!("paquet incomplet : dossier {p} absent");
             }
@@ -479,26 +466,17 @@ pub fn apply(layout: &Layout, sys: &mut dyn System, zip: &Path, version: &str, c
             return Err(e);
         }
     }
-    // Tout dossier présent ici ou dans le paquet passe par la bascule : chacun
-    // a ainsi son .prev, et un dossier sans .prev a été apporté par la mise à
-    // jour (le retour en arrière le retire).
-    let parts: Vec<&'static str> = PARTS.iter().copied().filter(|p| package.join(p).is_dir() || layout.part(p).is_dir()).collect();
     let (result, undo_failed) = run_switch(layout, sys, &mut log, version, || {
         let mut plan = Vec::new();
-        for part in PARTS.iter().filter(|p| !parts.contains(p)) {
-            remove_dir(&layout.with_suffix(part, "prev"))?;
-        }
         // Copie du dossier actuel (réglages, certificat), puis le paquet par-dessus.
-        for part in &parts {
+        for part in PARTS {
             let target = staged.join(part);
             let current = layout.part(part);
             if current.is_dir() {
-                copy_tree(&current, &target, if *part == "kyber" { &KYBER_SKIP } else { &[] })?;
+                copy_tree(&current, &target, if part == "kyber" { &KYBER_SKIP } else { &[] })?;
             }
-            if package.join(part).is_dir() {
-                copy_tree(&package.join(part), &target, &[])?;
-            }
-            plan.push((*part, Some(target)));
+            copy_tree(&package.join(part), &target, &[])?;
+            plan.push((part, target));
         }
         Ok(plan)
     }, "prev", |layout| {
@@ -533,18 +511,7 @@ pub fn rollback(layout: &Layout, sys: &mut dyn System) -> Result<String> {
     }
     let mut log = Journal::open(layout.updates().join(&previous).join("update.log"));
     log.line(format!("==> Retour à KyberNow Station {previous} (version précédente)"));
-    // Un dossier sans .prev a été apporté par la version qu'on quitte : retiré.
-    let plan: Plan = PARTS
-        .iter()
-        .filter_map(|p| {
-            let prev = layout.with_suffix(p, "prev");
-            if prev.is_dir() {
-                Some((*p, Some(prev)))
-            } else {
-                layout.part(p).is_dir().then_some((*p, None))
-            }
-        })
-        .collect();
+    let plan: Plan = PARTS.iter().map(|p| (*p, layout.with_suffix(p, "prev"))).collect();
     let (result, _) = run_switch(layout, sys, &mut log, &previous, || Ok(plan), "bad", |layout| {
         // Réglages de Kyber changés depuis la mise à jour : gardés.
         let (bad, kyber) = (layout.with_suffix("kyber", "bad"), layout.part("kyber"));
@@ -1206,7 +1173,7 @@ mod tests {
     #[test]
     fn successful_update_switches_folders_and_records_the_version() {
         let bench = Bench::new("ok");
-        let zip = bench.package("0.2.6", &[("webclient/index.html", "web")]);
+        let zip = bench.package("0.2.6", &[]);
         let mut sys = Fake { tray_running: true, ..Fake::default() };
         bench.apply(&mut sys, &zip, "0.2.6").unwrap();
 
@@ -1216,11 +1183,9 @@ mod tests {
         assert_eq!(bench.read("kyber/kyber_config.toml"), "port = 30000");
         assert_eq!(bench.read("kyber/log/kyber.log"), "ancien journal");
         assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.6");
-        assert_eq!(bench.read("webclient/index.html"), "web");
         // Version précédente gardée.
         assert_eq!(bench.read("kyber.prev/kyavserver.exe"), "kyavserver 0.2.5");
         assert_eq!(bench.read("admin.prev/kyber-admin.exe"), "kyber-admin 0.2.5");
-        assert!(!bench.layout.with_suffix("webclient", "prev").exists());
         assert!(bench.layout.has_previous());
         // Version inscrite, résultat écrit, icône à relancer, staging nettoyé.
         let record: Value = serde_json::from_str(&bench.read("kybernow.json")).unwrap();
@@ -1251,34 +1216,6 @@ mod tests {
         let zip = bench.package("0.2.5", &[]);
         let e = bench.apply(&mut Fake::default(), &zip, "0.2.5").unwrap_err().to_string();
         assert!(e.contains("pas plus récente"), "{e}");
-    }
-
-    #[test]
-    fn webclient_added_by_an_update_leaves_with_the_rollback() {
-        let bench = Bench::new("webclient");
-        let zip = bench.package("0.2.6", &[("webclient/index.html", "web 0.2.6")]);
-        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
-        assert_eq!(bench.read("webclient/index.html"), "web 0.2.6");
-        assert!(!bench.layout.with_suffix("webclient", "prev").exists());
-        rollback(&bench.layout, &mut Fake::default()).unwrap();
-        assert!(!bench.layout.part("webclient").exists());
-        assert_eq!(bench.read("admin/kyber-admin.exe"), "kyber-admin 0.2.5");
-    }
-
-    #[test]
-    fn folders_missing_from_the_package_still_get_a_previous_copy() {
-        let bench = Bench::new("keep");
-        fs::create_dir_all(bench.layout.part("webclient")).unwrap();
-        fs::write(bench.layout.part("webclient").join("index.html"), "web 0.2.5").unwrap();
-        // Ancien .prev d'une version plus ancienne : ne doit pas survivre.
-        fs::create_dir_all(bench.layout.with_suffix("webclient", "prev")).unwrap();
-        fs::write(bench.layout.with_suffix("webclient", "prev").join("index.html"), "web 0.2.3").unwrap();
-        let zip = bench.package("0.2.6", &[]);
-        bench.apply(&mut Fake::default(), &zip, "0.2.6").unwrap();
-        assert_eq!(bench.read("webclient/index.html"), "web 0.2.5");
-        assert_eq!(bench.read("webclient.prev/index.html"), "web 0.2.5");
-        rollback(&bench.layout, &mut Fake::default()).unwrap();
-        assert_eq!(bench.read("webclient/index.html"), "web 0.2.5");
     }
 
     #[test]

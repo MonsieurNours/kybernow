@@ -77,6 +77,10 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     public var appleISOKeyboard = false {
         didSet { keyboardMouse.appleISO = appleISOKeyboard }
     }
+    /// « ⌘ envoyée comme Ctrl » (réglage de l'ordinateur) : clavier externe.
+    public var commandAsControl = true {
+        didSet { keyboardMouse.commandAsControl = commandAsControl }
+    }
     /// Le toucher sert l'app (barre ouverte, feuille des mesures) : rien ne part.
     public var touchesSuspended = false
     /// Un toucher simple sur l'image (barre ouverte : la refermer).

@@ -12,13 +12,22 @@ ROOT="$(cd "$APPS/.." && pwd)"
 PROFILE="${1:-release}"
 TARGET=armv7-unknown-linux-gnueabi
 THIRD_PARTY="$(cd "$ROOT/third_party" && pwd -P)"
-WEBOS_TOOLCHAIN="${WEBOS_TOOLCHAIN:-$THIRD_PARTY/webos-toolchain/arm-webos-linux-gnueabi_sdk-buildroot}"
+# La chaîne de scripts/build.sh (qui la passe par WEBOS_TOOLCHAIN) ; lancé
+# seul, la même selon la machine : Linux x86_64 ou Mac Apple Silicon.
+if [ -z "${WEBOS_TOOLCHAIN:-}" ]; then
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64) WEBOS_TOOLCHAIN="$THIRD_PARTY/webos-toolchain/arm-webos-linux-gnueabi_sdk-buildroot" ;;
+        Darwin-arm64) WEBOS_TOOLCHAIN="$THIRD_PARTY/webos-toolchain-mac/arm-webos-linux-gnueabi_sdk-buildroot" ;;
+        *) echo "Chaîne webOS : posez WEBOS_TOOLCHAIN (github.com/webosbrew/native-toolchain)" >&2; exit 1 ;;
+    esac
+fi
 SDL_PREFIX="${SDL_PREFIX:-$THIRD_PARTY/sdl-webos-dist}"
 BIN="$APPS/target/$TARGET/$PROFILE/kybernow-webos"
 VERSION="$(awk -F'"' '/^version *=/ {print $2; exit}' "$APPS/Cargo.toml")"
 APP_ID=fr.leslignesclaires.kybernow
 
 [ -f "$BIN" ] || { echo "$BIN absent : lancez scripts/build.sh" >&2; exit 1; }
+[ -x "$WEBOS_TOOLCHAIN/bin/arm-webos-linux-gnueabi-strip" ] || { echo "Chaîne webOS absente de $WEBOS_TOOLCHAIN : lancez scripts/build.sh" >&2; exit 1; }
 [ -f "$SDL_PREFIX/lib/libSDL2-2.0.so.0" ] || { echo "SDL2 de webOS absente de $SDL_PREFIX : lancez scripts/build.sh" >&2; exit 1; }
 
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/kybernow-ipk.XXXXXX")"

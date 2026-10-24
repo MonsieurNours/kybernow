@@ -31,7 +31,9 @@ pub fn tv(panel: (u32, u32), refresh: u32, decoder: bool) -> TvInfo {
         .find_map(|k| json_field(&device, k))
         .unwrap_or_else(|| "LG".into());
     let webos = marketing(&release);
-    let major: u32 = release.split('.').next().and_then(|m| m.parse().ok()).unwrap_or(7);
+    // Version illisible : 0, donc pas d'AV1 annoncé (prudence : HEVC passe sur
+    // tous les téléviseurs dont NDL a l'API 2).
+    let major: u32 = release.split('.').next().and_then(|m| m.parse().ok()).unwrap_or(0);
     log::info!("téléviseur : {model}, webOS {webos} ({release}), dalle {} × {} à {refresh} Hz", panel.0, panel.1);
     TvInfo {
         model,

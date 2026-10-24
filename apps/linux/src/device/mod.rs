@@ -355,7 +355,7 @@ pub fn run(args: &[String]) {
     let mut start_down: Option<Instant> = None;
     let mut os_committed = false;
     if os {
-        app.os_loading = Some((tr("réseau · bluetooth · son · écran", "network · bluetooth · sound · screen").into(), 0.0));
+        app.os_loading = Some((tr("réseau · bluetooth", "network · bluetooth").into(), 0.0));
         chime = chime::play();
         os::readiness(tx.clone());
         os::status(tx.clone());
@@ -819,7 +819,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                 }
                 return;
             }
-            if app.screen == Screen::Add && app.add.step == AddStep::Address {
+            if app.screen == Screen::Add && matches!(app.add.step, AddStep::Address | AddStep::Mac) {
                 for c in text.chars() {
                     if c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '-' | '[' | ']') {
                         actions.extend(app.nav(Nav::Char(c)));
@@ -983,17 +983,24 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                     }
                     return;
                 }
-                // ☰ tenu trois secondes : Salon ⇄ Bureau.
-                if which == 6 {
+                // ☰ hors session : un appui court ouvre les réglages (sur l'accueil)
+                // au relâchement ; tenu trois secondes, il bascule Salon ⇄ Bureau
+                // sans les ouvrir. En session (menu et écrans ouverts depuis elle
+                // compris), Start va au jeu et à la combinaison, jamais à la bascule.
+                if which == 6 && app.session.is_none() && app.screen != Screen::Launch {
                     if down {
                         *start_down = Some(Instant::now());
-                    } else if start_down.take().is_some_and(|t| t.elapsed() >= Duration::from_secs(3)) {
-                        app.store.app.interface = if app.store.app.interface == "desktop" { "tv".into() } else { "desktop".into() };
-                        actions.push(Action::Save);
-                        actions.push(Action::Interface);
+                    } else if let Some(t) = start_down.take() {
+                        if t.elapsed() >= Duration::from_secs(3) {
+                            app.store.app.interface = if app.store.app.interface == "desktop" { "tv".into() } else { "desktop".into() };
+                            actions.push(Action::Save);
+                            actions.push(Action::Interface);
+                        } else {
+                            actions.extend(app.nav(Nav::Menu));
+                        }
                         *dirty = true;
-                        return;
                     }
+                    return;
                 }
                 // Guide / PS sur l'accueil : la veille.
                 if which == 5 && down && app.screen == Screen::Home {
@@ -1402,7 +1409,13 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             OsAction::Ssh(on) => os::ctl(&["ssh", if on { "on" } else { "off" }]),
             OsAction::Reboot => os::ctl(&["reboot"]),
             OsAction::Poweroff => os::ctl(&["poweroff"]),
-            OsAction::Standby(on) => os::ctl(&["standby", if on { "on" } else { "off" }]),
+            // HDMI-CEC coupé : la veille de l'appareil reste, le téléviseur n'en sait rien.
+            OsAction::Standby(on) => {
+                if app.store.app.os_cec {
+                    os::ctl(&["standby", if on { "on" } else { "off" }]);
+                }
+            }
+            OsAction::Cec(on) => os::ctl(&[if on { "cec-name" } else { "cec-off" }]),
             OsAction::Hdmi(m) => os::ctl(&["hdmi", &m]),
         },
         Action::CheckUpdate => {

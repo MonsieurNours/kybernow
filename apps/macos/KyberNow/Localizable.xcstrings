@@ -769,18 +769,18 @@
         }
       }
     },
-    "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac." : {
+    "Auto : stéréo, quelle que soit la sortie de ce Mac." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto: stereo for now, whatever this Mac's output."
+            "value" : "Auto: stereo, whatever this Mac's output."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac."
+            "value" : "Auto : stéréo, quelle que soit la sortie de ce Mac."
           }
         }
       }

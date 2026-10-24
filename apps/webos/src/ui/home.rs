@@ -70,7 +70,9 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             let mono = Text::new(Font::Mono, 19.0, FROST_2);
             cv.text_fit(96.0, y0 + 232.0, mono, &info.join(" · "), 1000.0);
             let (w, hh, fps) = app.session_mode(h);
-            let ready = live.ready.clone().unwrap_or_else(|| format!("{w} × {hh} {} {fps} Hz", tr("à", "at")));
+            // Le mode pris par l'écran virtuel à la dernière session, tant que la
+            // demande n'a pas changé ; sinon celui que la session demandera.
+            let ready = live.ready.filter(|(asked, _)| *asked == (w, hh, fps)).map(|(_, s)| s).unwrap_or_else(|| format!("{w} × {hh} {} {fps} Hz", tr("à", "at")));
             cv.text_fit(96.0, y0 + 264.0, mono, &format!("{}{ready}", tr("Écran virtuel prêt : ", "Virtual display ready: ")), 1000.0);
 
             let by = y0 + 312.0;

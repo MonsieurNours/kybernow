@@ -125,7 +125,7 @@
     "network.datagram_send_queue": {
       "label": "Frame send queue",
       "help": "How many frames can wait their turn when the network cannot keep up.",
-      "details": "The picture leaves in small packets. When the network is slower than the picture (busy Wi-Fi, a microwave, another device downloading), these packets pile up on the computer. A deep queue keeps them all: nothing is lost, but what you see lags behind. A short queue drops the oldest: the picture stays current, with a hitch while a full frame comes through. A KyberNow setting (patch 0007), with no effect on a stock Kyber.",
+      "details": "The picture leaves in small packets. When the network is slower than the picture (busy Wi-Fi, a microwave, another device downloading), these packets pile up on the computer. A deep queue keeps them all: nothing is lost, but what you see lags behind. A short queue drops the oldest: the picture stays current, with a hitch while a full frame comes through. A KyberNow setting (patch 0010), with no effect on a stock Kyber.",
       "advice": "Keep Deep. Try Short if the picture lags behind on busy Wi-Fi.",
       "options": {
         "deep": {
@@ -185,8 +185,8 @@
     "auth.jwt_enabled": {
       "label": "Device tokens",
       "help": "Sign-in with a signed token, without typing the password again.",
-      "details": "A token is a kind of digital badge signed by this computer. The KyberNow Link apps for Mac and Apple TV will use it to reconnect without asking for your password again. The installer replaced Kyber’s demo key with a secret unique to this computer.",
-      "advice": "Leave it on for the Mac and Apple TV apps."
+      "details": "A token is a kind of digital badge signed by this computer. KyberNow Link in the browser uses one: Admin signs it so that it connects to Kyber without asking for the password again. The installer replaced Kyber’s demo key with a secret unique to this computer.",
+      "advice": "Leave it on: without tokens, KyberNow Link no longer opens in the browser."
     },
     "logs.controller": {
       "label": "Connections",

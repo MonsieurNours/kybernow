@@ -136,6 +136,20 @@ struct HomeScreen: View {
         } message: {
             Text("Ses accès sont effacés d'ici. L'ordinateur reste sur vos autres appareils.")
         }
+        // En données mobiles, « Sessions en données mobiles » coupé : on
+        // demande avant d'ouvrir la session (AppModel.connect).
+        .alert(Text("Se connecter en données mobiles ?"),
+               isPresented: Binding(get: { app.mobileDataAsk != nil }, set: { if !$0 { app.mobileDataAsk = nil } }),
+               presenting: app.mobileDataAsk) { id in
+            Button("Se connecter") { app.connect(id, mobileDataOK: true) }
+            Button("Toujours autoriser") {
+                app.prefs.allowCellular = true
+                app.connect(id)
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: { _ in
+            Text("Une session peut consommer plusieurs gigaoctets par heure sur votre forfait.")
+        }
         .onAppear {
             if app.selected == nil { app.selected = store.ordered.first?.id }
             #if DEBUG && targetEnvironment(simulator)
@@ -733,11 +747,11 @@ struct HomeScreen: View {
         case .jeu?:
             return wide
                 ? String(localized: "Jeu : latence minimale, \(hz) Hz, manette prête, souris en mode jeu quand un jeu est en plein écran.")
-                : String(localized: "Jeu : latence minimale, \(hz) Hz, manette Bluetooth prête, toucher direct.")
+                : String(localized: "Jeu : latence minimale, \(hz) Hz, manette Bluetooth prête.")
         case .bureau?:
             return wide
                 ? String(localized: "Bureau : texte net (4:4:4), aucune image perdue. Le trackpad est la souris, les doigts le pavé.")
-                : String(localized: "Bureau : texte net (4:4:4), pavé tactile, aucune image perdue.")
+                : String(localized: "Bureau : texte net (4:4:4), aucune image perdue.")
         case .max?:
             return wide
                 ? String(localized: "Max : sans compromis, 4:4:4 et gros débit. En Wi-Fi 6 ou 7, ou avec l'adaptateur Ethernet.")

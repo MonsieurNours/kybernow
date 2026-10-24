@@ -116,6 +116,48 @@ export const duration = (s: number) => {
 /** Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». */
 export const isCustom = (s: Settings) => s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
 
+/** Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs). */
+export function profileBase(profile: Settings['profile'], pc: ThisPc | null) {
+  const codec: 'h264' | 'hevc' = (pc?.hevc ?? true) ? 'hevc' : 'h264'
+  let [yuv444, mbps, reliable] = { jeu: [false, 60, false], bureau: [true, 90, true], max: [true, 300, false] }[profile] as [boolean, number, boolean]
+  if (yuv444 && !(codec === 'hevc' && pc?.hevc444)) {
+    yuv444 = false
+    mbps += Math.floor(mbps / 3)
+  }
+  if (codec === 'h264') mbps += Math.floor(mbps / 2)
+  return { codec, yuv444, mbps, reliable }
+}
+
+type Mode = { width: number; height: number; refresh: number }
+
+/** `fit` de plan.rs : réduit pour tenir dans `maxW` × `maxH`, proportions gardées, dimensions paires (arrondi vers le bas). */
+function fit(m: Mode, maxW: number, maxH: number): Mode {
+  if (m.width <= maxW && m.height <= maxH) return m
+  const k = Math.min(maxW / m.width, maxH / m.height)
+  return { width: Math.floor(m.width * k) & ~1, height: Math.floor(m.height * k) & ~1, refresh: m.refresh }
+}
+
+/**
+ * Ce que la session demandera à l'ordinateur : `session_plan` (ui.rs) et
+ * `plan` (plan.rs), règle pour règle. Mode de l'écran virtuel et débit en
+ * Mbit/s ; `null` sans écran connu (ni ce PC ni taille sur mesure).
+ */
+export function sessionPlan(s: Settings, pc: ThisPc | null): (Mode & { mbps: number }) | null {
+  const custom = s.custom && s.custom.width >= 640 && s.custom.height >= 360 && s.custom.refresh >= 24 ? s.custom : null
+  let mode: Mode | null = custom ?? (pc ? { width: pc.width, height: pc.height, refresh: pc.refresh } : null)
+  if (!mode) return null
+  if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
+  if (s.battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
+  const base = profileBase(s.profile, pc)
+  // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
+  if ((s.codec ?? base.codec) === 'h264') mode = fit(mode, 4096, 4096)
+  // Débit du profil pour ce mode (`StreamSettings::bitrate`), sauf débit réglé.
+  const ratio = (mode.width * mode.height * Math.max(1, mode.refresh)) / (3840 * 2160 * 60)
+  const scale = Math.min(3, Math.max(0.4, Math.pow(ratio, 0.75)))
+  const mbps = s.mbps ?? Math.min(4294, Math.max(5, Math.round(base.mbps * scale)))
+  return { ...mode, mbps }
+}
+
 export const profileLabel = (s: Settings) => (isCustom(s) ? t('profiles.custom') : t(`profiles.${s.profile}`))
 
 /** Noms des profils tels que l'app les écrit (« Bureau · HEVC 4:4:4 », barre et dernière session). */

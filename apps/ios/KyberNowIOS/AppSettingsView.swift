@@ -196,7 +196,7 @@ private struct AppSettingsContent: View {
         SettingsToggleRow(title: String(localized: "Sessions en données mobiles"),
                           note: prefs.allowCellular
                               ? String(localized: "Une session peut consommer plusieurs gigaoctets par heure sur votre forfait.")
-                              : String(localized: "Hors Wi-Fi, KyberNow Link prévient avant de se connecter."),
+                              : String(localized: "En données mobiles, KyberNow Link demande avant de se connecter."),
                           warn: prefs.allowCellular,
                           on: prefs.allowCellular) { prefs.allowCellular.toggle() }
     }

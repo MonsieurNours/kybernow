@@ -108,7 +108,7 @@ enum AudioChoice: String, Codable, CaseIterable {
 
     var hint: String {
         switch self {
-        case .auto: return String(localized: "Auto : stéréo pour l'instant, quelle que soit la sortie de ce Mac.")
+        case .auto: return String(localized: "Auto : stéréo, quelle que soit la sortie de ce Mac.")
         case .stereo: return String(localized: "Deux canaux : idéal au casque ou sur les haut-parleurs du Mac.")
         case .surround51: return String(localized: "Six canaux. Il faut une sortie 5.1 sur ce Mac (ampli HDMI, barre de son).")
         case .surround71: return String(localized: "Huit canaux. Il faut une sortie 7.1 sur ce Mac.")

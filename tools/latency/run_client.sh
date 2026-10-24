@@ -5,8 +5,8 @@
 # Exemple : tools/latency/run_client.sh 192.168.1.100 matthieu --port 30241
 #
 # Écran virtuel (comme le demandent les apps KyberNow Link) : définir l'adresse
-# de KyberNow Admin (port 9443 par défaut).
-#   KYBERNOW_CONSOLE=https://192.168.1.100:9443 tools/latency/run_client.sh …
+# de KyberNow Admin (port tiré à l'installation, affiché dans Admin).
+#   KYBERNOW_CONSOLE=https://192.168.1.100:37462 tools/latency/run_client.sh …
 #   KYBERNOW_MODE=2560x1600@120 pour imposer un mode (sinon : écran principal du Mac).
 set -euo pipefail
 

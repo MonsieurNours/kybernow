@@ -243,7 +243,7 @@ private struct NetworkPane: View {
                     }
                     .buttonStyle(GlassButton(radius: 22, scale: 1.04, fill: Theme.accentFill.opacity(0.14)))
                 }
-                Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par le code ou l'adresse.")
+                Text("Un ordinateur n'apparaît pas ? Il doit être allumé, sur le même réseau, avec KyberNow Station en marche. Par VPN, passez par l'adresse.")
                     .font(Theme.sans(21)).foregroundStyle(Theme.muted).lineSpacing(7)
                     .frame(maxWidth: 860, alignment: .leading)
                 Spacer(minLength: 0)
@@ -299,7 +299,7 @@ private struct LoginForm: View {
             if let error {
                 Text(error).font(Theme.sans(21)).foregroundStyle(Theme.dangerText)
             } else if let seen, candidate.expected == nil {
-                Text("Empreinte de la Station : \(Self.groups(seen)) — à comparer à celle de la page Accès de KyberNow Admin.")
+                Text("Empreinte de la Station : \(Self.groups(seen)) — à comparer à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil ».")
                     .font(Theme.mono(16)).foregroundStyle(Theme.muted)
             }
             HStack(spacing: 20) {
@@ -394,7 +394,7 @@ private struct CodePane: View {
                     .accessibilityLabel("Code \(code)")
                 VStack(alignment: .leading, spacing: 14) {
                     step(1, String(localized: "Sur l'ordinateur, ouvrez KyberNow Admin (icône KyberNow Station près de l'horloge)."))
-                    step(2, String(localized: "Appareils › « \(deviceName) » demande l'accès › Accepter."))
+                    step(2, String(localized: "Appareils Link › « \(deviceName) » demande l'accès › Accepter."))
                     step(3, String(localized: "C'est tout : l'Apple TV reçoit son propre accès, révocable à tout moment."))
                 }
                 Spacer(minLength: 0)
@@ -529,7 +529,7 @@ private struct AddressPane: View {
                 LoginForm(candidate: candidate) { self.candidate = nil }
             } else {
                 paneTitle(String(localized: "VPN, autre réseau"), String(localized: "Son adresse et son port"))
-                Text("Affichés dans KyberNow Admin, page Accès, « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
+                Text("Affichés dans KyberNow Admin, Appareils Link › « Ajouter un appareil ». Le port a été tiré au hasard à l'installation.")
                     .font(Theme.sans(22)).foregroundStyle(Theme.text2).lineSpacing(7)
                     .frame(maxWidth: 860, alignment: .leading)
                 HStack(spacing: 20) {

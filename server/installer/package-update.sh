@@ -11,8 +11,8 @@
 # à recréer…) : Admin refuse de l'installer en un clic et renvoie vers
 # KyberNow-Station-Setup.exe. --min-installer : version minimale de KyberNow déjà
 # installée pour accepter le paquet. release.sh passe les mêmes options à
-# scripts/sign-manifest.sh, dont le manifeste signé fait foi ; le paquet en
-# garde une copie (requirements.json), que update.ps1 ne lit pas.
+# scripts/sign-manifest.sh, dont le manifeste signé fait foi pour Admin ; le
+# paquet en garde une copie (requirements.json), que update.ps1 vérifie.
 set -euo pipefail
 MIN_INSTALLER="" REQUIRES_SETUP=false
 while [ $# -gt 0 ]; do
@@ -50,7 +50,7 @@ num() { local a b c; IFS=. read -r a b c <<< "$1"; echo $((a * 1000000 + b * 100
 [ "$(num "$MIN_INSTALLER")" -le "$(num "$VERSION")" ] || { echo "--min-installer $MIN_INSTALLER est plus récent que le paquet $VERSION" >&2; exit 1; }
 # Mêmes champs que kybernow-release.json (scripts/sign-manifest.sh), qui fait
 # foi ; cette copie accompagne le paquet du chemin à la main (update.ps1, sans
-# manifeste), qui ne la vérifie pas.
+# manifeste), qui la vérifie avant d'arrêter quoi que ce soit.
 printf '{"version": "%s", "min_installer_version": "%s", "requires_setup": %s}\r\n' \
     "$VERSION" "$MIN_INSTALLER" "$REQUIRES_SETUP" > "$STAGE/requirements.json"
 # PowerShell 5 lit les scripts en ANSI : update.ps1 doit rester en ASCII.

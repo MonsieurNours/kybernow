@@ -7,7 +7,7 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import type { Computer, Found, Settings, ThisPc } from './lib/api'
-  import { duration, hue, isCustom, localLabel, ms } from './lib/api'
+  import { duration, hue, isCustom, localLabel, ms, sessionPlan } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -54,15 +54,9 @@
     if (!selected || !thisPc) return null
     const s = selected.settings
     if (!s.virtual_display) return t('home.screens_as_is')
-    if (s.custom) return `${s.custom.width} × ${s.custom.height} · ${s.custom.refresh} Hz`
-    let { width: w, height: h } = thisPc
-    if (s.max_4k && (w > 3840 || h > 2160)) {
-      const k = Math.min(3840 / w, 2160 / h)
-      w = Math.round((w * k) / 2) * 2
-      h = Math.round((h * k) / 2) * 2
-    }
-    const hz = s.battery === 'alleger' && thisPc.on_battery ? Math.min(30, thisPc.refresh) : thisPc.refresh
-    return `${w} × ${h} · ${hz} Hz`
+    // Le mode que plan.rs demandera (au plus 4K, H.264, sur batterie).
+    const p = sessionPlan(s, thisPc)
+    return p ? `${p.width} × ${p.height} · ${p.refresh} Hz` : null
   })
 
   const frame = $derived(thisPc ? 1000 / Math.max(30, thisPc.refresh) : 16.7)

@@ -196,7 +196,7 @@ S = [
 ("updates_home", "Version %1$s", "Version %1$s"),
 ("app_settings_about_body", "KyberNow Link, par Les Lignes Claires. Construit sur Kyber, sans affiliation.", "KyberNow Link, by Les Lignes Claires. Built on Kyber, not affiliated with it."),
 ("app_settings_licenses", "Licences", "Licences"),
-("app_settings_licenses_body", "KyberNow et Kyber : AGPL-3.0. Archivo et Martian Mono : SIL OFL 1.1. zxing : Apache 2.0.", "KyberNow and Kyber: AGPL-3.0. Archivo and Martian Mono: SIL OFL 1.1. zxing: Apache 2.0."),
+("app_settings_licenses_body", "KyberNow et Kyber : AGPL-3.0. Archivo et Martian Mono : SIL OFL 1.1. AndroidX (dont Jetpack Compose et CameraX), Kotlin et kotlinx.coroutines, zxing, JmDNS : Apache 2.0.", "KyberNow and Kyber: AGPL-3.0. Archivo and Martian Mono: SIL OFL 1.1. AndroidX (including Jetpack Compose and CameraX), Kotlin and kotlinx.coroutines, zxing, JmDNS: Apache 2.0."),
 # Manettes
 ("gamepads_title", "Tester les manettes", "Test gamepads"),
 ("gamepads_none", "Aucune manette : allumez-en une, ou branchez-la.", "No gamepad: turn one on, or plug it in."),
@@ -240,6 +240,9 @@ S = [
 ("session_mouse", "Souris %1$s", "Mouse %1$s"),
 ("session_losses", "%1$d perte(s)", "%1$d loss(es)"),
 ("session_restore", "Remettre %1$d × %2$d", "Restore %1$d × %2$d"),
+("session_screen", "Écran %1$d · %2$d × %3$d", "Display %1$d · %2$d × %3$d"),
+("session_computer_screen", "Écran de l'ordinateur", "Computer display"),
+("session_pad_bar", "La manette pilote la barre, le jeu ne reçoit rien ; B la ferme.", "The gamepad drives the bar and the game receives nothing; B closes it."),
 ("session_ended_title", "La session s'est arrêtée", "The session stopped"),
 ("session_not_restored", "Les écrans ou le son de l'ordinateur n'ont pas été rétablis : voyez KyberNow Admin.", "The computer's displays or sound were not restored: see KyberNow Admin."),
 ("session_back_home", "Retour à l'accueil", "Back to home"),

@@ -110,7 +110,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 _ => (tr("inconnue", "unknown"), tr("Le téléviseur ne le dit pas", "The TV does not say")),
             };
             y += widgets::row(cv, f, None, x, y, w, tr("Sortie 5.1 du téléviseur", "TV 5.1 output"), help, Value::Text(state.into())) + 14.0;
-            widgets::row(cv, f, None, x, y, w, "7.1", tr("Une app du téléviseur ne peut pas sortir plus que du 5.1 (décodeur LG)", "A TV app cannot output more than 5.1 (LG decoder)"), Value::Unavailable(tr("indisponible", "unavailable")));
+            widgets::row(cv, f, None, x, y, w, "7.1", tr("L'encodeur Dolby de l'app (E-AC-3 de FFmpeg) s'arrête au 5.1", "The app's Dolby encoder (FFmpeg's E-AC-3) stops at 5.1"), Value::Unavailable(tr("indisponible", "unavailable")));
         }
         Section::Controllers => {
             y += widgets::row(cv, f, s(Setting::Xbox360), x, y, w, tr("Manettes vues comme des Xbox 360", "Controllers seen as Xbox 360"), tr("Sinon, l'ordinateur voit chaque manette telle qu'elle est", "Otherwise the computer sees each controller as it is"), Value::Toggle(st.xbox360)) + 14.0;

@@ -283,7 +283,7 @@ if gh auth status -h github.com > /dev/null 2>&1; then
         problem "lecture des releases de $REPO impossible : $INFO"
     fi
 else
-    problem "gh non connecté : gh auth login (jeton limité au dépôt, voir docs/releases.md)"
+    problem "gh non connecté : gh auth login (jeton et droits : docs/releases.md)"
 fi
 if xcrun notarytool history --keychain-profile kybernow > /dev/null 2>&1; then
     ok "profil de notarisation « kybernow »"
@@ -293,7 +293,7 @@ fi
 if [ -x scripts/sign-manifest.sh ]; then
     ok "scripts/sign-manifest.sh (manifeste signé minisign)"
 else
-    problem "scripts/sign-manifest.sh absent : sans manifeste signé, Admin refuse la mise à jour (phase 2 « signature et updater » à fusionner)"
+    problem "scripts/sign-manifest.sh absent : sans manifeste signé, Admin refuse la mise à jour"
 fi
 # Aucune KyberNow ne doit tourner : le cœur Rust de l'app Mac
 # (apps/macos/Vendor/Frameworks/libkybernow.dylib) et les bibliothèques de
@@ -539,9 +539,10 @@ elif [ "$MODE" = release ]; then
     fi
     echo "    commit $(git rev-parse --short HEAD) « $FEED_SUBJECT » (publié par le workflow Pages au push)"
 else
-    echo "    [essai] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml :"
+    echo "    [essai] $SITE_FEED serait remplacé par ${OUT#"$ROOT"/}/appcast-site.xml, et $IMAGER_JSON par rpi-imager.json :"
     git --no-pager diff --no-index --stat -- "$SITE_FEED" "$OUT/appcast-site.xml" || true
-    act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED" "$NOTES_DIR"
+    git --no-pager diff --no-index --stat -- "$IMAGER_JSON" "$OUT/rpi-imager.json" || true
+    act git commit -m "$FEED_SUBJECT" -- "$SITE_FEED" "$NOTES_DIR" "$IMAGER_JSON"
 fi
 
 step "Empreintes et manifeste signé"

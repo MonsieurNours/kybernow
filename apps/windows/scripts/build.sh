@@ -166,6 +166,15 @@ for dll in $("$OBJDUMP" -p "$DIST/kybernow.exe" "$DIST/kynput.dll" "$DIST/SDL2.d
     done
 done
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' "$APPS/Cargo.toml" | head -1)
+# L'exécutable non allégé, gardé par version et architecture (hors de
+# dist/<arch>/, vidé à chaque build) : il donne la ligne d'un plantage d'une
+# version publiée (llvm-addr2line). Un nouveau build de la même version le
+# remplace.
+if [ "$PROFILE" = release ]; then
+    mkdir -p "$HERE/dist/symbols"
+    cp "$EXE" "$HERE/dist/symbols/kybernow-$VERSION-windows-$ARCH.exe"
+    echo "==> dist/symbols/kybernow-$VERSION-windows-$ARCH.exe"
+fi
 ZIP="$HERE/dist/KyberNow-$VERSION-windows-$ARCH.zip"
 rm -f "$ZIP"
 (cd "$HERE/dist" && zip -qr "$ZIP" "$ARCH")

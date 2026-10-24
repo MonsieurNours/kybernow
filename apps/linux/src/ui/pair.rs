@@ -2,7 +2,9 @@
 //! ordinateur » : à gauche les Stations trouvées sur le réseau et les autres
 //! façons ; à droite le code à six chiffres à accepter dans Admin. Puis, par
 //! adresse : l'adresse d'Admin (clavier, ou pavé à la manette), et les
-//! quatre premiers groupes de l'empreinte à comparer.
+//! quatre premiers groupes de l'empreinte à comparer. Le même champ et un
+//! pavé hexadécimal servent à l'adresse MAC du réveil par le réseau
+//! (Réglages de l'ordinateur › Compte).
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::icons::Icon;
@@ -31,6 +33,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     match app.add.step.clone() {
         AddStep::Code => code(app, cv, f, x0, y0, u, footer),
         AddStep::Address => address(app, cv, f, x0, y0, u),
+        AddStep::Mac => mac(app, cv, f, x0, y0, u),
         AddStep::Verify { address, port, fingerprint } => verify(app, cv, f, x0, y0, u, &address, port, &fingerprint),
     }
     if app.layout.console() {
@@ -45,7 +48,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
                 x += legend(cv, x, gy, g, &["B"], tr("Retour", "Back")) + 28.0 * u;
                 legend(cv, x, gy, g, &["Y"], tr("Entrer une adresse", "Enter an address"));
             }
-            AddStep::Address => {
+            AddStep::Address | AddStep::Mac => {
                 x += legend(cv, x, gy, g, &["A"], tr("Touche", "Key")) + 28.0 * u;
                 legend(cv, x, gy, g, &["B"], tr("Retour", "Back"));
                 let label = tr("Clavier", "Keyboard");
@@ -215,6 +218,58 @@ fn address(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) 
     let kx = x0 + 3.0 * (kw + gap) + gap;
     key(cv, f, Target::KeyErase, Rect::new(kx, y, kw * 1.6, kh), "⌫", u);
     primary(cv, f, Target::KeyOk, kx, y + 3.0 * (kh + gap), kh, tr("Continuer", "Continue"), false);
+}
+
+/// L'adresse MAC de l'ordinateur choisi : le champ, puis un pavé hexadécimal.
+fn mac(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32) {
+    let w = cv.w;
+    let mut y = y0;
+    if app.layout == Layout::Desktop {
+        back_button(cv, f, x0, y, u);
+        y += 56.0;
+    }
+    eyebrow(cv, x0, y + 12.0 * u, 12.0 * u, FAINT, app.selected().map(|h| h.name.as_str()).unwrap_or(""));
+    cv.text(x0 - 1.0, y + 58.0 * u, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), tr("Réveil par le réseau", "Wake on LAN"));
+    y += 82.0 * u;
+    cv.paragraph(
+        x0,
+        y,
+        Text::new(Font::Regular, 16.0 * u, MUTED),
+        tr(
+            "L'adresse MAC de la carte réseau de l'ordinateur (Windows : ipconfig /all, « Adresse physique »), le réveil par le réseau activé dans son BIOS et sa carte. Vide : plus de bouton « Réveiller ».",
+            "The MAC address of the computer's network card (Windows: ipconfig /all, “Physical Address”), with Wake on LAN enabled in its BIOS and card. Empty: no more “Wake” button.",
+        ),
+        (w - 2.0 * x0).min(760.0 * u),
+        24.0 * u,
+    );
+    y += 70.0 * u;
+    let fw = (w - 2.0 * x0).min(640.0 * u);
+    let fh = 56.0 * u;
+    cv.rrect(x0, y, fw, fh, 10.0 * u, INK_2);
+    cv.rrect_stroke(x0, y, fw, fh, 10.0 * u, 1.5, SPECTRE);
+    let empty = app.add.mac.is_empty();
+    let text = if empty { "3C:7C:3F:12:AB:CD".to_string() } else { app.add.mac.clone() };
+    let tw = cv.text(x0 + 18.0 * u, y + fh / 2.0 + 7.0 * u, Text::new(Font::Mono, 20.0 * u, if empty { GHOST } else { FROST }), &text);
+    if !empty && (app.screen_since.elapsed().as_millis() / 530) % 2 == 0 {
+        cv.rect(x0 + 20.0 * u + tw, y + 14.0 * u, 2.0, fh - 28.0 * u, SPECTRE);
+    }
+    y += fh + 20.0 * u;
+    if let Some(m) = &app.add.message {
+        cv.text_fit(x0, y + 6.0 * u, Text::new(Font::Regular, 14.0 * u, WARN), m, fw);
+        y += 30.0 * u;
+    }
+    // Le pavé : seize chiffres hexadécimaux et le deux-points, six par rangée.
+    let keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "A", "B", "C", "D", "E", "F", ":"];
+    let kw = 68.0 * u;
+    let kh = 52.0 * u;
+    let gap = 10.0 * u;
+    for (i, k) in keys.iter().enumerate() {
+        let (col, row) = (i % 6, i / 6);
+        let r = Rect::new(x0 + col as f32 * (kw + gap), y + row as f32 * (kh + gap), kw, kh);
+        key(cv, f, Target::Key(k.chars().next().unwrap()), r, k, u);
+    }
+    key(cv, f, Target::KeyErase, Rect::new(x0 + 5.0 * (kw + gap), y + 2.0 * (kh + gap), kw, kh), "⌫", u);
+    primary(cv, f, Target::KeyOk, x0 + 6.0 * (kw + gap) + gap, y, kh, tr("Enregistrer", "Save"), false);
 }
 
 pub(super) fn key(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, label: &str, u: f32) {

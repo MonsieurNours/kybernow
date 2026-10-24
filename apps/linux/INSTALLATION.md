@@ -67,6 +67,8 @@ Un Raspberry Pi qui ne fait que ça : la carte démarre sur KyberNow Link, au t�
 
 **Mettre à jour l'OS** : Réglages de l'appareil › Mise à jour. La nouvelle version se télécharge (dès sa sortie, si « Automatique » est coché), puis « Redémarrer sur la X » l'essaie dans l'autre emplacement de la carte ; si elle ne démarre pas jusqu'à l'accueil, le Pi revient tout seul à la version d'avant. Les ordinateurs et réglages sont sur une partition à part et restent.
 
+**SSH** (pour qui veut mettre les mains dedans) : éteint, par clé seulement. Depuis un ordinateur, déposez votre clé publique renommée `kybernow-ssh.pub` à la racine de la partition `BOOTA` de la carte, puis démarrez le Pi : la clé est ajoutée, le fichier effacé, SSH allumé (`ssh kybernow@<adresse du Pi>`). Les clés restent après les mises à jour ; Réglages de l'appareil › Avancé › SSH l'éteint.
+
 **Pas encore essayé sur une carte** : l'image se construit et démarre en émulation QEMU (vérifié le 24/10/2026, premier démarrage compris), mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
 
 ## Mettre à jour
