@@ -28,6 +28,12 @@ const STATES = {
   assemble: { x: 0,   y: .02, s: .72,  rx: -.18, ry: .35,  rz: 0,   split: 0,   glow: 1, flow: .65, spread: 10, len: 7,   depth: 3,  speed: .05, exp: 1, edge: 0, hotW: .05 },
   guide:    { x: .66, y: .1,  s: .5,   rx: -.2,  ry: -.55, rz: 0,   split: 0,   glow: 1, flow: .5,  spread: 10, len: 7,   depth: 3,  speed: .05, exp: .85, edge: 0, hotW: .05 },
   page:     { x: .7,  y: .2,  s: .42,  rx: -.25, ry: -.7,  rz: -.1, split: .15, glow: 0, flow: .3,  spread: 9,  len: 7,   depth: 3,  speed: .03, exp: .5, edge: 0, hotW: .05 },
+  // Accueil : le symbole reste en fond, discret, garé au bord droit de l'écran pour ne jamais passer sous un titre
+  // (refonte d'octobre 2026) ; edge-l existe pour une page qui voudrait le bord gauche.
+  'hero-soft':     { x: .82, y: .66, s: .24, rx: -.22, ry: -.5,  rz: 0,   split: 0,   glow: 1, flow: .45, spread: 10, len: 7, depth: 3, speed: .04, exp: .7, edge: 0, hotW: .05 },
+  'edge-r':        { x: .97, y: .2,  s: .3,  rx: -.35, ry: -.9,  rz: -.2, split: .1,  glow: 0, flow: .2,  spread: 9,  len: 7, depth: 3, speed: .02, exp: .3, edge: 0, hotW: .05 },
+  'edge-l':        { x: -.98, y: .1, s: .34, rx: -.25, ry: .9,   rz: .25, split: .1,  glow: 0, flow: .2,  spread: 9,  len: 7, depth: 3, speed: .02, exp: .3, edge: 0, hotW: .05 },
+  'assemble-soft': { x: .9,  y: .3,  s: .36, rx: -.18, ry: .35,  rz: 0,   split: 0,   glow: 1, flow: .5,  spread: 10, len: 7, depth: 3, speed: .04, exp: .8, edge: 0, hotW: .05 },
 };
 // Sur téléphone : le symbole se range en haut de l'écran, plus petit, pour ne jamais passer sous le texte.
 const MOBILE = {
@@ -40,6 +46,10 @@ const MOBILE = {
   assemble: { x: 0,   y: .12, s: .4 },
   guide:    { x: .55, y: .72, s: .24 },
   page:     { x: .6,  y: .76, s: .2 },
+  'hero-soft':     { x: .6,  y: .78, s: .16 },
+  'edge-r':        { x: .9,  y: .8,  s: .12, exp: .25 },
+  'edge-l':        { x: -.9, y: .8,  s: .12, exp: .25 },
+  'assemble-soft': { x: .6,  y: .76, s: .2 },
 };
 const KEYS = Object.keys(STATES.hero);
 

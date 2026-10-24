@@ -14,7 +14,8 @@ python3 -m http.server 5200 --directory site
 
 | French | English | Contents |
 |---|---|---|
-| `/` | `/en/` | Presentation, the KyberNow family (Station, Admin, Link) and downloads |
+| `/` | `/en/` | Home, product side: presentation video, the three apps with their screens, Link on each device, headline features, proof it is a real product, three steps, downloads |
+| `/technologie/` | `/en/technology/` | The path of an image (9.4 ms, pinned section), QUIC (simulation), Kyber, the comparison with Sunshine + Moonlight, features and profiles |
 | `/guide/` | `/en/guide/` | Step-by-step guide (KyberNow Station, then devices with KyberNow Link: Mac, Windows, Linux, Apple TV, iPhone and iPad, Android, LG TV, Steam Deck and SteamOS, browser, each behind its tile; VPN, updates, uninstalling) and FAQ |
 | `/mentions-legales/` | `/en/legal/` | Publisher, hosting, intellectual property, privacy, credits |
 
@@ -30,7 +31,17 @@ KyberNow is the brand; it covers three products, named as in the rest of the rep
 - **KyberNow Admin**: the Station's administration in the browser (“Admin”, with no article, after the first mention).
 - **KyberNow Link**: the apps that display the image (Mac, Windows, Linux and Steam Deck, Apple TV, iPhone and iPad, Android, LG TVs) and their `/ecran` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-Link-macOS.zip` for the Mac, `KyberNow-Link-Android.apk` for Android, `KyberNow-Link-webOS.ipk` for LG TVs, `KyberNow-Link-Linux-x86_64.flatpak` and `KyberNow-Link-Linux-aarch64.flatpak` for Linux and the Steam Deck).
 
-The home page presents them in the “The KyberNow family” section (`#famille`, right after “Why”), each with its signed logo (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies from `brand/v2/logo/`). The download cards and the guide's “Before you start” box reuse the Station and Link logos. A signed logo never goes below 32 px high (below that, the signature is no longer legible); the site only has a dark theme, so only the `-dark` versions are copied.
+The home page presents them in the “The KyberNow family” section (`#apps`, right after the video), each with its signed logo and its screen recreated in HTML (see “App screens”) (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies from `brand/v2/logo/`). The download cards and the guide's “Before you start” box reuse the Station and Link logos. A signed logo never goes below 32 px high (below that, the signature is no longer legible); the site only has a dark theme, so only the `-dark` versions are copied.
+
+## Home page: video, app screens, proof
+
+Redesign of 24 October 2026: the home page talks product, the technology lives on `/technologie/`. In order: hero (the Mac app and the iPhone behind the text, 3D symbol set back), **the presentation** (`#presentation`), **the three apps** (`#apps`), **Link on each device** (`#appareils`), **headline features** (`#fonctions`: the screen's resolution and refresh rate, 7.1 sound, variable refresh rate, clipboard and 4:4:4, every gamepad, encryption; then “the computer becomes a console”, the app launched at the start of the session depending on the device, and built-in gamepad navigation), **already in your hands** (`#reel`: latest version, number of versions, measured latency, licence, signatures, updates, community), three steps and technology in short (`#comment`), downloads (`#telecharger`, compact three-column grid, main button according to the device).
+
+- **Presentation video** (motion design, no voice, no sound): `<video muted playsinline loop>` in `.video`, files `assets/video/presentation.webm` and `presentation.mp4` (to be dropped in: they are not in the repository yet, the figure keeps its poster until they exist), poster `assets/video/presentation-poster.jpg` rendered by `scripts/site-seo.py images` from `scripts/site-og/video-poster.html`. `main.js` plays it when it comes on screen (45% visible) and pauses it when it leaves; pause, replay and full-screen buttons; with “Reduce motion”, nothing starts on its own. The hero's “Watch the presentation” button scrolls to it.
+- **App screens**: recreated in HTML and CSS (`assets/screens.css`, `.sc-` prefix) from the apps' code (Admin and installer strings, the Mac home screen, the LG TV and Android screenshots), never screenshots: sharp at any size, nothing to redo with each version. Each screen is drawn at its real size (`--w`, `--h` on `.shot`) and `main.js` scales it down to its card's width (`--s`, `transform: scale`). Decorative: `aria-hidden`, described by the `.shot` element's `aria-label`. Screens: Link for Mac (home), Link on iPhone, Link in the living room (TV), Link on the Steam Deck (Gaming Mode), Link in a session (measurement bar), KyberNow Admin (overview), the KyberNow Station installer (Welcome). The data is that of an example computer, “Atelier” (RTX 3080 Ti, the one used for the measurement). Written by hand in both languages, like the rest.
+- **Proof**: the figures (latest version, date, number of versions) are written in the page and updated by `main.js` from the GitHub API (`releases?per_page=100`); redo them by hand now and then so the fallback stays right.
+- **3D scene**: kept, discreet. States `hero-soft`, `edge-l`, `edge-r` (symbol at the edge of the screen, small, unlit) and `assemble-soft` (download) in `scene.js`; the rich states (`flow` for the path, `side`…) stay on `/technologie/`.
+- **Raspberry Pi and KyberNow Link OS**: in “On your devices”, a full-width block with the first-boot screen of Link OS (Controller step, bilingual like the OS) and what the image does; a download card (`data-os="pi"`) and a guide tile (`/en/guide/#raspberry-pi`: the image with Raspberry Pi Imager or the `updates/rpi-imager.json` repository, then the app alone as a `.deb`). The image and the package ship with releases from 0.4.8 on: **until it is published, the card points to the guide** (“Download links” rule below); afterwards, put the direct `releases/latest/download/KyberNow-Link-OS.img.xz` link on the button and remove “from version 0.4.8”. `site/updates/rpi-imager.json` is written by `scripts/release.sh`.
 
 ## Beta
 
@@ -56,10 +67,10 @@ Goal: a search for remote gaming, remote desktop, self-hosted cloud gaming or an
 
 - **Platform-agnostic message**: presentation and sharing texts (image, descriptions, structured data, `llms.txt`) say “your computer on all your devices”, never a list of platforms. The actual platforms only appear where you install: the Download section and the guide.
 - **Each page's head**: title and description with the searched words, canonical URL, full Open Graph (type, site name, language and alternate language, 1200 × 630 image with alt text) and a `summary_large_image` Twitter card; `apple-touch-icon.png` for the iPhone and iPad home screen. The legal notice stays `noindex`.
-- **Share images**: `assets/og/kybernow-fr.jpg` and `kybernow-en.jpg`, laid out in HTML in `scripts/site-og/card.html` (the site's fonts, logo and lit symbol) and rendered by `scripts/site-seo.py images` with headless Chrome. Redo them when the message, the measured latency or the platforms change.
-- **Structured data** (JSON-LD): on the home page, the “KyberNow” `SoftwareApplication` (category, systems, free of charge, licence, download, features, `isBasedOn` Kyber) with its parts `#station` (KyberNow Station, Windows, which contains the KyberNow Admin `WebApplication`) and `#link` (KyberNow Link, macOS, Windows, tvOS, iOS, iPadOS, browser), `WebSite` and `Organization` (Les Lignes Claires), written by hand in both languages; on the guides, `FAQPage`, produced by `scripts/site-seo.py faq` from the visible questions. **Run `scripts/site-seo.py faq` again after any change to the FAQ.**
-- **Robots**: `robots.txt` opens everything, AI assistants included, and points to `sitemap.xml` (home page and guide, with their language versions; move the `lastmod` date forward when the text changes). `llms.txt` sums KyberNow up for AI assistants (in English, with the measured facts and the comparison): keep it in line with the home page.
-- **Texts**: the Compare section is titled “KyberNow, the alternative to Sunshine + Moonlight”; the FAQ answers “can it replace Sunshine and Moonlight”, “is it cloud gaming”, “playing PC games on a Mac or an Apple TV”. `lang.js` never redirects a robot.
+- **Share images**: `assets/og/kybernow-fr.jpg` and `kybernow-en.jpg`, laid out in HTML in `scripts/site-og/card.html` (the site's fonts, logo and lit symbol) and rendered by `scripts/site-seo.py images` with headless Chrome (`CHROME=<path>` for another Chromium); the same script renders the video poster. Redo them when the message, the measured latency or the platforms change.
+- **Structured data** (JSON-LD): on the home page, the “KyberNow” `SoftwareApplication` (category, systems, free of charge, licence, download, features, `subjectOf` the Technology page, `isBasedOn` Kyber) with its parts `#station` (KyberNow Station, Windows, which contains the KyberNow Admin `WebApplication`) and `#link` (KyberNow Link, macOS, Windows, tvOS, iOS, iPadOS, browser), `WebSite` and `Organization` (Les Lignes Claires), written by hand in both languages; on the guides, `FAQPage`, produced by `scripts/site-seo.py faq` from the visible questions. **Run `scripts/site-seo.py faq` again after any change to the FAQ.**
+- **Robots**: `robots.txt` opens everything, AI assistants included, and points to `sitemap.xml` (home page, technology and guide, with their language versions; move the `lastmod` date forward when the text changes). `llms.txt` sums KyberNow up for AI assistants (in English, with the measured facts and the comparison): keep it in line with the home page.
+- **Texts**: the Compare section (on `/technologie/`, “Compare” entry in the navigation) is titled “KyberNow, the alternative to Sunshine + Moonlight”; the FAQ answers “can it replace Sunshine and Moonlight”, “is it cloud gaming”, “playing PC games on a Mac or an Apple TV”. `lang.js` never redirects a robot.
 
 ## Community
 
@@ -69,14 +80,16 @@ KyberNow Discord server, permanent invitation: https://discord.gg/sVy2mu5WdT (op
 
 | File | Role |
 |---|---|
-| `index.html`, `guide/`, `mentions-legales/`, `en/` | The pages (see above) |
+| `index.html`, `technologie/`, `guide/`, `mentions-legales/`, `en/` | The pages (see above) |
 | `assets/lang.js` | Language choice (detection, remembered preference) |
 | `assets/doc.css` | Layout of the reading pages (contents, steps, FAQ, legal notice) |
 | `assets/kybernow.css` | v2 guideline tokens (copy of `brand/v2/tokens/kybernow.css`) |
 | `assets/site.css` | Layout |
-| `assets/main.js` | Reveals on scroll, mobile menu, pinned section for the path (counter, steps), QUIC / single-stream simulation, profiles, main button according to the visitor's system, version read from GitHub; texts in French or English according to the page |
+| `assets/main.js` | Reveals on scroll, mobile menu, presentation video, scaling of the app screens, pinned section for the path (counter, steps), QUIC / single-stream simulation, profiles, main button according to the visitor's system, version and number of versions read from GitHub; texts in French or English according to the page |
+| `assets/screens.css` | The app screens recreated in HTML (see “Home page”) |
+| `assets/video/` | Poster of the presentation video; the `presentation.webm` and `presentation.mp4` files go there |
 | `assets/scene.js` | 3D scene (Three.js): “Relay” symbol extruded from the geometry in `brand/v2/tools/geometry.json`, neon seam (bloom), particle flow; one state per section (`data-scene`) |
-| `assets/icons.svg` | Phosphor 2.1.1 icons (MIT, `assets/PHOSPHOR-LICENSE`) as a sprite |
+| `assets/icons.svg` | Phosphor 2.1.1 icons (MIT, `assets/PHOSPHOR-LICENSE`) as a sprite, plus a few simple paths in the same style (play, pause, full screen, gear, plus…) for the home page |
 | `assets/og/` | Share images, French and English (see “Search and sharing”) |
 | `apple-touch-icon.png`, `robots.txt`, `sitemap.xml`, `llms.txt` | iPhone and iPad icon, robots, sitemap, summary for AI assistants |
 | `assets/img/` | Copies from `brand/v2/`: logo (`kybernow-logo-dark.svg`), signed logos of the three products (`kybernow-{station,admin,link}-dark.svg`), symbols (`kybernow-mark-now-dark.svg` for the iPhone and iPad icon, `kybernow-mark-now-lit-dark.svg` without WebGL and for the share image) |
@@ -91,13 +104,15 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 - Neon lit only in active moments: one-second ignition on arrival, image stream, path measurement, re-ignition on download. Off in the reading sections.
 - On a phone, the 3D symbol moves to the top of the screen, smaller (`MOBILE` in `scene.js`), so it never goes under the text.
 - A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/ecran`).
-- No resolution or refresh rate limit announced: the site talks about “your display's resolution and refresh rate”. The only numbers are those of a measurement, presented as such.
+- Resolution and refresh rate: the site talks about “your display's resolution and refresh rate” and, since the October 2026 redesign, gives examples (4K at 120 Hz, 5K, 6K, 240 Hz), stating that the only limit is the graphics card's encoder. The latency figures are those of a measurement, presented as such.
+- The app screens and the video sit in front of the symbol, never the other way round.
 - “Reduce motion”: the symbol stays in place, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.
 - Without WebGL: the lit symbol as SVG instead of the scene.
 
 ## Updating
 
-- Path figures: `docs/prototype-A-results.md` (`#trajet` section of `index.html`, total in `TOTAL` in `main.js`).
+- Path figures: `docs/prototype-A-results.md` (`#trajet` section of `technologie/index.html`, total in `TOTAL` in `main.js`, and the home page hero).
+- Presentation video: drop `presentation.webm` and `presentation.mp4` into `assets/video/` (no audio track, 16:9); the “ninety seconds” duration is written in the section title and in `scripts/site-og/video-poster.html`.
 - Download links: `releases/latest/download/<fichier>` on GitHub, nothing to change for each release. A link to a new file name only reaches `main` once the release that contains that file is published (see [docs/releases.en.md](../docs/releases.en.md), “Old installer names”).
 - `updates/appcast.xml`: update feed of the Mac app (Sparkle), every release, betas included. Written and committed by `scripts/release.sh` on each release, rebuilt if needed by `scripts/rebuild-appcast.sh`; do not edit it by hand (see [docs/releases.en.md](../docs/releases.en.md), "Mac app update feed"). Its address is compiled into the app: do not move it.
 - Three.js: replace the files in `vendor/three/` with those of the same version on unpkg (`three@<version>/build/three.module.min.js`, `examples/jsm/...`).

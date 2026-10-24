@@ -6,17 +6,20 @@ Key facts:
 
 - **What it is**: self-hosted "your own cloud" streaming. Unlike cloud gaming services, nothing is rented and no third-party server sits between the computer and your devices. Reach it at home, or from afar through a VPN (Tailscale, WireGuard).
 - **Latency**: 9.4 ms median from capture to display, measured on 19 October 2026 (RTX 3080 Ti at 3840 × 2160, 160 Hz, to a MacBook Pro M4 Max, local network, H.264).
+- **Out of the box, by default**: a virtual display at the device's exact resolution and refresh rate (4K at 120 Hz, 5K, 6K, 240 Hz; the only limit is the graphics card's encoder), variable refresh rate (VRR), Opus sound in stereo, 5.1 or 7.1 up to studio quality, shared clipboard (text, both ways), 4:4:4 colour for sharp text on devices that decode it, every gamepad with rumble, game mode that turns on by itself. Apps on TVs, the Steam Deck and Android TV are navigated entirely with the gamepad (session menu: L1 + R1 + Start + Select), with no third-party software. In KyberNow Admin, each device can have an app that opens on the computer when its session starts (Steam Big Picture, Playnite…), so the computer becomes a game console for the living room.
 - **Three products**: KyberNow Station (on the Windows computer that streams), KyberNow Admin (the Station's administration, in the browser) and KyberNow Link (the apps that display the image on your devices). "KyberNow" alone is the name of the whole project. Former names: KyberNow Server (now Station), the KyberNow console (now Admin), the KyberNow apps or clients (now Link).
 - **KyberNow Station**: Windows 10 or 11, any graphics card (NVIDIA, AMD, Intel, eGPU) or the processor. One installer (KyberNow-Station-Setup.exe) sets up the Kyber engine, KyberNow Admin, a virtual display and virtual speakers per session, gamepad drivers and the firewall.
-- **KyberNow Link**: your computer on all your devices. Native apps for Mac, Windows, Apple TV, iPhone, iPad, Android 11 or later (phones, tablets, Android TV and Google TV), LG TVs (webOS 5 or later) and Linux (desktop, Steam Deck, SteamOS in the living room, as a Flatpak) decode the image in hardware for the lowest latency (on Linux, through VA-API, or on the processor); a web version served by the Station itself works on any computer, tablet or phone with a modern browser.
+- **KyberNow Link**: your computer on all your devices. Native apps for Mac, Windows, Apple TV, iPhone, iPad, Android 11 or later (phones, tablets, Android TV and Google TV), LG TVs (webOS 5 or later), Linux (desktop, Steam Deck, SteamOS in the living room, as a Flatpak) and the Raspberry Pi (Pi 3, 4 and 5, as a .deb on 64-bit Raspberry Pi OS, or as **KyberNow Link OS**, an image to flash with Raspberry Pi Imager that boots straight into Link: console-like start-up, first boot with a controller paired without a code, HDMI-CEC, whole-OS A/B updates) decode the image in hardware for the lowest latency (on Linux, through VA-API, or on the processor); a web version served by the Station itself works on any computer, tablet or phone with a modern browser.
 - **Versus Sunshine + Moonlight**: QUIC (RFC 9000) instead of GameStream; image always encrypted (TLS 1.3); a single port; virtual display at the device's resolution built in; pairing through Bonjour, QR code or an on-screen code instead of a PIN; Opus sound up to 7.1; works in the browser too. Not yet: HDR.
 - **Price**: free, no account, no subscription, no ads. Community, non-commercial project by Les Lignes Claires. Not affiliated with or endorsed by the Kyber team.
 
 ## Pages
 
-- [Home (English)](https://www.kybernow.app/en/): presentation, the three products (Station, Admin, Link), path of an image, QUIC, comparison with Sunshine + Moonlight, downloads
-- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing KyberNow Station, connecting a Mac, a Windows PC, an Apple TV, an iPhone or iPad, an Android device, an LG TV, a Linux PC, a Steam Deck or SteamOS, or a browser with KyberNow Link, sessions, VPN, updates, uninstalling, frequently asked questions
-- [Accueil (français)](https://www.kybernow.app/): the same presentation in French
+- [Home (English)](https://www.kybernow.app/en/): presentation video, the three products (Station, Admin, Link) with their screens, Link on each device, headline features, proof it is a real product (versions, signatures, open code), downloads
+- [Technology (English)](https://www.kybernow.app/en/technology/): the measured path of an image (9.4 ms), QUIC, the Kyber engine, comparison with Sunshine + Moonlight, features and profiles in detail
+- [Guide and FAQ (English)](https://www.kybernow.app/en/guide/): installing KyberNow Station, connecting a Mac, a Windows PC, an Apple TV, an iPhone or iPad, an Android device, an LG TV, a Linux PC, a Steam Deck or SteamOS, a Raspberry Pi (KyberNow Link OS or the app), or a browser with KyberNow Link, sessions, VPN, updates, uninstalling, frequently asked questions
+- [Accueil (français)](https://www.kybernow.app/): the same home page in French
+- [Technologie (français)](https://www.kybernow.app/technologie/): the same technology page in French
 - [Guide et FAQ (français)](https://www.kybernow.app/guide/): the same guide in French
 
 ## Downloads and code
@@ -24,7 +27,8 @@ Key facts:
 - [Latest release](https://github.com/MonsieurNours/kybernow/releases/latest): KyberNow-Station-Setup.exe (KyberNow Station, Windows), KyberNow-Link-Setup.exe (KyberNow Link for Windows, x64 and ARM64), KyberNow-Link-macOS.zip (KyberNow Link for Mac), KyberNow-Link-Linux-x86_64.flatpak and KyberNow-Link-Linux-aarch64.flatpak (KyberNow Link for Linux and the Steam Deck), release notes and SHA-256 checksums
 - [Installing KyberNow Link on Apple TV](https://github.com/MonsieurNours/kybernow/blob/main/apps/tvos/SIDELOAD.en.md)
 - [Installing KyberNow Link on iPhone and iPad](https://github.com/MonsieurNours/kybernow/blob/main/apps/ios/SIDELOAD.en.md)
-- [Installing KyberNow Link on Linux and the Steam Deck](https://github.com/MonsieurNours/kybernow/blob/main/apps/linux/INSTALLATION.en.md)
+- [Installing KyberNow Link on Linux, the Steam Deck and the Raspberry Pi, and KyberNow Link OS](https://github.com/MonsieurNours/kybernow/blob/main/apps/linux/INSTALLATION.en.md)
+- [KyberNow Link OS repository for Raspberry Pi Imager](https://www.kybernow.app/updates/rpi-imager.json)
 - [Source code](https://github.com/MonsieurNours/kybernow)
 - [Changes made to the Kyber engine](https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md)
 - [Kyber](https://kyber.tech), the underlying streaming engine

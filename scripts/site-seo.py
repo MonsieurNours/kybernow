@@ -6,7 +6,9 @@
     scripts/site-seo.py faq        # données structurées FAQPage des guides, tirées des <details> de leur FAQ
 
 Images : scripts/site-og/card.html (?lang=fr|en) -> site/assets/og/kybernow-{fr,en}.jpg (1200 × 630),
-scripts/site-og/touch-icon.html -> site/apple-touch-icon.png (180 × 180). Il faut Google Chrome et Pillow.
+scripts/site-og/touch-icon.html -> site/apple-touch-icon.png (180 × 180),
+scripts/site-og/video-poster.html -> site/assets/video/presentation-poster.jpg (1920 × 1080, image d'attente
+de la vidéo de présentation). Il faut Google Chrome (ou CHROME=<chemin d'un Chromium>) et Pillow.
 FAQ : réécrit le bloc <script type="application/ld+json" data-faq> de site/guide/ et site/en/guide/
 à partir des questions visibles, pour que les deux ne divergent jamais. À relancer après toute
 modification de la FAQ.
@@ -45,6 +47,10 @@ def images():
         print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
     dst = SITE / 'apple-touch-icon.png'
     shot(SRC / 'touch-icon.html', '', (180, 180)).save(dst, 'PNG', optimize=True)
+    print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
+    dst = SITE / 'assets' / 'video' / 'presentation-poster.jpg'
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shot(SRC / 'video-poster.html', '', (1920, 1080)).save(dst, 'JPEG', quality=86, optimize=True, progressive=True)
     print(f'{dst.relative_to(ROOT)} : {dst.stat().st_size // 1024} Ko')
 
 

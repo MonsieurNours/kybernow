@@ -438,3 +438,145 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 }
 .sim-stats { display: flex; flex-wrap: wrap; gap: 12px 32px; }
 .sim-stat b.is-bad { color: var(--kn-warn); }
+
+/* ======================================================================
+   Accueil (refonte d'octobre 2026) : vidéo, écrans des apps, appareils,
+   fonctions phares, preuves, téléchargements compacts. Les écrans eux-mêmes
+   sont dans screens.css.
+   ====================================================================== */
+
+/* Le symbole 3D reste en fond, discret ; les écrans passent devant. */
+.scene-anchor-soft { height: 28vh; }
+.section.presentation { padding-top: 40px; }
+.hero-shots { position: relative; min-height: 440px; }
+.hero-shots .shot { position: absolute; box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 40px 80px rgb(0 0 0 / .6); }
+.hero-shots .shot-mac { left: 0; top: 30px; width: 100%; max-width: 580px; }
+.hero-shots .shot-phone { left: -34px; top: 220px; width: 24%; max-width: 136px; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 24px 48px rgb(0 0 0 / .6); }
+.hero-grid.hero-grid-2 { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; }
+@media (max-width: 1000px) { .hero-grid.hero-grid-2 { grid-template-columns: 1fr; } .hero-shots { min-height: 0; margin-top: 48px; height: 0; padding-bottom: 62%; } .hero-shots .shot-mac { max-width: none; } .hero-shots .shot-phone { left: -8px; } }
+
+/* La présentation : vidéo sans voix, lecture automatique au défilement */
+.video { position: relative; margin-top: 40px; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--kn-r-card); background: var(--kn-ink-1); box-shadow: inset 0 0 0 1px var(--kn-line); }
+.video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.video-state { position: absolute; left: 28px; bottom: 24px; display: inline-flex; align-items: center; gap: 10px; margin: 0; pointer-events: none; }
+.video-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--kn-line-2); transition: background var(--kn-t-state), box-shadow var(--kn-t-state); }
+.video.is-playing .video-state::before { background: var(--kn-signal); box-shadow: 0 0 8px var(--kn-signal); }
+.video-ctl { position: absolute; right: 20px; bottom: 16px; display: flex; gap: 6px; }
+.video-ctl button { width: 40px; height: 40px; border: 0; border-radius: 8px; background: rgb(9 13 18 / .8); box-shadow: inset 0 0 0 1px var(--kn-line-2); color: var(--kn-frost); display: grid; place-items: center; cursor: pointer; transition: box-shadow var(--kn-t-hover); }
+.video-ctl button:hover { box-shadow: inset 0 0 0 1px var(--kn-frost-2); }
+.video-ctl .ic { width: 16px; height: 16px; }
+.video-ctl .when-playing, .video.is-playing .video-ctl .when-paused { display: none; }
+.video.is-playing .video-ctl .when-playing { display: block; }
+.video-big { position: absolute; left: 50%; top: 50%; width: 96px; height: 96px; margin: -48px 0 0 -48px; border: 0; border-radius: 50%; background: var(--kn-signal-strong); color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 0 0 10px rgb(109 91 255 / .18), 0 0 40px rgb(109 91 255 / .5); transition: opacity var(--kn-t-enter), transform var(--kn-t-enter) var(--kn-ease-out); }
+.video-big .ic { width: 34px; height: 34px; }
+.video.is-playing .video-big, .video.has-started .video-big { opacity: 0; transform: scale(.8); pointer-events: none; }
+.video.no-source .video-ctl, .video.no-source .video-big { display: none; }
+.video-note { margin-top: 20px; font-size: 14px; color: var(--kn-mist); max-width: 60em; }
+@media (max-width: 600px) { .video-state { left: 14px; bottom: 12px; } .video-ctl { right: 10px; bottom: 8px; } .video-ctl button { width: 36px; height: 36px; } .video-big { width: 64px; height: 64px; margin: -32px 0 0 -32px; } .video-big .ic { width: 24px; height: 24px; } }
+
+/* Les trois apps, chacune avec son écran */
+.fam-card .shot { width: 100%; margin-bottom: 24px; }
+.fam-card .fam-logo { height: 36px; width: auto; max-width: 100%; }
+.fam-card .fam-logo + .mono-label { margin-top: 14px; }
+
+/* Link sur chaque appareil */
+.devices { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 16px 24px; margin-top: 56px; align-items: end; }
+.devices figure { margin: 0; min-width: 0; }
+.devices figcaption { margin-top: 16px; display: flex; justify-content: space-between; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+.devices figcaption h3 { font-size: 18px; }
+.devices figcaption .mono-label { margin: 0; }
+.dev-tv { grid-column: span 8; }
+.dev-tv .shot { border-radius: 8px; box-shadow: 0 0 0 6px var(--kn-ink-3), 0 0 0 7px var(--kn-line-2); }
+.dev-phone { grid-column: span 4; display: flex; flex-direction: column; align-items: center; }
+.dev-phone .shot { width: 176px; border-radius: 28px; box-shadow: 0 0 0 6px var(--kn-ink-3), 0 0 0 7px var(--kn-line-2); }
+.dev-phone figcaption { flex-direction: column; align-items: center; text-align: center; gap: 4px; }
+.dev-deck, .dev-mac { grid-column: span 6; }
+.deck-shell { position: relative; padding: 18px 56px; background: var(--kn-ink-3); border-radius: 28px; box-shadow: inset 0 0 0 1px var(--kn-line-2); }
+.deck-shell::before, .deck-shell::after { content: ""; position: absolute; top: 50%; width: 24px; height: 24px; margin-top: -30px; border-radius: 50%; background: var(--kn-ink-2); box-shadow: inset 0 0 0 1px var(--kn-line-2); }
+.deck-shell::before { left: 18px; } .deck-shell::after { right: 18px; }
+.deck-shell .shot { border-radius: 6px; }
+.dev-mac .shot { border-radius: 10px; }
+.platforms { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 40px; }
+.platforms li { list-style: none; }
+.platforms { padding: 0; }
+@media (max-width: 900px) {
+  .devices { grid-template-columns: 1fr; gap: 40px; margin-top: 40px; }
+  .dev-tv, .dev-phone, .dev-deck, .dev-mac { grid-column: auto; }
+  .deck-shell { padding: 10px 28px; border-radius: 18px; }
+  .deck-shell::before, .deck-shell::after { width: 14px; height: 14px; margin-top: -18px; }
+  .deck-shell::before { left: 7px; } .deck-shell::after { right: 7px; }
+}
+
+/* Fonctions phares : la grande carte reprend .card-feature du bento */
+.bento .card .mono-label { margin-bottom: 14px; }
+.bento .card .mono-label + h3 { margin-top: 0; }
+.bento .card-feature h3 { max-width: 18ch; margin-top: 0; }
+.res-demo.res-demo-3 span:nth-child(1) { width: 46%; height: 46%; }
+.res-demo.res-demo-3 span:nth-child(2) { width: 72%; height: 72%; }
+.console { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 16px; margin-top: 16px; }
+.console .card { padding: 28px; }
+.console h3 { margin-top: 0; }
+.console .card p { font-size: 15px; color: var(--kn-frost-2); }
+.launch-demo { margin-top: 24px; display: grid; gap: 8px; }
+.launch-demo div { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 12px 14px; border-radius: 10px; background: var(--kn-ink-1); box-shadow: inset 0 0 0 1px var(--kn-line); font-size: 14px; }
+.launch-demo b { font-weight: 600; display: flex; align-items: center; gap: 10px; }
+.launch-demo b .ic { width: 16px; height: 16px; color: var(--kn-frost-2); }
+.launch-demo span { font: 500 11px/1.4 var(--kn-font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--kn-mist); }
+.launch-demo .is-on span { color: var(--kn-signal); }
+.pad-demo { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 14px; color: var(--kn-frost-2); }
+.pad-demo span { display: inline-flex; align-items: center; gap: 8px; }
+.pad-demo kbd { font: 600 11px/1 var(--kn-font-mono); min-width: 24px; height: 24px; padding: 0 7px; display: inline-grid; place-items: center; border-radius: 12px; box-shadow: inset 0 0 0 1.5px var(--kn-line-2); color: var(--kn-frost); }
+@media (max-width: 860px) { .console { grid-template-columns: 1fr; } }
+
+/* Déjà entre vos mains : les preuves */
+.proofs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 56px; }
+.proof { padding: 24px; }
+.proof b { display: block; font: 500 26px/1.2 var(--kn-font-mono); letter-spacing: -.02em; color: var(--kn-frost); margin-top: 14px; }
+.proof span { display: block; font-size: 14px; color: var(--kn-mist); margin-top: 6px; }
+.proof span a { color: var(--kn-frost-2); text-decoration-color: var(--kn-line-2); text-underline-offset: 3px; }
+.proofs-2 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.proofs-2 .card h3 { margin-top: 0; }
+.proofs-2 .card p { margin-top: 10px; }
+.proofs-2 .card .notice-links { margin-top: 12px; }
+@media (max-width: 1000px) { .proofs { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 700px) { .proofs, .proofs-2 { grid-template-columns: 1fr; margin-top: 40px; } }
+
+/* Trois étapes et résumé technique, côte à côte */
+.two-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 64px; align-items: start; }
+.two-cols .title { font-size: clamp(30px, 3.4vw, 46px); }
+.two-cols .steps { grid-template-columns: 1fr; gap: 20px; margin-top: 40px; }
+.tech-links { display: grid; gap: 12px; margin-top: 40px; }
+.tech-links a { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; padding: 18px 22px; text-decoration: none; transition: box-shadow var(--kn-t-hover); }
+.tech-links a:hover { box-shadow: inset 0 0 0 1px var(--kn-frost-2); }
+.tech-links b { font: 500 26px/1.2 var(--kn-font-mono); letter-spacing: -.02em; }
+.tech-links span { font-size: 15px; color: var(--kn-frost-2); }
+.tech-more { display: inline-flex; align-items: center; gap: 8px; margin-top: 24px; font-weight: 600; font-size: 15px; text-decoration: none; }
+.tech-more .ic { width: 16px; height: 16px; }
+@media (max-width: 860px) { .two-cols { grid-template-columns: 1fr; gap: 72px; } .tech-links a { grid-template-columns: 1fr; gap: 6px; } }
+
+/* Téléchargements compacts : trois colonnes, la carte vedette suit l'appareil */
+.release-lead { margin-top: 28px; font-size: 14.5px; color: var(--kn-mist); }
+.dl-grid.dl-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dl-grid-3 .dl-card { padding: 22px 24px; gap: 10px; }
+.dl-grid-3 .dl-card .dl-logo { height: 30px; }
+.dl-grid-3 .dl-card .mono-label { margin-top: 4px; }
+.dl-grid-3 .dl-card h3 { font-size: 18px; margin-top: 0; }
+.dl-grid-3 .specs { margin: 0; gap: 4px; font-size: 14px; }
+.dl-grid-3 .dl-card .btn { height: 36px; padding: 0 14px; font-size: 14px; gap: 8px; margin-top: 6px; }
+.dl-grid-3 .dl-card .btn .ic { width: 16px; height: 16px; }
+.dl-grid-3 .dl-more { margin-top: 4px; font-size: 13px; }
+@media (max-width: 1000px) { .dl-grid.dl-grid-3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { .dl-grid.dl-grid-3 { grid-template-columns: 1fr; } }
+.downloads .notice-beta { margin-top: 40px; }
+.downloads .notice-beta .btn { align-self: center; flex: none; }
+@media (max-width: 700px) { .downloads .notice-beta { flex-direction: column; } .downloads .notice-beta .btn { align-self: flex-start; } }
+
+/* Raspberry Pi : KyberNow Link OS, l'écran du premier démarrage et le texte à côté */
+.dev-pi { grid-column: span 12; display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 32px; align-items: center; margin-top: 24px; }
+.dev-pi .shot { border-radius: 8px; box-shadow: 0 0 0 6px var(--kn-ink-3), 0 0 0 7px var(--kn-line-2); }
+.dev-pi figcaption { display: block; }
+.dev-pi figcaption h3 { font-size: clamp(22px, 2.2vw, 28px); }
+.dev-pi figcaption p { margin-top: 12px; font-size: 15.5px; color: var(--kn-frost-2); }
+.dev-pi figcaption .ticks { margin-top: 16px; gap: 8px; font-size: 14.5px; }
+.dev-pi figcaption .notice-links { margin-top: 18px; }
+@media (max-width: 900px) { .dev-pi { grid-column: auto; grid-template-columns: 1fr; gap: 20px; } }

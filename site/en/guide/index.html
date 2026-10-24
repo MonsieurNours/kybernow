@@ -242,11 +242,10 @@
 <header class="nav" id="nav">
   <a class="nav-logo" href="/en/" aria-label="KyberNow, beta version, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Beta</span></a>
   <nav class="nav-links" aria-label="Sections">
-    <a href="/en/#pourquoi">Why</a>
-    <a href="/en/#trajet">The path</a>
-    <a href="/en/#quic">QUIC</a>
-    <a href="/en/#kyber">Kyber</a>
-    <a href="/en/#comparer">Compare</a>
+    <a href="/en/#apps">The apps</a>
+    <a href="/en/#appareils">Devices</a>
+    <a href="/en/technology/">Technology</a>
+    <a href="/en/technology/#comparer">Compare</a>
     <a href="/en/guide/" class="is-active" aria-current="page">Guide</a>
   </nav>
   <div class="nav-actions">
@@ -258,11 +257,10 @@
 </header>
 <div class="menu" id="menu" hidden>
   <nav aria-label="Menu">
-    <a href="/en/#pourquoi">Why</a>
-    <a href="/en/#trajet">The path of an image</a>
-    <a href="/en/#quic">QUIC</a>
-    <a href="/en/#kyber">Kyber</a>
-    <a href="/en/#comparer">Compare</a>
+    <a href="/en/#apps">The apps</a>
+    <a href="/en/#appareils">Devices</a>
+    <a href="/en/technology/">Technology</a>
+    <a href="/en/technology/#comparer">Compare</a>
     <a href="/en/guide/">Guide and FAQ</a>
     <a href="/en/#telecharger">Download</a>
   </nav>
@@ -374,6 +372,7 @@
         <a class="os-tile" role="tab" id="tab-android" href="#android" aria-controls="android"><svg class="ic-lg"><use href="/assets/icons.svg#android-logo"/></svg><b>Android</b><span>Android 11 or later</span></a>
         <a class="os-tile" role="tab" id="tab-lg" href="#lg" aria-controls="lg"><svg class="ic-lg"><use href="/assets/icons.svg#television"/></svg><b>LG TV</b><span>webOS 5 or later</span></a>
         <a class="os-tile" role="tab" id="tab-steam-deck" href="#steam-deck" aria-controls="steam-deck"><svg class="ic-lg"><use href="/assets/icons.svg#game-controller"/></svg><b>Steam Deck</b><span>And SteamOS on the TV</span></a>
+        <a class="os-tile" role="tab" id="tab-raspberry-pi" href="#raspberry-pi" aria-controls="raspberry-pi"><svg class="ic-lg"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span>Link OS, or the app</span></a>
         <a class="os-tile" role="tab" id="tab-navigateur" href="#navigateur" aria-controls="navigateur"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><b>Browser</b><span>Nothing to install</span></a>
       </div>
 
@@ -546,6 +545,28 @@ ares-install --device tv KyberNow-Link-webOS.ipk</code></pre>
       <p><b>Recommended settings</b>: the defaults, that is the <b>Game</b> profile, screen “Like this screen” (1280&nbsp;×&nbsp;800 on the Deck, at its refresh rate), Display on Auto. <b>Lighter on battery</b>, on, limits the unplugged Deck to 60 frames per second and 20&nbsp;Mbit/s. A 5&nbsp;GHz or 6&nbsp;GHz Wi-Fi close to the router, or an Ethernet cable on the dock.</p>
       </div>
 
+      <div class="os-panel" id="raspberry-pi" role="tabpanel" aria-labelledby="tab-raspberry-pi">
+      <h3 class="sub">On a Raspberry Pi</h3>
+      <p>Two ways. <b>KyberNow Link OS</b>: an image to flash onto the microSD card; the Pi does nothing else and boots like a console, on a TV with a controller or at a desk with a keyboard, with no Linux desktop. Or <b>the app alone</b>, as a <code>.deb</code> package, on a 64-bit Raspberry Pi OS you keep. Pi 3, 4 and 5, Pi 400 and 500, Compute Module: HEVC through the chip up to 4K at 60&nbsp;Hz on Pi 4 and 5, H.264 on Pi 3 and 4; 4K at 60&nbsp;Hz at most over HDMI, 1080p at 120&nbsp;Hz when the TV announces it, no variable refresh rate.</p>
+      <p class="step-label">KyberNow Link OS, the image to flash</p>
+      <ol class="steps-doc">
+        <li><p>With <b>Raspberry Pi Imager</b>, onto a microSD card of at least 8&nbsp;GB (or an SSD): <b>Choose OS › Use custom</b> and the <code>KyberNow-Link-OS.img.xz</code> file from the <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">latest release</a> (from 0.4.8 on); or paste the KyberNow repository into <b>Imager › Settings › Custom repository</b>, <code>https://www.kybernow.app/updates/rpi-imager.json</code>, and “KyberNow Link OS” shows up in the list. Nothing to customise in Imager: everything is set at first boot.</p></li>
+        <li><p>Plug in: HDMI to the TV (the <b>HDMI&nbsp;0</b> socket, next to the power, on Pi 4 and 5), Ethernet if you can, power. The mark shows, then lights up with sound.</p></li>
+        <li><p><b>First boot, with a controller</b>: put it in pairing mode (Xbox: pairing button near the USB port; DualSense: Create + PS; Switch Pro: SYNC), it is accepted without a code. A USB controller, the TV remote (HDMI-CEC) or a keyboard work too. Then the language, the network (Ethernet recognised, otherwise Wi-Fi and its password), the use (<b>Living room</b> or <b>Desktop</b>) and the computer: the six-digit code, accepted in Admin, <b>Link devices</b> page.</p></li>
+        <li><p>Afterwards: <b>☰</b> on the home screen opens the <b>Device settings</b> (network, controllers, screen and HDMI-CEC, sound, update, language, SSH); <b>Start held three seconds</b> switches Living room ⇄ Desktop; Guide (or PS) puts the device to standby, a key wakes it.</p></li>
+      </ol>
+      <p><b>Updating the OS</b>: Device settings › Update. The new version downloads (as soon as it is out, when “Automatic” is on), then “Restart on X” tries it in the card's other slot; if it does not boot up to the home screen, the Pi goes back to the previous version by itself. Computers and settings live on a separate partition and stay. In-place updates need a Pi 4 or 5; a Pi 3 is reinstalled from the card.</p>
+      <p class="step-label">The app alone, on Raspberry Pi OS</p>
+      <ol class="steps-doc">
+        <li><p>Download <code>KyberNow-Link-RaspberryPi-arm64.deb</code> from the <a href="https://github.com/MonsieurNours/kybernow/releases/latest" rel="noopener">releases page</a> (64-bit Raspberry Pi OS, Debian 13).</p></li>
+        <li><p>Install it (a double-click in the file manager, or the terminal):</p>
+          <pre><code>sudo apt install ./KyberNow-Link-RaspberryPi-arm64.deb</code></pre>
+          <p>KyberNow Link shows up in the menu, Games category. A new version installs the same way; an apt repository will follow.</p></li>
+        <li><p>On a TV, with a controller: <b>App settings › Interface › Living room</b> gives the ten-foot interface (A confirms, B goes back, Y settings, X add; session menu by L1 + R1 + Start + Select).</p></li>
+      </ol>
+      <p class="callout callout-warn"><svg class="ic"><use href="/assets/icons.svg#flask"/></svg><span>First version: the image and the package are built and tried in a virtual machine, not on a board yet. Tell us what works and what does not on <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT" rel="noopener">Discord</a>.</span></p>
+      </div>
+
       <div class="os-panel" id="navigateur" role="tabpanel" aria-labelledby="tab-navigateur">
       <h3 class="sub">In a browser</h3>
       <p>On any device on the same network (or linked by VPN), open Admin's address followed by <code>/ecran</code>, for example <code>https://192.168.1.20:31415/ecran</code>. The exact address is shown at the end of the installation and on Admin's Overview page. Accept the certificate warning, then sign in with your account.</p>
@@ -662,7 +683,7 @@ rm -rf ~/.var/app/fr.leslignesclaires.kybernow</code></pre>
       <div class="faq">
         <details><summary>Is KyberNow really free?</summary><p>Yes. It is a community, non-commercial project under the AGPL-3.0 free software licence: no online account, no subscription, no ads. The code is on <a href="https://github.com/MonsieurNours/kybernow">GitHub</a>.</p></details>
         <details><summary>Why “beta”?</summary><p>KyberNow has not reached version&nbsp;1.0 yet. The 0.x versions are already fine for everyday use, but some bugs remain, and settings and features may still change from one version to the next. Keep the Station and your apps up to date, and report problems on <a href="https://github.com/MonsieurNours/kybernow/issues">GitHub</a> or on <a href="https://discord.gg/sVy2mu5WdT">Discord</a>.</p></details>
-        <details><summary>Can KyberNow replace Sunshine and Moonlight?</summary><p>Yes: your computer on all your devices, in the app or in the browser. KyberNow relies on the Kyber engine and on QUIC rather than on the GameStream protocol: the image is always encrypted, a single port to open, a built-in virtual display at the device's resolution, and pairing with no PIN to copy. It still lacks HDR: see the <a href="/en/#comparer">comparison</a>.</p></details>
+        <details><summary>Can KyberNow replace Sunshine and Moonlight?</summary><p>Yes: your computer on all your devices, in the app or in the browser. KyberNow relies on the Kyber engine and on QUIC rather than on the GameStream protocol: the image is always encrypted, a single port to open, a built-in virtual display at the device's resolution, and pairing with no PIN to copy. It still lacks HDR: see the <a href="/en/technology/#comparer">comparison</a>.</p></details>
         <details><summary>Is KyberNow cloud gaming?</summary><p>It is your own cloud. Instead of renting a computer in a data centre, KyberNow makes yours reachable from your other devices, at home or from afar through a VPN. No subscription and no queue: your games and software as they are installed, and the image goes through no third-party server.</p></details>
         <details><summary>Can I play my PC games on a Mac or an Apple TV?</summary><p>Yes: the game runs on the Windows computer, with its graphics card, and the image arrives on the Mac or the Apple TV. Any game or launcher, with a gamepad (Xbox, PlayStation), a keyboard and a mouse. The Mac app follows your screen's refresh rate, 120&nbsp;Hz or more; the Apple TV goes up to 4K at 60&nbsp;Hz.</p></details>
         <details><summary>Do I need a specific graphics card?</summary><p>No. Kyber encodes the image with any graphics card, NVIDIA, AMD or Intel, including an external one (eGPU). Without a graphics card, the processor does the job. The encoder is chosen in KyberNow Admin, on the System › Advanced page.</p></details>
