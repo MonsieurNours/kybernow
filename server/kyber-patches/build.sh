@@ -134,6 +134,28 @@ repo_of() {
         *) echo "$KYMEDIA" ;;
     esac
 }
+# Piège : les correctifs des apps (apps/macos, apps/webos) posés par leurs
+# scripts dans kyctl, kymux et kynput touchent parfois les mêmes fichiers
+# (kynput/Cargo.toml : 0013 et le correctif webOS). Remis à l'origine, ces
+# fichiers perdraient leur part, et le script de l'app trouverait ensuite son
+# correctif à moitié posé, ni applicable ni retirable. Ceux qui sont posés en
+# entier sont donc retirés d'abord (du dernier au premier), puis reposés après
+# ceux du serveur.
+client_repo_of() {
+    case "$(basename "$1")" in
+        *-kyclient-*) echo "$KYCTL" ;;
+        *-kynput-*) echo "$KYNPUT" ;;
+        *-kynet-*) echo "$KYMUX" ;;
+    esac
+}
+CLIENT_APPLIED=()
+for p in "$ROOT"/apps/macos/kyber-patches/*.patch "$ROOT"/apps/webos/kyber-patches/*.patch; do
+    repo=$(client_repo_of "$p")
+    [ -n "$repo" ] && git -C "$repo" apply --reverse --check "$p" 2>/dev/null && CLIENT_APPLIED=("$p" ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"})
+done
+for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do
+    git -C "$(client_repo_of "$p")" apply --reverse "$p"
+done
 for p in "$HERE"/*.patch; do
     repo=$(repo_of "$p")
     for f in $(grep -h '^+++ b/' "$p" | sed 's|^+++ b/||; s|[[:space:]].*||'); do
@@ -155,6 +177,17 @@ for p in "$HERE"/*.patch; do
         echo "Correctif $(basename "$p") inapplicable (hunk en échec ci-dessus)" >&2
         exit 1
     }
+done
+REAPPLY=()
+for p in ${CLIENT_APPLIED[@]+"${CLIENT_APPLIED[@]}"}; do REAPPLY=("$p" ${REAPPLY[@]+"${REAPPLY[@]}"}); done
+for p in ${REAPPLY[@]+"${REAPPLY[@]}"}; do
+    repo=$(client_repo_of "$p")
+    if git -C "$repo" apply --check "$p" 2>/dev/null; then
+        git -C "$repo" apply "$p" && echo "    $(basename "$p") (app) reposé"
+    elif ! git -C "$repo" apply --reverse --check "$p" 2>/dev/null; then
+        echo "Correctif d'app $(basename "$p") à moitié posé : remettre $repo à l'origine (git -C $repo checkout -- .), puis relancer" >&2
+        exit 1
+    fi
 done
 cd "$KYMEDIA"
 
