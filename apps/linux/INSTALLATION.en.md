@@ -73,7 +73,7 @@ A Raspberry Pi that does nothing else: the card boots into KyberNow Link, on a T
 
 **Updating the OS**: Device settings › Update. The new version downloads (as soon as it is out, when "Automatic" is on), then "Restart on X" tries it in the card's other slot; if it does not boot up to the home screen, the Pi goes back to the previous version by itself. Computers and settings live on a separate partition and stay.
 
-**Not yet tried on a board** (23/10/2026): the image builds, but no Raspberry Pi has booted it yet. See [os/README.en.md](os/README.en.md).
+**Not yet tried on a board** (2026-10-24): the image builds and boots under QEMU emulation (first boot included), but no Raspberry Pi has booted it yet. See [os/README.en.md](os/README.en.md).
 
 ## Updating
 

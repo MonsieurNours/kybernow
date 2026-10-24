@@ -73,7 +73,7 @@ Un Raspberry Pi qui ne fait que ça : la carte démarre sur KyberNow Link, au t�
 
 **Mettre à jour l'OS** : Réglages de l'appareil › Mise à jour. La nouvelle version se télécharge (dès sa sortie, si « Automatique » est coché), puis « Redémarrer sur la X » l'essaie dans l'autre emplacement de la carte ; si elle ne démarre pas jusqu'à l'accueil, le Pi revient tout seul à la version d'avant. Les ordinateurs et réglages sont sur une partition à part et restent.
 
-**Pas encore essayé sur une carte** (23/10/2026) : l'image se construit, mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
+**Pas encore essayé sur une carte** (24/10/2026) : l'image se construit et démarre en émulation QEMU (premier démarrage compris), mais aucun Raspberry Pi n'a encore démarré dessus. Voir [os/README.md](os/README.md).
 
 ## Mettre à jour
 
