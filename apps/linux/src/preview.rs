@@ -403,6 +403,10 @@ fn os_shots(en: bool, dir: &Path) {
     app.os_update.ready = Some(Path::new("/var/lib/kybernow/update/KyberNow-Link-OS.img.xz").to_path_buf());
     app.go(Screen::Home);
     shot(&mut app, &mut cv, None, dir, "os-10-accueil");
+    // La même, à jour (le site la montre).
+    let (update, ready) = (std::mem::replace(&mut app.update, UpdateState::UpToDate), app.os_update.ready.take());
+    shot(&mut app, &mut cv, None, dir, "os-10b-accueil-a-jour");
+    (app.update, app.os_update.ready) = (update, ready);
     // Les réglages de l'appareil : la mise à jour, puis l'écran.
     app.open_device_settings(Screen::Home);
     app.device_section = OS_SECTIONS.iter().position(|s| *s == crate::app::Section::OsUpdate).unwrap_or(5);

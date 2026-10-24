@@ -375,9 +375,33 @@ if (video) {
     toggle.setAttribute('aria-label', playing ? T.videoPause : T.videoPlay);
     state.textContent = reduceMotion ? T.reduced : playing || !started ? T.autoplay : T.paused;
   };
-  const play = () => { video.play().then(() => { started = true; sync(); }).catch(() => {}); };
+  // Qualité selon le débit : HLS en 720p, 1080p et 4K (60 i/s), natif dans Safari, par
+  // hls.js ailleurs (chargé à l'approche de la vidéo), plafonné à la taille du lecteur ;
+  // sans l'un ni l'autre, le MP4 720p de la balise <source>.
+  let ready = null;
+  const attach = () => ready || (ready = new Promise(done => {
+    const url = video.dataset.hls;
+    if (!url) return done();
+    // hls.js d'abord (MSE, ou ManagedMediaSource d'iOS 17.1+) : il plafonne la qualité à la
+    // taille du lecteur ; le HLS natif (Safari ancien) seulement sans eux.
+    const native = () => { if (video.canPlayType('application/vnd.apple.mpegurl')) video.src = url; done(); };
+    if (!window.MediaSource && !window.ManagedMediaSource) return native();
+    const s = document.createElement('script');
+    s.src = '/vendor/hls/hls.light.min.js';
+    s.onload = () => {
+      if (!window.Hls || !window.Hls.isSupported()) return native();
+      const hls = new window.Hls({ capLevelToPlayerSize: true, startLevel: -1, maxBufferLength: 20 });
+      hls.on(window.Hls.Events.MANIFEST_PARSED, () => done());
+      hls.on(window.Hls.Events.ERROR, (_, d) => { if (d.fatal) { hls.destroy(); video.src = '/assets/video/presentation-720p.mp4'; done(); } });
+      hls.loadSource(url); hls.attachMedia(video);
+    };
+    s.onerror = () => native();
+    document.head.append(s);
+  }));
+  new IntersectionObserver(([e], o) => { if (e.isIntersecting) { attach(); o.disconnect(); } }, { rootMargin: '600px' }).observe(fig);
+  const play = () => { attach().then(() => video.play()).then(() => { started = true; sync(); }).catch(() => {}); };
   video.addEventListener('play', sync); video.addEventListener('pause', sync); video.addEventListener('ended', sync);
-  video.addEventListener('error', () => fig.classList.add('no-source'), true);
+  video.addEventListener('error', () => { if (!video.currentSrc || /\.mp4$/.test(video.currentSrc)) fig.classList.add('no-source'); }, true);
   fig.querySelector('[data-video="play"]').addEventListener('click', () => { wanted = true; play(); });
   toggle.addEventListener('click', () => { wanted = video.paused; if (wanted) play(); else video.pause(); });
   fig.querySelector('[data-video="restart"]').addEventListener('click', () => { video.currentTime = 0; wanted = true; play(); });

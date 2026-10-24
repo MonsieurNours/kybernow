@@ -453,6 +453,10 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .hero-shots .shot-mac { left: 0; top: 30px; width: 100%; max-width: 580px; }
 .hero-shots .shot-phone { left: -34px; top: 220px; width: 24%; max-width: 136px; border-radius: 22px; box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 24px 48px rgb(0 0 0 / .6); }
 .hero-grid.hero-grid-2 { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 48px; }
+/* Le titre se mesure à sa colonne, pas à la fenêtre : « tout le temps. » (insécable) tient
+   toujours dans la colonne du texte, les écrans restent dans la leur. */
+.hero-grid-2 .hero-copy { container-type: inline-size; }
+.hero-grid-2 .display:has(strong) { font-size: clamp(36px, 12cqi, 92px); }
 @media (max-width: 1000px) { .hero-grid.hero-grid-2 { grid-template-columns: 1fr; } .hero-shots { min-height: 0; margin-top: 48px; height: 0; padding-bottom: 62%; } .hero-shots .shot-mac { max-width: none; } .hero-shots .shot-phone { left: -8px; } }
 
 /* La présentation : vidéo sans voix, lecture automatique au défilement */
@@ -580,3 +584,34 @@ h3 { font-family: var(--kn-font-display); font-stretch: 112%; font-weight: 620; 
 .dev-pi figcaption .ticks { margin-top: 16px; gap: 8px; font-size: 14.5px; }
 .dev-pi figcaption .notice-links { margin-top: 18px; }
 @media (max-width: 900px) { .dev-pi { grid-column: auto; grid-template-columns: 1fr; gap: 20px; } }
+
+/* ---- Link, par usage : au salon, dans la main, au bureau ---- */
+.uses { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 56px; }
+.use { display: flex; flex-direction: column; padding: 24px 24px 26px; }
+.use .mono-label { margin: 0 0 8px; }
+.use h3 { font-size: clamp(19px, 1.6vw, 22px); line-height: 1.2; }
+.use > p:not(.mono-label) { margin-top: 10px; font-size: 15px; color: var(--kn-frost-2); }
+.use-devices { display: flex; flex-wrap: wrap; gap: 6px; margin: auto 0 0; padding: 18px 0 0; list-style: none; }
+.use-media { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 16 / 10; margin: -4px -4px 22px; }
+.use-media > .shot, .use-media .deck-shell { width: 100%; }
+.use-media-tv .shot { border-radius: 8px; box-shadow: 0 0 0 5px var(--kn-ink-3), 0 0 0 6px var(--kn-line-2); }
+.use-media-desk .shot { border-radius: 10px; box-shadow: inset 0 0 0 1px var(--kn-line-2), 0 24px 48px rgb(0 0 0 / .45); }
+.use-media-hand { justify-content: flex-start; }
+.use-media-hand .deck-shell { width: 84%; padding: 10px 30px; border-radius: 20px; }
+.use-media-hand .deck-shell::before, .use-media-hand .deck-shell::after { width: 12px; height: 12px; margin-top: -16px; }
+.use-media-hand .deck-shell::before { left: 9px; } .use-media-hand .deck-shell::after { right: 9px; }
+.use-media-hand .use-phone { position: absolute; right: 2%; bottom: 0; width: 24%; border-radius: 16px; box-shadow: 0 0 0 4px var(--kn-ink-3), 0 0 0 5px var(--kn-line-2), 0 18px 36px rgb(0 0 0 / .55); }
+@media (max-width: 1080px) { .uses { grid-template-columns: 1fr; max-width: 600px; margin-inline: auto; } }
+
+/* ---- Raspberry Pi : KyberNow Link OS ---- */
+.pi-feature { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 40px; align-items: center; margin: 72px 0 0; }
+.pi-media .mono-label { margin: 18px 0 0; }
+.pi-shots { position: relative; padding: 0 0 9% 0; }
+.pi-shots img { display: block; width: 100%; height: auto; }
+.pi-home { border-radius: 8px; box-shadow: 0 0 0 6px var(--kn-ink-3), 0 0 0 7px var(--kn-line-2); }
+.pi-boot { position: absolute; left: -3%; bottom: 0; width: 34% !important; border-radius: 6px; box-shadow: 0 0 0 4px var(--kn-ink-3), 0 0 0 5px var(--kn-line-2), 0 24px 48px rgb(0 0 0 / .6); }
+.pi-feature figcaption h3 { font-size: clamp(22px, 2.2vw, 28px); line-height: 1.15; }
+.pi-feature figcaption > p:not(.notice-links) { margin-top: 12px; font-size: 15.5px; color: var(--kn-frost-2); }
+.pi-feature figcaption .ticks { margin-top: 16px; gap: 8px; font-size: 14.5px; }
+.pi-feature figcaption .notice-links { margin-top: 18px; }
+@media (max-width: 900px) { .pi-feature { grid-template-columns: 1fr; gap: 28px; } .pi-boot { left: 0; } }

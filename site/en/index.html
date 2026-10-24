@@ -315,9 +315,8 @@
     <p class="label" data-reveal>The presentation</p>
     <h2 class="title" data-split>KyberNow <strong>in ninety seconds.</strong></h2>
     <figure class="video" id="video" data-reveal>
-      <video id="video-el" muted playsinline loop preload="metadata" poster="/assets/video/presentation-poster.jpg" aria-label="Animated presentation of KyberNow, without sound">
-        <source src="/assets/video/presentation.webm" type="video/webm">
-        <source src="/assets/video/presentation.mp4" type="video/mp4">
+      <video id="video-el" muted playsinline loop preload="none" data-hls="/assets/video/hls/presentation.m3u8" poster="/assets/video/presentation-poster.jpg" aria-label="Animated presentation of KyberNow, without sound">
+        <source src="/assets/video/presentation-720p.mp4" type="video/mp4">
       </video>
       <button class="video-big" type="button" data-video="play" aria-label="Play the presentation"><svg class="ic"><use href="/assets/icons.svg#play"/></svg></button>
       <p class="video-state mono-label" id="video-state">Plays as you scroll · no sound</p>
@@ -450,11 +449,12 @@
   <div class="wrap">
     <p class="label" data-reveal>On your devices</p>
     <h2 class="title" data-split>Link, <strong>on each of your screens.</strong></h2>
-    <p class="body-lg" data-reveal>Same home screen, same Game, Desktop and Max profiles, same session: only the controls change. A remote in the living room, a gamepad on the Deck, a finger on the phone.</p>
+    <p class="body-lg" data-reveal>The same Link everywhere: same home, same Game, Desktop and Max profiles, same picture quality. What changes is how you drive it, depending on where you are.</p>
 
-    <div class="devices">
-      <figure class="dev-tv" data-reveal>
-        <div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link on a TV: the home screen from ten feet away, with the “Ready to play” column (TV, network, gamepads, last session) and the remote's shortcuts">
+    <div class="uses">
+      <article class="card use" data-reveal>
+        <div class="use-media use-media-tv">
+<div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link on a TV: the home screen from ten feet away, with the “Ready to play” column (TV, network, gamepads, last session) and the remote's shortcuts">
           <div class="sc sc-tv" aria-hidden="true">
             <div class="sc-bg"><i style="left:1100px;top:0;width:820px;height:650px;border-radius:0;background:linear-gradient(180deg,#121a2e,#1a1f44 60%,#0a1a28);opacity:.5;box-shadow:none"></i><i style="left:1180px;top:230px;width:260px;height:260px;border-radius:50%;background:#8a7a58;opacity:.5;box-shadow:none"></i></div>
             <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-ghost"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg>Settings</span></header>
@@ -483,35 +483,15 @@
             <footer class="sc-foot"><div><span><kbd>OK</kbd>Connect</span><span><kbd>···</kbd>Computer settings</span><span><kbd>↶</kbd>Quit</span><span><kbd>↖</kbd>Magic Remote pointer or D-pad</span></div><em>KyberNow Link 0.4.7</em></footer>
           </div>
         </div>
-        <figcaption><h3>Apple TV, LG TVs, Android TV</h3><span class="mono-label">Siri Remote, Magic Remote, gamepads</span></figcaption>
-      </figure>
-      <figure class="dev-phone" data-reveal style="--d:.08s">
-        <div class="shot" style="--w:390;--h:844" role="img" aria-label="KyberNow Link on iPhone: the home screen in portrait">
-          <div class="sc sc-phone" aria-hidden="true">
-            <div class="sc-bg"></div>
-            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
-            <section class="sc-host">
-              <p class="sc-eyebrow"><i></i>Online · Local network</p>
-              <p class="sc-name">Atelier</p>
-              <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti<br>192.168.1.20</p>
-              <p class="sc-line">A 2556 × 1179 display at 120 Hz is waiting.</p>
-            </section>
-            <div class="sc-cta"><span class="sc-primary">Connect<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Game</b><span>Desktop</span><span>Max</span></span></div>
-            <aside class="sc-card sc-last"><span><p class="sc-eyebrow">Last session</p><p class="sc-sub">yesterday, 21:40 · 48&nbsp;min</p></span><p class="sc-big"><b>12.8</b><span>ms median</span></p></aside>
-            <section class="sc-bottom">
-              <p class="sc-eyebrow">Your other computers</p>
-              <div class="sc-tiles">
-                <div class="sc-tile off"><i></i><span><b>Laptop</b><small>Offline</small></span></div>
-                <div class="sc-tile found"><i></i><span><b>Lounge-PC</b><em>Found on the network</em></span><span class="sc-ghost">Add</span></div>
-                <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Add a computer</div>
-              </div>
-            </section>
-          </div>
         </div>
-        <figcaption><h3>iPhone and iPad, Android</h3><span class="mono-label">Direct touch or trackpad</span></figcaption>
-      </figure>
-      <figure class="dev-deck" data-reveal>
-        <div class="deck-shell">
+        <p class="mono-label">In the living room</p>
+        <h3>The TV becomes the computer's screen</h3>
+        <p>An interface readable from ten feet, driven with the remote or a controller, with 5.1 or 7.1 sound and 4K when the TV allows it.</p>
+        <ul class="use-devices"><li class="tag">Apple TV</li><li class="tag">Android TV and Google TV</li><li class="tag">LG TVs</li><li class="tag">Raspberry Pi</li><li class="tag">SteamOS in the living room</li></ul>
+      </article>
+      <article class="card use" data-reveal style="--d:.08s">
+        <div class="use-media use-media-hand">
+<div class="deck-shell">
           <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link on the Steam Deck, in Gaming Mode: the home screen by gamepad, with the A, B, X, Y, L1, R1 and Start shortcuts">
             <div class="sc sc-deck" aria-hidden="true">
               <div class="sc-bg"></div>
@@ -541,10 +521,37 @@
             </div>
           </div>
         </div>
-        <figcaption><h3>Steam Deck, SteamOS, Linux</h3><span class="mono-label">Flatpak · all by gamepad in Gaming Mode</span></figcaption>
-      </figure>
-      <figure class="dev-mac" data-reveal style="--d:.08s">
-        <div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link in a session: the computer's image full screen, with the measurement bar at the top (9.4 ms, 120 frames per second, 3456 × 2234, HEVC, 82 Mbit/s, no loss)">
+<div class="shot use-phone" style="--w:390;--h:844" role="img" aria-label="KyberNow Link on iPhone: the home screen in portrait">
+          <div class="sc sc-phone" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><div class="sc-actions"><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#qr-code"/></svg></span><span class="sc-ghost sc-sq"><svg class="ic"><use href="/assets/icons.svg#gear"/></svg></span></div></header>
+            <section class="sc-host">
+              <p class="sc-eyebrow"><i></i>Online · Local network</p>
+              <p class="sc-name">Atelier</p>
+              <p class="sc-meta">Windows 11 Pro 24H2 · RTX 3080 Ti<br>192.168.1.20</p>
+              <p class="sc-line">A 2556 × 1179 display at 120 Hz is waiting.</p>
+            </section>
+            <div class="sc-cta"><span class="sc-primary">Connect<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></span><span class="sc-seg"><b>Game</b><span>Desktop</span><span>Max</span></span></div>
+            <aside class="sc-card sc-last"><span><p class="sc-eyebrow">Last session</p><p class="sc-sub">yesterday, 21:40 · 48&nbsp;min</p></span><p class="sc-big"><b>12.8</b><span>ms median</span></p></aside>
+            <section class="sc-bottom">
+              <p class="sc-eyebrow">Your other computers</p>
+              <div class="sc-tiles">
+                <div class="sc-tile off"><i></i><span><b>Laptop</b><small>Offline</small></span></div>
+                <div class="sc-tile found"><i></i><span><b>Lounge-PC</b><em>Found on the network</em></span><span class="sc-ghost">Add</span></div>
+                <div class="sc-tile add"><svg class="ic"><use href="/assets/icons.svg#plus"/></svg>Add a computer</div>
+              </div>
+            </section>
+          </div>
+        </div>
+        </div>
+        <p class="mono-label">In your hands</p>
+        <h3>The phone, the tablet, the handheld</h3>
+        <p>Direct touch or trackpad on the phone and the tablet, everything with the controller on the Steam Deck. A keyboard, a controller or an external display take over as soon as you plug them in.</p>
+        <ul class="use-devices"><li class="tag">iPhone and iPad</li><li class="tag">Android</li><li class="tag">Steam Deck</li></ul>
+      </article>
+      <article class="card use" data-reveal style="--d:.16s">
+        <div class="use-media use-media-desk">
+<div class="shot" style="--w:1280;--h:800" role="img" aria-label="KyberNow Link in a session: the computer's image full screen, with the measurement bar at the top (9.4 ms, 120 frames per second, 3456 × 2234, HEVC, 82 Mbit/s, no loss)">
           <div class="sc sc-session" aria-hidden="true">
             <div class="sc-bg"></div>
             <div class="sc-win"><i></i><i></i><i></i><i></i><i></i></div>
@@ -554,40 +561,34 @@
             <p class="sc-tip">The controls are at the top of the screen, on hover. ⌃⌥⌘F: window · ⌃⌥⌘D: quit.</p>
           </div>
         </div>
-        <figcaption><h3>Mac, Windows, and the browser</h3><span class="mono-label">In a session: measurements at the top of the screen, on hover</span></figcaption>
-      </figure>
-      <figure class="dev-pi" data-reveal>
-        <div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link OS on a Raspberry Pi: the first boot, Controller step, waiting for a controller to pair">
-          <div class="sc sc-os" aria-hidden="true">
-            <div class="sc-bg"></div>
-            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-os-tag">Link OS · Raspberry Pi 5</span></header>
-            <img class="sc-mark" src="/assets/img/kybernow-mark-now-lit-dark.svg" alt="" width="96" height="96">
-            <p class="sc-eyebrow">First boot · 1 of 5</p>
-            <p class="sc-name">Controller</p>
-            <p class="sc-line">Put your controller in pairing mode: it is accepted without a code.</p>
-            <p class="sc-alt">Mettez-la en mode association : elle est acceptée sans code.</p>
-            <p class="sc-listen"><i></i>Bluetooth listening</p>
-            <div class="sc-pair"><span><b>Xbox</b>pairing button, next to the USB port</span><span><b>DualSense</b>Create + PS</span><span><b>Switch Pro</b>SYNC</span><span><b>USB, remote, keyboard</b>any key will do</span></div>
-            <div class="sc-dots"><span class="on">Controller</span><span>Language</span><span>Network</span><span>Use</span><span>Computer</span></div>
-          </div>
         </div>
-        <figcaption>
-          <h3>Raspberry Pi: KyberNow Link OS, the card that does nothing else</h3>
-          <p>An image to flash with Raspberry Pi Imager. The Pi boots like a console: the mark, the light, the sound, then Link's home screen, on a TV with a controller or at a desk with a keyboard. No Linux desktop, nothing to set up before the first boot.</p>
-          <ul class="ticks ticks-on">
-            <li>First boot with a controller, paired without a code; language, network, use, computer</li>
-            <li>HDMI-CEC: the TV remote drives the interface, standby and wake-up included</li>
-            <li>Whole-OS A/B updates: tried at reboot, automatic rollback if it does not boot</li>
-            <li>Pi 3, 4 and 5, Pi 400 and 500, Compute Module; HEVC up to 4K at 60&nbsp;Hz on Pi 4 and 5</li>
-          </ul>
-          <p class="notice-links"><a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-OS.img.xz">Download the image<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#raspberry-pi">Flash the card, or the app alone on Raspberry Pi OS<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
-        </figcaption>
-      </figure>
+        <p class="mono-label">At the desk</p>
+        <h3>Another computer, as if it were yours</h3>
+        <p>Keyboard, mouse and clipboard, at the display's refresh rate. Session measurements sit at the top of the screen, on hover. On a borrowed computer, the browser is enough.</p>
+        <ul class="use-devices"><li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Browser</li></ul>
+      </article>
     </div>
 
-    <ul class="platforms" data-reveal>
-      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone and iPad</li><li class="tag">Android and Android TV</li><li class="tag">LG TVs</li><li class="tag">Raspberry Pi</li><li class="tag">Browser</li>
-    </ul>
+    <figure class="pi-feature" data-reveal>
+      <div class="pi-media">
+        <div class="pi-shots">
+          <img class="pi-home" src="/assets/img/pi/link-os-home.webp" width="1600" height="900" loading="lazy" decoding="async" alt="KyberNow Link OS on a TV: the living-room home, with the “Tour du salon” computer online, the Ready to play column (controllers, 5.1 sound, 4K at 60 Hz, HEVC by the Pi's decoder) and the button legend">
+          <img class="pi-boot" src="/assets/img/pi/link-os-allumage.webp" width="1280" height="800" loading="lazy" decoding="async" alt="KyberNow Link OS starting up, captured under emulation: the lit KyberNow mark and the loading bar">
+        </div>
+        <p class="mono-label">Start-up, then the living-room home</p>
+      </div>
+      <figcaption>
+        <h3>Raspberry Pi: KyberNow Link OS, a box for your TV</h3>
+        <p>An image to flash with Raspberry Pi Imager. The Pi boots straight into Link, without a Linux desktop: plugged into the TV, it is a small box that shows your computer, up to 4K. Nothing to set up before the first boot, and the OS updates itself.</p>
+        <ul class="ticks ticks-on">
+            <li>Boots into Link, with KyberNow's start-up light and sound</li>
+            <li>HEVC decoded by the chip, up to 4K at 60&nbsp;Hz on Pi 4 and 5; 1080p on Pi 3</li>
+            <li>HDMI-CEC: the TV remote is enough, standby and wake included</li>
+            <li>Whole-OS A/B updates: tried on reboot, automatic rollback if it does not boot</li>
+        </ul>
+        <p class="notice-links"><a href="https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-OS.img.xz">Download the image<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#raspberry-pi">Flash the card, or the app alone on Raspberry Pi OS<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+      </figcaption>
+    </figure>
   </div>
 </section>
 
@@ -625,8 +626,8 @@
       </article>
       <article class="card" data-reveal style="--d:.08s">
         <svg class="ic-lg"><use href="/assets/icons.svg#cursor-click"/></svg>
-        <h3>All by gamepad, built in</h3>
-        <p>On the TV, the Deck or Android TV, the whole app is navigated with the gamepad: the home screen, the profiles, the settings, the session menu. Nothing to add, no third-party software.</p>
+        <h3>All by gamepad, in every app</h3>
+        <p>The gamepad is not just for playing: in every Link app it drives everything, the home screen, the profiles, the settings, the session menu. On the TV as on the Deck, the phone or the computer. Nothing to add, no third-party software.</p>
         <div class="pad-demo" aria-hidden="true"><span><kbd>A</kbd>Connect</span><span><kbd>B</kbd>Back</span><span><kbd>L1</kbd><kbd>R1</kbd>Profile</span><span><kbd>L1</kbd><kbd>R1</kbd><kbd>Start</kbd><kbd>Select</kbd>Session menu</span></div>
       </article>
     </div>
