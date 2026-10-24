@@ -71,7 +71,7 @@
    "description": "Streaming de jeux et de bureau à distance, libre et gratuit : votre ordinateur sur tous vos appareils, dans une app ou dans le navigateur. Latence médiane de 9,4 ms mesurée sur réseau local, transport QUIC chiffré, écran virtuel à la définition de l'appareil. Alternative nouvelle génération à Sunshine et Moonlight, construite sur le moteur Kyber.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Streaming de jeux et bureau à distance",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, navigateur web",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, Raspberry Pi OS, KyberNow Link OS, navigateur web",
    "softwareHelp": "https://www.kybernow.app/guide/",
    "subjectOf": "https://www.kybernow.app/technologie/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -161,9 +161,9 @@
    "@id": "https://www.kybernow.app/#link",
    "name": "KyberNow Link",
    "url": "https://www.kybernow.app/#famille",
-   "description": "Les apps qui affichent l'image de l'ordinateur sur vos appareils, avec décodage matériel : Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, Linux et Steam Deck, et une version web servie par la Station.",
+   "description": "Les apps qui affichent l'image de l'ordinateur sur vos appareils, avec décodage matériel : Mac, Windows, Apple TV, iPhone et iPad, Android, téléviseurs LG, Linux et Steam Deck, Raspberry Pi (et KyberNow Link OS, l'image à flasher), et une version web servie par la Station.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, navigateur web",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, Raspberry Pi OS, KyberNow Link OS, navigateur web",
    "softwareHelp": "https://www.kybernow.app/guide/#appareil",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip",
@@ -554,10 +554,37 @@
         </div>
         <figcaption><h3>Mac, Windows, et le navigateur</h3><span class="mono-label">En session&#8239;: mesures en haut de l'écran, au survol</span></figcaption>
       </figure>
+      <figure class="dev-pi" data-reveal>
+        <div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link OS sur un Raspberry Pi : le premier démarrage, étape Manette, en attente d'une manette à associer">
+          <div class="sc sc-os" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-os-tag">Link OS · Raspberry Pi 5</span></header>
+            <img class="sc-mark" src="/assets/img/kybernow-mark-now-lit-dark.svg" alt="" width="96" height="96">
+            <p class="sc-eyebrow">Premier démarrage · 1 sur 5</p>
+            <p class="sc-name">Manette</p>
+            <p class="sc-line">Mettez-la en mode association&#8239;: elle est acceptée sans code.</p>
+            <p class="sc-alt">Put your controller in pairing mode: it is accepted without a code.</p>
+            <p class="sc-listen"><i></i>Bluetooth à l'écoute</p>
+            <div class="sc-pair"><span><b>Xbox</b>bouton d'association, près du port USB</span><span><b>DualSense</b>Create + PS</span><span><b>Switch Pro</b>SYNC</span><span><b>USB, télécommande, clavier</b>une touche suffit</span></div>
+            <div class="sc-dots"><span class="on">Manette</span><span>Langue</span><span>Réseau</span><span>Usage</span><span>Ordinateur</span></div>
+          </div>
+        </div>
+        <figcaption>
+          <h3>Raspberry Pi&#8239;: KyberNow Link OS, la carte qui ne fait que ça</h3>
+          <p>Une image à flasher avec Raspberry Pi Imager. Le Pi démarre comme une console&#8239;: le symbole, la lumière, le son, puis l'accueil de Link, au téléviseur à la manette ou au bureau au clavier. Pas de bureau Linux, rien à régler avant le premier démarrage.</p>
+          <ul class="ticks ticks-on">
+            <li>Premier démarrage à la manette, associée sans code&#8239;; langue, réseau, usage, ordinateur</li>
+            <li>HDMI-CEC&#8239;: la télécommande du téléviseur conduit l'interface, veille et réveil compris</li>
+            <li>Mise à jour de tout l'OS en A/B&#8239;: essayée au redémarrage, retour automatique si elle ne démarre pas</li>
+            <li>Pi 3, 4 et 5, Pi 400 et 500, Compute Module&#8239;; HEVC jusqu'à la 4K à 60&nbsp;Hz sur Pi 4 et 5</li>
+          </ul>
+          <p class="notice-links"><a href="/guide/#raspberry-pi">Flasher la carte<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/guide/#raspberry-pi">Ou l'app seule, sur Raspberry Pi OS<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        </figcaption>
+      </figure>
     </div>
 
     <ul class="platforms" data-reveal>
-      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone et iPad</li><li class="tag">Android et Android TV</li><li class="tag">Téléviseurs LG</li><li class="tag">Navigateur</li>
+      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone et iPad</li><li class="tag">Android et Android TV</li><li class="tag">Téléviseurs LG</li><li class="tag">Raspberry Pi</li><li class="tag">Navigateur</li>
     </ul>
   </div>
 </section>
@@ -587,7 +614,7 @@
       <article class="card" data-reveal>
         <svg class="ic-lg"><use href="/assets/icons.svg#rocket-launch"/></svg>
         <h3>Votre ordinateur devient une console</h3>
-        <p>Pour chaque appareil, choisissez dans KyberNow Admin l'app qui s'ouvre sur l'ordinateur dès que la session commence&#8239;: Steam Big Picture sur l'Apple TV, Playnite sur le Deck, rien sur le Mac. Elle se ferme à la fin. Sans chemin à taper&#8239;: les apps viennent du menu Démarrer, avec leurs icônes.</p>
+        <p>Pour chaque appareil, choisissez dans KyberNow Admin l'app qui s'ouvre sur l'ordinateur dès que la session commence&#8239;: Steam Big Picture sur l'Apple TV, Playnite sur le Deck, rien sur le Mac. Elle se ferme à la fin. Sans chemin à taper&#8239;: les apps viennent du menu Démarrer, avec leurs icônes. Avec un Raspberry Pi sous KyberNow Link OS, la console tient dans la main.</p>
         <div class="launch-demo" aria-hidden="true">
           <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Apple TV salon</b><span>Steam Big Picture</span></div>
           <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#game-controller"/></svg>Steam Deck</b><span>Playnite</span></div>
@@ -727,16 +754,18 @@
         <ul class="specs"><li>Ordinateur, tablette ou téléphone. Servi par la Station, rien à installer</li><li class="addr">https://<i>ordinateur</i>:<i>port</i>/ecran</li></ul>
         <a class="btn btn-ghost" href="/guide/#navigateur"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg>Comment l'ouvrir</a>
       </article>
+      <article class="dl-card" data-reveal style="--d:.45s" data-os="pi">
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
+        <p class="mono-label">Sur votre Raspberry Pi</p>
+        <h3>KyberNow Link OS</h3>
+        <ul class="specs"><li>Pi 3, 4 et 5, Pi 400 et 500, Compute Module, 64 bits&#8239;; carte microSD de 8&nbsp;Go ou SSD. Une image à flasher avec Raspberry Pi Imager&#8239;: le Pi démarre dans Link, au téléviseur ou au bureau</li><li data-size="KyberNow-Link-OS.img.xz">KyberNow-Link-OS.img.xz · dès la version 0.4.8</li></ul>
+        <a class="btn btn-ghost" href="/guide/#raspberry-pi"><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg>Flasher la carte</a>
+        <a class="dl-more" href="/guide/#raspberry-pi">L'app seule, sur Raspberry Pi OS (paquet .deb)</a>
+      </article>
     </div>
 
-    <!-- KyberLink OS (Raspberry Pi) : à ajouter ici en carte de téléchargement, et dans « Sur vos appareils », quand il sera publié. -->
-    <div class="soon" data-reveal>
-      <p class="mono-label">Apps Link à venir</p>
-      <ul>
-        <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Prévu</span></li>
-      </ul>
-      <p class="soon-note">En attendant, le Raspberry Pi peut déjà ouvrir Link dans le navigateur.</p>
-    </div>
+    <!-- KyberNow Link OS et le paquet .deb sont joints aux versions à partir de la 0.4.8 : la carte mène au guide
+         tant que la version publiée ne porte pas les fichiers (lien direct releases/latest/download/ ensuite). -->
 
     <aside class="notice notice-beta" data-reveal>
       <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>

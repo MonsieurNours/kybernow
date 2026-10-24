@@ -71,7 +71,7 @@
    "description": "Free, open-source game and remote desktop streaming: your computer on all your devices, in an app or in the browser. 9.4 ms median latency measured on a local network, encrypted QUIC transport, virtual display at the device's resolution. A next-gen alternative to Sunshine and Moonlight, built on the Kyber engine.",
    "applicationCategory": "MultimediaApplication",
    "applicationSubCategory": "Game streaming and remote desktop",
-   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, web browser",
+   "operatingSystem": "Windows 10, Windows 11, macOS 14+, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, Raspberry Pi OS, KyberNow Link OS, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/",
    "subjectOf": "https://www.kybernow.app/en/technology/",
    "downloadUrl": "https://github.com/MonsieurNours/kybernow/releases/latest",
@@ -163,7 +163,7 @@
    "url": "https://www.kybernow.app/en/#famille",
    "description": "The apps that display the computer's image on your devices, with hardware decoding: Mac, Windows, Apple TV, iPhone and iPad, Android, LG TVs, Linux and Steam Deck, plus a web version served by the Station.",
    "applicationCategory": "MultimediaApplication",
-   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, web browser",
+   "operatingSystem": "macOS 14+, Windows 10 22H2, Windows 11, tvOS 18+, iOS 18+, iPadOS 18+, Android 11+, webOS 5+, Linux, SteamOS, Raspberry Pi OS, KyberNow Link OS, web browser",
    "softwareHelp": "https://www.kybernow.app/en/guide/#appareil",
    "downloadUrl": [
     "https://github.com/MonsieurNours/kybernow/releases/latest/download/KyberNow-Link-macOS.zip",
@@ -554,10 +554,37 @@
         </div>
         <figcaption><h3>Mac, Windows, and the browser</h3><span class="mono-label">In a session: measurements at the top of the screen, on hover</span></figcaption>
       </figure>
+      <figure class="dev-pi" data-reveal>
+        <div class="shot" style="--w:1920;--h:1080" role="img" aria-label="KyberNow Link OS on a Raspberry Pi: the first boot, Controller step, waiting for a controller to pair">
+          <div class="sc sc-os" aria-hidden="true">
+            <div class="sc-bg"></div>
+            <header class="sc-top"><img src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40"><span class="sc-os-tag">Link OS · Raspberry Pi 5</span></header>
+            <img class="sc-mark" src="/assets/img/kybernow-mark-now-lit-dark.svg" alt="" width="96" height="96">
+            <p class="sc-eyebrow">First boot · 1 of 5</p>
+            <p class="sc-name">Controller</p>
+            <p class="sc-line">Put your controller in pairing mode: it is accepted without a code.</p>
+            <p class="sc-alt">Mettez-la en mode association : elle est acceptée sans code.</p>
+            <p class="sc-listen"><i></i>Bluetooth listening</p>
+            <div class="sc-pair"><span><b>Xbox</b>pairing button, next to the USB port</span><span><b>DualSense</b>Create + PS</span><span><b>Switch Pro</b>SYNC</span><span><b>USB, remote, keyboard</b>any key will do</span></div>
+            <div class="sc-dots"><span class="on">Controller</span><span>Language</span><span>Network</span><span>Use</span><span>Computer</span></div>
+          </div>
+        </div>
+        <figcaption>
+          <h3>Raspberry Pi: KyberNow Link OS, the card that does nothing else</h3>
+          <p>An image to flash with Raspberry Pi Imager. The Pi boots like a console: the mark, the light, the sound, then Link's home screen, on a TV with a controller or at a desk with a keyboard. No Linux desktop, nothing to set up before the first boot.</p>
+          <ul class="ticks ticks-on">
+            <li>First boot with a controller, paired without a code; language, network, use, computer</li>
+            <li>HDMI-CEC: the TV remote drives the interface, standby and wake-up included</li>
+            <li>Whole-OS A/B updates: tried at reboot, automatic rollback if it does not boot</li>
+            <li>Pi 3, 4 and 5, Pi 400 and 500, Compute Module; HEVC up to 4K at 60&nbsp;Hz on Pi 4 and 5</li>
+          </ul>
+          <p class="notice-links"><a href="/en/guide/#raspberry-pi">Flash the card<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="/en/guide/#raspberry-pi">Or the app alone, on Raspberry Pi OS<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        </figcaption>
+      </figure>
     </div>
 
     <ul class="platforms" data-reveal>
-      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone and iPad</li><li class="tag">Android and Android TV</li><li class="tag">LG TVs</li><li class="tag">Browser</li>
+      <li class="tag">Mac</li><li class="tag">Windows</li><li class="tag">Linux</li><li class="tag">Steam Deck</li><li class="tag">Apple TV</li><li class="tag">iPhone and iPad</li><li class="tag">Android and Android TV</li><li class="tag">LG TVs</li><li class="tag">Raspberry Pi</li><li class="tag">Browser</li>
     </ul>
   </div>
 </section>
@@ -587,7 +614,7 @@
       <article class="card" data-reveal>
         <svg class="ic-lg"><use href="/assets/icons.svg#rocket-launch"/></svg>
         <h3>Your computer becomes a console</h3>
-        <p>For each device, choose in KyberNow Admin the app that opens on the computer as soon as the session starts: Steam Big Picture on the Apple TV, Playnite on the Deck, nothing on the Mac. It closes at the end. No path to type: the apps come from the Start menu, with their icons.</p>
+        <p>For each device, choose in KyberNow Admin the app that opens on the computer as soon as the session starts: Steam Big Picture on the Apple TV, Playnite on the Deck, nothing on the Mac. It closes at the end. No path to type: the apps come from the Start menu, with their icons. With a Raspberry Pi running KyberNow Link OS, the console fits in your hand.</p>
         <div class="launch-demo" aria-hidden="true">
           <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#television"/></svg>Lounge Apple TV</b><span>Steam Big Picture</span></div>
           <div class="is-on"><b><svg class="ic"><use href="/assets/icons.svg#game-controller"/></svg>Steam Deck</b><span>Playnite</span></div>
@@ -727,16 +754,18 @@
         <ul class="specs"><li>Computer, tablet or phone. Served by the Station, nothing to install</li><li class="addr">https://<i>computer</i>:<i>port</i>/ecran</li></ul>
         <a class="btn btn-ghost" href="/en/guide/#navigateur"><svg class="ic"><use href="/assets/icons.svg#browser"/></svg>How to open it</a>
       </article>
+      <article class="dl-card" data-reveal style="--d:.45s" data-os="pi">
+        <img class="dl-logo" src="/assets/img/kybernow-link-dark.svg" alt="" width="219" height="40">
+        <p class="mono-label">On your Raspberry Pi</p>
+        <h3>KyberNow Link OS</h3>
+        <ul class="specs"><li>Pi 3, 4 and 5, Pi 400 and 500, Compute Module, 64-bit; 8&nbsp;GB microSD card or SSD. An image to flash with Raspberry Pi Imager: the Pi boots into Link, on a TV or at a desk</li><li data-size="KyberNow-Link-OS.img.xz">KyberNow-Link-OS.img.xz · from version 0.4.8</li></ul>
+        <a class="btn btn-ghost" href="/en/guide/#raspberry-pi"><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg>Flash the card</a>
+        <a class="dl-more" href="/en/guide/#raspberry-pi">The app alone, on Raspberry Pi OS (.deb package)</a>
+      </article>
     </div>
 
-    <!-- KyberLink OS (Raspberry Pi): add a download card here, and a device in “On your devices”, once it is published. -->
-    <div class="soon" data-reveal>
-      <p class="mono-label">Upcoming Link apps</p>
-      <ul>
-        <li><svg class="ic"><use href="/assets/icons.svg#circuitry"/></svg><b>Raspberry Pi</b><span class="tag">Planned</span></li>
-      </ul>
-      <p class="soon-note">Until then, the Raspberry Pi can already open Link in the browser.</p>
-    </div>
+    <!-- KyberNow Link OS and the .deb package ship with releases from 0.4.8 on: the card points to the guide
+         until the published release carries the files (direct releases/latest/download/ link afterwards). -->
 
     <aside class="notice notice-beta" data-reveal>
       <svg class="ic-lg"><use href="/assets/icons.svg#flask"/></svg>

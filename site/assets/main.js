@@ -323,9 +323,9 @@ if (osTiles.length) {
     return true;
   };
   const ua = navigator.userAgent;
-  // Navigateur de Steam (mode Jeu, Big Picture) : le Steam Deck ; autre Linux : le bureau.
+  // Navigateur de Steam (mode Jeu, Big Picture) : le Steam Deck ; Chromium de Raspberry Pi OS (aarch64) : le Pi ; autre Linux : le bureau.
   const guess = /Web0S|webOS/.test(ua) ? 'lg' : /Android/.test(ua) ? 'android' : /iPhone|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) ? 'iphone'
-    : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : /Valve Steam|SteamOS/.test(ua) ? 'steam-deck' : /Linux/.test(ua) ? 'linux' : 'navigateur';
+    : /Macintosh|Mac OS X/.test(ua) ? 'mac' : /Windows/.test(ua) ? 'windows' : /Valve Steam|SteamOS/.test(ua) ? 'steam-deck' : /Raspberry Pi|aarch64.*Chromium/.test(ua) ? 'raspberry-pi' : /Linux/.test(ua) ? 'linux' : 'navigateur';
   // Arrivée sur une ancre : l'installation était masquée, le navigateur n'a pas pu y aller.
   // #android-tv : ancre des premiers liens partagés.
   const hash = location.hash.slice(1) === 'android-tv' ? 'android' : location.hash.slice(1);

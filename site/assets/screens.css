@@ -309,3 +309,27 @@
 .sc-bar > span:last-child i .ic { width: 16px; height: 16px; fill: var(--kn-frost-2); }
 .sc-bar > span:last-child i.bad .ic { fill: var(--kn-bad); }
 .sc-session .sc-tip { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); font-size: 12px; color: var(--kn-mist); background: rgb(9 13 18 / .6); padding: 4px 10px; border-radius: 6px; white-space: nowrap; }
+
+/* KyberNow Link OS : premier démarrage, écran « Manette » (1920 × 1080, au téléviseur) */
+.sc-os { font-size: 22px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.sc-os .sc-bg { background: radial-gradient(50% 50% at 50% 42%, rgb(109 91 255 / .16), transparent 70%), #05070A; }
+.sc-os .sc-bg::after { content: none; }
+.sc-os > * { position: relative; }
+.sc-os .sc-top { position: absolute; left: 96px; right: 96px; top: 60px; }
+.sc-os .sc-top img { height: 44px; }
+.sc-os .sc-os-tag { font: 500 15px/1 var(--kn-font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--kn-mist); padding: 9px 12px; border-radius: 7px; box-shadow: inset 0 0 0 1.5px var(--kn-line-2); }
+.sc-os .sc-mark { width: 96px; height: 96px; margin-bottom: 44px; filter: drop-shadow(0 0 1px #F4F1FF) drop-shadow(0 0 10px #9A8CFF) drop-shadow(0 0 32px rgb(109 91 255 / .8)); }
+.sc-os .sc-eyebrow { justify-content: center; font-size: 18px; letter-spacing: .14em; color: var(--kn-mist); }
+.sc-os .sc-eyebrow i { display: none; }
+.sc-os .sc-name { font-size: 132px; margin-top: 18px; }
+.sc-os .sc-line { font-size: 30px; color: var(--kn-frost); margin-top: 30px; max-width: 34em; }
+.sc-os .sc-alt { font-size: 24px; color: var(--kn-mist); margin-top: 10px; }
+.sc-os .sc-listen { display: inline-flex; align-items: center; gap: 14px; margin-top: 44px; height: 64px; padding: 0 28px; border-radius: 32px; background: rgb(14 20 26 / .8); box-shadow: inset 0 0 0 1.5px var(--kn-line-2); font: 500 19px/1 var(--kn-font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--kn-frost-2); }
+.sc-os .sc-listen i { width: 12px; height: 12px; border-radius: 50%; background: var(--kn-signal); box-shadow: 0 0 12px var(--kn-signal); }
+.sc-os .sc-pair { display: flex; gap: 40px; margin-top: 40px; font-size: 20px; color: var(--kn-frost-2); }
+.sc-os .sc-pair span b { display: block; font-weight: 650; color: var(--kn-frost); margin-bottom: 4px; }
+.sc-os .sc-dots { position: absolute !important; left: 96px; right: 96px; bottom: 56px; display: flex; justify-content: center; gap: 36px; font: 500 17px/1 var(--kn-font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--kn-faint); }
+.sc-os .sc-dots span { display: flex; align-items: center; gap: 12px; }
+.sc-os .sc-dots span::before { content: ""; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--kn-line-2); }
+.sc-os .sc-dots span.on { color: var(--kn-frost); }
+.sc-os .sc-dots span.on::before { background: var(--kn-signal); box-shadow: 0 0 10px var(--kn-signal); }
