@@ -45,14 +45,14 @@ p b { color: #E3EDF0; font-weight: 600; }
 </div>
 <script>
 const T = {
-  fr: { label: "Streaming d'ordinateur", beta: 'Bêta',
-        title: 'Jeu et bureau<br><strong>à distance,<br>en 9,4&nbsp;ms.</strong>',
-        text: "Votre ordinateur sur tous vos appareils. L'alternative <b>libre et nouvelle génération</b> à Sunshine&nbsp;+&nbsp;Moonlight.",
-        platforms: 'Libre · Gratuit · Chiffré' },
-  en: { label: 'Computer streaming', beta: 'Beta',
-        title: 'Remote gaming<br><strong>and desktop,<br>in 9.4&nbsp;ms.</strong>',
-        text: 'Your computer on all your devices. The <b>open&#8209;source, next&#8209;gen</b> alternative to Sunshine&nbsp;+&nbsp;Moonlight.',
-        platforms: 'Open source · Free · Encrypted' },
+  fr: { label: 'Jeu et bureau à distance', beta: 'Bêta',
+        title: 'Votre PC,<br><strong>sur tous<br>vos écrans.</strong>',
+        text: "Jouez et travaillez sur votre ordinateur depuis tous vos appareils. L'alternative <b>libre et gratuite</b> à Sunshine&nbsp;+&nbsp;Moonlight.",
+        platforms: 'Gratuit · Libre · Sans compte' },
+  en: { label: 'Remote play and desktop', beta: 'Beta',
+        title: 'Your PC,<br><strong>on every<br>screen.</strong>',
+        text: 'Play and work on your computer from all your devices. The <b>free, open&#8209;source</b> alternative to Sunshine&nbsp;+&nbsp;Moonlight.',
+        platforms: 'Free · Open source · No account' },
 };
 const t = T[new URLSearchParams(location.search).get('lang')] || T.fr;
 document.documentElement.lang = t === T.en ? 'en' : 'fr';

@@ -3,27 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>KyberNow · Technology: the path of an image in 9.4 ms, QUIC, Kyber, comparison with Sunshine and Moonlight</title>
-<meta name="description" content="How KyberNow fits in 9.4 ms: the measured path of an image, the encrypted QUIC transport, the Kyber engine, the comparison with Sunshine and Moonlight and the features in detail.">
+<title>KyberNow · Technology: measured latency, QUIC, the Kyber engine and a comparison with Sunshine and Moonlight</title>
+<meta name="description" content="How a frame gets from your PC to your screen, with a median latency of 9.4&nbsp;ms measured on a local network, plus encrypted transport over QUIC, the Kyber engine and a comparison with Sunshine and Moonlight.">
 <link rel="canonical" href="https://www.kybernow.app/en/technology/">
 <meta name="theme-color" content="#05070A">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="KyberNow">
 <meta property="og:locale" content="en_GB">
 <meta property="og:locale:alternate" content="fr_FR">
-<meta property="og:title" content="KyberNow, the technology: 9.4 ms from the graphics card to your screen">
-<meta property="og:description" content="How KyberNow fits in 9.4 ms: the measured path of an image, the encrypted QUIC transport, the Kyber engine, the comparison with Sunshine and Moonlight and the features in detail.">
+<meta property="og:title" content="How KyberNow works: latency, QUIC and the Kyber engine">
+<meta property="og:description" content="How a frame gets from your PC to your screen, with a median latency of 9.4&nbsp;ms measured on a local network, plus encrypted transport over QUIC, the Kyber engine and a comparison with Sunshine and Moonlight.">
 <meta property="og:url" content="https://www.kybernow.app/en/technology/">
 <meta property="og:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
 <meta property="og:image:type" content="image/jpeg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
+<meta property="og:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="KyberNow, the technology: 9.4 ms from the graphics card to your screen">
-<meta name="twitter:description" content="How KyberNow fits in 9.4 ms: the measured path of an image, the encrypted QUIC transport, the Kyber engine, the comparison with Sunshine and Moonlight and the features in detail.">
+<meta name="twitter:title" content="How KyberNow works: latency, QUIC and the Kyber engine">
+<meta name="twitter:description" content="How a frame gets from your PC to your screen, with a median latency of 9.4&nbsp;ms measured on a local network, plus encrypted transport over QUIC, the Kyber engine and a comparison with Sunshine and Moonlight.">
 <meta name="twitter:image" content="https://www.kybernow.app/assets/og/kybernow-en.jpg">
-<meta name="twitter:image:alt" content="KyberNow: remote gaming and desktop in 9.4 ms, the open-source, next-gen alternative to Sunshine and Moonlight">
+<meta name="twitter:image:alt" content="KyberNow: your PC on every screen. Play and work on your computer from all your devices, the free and open-source alternative to Sunshine and Moonlight.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="alternate" hreflang="fr" href="https://www.kybernow.app/technologie/">
@@ -41,7 +41,7 @@
 } }
 </script>
 <script type="application/ld+json">
-{"@context":"https://schema.org","@type":"WebPage","@id":"https://www.kybernow.app/en/technology/","url":"https://www.kybernow.app/en/technology/","name":"KyberNow, the technology: 9.4 ms from the graphics card to your screen","inLanguage":"en","isPartOf":{"@id":"https://www.kybernow.app/#site"},"about":{"@id":"https://www.kybernow.app/#kybernow"}}
+{"@context":"https://schema.org","@type":"WebPage","@id":"https://www.kybernow.app/en/technology/","url":"https://www.kybernow.app/en/technology/","name":"How KyberNow works: latency, QUIC and the Kyber engine","inLanguage":"en","isPartOf":{"@id":"https://www.kybernow.app/#site"},"about":{"@id":"https://www.kybernow.app/#kybernow"}}
 </script>
 </head>
 <body>
@@ -52,9 +52,9 @@
 <header class="nav" id="nav">
   <a class="nav-logo" href="/en/" aria-label="KyberNow, beta version, home"><img src="/assets/img/kybernow-logo-dark.svg" alt="KyberNow" width="132" height="18"><span class="beta" aria-hidden="true">Beta</span></a>
   <nav class="nav-links" aria-label="Sections">
+    <a href="/en/#appareils">Uses</a>
     <a href="/en/#apps">The apps</a>
-    <a href="/en/#appareils">Devices</a>
-    <a href="/en/technology/" class="is-active" aria-current="page">Technology</a>
+    <a href="/en/technology/">Technology</a>
     <a href="/en/technology/#comparer">Compare</a>
     <a href="/en/guide/">Guide</a>
   </nav>
@@ -67,7 +67,7 @@
 </header>
 <div class="menu" id="menu" hidden>
   <nav aria-label="Menu">
-    <a href="/en/technology/#trajet">The path of an image</a>
+    <a href="/en/technology/#trajet">A frame's journey</a>
     <a href="/en/technology/#quic">QUIC</a>
     <a href="/en/technology/#kyber">Kyber</a>
     <a href="/en/technology/#comparer">Compare</a>
@@ -86,10 +86,10 @@
 <section class="page-hero" data-scene="guide">
   <div class="wrap">
     <p class="label" data-reveal>Technology</p>
-    <h1 class="title page-title" data-split>How an image fits <strong>in 9.4&nbsp;ms.</strong></h1>
-    <p class="lede" data-reveal>The measured path of an image, the QUIC transport, the Kyber engine, the comparison with Sunshine and Moonlight, and what each feature does. Every figure here was measured, and the measurement is dated.</p>
+    <h1 class="title page-title" data-split>How <strong>KyberNow</strong> works.</h1>
+    <p class="lede" data-reveal>Here you'll find a frame's journey from your PC to your screen, with the time each step takes, then transport over QUIC, the Kyber engine that KyberNow is built on, a comparison with Sunshine and Moonlight and a closer look at each feature. Every measurement comes with its date and the hardware used.</p>
     <ul class="quick" data-reveal>
-      <li><a href="#trajet"><span>01</span>The path</a></li>
+      <li><a href="#trajet"><span>01</span>The journey</a></li>
       <li><a href="#quic"><span>02</span>QUIC</a></li>
       <li><a href="#kyber"><span>03</span>Kyber</a></li>
       <li><a href="#comparer"><span>04</span>Compare</a></li>
@@ -98,31 +98,31 @@
   </div>
 </section>
 
-<!-- 1 · The path of an image (pinned) -->
+<!-- 1 · A frame's journey (pinned) -->
 <section class="trajet" id="trajet" data-scene="flow">
   <div class="trajet-sticky">
     <div class="wrap">
       <div class="trajet-head">
-        <p class="label">The path of an image</p>
-        <h2 class="title">From the graphics card <strong>to your screen.</strong></h2>
+        <p class="label">A frame's journey</p>
+        <h2 class="title">Six steps <strong>from PC to screen.</strong></h2>
       </div>
 
       <div class="counter" aria-live="off">
         <span class="counter-value" id="counter">0.00</span><span class="counter-unit">ms</span>
-        <p class="counter-caption" id="counter-caption">Scroll: from capture to display.</p>
+        <p class="counter-caption" id="counter-caption">Time since the frame was captured, as a median on a local network.</p>
       </div>
 
       <ol class="stages" id="stages">
-        <li data-ms="0"><span class="stage-n">01</span><b>Capture</b><span>The virtual display, at your device's resolution</span><em>t&nbsp;=&nbsp;0</em></li>
-        <li data-ms="5.19"><span class="stage-n">02</span><b>Encoding</b><span>On the graphics card or the processor</span><em>5.19&nbsp;ms</em></li>
-        <li data-ms="0.12"><span class="stage-n">03</span><b>Sending</b><span>Kyber, over QUIC</span><em>0.12&nbsp;ms</em></li>
-        <li data-ms="0.66"><span class="stage-n">04</span><b>Network</b><span>Wired or Wi-Fi, encrypted</span><em>0.66&nbsp;ms</em></li>
-        <li data-ms="2.50"><span class="stage-n">05</span><b>Decoding</b><span>In hardware, on your device</span><em>2.50&nbsp;ms</em></li>
-        <li data-ms="0.62"><span class="stage-n">06</span><b>Display</b><span>As soon as the image is ready</span><em>0.62&nbsp;ms</em></li>
+        <li data-ms="0"><span class="stage-n">01</span><b>Capture</b><span>Copied from the PC's screen, real or virtual</span><em>t&nbsp;=&nbsp;0</em></li>
+        <li data-ms="5.19"><span class="stage-n">02</span><b>Encoding</b><span>Compressed by the graphics card, or else the processor</span><em>5.19&nbsp;ms</em></li>
+        <li data-ms="0.12"><span class="stage-n">03</span><b>Sending</b><span>Split by Kyber into encrypted packets</span><em>0.12&nbsp;ms</em></li>
+        <li data-ms="0.66"><span class="stage-n">04</span><b>Network</b><span>Carried across the local network</span><em>0.66&nbsp;ms</em></li>
+        <li data-ms="2.50"><span class="stage-n">05</span><b>Decoding</b><span>Decompressed by your device's video hardware</span><em>2.50&nbsp;ms</em></li>
+        <li data-ms="0.62"><span class="stage-n">06</span><b>Display</b><span>On screen as soon as it is decoded</span><em>0.62&nbsp;ms</em></li>
       </ol>
       <div class="track" aria-hidden="true"><div class="track-fill" id="track-fill"></div><div class="track-pulse" id="track-pulse"></div></div>
 
-      <p class="footnote">Measured on 19&nbsp;October 2026: RTX&nbsp;3080&nbsp;Ti computer at 3840&nbsp;×&nbsp;2160 and 160&nbsp;Hz, to a MacBook Pro M4&nbsp;Max, local network, H.264, 3,263 images. Medians per stage; the total is the median of the full path. At 160&nbsp;Hz, one image lasts 6.25&nbsp;ms.</p>
+      <p class="footnote">Measured on 19&nbsp;October 2026 with the Kyber&nbsp;0.29 engine and its own command-line client, from a PC with an RTX&nbsp;3080&nbsp;Ti (4K display, H.264) to a MacBook Pro M4&nbsp;Max over a local network: 3,263 frames, displayed at 59 per second. Each step is a median; the total is the median of the whole journey, and 95% of frames took less than 17.4&nbsp;ms. The same day, with KyberNow's virtual display at 3840&nbsp;×&nbsp;2160 and 160&nbsp;Hz, the median was 8.3&nbsp;ms (stream received at 152 frames per second).</p>
     </div>
   </div>
 </section>
@@ -130,30 +130,30 @@
 <!-- 2 · QUIC -->
 <section class="section" id="quic" data-scene="side">
   <div class="wrap">
-    <p class="label" data-reveal>The transport</p>
-    <h2 class="title" data-split><strong>QUIC:</strong> four lanes, <strong>none waits for the others.</strong></h2>
-    <p class="body-lg" data-reveal>Kyber carries the image, the sound and your input over QUIC, the HTTP/3 protocol standardised by the IETF (RFC&nbsp;9000). Where a single stream stops at the first lost packet, QUIC keeps each lane independent and repairs losses on arrival.</p>
+    <p class="label" data-reveal>Transport</p>
+    <h2 class="title" data-split>QUIC keeps <strong>video, sound and input apart.</strong></h2>
+    <p class="body-lg" data-reveal>Kyber sends video, sound and your input (keyboard, mouse, gamepad) over QUIC (RFC&nbsp;9000), the IETF-standardised protocol that HTTP/3 also runs on. Each has its own channel, so if a video packet goes missing, sound and input keep arriving. If the connection drops, the app on your device reconnects by itself, with ten attempts one second apart, and the PC holds your session for 20&nbsp;seconds.</p>
 
     <div class="sim" data-reveal>
       <div class="sim-bar">
         <div class="segmented" role="radiogroup" aria-label="Simulated transport">
           <button role="radio" aria-checked="true" data-mode="quic"><svg class="ic"><use href="/assets/icons.svg#stack"/></svg>QUIC</button>
-          <button role="radio" aria-checked="false" data-mode="single"><svg class="ic"><use href="/assets/icons.svg#minus"/></svg>Single stream</button>
+          <button role="radio" aria-checked="false" data-mode="single"><svg class="ic"><use href="/assets/icons.svg#minus"/></svg>Single connection</button>
         </div>
-        <div class="sim-stats"><p class="sim-stat"><span class="mono-label">Blocked lanes</span> <b id="sim-blocked">0 of 4</b></p><p class="sim-stat"><span class="mono-label">Losses repaired</span> <b id="sim-fixed">0</b></p></div>
+        <div class="sim-stats"><p class="sim-stat"><span class="mono-label">Blocked channels</span> <b id="sim-blocked">0 of 4</b></p><p class="sim-stat"><span class="mono-label">Losses repaired</span> <b id="sim-fixed">0</b></p></div>
       </div>
       <div class="sim-body">
-        <ul class="sim-lanes" aria-hidden="true"><li>Image</li><li>Sound</li><li>Gamepad</li><li>Clipboard</li></ul>
-        <canvas id="sim" height="240" aria-label="Simulation: packets from four lanes crossing the network, with losses"></canvas>
+        <ul class="sim-lanes" aria-hidden="true"><li>Video</li><li>Sound</li><li>Input</li><li>Cursor</li></ul>
+        <canvas id="sim" height="240" aria-label="Simulation: video, sound, input and cursor packets crossing the network, some of them lost"></canvas>
       </div>
-      <p class="sim-legend"><span><i class="lg lg-pkt"></i>Packet</span><span><i class="lg lg-lost"></i>Lost</span><span><i class="lg lg-fix"></i>Repaired on arrival</span><span class="sim-note">Losses exaggerated for the demonstration.</span></p>
+      <p class="sim-legend"><span><i class="lg lg-pkt"></i>Packet</span><span><i class="lg lg-lost"></i>Lost</span><span><i class="lg lg-fix"></i>Repaired on arrival</span><span class="sim-note">Simulation: losses exaggerated so you can see them.</span></p>
     </div>
 
     <div class="points">
-      <div class="point" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Encrypted by default</h3><p>TLS&nbsp;1.3 is part of QUIC: the image and your keystrokes never travel in the clear, even at home.</p></div>
-      <div class="point" data-reveal style="--d:.08s"><svg class="ic-lg"><use href="/assets/icons.svg#stack"/></svg><h3>Independent lanes</h3><p>No head-of-line blocking: a lost image packet delays neither the sound nor the gamepad.</p></div>
-      <div class="point" data-reveal style="--d:.16s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>Losses repaired</h3><p>Error correction on arrival; beyond that, the app immediately asks for a full image.</p></div>
-      <div class="point" data-reveal style="--d:.24s"><svg class="ic-lg"><use href="/assets/icons.svg#plugs"/></svg><h3>One port</h3><p>TCP and UDP on the same number: one firewall rule, one path through the VPN.</p></div>
+      <div class="point" data-reveal><svg class="ic-lg"><use href="/assets/icons.svg#lock-simple"/></svg><h3>Encryption</h3><p>QUIC has TLS&nbsp;1.3 built in, the encryption used by HTTPS websites, so video, sound and your keystrokes are always encrypted, even at home. In Safari, on iPhone and in Firefox, the web version uses a WebSocket connection instead, which is encrypted too.</p></div>
+      <div class="point" data-reveal style="--d:.08s"><svg class="ic-lg"><use href="/assets/icons.svg#stack"/></svg><h3>Separate channels</h3><p>On a single connection such as TCP, one lost packet holds up everything behind it until it is sent again, which is known as head-of-line blocking. With QUIC, a loss only delays its own channel.</p></div>
+      <div class="point" data-reveal style="--d:.16s"><svg class="ic-lg"><use href="/assets/icons.svg#shield-check"/></svg><h3>Repairing losses</h3><p>In the Game and Max profiles, video is sent with spare data that rebuilds lost packets on arrival (forward error correction, or FEC). Sound is always sent this way. In the Desktop profile, lost video packets are sent again. After a loss, the native apps immediately ask for a complete frame; the web version does not.</p></div>
+      <div class="point" data-reveal style="--d:.24s"><svg class="ic-lg"><use href="/assets/icons.svg#plugs"/></svg><h3>Two ports</h3><p>The installer picks two ports at random between 20000 and 44999, and you can change them: one for the stream (TCP and UDP), the other for KyberNow Admin, the settings page (TCP). Discovery on the local network uses Bonjour (UDP&nbsp;5353). Away from home, use a VPN such as Tailscale or WireGuard.</p></div>
     </div>
   </div>
 </section>
@@ -161,26 +161,26 @@
 <!-- 3 · Kyber -->
 <section class="section" id="kyber" data-scene="rest-r">
   <div class="wrap">
-    <p class="label" data-reveal>The foundation</p>
-    <h2 class="title" data-split>Built on <strong>Kyber.</strong></h2>
-    <p class="body-lg" data-reveal>KyberNow uses <a href="https://kyber.tech" rel="noopener">Kyber</a>, a free, open-source streaming engine (AGPL-3.0) built by VLC developers. Written in Rust, relying on FFmpeg and QUIC, it aims for a few milliseconds of latency. KyberNow turns it into a complete product, ready to install.</p>
+    <p class="label" data-reveal>The engine</p>
+    <h2 class="title" data-split>KyberNow is built on <strong>the Kyber engine.</strong></h2>
+    <p class="body-lg" data-reveal><a href="https://kyber.tech" rel="noopener">Kyber</a> is a free, open-source streaming engine (AGPL-3.0 licence), created by VLC developers, written in Rust and built on FFmpeg and QUIC. KyberNow uses it to capture, compress and carry video and sound, and adds the installation, the settings and the apps for your devices.</p>
 
     <div class="split-cols">
       <div class="col" data-reveal>
         <p class="mono-label">What Kyber does</p>
         <ul class="ticks">
-          <li>Capture and encoding, on any graphics card or the processor</li>
-          <li>QUIC transport and error correction</li>
-          <li>Remote keyboard, mouse and gamepads</li>
-          <li>Development kit for clients</li>
+          <li>Capturing video and sound, and compressing the video on an NVIDIA, AMD or Intel graphics card, or on the processor if needed</li>
+          <li>Encrypted transport over QUIC, with error correction (FEC)</li>
+          <li>Sending keyboard, mouse and gamepad input</li>
+          <li>A development kit (SDK) for writing client apps</li>
         </ul>
       </div>
       <div class="col" data-reveal style="--d:.1s">
         <p class="mono-label">What KyberNow adds</p>
         <ul class="ticks ticks-on">
-          <li>KyberNow Station: installer, administration in the browser (KyberNow Admin) and updates</li>
-          <li>Virtual display and speakers for each session</li>
-          <li>KyberNow Link: native apps for Mac, Windows, Apple TV, iPhone and iPad, Android, LG TVs, Linux and Steam Deck (decoding and display by the app), and its web version</li>
+          <li>KyberNow Station: the installer (engine, virtual display, gamepad driver, firewall), settings in the browser with KyberNow Admin, and updates</li>
+          <li>A virtual display created for each session, with sound switched to Steam's virtual speakers when Steam is installed</li>
+          <li>KyberNow Link: native apps for Mac, Windows, Apple TV, iPhone and iPad, Android and Android TV, LG TVs, Linux, Steam Deck and Raspberry Pi (with KyberNow Link OS), which decode and display the video themselves, plus a web version served by the Station</li>
           <li>Engine fixes, <a href="https://github.com/MonsieurNours/kybernow/blob/main/docs/kyber-changes.md" rel="noopener">published and documented</a></li>
         </ul>
       </div>
@@ -190,55 +190,55 @@
       <svg class="ic-lg"><use href="/assets/icons.svg#sparkle"/></svg>
       <div>
         <h3>A community, non-commercial project</h3>
-        <p>KyberNow is free and open source: no account, no subscription, no ads, and all the code is open. It is developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow is not affiliated with Kyber: it is neither published nor endorsed by the Kyber team.</p>
-        <p class="notice-links"><a href="https://kyber.tech" rel="noopener">Discover Kyber<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">KyberNow source code<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
+        <p>KyberNow is free and open source, and all of its code is public. It needs no online account or subscription, shows no ads and sends no telemetry. It is developed by <a href="https://www.leslignesclaires.fr" rel="noopener">Les Lignes Claires</a>. KyberNow is not affiliated with Kyber: it is neither published nor endorsed by the Kyber team.</p>
+        <p class="notice-links"><a href="https://kyber.tech" rel="noopener">Find out about Kyber<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a><a href="https://github.com/MonsieurNours/kybernow" rel="noopener">View KyberNow's source code<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></p>
       </div>
     </aside>
   </div>
 </section>
 
 <!-- 4 · Comparison -->
-<section class="section" id="comparer" data-scene="rest-l">
+<section class="section" id="comparer" data-scene="rest-r">
   <div class="wrap">
     <p class="label" data-reveal>Compare</p>
-    <h2 class="title" data-split><strong>KyberNow</strong>, the alternative to Sunshine + Moonlight.</h2>
-    <p class="body-lg" data-reveal>Sunshine and Moonlight made open-source computer streaming available to everyone, and remain excellent software. KyberNow starts from a newer engine and designs the whole thing as a single product, from installation to image.</p>
+    <h2 class="title" data-split>KyberNow compared with <strong>Sunshine and Moonlight.</strong></h2>
+    <p class="body-lg" data-reveal>Sunshine and Moonlight brought open-source computer streaming to everyone, and they remain excellent software. KyberNow is built on a newer engine, Kyber, and brings the server, its settings and the apps for each device together in a single project.</p>
 
-    <div class="compare" data-reveal role="table" aria-label="Comparison">
+    <div class="compare" data-reveal role="table" aria-label="Comparison of KyberNow with Sunshine and Moonlight">
       <div class="cmp-row cmp-head" role="row"><span role="columnheader"></span><span role="columnheader" class="cmp-us">KyberNow</span><span role="columnheader">Sunshine + Moonlight</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Transport</span><span class="yes" role="cell">QUIC, standardised (RFC&nbsp;9000)</span><span role="cell">GameStream (RTSP and custom UDP)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Image encryption</span><span class="yes" role="cell">Always (TLS&nbsp;1.3)</span><span role="cell">Optional, off by default on the local network</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Ports to open</span><span class="yes" role="cell">One, TCP and UDP</span><span role="cell">Several TCP and UDP ports</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Display at the device's resolution</span><span class="yes" role="cell">Built in, created and removed with each session</span><span role="cell">Outside Sunshine (Apollo fork or a driver to add)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Pairing</span><span class="yes" role="cell">Bonjour, QR code or link, fingerprint verified</span><span role="cell">PIN code to enter on Sunshine's web page</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Sound</span><span class="yes" role="cell">Opus HD, up to 7.1 at 768&nbsp;kbit/s</span><span role="cell">Stereo, 5.1 and 7.1</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Transport</span><span class="yes" role="cell">QUIC, standardised by the IETF (RFC&nbsp;9000)</span><span role="cell">GameStream, NVIDIA's protocol (RTSP, then RTP and ENet over UDP)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Stream encryption</span><span class="yes" role="cell">Always (TLS&nbsp;1.3, through QUIC)</span><span role="cell">Optional, off by default on the local network</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Ports used</span><span class="yes" role="cell">Two, picked at random during installation (the stream on TCP and UDP, Admin on TCP), plus local discovery</span><span role="cell">Several TCP and UDP ports</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Display at the device's resolution</span><span class="yes" role="cell">Built in, created and removed with each session, verified up to 3840&nbsp;×&nbsp;2160 at 160&nbsp;Hz</span><span role="cell">Outside Sunshine (Apollo fork or a driver to add)</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Pairing</span><span class="yes" role="cell">Six-digit code accepted in Admin, or password; certificate fingerprint checked</span><span role="cell">PIN shown by Moonlight, entered in Sunshine's web interface</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Sound</span><span class="yes" role="cell">Stereo, 5.1 or 7.1 depending on the device (5.1 at most on LG, stereo in the browser)</span><span role="cell">Stereo, 5.1 and 7.1</span></div>
       <div class="cmp-row" role="row"><span role="rowheader">On Mac</span><span class="yes" role="cell">Native app (SwiftUI, VideoToolbox, Metal)</span><span role="cell">Cross-platform (Qt)</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the Station itself</span><span role="cell">No</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">One installer: engine, virtual display and sound, gamepads, firewall</span><span role="cell">Sunshine, then the add-ons by hand</span></div>
-      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Not yet (a limit of Kyber&nbsp;0.29)</span><span role="cell">Yes</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">In the browser</span><span class="yes" role="cell">Yes, served by the Station, with stereo sound</span><span role="cell">No official client</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">Installation</span><span class="yes" role="cell">One installer for the engine, virtual display, gamepad driver and firewall, plus Steam's virtual speakers if Steam is installed</span><span role="cell">The server; a virtual display is installed separately</span></div>
+      <div class="cmp-row" role="row"><span role="rowheader">HDR</span><span class="not-yet" role="cell">Not yet (Kyber&nbsp;0.29 captures in 8-bit)</span><span role="cell">Yes</span></div>
     </div>
-    <p class="footnote" data-reveal>Comparison made in October 2026, with each piece of software in its default configuration. Spotted an error? <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">Tell us</a>.</p>
+    <p class="footnote" data-reveal>Comparison made in October 2026, with each piece of software in its default configuration. To mute the PC during a session, KyberNow, like Sunshine, uses Steam's virtual speakers. If you spot a mistake, <a href="https://github.com/MonsieurNours/kybernow/issues" rel="noopener">let us know</a>.</p>
   </div>
 </section>
 
 <!-- 5 · Features -->
 <section class="section" id="fonctions" data-scene="rest-r">
   <div class="wrap">
-    <p class="label" data-reveal>In detail</p>
-    <h2 class="title" data-split>Thought through to <strong>the last pixel.</strong></h2>
+    <p class="label" data-reveal>Features</p>
+    <h2 class="title" data-split>What <strong>each feature</strong> does.</h2>
 
     <div class="bento">
       <article class="card card-feature" data-reveal>
         <svg class="ic-lg"><use href="/assets/icons.svg#frame-corners"/></svg>
-        <h3>Your screen, to the pixel</h3>
-        <p>With each session, the computer creates a virtual display at your device's resolution and refresh rate (4K, 5K, 6K, 120&nbsp;Hz and more), turns off its own displays, then turns them back on at the end. Nothing to set up.</p>
-        <div class="res-demo" aria-hidden="true"><span>2560&nbsp;×&nbsp;1440</span><span>3840&nbsp;×&nbsp;2160</span><span>5120&nbsp;×&nbsp;2880</span></div>
+        <h3>A display that matches your device</h3>
+        <p>For each session, the Station creates a virtual display on the PC at your device's resolution and refresh rate, turns off the PC's own screens, then turns them back on at the end. There is nothing to set up. The virtual display accepts up to 7680&nbsp;×&nbsp;4320 and 500&nbsp;Hz; the highest mode verified so far is 3840&nbsp;×&nbsp;2160 at 160&nbsp;Hz.</p>
+        <div class="res-demo" aria-hidden="true"><span>1920&nbsp;×&nbsp;1080</span><span>2560&nbsp;×&nbsp;1440</span><span>3840&nbsp;×&nbsp;2160</span></div>
       </article>
-      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>HD sound, up to 7.1</h3><p>A virtual output in place of the computer's speakers, 10&nbsp;ms packets, about twenty milliseconds of buffer.</p></article>
-      <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Variable refresh rate</h3><p>Each image is shown as soon as it is decoded: on a variable refresh rate screen, the screen follows the stream.</p></article>
-      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Pairing at a glance</h3><p>The computer shows up on its own on your network. Otherwise, use a QR code or a link from KyberNow Admin, and its fingerprint is verified.</p></article>
-      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>Nothing to install</h3><p>The Station also serves a web version of Link: open its address in a browser, on a computer, tablet or phone, with a trackpad or a finger.</p></article>
-      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>One-click updates</h3><p>From Admin for the Station, from the app for your devices. Each package is verified before it is installed.</p></article>
+      <article class="card" data-reveal style="--d:.05s"><svg class="ic-lg"><use href="/assets/icons.svg#speaker-hifi"/></svg><h3>Stereo, 5.1 or 7.1 sound</h3><p>The format depends on the device: 5.1 at most on an LG TV, stereo in the browser. Sound is compressed with Opus (up to 768&nbsp;kbit/s in 7.1), in 10&nbsp;ms packets, with a buffer of about twenty milliseconds. If Steam is installed, sound moves from the PC's speakers to Steam's virtual speakers; otherwise it also plays on the PC.</p></article>
+      <article class="card" data-reveal style="--d:.1s"><svg class="ic-lg"><use href="/assets/icons.svg#gauge"/></svg><h3>Variable refresh rate (VRR)</h3><p>Each frame is shown as soon as it is decoded, and a variable refresh rate screen refreshes as each one arrives. This works with the Mac, Windows, Linux and Android phone apps (the Steam Deck has not been tried yet). The TV apps have no access to it.</p></article>
+      <article class="card" data-reveal style="--d:.15s"><svg class="ic-lg"><use href="/assets/icons.svg#qr-code"/></svg><h3>Adding a device</h3><p>The PC appears on your local network by itself. Otherwise, the QR code or link shown in Admin gives its address and its certificate fingerprint, which the app checks. A six-digit code, accepted in Admin, gives each device its own access, which you can revoke.</p></article>
+      <article class="card" data-reveal style="--d:.2s"><svg class="ic-lg"><use href="/assets/icons.svg#browser"/></svg><h3>In a browser</h3><p>The Station also serves a web version of Link. Open its address in Chrome or Edge on a computer, tablet or phone, and use a trackpad or your finger. In Safari, on iPhone and in Firefox, it goes through WebSocket, which adds a little latency. Sound is in stereo.</p></article>
+      <article class="card" data-reveal style="--d:.25s"><svg class="ic-lg"><use href="/assets/icons.svg#arrows-clockwise"/></svg><h3>Updates</h3><p>The Station updates in one click from Admin. The Mac, Windows and Android apps update themselves; the Linux, Raspberry Pi and LG TV apps tell you when a new version is out. On Apple TV, iPhone and iPad, you reinstall the app from a Mac. Every package is verified before it is installed.</p></article>
     </div>
 
     <div class="profiles" data-reveal>
@@ -252,22 +252,22 @@
       </div>
       <div class="profile-panel" id="profile-panel" aria-live="polite">
         <h3 data-p="title">Lowest latency</h3>
-        <p data-p="text">The highest refresh rate your screen can show, relative mouse, gamepad. 4:2:0 colour to save every millisecond.</p>
-        <ul class="chips" data-p="chips"><li>Maximum refresh rate</li><li>Relative mouse</li><li>Gamepad</li></ul>
+        <p data-p="text">The picture follows your screen's refresh rate, in 4:2:0 colour, which is quicker to compress and decompress. Error correction rebuilds lost packets, and a damaged frame is skipped rather than waited for.</p>
+        <ul class="chips" data-p="chips"><li>Screen refresh rate</li><li>4:2:0</li><li>Error correction</li></ul>
       </div>
     </div>
-    <p class="footnote" data-reveal>Profiles adapt to what your device can decode: without hardware 4:4:4, they use a higher bitrate in 4:2:0.</p>
+    <p class="footnote" data-reveal>In 4:4:4, every pixel keeps its own colour and text stays sharp; in 4:2:0, four pixels share their colour, which lightens the stream. Profiles adapt to what your device can decode: if it cannot decode 4:4:4, they switch to 4:2:0 with a higher bitrate, and without HEVC, to H.264.</p>
   </div>
 </section>
 
-<!-- And now: download -->
+<!-- Getting started: download -->
 <section class="section" id="telecharger">
   <div class="scene-anchor scene-anchor-soft" data-scene="assemble-soft" aria-hidden="true"></div>
   <div class="wrap">
-    <p class="label" data-reveal>And now</p>
-    <h2 class="title" data-split>Convinced? <strong>Three steps.</strong></h2>
-    <p class="body-lg" data-reveal>The Station on the computer, Link on your devices, and that's it. Free, open source, no account.</p>
-    <div class="hero-cta" data-reveal><a class="btn kn-primary" href="/en/#telecharger">Download</a><a class="btn btn-ghost" href="/en/guide/">Step-by-step guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></div>
+    <p class="label" data-reveal>Getting started</p>
+    <h2 class="title" data-split>Install KyberNow <strong>in three steps.</strong></h2>
+    <p class="body-lg" data-reveal>Install KyberNow Station on the PC you want to share, connect your device with the KyberNow Link app, then start your first session. The guide covers each step, screen by screen. KyberNow is free and needs no online account.</p>
+    <div class="hero-cta" data-reveal><a class="btn kn-primary" href="/en/#telecharger">Download</a><a class="btn btn-ghost" href="/en/guide/">Read the guide<svg class="ic"><use href="/assets/icons.svg#arrow-right"/></svg></a></div>
   </div>
 </section>
 

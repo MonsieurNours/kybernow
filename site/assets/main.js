@@ -11,39 +11,39 @@ const $ = id => document.getElementById(id);
 
 const T = EN ? {
   captions: [
-    'The computer captures the virtual display, created for your device.',
-    'The computer compresses the image in 5.19\u00a0ms.',
+    'The PC captures its screen, real or virtual.',
+    'The PC compresses the frame in 5.19\u00a0ms.',
     'Kyber cuts it into encrypted QUIC packets.',
-    'It crosses your network in under a millisecond.',
+    'It crosses the local network in 0.66\u00a0ms.',
     'Your device decodes it in hardware.',
     'It shows up as soon as the screen is ready.',
   ],
-  start: 'Scroll: from capture to display.',
-  final: 'End to end, median, measured at 3840 × 2160 and 160 Hz.',
+  start: 'Time since the frame was captured, as a median on a local network.',
+  final: 'Capture to display, median over 3,263 frames.',
   of: ' of ', lanes: ['COMPUTER', 'NETWORK', 'DEVICE'], version: 'Version ', mb: ' MB',
   videoPlay: 'Play the presentation', videoPause: 'Pause', autoplay: 'Muted · click to hear it', paused: 'Paused', reduced: 'Press play', soundOn: 'Sound on', unmute: 'Turn sound on', mute: 'Mute', dateLocale: 'en-GB',
   profiles: {
-    jeu: { title: 'Lowest latency', text: 'The highest refresh rate your screen can show, relative mouse, gamepad. 4:2:0 colour to save every millisecond.', chips: ['Maximum refresh rate', 'Relative mouse', 'Gamepad'] },
-    bureau: { title: 'Sharp text', text: '4:4:4 colour for text as sharp as on the computer, shared clipboard, a cursor that never hides.', chips: ['4:4:4', 'Clipboard', 'Cursor always visible'] },
-    max: { title: 'No compromise', text: 'Low latency, 4:4:4 and a high bitrate, all at once. For a wired network and a recent device.', chips: ['4:4:4', 'High bitrate', 'Wired network'] },
+    jeu: { title: 'Lowest latency', text: 'The picture follows your screen\'s refresh rate, in 4:2:0 colour, which is quicker to compress and decompress. Error correction rebuilds lost packets, and a damaged frame is skipped rather than waited for.', chips: ['Screen refresh rate', '4:2:0', 'Error correction'] },
+    bureau: { title: 'Sharp text', text: '4:4:4 colour keeps text as sharp as on the PC. A lost frame is sent again rather than repaired, so nothing goes missing, at the cost of a short wait on a busy network.', chips: ['4:4:4', 'Frames resent', 'Clipboard'] },
+    max: { title: 'Highest quality', text: 'Low latency, 4:4:4 colour and a high bitrate at once, with error correction. For a wired network and a recent device.', chips: ['4:4:4', 'High bitrate', 'Wired network'] },
   },
 } : {
   captions: [
-    "L'ordinateur capture l'écran virtuel, créé pour votre appareil.",
-    'L’ordinateur compresse l’image en 5,19\u00a0ms.',
+    "Le PC capture l'image de son écran, réel ou virtuel.",
+    'Le PC compresse l’image en 5,19\u00a0ms.',
     'Kyber la découpe en paquets QUIC, chiffrés.',
-    'Elle traverse votre réseau en moins d’une milliseconde.',
+    'Elle traverse le réseau local en 0,66\u00a0ms.',
     'Votre appareil la décompresse, en matériel.',
     'Elle s’affiche dès que l’écran est prêt.',
   ],
-  start: 'Faites défiler : de la capture à l’affichage.',
-  final: 'De bout en bout, en médiane, mesuré en 3840 × 2160 à 160 Hz.',
+  start: 'Temps écoulé depuis la capture de l\'image, en médiane, sur un réseau local.',
+  final: 'De la capture à l\'affichage, en médiane sur 3 263 images.',
   of: ' sur ', lanes: ['ORDINATEUR', 'RÉSEAU', 'APPAREIL'], version: 'Version ', mb: ' Mo',
   videoPlay: 'Lire la présentation', videoPause: 'Mettre en pause', autoplay: 'Son coupé · cliquez pour l\'entendre', paused: 'En pause', reduced: 'Lancez la lecture', soundOn: 'Avec le son', unmute: 'Activer le son', mute: 'Couper le son', dateLocale: 'fr',
   profiles: {
-    jeu: { title: 'Latence minimale', text: 'La fréquence la plus haute que votre écran affiche, la souris relative, la manette. Les couleurs en 4:2:0 pour gagner chaque milliseconde.', chips: ['Fréquence maximale', 'Souris relative', 'Manette'] },
-    bureau: { title: 'Texte net', text: 'Les couleurs en 4:4:4 pour un texte aussi net que sur l’ordinateur, le presse-papiers partagé, un curseur toujours visible.', chips: ['4:4:4', 'Presse-papiers', 'Curseur toujours visible'] },
-    max: { title: 'Aucun compromis', text: 'Faible latence, 4:4:4 et débit élevé à la fois. Pour un réseau câblé et un appareil récent.', chips: ['4:4:4', 'Débit élevé', 'Réseau câblé'] },
+    jeu: { title: 'Latence minimale', text: 'L\'image suit la fréquence de votre écran, en couleurs 4:2:0, plus rapides à compresser et à décompresser. La correction d\'erreurs reconstitue les paquets perdus, et une image abîmée est sautée plutôt qu\'attendue.', chips: ['Fréquence de l\'écran', '4:2:0', 'Correction d\'erreurs'] },
+    bureau: { title: 'Texte net', text: 'Les couleurs en 4:4:4 rendent le texte aussi net que sur le PC. Une image perdue est renvoyée plutôt que réparée, si bien que rien ne manque, quitte à attendre un peu sur un réseau chargé.', chips: ['4:4:4', 'Images renvoyées', 'Presse-papiers'] },
+    max: { title: 'Qualité maximale', text: 'Faible latence, couleurs en 4:4:4 et débit élevé à la fois, avec la correction d\'erreurs. Pour un réseau câblé et un appareil récent.', chips: ['4:4:4', 'Débit élevé', 'Réseau câblé'] },
   },
 };
 
@@ -376,7 +376,7 @@ if (video) {
     fig.classList.toggle('has-sound', !video.muted);
     sound.setAttribute('aria-label', video.muted ? T.unmute : T.mute);
     sound.setAttribute('aria-pressed', String(!video.muted));
-    state.textContent = reduceMotion && !started ? T.reduced : started && !playing ? T.paused : video.muted ? T.autoplay : T.soundOn;
+    if (state) state.textContent = reduceMotion && !started ? T.reduced : started && !playing ? T.paused : video.muted ? T.autoplay : T.soundOn;
   };
   // Qualité selon le débit : HLS en 720p, 1080p et 4K (60 i/s), natif dans Safari, par
   // hls.js ailleurs (chargé à l'approche de la vidéo), plafonné à la taille du lecteur ;
