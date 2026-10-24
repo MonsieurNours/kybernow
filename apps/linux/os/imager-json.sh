@@ -12,6 +12,7 @@
 set -euo pipefail
 VERSION="${1:?version}"; INFO="${2:?fichier .info}"; OUT="${3:?sortie .json}"
 [ -f "$INFO" ] || { echo "info absent : $INFO" >&2; exit 1; }
+# shellcheck source=/dev/null
 . "$INFO"
 : "${download_size:?}" "${download_sha256:?}" "${extract_size:?}" "${extract_sha256:?}"
 DATE="$(date -u +%Y-%m-%d)"

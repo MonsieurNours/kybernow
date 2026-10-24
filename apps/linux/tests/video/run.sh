@@ -12,8 +12,10 @@ HW=0; [ "${1:-}" = "--hw" ] && HW=1
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+EXTRA=()
+[ "$(uname -m)" = aarch64 ] && EXTRA=(-lgcc)
 cc -O2 -o "$WORK/check" "$HERE/check.c" "$APP/src/native/decoder.c" -I"$PREFIX/include" \
-    "$PREFIX/lib/libavcodec.a" "$PREFIX/lib/libavutil.a" -lva -lva-drm -ldrm -lm -lpthread $( [ "$(uname -m)" = aarch64 ] && echo -lgcc )
+    "$PREFIX/lib/libavcodec.a" "$PREFIX/lib/libavutil.a" -lva -lva-drm -ldrm -lm -lpthread "${EXTRA[@]}"
 
 S="${SAMPLES:-$WORK}"
 if [ -z "${SAMPLES:-}" ]; then

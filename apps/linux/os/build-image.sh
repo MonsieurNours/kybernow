@@ -24,7 +24,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 LINUX="$(cd "$HERE/.." && pwd)"
 APPS="$(cd "$LINUX/.." && pwd)"
-ROOT="$(cd "$APPS/.." && pwd)"
 WORK="${KYBERNOW_OS_WORK:-$HOME/kybernow-os}"
 DEB="${KYBERNOW_OS_DEB:-$LINUX/dist/kybernow-link_$(sed -n 's/^version = "\(.*\)"/\1/p' "$APPS/Cargo.toml" | head -1)_arm64.deb}"
 COMPRESS=1
@@ -90,6 +89,8 @@ EOF
 # est verrouillé dans le chroot (pas de session interactive ; SSH s'active dans
 # Réglages de l'appareil › Avancé, par clé seulement).
 echo "==> pi-gen : Raspberry Pi OS Lite + KyberNow Link $VERSION (long : debootstrap, paquets)"
+# Le journal est écrit par l'utilisateur, pas par root : voulu.
+# shellcheck disable=SC2024
 (cd "$PIGEN" && sudo -n ./build.sh > "$WORK/pi-gen.log" 2>&1) || { tail -30 "$WORK/pi-gen.log" >&2; echo "pi-gen en échec (journal : $WORK/pi-gen.log)" >&2; exit 1; }
 BASE="$(ls -t "$WORK"/deploy/*KyberNow-Link-OS*.img 2>/dev/null | head -1)"
 [ -n "$BASE" ] || { echo "aucune image dans $WORK/deploy" >&2; exit 1; }
