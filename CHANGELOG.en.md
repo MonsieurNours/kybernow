@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.5.2
+
+- **On-screen controller on iPhone, iPad and Android** (phones and tablets): the session bar's “On-screen controller” button, remembered for each computer. Two layouts, Full (a whole Xbox controller: two clickable sticks, D-pad, A, B, X, Y, progressive triggers, View, Menu, Guide) and Simple (left stick, D-pad, A, B, X, Y and Menu), with a small button on the controller to switch between them. The computer sees it as an Xbox 360 controller, in the first free player slot; while it is shown, the rest of the screen does not act as a mouse. Every press lights up and can be felt (a click for buttons, ticks for the sticks at the centre, at each change of direction and at the edge), and the game's rumble vibrates the device; the iPad, with no haptic engine, keeps the visual feedback. Settings in Controls: Layout, Size, Opacity, Haptic feedback.
+- iPhone, iPad and Android: a touch on the picture folds the keyboard away, without clicking on the computer; “Keyboard” in the session bar. Android: a two-finger tap no longer also left-clicks.
+- Apple TV: a controller whose rumble motors do not start falls back to a single motor, and the app's log details its rumble (for the DualSense that stays silent during a session, not yet checked with the controller).
+
 ## 0.5.1
 
 - Web client: it now opens at Admin's address followed by `/link` (for example `https://192.168.1.20:31415/link`), like the KyberNow Link apps. The former address, `/ecran`, redirects to it: existing bookmarks and links keep working.

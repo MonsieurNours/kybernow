@@ -28,14 +28,22 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 ## KyberNow Link
 
 - **Windows** : session sur plusieurs écrans du PC.
-- **Android** : manette à l'écran ; mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
+- **Android** : mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
-- **iPhone et iPad** : manette virtuelle à l'écran, Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
+- **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
 - **Apple TV** : TestFlight, puis l'App Store.
 - **Téléviseurs LG** : dépôt Homebrew Channel, pour des mises à jour installées depuis le téléviseur ; vibrations et gâchettes adaptatives de la DualSense par le service Bluetooth de webOS.
 - **Linux** : import DMA-BUF sans copie des images VA-API (4K à 120 Hz) ; décodage NVDEC pour les cartes NVIDIA ; dépôt Flatpak ou Flathub, pour des mises à jour installées seules.
 - **Raspberry Pi** : publier le dépôt apt (clé GPG, hébergement, appel dans `release.sh`) ; voie sans copie (images SAND posées sur un plan DRM).
 - **KyberNow Link OS** : installer la mise à jour pendant la veille ; une bande sonore composée pour l'allumage, à la place de la synthèse de `chime.rs`.
+
+## Manettes Sony en mode « Fidèle »
+
+L'ordinateur voit une DualShock 4 (pilote ViGEmBus) : boutons, sticks, gâchettes et vibrations passent ; le pavé tactile n'est qu'un bouton.
+
+- **Barre lumineuse** : renvoyer à l'app la couleur que le jeu donne à la DualShock 4 virtuelle (le pilote la reçoit déjà), pour éclairer la vraie manette.
+- **Gyroscope et pavé tactile** : étendre le protocole des manettes de Kyber (correctifs côté apps et côté Station, à proposer à Kyber) et le rapport étendu de la DualShock 4 virtuelle, puis chaque app.
+- Pas de gâchettes adaptatives : Windows ne voit pas une DualSense, et aucun pilote libre n'en crée une virtuelle.
 
 ## Publication, CI, site, marque
 

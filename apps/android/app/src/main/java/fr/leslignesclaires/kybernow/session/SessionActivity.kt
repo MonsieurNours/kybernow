@@ -52,7 +52,8 @@ import kotlin.math.roundToInt
  * La session : l'image plein cadre sur une `SurfaceView` (décodée et rendue
  * par le cœur, MediaCodec), le son par AAudio (le cœur aussi), les entrées
  * captées ici et envoyées au cœur. Rien ne reste au-dessus de l'image quand
- * aucun menu n'est ouvert : la vue d'interface est retirée (GONE).
+ * aucun menu n'est ouvert et que la manette à l'écran est cachée : la vue
+ * d'interface est retirée (GONE).
  */
 class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActions {
     companion object {
@@ -69,6 +70,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private lateinit var pads: PadRouter
     private lateinit var remote: RemoteRouter
     private lateinit var touch: TouchInput
+    private lateinit var haptics: Haptics
     private val main = Handler(Looper.getMainLooper())
 
     @Volatile private var handle = 0L
@@ -77,6 +79,24 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private var tv = false
     private var relative = false
     private var mouseSeen = false
+    /**
+     * La manette à l'écran vers l'ordinateur, à sa place de joueur (−1 : une cinquième manette,
+     * en attente, rien ne part). Barre pilotée à la manette : les appuis ne partent pas (les
+     * relâchements, si), comme pour les vraies manettes.
+     */
+    private val onScreenOut = object : PadOut {
+        private fun slot() = app.gamepads.pads.value.firstOrNull { it.onScreen }?.slot ?: -1
+        override fun button(button: Int, pressed: Boolean) {
+            val s = slot()
+            if (s >= 0 && !(pressed && pads.captured)) Native.padButton(handle, s, button, pressed)
+        }
+        override fun axis(axis: Int, value: Int) {
+            val s = slot()
+            if (s >= 0 && !(value != 0 && pads.captured)) Native.padAxis(handle, s, axis, value)
+        }
+        override fun feel(f: Feel) = haptics.feel(f)
+    }
+
     /** Boutons de manette enfoncés depuis l'ouverture d'un menu : le relâché des autres (le combo) est ignoré. */
     private val padDowns = mutableSetOf<Int>()
     private var quitting = false
@@ -96,21 +116,33 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         state = SessionState(this, app.gamepads)
         pads = PadRouter({ handle }, app.gamepads).apply { guide = host.settings.guide }
         remote = RemoteRouter { handle }
-        ui = SessionUi(host.name, tv, state, this).apply {
+        ui = SessionUi(host.name, tv, state, this, OnScreenPad(onScreenOut)).apply {
             profile = host.settings.profile
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
             backOpensMenu = host.settings.backOpensMenu
             combo = host.settings.combo
+            padShown = !tv && host.settings.onScreenPad
+            padSize = host.settings.padSize
+            padOpacity = host.settings.padOpacity
+            pad.setLayout(host.settings.padSimple)
+            pad.onSwitch = { setPadLayout(!pad.simple) }
+            // Un toucher hors des commandes replie le clavier, comme sur l'image sans manette.
+            pad.onTapOutside = { if (keyboardOpen) openKeyboard(false) }
         }
-        touch = TouchInput({ handle }, ::viewToHost, ::hostPerViewPixel).apply { direct = host.settings.directTouch }
+        touch = TouchInput(PointerOut.native { handle }, ::viewToHost, ::hostPerViewPixel).apply {
+            direct = host.settings.directTouch
+            keyboardOpen = { ui.keyboardOpen }
+            onFold = { openKeyboard(false) }
+        }
 
         val root = FrameLayout(this)
         surfaceView = SurfaceView(this).apply {
             holder.addCallback(this@SessionActivity)
             isFocusable = true
             isFocusableInTouchMode = true
-            setOnTouchListener { _, e -> if (e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) touch.onTouch(e) else false }
+            // La manette à l'écran prend les doigts au-dessus (vue d'interface) : l'image ne sert plus de souris.
+            setOnTouchListener { _, e -> if (!e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) false else if (ui.padShown) true else touch.onTouch(e) }
             setOnCapturedPointerListener { _, e -> capturedMouse(e) }
         }
         root.addView(surfaceView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
@@ -119,6 +151,11 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         overlay = ComposeView(this).apply { setContent { KnTheme(app.form) { SessionOverlay(ui) } } }
         root.addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         setContentView(root)
+        haptics = Haptics(overlay).apply { level = host.settings.padHaptics }
+        // Les vibrations du jeu qui visent la manette à l'écran : l'appareil vibre, tant qu'elle est affichée.
+        state.onScreenRumble = { large, small, ms -> if (ui.padShown) haptics.rumble(large, small, ms) }
+        // Affichée : elle prend sa place de joueur avant la première annonce des manettes.
+        if (ui.padShown) app.gamepads.setOnScreen(true)
 
         state.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
         pads.mouse.onCombo = { if (host.settings.combo) toggleMenu(fromPad = true) }
@@ -219,9 +256,10 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
                 launch { state.display.collect { d -> d?.let { pads.mouse.hostWidth = it.width.toDouble(); remote.hostWidth = it.width.toDouble() } } }
                 launch {
                     app.gamepads.pads.collectLatest {
-                        // Une manette branchée en cours de session : annoncée à l'ordinateur et dans une capsule.
+                        // Une manette branchée en cours de session : annoncée à l'ordinateur et dans une capsule
+                        // (pas la manette à l'écran : on vient de l'afficher soi-même).
                         val added = pads.sync()
-                        if (state.firstImageAt.get() > 0) added.firstOrNull()?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
+                        if (state.firstImageAt.get() > 0) added.firstOrNull { !it.onScreen }?.let { p -> state.show(Capsule.GamepadConnected(p.name, p.slot, p.motors)) }
                     }
                 }
                 launch {
@@ -286,6 +324,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     override fun onPause() {
         super.onPause()
         // Les relâchements qui suivent ne nous parviendraient pas : tout est relâché.
+        ui.pad.releaseAll()
+        haptics.stop()
         if (handle != 0L) Native.sessionSetBackground(handle, true, 2_000_000)
         pads.mouse.stop()
     }
@@ -297,6 +337,9 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun onDestroy() {
         super.onDestroy()
+        if (::haptics.isInitialized) haptics.stop()
+        // La manette à l'écran n'existe qu'en session : sa place se libère.
+        app.gamepads.setOnScreen(false)
         app.gamepads.stop()
         state.close()
         val h = handle
@@ -314,6 +357,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         ui.keysOpen = false
         ui.typing = false
         ui.statsOpen = false
+        ui.pad.releaseAll()
         pads.capture()
         val h = handle
         if (h == 0L || state.ended.value != null) {
@@ -491,6 +535,31 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }
     }
 
+    override fun setOnScreenPad(on: Boolean) {
+        if (tv || ui.padShown == on) return
+        if (on) {
+            ui.barOpen = false
+        } else {
+            // Tout relâché tant qu'elle a sa place, puis débranchée (PadRouter.sync).
+            ui.pad.releaseAll()
+            haptics.stop()
+        }
+        ui.padShown = on
+        app.gamepads.setOnScreen(on)
+        saveSettings { it.copy(onScreenPad = on) }
+    }
+
+    override fun setPadLayout(simple: Boolean) {
+        ui.pad.setLayout(simple)
+        saveSettings { it.copy(padLayout = if (simple) "simple" else "full") }
+    }
+
+    /** Un réglage de l'ordinateur changé depuis la session, retenu pour la suivante. */
+    private fun saveSettings(f: (fr.leslignesclaires.kybernow.model.HostSettings) -> fr.leslignesclaires.kybernow.model.HostSettings) {
+        host = host.copy(settings = f(host.settings))
+        app.hosts.update(host.id) { it.copy(settings = f(it.settings)) }
+    }
+
     /** Lettres A à Z et chiffres : code Linux, pour le scancode de kynput. */
     private fun androidKeyToEvdev(code: Int): Int {
         val letters = intArrayOf(30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44)
@@ -657,7 +726,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         // Une souris (pas un doigt) qui clique hors capture : boutons gérés par dispatchGenericMotionEvent.
-        if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.anything) {
+        // La manette à l'écran ne prend que les doigts : la souris reste une souris.
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE) && !ui.covering) {
             val h = handle
             when (ev.actionMasked) {
                 MotionEvent.ACTION_MOVE -> viewToHost(ev.x, ev.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }

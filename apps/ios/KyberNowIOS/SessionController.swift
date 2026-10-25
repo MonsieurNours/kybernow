@@ -9,6 +9,11 @@
 // cœur Rust, par `SessionEngine`, comme sur Mac et Apple TV
 // (docs/coeur-apple.md).
 //
+// Manette à l'écran : bouton de la barre, retenue pour chaque ordinateur
+// (`host.settings.screenPad`) ; affichée, elle prend une place de joueur
+// (GamepadBridge) et le toucher ne sert plus de souris. Le clavier de
+// l'écran se replie d'un toucher sur l'image (StreamView).
+//
 // Écran externe : l'image y passe, à sa définition, et l'appareil devient le
 // pupitre (pavé tactile sur toute la surface, barre permanente, mesures,
 // Touches et clavier sans jamais couvrir l'image) ; débranché, l'image
@@ -63,6 +68,8 @@ final class SessionController: ObservableObject {
     @Published private(set) var modeRestoreOffer: String?
     /// Clavier de l'écran ouvert.
     @Published private(set) var keyboardShown = false
+    /// Manette à l'écran affichée (retenu pour cet ordinateur).
+    @Published private(set) var screenPad = false
     /// Ctrl, Alt, ⊞ collants allumés (rangée de touches).
     @Published private(set) var sticky: Set<UInt16> = []
     /// Feuilles : menu Touches, statistiques.
@@ -215,6 +222,9 @@ final class SessionController: ObservableObject {
         gamepads.onMenuRequest = { [weak self] in self?.gamepadCombo() }
         gamepads.menuFromCombo = prefs.menuCombo
         gamepads.rumbleEnabled = prefs.rumble
+        // La manette à l'écran de la dernière fois : elle prend sa place tout
+        // de suite, et s'annonce dès que les entrées rejoignent l'ordinateur.
+        if host.settings.screenPad { showScreenPad(true) }
     }
 
     /// La fenêtre de la session perd le premier plan (autre app, verrouillage,
@@ -401,6 +411,29 @@ final class SessionController: ObservableObject {
         streamView.mouseMode = choice.streamMode
     }
 
+    // MARK: - Manette à l'écran
+
+    /// Bouton de la barre : la manette s'affiche (et se branche sur
+    /// l'ordinateur) ou se retire (et se débranche) ; retenu pour cet ordinateur.
+    func toggleScreenPad() {
+        host.settings.screenPad.toggle()
+        store.update(host)
+        showScreenPad(host.settings.screenPad)
+    }
+
+    private func showScreenPad(_ on: Bool) {
+        screenPad = on
+        streamView.touchAsMouse = !on
+        GamepadBridge.shared.setScreenPad(on, name: ScreenPadText.name)
+    }
+
+    /// Le petit bouton de la manette : Complète ou Simple, retenu pour cet
+    /// ordinateur. La manette reste branchée, à la même place.
+    func toggleScreenPadLayout() {
+        host.settings.screenPadLayout = host.settings.screenPadLayout == .full ? .simple : .full
+        store.update(host)
+    }
+
     /// Pavé tactile ou toucher direct.
     func setDirectTouch(_ on: Bool) {
         prefs.directTouch = on
@@ -484,6 +517,9 @@ final class SessionController: ObservableObject {
                 self.received(s)
             }
             if what == .bar { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.setBar(true) } }
+            if UserDefaults.standard.bool(forKey: "demoKeyboard") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { self.toggleKeyboard() }
+            }
         }
     }
     #endif

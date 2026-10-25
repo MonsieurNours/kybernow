@@ -152,6 +152,24 @@ enum GamepadChoice: String, Codable, CaseIterable {
     }
 }
 
+/// Manette à l'écran (iPhone, iPad, Android ; docs/link-ui.md) : ses deux
+/// dispositions fixes. Les libellés sont dans l'app qui l'affiche.
+enum ScreenPadLayout: String, Codable, CaseIterable {
+    /// Une manette Xbox entière.
+    case full
+    /// Le stick gauche, la croix, A, B, X, Y et Menu.
+    case simple
+}
+
+enum ScreenPadSize: String, Codable, CaseIterable {
+    case small, medium, large
+}
+
+/// Retour haptique de la manette à l'écran.
+enum ScreenPadHaptics: String, Codable, CaseIterable {
+    case off, light, medium, strong
+}
+
 /// Réglages de connexion d'un ordinateur. Un profil remplit l'image et le
 /// réseau ; toucher à l'un de ces réglages rend le profil « Personnalisé ».
 struct ConnectionSettings: Codable, Hashable {
@@ -181,6 +199,15 @@ struct ConnectionSettings: Codable, Hashable {
     var keepLastImage = true
     /// Manette vue par l'ordinateur : Xbox 360 (compatible) ou fidèle.
     var gamepad: GamepadChoice = .xbox360
+    /// Manette à l'écran (iPhone, iPad) : affichée (bouton de la barre de
+    /// session), sa disposition, sa taille, son opacité (0,2 à 1) et son
+    /// retour haptique. Les autres apps lisent et gardent ces champs sans
+    /// s'en servir.
+    var screenPad = false
+    var screenPadLayout: ScreenPadLayout = .full
+    var screenPadSize: ScreenPadSize = .medium
+    var screenPadOpacity = 0.6
+    var screenPadHaptics: ScreenPadHaptics = .medium
 
     static let minBitrate = 5
     /// Le plus que Kyber accepte (débit en bits/s sur 32 bits).
@@ -276,6 +303,7 @@ extension ConnectionSettings {
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
         case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard, keepLastImage, gamepad
+        case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics
     }
 
     init(from decoder: Decoder) throws {
@@ -299,6 +327,11 @@ extension ConnectionSettings {
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
         keepLastImage = (try? c.decodeIfPresent(Bool.self, forKey: .keepLastImage)) ?? keepLastImage
         gamepad = (try? c.decodeIfPresent(GamepadChoice.self, forKey: .gamepad)) ?? gamepad
+        screenPad = (try? c.decodeIfPresent(Bool.self, forKey: .screenPad)) ?? screenPad
+        screenPadLayout = (try? c.decodeIfPresent(ScreenPadLayout.self, forKey: .screenPadLayout)) ?? screenPadLayout
+        screenPadSize = (try? c.decodeIfPresent(ScreenPadSize.self, forKey: .screenPadSize)) ?? screenPadSize
+        screenPadOpacity = (try? c.decodeIfPresent(Double.self, forKey: .screenPadOpacity)).map { min(1, max(0.2, $0)) } ?? screenPadOpacity
+        screenPadHaptics = (try? c.decodeIfPresent(ScreenPadHaptics.self, forKey: .screenPadHaptics)) ?? screenPadHaptics
     }
 }
 

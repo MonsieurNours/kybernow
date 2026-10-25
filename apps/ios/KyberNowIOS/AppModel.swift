@@ -67,11 +67,16 @@ final class AppModel: ObservableObject {
         // l'accueil), `-demoWaking YES` (son réveil en cours), `-screen
         // settings|app|add|connecting|restarting|session|bar`, `-section
         // picture|sound|controls|network|statistics|station` (rubrique des réglages).
+        // Manette à l'écran : `-demoPad full|simple` (affichée), `-demoPadSize
+        // small|medium|large`, `-demoPadOpacity 0.3`, `-demoPadHaptics
+        // off|light|medium|strong`, `-demoPadPress a,lt,dpad,leftStick`
+        // (commandes montrées appuyées) ; `-demoKeyboard YES` : clavier sorti.
         guard demo else { return }
         store.loadDemo()
         let list = store.ordered
         let index = UserDefaults.standard.integer(forKey: "hostIndex")
         selected = list.indices.contains(index) ? list[index].id : list.first?.id
+        if let host = selectedHost { demoPad(host) }
         if UserDefaults.standard.bool(forKey: "skipLaunch") { launched = true }
         // `-demoWaking YES` : le réveil de l'ordinateur choisi, déjà lancé.
         if UserDefaults.standard.bool(forKey: "demoWaking"), let host = selectedHost { store.wake(host) }
@@ -95,6 +100,22 @@ final class AppModel: ObservableObject {
         }
         #endif
     }
+
+    #if DEBUG && targetEnvironment(simulator)
+    /// Réglages de la manette à l'écran de démonstration (`-demoPad…`).
+    private func demoPad(_ host: Host) {
+        var h = host
+        let d = UserDefaults.standard
+        if let layout = d.string(forKey: "demoPad").flatMap(ScreenPadLayout.init(rawValue:)) {
+            h.settings.screenPad = true
+            h.settings.screenPadLayout = layout
+        }
+        if let size = d.string(forKey: "demoPadSize").flatMap(ScreenPadSize.init(rawValue:)) { h.settings.screenPadSize = size }
+        if d.object(forKey: "demoPadOpacity") != nil { h.settings.screenPadOpacity = min(1, max(0.2, d.double(forKey: "demoPadOpacity"))) }
+        if let haptics = d.string(forKey: "demoPadHaptics").flatMap(ScreenPadHaptics.init(rawValue:)) { h.settings.screenPadHaptics = haptics }
+        store.update(h)
+    }
+    #endif
 
     #if DEBUG
     /// Rubrique ouverte d'emblée dans les réglages d'un ordinateur (`-section`).

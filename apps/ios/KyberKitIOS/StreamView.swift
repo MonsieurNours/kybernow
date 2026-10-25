@@ -17,7 +17,15 @@
 //
 // Clavier de l'écran : la vue est un `UIKeyInput` ; le texte part en Unicode
 // (accents, emoji), Retour, Effacer et les touches de la rangée au-dessus du
-// clavier (vue accessoire, fournie par l'app) partent en codes.
+// clavier (vue accessoire, fournie par l'app) partent en codes. Un toucher sur
+// l'image le replie, sans cliquer sur l'ordinateur (l'iPhone n'a pas de
+// touche pour le faire).
+//
+// Manette à l'écran (dessinée par l'app par-dessus l'image) : tant qu'elle
+// est affichée (`touchAsMouse` à false), le toucher ne sert plus de souris ;
+// le glissement depuis le bord haut ouvre toujours la barre, un toucher
+// replie le clavier ou ferme la barre. Le trackpad et la souris de l'iPad
+// gardent leur effet.
 //
 // Écran externe (USB-C, AirPlay ; iPhone et iPad) : l'image et le pointeur
 // de l'ordinateur passent dans une `ImageHostView` posée sur l'écran externe
@@ -83,6 +91,16 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     }
     /// Le toucher sert l'app (barre ouverte, feuille des mesures) : rien ne part.
     public var touchesSuspended = false
+    /// Le doigt sert de souris (pavé tactile ou toucher direct) ; false pendant
+    /// que la manette à l'écran est affichée.
+    public var touchAsMouse = true {
+        didSet {
+            // Un glisser en cours ne reste pas enfoncé sur l'ordinateur.
+            guard !touchAsMouse, dragging else { return }
+            input?.mouseButton(.left, pressed: false)
+            dragging = false
+        }
+    }
     /// Un toucher simple sur l'image (barre ouverte : la refermer).
     public var onTap: (() -> Void)?
     /// Glissement depuis le bord haut (ouvrir la barre).
@@ -106,6 +124,9 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     /// Glisser en cours (bouton gauche tenu par un maintien).
     private var dragging = false
     private var wheelRest: CGFloat = 0
+    /// Le toucher simple et le glissement depuis le bord haut : les seuls
+    /// gestes du doigt qui restent quand la manette à l'écran est affichée.
+    private var tapGesture: UITapGestureRecognizer?
 
     private let pointerLayer: CALayer = {
         let layer = CALayer()
@@ -284,10 +305,13 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
         tap.allowedTouchTypes = [UITouch.TouchType.direct.rawValue as NSNumber]
+        tap.delegate = self
         addGestureRecognizer(tap)
+        tapGesture = tap
 
         let twoTap = UITapGestureRecognizer(target: self, action: #selector(twoFingerTapped(_:)))
         twoTap.numberOfTouchesRequired = 2
+        twoTap.delegate = self
         addGestureRecognizer(twoTap)
 
         let hold = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -306,6 +330,12 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         let hover = UIHoverGestureRecognizer(target: self, action: #selector(hovered(_:)))
         addGestureRecognizer(hover)
         addInteraction(UIPointerInteraction(delegate: self))
+    }
+
+    /// Manette à l'écran affichée : le doigt ne déplace ni ne clique plus.
+    public func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard !touchAsMouse, touch.type == .direct else { return true }
+        return g === tapGesture || g is UIScreenEdgePanGestureRecognizer
     }
 
     public func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
@@ -342,9 +372,17 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
     private var lastTap: (view: CGPoint, host: CGPoint, at: CFTimeInterval)?
 
     @objc private func tapped(_ g: UITapGestureRecognizer) {
-        if touchesSuspended {
+        switch TouchRules.tap(keyboardShown: isFirstResponder, barOpen: touchesSuspended, touchAsMouse: touchAsMouse) {
+        case .foldKeyboard:
+            hideKeyboard()
+            return
+        case .closeBar:
             onTap?()
             return
+        case .nothing:
+            return
+        case .click:
+            break
         }
         guard let input else { return }
         let at = g.location(in: self)

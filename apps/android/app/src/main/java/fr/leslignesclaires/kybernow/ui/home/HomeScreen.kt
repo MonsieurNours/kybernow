@@ -142,7 +142,7 @@ fun HomeScreen(model: AppModel, actions: HomeActions) {
     val screen = remember { Screen.of(context) }
     val update by app.updates.state.collectAsState()
     val waking by model.waking.collectAsState()
-    HomeContent(HomeState(hosts, selectedId, status, images, announced, screen, app.decoders, pads.size, update.offered, waking), actions)
+    HomeContent(HomeState(hosts, selectedId, status, images, announced, screen, app.decoders, pads.count { !it.onScreen }, update.offered, waking), actions)
 }
 
 /**

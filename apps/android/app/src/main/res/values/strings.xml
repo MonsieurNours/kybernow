@@ -131,6 +131,25 @@
     <string name="touch_direct">Direct touch</string>
     <string name="settings_clipboard">Shared clipboard</string>
     <string name="settings_clipboard_help">Copied text goes both ways; this device\'s is read only when the computer pastes.</string>
+    <string name="pad_on_screen">On-screen controller</string>
+    <string name="pad_on_screen_help">An Xbox controller over the picture, for both thumbs; the session bar button shows or hides it. While it is shown, the screen does not act as a mouse. Tap a stick twice to click it.</string>
+    <string name="pad_layout">Layout</string>
+    <string name="pad_layout_full">Full</string>
+    <string name="pad_layout_simple">Simple</string>
+    <string name="pad_size">Size</string>
+    <string name="pad_size_small">Small</string>
+    <string name="pad_size_medium">Medium</string>
+    <string name="pad_size_large">Large</string>
+    <string name="pad_opacity">Opacity</string>
+    <string name="pad_haptics">Haptic feedback</string>
+    <string name="pad_haptics_off">Off</string>
+    <string name="pad_haptics_light">Light</string>
+    <string name="pad_haptics_medium">Medium</string>
+    <string name="pad_haptics_strong">Strong</string>
+    <string name="pad_haptics_none">This device has no vibration motor: each press shows on screen, without being felt.</string>
+    <string name="pad_switch_simple">Simple controller</string>
+    <string name="pad_switch_full">Full controller</string>
+    <string name="settings_percent" formatted="true">%1$d%%</string>
     <string name="settings_transport">Picture transport</string>
     <string name="settings_transport_fast">Fast</string>
     <string name="settings_transport_reliable">Reliable</string>
@@ -270,6 +289,7 @@
     <string name="session_off">off</string>
     <string name="session_type_text">Type text</string>
     <string name="session_keys">Keys</string>
+    <string name="session_keyboard">Keyboard</string>
     <string name="session_stats">Statistics</string>
     <string name="session_close">Close</string>
     <string name="session_send">Send</string>

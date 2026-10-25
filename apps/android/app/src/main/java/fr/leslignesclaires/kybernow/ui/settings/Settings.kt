@@ -217,6 +217,8 @@ data class HostSettingsState(
     val fingerprint: FingerprintCheck? = null,
     /** L'instant présent, pour « hier » (fixé dans les captures). */
     val now: Long = System.currentTimeMillis(),
+    /** L'appareil a un vibreur (retour haptique de la manette à l'écran). */
+    val vibrator: Boolean = true,
 )
 
 /** Ce que les réglages d'un ordinateur demandent à l'app. */
@@ -243,6 +245,7 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
     val host = hosts.firstOrNull { it.id == hostId } ?: return
     val st = status[hostId] ?: HostStatus()
     val screen = remember { Screen.of(context) }
+    val vibrator = remember { fr.leslignesclaires.kybernow.session.Haptics.available(context) }
     val adminUrl = remember(host.address, host.port) {
         ConsoleClient(host.address, host.port).use { it.adminUrl } ?: "https://${host.address}:${host.port}/"
     }
@@ -274,7 +277,7 @@ fun HostSettingsScreen(model: AppModel, hostId: String, onBack: () -> Unit, onRe
         st.accountRefused -> Rubric.STATION
         else -> Rubric.PICTURE
     }
-    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check), actions, start)
+    HostSettingsContent(HostSettingsState(host, st, screen, app.decoders, adminUrl, tasks[hostId], check, vibrator = vibrator), actions, start)
 }
 
 /**
@@ -480,6 +483,43 @@ private fun ControlsRubric(state: HostSettingsState, actions: HostSettingsAction
         ) { v -> actions.update { it.copy(directTouch = v) } }
         // Le presse-papiers ne passe pas au téléviseur (SessionActivity.start).
         SwitchRow(stringResource(R.string.settings_clipboard), stringResource(R.string.settings_clipboard_help), set.clipboard) { v -> actions.update { it.copy(clipboard = v) } }
+        OnScreenPadRows(state, actions)
+    }
+}
+
+/** La manette à l'écran (téléphone, tablette ; docs/link-ui.md) : affichée, disposition, taille, opacité, retour haptique. */
+@Composable
+private fun OnScreenPadRows(state: HostSettingsState, actions: HostSettingsActions) {
+    val set = state.host.settings
+    SwitchRow(stringResource(R.string.pad_on_screen), stringResource(R.string.pad_on_screen_help), set.onScreenPad) { v -> actions.update { it.copy(onScreenPad = v) } }
+    ChoiceRow(
+        stringResource(R.string.pad_layout), null,
+        listOf("full" to stringResource(R.string.pad_layout_full), "simple" to stringResource(R.string.pad_layout_simple)), set.padLayout,
+    ) { v -> actions.update { it.copy(padLayout = v) } }
+    ChoiceRow(
+        stringResource(R.string.pad_size), null,
+        listOf(0 to stringResource(R.string.pad_size_small), 1 to stringResource(R.string.pad_size_medium), 2 to stringResource(R.string.pad_size_large)), set.padSize,
+    ) { v -> actions.update { it.copy(padSize = v) } }
+    ChoiceRow(
+        stringResource(R.string.pad_opacity), null,
+        HostSettings.PAD_OPACITIES.map { it to stringResource(R.string.settings_percent, it) }, set.padOpacity,
+    ) { v -> actions.update { it.copy(padOpacity = v) } }
+    if (state.vibrator) {
+        ChoiceRow(
+            stringResource(R.string.pad_haptics), null,
+            listOf(
+                0 to stringResource(R.string.pad_haptics_off), 1 to stringResource(R.string.pad_haptics_light),
+                2 to stringResource(R.string.pad_haptics_medium), 3 to stringResource(R.string.pad_haptics_strong),
+            ),
+            set.padHaptics,
+        ) { v -> actions.update { it.copy(padHaptics = v) } }
+    } else {
+        // Sans vibreur, pas de réglage : une ligne le dit, seul le retour visuel reste.
+        val s = LocalScale.current
+        Column(Modifier.panel().fillMaxWidth().padding(s.dp(16f)), verticalArrangement = Arrangement.spacedBy(s.dp(4f))) {
+            Body(stringResource(R.string.pad_haptics), size = 16f, color = Kn.frost2)
+            Body(stringResource(R.string.pad_haptics_none), size = 13f, color = Kn.muted)
+        }
     }
 }
 

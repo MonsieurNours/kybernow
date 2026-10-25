@@ -177,6 +177,16 @@ struct SettingsRows {
         .accessibilityAddTraits(.isToggle)
     }
 
+    /// Une ligne à curseur (opacité de la manette à l'écran) : la valeur
+    /// s'affiche en direct et s'enregistre au lâcher.
+    func slider(_ title: String, _ note: String, value: Double, in range: ClosedRange<Double>, step: Double,
+                display: @escaping (Double) -> String, commit: @escaping (Double) -> Void) -> some View {
+        container {
+            SettingsSlider(rows: self, title: title, note: note, value: value, range: range, step: step, display: display, commit: commit)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
     /// Une ligne qui montre une valeur ; touchable si elle mène quelque part.
     @ViewBuilder
     func value(_ title: String, _ note: String, _ value: String, color: Color = Theme.text, noteColor: Color = Theme.muted, action: (() -> Void)? = nil) -> some View {
@@ -200,6 +210,53 @@ struct SettingsRows {
                 .buttonStyle(SettingsPressStyle())
         } else {
             row.accessibilityElement(children: .combine)
+        }
+    }
+}
+
+/// Le curseur d'une ligne : libellé et valeur, puis la piste (en largeur :
+/// côte à côte).
+private struct SettingsSlider: View {
+    let rows: SettingsRows
+    let title: String
+    let note: String
+    let value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let display: (Double) -> String
+    let commit: (Double) -> Void
+    @State private var live: Double?
+
+    var body: some View {
+        let current = live ?? value
+        let slider = Slider(value: Binding(get: { current }, set: { live = $0 }), in: range, step: step) { editing in
+            guard !editing, let v = live else { return }
+            commit(v)
+            live = nil
+        }
+        .tint(Theme.accentFill)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: display(current)))
+        let shown = Text(verbatim: display(current))
+            .font(Theme.mono(rows.wide ? 13.5 : 13))
+            .foregroundStyle(Theme.text2)
+            .monospacedDigit()
+            .frame(minWidth: 48, alignment: .trailing)
+            .accessibilityHidden(true)
+        if rows.wide {
+            HStack(spacing: 20) {
+                rows.label(title, note)
+                slider.frame(width: 220)
+                shown
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    rows.label(title, note)
+                    shown
+                }
+                slider
+            }
         }
     }
 }

@@ -195,13 +195,16 @@ private struct SettingsPane: View {
             }
             .padding(.top, 16)
 
-            ScrollView {
-                detail
-                    .padding(.horizontal, 24)
-                    .padding(.top, 14)
-                    .padding(.bottom, 34)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    detail
+                        .padding(.horizontal, 24)
+                        .padding(.top, 14)
+                        .padding(.bottom, 34)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .onAppear { demoScroll(proxy) }
             }
-            .scrollBounceBehavior(.basedOnSize)
         }
     }
 
@@ -246,12 +249,15 @@ private struct SettingsPane: View {
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(width: sideWidth)
 
-                ScrollView {
-                    detail
-                        .padding(.horizontal, 36)
-                        .padding(.vertical, 32)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        detail
+                            .padding(.horizontal, 36)
+                            .padding(.vertical, 32)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .onAppear { demoScroll(proxy) }
                 }
-                .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .glass(26, tint: 0.58)
                 .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
@@ -725,11 +731,14 @@ private struct SettingsPane: View {
                     MouseChoice.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.mouse.rawValue) { v in
             if let m = MouseChoice(rawValue: v) { update { $0.mouse = m } }
         }
+        screenPadRows
         rows.choice(String(localized: "Manette vue par l'ordinateur"), s.gamepad.hint,
                     GamepadChoice.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.gamepad.rawValue) { v in
             if let g = GamepadChoice(rawValue: v) { update { $0.gamepad = g } }
         }
-        rows.toggle(String(localized: "Vibrations"), String(localized: "Renvoyées par le jeu, sur chaque manette."), prefs.rumble) {
+        rows.toggle(String(localized: "Vibrations"), PadHaptics.available
+                        ? String(localized: "Renvoyées par le jeu, sur chaque manette, et sur l'iPhone quand la manette à l'écran est affichée.")
+                        : String(localized: "Renvoyées par le jeu, sur chaque manette."), prefs.rumble) {
             prefs.rumble.toggle()
         }
         rows.toggle(String(localized: "Barre avec L1 + R1 + Start + Select"), String(localized: "Ouvre la barre de session depuis la manette, sans toucher l'écran."), prefs.menuCombo) {
@@ -744,6 +753,51 @@ private struct SettingsPane: View {
         rows.toggle(String(localized: "Presse-papiers partagé"), String(localized: "Le texte copié ici se colle sur l'ordinateur, et inversement."), s.clipboard) {
             update { $0.clipboard.toggle() }
         }
+    }
+
+    /// Manette à l'écran (bouton de la barre de session) : disposition,
+    /// taille, opacité, retour haptique (sans moteur haptique : une ligne le dit).
+    @ViewBuilder private var screenPadRows: some View {
+        Theme.eyebrow(ScreenPadText.name)
+            .padding(.top, 12)
+            .padding(.bottom, 2)
+            .id("screenPad")
+        rows.choice(String(localized: "Disposition"), String(localized: "Complète : une manette Xbox entière. Simple : le stick gauche, la croix, A, B, X, Y et Menu. Le petit bouton en haut de la manette passe de l'une à l'autre."),
+                    ScreenPadLayout.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.screenPadLayout.rawValue) { v in
+            if let l = ScreenPadLayout(rawValue: v) { update { $0.screenPadLayout = l } }
+        }
+        rows.choice(String(localized: "Taille"), String(localized: "Toucher deux fois un stick l'enfonce (L3, R3). Plus le doigt touche une gâchette bas, plus elle s'enfonce."),
+                    ScreenPadSize.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.screenPadSize.rawValue) { v in
+            if let size = ScreenPadSize(rawValue: v) { update { $0.screenPadSize = size } }
+        }
+        rows.slider(String(localized: "Opacité"), String(localized: "Un bouton touché s'allume toujours, même quand la manette est très transparente."),
+                    value: s.screenPadOpacity, in: 0.2...1, step: 0.05, display: Self.percent) { v in
+            update { $0.screenPadOpacity = v }
+        }
+        if PadHaptics.available {
+            rows.choice(String(localized: "Retour haptique"), String(localized: "Un clic à chaque appui ; un tic quand un stick quitte le centre, change de direction ou arrive en butée."),
+                        ScreenPadHaptics.allCases.map { SettingsOption(key: $0.rawValue, label: $0.label) }, s.screenPadHaptics.rawValue) { v in
+                if let h = ScreenPadHaptics(rawValue: v) { update { $0.screenPadHaptics = h } }
+            }
+        } else {
+            rows.value(String(localized: "Retour haptique"), DeviceDisplay.isPad
+                       ? String(localized: "Cet iPad n'a pas de moteur haptique : seul le retour visuel reste.")
+                       : String(localized: "Cet iPhone n'a pas de moteur haptique : seul le retour visuel reste."), "")
+        }
+    }
+
+    /// Captures (`-scrollTo screenPad`) : le détail défile jusqu'au bloc voulu.
+    private func demoScroll(_ proxy: ScrollViewProxy) {
+        #if DEBUG
+        guard let target = UserDefaults.standard.string(forKey: "scrollTo") else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { proxy.scrollTo(target, anchor: .top) }
+        #endif
+    }
+
+    /// « 60 % », “60%”.
+    private static func percent(_ v: Double) -> String {
+        let n = Int((v * 100).rounded())
+        return LanguageChoice.effective == "fr" ? "\(n) %" : "\(n)%"
     }
 
     private var speedKey: String {

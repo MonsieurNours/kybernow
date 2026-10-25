@@ -32,15 +32,38 @@ data class Gamepad(
     val slot: Int,
     /** Manette intégrée à l'appareil (console portable, manette de téléphone en USB-C). */
     val builtIn: Boolean,
+    /** La manette à l'écran de la session (toucher) : une manette Xbox 360 pour l'ordinateur. */
+    val onScreen: Boolean = false,
 ) {
     val sony get() = vendorId == 0x054C
     val nintendo get() = vendorId == 0x057E
 }
 
 /**
- * Les manettes de l'appareil : détection, places J1 à J4 dans l'ordre
- * d'arrivée (XInput côté ordinateur n'en connaît que quatre, une cinquième
- * attend la première place libre), vibrations.
+ * Places de joueur J1 à J4, dans l'ordre d'arrivée : une manette garde la sienne tant qu'elle est
+ * là, une nouvelle prend la première libre, une cinquième attend (−1) qu'une se libère (XInput,
+ * côté ordinateur, n'en connaît que quatre).
+ */
+class PlayerSlots(size: Int = 4) {
+    private val slots = arrayOfNulls<String>(size)
+
+    /** Les manettes présentes (descripteurs, dans l'ordre où elles se présentent) → leur place, −1 en attente. */
+    fun assign(present: List<String>): Map<String, Int> {
+        val here = present.toSet()
+        for (i in slots.indices) if (slots[i] != null && slots[i] !in here) slots[i] = null
+        for (d in present) {
+            if (d in slots) continue
+            val free = slots.indexOfFirst { it == null }
+            if (free >= 0) slots[free] = d
+        }
+        return present.associateWith { slots.indexOf(it) }
+    }
+}
+
+/**
+ * Les manettes de l'appareil : détection, places J1 à J4 ([PlayerSlots]), vibrations. La manette
+ * à l'écran de la session ([setOnScreen]) y prend sa place comme une manette de plus : annoncée,
+ * débranchée et rebranchée par les mêmes chemins (`PadRouter.sync`).
  */
 class Gamepads(private val context: Context) : InputManager.InputDeviceListener {
     private val input = context.getSystemService(InputManager::class.java)
@@ -52,8 +75,16 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
     private val _lastUsed = MutableStateFlow<Gamepad?>(null)
     val lastUsed: StateFlow<Gamepad?> = _lastUsed.asStateFlow()
 
-    private val slots = arrayOfNulls<String>(4)
+    private val slots = PlayerSlots()
     private var started = 0
+    private var onScreen = false
+
+    /** La manette à l'écran s'affiche (première place libre) ou se retire (sa place se libère). */
+    fun setOnScreen(shown: Boolean) {
+        if (onScreen == shown) return
+        onScreen = shown
+        refresh()
+    }
 
     fun start() {
         if (started++ > 0) return
@@ -72,26 +103,22 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
 
     fun refresh() {
         val devices: List<InputDevice> = InputDevice.getDeviceIds().toList().mapNotNull { id: Int -> InputDevice.getDevice(id) }.filter { d -> isGamepad(d) }
-        val present = devices.map { it.descriptor }.toSet()
-        for (i in slots.indices) if (slots[i] != null && slots[i] !in present) slots[i] = null
-        for (d in devices) {
-            if (d.descriptor in slots) continue
-            val free = slots.indexOfFirst { it == null }
-            if (free >= 0) slots[free] = d.descriptor
-        }
-        _pads.value = devices.map { d ->
-            Gamepad(
-                deviceId = d.id,
-                descriptor = d.descriptor,
-                name = d.name,
-                vendorId = d.vendorId,
-                productId = d.productId,
-                motors = motors(d),
-                battery = battery(d),
-                slot = slots.indexOf(d.descriptor),
-                builtIn = !d.isExternal,
-            )
-        }.sortedWith(compareBy({ if (it.slot < 0) 99 else it.slot }, { it.name }))
+        val slot = slots.assign(devices.map { it.descriptor } + listOfNotNull(ON_SCREEN.takeIf { onScreen }))
+        _pads.value = (
+            devices.map { d ->
+                Gamepad(
+                    deviceId = d.id,
+                    descriptor = d.descriptor,
+                    name = d.name,
+                    vendorId = d.vendorId,
+                    productId = d.productId,
+                    motors = motors(d),
+                    battery = battery(d),
+                    slot = slot[d.descriptor] ?: -1,
+                    builtIn = !d.isExternal,
+                )
+            } + listOfNotNull(if (onScreen) onScreenPad(slot[ON_SCREEN] ?: -1) else null)
+            ).sortedWith(compareBy({ if (it.slot < 0) 99 else it.slot }, { it.name }))
     }
 
     fun byDevice(deviceId: Int): Gamepad? = _pads.value.firstOrNull { it.deviceId == deviceId }
@@ -161,6 +188,13 @@ class Gamepads(private val context: Context) : InputManager.InputDeviceListener 
     }
 
     companion object {
+        /** Descripteur et identifiant de la manette à l'écran (aucun appareil d'Android ne les porte). */
+        const val ON_SCREEN = "kybernow:manette-a-l-ecran"
+        const val ON_SCREEN_ID = Int.MIN_VALUE
+
+        /** La manette à l'écran : une manette Xbox 360 filaire (045E:028E) pour l'ordinateur, même en « Fidèle ». */
+        fun onScreenPad(slot: Int) = Gamepad(ON_SCREEN_ID, ON_SCREEN, "", 0x045E, 0x028E, 0, null, slot, builtIn = true, onScreen = true)
+
         fun isGamepad(d: InputDevice): Boolean {
             if (d.isVirtual) return false
             val s = d.sources

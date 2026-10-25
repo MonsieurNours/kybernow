@@ -1428,6 +1428,22 @@
         }
       }
     },
+    "Cet iPad n'a pas de moteur haptique : seul le retour visuel reste." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This iPad has no haptic engine: only the visual feedback remains."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet iPad n'a pas de moteur haptique : seul le retour visuel reste."
+          }
+        }
+      }
+    },
     "Cet iPad ne décode pas le 4:4:4 en matériel : l'image reste en 4:2:0." : {
       "localizations" : {
         "en" : {
@@ -1472,6 +1488,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cet iPhone décode les trois en matériel. HEVC : net à débit égal, recommandé."
+          }
+        }
+      }
+    },
+    "Cet iPhone n'a pas de moteur haptique : seul le retour visuel reste." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This iPhone has no haptic engine: only the visual feedback remains."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cet iPhone n'a pas de moteur haptique : seul le retour visuel reste."
           }
         }
       }
@@ -1552,6 +1584,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Cherche l'ordinateur à nouveau"
+          }
+        }
+      }
+    },
+    "Clavier" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clavier"
           }
         }
       }
@@ -1760,6 +1808,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Comparez ses quatre premiers groupes à ceux d'Admin (Appareils Link, Ajouter un appareil) avant de lui faire confiance."
+          }
+        }
+      }
+    },
+    "Complète" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complète"
+          }
+        }
+      }
+    },
+    "Complète : une manette Xbox entière. Simple : le stick gauche, la croix, A, B, X, Y et Menu. Le petit bouton en haut de la manette passe de l'une à l'autre." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full: a whole Xbox controller. Simple: the left stick, the D-pad, A, B, X, Y and Menu. The small button at the top of the controller switches between them."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Complète : une manette Xbox entière. Simple : le stick gauche, la croix, A, B, X, Y et Menu. Le petit bouton en haut de la manette passe de l'une à l'autre."
           }
         }
       }
@@ -2048,6 +2128,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Direct"
+          }
+        }
+      }
+    },
+    "Disposition" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Layout"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disposition"
           }
         }
       }
@@ -2484,6 +2580,22 @@
         }
       }
     },
+    "Faible" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Faible"
+          }
+        }
+      }
+    },
     "Faire confiance à cette empreinte" : {
       "localizations" : {
         "en" : {
@@ -2612,6 +2724,22 @@
         }
       }
     },
+    "Fort" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Strong"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fort"
+          }
+        }
+      }
+    },
     "Fréquence" : {
       "localizations" : {
         "en" : {
@@ -2656,6 +2784,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Gestionnaire des tâches"
+          }
+        }
+      }
+    },
+    "Grande" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Large"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grande"
           }
         }
       }
@@ -3924,6 +4068,38 @@
         }
       }
     },
+    "Manette complète" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full controller"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manette complète"
+          }
+        }
+      }
+    },
+    "Manette simple" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simple controller"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manette simple"
+          }
+        }
+      }
+    },
     "Manette vue par l'ordinateur" : {
       "localizations" : {
         "en" : {
@@ -3936,6 +4112,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Manette vue par l'ordinateur"
+          }
+        }
+      }
+    },
+    "Manette à l'écran" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On-screen controller"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manette à l'écran"
           }
         }
       }
@@ -4148,6 +4340,38 @@
         }
       }
     },
+    "Moyen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medium"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moyen"
+          }
+        }
+      }
+    },
+    "Moyenne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Medium"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moyenne"
+          }
+        }
+      }
+    },
     "Normale" : {
       "localizations" : {
         "en" : {
@@ -4176,6 +4400,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Nouveau mot de passe"
+          }
+        }
+      }
+    },
+    "Opacité" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opacity"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opacité"
           }
         }
       }
@@ -4496,6 +4736,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pertes 30 s"
+          }
+        }
+      }
+    },
+    "Petite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Small"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Petite"
           }
         }
       }
@@ -4916,6 +5172,22 @@
         }
       }
     },
+    "Renvoyées par le jeu, sur chaque manette, et sur l'iPhone quand la manette à l'écran est affichée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sent back by the game, on each controller, and on the iPhone while the on-screen controller is shown."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renvoyées par le jeu, sur chaque manette, et sur l'iPhone quand la manette à l'écran est affichée."
+          }
+        }
+      }
+    },
     "Renvoyées par le jeu, sur chaque manette." : {
       "localizations" : {
         "en" : {
@@ -5008,6 +5280,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Retour"
+          }
+        }
+      }
+    },
+    "Retour haptique" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haptic feedback"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour haptique"
           }
         }
       }
@@ -5312,6 +5600,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Sessions en données mobiles"
+          }
+        }
+      }
+    },
+    "Simple" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simple"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Simple"
           }
         }
       }
@@ -5812,6 +6116,22 @@
         }
       }
     },
+    "Taille" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Size"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Taille"
+          }
+        }
+      }
+    },
     "Tampon son" : {
       "localizations" : {
         "en" : {
@@ -5888,6 +6208,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Toucher"
+          }
+        }
+      }
+    },
+    "Toucher deux fois un stick l'enfonce (L3, R3). Plus le doigt touche une gâchette bas, plus elle s'enfonce." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tap a stick twice to click it (L3, R3). The lower your finger touches a trigger, the further it goes in."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toucher deux fois un stick l'enfonce (L3, R3). Plus le doigt touche une gâchette bas, plus elle s'enfonce."
           }
         }
       }
@@ -6096,6 +6432,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Un appareil"
+          }
+        }
+      }
+    },
+    "Un bouton touché s'allume toujours, même quand la manette est très transparente." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A button you touch always lights up, even when the controller is very transparent."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un bouton touché s'allume toujours, même quand la manette est très transparente."
+          }
+        }
+      }
+    },
+    "Un clic à chaque appui ; un tic quand un stick quitte le centre, change de direction ou arrive en butée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A click on every press; a tick when a stick leaves the centre, changes direction or reaches the edge."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un clic à chaque appui ; un tic quand un stick quitte le centre, change de direction ou arrive en butée."
           }
         }
       }

@@ -131,6 +131,25 @@
     <string name="touch_direct">Toucher direct</string>
     <string name="settings_clipboard">Presse-papiers partagé</string>
     <string name="settings_clipboard_help">Le texte copié passe d\'un côté à l\'autre ; celui de l\'appareil n\'est lu que quand l\'ordinateur colle.</string>
+    <string name="pad_on_screen">Manette à l\'écran</string>
+    <string name="pad_on_screen_help">Une manette Xbox par-dessus l\'image, pour les deux pouces ; le bouton de la barre de session l\'affiche ou la cache. Tant qu\'elle est affichée, l\'écran ne sert pas de souris. Touchez deux fois un stick pour l\'enfoncer.</string>
+    <string name="pad_layout">Disposition</string>
+    <string name="pad_layout_full">Complète</string>
+    <string name="pad_layout_simple">Simple</string>
+    <string name="pad_size">Taille</string>
+    <string name="pad_size_small">Petite</string>
+    <string name="pad_size_medium">Moyenne</string>
+    <string name="pad_size_large">Grande</string>
+    <string name="pad_opacity">Opacité</string>
+    <string name="pad_haptics">Retour haptique</string>
+    <string name="pad_haptics_off">Désactivé</string>
+    <string name="pad_haptics_light">Faible</string>
+    <string name="pad_haptics_medium">Moyen</string>
+    <string name="pad_haptics_strong">Fort</string>
+    <string name="pad_haptics_none">Cet appareil n\'a pas de vibreur : chaque appui se voit, sans se sentir.</string>
+    <string name="pad_switch_simple">Manette simple</string>
+    <string name="pad_switch_full">Manette complète</string>
+    <string name="settings_percent" formatted="true">%1$d %%</string>
     <string name="settings_transport">Transport de l\'image</string>
     <string name="settings_transport_fast">Rapide</string>
     <string name="settings_transport_reliable">Fiable</string>
@@ -270,6 +289,7 @@
     <string name="session_off">coupée</string>
     <string name="session_type_text">Taper du texte</string>
     <string name="session_keys">Touches</string>
+    <string name="session_keyboard">Clavier</string>
     <string name="session_stats">Statistiques</string>
     <string name="session_close">Fermer</string>
     <string name="session_send">Envoyer</string>

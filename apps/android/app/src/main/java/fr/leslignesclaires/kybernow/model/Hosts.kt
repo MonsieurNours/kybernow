@@ -68,7 +68,19 @@ data class HostSettings(
     val reconnect: Boolean = true,
     /** Transport de l'image : `auto` (celui du profil), `fast`, `reliable`. */
     val transport: String = "auto",
+    /** Manette à l'écran (téléphone, tablette) : affichée ou non, retenu à chaque bascule de la barre. */
+    val onScreenPad: Boolean = false,
+    /** Sa disposition : `full` (manette Xbox entière) ou `simple` (stick gauche, croix, A, B, X, Y, Menu). */
+    val padLayout: String = "full",
+    /** Sa taille : 0 petite, 1 moyenne, 2 grande. */
+    val padSize: Int = 1,
+    /** Son opacité, en % ([PAD_OPACITIES]). */
+    val padOpacity: Int = 70,
+    /** Son retour haptique : 0 désactivé, 1 faible, 2 moyen, 3 fort. */
+    val padHaptics: Int = 2,
 ) {
+    val padSimple get() = padLayout == "simple"
+
     /** Les réglages s'écartent du profil : « Personnalisé ». */
     val custom get() = codec != "auto" || mbps != 0 || transport != "auto"
 
@@ -91,8 +103,13 @@ data class HostSettings(
         .put("backOpensMenu", backOpensMenu).put("guide", guide).put("matchDisplay", matchDisplay)
         .put("gameMode", gameMode).put("mouse", mouse).put("directTouch", directTouch)
         .put("clipboard", clipboard).put("reconnect", reconnect).put("transport", transport)
+        .put("onScreenPad", onScreenPad).put("padLayout", padLayout).put("padSize", padSize)
+        .put("padOpacity", padOpacity).put("padHaptics", padHaptics)
 
     companion object {
+        /** Les opacités proposées pour la manette à l'écran. */
+        val PAD_OPACITIES = listOf(30, 50, 70, 100)
+
         fun parse(o: JSONObject?): HostSettings {
             if (o == null) return HostSettings()
             val d = HostSettings()
@@ -116,6 +133,12 @@ data class HostSettings(
                 reconnect = o.optBoolean("reconnect", d.reconnect),
                 // Jusqu'à la 0.4.x : `reliable`, le transport fiable forcé.
                 transport = o.optString("transport", "").ifEmpty { if (o.optBoolean("reliable")) "reliable" else d.transport },
+                // Absents des fichiers d'avant la manette à l'écran : ses valeurs par défaut.
+                onScreenPad = o.optBoolean("onScreenPad", d.onScreenPad),
+                padLayout = o.optString("padLayout", d.padLayout).takeIf { it == "full" || it == "simple" } ?: d.padLayout,
+                padSize = o.optInt("padSize", d.padSize).coerceIn(0, 2),
+                padOpacity = o.optInt("padOpacity", d.padOpacity).takeIf { it in PAD_OPACITIES } ?: d.padOpacity,
+                padHaptics = o.optInt("padHaptics", d.padHaptics).coerceIn(0, 3),
             ).let { if (it.transport == "reliable" && it.profile.reliable) it.copy(transport = "auto") else it }
         }
     }

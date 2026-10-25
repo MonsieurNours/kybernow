@@ -70,12 +70,14 @@ import org.robolectric.annotation.GraphicsMode
 private const val TV = "w960dp-h540dp-land-television-xhdpi"
 private const val PHONE = "w411dp-h914dp-port-xxhdpi"
 /** Le téléphone, assez haut pour une rubrique entière (la page défile sur l'appareil). */
-private const val PHONE_PAGE = "w411dp-h1400dp-port-xhdpi"
+private const val PHONE_PAGE = "w411dp-h1600dp-port-xhdpi"
 /** Assez haut pour les réglages de l'app entiers. */
 private const val PHONE_TALL = "w411dp-h1900dp-port-xhdpi"
 private const val PHONE_LAND = "w914dp-h411dp-land-xxhdpi"
 private const val TABLET = "w1280dp-h800dp-land-xhdpi"
 private const val TABLET_PORTRAIT = "w800dp-h1280dp-port-xhdpi"
+/** La tablette, assez haute pour la rubrique Commandes entière (elle défile sur l'appareil). */
+private const val TABLET_TALL = "w1280dp-h1500dp-xhdpi"
 
 /**
  * Captures des écrans, sans appareil ni bibliothèque native (données de démonstration, fausse
@@ -316,6 +318,8 @@ class Screenshots {
             override fun restoreMode() {}
             override fun pickDisplay(id: Int) {}
             override fun openKeyboard(open: Boolean) {}
+            override fun setOnScreenPad(on: Boolean) {}
+            override fun setPadLayout(simple: Boolean) {}
         }
         return SessionUi("Atelier", tv, state, actions).apply { passageDone = true; setup() }
     }
@@ -343,10 +347,23 @@ class Screenshots {
         }
     }
 
+    /** Une image d'ordinateur claire (fenêtres blanches) : la manette doit y rester lisible. */
+    private fun bright(w: Int = 1600, h: Int = 900): Bitmap {
+        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.shader = android.graphics.LinearGradient(0f, 0f, w.toFloat(), h.toFloat(), 0xFFBFD9F2.toInt(), 0xFFF2E6D9.toInt(), android.graphics.Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        p.shader = null
+        p.color = 0xFFFFFFFF.toInt(); c.drawRoundRect(w * 0.0f, h * 0.2f, w * 0.55f, h * 0.95f, 14f, 14f, p)
+        p.color = 0xFFF4F5F7.toInt(); c.drawRoundRect(w * 0.5f, h * 0.1f, w * 1.0f, h * 0.85f, 14f, 14f, p)
+        return b
+    }
+
     @Composable
-    private fun WithImage(ui: SessionUi) {
+    private fun WithImage(ui: SessionUi, image: Bitmap? = null) {
         Box(Modifier.fillMaxSize()) {
-            Image(desktop().asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image((image ?: desktop()).asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             SessionOverlay(ui)
         }
     }
@@ -374,5 +391,65 @@ class Screenshots {
     fun sessionTablet() {
         shot("connexion", "tablette", FormFactor.TABLET) { WithImage(connecting(false)) }
         shot("session", "tablette", FormFactor.TABLET, listOf("fr")) { WithImage(session(false) {}) }
+    }
+
+    // MARK: - Manette à l'écran et clavier
+
+    /** Des doigts sur la manette : A et la flèche droite enfoncés, le stick gauche poussé, RT à moitié. */
+    private fun SessionUi.pressing() {
+        pad.pressed = setOf(Pad.A, Pad.RIGHT)
+        pad.left = fr.leslignesclaires.kybernow.session.StickState(0.7f, -0.45f, touched = true)
+        pad.rt = 0.55f
+    }
+
+    private fun padShots(size: String, form: FormFactor) {
+        shot("session-manette", size, form) { WithImage(session(false) { padShown = true }) }
+        shot("session-manette-simple", size, form) { WithImage(session(false) { padShown = true; pad.setLayout(true) }) }
+        shot("session-manette-appui", size, form) { WithImage(session(false) { padShown = true; pressing() }) }
+    }
+
+    @Test @Config(qualifiers = PHONE_LAND)
+    fun sessionPadPhone() {
+        padShots("telephone", FormFactor.PHONE)
+        shot("session-manette-petite", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; padSize = 0 }) }
+        shot("session-manette-grande", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; padSize = 2 }) }
+        shot("session-manette-opacite-basse", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; padOpacity = 30; pressing() }) }
+        shot("session-manette-opacite-haute", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; padOpacity = 100; pressing() }) }
+        shot("session-manette-simple-appui", "telephone", FormFactor.PHONE) {
+            WithImage(session(false) { padShown = true; pad.setLayout(true); pad.pressed = setOf(Pad.Y, Pad.UP); pad.left = fr.leslignesclaires.kybernow.session.StickState(-0.3f, 0.8f, touched = true, clicked = false) })
+        }
+        shot("session-manette-barre", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; barOpen = true }) }
+        shot("session-manette-image-claire", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(session(false) { padShown = true; pressing() }, bright()) }
+        shot("session-manette-image-claire-opacite-basse", "telephone", FormFactor.PHONE, listOf("fr")) { WithImage(session(false) { padShown = true; padOpacity = 30 }, bright()) }
+        shot("session-barre-manette-cachee", "telephone", FormFactor.PHONE) { WithImage(session(false) { barOpen = true }) }
+        shot("session-clavier", "telephone", FormFactor.PHONE) { WithImage(session(false) { keyboardOpen = true }) }
+        shot("session-manette-clavier", "telephone", FormFactor.PHONE) { WithImage(session(false) { padShown = true; keyboardOpen = true }) }
+    }
+
+    @Test @Config(qualifiers = TABLET)
+    fun sessionPadTablet() {
+        padShots("tablette", FormFactor.TABLET)
+        shot("session-manette-grande", "tablette", FormFactor.TABLET) { WithImage(session(false) { padShown = true; padSize = 2 }) }
+        shot("session-manette-barre", "tablette", FormFactor.TABLET) { WithImage(session(false) { padShown = true; barOpen = true }) }
+    }
+
+    @Test @Config(qualifiers = TABLET_PORTRAIT)
+    fun sessionPadTabletPortrait() {
+        shot("session-manette-portrait", "tablette", FormFactor.TABLET) { WithImage(session(false) { padShown = true; pressing() }) }
+    }
+
+    /** Commandes, au téléphone et à la tablette, avec la manette à l'écran affichée ; sans vibreur, la ligne qui le dit. */
+    @Test @Config(qualifiers = PHONE_TALL)
+    fun settingsPadPhone() {
+        val shown = atelier.copy(settings = atelier.settings.copy(onScreenPad = true, padLayout = "simple", padSize = 2, padOpacity = 50, padHaptics = 3))
+        shot("reglages-commandes-manette", "telephone", FormFactor.PHONE) { HostSettingsContent(settings(FormFactor.PHONE, host = shown), settingsActions, Rubric.CONTROLS, only = Rubric.CONTROLS) }
+        shot("reglages-commandes-sans-vibreur", "telephone", FormFactor.PHONE) {
+            HostSettingsContent(settings(FormFactor.PHONE).copy(vibrator = false), settingsActions, Rubric.CONTROLS, only = Rubric.CONTROLS)
+        }
+    }
+
+    @Test @Config(qualifiers = TABLET_TALL)
+    fun settingsPadTablet() {
+        shot("reglages-commandes", "tablette", FormFactor.TABLET) { HostSettingsContent(settings(FormFactor.TABLET), settingsActions, Rubric.CONTROLS, only = Rubric.CONTROLS) }
     }
 }

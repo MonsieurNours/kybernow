@@ -5,6 +5,14 @@
 // allumée (J1 à J4), avec ses vibrations. La Siri Remote pilote l'app ; en
 // session, son bouton Retour ouvre le menu, et son pavé peut servir de souris.
 //
+// iPhone et iPad : la manette à l'écran (`setScreenPad`, dessinée par l'app)
+// prend aussi une place, la première libre, annoncée comme une manette
+// Xbox 360 à son affichage et débranchée à son retrait, avec les mêmes
+// paquets et les mêmes précautions que les autres (annonce après la
+// connexion des entrées et à chaque reconnexion, tout relâché au menu, en
+// arrière-plan et en fin de session) ; les vibrations du jeu qui la visent
+// passent par le moteur de l'appareil. Elle ne vit que le temps d'une session.
+//
 // L1 + R1 + Start + Select (comme sur Mac) ouvre aussi le menu : la manette
 // pilote alors KyberNow et le jeu ne reçoit plus rien. La combinaison et les
 // touches tenues de chaque manette sont suivies par PadCombo (partagé avec le
@@ -169,7 +177,8 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private final class Slot {
-        let controller: GCController
+        /// nil : la manette à l'écran (iPhone, iPad).
+        let controller: GCController?
         let id: UInt32
         /// 1 à 4 ; 0 : en attente, rien ne part vers l'ordinateur.
         var player: Int
@@ -182,7 +191,8 @@ public final class GamepadBridge: ObservableObject {
         var guideHeld = Set<PadButton>()
         /// Appui court rendu au relâchement : le relâchement suit 50 ms après.
         var tapRelease: [PadButton: DispatchWorkItem] = [:]
-        init(controller: GCController, id: UInt32, player: Int) {
+        var isScreen: Bool { controller == nil }
+        init(controller: GCController?, id: UInt32, player: Int) {
             self.controller = controller
             self.id = id
             self.player = player
@@ -309,7 +319,8 @@ public final class GamepadBridge: ObservableObject {
 
     private func plugAll(_ input: InputPipeline) {
         for slot in orderedSlots where slot.active {
-            input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(slot.controller)?.vendor, product: Self.usbIDs(slot.controller)?.product)
+            let ids = Self.usbIDs(slot)
+            input.gamepadPlug(id: slot.id, vendor: ids?.vendor, product: ids?.product)
         }
     }
 
@@ -331,6 +342,9 @@ public final class GamepadBridge: ObservableObject {
             }
             input = nil
             captured = false
+            rumbleLogged = []
+            rumbleLoggedActive = []
+            removeScreenPad()
             applyHomeGesture()
         }
     }
@@ -370,7 +384,11 @@ public final class GamepadBridge: ObservableObject {
 
     private func resync(_ slot: Slot) {
         guard input != nil, !captured, !config.padMouse, slot.active else { return }
-        guard let pad = slot.controller.extendedGamepad else { return }
+        if slot.isScreen {
+            resyncScreen(slot)
+            return
+        }
+        guard let pad = slot.controller?.extendedGamepad else { return }
         let pressed = Set(Self.buttons(pad).filter { $0.0?.isPressed == true }.map(\.1))
         combo.set(pressed: pressed, for: slot.id)
         slot.live.pressed = Set(pressed.map(\.name))
@@ -432,7 +450,7 @@ public final class GamepadBridge: ObservableObject {
         let slot = Slot(controller: c, id: nextID, player: 0)
         nextID += 1
         slots[key] = slot
-        slot.motors = Motors(controller: c)
+        slot.motors = Motors(controller: c, label: Self.name(c))
         slot.motors?.setSession(input != nil)
         setUpPad(slot)
         applyHomeGesture()
@@ -448,15 +466,17 @@ public final class GamepadBridge: ObservableObject {
 
     /// Donne une place (J1…J4) à une manette et l'annonce à l'ordinateur.
     private func seat(_ slot: Slot, _ player: Int) {
-        let c = slot.controller
         slot.player = player
-        Self.remember(c, player: player)
-        c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
-        c.light?.color = Self.lightColor(player)
-        if let input {
-            input.gamepadPlug(id: slot.id, vendor: Self.usbIDs(c)?.vendor, product: Self.usbIDs(c)?.product)
+        if let c = slot.controller {
+            Self.remember(c, player: player)
+            c.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
+            c.light?.color = Self.lightColor(player)
         }
-        KyberLog.app.notice("manette branchée : \(c.vendorName ?? "?", privacy: .public) (J\(player))")
+        if let input {
+            let ids = Self.usbIDs(slot)
+            input.gamepadPlug(id: slot.id, vendor: ids?.vendor, product: ids?.product)
+        }
+        KyberLog.app.notice("manette branchée : \(slot.controller?.vendorName ?? "à l'écran", privacy: .public) (J\(player))")
     }
 
     /// Capsule de session (fil principal), effacée au bout de 6 s.
@@ -485,21 +505,24 @@ public final class GamepadBridge: ObservableObject {
         // Manette en souris coupée en plein glisser : le clic ne reste pas enfoncé.
         if config.padMouse, !combo.pressed(slot.id).isEmpty, let input { releaseMouse(input) }
         combo.forget(slot.id)
-        // Une place se libère : la première manette en attente la prend.
-        if slot.active, let next = orderedSlots.first(where: { !$0.active }) {
-            seat(next, slot.player)
-            resync(next)
-            applyHomeGesture()
-            post(String(localized: "\(Self.name(next.controller)) rejoint l'ordinateur en J\(next.player)", bundle: .kyberKit))
-        }
+        freed(slot)
         publishPads()
+    }
+
+    /// Une place se libère : la première manette en attente la prend.
+    private func freed(_ slot: Slot) {
+        guard slot.active, let next = orderedSlots.first(where: { !$0.active }) else { return }
+        seat(next, slot.player)
+        resync(next)
+        applyHomeGesture()
+        post(String(localized: "\(name(next)) rejoint l'ordinateur en J\(next.player)", bundle: .kyberKit))
     }
 
     private func publishPads() {
         onQueue()
         let list = orderedSlots.map { s in
-            Pad(id: s.id, name: Self.name(s.controller), kind: Self.kind(s.controller), player: s.player,
-                battery: s.controller.battery.map { $0.batteryLevel }, charging: s.controller.battery?.batteryState == .charging,
+            Pad(id: s.id, name: name(s), kind: s.controller.map(Self.kind) ?? .xbox, player: s.player,
+                battery: s.controller?.battery.map { $0.batteryLevel }, charging: s.controller?.battery?.batteryState == .charging,
                 rumbles: s.motors != nil)
         }
         DispatchQueue.main.async { if self.pads != list { self.pads = list } }
@@ -528,7 +551,7 @@ public final class GamepadBridge: ObservableObject {
     }
 
     private func setUpPad(_ slot: Slot) {
-        guard let pad = slot.controller.extendedGamepad else { return }
+        guard let pad = slot.controller?.extendedGamepad else { return }
         for (element, button) in Self.buttons(pad) {
             // Gestes du système (capture d'écran sur Options ou Partager) :
             // coupés, la touche part au jeu sans délai. Le bouton Home suit
@@ -571,7 +594,7 @@ public final class GamepadBridge: ObservableObject {
         combo.button(slot.id, button, pressed: pressed)
         if pressed { slot.live.pressed.insert(button.name) } else { slot.live.pressed.remove(button.name) }
         liveDirty = true
-        noteKind(Self.kind(slot.controller))
+        noteKind(slot.controller.map(Self.kind) ?? .xbox)
         guard let input else { return }
         guard !captured else { return }
         if config.padMouse {
@@ -579,6 +602,12 @@ public final class GamepadBridge: ObservableObject {
             return
         }
         guard slot.active else { return }
+        // Manette à l'écran : son Guide est un bouton à lui, rien à partager
+        // avec le système.
+        if slot.isScreen {
+            input.gamepadButton(id: slot.id, button, pressed: pressed)
+            return
+        }
         if button == .guide {
             // Système, ou appui long : le Guide ne vient pas du bouton Home.
             guard config.guideMode == .game else { return }
@@ -675,7 +704,7 @@ public final class GamepadBridge: ObservableObject {
         for slot in slots.values {
             // Manette en attente : rien ne part au jeu, Home reste à tvOS.
             let wanted = slot.active ? state : .enabled
-            guard let home = slot.controller.extendedGamepad?.buttonHome, home.preferredSystemGestureState != wanted else { continue }
+            guard let home = slot.controller?.extendedGamepad?.buttonHome, home.preferredSystemGestureState != wanted else { continue }
             home.preferredSystemGestureState = wanted
         }
     }
@@ -685,7 +714,7 @@ public final class GamepadBridge: ObservableObject {
     /// tenues sont alors relâchées pour l'ordinateur), ou la rendre.
     private func comboFormed(_ id: UInt32) {
         onQueue()
-        guard config.menuFromCombo, input != nil, let slot = slots.values.first(where: { $0.id == id }) else { return }
+        guard config.menuFromCombo, input != nil, let slot = slots.values.first(where: { $0.id == id }), !slot.isScreen else { return }
         KyberLog.app.notice("combinaison L1 + R1 + Start + Select")
         // Appui long sur Start ou Select en cours : il n'aboutit pas.
         dropLongPress(slot, input: input)
@@ -706,6 +735,114 @@ public final class GamepadBridge: ObservableObject {
         liveDirty = true
         guard let input, !captured, !config.padMouse, slot.active else { return }
         input.gamepadAxis(id: slot.id, axis, value: value)
+    }
+
+    // MARK: - Manette à l'écran (iPhone, iPad)
+
+    /// Clé de la manette à l'écran parmi les places (elle n'a pas de GCController).
+    private static let screenToken = NSObject()
+    private static var screenKey: ObjectIdentifier { ObjectIdentifier(screenToken) }
+    /// Son nom dans les capsules (« Manette à l'écran »), donné par l'app.
+    private var screenName = ""
+
+    /// Affiche (true) ou retire la manette à l'écran : affichée, elle prend
+    /// la première place libre (J1…J4, ou en attente) et s'annonce à
+    /// l'ordinateur ; retirée, tout ce qu'elle tient est relâché, elle est
+    /// débranchée et sa place revient à une manette en attente. Fil
+    /// principal ; la fin de session la retire d'elle-même (`detach`).
+    public func setScreenPad(_ shown: Bool, name: String) {
+        queue.async {
+            self.screenName = name
+            if shown { self.addScreenPad() } else { self.removeScreenPad() }
+        }
+    }
+
+    /// Touche de la manette à l'écran (fil principal).
+    public func screenPadButton(_ button: PadButton, pressed: Bool) {
+        queue.async {
+            guard let slot = self.slots[Self.screenKey] else { return }
+            self.button(slot, button, pressed: pressed)
+        }
+    }
+
+    /// Stick de la manette à l'écran, de -1 à 1, vers le haut positif
+    /// (comme GameController ; fil principal).
+    public func screenPadStick(right: Bool, x: Float, y: Float) {
+        queue.async {
+            guard let slot = self.slots[Self.screenKey] else { return }
+            if right {
+                slot.live.rightStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.axis(slot, .rightX, Self.stick(x))
+                self.axis(slot, .rightY, Self.stick(-y))
+            } else {
+                slot.live.leftStick = CGPoint(x: CGFloat(x), y: CGFloat(y))
+                self.axis(slot, .leftX, Self.stick(x))
+                self.axis(slot, .leftY, Self.stick(-y))
+            }
+        }
+    }
+
+    /// Gâchette de la manette à l'écran, de 0 à 1 (fil principal).
+    public func screenPadTrigger(right: Bool, value: Float) {
+        queue.async {
+            guard let slot = self.slots[Self.screenKey] else { return }
+            if right {
+                slot.live.rightTrigger = value
+                self.axis(slot, .rightTrigger, Self.trigger(value))
+            } else {
+                slot.live.leftTrigger = value
+                self.axis(slot, .leftTrigger, Self.trigger(value))
+            }
+        }
+    }
+
+    private func addScreenPad() {
+        onQueue()
+        guard slots[Self.screenKey] == nil else { return }
+        let used = Set(slots.values.filter(\.active).map(\.player))
+        let player = (1...Self.maxPlayers).first { !used.contains($0) } ?? 0
+        let slot = Slot(controller: nil, id: nextID, player: 0)
+        nextID += 1
+        slots[Self.screenKey] = slot
+        #if os(iOS)
+        // Les vibrations du jeu passent par le moteur de l'appareil (iPhone).
+        slot.motors = Motors.device()
+        slot.motors?.setSession(input != nil)
+        #endif
+        if player > 0 {
+            seat(slot, player)
+        } else {
+            KyberLog.app.notice("manette à l'écran en attente (déjà quatre joueurs)")
+            post(String(localized: "\(screenName) en attente : l'ordinateur ne voit que quatre manettes", bundle: .kyberKit))
+        }
+        publishPads()
+    }
+
+    private func removeScreenPad() {
+        onQueue()
+        guard let slot = slots.removeValue(forKey: Self.screenKey) else { return }
+        slot.motors?.stop()
+        slot.motors?.setSession(false)
+        if slot.active, let input {
+            releaseAll(slot, input: input)
+            input.gamepadUnplug(id: slot.id)
+        }
+        combo.forget(slot.id)
+        KyberLog.app.notice("manette à l'écran débranchée")
+        freed(slot)
+        publishPads()
+    }
+
+    /// Après le menu ou le retour au premier plan : ses sticks et gâchettes
+    /// tels que l'app les tient (le doigt n'a peut-être pas bougé depuis).
+    private func resyncScreen(_ slot: Slot) {
+        let l = slot.live.leftStick, r = slot.live.rightStick
+        axis(slot, .leftX, Self.stick(Float(l.x)))
+        axis(slot, .leftY, Self.stick(-Float(l.y)))
+        axis(slot, .rightX, Self.stick(Float(r.x)))
+        axis(slot, .rightY, Self.stick(-Float(r.y)))
+        axis(slot, .leftTrigger, Self.trigger(slot.live.leftTrigger))
+        axis(slot, .rightTrigger, Self.trigger(slot.live.rightTrigger))
     }
 
     // MARK: - Manette en souris
@@ -965,10 +1102,28 @@ public final class GamepadBridge: ObservableObject {
 
     // MARK: - Vibrations
 
+    /// Manettes dont le premier paquet `Rumble` de la session, puis le premier
+    /// qui vibre vraiment (un jeu commence souvent par (0, 0)), sont au journal.
+    private var rumbleLogged = Set<UInt32>()
+    private var rumbleLoggedActive = Set<UInt32>()
+
     private func rumble(_ r: GamepadRumble) {
         onQueue()
+        let slot = slots.values.first(where: { $0.id == r.id })
+        // Une fois par session et par manette : le paquet arrive-t-il, et
+        // trouve-t-il sa manette (« rien n'arrive » ou « le moteur ne joue pas »).
+        let active = r.largeMotor > 0 || r.smallMotor > 0
+        if rumbleLogged.insert(r.id).inserted || (active && rumbleLoggedActive.insert(r.id).inserted) {
+            if active { rumbleLoggedActive.insert(r.id) }
+            let which = active ? "premier paquet qui vibre" : "premier paquet"
+            if let slot {
+                KyberLog.app.notice("vibrations : \(which, privacy: .public) pour \(self.name(slot), privacy: .public) (J\(slot.player)) : \(r.largeMotor)/\(r.smallMotor), \(r.durationMs) ms ; moteur \(slot.motors == nil ? "absent" : "prêt", privacy: .public), réglage \(self.config.rumbleEnabled ? "actif" : "coupé", privacy: .public)")
+            } else {
+                KyberLog.app.notice("vibrations : \(which, privacy: .public) pour la manette \(r.id), sans place ici")
+            }
+        }
         // Fin de session : un paquet en retard ne relance pas le moteur.
-        guard input != nil, config.rumbleEnabled, let slot = slots.values.first(where: { $0.id == r.id }) else { return }
+        guard input != nil, config.rumbleEnabled, let slot else { return }
         slot.motors?.play(large: r.largeMotor, small: r.smallMotor, durationMs: r.durationMs)
     }
 
@@ -1013,6 +1168,19 @@ public final class GamepadBridge: ObservableObject {
         }
     }
 
+    /// Nom d'une manette dans les capsules : celui de la manette à l'écran
+    /// est donné par l'app.
+    private func name(_ slot: Slot) -> String {
+        slot.controller.map(Self.name) ?? screenName
+    }
+
+    /// La manette à l'écran se présente comme une manette Xbox 360 filaire
+    /// (045E:028E), quel que soit le réglage « Manette vue par l'ordinateur ».
+    private static func usbIDs(_ slot: Slot) -> (vendor: UInt16, product: UInt16)? {
+        guard let c = slot.controller else { return (0x045E, 0x028E) }
+        return usbIDs(c)
+    }
+
     /// Identifiants USB que SDL donnerait sur Mac : l'ordinateur choisit la
     /// manette virtuelle d'après eux (Xbox 360, ou DualShock 4 pour les manettes Sony).
     private static func usbIDs(_ c: GCController) -> (vendor: UInt16, product: UInt16)? {
@@ -1050,6 +1218,17 @@ extension PadButton {
 /// Haptics reste démarré pendant la session ; la vibration ne s'arrête vraiment
 /// que sur (0, 0), au bout de la durée demandée, ou en fin de session.
 ///
+/// Replis, pour une manette dont les moteurs ne jouent pas (DualSense
+/// signalée muette sur Apple TV ; les en-têtes de GameController ne disent
+/// rien de propre à une manette, seulement que `.default` et `.all` existent
+/// toujours) : les moteurs gauche et droit, sinon un seul sur `.handles`,
+/// sinon un seul sur `.default` ; on descend d'un cran si un moteur ne peut
+/// pas être créé ou si son premier départ échoue. Un motif de 30 s (le plus
+/// long d'un événement continu) refusé est refait plus court ; une intensité
+/// dynamique refusée fait recréer le motif à chaque palier de 10 %. Une
+/// manette qui marche ne passe par aucun de ces replis. Tout est au journal
+/// (`KyberLog.app`, « vibrations de … »).
+///
 /// Les appels à Core Haptics sont synchrones vers le service haptique (le
 /// premier démarrage du moteur peut prendre des dizaines de millisecondes) :
 /// ils ont leur propre file, pour ne jamais retarder une touche sur la file
@@ -1063,6 +1242,23 @@ private final class Motors {
     /// En session, le moteur Core Haptics reste démarré entre deux vibrations ;
     /// hors session (vibration d'essai), il s'arrête après.
     private var session = false
+    /// Les moteurs de la manette (nil : l'appareil lui-même).
+    private let haptics: GCDeviceHaptics?
+    /// « DualSense », pour le journal.
+    private let label: String
+    private enum Layout: Int {
+        case pair, handles, single
+        var name: String {
+            switch self {
+            case .pair: return "gauche et droite"
+            case .handles: return "poignées"
+            case .single: return "par défaut"
+            }
+        }
+    }
+    private var layout: Layout?
+    /// Dernières intensités demandées, rejouées après un repli.
+    private var last: (large: Float, small: Float) = (0, 0)
 
     func setSession(_ on: Bool) {
         queue.async {
@@ -1071,19 +1267,100 @@ private final class Motors {
         }
     }
 
-    init?(controller: GCController) {
-        guard let haptics = controller.haptics else { return nil }
-        let queue = Self.queue
-        self.queue = queue
-        let localities = haptics.supportedLocalities
-        if localities.contains(.leftHandle), localities.contains(.rightHandle) {
-            // Gros moteur à gauche (grave), petit à droite (aigu), comme XInput.
-            large = Motor(haptics.createEngine(withLocality: .leftHandle), sharpness: 0.2, queue: queue)
-            small = Motor(haptics.createEngine(withLocality: .rightHandle), sharpness: 0.8, queue: queue)
-        } else {
-            large = Motor(haptics.createEngine(withLocality: .default), sharpness: 0.4, queue: queue)
-        }
+    #if os(iOS)
+    /// Le moteur de l'appareil lui-même (iPhone ; l'iPad n'en a pas) : un
+    /// seul moteur, pour la manette à l'écran.
+    static func device() -> Motors? {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return nil }
+        return Motors(engine: try? CHHapticEngine())
+    }
+
+    private init?(engine: CHHapticEngine?) {
+        queue = Self.queue
+        haptics = nil
+        label = "l'appareil"
+        layout = .single
+        large = Motor(engine, sharpness: 0.4, queue: queue, label: label)
         if large == nil { return nil }
+    }
+    #endif
+
+    init?(controller: GCController, label: String) {
+        guard let haptics = controller.haptics else {
+            KyberLog.app.notice("vibrations de \(label, privacy: .public) : aucune (la manette n'en annonce pas)")
+            return nil
+        }
+        queue = Self.queue
+        self.haptics = haptics
+        self.label = label
+        let localities = haptics.supportedLocalities.map(\.rawValue).sorted().joined(separator: ", ")
+        KyberLog.app.notice("vibrations de \(label, privacy: .public) : localités \(localities, privacy: .public)")
+        guard build(after: nil) else { return nil }
+    }
+
+    /// Crée les moteurs du premier agencement possible après `previous`.
+    @discardableResult
+    private func build(after previous: Layout?) -> Bool {
+        guard let haptics else { return false }
+        let localities = haptics.supportedLocalities
+        var next: Layout? = previous.flatMap { Layout(rawValue: $0.rawValue + 1) } ?? (previous == nil ? .pair : nil)
+        while let layout = next {
+            switch layout {
+            case .pair where localities.contains(.leftHandle) && localities.contains(.rightHandle):
+                // Gros moteur à gauche (grave), petit à droite (aigu), comme XInput.
+                let left = motor(haptics, .leftHandle, sharpness: 0.2, layout: layout, side: "gauche")
+                let right = motor(haptics, .rightHandle, sharpness: 0.8, layout: layout, side: "droite")
+                if let left, let right {
+                    use(layout, large: left, small: right)
+                    return true
+                }
+            case .handles where localities.contains(.handles):
+                if let m = motor(haptics, .handles, sharpness: 0.4, layout: layout, side: "poignées") {
+                    use(layout, large: m, small: nil)
+                    return true
+                }
+            case .single:
+                if let m = motor(haptics, .default, sharpness: 0.4, layout: layout, side: "par défaut") {
+                    use(layout, large: m, small: nil)
+                    return true
+                }
+            default:
+                break
+            }
+            next = Layout(rawValue: layout.rawValue + 1)
+        }
+        KyberLog.app.error("vibrations de \(self.label, privacy: .public) : aucun moteur")
+        return false
+    }
+
+    private func motor(_ haptics: GCDeviceHaptics, _ locality: GCHapticsLocality, sharpness: Float, layout: Layout, side: String) -> Motor? {
+        let name = "\(label), \(side)"
+        let m = Motor(haptics.createEngine(withLocality: locality), sharpness: sharpness, queue: queue, label: name)
+        KyberLog.app.notice("vibrations de \(name, privacy: .public) : moteur \(m == nil ? "impossible à créer" : "créé", privacy: .public)")
+        m?.onFirstFailure = { [weak self] in self?.failed(layout) }
+        return m
+    }
+
+    private func use(_ layout: Layout, large: Motor, small: Motor?) {
+        self.layout = layout
+        self.large = large
+        self.small = small
+        KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : moteurs \(layout.name, privacy: .public)")
+    }
+
+    /// Le premier départ d'un moteur a échoué : un cran plus simple, et la
+    /// vibration en cours reprend dessus.
+    private func failed(_ failing: Layout) {
+        queue.async {
+            guard self.layout == failing, self.haptics != nil else { return }
+            KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : repli après « \(failing.name, privacy: .public) »")
+            self.shutdown()
+            self.large = nil
+            self.small = nil
+            self.layout = nil
+            guard self.build(after: failing) else { return }
+            if self.last.large > 0 || self.last.small > 0 { self.setLevels(self.last.large, self.last.small) }
+        }
     }
 
     /// Paquet `Rumble` : intensités de 0 à 65535 ; durée en millisecondes,
@@ -1096,13 +1373,7 @@ private final class Motors {
     private func apply(large l: UInt16, small s: UInt16, durationMs: Int) {
         expiry?.cancel()
         expiry = nil
-        let li = Float(l) / 65535, si = Float(s) / 65535
-        if let small {
-            large?.set(li)
-            small.set(si)
-        } else {
-            large?.set(max(li, si))
-        }
+        setLevels(Float(l) / 65535, Float(s) / 65535)
         guard l > 0 || s > 0 else {
             if !session { shutdown() }
             return
@@ -1111,6 +1382,16 @@ private final class Motors {
         let item = DispatchWorkItem { [weak self] in self?.apply(large: 0, small: 0, durationMs: 0) }
         expiry = item
         queue.asyncAfter(deadline: .now() + seconds, execute: item)
+    }
+
+    private func setLevels(_ li: Float, _ si: Float) {
+        last = (li, si)
+        if let small {
+            large?.set(li)
+            small.set(si)
+        } else {
+            large?.set(max(li, si))
+        }
     }
 
     /// Fin de session ou manette débranchée : vibration et moteur arrêtés.
@@ -1123,6 +1404,7 @@ private final class Motors {
     }
 
     private func shutdown() {
+        last = (0, 0)
         large?.shutdown()
         small?.shutdown()
     }
@@ -1131,18 +1413,30 @@ private final class Motors {
         private let engine: CHHapticEngine
         private let sharpness: Float
         private let queue: DispatchQueue
+        /// « DualSense, gauche », pour le journal.
+        private let label: String
         private var player: CHHapticAdvancedPatternPlayer?
         private var running = false
         private var playing = false
         private var level: Float = 0
-        /// Durée du motif joué en boucle (le maximum d'un événement continu).
-        private static let span: TimeInterval = 30
+        /// Durée du motif joué en boucle : le maximum d'un événement continu,
+        /// ou plus court si le moteur le refuse.
+        private var span: TimeInterval = 30
+        /// L'intensité suit le paramètre dynamique ; false : le moteur le
+        /// refuse, le motif est recréé à chaque palier (`staticLevel`).
+        private var dynamic = true
+        private var staticLevel: Float = 0
+        /// Le moteur a déjà joué : un échec plus tard n'est pas un repli.
+        private var played = false
+        /// Premier départ manqué (Motors descend d'un cran).
+        var onFirstFailure: (() -> Void)?
 
-        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue) {
+        init?(_ engine: CHHapticEngine?, sharpness: Float, queue: DispatchQueue, label: String) {
             guard let engine else { return nil }
             self.engine = engine
             self.sharpness = sharpness
             self.queue = queue
+            self.label = label
             engine.isAutoShutdownEnabled = false
             engine.playsHapticsOnly = true
             // Rappels de Core Haptics sur un fil à lui : on repasse sur la file.
@@ -1152,7 +1446,7 @@ private final class Motors {
                     self.running = false
                     self.player = nil
                     self.playing = false
-                    KyberLog.app.notice("vibration : moteur arrêté par le système (\(reason.rawValue))")
+                    KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : moteur arrêté par le système (\(reason.rawValue))")
                 }
             }
             // Serveur haptique relancé : les lecteurs ne valent plus rien ; la
@@ -1179,43 +1473,90 @@ private final class Motors {
                 }
                 return
             }
+            var step = "démarrage du moteur"
             do {
                 if !running {
                     try engine.start()
                     running = true
                 }
-                let p = try player ?? makePlayer()
-                player = p
-                let intensity = [CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: v, relativeTime: 0)]
-                if !playing {
-                    // Intensité donnée avant le départ si Core Haptics la
-                    // garde : pas d'à-coup à pleine intensité.
-                    try? p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
-                    try p.start(atTime: CHHapticTimeImmediate)
-                    playing = true
+                if dynamic {
+                    step = "création du motif"
+                    let p = try player ?? makePlayer(intensity: 1)
+                    player = p
+                    let intensity = [CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: v, relativeTime: 0)]
+                    if !playing {
+                        // Intensité donnée avant le départ si Core Haptics la
+                        // garde : pas d'à-coup à pleine intensité.
+                        try? p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
+                        step = "départ du motif"
+                        try p.start(atTime: CHHapticTimeImmediate)
+                        playing = true
+                    }
+                    do {
+                        try p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
+                    } catch {
+                        KyberLog.app.error("vibrations de \(self.label, privacy: .public) : intensité dynamique refusée (\(error.localizedDescription, privacy: .public)), motif recréé à chaque palier")
+                        try? p.stop(atTime: CHHapticTimeImmediate)
+                        player = nil
+                        playing = false
+                        dynamic = false
+                    }
                 }
-                try p.sendParameters(intensity, atTime: CHHapticTimeImmediate)
+                if !dynamic {
+                    // Paliers de 10 % : le motif est refait à l'intensité voulue.
+                    let q = max(0.1, (v * 10).rounded() / 10)
+                    if !playing || q != staticLevel {
+                        try? player?.stop(atTime: CHHapticTimeImmediate)
+                        playing = false
+                        step = "création du motif"
+                        let p = try makePlayer(intensity: q)
+                        player = p
+                        step = "départ du motif"
+                        try p.start(atTime: CHHapticTimeImmediate)
+                        playing = true
+                        staticLevel = q
+                    }
+                }
+                if !played {
+                    played = true
+                    KyberLog.app.notice("vibrations de \(self.label, privacy: .public) : premier départ")
+                }
             } catch {
-                KyberLog.app.error("vibration : \(error.localizedDescription, privacy: .public)")
+                KyberLog.app.error("vibrations de \(self.label, privacy: .public) : \(step, privacy: .public) impossible (\(error.localizedDescription, privacy: .public))")
                 // Un lecteur qui tourne encore ne doit pas rester à pleine
                 // intensité sans personne pour l'arrêter.
                 try? player?.stop(atTime: CHHapticTimeImmediate)
                 player = nil
                 playing = false
                 running = false
+                if !played, let fail = onFirstFailure {
+                    onFirstFailure = nil
+                    fail()
+                }
             }
         }
 
-        /// Motif continu d'intensité 1, en boucle ; l'intensité réelle vient
-        /// du paramètre dynamique.
-        private func makePlayer() throws -> CHHapticAdvancedPatternPlayer {
+        /// Motif continu, en boucle ; l'intensité réelle vient du paramètre
+        /// dynamique (ou du motif lui-même, sans lui). Un motif de 30 s refusé
+        /// est refait sur 4 s.
+        private func makePlayer(intensity: Float) throws -> CHHapticAdvancedPatternPlayer {
+            do {
+                return try pattern(intensity: intensity)
+            } catch where span > 4 {
+                KyberLog.app.error("vibrations de \(self.label, privacy: .public) : motif de \(Int(self.span)) s refusé (\(error.localizedDescription, privacy: .public)), essai sur 4 s")
+                span = 4
+                return try pattern(intensity: intensity)
+            }
+        }
+
+        private func pattern(intensity: Float) throws -> CHHapticAdvancedPatternPlayer {
             let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
-                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: intensity),
                 CHHapticEventParameter(parameterID: .hapticSharpness, value: sharpness),
-            ], relativeTime: 0, duration: Self.span)
+            ], relativeTime: 0, duration: span)
             let p = try engine.makeAdvancedPlayer(with: CHHapticPattern(events: [event], parameters: []))
             p.loopEnabled = true
-            p.loopEnd = Self.span
+            p.loopEnd = span
             return p
         }
 

@@ -28,14 +28,22 @@ What is planned or still to try, and only here: the other documents describe wha
 ## KyberNow Link
 
 - **Windows**: a session across several of the PC's displays.
-- **Android**: on-screen gamepad; foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
+- **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
-- **iPhone and iPad**: on-screen virtual gamepad, Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
+- **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
 - **Apple TV**: TestFlight, then the App Store.
 - **LG TVs**: a Homebrew Channel repository, so updates install from the TV; DualSense rumble and adaptive triggers through webOS's Bluetooth service.
 - **Linux**: zero-copy DMA-BUF import of VA-API frames (4K at 120 Hz); NVDEC decoding for NVIDIA cards; a Flatpak repository or Flathub, so updates install by themselves.
 - **Raspberry Pi**: publish the apt repository (GPG key, hosting, called from `release.sh`); zero-copy path (SAND frames on a DRM plane).
 - **KyberNow Link OS**: install the update during standby; a composed soundtrack for the ignition, instead of `chime.rs`'s synthesis.
+
+## Sony controllers in “Faithful” mode
+
+The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and rumble go through; the touchpad is only a button.
+
+- **Light bar**: send back to the app the colour the game gives the virtual DualShock 4 (the driver already receives it), to light the real controller.
+- **Gyroscope and touchpad**: extend Kyber's controller protocol (patches on the apps' side and the Station's side, to offer to Kyber) and the virtual DualShock 4's extended report, then each app.
+- No adaptive triggers: Windows does not see a DualSense, and no free driver creates a virtual one.
 
 ## Publishing, CI, website, brand
 

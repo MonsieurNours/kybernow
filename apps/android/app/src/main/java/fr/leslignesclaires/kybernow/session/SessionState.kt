@@ -80,6 +80,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     var onCombo: (() -> Unit)? = null
     /** Les entrées ont rejoint l'ordinateur : rebrancher les manettes. */
     var onInputConnected: (() -> Unit)? = null
+    /** Vibrations du jeu pour la manette à l'écran (gros moteur, petit, durée) : depuis un fil du cœur. */
+    @Volatile var onScreenRumble: ((Int, Int, Int) -> Unit)? = null
     /** Premier instant d'image, pour le passage et la durée de la session. */
     val firstImageAt = AtomicLong(0)
 
@@ -185,7 +187,9 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
             android.util.Log.w("KyberNow", "vibrations : aucune manette au rang $pad")
             return
         }
-        gamepads.rumble(p.deviceId, large, small, durationMs)
+        // La manette à l'écran : c'est l'appareil qui vibre.
+        if (p.onScreen) onScreenRumble?.invoke(large, small, durationMs)
+        else gamepads.rumble(p.deviceId, large, small, durationMs)
     }
 
     override fun onCombo(pad: Int) {

@@ -8,6 +8,11 @@
 // ni barre qui s'ouvre d'elle-même ; les statistiques sont dans la barre, à
 // la demande. Les capsules des événements (reconnexion, mode changé, manette
 // branchée) sont toujours en haut de l'image, jamais une alerte modale.
+//
+// La manette à l'écran (ScreenPad.swift) se pose sur l'image, sous les
+// capsules et la barre ; tant qu'elle est là, le bouton du clavier au pouce
+// droit laisse sa place à A B X Y (le clavier reste dans la barre) et les
+// capsules se resserrent entre ses gâchettes.
 
 import GameController
 import KyberKit
@@ -84,6 +89,8 @@ struct SessionView: View {
 
     private var isFailed: Bool { if case .failed = session.phase { return true } else { return false } }
 
+    private var padShown: Bool { streaming && session.screenPad }
+
     /// Languette, barre, capsules, clavier, statistiques.
     @ViewBuilder
     private func chrome(size: CGSize) -> some View {
@@ -92,6 +99,14 @@ struct SessionView: View {
             if session.external {
                 ConsoleSurface(deviceIsPad: DeviceDisplay.isPad)
                     .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            if streaming, session.screenPad {
+                let s = session.host.settings
+                ScreenPadOverlay(layout: s.screenPadLayout, size: s.screenPadSize, opacity: s.screenPadOpacity,
+                                 haptics: PadHaptics.available ? s.screenPadHaptics : .off,
+                                 topReserved: session.external ? 76 : 0) { session.toggleScreenPadLayout() }
+                    .ignoresSafeArea()
                     .transition(.opacity)
             }
             // Capsules en haut de l'image.
@@ -113,9 +128,10 @@ struct SessionView: View {
                     StateCapsule(icon: "game-controller", title: pad, detail: nil) { EmptyView() }
                 }
             }
-            .frame(maxWidth: 620)
+            // Manette à l'écran : entre ses gâchettes, sous sa rangée du haut.
+            .frame(maxWidth: padShown ? min(520, size.width * 0.6) : 620)
             .frame(maxHeight: .infinity, alignment: .top)
-            .padding(.top, session.barOpen ? 80 : 44)
+            .padding(.top, session.barOpen ? 80 : padShown && size.height < 600 ? 64 : 44)
             .padding(.horizontal, 16)
             .animation(Theme.easeOut, value: session.notice)
 
@@ -131,7 +147,7 @@ struct SessionView: View {
                     .transition(.opacity)
             }
 
-            if streaming, !session.barOpen {
+            if streaming, !session.barOpen, !padShown {
                 HStack(alignment: .bottom) {
                     Spacer()
                     Button {
@@ -451,6 +467,22 @@ struct SessionBar: View {
                     Button { session.restoreMode() } label: { item("arrows-clockwise", offer) }
                 }
                 Button { session.keysMenu = true } label: { item("keyboard", String(localized: "Touches")) }
+                Button { session.toggleKeyboard() } label: { item("keyboard", String(localized: "Clavier")) }
+                    .accessibilityLabel(Text(session.keyboardShown ? "Fermer le clavier" : "Ouvrir le clavier"))
+                Button { session.toggleScreenPad() } label: {
+                    item("game-controller", ScreenPadText.name)
+                        .background {
+                            if session.screenPad {
+                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .fill(Color.white.opacity(0.12))
+                                    .overlay(alignment: .bottom) { Rectangle().fill(Theme.accent).frame(height: 2) }
+                                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            }
+                        }
+                }
+                .accessibilityLabel(Text(ScreenPadText.name))
+                .accessibilityValue(session.screenPad ? Text("Activé") : Text("Désactivé"))
+                .accessibilityAddTraits(session.screenPad ? .isSelected : [])
                 separator
                 Button { session.setBar(false) } label: {
                     Image(systemName: "chevron.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.text2).frame(width: 40, height: 44)

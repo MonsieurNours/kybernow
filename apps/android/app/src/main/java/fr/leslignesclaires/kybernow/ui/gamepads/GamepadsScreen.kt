@@ -83,7 +83,8 @@ fun GamepadsScreen(onBack: () -> Unit) {
     val app = KyberNowApp.instance
     val pads by app.gamepads.pads.collectAsState()
     val live by PadMonitor.live.collectAsState()
-    GamepadsContent(pads, live, app.gamepads::test, onBack)
+    // Les vraies manettes : la manette à l'écran n'existe qu'en session.
+    GamepadsContent(pads.filterNot { it.onScreen }, live, app.gamepads::test, onBack)
 }
 
 /** `test(manette, moteur)` : vibration d'essai (0 gauche, 1 droit, 2 les deux). */

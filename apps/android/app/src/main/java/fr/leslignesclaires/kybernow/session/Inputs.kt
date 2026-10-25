@@ -361,14 +361,38 @@ class RemoteRouter(private val handle: () -> Long) {
     }
 }
 
+/** Ce que le toucher envoie à l'ordinateur : le cœur ([native]), ou un relevé dans les tests. */
+interface PointerOut {
+    fun moveTo(x: Double, y: Double)
+    fun moveBy(dx: Double, dy: Double)
+    /** 0 gauche, 1 droit, 2 milieu. */
+    fun button(button: Int, pressed: Boolean)
+    fun wheel(dx: Float, dy: Float)
+
+    companion object {
+        fun native(handle: () -> Long) = object : PointerOut {
+            override fun moveTo(x: Double, y: Double) = Native.pointerMoveTo(handle(), x, y)
+            override fun moveBy(dx: Double, dy: Double) = Native.pointerMoveBy(handle(), dx, dy)
+            override fun button(button: Int, pressed: Boolean) = Native.inputMouseButton(handle(), button, pressed)
+            override fun wheel(dx: Float, dy: Float) = Native.inputWheel(handle(), dx, dy)
+        }
+    }
+}
+
 /**
  * Au doigt. Pavé tactile : un doigt déplace le pointeur de l'ordinateur,
  * toucher = clic, deux doigts = clic droit, deux doigts qui glissent =
  * molette, maintenir puis glisser = glisser-déposer. Toucher direct : le
  * doigt est le pointeur.
+ *
+ * Clavier de l'écran sorti ([keyboardOpen]) : un toucher sur l'image le replie ([onFold]) et ne
+ * clique pas. Les autres gestes gardent leur effet : glisser, deux doigts, maintenir (en toucher
+ * direct, le clic part dès que le doigt glisse ou reste posé, depuis l'endroit touché).
  */
-class TouchInput(private val handle: () -> Long, private val toHost: (Float, Float) -> Pair<Double, Double>?, private val hostScale: () -> Double) {
+class TouchInput(private val out: PointerOut, private val toHost: (Float, Float) -> Pair<Double, Double>?, private val hostScale: () -> Double) {
     var direct = false
+    var keyboardOpen: () -> Boolean = { false }
+    var onFold: () -> Unit = {}
     private var downAt = 0L
     private var downX = 0f
     private var downY = 0f
@@ -379,6 +403,12 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
     private var twoFingerTap = false
     private var scrollAcc = 0.0
     private var dragging = false
+    /** Un deuxième doigt s'est posé : le geste n'est pas un toucher (pas de clic gauche au lever). */
+    private var multi = false
+    /** Ce doigt peut replier le clavier : rien n'est encore parti à l'ordinateur. */
+    private var folding = false
+    /** Toucher direct en attente (clavier sorti) : où le clic partira. */
+    private var directTarget: Pair<Double, Double>? = null
     // Dernier toucher en toucher direct (position à l'écran, position sur
     // l'ordinateur, heure) : un second toucher rapide et proche reprend sa
     // position. Piège : Windows ne compte un double clic que si le second clic
@@ -392,30 +422,42 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
     private val holdToDrag = Runnable {
         if (!moved && fingers == 1) {
             dragging = true
-            Native.inputMouseButton(handle(), 0, true)
+            folding = false
+            out.button(0, true)
         }
+    }
+    /** Clavier sorti, toucher direct : le doigt resté posé devient le pointeur, bouton enfoncé. */
+    private val holdDirect = Runnable { if (folding && !moved && fingers == 1) startDirect() }
+
+    private fun startDirect() {
+        folding = false
+        directTarget?.let { (x, y) -> out.moveTo(x, y) }
+        out.button(0, true)
+        dragging = true
     }
 
     fun onTouch(e: MotionEvent): Boolean {
-        val h = handle()
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 downAt = e.eventTime
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
-                moved = false; fingers = 1; twoFingerTap = false; dragging = false
+                moved = false; fingers = 1; twoFingerTap = false; dragging = false; multi = false
+                folding = keyboardOpen()
                 if (direct) {
                     val near = e.eventTime - lastTapAt < 500 && hypot(e.x - lastTapX, e.y - lastTapY) < 64
                     val target = if (near) lastTapHost else toHost(e.x, e.y)
-                    target?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
                     lastTapHost = target
-                    Native.inputMouseButton(h, 0, true)
-                    dragging = true
+                    directTarget = target
+                    if (folding) main.postDelayed(holdDirect, HOLD_DIRECT_MS) else startDirect()
                 } else {
                     main.postDelayed(holdToDrag, 450)
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 fingers = e.pointerCount
+                multi = true
+                folding = false
+                main.removeCallbacks(holdDirect)
                 if (fingers == 2) {
                     twoFingerTap = !moved
                     lastY = (e.getY(0) + e.getY(1)) / 2
@@ -430,7 +472,7 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
                     if (abs(dy) > 2) twoFingerTap = false
                     scrollAcc += -dy / 40.0
                     if (abs(scrollAcc) >= 1) {
-                        Native.inputWheel(h, 0f, scrollAcc.toInt().toFloat())
+                        out.wheel(0f, scrollAcc.toInt().toFloat())
                         scrollAcc -= scrollAcc.toInt()
                     }
                     return true
@@ -439,7 +481,11 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
                     // Le tremblement du doigt ne déplace pas le pointeur : il ne
                     // suit qu'une fois le doigt vraiment parti (glisser).
                     if (!moved && hypot(e.x - downX, e.y - downY) > 12) moved = true
-                    if (moved) toHost(e.x, e.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                    if (moved && folding) {
+                        main.removeCallbacks(holdDirect)
+                        startDirect()
+                    }
+                    if (moved) toHost(e.x, e.y)?.let { (x, y) -> out.moveTo(x, y) }
                     return true
                 }
                 val dx = e.x - lastX
@@ -447,38 +493,53 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
                 lastX = e.x; lastY = e.y
                 if (hypot(e.x - downX, e.y - downY) > 12) {
                     moved = true
+                    folding = false
                     if (!dragging) main.removeCallbacks(holdToDrag)
                 }
                 // Accélération : lent pour viser, rapide pour traverser l'écran.
                 val speed = hypot(dx, dy)
                 val gain = (1.2 + max(0f, speed - 4f) * 0.12) * hostScale()
-                Native.pointerMoveBy(h, dx * gain, dy * gain)
+                out.moveBy(dx * gain, dy * gain)
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 if (fingers == 2 && twoFingerTap && e.eventTime - downAt < 300) {
-                    Native.inputMouseButton(h, 1, true)
-                    Native.inputMouseButton(h, 1, false)
+                    out.button(1, true)
+                    out.button(1, false)
                 }
                 fingers = e.pointerCount - 1
                 twoFingerTap = false
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 main.removeCallbacks(holdToDrag)
-                if (direct && !moved && fingers <= 1) {
+                main.removeCallbacks(holdDirect)
+                if (folding && !dragging && fingers <= 1) {
+                    // Le toucher replie le clavier, et rien d'autre.
+                    folding = false
+                    lastTapAt = 0L
+                    fingers = 0
+                    if (e.actionMasked == MotionEvent.ACTION_UP) onFold()
+                    return true
+                }
+                if (direct && !moved && !multi) {
                     lastTapX = e.x; lastTapY = e.y; lastTapAt = e.eventTime
                 } else if (direct) {
                     lastTapAt = 0L
                 }
                 if (dragging) {
-                    Native.inputMouseButton(h, 0, false)
-                } else if (!moved && fingers <= 1 && e.eventTime - downAt < 250) {
-                    Native.inputMouseButton(h, 0, true)
-                    Native.inputMouseButton(h, 0, false)
+                    out.button(0, false)
+                } else if (!moved && !multi && e.eventTime - downAt < 250) {
+                    out.button(0, true)
+                    out.button(0, false)
                 }
                 dragging = false
                 fingers = 0
             }
         }
         return true
+    }
+
+    private companion object {
+        /** Clavier sorti, toucher direct : au-delà, le doigt posé n'est plus un toucher, il clique et tient. */
+        const val HOLD_DIRECT_MS = 350L
     }
 }

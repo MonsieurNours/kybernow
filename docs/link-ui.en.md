@@ -56,7 +56,12 @@ If Admin answers but the picture does not arrive despite the session's own repai
 
 From the first frame, the picture alone. No arrival capsule, no bar that shows then hides, no figure. The window title (Windows) is “{name} · KyberNow Link” (the command line keeps its measurements in the title, as it has no bar).
 
-During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”.
+During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
+
+With touch (iPhone, iPad, Android outside the TV):
+
+- **Keyboard**: it opens from the bar; a touch on the picture folds it away (that touch does not click on the computer).
+- **On-screen controller** / « Manette à l'écran »: a bar button, remembered for each computer. Two fixed layouts, for both thumbs in landscape: “Full” / « Complète », a whole Xbox controller (two sticks which click: L3, R3; the D-pad; A, B, X, Y; LB, RB, LT and RT, progressive; View, Menu and Guide); “Simple” / « Simple », the left stick, the D-pad, A, B, X, Y and Menu. A small button on the controller switches between them (accessible label “Simple controller” / “Full controller”, « Manette simple » / « Manette complète »), the choice remembered for each computer. The computer sees it as an Xbox 360 controller, in the first free player slot. While it is shown, the rest of the screen does not act as a mouse. Settings in Controls: “Layout” (Full, Simple), “Size” (Small, Medium, Large), “Opacity” and “Haptic feedback” (Off, Light, Medium, Strong; Medium by default). Every press can be felt and seen: the button lights up and sinks slightly; a crisp click when pressing a button, the D-pad or a stick; for the triggers, a light click at the start of the travel and a firm click at the end; for the sticks, a tick when the stick leaves the centre, a very light tick at each change of direction (eight directions) and a tick at the edge, never a continuous vibration. While the controller is shown, the game's rumble vibrates the device. Without a haptic engine (iPad), only the visual feedback remains.
 
 ## Computer settings
 

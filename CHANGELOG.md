@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.5.2
+
+- **Manette à l'écran sur iPhone, iPad et Android** (téléphones et tablettes) : bouton « Manette à l'écran » de la barre de session, retenu pour chaque ordinateur. Deux dispositions, Complète (une manette Xbox entière : deux sticks qui s'enfoncent, croix, A, B, X, Y, gâchettes progressives, Affichage, Menu, Guide) et Simple (stick gauche, croix, A, B, X, Y et Menu), avec un petit bouton sur la manette pour passer de l'une à l'autre. L'ordinateur la voit comme une manette Xbox 360, à la première place de joueur libre ; tant qu'elle est affichée, le reste de l'écran ne sert pas de souris. Chaque appui s'allume et se sent (clic des boutons, tics des sticks au centre, aux changements de direction et en butée), et les vibrations du jeu font vibrer l'appareil ; l'iPad, sans moteur haptique, garde le retour visuel. Réglages dans Commandes : Disposition, Taille, Opacité, Retour haptique.
+- iPhone, iPad et Android : un toucher sur l'image replie le clavier, sans cliquer sur l'ordinateur ; « Clavier » dans la barre de session. Android : un toucher à deux doigts ne fait plus aussi un clic gauche.
+- Apple TV : une manette dont les moteurs de vibration ne démarrent pas passe à un seul moteur, et le journal de l'app détaille ses vibrations (pour la DualSense muette en session, pas encore vérifiée avec la manette).
+
 ## 0.5.1
 
 - Client web : il s'ouvre maintenant à l'adresse d'Admin suivie de `/link` (par exemple `https://192.168.1.20:31415/link`), comme les apps KyberNow Link. L'ancienne adresse, `/ecran`, y renvoie : favoris et liens existants continuent de marcher.

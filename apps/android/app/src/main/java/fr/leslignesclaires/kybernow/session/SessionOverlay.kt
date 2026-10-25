@@ -93,6 +93,8 @@ class SessionUi(
     val tv: Boolean,
     val state: SessionState,
     val actions: SessionActions,
+    /** La manette à l'écran (téléphone, tablette) : ses touchers, ce qu'elle envoie, son état pour le dessin. */
+    val pad: OnScreenPad = OnScreenPad(PadOut.NONE),
 ) {
     var menuOpen by mutableStateOf(false)
     var barOpen by mutableStateOf(false)
@@ -115,9 +117,16 @@ class SessionUi(
     var combo by mutableStateOf(true)
     /** Modificateurs collants de la rangée de touches (Ctrl, Alt, ⊞). */
     var sticky by mutableStateOf(emptySet<Int>())
+    /** Manette à l'écran affichée (réglage de l'ordinateur, bouton de la barre), sa taille (0 à 2) et son opacité (%). */
+    var padShown by mutableStateOf(false)
+    var padSize by mutableStateOf(1)
+    var padOpacity by mutableStateOf(70)
+
+    /** Un menu, une feuille, la barre, le clavier… par-dessus l'image (la manette à part). */
+    val covering get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing
 
     /** Quelque chose est à l'écran par-dessus l'image. */
-    val anything get() = leaving || !passageDone || menuOpen || barOpen || keyboardOpen || statsOpen || typing
+    val anything get() = covering || padShown
 }
 
 interface SessionActions {
@@ -134,11 +143,18 @@ interface SessionActions {
     fun restoreMode()
     fun pickDisplay(id: Int)
     fun openKeyboard(open: Boolean)
+    /** Affiche ou retire la manette à l'écran (retenu pour l'ordinateur). */
+    fun setOnScreenPad(on: Boolean)
+    /** Disposition de la manette à l'écran : « Simple » ou « Complète » (retenue pour l'ordinateur). */
+    fun setPadLayout(simple: Boolean)
 }
 
 @Composable
 fun SessionOverlay(ui: SessionUi) {
+    val ended by ui.state.ended.collectAsState()
     Box(Modifier.fillMaxSize()) {
+        // La manette sous tout le reste : la barre, la rangée du clavier et les feuilles gardent leurs touchers.
+        if (!ui.tv && ui.padShown && ui.passageDone && !ui.leaving && ended?.error == null) OnScreenPadLayer(ui)
         Capsules(ui, Modifier.align(Alignment.TopCenter))
         if (!ui.passageDone) Passage(ui)
         if (ui.tv) {
@@ -151,7 +167,6 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.statsOpen) Stats(ui, Modifier.align(if (ui.tv) Alignment.TopEnd else Alignment.BottomEnd).padding(LocalScale.current.dp(20f)))
         if (ui.keysOpen) KeysSheet(ui, Modifier.align(Alignment.Center))
         if (ui.typing) TypeText(ui, Modifier.align(Alignment.Center))
-        val ended by ui.state.ended.collectAsState()
         ended?.takeIf { it.error != null }?.let { EndedCard(ui, it, Modifier.align(Alignment.Center)) }
         AnimatedVisibility(ui.leaving, enter = fadeIn(tween(220)), exit = fadeOut(tween(160))) { Leaving() }
     }
@@ -347,16 +362,17 @@ private fun PhoneBar(ui: SessionUi) {
                 }
                 Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
                 GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
+                GlassButton(stringResource(R.string.pad_on_screen), { ui.actions.setOnScreenPad(!ui.padShown) }, selected = ui.padShown)
                 GlassButton(
                     stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
                     { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
                 )
                 screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
-                BarIcon(KnIcons.keyboard) { ui.actions.openKeyboard(true) }
+                BarIcon(KnIcons.keyboard, stringResource(R.string.session_keyboard)) { ui.actions.openKeyboard(true) }
                 GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
             }
             GlassButton(stringResource(R.string.session_disconnect), { ui.actions.quit() })
-            BarIcon(KnIcons.close) { ui.barOpen = false }
+            BarIcon(KnIcons.close, stringResource(R.string.session_close)) { ui.barOpen = false }
         }
         if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
     }
@@ -377,9 +393,9 @@ private fun screenChoice(ui: SessionUi): ScreenChoice? {
 }
 
 @Composable
-private fun BarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun BarIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
     val s = LocalScale.current
-    FocusCard(onClick, shape = RoundedCornerShape(12.dp)) {
+    FocusCard(onClick, Modifier.semantics { contentDescription = label }, shape = RoundedCornerShape(12.dp)) {
         Box(Modifier.background(Kn.frost.copy(alpha = 0.07f)).padding(s.dp(10f))) { KnIcon(icon, size = 18f) }
     }
 }
