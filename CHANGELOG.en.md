@@ -4,6 +4,10 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.5.1
+
+- iPhone, iPad, Android and web client: with direct touch, tapping twice double-clicks on the computer. The second tap reuses the first one's position, and a slight tremor of the finger no longer moves the pointer (Windows only counts a double click when both clicks land in the same spot, within a few pixels).
+
 ## 0.5.0
 
 - **The KyberNow Link apps have the same screens and the same words on all your devices**, in the website's voice. The home screen keeps to the essentials: the computer's state, its name, its system, the display the session will create, “Connect”, the profile (Game, Desktop, Max, and Custom when your settings differ) and the settings; on Apple TV, Android TV, LG TVs and Linux in the living room, the controllers plugged in. The graphics card, the address and the latency leave the home screen.

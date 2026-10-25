@@ -379,6 +379,15 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
     private var twoFingerTap = false
     private var scrollAcc = 0.0
     private var dragging = false
+    // Dernier toucher en toucher direct (position à l'écran, position sur
+    // l'ordinateur, heure) : un second toucher rapide et proche reprend sa
+    // position. Piège : Windows ne compte un double clic que si le second clic
+    // tombe à 4 pixels du premier au plus, et deux touchers d'un doigt ne
+    // tombent jamais au même endroit : sans cela, le double clic ne marche pas.
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+    private var lastTapHost: Pair<Double, Double>? = null
+    private var lastTapAt = 0L
     private val main = Handler(Looper.getMainLooper())
     private val holdToDrag = Runnable {
         if (!moved && fingers == 1) {
@@ -395,7 +404,10 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
                 moved = false; fingers = 1; twoFingerTap = false; dragging = false
                 if (direct) {
-                    toHost(e.x, e.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                    val near = e.eventTime - lastTapAt < 500 && hypot(e.x - lastTapX, e.y - lastTapY) < 64
+                    val target = if (near) lastTapHost else toHost(e.x, e.y)
+                    target?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                    lastTapHost = target
                     Native.inputMouseButton(h, 0, true)
                     dragging = true
                 } else {
@@ -424,7 +436,10 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
                     return true
                 }
                 if (direct) {
-                    toHost(e.x, e.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
+                    // Le tremblement du doigt ne déplace pas le pointeur : il ne
+                    // suit qu'une fois le doigt vraiment parti (glisser).
+                    if (!moved && hypot(e.x - downX, e.y - downY) > 12) moved = true
+                    if (moved) toHost(e.x, e.y)?.let { (x, y) -> Native.pointerMoveTo(h, x, y) }
                     return true
                 }
                 val dx = e.x - lastX
@@ -449,6 +464,11 @@ class TouchInput(private val handle: () -> Long, private val toHost: (Float, Flo
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 main.removeCallbacks(holdToDrag)
+                if (direct && !moved && fingers <= 1) {
+                    lastTapX = e.x; lastTapY = e.y; lastTapAt = e.eventTime
+                } else if (direct) {
+                    lastTapAt = 0L
+                }
                 if (dragging) {
                     Native.inputMouseButton(h, 0, false)
                 } else if (!moved && fingers <= 1 && e.eventTime - downAt < 250) {

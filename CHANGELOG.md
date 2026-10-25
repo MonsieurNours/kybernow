@@ -5,6 +5,10 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.5.1
+
+- iPhone, iPad, Android et client web : en toucher direct, toucher deux fois fait un double clic sur l'ordinateur. Le second toucher reprend la position du premier, et un léger tremblement du doigt ne déplace plus le pointeur (Windows ne compte un double clic que si les deux clics tombent au même endroit, à quelques pixels près).
+
 ## 0.5.0
 
 - **Les apps KyberNow Link ont les mêmes écrans et les mêmes mots sur tous vos appareils**, dans le ton du site. L'accueil va à l'essentiel : l'état de l'ordinateur, son nom, son système, l'écran que la session créera, « Se connecter », le profil (Jeu, Bureau, Max, et Personnalisé quand vos réglages s'en écartent) et les réglages ; sur l'Apple TV, Android TV, les téléviseurs LG et Linux au salon, les manettes branchées. La carte graphique, l'adresse et la latence quittent l'accueil.

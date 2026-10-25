@@ -28,6 +28,11 @@ export class TouchInput {
   private moved = false
   private dragging = false
   private lastTapEnd = 0
+  // Dernier toucher (position du doigt) : en toucher direct, un second
+  // toucher rapide et proche garde la position du premier. Piège : Windows ne
+  // compte un double clic que si le second clic tombe à 4 pixels du premier
+  // au plus, et deux touchers d'un doigt ne tombent jamais au même endroit.
+  private lastTapAt: Point | null = null
   private longPress: ReturnType<typeof setTimeout> | null = null
   private scrollAcc = 0
   /** Dernière position donnée au moteur (déplacement relatif de repli). */
@@ -114,7 +119,9 @@ export class TouchInput {
       this.scrollAcc = 0
       const t = e.touches[0]
       if (this.mode === 'direct') {
-        this.setCursor({ x: t.clientX, y: t.clientY })
+        const near =
+          this.lastTapAt && now - this.lastTapEnd < 500 && Math.hypot(t.clientX - this.lastTapAt.x, t.clientY - this.lastTapAt.y) < 24
+        if (!near) this.setCursor({ x: t.clientX, y: t.clientY })
         this.longPress = setTimeout(() => {
           if (!this.moved) {
             this.click(this.cursor, 2)
@@ -162,7 +169,9 @@ export class TouchInput {
           this.dragging = true
           this.mouse('mousedown', this.cursor, 0)
         }
-        this.setCursor({ x: t.clientX, y: t.clientY })
+        // Le tremblement du doigt ne déplace pas le pointeur : il ne suit
+        // qu'une fois le doigt vraiment parti.
+        if (this.moved) this.setCursor({ x: t.clientX, y: t.clientY })
       } else if (prev) {
         this.setCursor({
           x: this.cursor.x + (t.clientX - prev.x) * TRACKPAD_SPEED,
@@ -192,6 +201,8 @@ export class TouchInput {
       if (fingers >= 2) this.click(this.cursor, 2)
       else this.click(this.cursor, 0)
       this.lastTapEnd = now
+      const t = ended[0]
+      this.lastTapAt = fingers === 1 && t ? { x: t.clientX, y: t.clientY } : null
     }
     for (const t of ended) {
       this.start.delete(t.identifier)

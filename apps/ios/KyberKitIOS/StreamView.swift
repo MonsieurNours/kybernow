@@ -334,13 +334,26 @@ public final class StreamView: UIView, UIKeyInput, UIGestureRecognizerDelegate {
         pointer.move(dx: Double(t.x) * k, dy: Double(t.y) * k)
     }
 
+    /// Dernier toucher en toucher direct : un second toucher rapide et proche
+    /// reprend sa position. Piège : Windows ne compte un double clic que si le
+    /// second clic tombe à 4 pixels du premier au plus, et deux touchers d'un
+    /// doigt ne tombent jamais au même endroit (10 à 30 pixels d'écart sur
+    /// l'écran de l'ordinateur) : sans cela, le double clic ne marche pas.
+    private var lastTap: (view: CGPoint, host: CGPoint, at: CFTimeInterval)?
+
     @objc private func tapped(_ g: UITapGestureRecognizer) {
         if touchesSuspended {
             onTap?()
             return
         }
         guard let input else { return }
-        if direct, !isRelative, let p = hostPoint(g.location(in: self)) {
+        let at = g.location(in: self)
+        if direct, !isRelative, var p = hostPoint(at) {
+            let now = CACurrentMediaTime()
+            if let last = lastTap, now - last.at < 0.5, hypot(at.x - last.view.x, at.y - last.view.y) < 24 {
+                p = last.host
+            }
+            lastTap = (at, p, now)
             input.mouse(x: Int16(clamping: Int(p.x.rounded())), y: Int16(clamping: Int(p.y.rounded())))
         }
         input.mouseButton(.left, pressed: true)
