@@ -3,6 +3,25 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.5.0</title>
+            <pubDate>Sun, 25 Oct 2026 15:00:25 +0100</pubDate>
+            <sparkle:version>202610251441</sparkle:version>
+            <sparkle:shortVersionString>0.5.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **The KyberNow Link apps have the same screens and the same words on all your devices**, in the website's voice. The home screen keeps to the essentials: the computer's state, its name, its system, the display the session will create, “Connect”, the profile (Game, Desktop, Max, and Custom when your settings differ) and the settings; on Apple TV, Android TV, LG TVs and Linux in the living room, the controllers plugged in. The graphics card, the address and the latency leave the home screen.
+- **Each computer's settings fit in six sections**: Picture, Sound, Controls, Network, Statistics and Station. Statistics shows the last session (the median, a ruler marking one frame at 60, 120 and 160 Hz, “95% of frames under …”, the duration, what was sent) and this computer (system, graphics card, address, fingerprint). What applies to the device (language, decoders, controller test) moves to App settings.
+- **The Station is managed from the device**: open Admin (a link, or a QR code on the TV), restart the whole Station (about 30 seconds) and update it when a release is ready, with a confirmation if another device is connected. In Admin, “Restart the Station” (System page) restarts Admin too and waits for it to come back; the activity feed says which device did it.
+- **Wake on LAN in every app**: the Station gives the apps the computer's network cards, and “Wake the computer” turns it on when it is offline, with nothing to type. Admin's System page says whether Windows lets the card wake the computer, and what to do if not. On iPhone, iPad and Apple TV, the packet goes straight to the computer (broadcasting needs an Apple entitlement): depending on the network, it does not always wake it.
+- **Connecting repairs itself**: it shows its three steps, then the picture alone, with no capsule or figure on top. If the picture does not come while Admin answers, the app restarts the Station once, waits for it to come back (1 min 30 at most) and tries again; never while another device is connected. The web client does the same and resumes connecting after the password.
+- Per app: Apple TV, the right arrow reaches every settings section's panel; Windows, automatic reconnection can be turned off, “On battery” moves to App settings, the window is called “{computer} · KyberNow Link”; Android, a virtual display setting and Fast or Reliable transport; LG TVs, Fast or Reliable transport and a confirmation before removing a computer; Linux and Steam Deck, a Settings button that works by touch; web client, the Max profile; everywhere, “Disconnect” replaces “Quit”, and a refused password or a reinstalled Station is fixed in the computer's settings.
+- Station and Windows app installers, Station tray icon: texts rewritten in the website's voice, with the apps' words (“Open Admin”, “Update the Station”); the Station installer shows hand-edited ports again.
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.5.0/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.5.0/KyberNow-Link-macOS.zip" length="47324504" type="application/octet-stream" sparkle:edSignature="JgMRBD9keYK1vHj95M/Y64rzo909NMuR6foE3j0I8sN1ci+zXsbHSP8OdYa2FJ6PtqzYHJi5jrwvyqG0jqJNDg=="/>
+        </item>
+        <item>
             <title>0.4.9</title>
             <pubDate>Sat, 24 Oct 2026 19:37:04 +0200</pubDate>
             <sparkle:version>202610241912</sparkle:version>
