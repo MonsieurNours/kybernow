@@ -3,6 +3,20 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.5.1</title>
+            <pubDate>Sun, 25 Oct 2026 17:19:12 +0100</pubDate>
+            <sparkle:version>202610251701</sparkle:version>
+            <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- Web client: it now opens at Admin's address followed by `/link` (for example `https://192.168.1.20:31415/link`), like the KyberNow Link apps. The former address, `/ecran`, redirects to it: existing bookmarks and links keep working.
+- iPhone, iPad, Android and web client: with direct touch, tapping twice double-clicks on the computer. The second tap reuses the first one's position, and a slight tremor of the finger no longer moves the pointer (Windows only counts a double click when both clicks land in the same spot, within a few pixels).
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.5.1/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.5.1/KyberNow-Link-macOS.zip" length="47322948" type="application/octet-stream" sparkle:edSignature="S+ltyNCK8FHmqeXSEkXeQsIUoqctglFPXVlQ8P2l3rJEYa5Jdbz7jnjJplNbtMfoIji8MtDMac7eC42b+g/ADg=="/>
+        </item>
+        <item>
             <title>0.5.0</title>
             <pubDate>Sun, 25 Oct 2026 15:00:25 +0100</pubDate>
             <sparkle:version>202610251441</sparkle:version>
