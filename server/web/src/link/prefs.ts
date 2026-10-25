@@ -24,6 +24,8 @@ export interface Prefs {
   touchGuideSeen: boolean
 }
 
+// Clés d'origine (le client web s'appelait /ecran) : gardées telles quelles
+// pour ne pas perdre les réglages déjà enregistrés dans le navigateur.
 const KEY = 'kybernow.ecran.prefs'
 const DEVICE_KEY = 'kybernow.ecran.device'
 const LAST_KEY = 'kybernow.ecran.lastSession'

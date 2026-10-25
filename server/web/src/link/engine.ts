@@ -1,5 +1,5 @@
 // Le moteur web de Kyber (kyclient_wasm), servi par la console à côté de la
-// page (/ecran/kyclient_wasm.js, relayé depuis le /webclient/ de Kyber).
+// page (/link/kyclient_wasm.js, relayé depuis le /webclient/ de Kyber).
 // On n'en garde que l'essentiel : se connecter avec le jeton de la console,
 // démarrer l'image dans une toile, mesurer, s'arrêter.
 
@@ -97,7 +97,7 @@ export function isFixedEngine(): boolean {
 /** Charge le moteur une fois (fichier JS + WebAssembly). */
 export function loadEngine(): Promise<Wasm> {
   if (!modulePromise) {
-    const url = new URL('kyclient_wasm.js', new URL('/ecran/', location.origin)).href
+    const url = new URL('kyclient_wasm.js', new URL('/link/', location.origin)).href
     modulePromise = import(/* @vite-ignore */ url).then(async (m) => {
       await m.default()
       fixed = detectFixed(m)

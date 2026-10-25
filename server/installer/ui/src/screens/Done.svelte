@@ -37,7 +37,7 @@
     </p>
     <p class="note kn-enter kn-d3">
       {t('done.noAppBefore')}
-      <button type="button" class="text-button mono small" onclick={() => send({ cmd: 'openUrl', url: `${consoleUrl}/ecran` })}>{consoleUrl}/ecran</button>
+      <button type="button" class="text-button mono small" onclick={() => send({ cmd: 'openUrl', url: `${consoleUrl}/link` })}>{consoleUrl}/link</button>
       {t('done.noAppAfter')}
     </p>
     {#if needReboot}

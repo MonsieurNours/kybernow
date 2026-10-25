@@ -1,4 +1,4 @@
-// Diagnostic des entrées (`/ecran/?diag`) : ce que la souris produit, ce
+// Diagnostic des entrées (`/link/?diag`) : ce que la souris produit, ce
 // qu'on relaie au moteur, et ce que le moteur envoie vraiment à l'ordinateur.
 
 export const diagEnabled = new URLSearchParams(location.search).has('diag')

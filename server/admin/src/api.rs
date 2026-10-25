@@ -72,7 +72,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/events", get(events))
         .route("/api/session/end", post(end_session))
         .route("/api/preview", get(admin_preview))
-        // Client web (/ecran) : jeton Kyber pour la session de la console.
+        // Client web (/link) : jeton Kyber pour la session de la console.
         .route("/api/web/ticket", get(web_ticket))
         // Lien d'appairage (QR code de la page Appareils Link, session de la console).
         .route("/api/pairing", get(pairing))
@@ -628,7 +628,7 @@ async fn audio_settings(State(s): State<AppState>, Json(body): Json<AudioSetting
 /// Identifiant Kyber si l'en-tête `Authorization: Basic` est valide.
 fn stream_user(s: &AppState, headers: &HeaderMap) -> ApiResult<String> {
     let bad = || ApiError::msg(StatusCode::UNAUTHORIZED, Msg::new("api.kyberCredentials"));
-    // Le client web (/ecran) passe par la session de la console.
+    // Le client web (/link) passe par la session de la console.
     if !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t)) {
         return Ok(web_user(s));
     }

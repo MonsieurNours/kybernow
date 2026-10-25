@@ -199,7 +199,7 @@
         </span>
       </div>
       <div class="ctas">
-        <a href="/ecran/" class="ghost glass-ghost"><Icon name="browser" size={16} />{t('overview.openInBrowser')}</a>
+        <a href="/link/" class="ghost glass-ghost"><Icon name="browser" size={16} />{t('overview.openInBrowser')}</a>
         <a href="#/appareils" class="primary"><Icon name="plus" size={15} stroke={2.2} />{t('overview.addDevice')}</a>
       </div>
     {/if}

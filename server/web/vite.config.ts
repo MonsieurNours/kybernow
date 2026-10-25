@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 
-// Deux pages : la console (/) et le client web (/ecran/).
+// Deux pages : Admin (/) et le client web (/link/).
 // En dev (`npm run dev`), l'API et les appels du moteur de Kyber sont servis
 // par kyber-admin (https://127.0.0.1:9448, relié à Kyber).
 const backend = { target: 'https://127.0.0.1:9448', secure: false }
@@ -14,7 +14,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         console: resolve(import.meta.dirname, 'index.html'),
-        ecran: resolve(import.meta.dirname, 'ecran/index.html'),
+        link: resolve(import.meta.dirname, 'link/index.html'),
       },
     },
   },
@@ -29,7 +29,7 @@ export default defineConfig({
       // Image et entrées en WebSocket (Safari, iPhone, iPad, Firefox, tactile
       // avec le moteur d'origine).
       '/websocket': { ...backend, ws: true },
-      '^/ecran/(kyclient_wasm.*|audio_worklet|spinlock)\\.(js|wasm)$': backend,
+      '^/link/(kyclient_wasm.*|audio_worklet|spinlock)\\.(js|wasm)$': backend,
       ...Object.fromEntries(kyber.map((p) => [p, backend])),
     },
   },

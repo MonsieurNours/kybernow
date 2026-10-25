@@ -29,7 +29,7 @@ KyberNow is the brand; it covers three products, named as in the rest of the rep
 
 - **KyberNow Station**: the software installed on the Windows computer that streams the image (`KyberNow-Station-Setup.exe`). In the texts, “the Station” after the first mention; “the computer” stays when talking about the machine itself.
 - **KyberNow Admin**: the Station's administration in the browser (“Admin”, with no article, after the first mention).
-- **KyberNow Link**: the apps that display the image (Mac, Windows, Linux and Steam Deck, Apple TV, iPhone and iPad, Android, LG TVs) and their `/ecran` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-Link-macOS.zip` for the Mac, `KyberNow-Link-Android.apk` for Android, `KyberNow-Link-webOS.ipk` for LG TVs, `KyberNow-Link-Linux-x86_64.flatpak` and `KyberNow-Link-Linux-aarch64.flatpak` for Linux and the Steam Deck).
+- **KyberNow Link**: the apps that display the image (Mac, Windows, Linux and Steam Deck, Apple TV, iPhone and iPad, Android, LG TVs) and their `/link` web version (`KyberNow-Link-Setup.exe` for Windows, `KyberNow-Link-macOS.zip` for the Mac, `KyberNow-Link-Android.apk` for Android, `KyberNow-Link-webOS.ipk` for LG TVs, `KyberNow-Link-Linux-x86_64.flatpak` and `KyberNow-Link-Linux-aarch64.flatpak` for Linux and the Steam Deck).
 
 The home page presents them in the “The three apps” section (`#apps`, after “What you need”), each with its signed logo and its screen recreated in HTML (see “App screens”) (`assets/img/kybernow-{station,admin,link}-dark.svg`, copies from `brand/v2/logo/`). The download cards and the guide's “Before you start” box reuse the Station and Link logos. A signed logo never goes below 32 px high (below that, the signature is no longer legible); the site only has a dark theme, so only the `-dark` versions are copied.
 
@@ -108,7 +108,7 @@ Nothing is loaded from a CDN. The only external request: the GitHub API, to show
 - Neon lit only in active moments: one-second ignition on arrival, image stream, path measurement, re-ignition on download. Off in the reading sections.
 - On a phone, the 3D symbol moves to the top of the screen, smaller (`MOBILE` in `scene.js`), so it never goes under the text.
 - The app screens and the video sit in front of the symbol, never the other way round.
-- A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/ecran`).
+- A single main button per view; in the download section, it follows the visitor's system (Mac: the KyberNow Link app, Windows: the KyberNow Station installer, tablet, phone and everything else: Link in the browser, `/link`).
 - Resolution and refresh rate: the site talks about “your display's resolution and refresh rate” and only quotes what has been checked (up to 3840 × 2160 at 160 Hz). The latency figures are those of a measurement, presented as such, with their conditions (see [docs/ton-du-site.en.md](../docs/ton-du-site.en.md)).
 - Vertical rhythm: the same space around every section (`--section-space`, 56 to 96 px) and between a heading and its content (`--section-head`, 32 to 48 px), with no per-section exception; every content block takes the grid's width (`.wrap`), FAQ and video included.
 - “Reduce motion”: the symbol stays in place, no flicker or breathing, reveals as a simple fade. “Reduce transparency”: opaque surfaces, no halo.

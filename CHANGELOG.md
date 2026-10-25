@@ -7,6 +7,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
 ## 0.5.1
 
+- Client web : il s'ouvre maintenant à l'adresse d'Admin suivie de `/link` (par exemple `https://192.168.1.20:31415/link`), comme les apps KyberNow Link. L'ancienne adresse, `/ecran`, y renvoie : favoris et liens existants continuent de marcher.
 - iPhone, iPad, Android et client web : en toucher direct, toucher deux fois fait un double clic sur l'ordinateur. Le second toucher reprend la position du premier, et un léger tremblement du doigt ne déplace plus le pointeur (Windows ne compte un double clic que si les deux clics tombent au même endroit, à quelques pixels près).
 
 ## 0.5.0

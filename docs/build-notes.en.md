@@ -89,7 +89,7 @@ KyberNow's build scripts set `CARGO_PROFILE_RELEASE_STRIP=false`, except `apps/a
 
 ## Browsers
 
-Kyber's own web client page works in Chrome; in Safari, the screen stays black (WebKit is not supported, as Kyber's docs state). KyberNow's web client (`/ecran`) also works in Safari and on iPhone and iPad, over WebSocket (their WebTransport does not check a certificate by its fingerprint): see [server/README.en.md](../server/README.en.md).
+Kyber's own web client page works in Chrome; in Safari, the screen stays black (WebKit is not supported, as Kyber's docs state). KyberNow's web client (`/link`) also works in Safari and on iPhone and iPad, over WebSocket (their WebTransport does not check a certificate by its fingerprint): see [server/README.en.md](../server/README.en.md).
 
 ## Kyber 0.29 server for Windows (kyavserver), from macOS
 
@@ -144,4 +144,4 @@ The engine the web client loads comes from Kyber's `kyber/apps/kyber-web` reposi
 - **Sources**: `git clone --depth 1 --branch 0.29.0 https://gitlab.com/kyber/apps/kyber-web.git third_party/kyber-web`. Its `kysdk` submodule is the same commit as kyber-desktop 0.29's (`ebca32a`): it is not cloned, the script replaces it with a link.
 - **Tools**: `rustup target add wasm32-unknown-unknown`, `cargo install wasm-bindgen-cli --version 0.2.100 --locked` (the version must be the one of the `wasm-bindgen` crate in kyber-web's `Cargo.lock`, otherwise wasm-bindgen refuses the module), `brew install binaryen` (`wasm-opt`). The rest of kyber-web's `build-wasm.sh` (pnpm, Kyber's interface) is not needed: the interface does not change.
 - **Original kyctl**: `third_party`'s `kysdk/kyctl` also carries the apps' patches, which change kyclient's API (the `packet_sink` field of `AudioSessionConfig` breaks kyber-web's build). So the script composes `third_party/kyber-web-kysdk/`: `kyctl` extracted from git (`git archive HEAD`) plus the `*-kywebplayer-*` patches, and links to `third_party`'s `kymedia`, `kymux`, `kynput` and `kyutil`, server patches applied. `third_party/kyber-web/kysdk` points to that folder.
-- **Steps**: `cargo build --target wasm32-unknown-unknown -p kyclient-wasm --release` (with `RUSTFLAGS=--cfg=web_sys_unstable_apis`), `wasm-bindgen --target web --no-typescript`, then `wasm-opt -Os -g`, as Kyber's script does. The result keeps exactly the JS API of Kyber 0.29's engine (same classes, functions and methods): the `/ecran` page has nothing to change.
+- **Steps**: `cargo build --target wasm32-unknown-unknown -p kyclient-wasm --release` (with `RUSTFLAGS=--cfg=web_sys_unstable_apis`), `wasm-bindgen --target web --no-typescript`, then `wasm-opt -Os -g`, as Kyber's script does. The result keeps exactly the JS API of Kyber 0.29's engine (same classes, functions and methods): the `/link` page has nothing to change.

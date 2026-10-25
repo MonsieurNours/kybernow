@@ -6,6 +6,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 
 ## 0.5.1
 
+- Web client: it now opens at Admin's address followed by `/link` (for example `https://192.168.1.20:31415/link`), like the KyberNow Link apps. The former address, `/ecran`, redirects to it: existing bookmarks and links keep working.
 - iPhone, iPad, Android and web client: with direct touch, tapping twice double-clicks on the computer. The second tap reuses the first one's position, and a slight tremor of the finger no longer moves the pointer (Windows only counts a double click when both clicks land in the same spot, within a few pixels).
 
 ## 0.5.0

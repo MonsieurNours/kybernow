@@ -1,4 +1,4 @@
-// Langue de la console et du client web (/ecran) : celle du navigateur
+// Langue de la console et du client web (/link) : celle du navigateur
 // (`navigator.languages` : français si la première commence par « fr »,
 // anglais sinon), ou le choix fait dans la console ou le client web
 // (« Auto », « Français », « English »), gardé dans ce navigateur.

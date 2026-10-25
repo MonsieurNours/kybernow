@@ -61,7 +61,7 @@ The patches build from the original sources (full `build.sh`, 21/10/2026). Still
 - **Send policy**: the measurement above, on a saturated Wi-Fi, deep queue against short queue (and an intermediate size with `datagram_send_queue_size`). The default only changes afterwards.
 - **Pointer**: with `[kyavserver] cursor_move_rate = 120`, the pointer the app draws in game mode follows the mouse smoothly, with txproto and with libavconv; the shape stays right after a shape change, a hide, a move from one display to another; a device connecting during a session gets the shape. kynputserver's log without errors; much lower throughput on the inputs connection while the mouse moves.
 - **Replaced input server**: `kynputserver.exe` starts with Kyber (ViGEm gamepads, keyboard, clipboard as with Kyber's); the computer's official client `kyclient.exe` starts with the overlay's `kynput.dll` (SDL gamepad included).
-- **Web engine** (the `/ecran` web client's session is checked end to end, touch and phone and tablet keyboards included): tab hidden then shown again, Alt+Tab, Escape in Game mode: nothing stays held; pointer hidden by Windows in Desktop mode: clicks land in the right place over WebTransport; non-"standard" gamepad ignored; display mode change during a session (new decoder configuration) without a crash.
+- **Web engine** (the `/link` web client's session is checked end to end, touch and phone and tablet keyboards included): tab hidden then shown again, Alt+Tab, Escape in Game mode: nothing stays held; pointer hidden by Windows in Desktop mode: clicks land in the right place over WebTransport; non-"standard" gamepad ignored; display mode change during a session (new decoder configuration) without a crash.
 
 ## Handled without changing Kyber's code
 

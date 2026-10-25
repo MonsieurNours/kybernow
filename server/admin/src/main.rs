@@ -549,7 +549,7 @@ pub fn init_logging(file: Option<PathBuf>) {
     }
 }
 
-/// Tout ce qui n'est pas l'API : la console, le client web (`/ecran`) et les
+/// Tout ce qui n'est pas l'API : la console, le client web (`/link`) et les
 /// appels de son moteur, relayés à Kyber.
 async fn web(state: axum::extract::State<AppState>, req: axum::extract::Request) -> axum::response::Response {
     let path = req.uri().path();

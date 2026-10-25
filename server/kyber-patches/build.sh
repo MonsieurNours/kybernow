@@ -260,7 +260,7 @@ cp "$KYCONTROLLER" "$KYNPUT_ROOTFS/bin/kynput.dll" "$KYNPUTSERVER" "$OVERLAY/"
 cp "$MINGW/lib/libstdc++-6.dll" "$MINGW/lib/libgcc_s_seh-1.dll" "$MINGW/bin/libwinpthread-1.dll" "$OVERLAY/"
 x86_64-w64-mingw32-strip --strip-debug "$OVERLAY"/*.exe "$OVERLAY"/*.dll
 # Moteur du client web (servi par kycontroller depuis kyber\webclient, relayé
-# par la console sur /ecran).
+# par Admin sur /link).
 mkdir -p "$OVERLAY/webclient"
 cp "$WEB_OUT/kyclient_wasm.js" "$WEB_OUT/kyclient_wasm_bg.wasm" "$OVERLAY/webclient/"
 ls -lhR "$OVERLAY"

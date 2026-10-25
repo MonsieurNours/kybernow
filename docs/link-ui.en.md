@@ -2,7 +2,7 @@
 
 English · [Français](link-ui.md)
 
-Every KyberNow Link app (Mac, Apple TV, iPhone and iPad, Windows, Android and Android TV, LG TVs, Linux, Steam Deck, Raspberry Pi and KyberNow Link OS, the `/ecran` web client) follows this document: same screens, same order, same words. Each platform keeps what is specific to it (remote, controller, touch, windows, QR code on the TV), but one thing has one name everywhere. The tone is the website's ([ton-du-site.en.md](ton-du-site.en.md)); names and typography come from [i18n.en.md](i18n.en.md).
+Every KyberNow Link app (Mac, Apple TV, iPhone and iPad, Windows, Android and Android TV, LG TVs, Linux, Steam Deck, Raspberry Pi and KyberNow Link OS, the `/link` web client) follows this document: same screens, same order, same words. Each platform keeps what is specific to it (remote, controller, touch, windows, QR code on the TV), but one thing has one name everywhere. The tone is the website's ([ton-du-site.en.md](ton-du-site.en.md)); names and typography come from [i18n.en.md](i18n.en.md).
 
 ## Principles
 

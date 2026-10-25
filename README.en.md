@@ -22,7 +22,7 @@ KyberNow brings together three products:
 | `apps/tvos/`, `apps/ios/` | KyberNow Link for Apple TV and for iPhone/iPad, see their READMEs ([Apple TV](apps/tvos/README.en.md), [iPhone and iPad](apps/ios/README.en.md)) |
 | `apps/core/`, `apps/windows/` | Rust client core of the KyberNow Link apps (session, talking to Admin, profiles, latency, updates, shared inputs and sound, see [its README](apps/core/README.en.md)) and KyberNow Link for Windows (Direct3D 11, FFmpeg, WASAPI), with its installer `KyberNow-Link-Setup.exe` (`apps/windows/setup`, x64 and ARM64), see [its README](apps/windows/README.en.md) |
 | `server/` | KyberNow Station: everything that runs on the computer that streams its image, see [its README](server/README.en.md) |
-| `server/admin/`, `server/web/` | KyberNow Admin (Windows service, Rust) and its interface (Svelte), which also serves the `/ecran` web client |
+| `server/admin/`, `server/web/` | KyberNow Admin (Windows service, Rust) and its interface (Svelte), which also serves the `/link` web client |
 | `server/tray/` | The Station's notification area icon |
 | `server/installer/` | `KyberNow-Station-Setup.exe` installer (Rust + WebView2 + Svelte), see [its README](server/installer/README.en.md) |
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Patches to Kyber, described in [docs/kyber-changes.en.md](docs/kyber-changes.en.md) |

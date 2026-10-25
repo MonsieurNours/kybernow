@@ -1,5 +1,5 @@
 <!--
-  KyberNow Link web (/ecran/) : l'accueil de l'ordinateur, ses réglages, et
+  KyberNow Link web (/link/) : l'accueil de l'ordinateur, ses réglages, et
   la session dans le navigateur. Servi par Admin, avec sa session : un
   seul mot de passe, celui d'Admin.
 -->

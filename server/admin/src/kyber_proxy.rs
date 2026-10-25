@@ -1,4 +1,4 @@
-//! Relais vers kycontroller pour le client web (`/ecran`).
+//! Relais vers kycontroller pour le client web (`/link`).
 //!
 //! Le moteur web de Kyber (`kyclient_wasm`) parle à kycontroller en HTTPS
 //! (`/session/login`, `/kymux/start_mux`, `/ws`…) sur l'adresse qu'on lui
@@ -107,9 +107,10 @@ fn safe_path(path: &str) -> bool {
     path.starts_with('/') && !lower.contains("..") && !lower.contains("%2e") && !lower.contains('\\') && !lower.contains("//")
 }
 
-/// Fichier du moteur demandé par la page (`/ecran/kyclient_wasm.js`).
+/// Fichier du moteur demandé par la page (`/link/kyclient_wasm.js`). L'ancienne
+/// adresse (`/ecran/`, 0.5.0 et avant) sert encore une page restée en cache.
 pub fn engine_file(path: &str) -> Option<&'static str> {
-    let name = path.strip_prefix("/ecran/")?;
+    let name = path.strip_prefix("/link/").or_else(|| path.strip_prefix("/ecran/"))?;
     ENGINE_FILES.iter().copied().find(|f| *f == name)
 }
 
@@ -537,9 +538,10 @@ mod tests {
         assert!(!is_kyber_path("/websocket/a%2Eb"));
         assert!(!is_kyber_path("/websocket/a\\b"));
         assert!(!is_kyber_path("/websocket//video"));
+        assert_eq!(engine_file("/link/kyclient_wasm.js"), Some("kyclient_wasm.js"));
         assert_eq!(engine_file("/ecran/kyclient_wasm.js"), Some("kyclient_wasm.js"));
-        assert_eq!(engine_file("/ecran/../secret"), None);
-        assert_eq!(engine_file("/ecran/kyclient_wasm.js/.."), None);
+        assert_eq!(engine_file("/link/../secret"), None);
+        assert_eq!(engine_file("/link/kyclient_wasm.js/.."), None);
     }
 
     #[test]
