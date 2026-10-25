@@ -1,10 +1,7 @@
 // Pièces de l'accueil (maquettes iOS, planche 1) : le décor, le bouton
-// principal et son pan coupé, le choix du profil, les cartes de la rangée
-// « Vos ordinateurs », la colonne « Prêt à jouer » de l'iPad, et ce que
-// l'appareil voit de ses périphériques (clavier, trackpad, sortie du son).
+// principal et son pan coupé, le choix du profil, le point d'état, les
+// cartes de la rangée « Vos ordinateurs ».
 
-import AVFoundation
-import GameController
 import KyberKit
 import SwiftUI
 
@@ -237,9 +234,10 @@ struct HomeProfilePicker: View {
 
 // MARK: - Point d'état
 
-/// En ligne : point vert qui bat doucement ; hors ligne : anneau gris.
+/// En ligne : point vert qui bat doucement ; hors ligne : anneau gris ;
+/// « Recherche… » (nil) : point clair qui palpite.
 struct HomeStatusDot: View {
-    var online: Bool
+    var online: Bool?
     var size: CGFloat = 7
     var pulse = true
     @State private var beat = false
@@ -247,13 +245,16 @@ struct HomeStatusDot: View {
 
     var body: some View {
         Group {
-            if online {
+            switch online {
+            case true?:
                 Circle().fill(Theme.ok)
                     .background(
                         Circle().fill(Theme.ok.opacity(beat ? 0 : 0.25))
                             .frame(width: size + (beat ? 12 : 6), height: size + (beat ? 12 : 6))
                     )
-            } else {
+            case nil:
+                Circle().fill(Theme.text2).opacity(beat ? 0.35 : 1)
+            case false?:
                 Circle().strokeBorder(Theme.faint, lineWidth: 1.5)
             }
         }
@@ -266,7 +267,7 @@ struct HomeStatusDot: View {
     }
 }
 
-/// Pastille de verre (état, « Depuis votre Mac »).
+/// Pastille de verre (l'état de l'ordinateur).
 struct HomeChip<Content: View>: View {
     var height: CGFloat = 30
     var fontSize: CGFloat = 13
@@ -305,7 +306,7 @@ struct HomeCardMetrics {
 /// son nom et son état ; celui qui est en scène est souligné de Spectre.
 struct HomeHostCard: View {
     let host: Host
-    let online: Bool
+    let online: Bool?
     let status: String
     let selected: Bool
     let m: HomeCardMetrics
@@ -313,14 +314,15 @@ struct HomeHostCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Color.clear
-                .overlay { HostPicture(host: host, online: online) }
+                .overlay { HostPicture(host: host, online: online != false) }
                 .frame(width: m.width, height: m.image)
                 .clipped()
             VStack(alignment: .leading, spacing: 4) {
                 Text(host.name)
                     .font(Theme.sans(m.name, .semibold))
-                    .foregroundStyle(online ? Theme.text : Theme.muted)
+                    .foregroundStyle(online != false ? Theme.text : Theme.muted)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 HStack(spacing: 6) {
                     HomeStatusDot(online: online, size: 6, pulse: false)
                     Text(status).lineLimit(1)
@@ -357,7 +359,6 @@ struct HomeHostCard: View {
 /// apparaissant (la veille du néon), puis respire.
 struct HomeFoundCard: View {
     let name: String
-    let detail: String?
     let m: HomeCardMetrics
     let wide: Bool
     @State private var arrived = false
@@ -369,21 +370,17 @@ struct HomeFoundCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Icon("wifi-high", size: wide ? 14 : 13, bold: true)
-                Text("Sur le réseau".uppercased()).font(Theme.mono(wide ? 10 : 9.5, .medium)).tracking(0.8)
+                Text(String(localized: "Sur le réseau").uppercased()).font(Theme.mono(wide ? 10 : 9.5, .medium)).tracking(0.8)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(Theme.accentLight)
             Spacer(minLength: 0)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(name)
-                    .font(Theme.display(wide ? 24 : 20, 640))
-                    .tracking(-0.4)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .foregroundStyle(Theme.text)
-                if let detail {
-                    Text(detail).font(Theme.mono(wide ? 11 : 10)).foregroundStyle(Theme.muted).lineLimit(1)
-                }
-            }
+            Text(name)
+                .font(Theme.display(wide ? 24 : 20, 640))
+                .tracking(-0.4)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .foregroundStyle(Theme.text)
             Spacer(minLength: 0)
             Text("Ajouter").font(Theme.sans(wide ? 14 : 13, .semibold)).foregroundStyle(Theme.accentLight)
         }
@@ -415,11 +412,8 @@ struct HomeAddCard: View {
         VStack(alignment: .leading, spacing: 0) {
             Icon("plus", size: wide ? 28 : 24).foregroundStyle(Theme.accent)
             Spacer(minLength: 0)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Ajouter un ordinateur").font(Theme.sans(m.name, .semibold)).foregroundStyle(Theme.text)
-                Text(wide ? "iCloud, réseau, code, QR, adresse" : "iCloud, réseau, code, QR")
-                    .font(Theme.sans(m.detail)).foregroundStyle(Theme.muted)
-            }
+            Text("Ajouter un ordinateur").font(Theme.sans(m.name, .semibold)).foregroundStyle(Theme.text)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(wide ? 16 : 12)
         .frame(width: m.width, height: m.height, alignment: .leading)
@@ -447,211 +441,5 @@ struct HomeStripes: View {
             }
         }
         .accessibilityHidden(true)
-    }
-}
-
-// MARK: - Ce que l'appareil voit
-
-/// Clavier, trackpad ou souris branchés, et la sortie du son : la colonne
-/// « Prêt à jouer » les suit quand on branche, débranche ou change de sortie.
-@MainActor
-final class HomePeripherals: ObservableObject {
-    /// Nom du clavier matériel (« Magic Keyboard »), vide s'il n'en dit pas ; nil sans clavier.
-    @Published private(set) var keyboard: String?
-    @Published private(set) var mouse = false
-    @Published private(set) var route = AudioRoute.current
-    private var tokens: [NSObjectProtocol] = []
-
-    init() {
-        refresh()
-        let names: [Notification.Name] = [.GCKeyboardDidConnect, .GCKeyboardDidDisconnect, .GCMouseDidConnect, .GCMouseDidDisconnect,
-                                          AVAudioSession.routeChangeNotification]
-        tokens = names.map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.refresh() }
-            }
-        }
-    }
-
-    deinit {
-        tokens.forEach(NotificationCenter.default.removeObserver)
-    }
-
-    func refresh() {
-        keyboard = GCKeyboard.coalesced.map { $0.vendorName ?? "" }
-        mouse = !GCMouse.mice().isEmpty
-        route = AudioRoute.current
-    }
-}
-
-// MARK: - Prêt à jouer (iPad)
-
-/// La colonne de l'Apple TV : manettes et batterie, sortie du son et son
-/// retard, clavier et trackpad, puis la dernière session (latence médiane,
-/// p95, et la règle des trames de l'écran).
-struct HomeReadyCard: View {
-    let host: Host?
-    @ObservedObject var pads: GamepadBridge
-    @ObservedObject var peripherals: HomePeripherals
-    @ObservedObject private var prefs = Preferences.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Prêt à jouer".uppercased()).font(Theme.mono(11, .medium)).tracking(0.9).foregroundStyle(Theme.muted)
-            HomeReadyRows(host: host, pads: pads, peripherals: peripherals, size: 16)
-            Rectangle().fill(Color.white.opacity(0.1)).frame(height: 1)
-            lastSession
-        }
-        .padding(.horizontal, 24).padding(.vertical, 22)
-        .glass(20)
-    }
-
-    @ViewBuilder private var lastSession: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Dernière session".uppercased()).font(Theme.mono(11, .medium)).tracking(0.9).foregroundStyle(Theme.muted)
-            Spacer(minLength: 8)
-            if let host, host.lastLatencyMs != nil {
-                Text(sessionLine(host)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted).lineLimit(1).minimumScaleFactor(0.8)
-            }
-        }
-        if let host, let median = host.lastLatencyMs {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(verbatim: HomeView.ms(median)).font(Theme.mono(28, .medium)).foregroundStyle(Theme.text)
-                Text(host.lastLatencyP95Ms.map { String(localized: "ms médiane · p95 \(HomeView.ms($0))") } ?? String(localized: "ms médiane"))
-                    .font(Theme.mono(12.5)).foregroundStyle(Theme.muted)
-            }
-            HomeFrameRule(median: median, p95: host.lastLatencyP95Ms, refresh: DeviceDisplay.mode(for: host.settings).refresh)
-                .frame(height: 30)
-        } else {
-            Text("Pas encore de session sur cet iPad.").font(Theme.sans(14)).foregroundStyle(Theme.muted)
-        }
-    }
-
-    private func sessionLine(_ host: Host) -> String {
-        let m = DeviceDisplay.mode(for: host.settings)
-        var parts: [String] = []
-        if let d = host.lastDuration { parts.append(HomeView.duration(d)) }
-        parts.append("\(m.width) × \(m.height)")
-        parts.append("\(m.refresh) Hz")
-        parts.append(host.settings.codec == .h264 ? "H.264" : "HEVC")
-        return parts.joined(separator: " · ")
-    }
-}
-
-/// Les trois lignes de la colonne (manettes, son, clavier) ; aussi sous le
-/// bouton en largeur réduite, quand la colonne disparaît.
-struct HomeReadyRows: View {
-    let host: Host?
-    @ObservedObject var pads: GamepadBridge
-    @ObservedObject var peripherals: HomePeripherals
-    var size: CGFloat = 16
-    @ObservedObject private var prefs = Preferences.shared
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: size >= 16 ? 18 : 12) {
-            row("game-controller", padsTitle, padsDetail, warn: false)
-            let route = peripherals.route
-            let late = route.isLate && prefs.latencyAlert
-            row(route.kind == .airpods || route.kind == .headphones ? "headphones" : "speaker-high", soundTitle(route), soundDetail(route, late: late), warn: late)
-            row(peripherals.keyboard != nil ? "keyboard" : "hand-pointing", inputTitle, inputDetail, warn: false)
-        }
-    }
-
-    private func row(_ icon: String, _ title: String, _ detail: String, warn: Bool) -> some View {
-        HStack(spacing: 14) {
-            Icon(icon, size: size + 10).foregroundStyle(Theme.text)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(Theme.sans(size, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(detail).font(Theme.mono(size * 0.75)).foregroundStyle(warn ? Theme.warnText : Theme.muted).lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var padsTitle: String {
-        guard !pads.pads.isEmpty else { return String(localized: "Aucune manette") }
-        return pads.pads.prefix(2).map { "\($0.label) \($0.name.replacingOccurrences(of: " Controller", with: ""))" }.joined(separator: " · ")
-    }
-
-    private var padsDetail: String {
-        if pads.pads.isEmpty { return String(localized: "Allumez-en une en mode appairage") }
-        let levels = pads.pads.prefix(2).compactMap(\.battery).map { String(localized: "\(Int(($0 * 100).rounded())) %") }
-        var text = levels.isEmpty ? String(localized: "Prête") : String(localized: "Batterie \(levels.joined(separator: " · "))")
-        if prefs.rumble { text += " · " + String(localized: "vibrations") }
-        return text
-    }
-
-    private func soundTitle(_ route: AudioRoute) -> String {
-        let name = route.name.prefix(1).uppercased() + route.name.dropFirst()
-        if route.kind == .airpods, prefs.spatialAudio { return String(localized: "\(name) · audio spatial") }
-        if route.channels > 2 { return "\(name) · \(route.channelsLabel)" }
-        return name
-    }
-
-    private func soundDetail(_ route: AudioRoute, late: Bool) -> String {
-        if host?.settings.audio == .off { return String(localized: "Le son reste sur l'ordinateur") }
-        return late ? String(localized: "Sortie \(route.latencyMs) ms · le son arrivera après l'image")
-                    : String(localized: "Sortie \(route.latencyMs) ms")
-    }
-
-    private var inputTitle: String {
-        switch (peripherals.keyboard, peripherals.mouse) {
-        case let (name?, true): return name.isEmpty ? String(localized: "Clavier et trackpad") : String(localized: "\(name) · trackpad")
-        case let (name?, false): return name.isEmpty ? String(localized: "Clavier") : name
-        case (nil, true): return String(localized: "Trackpad ou souris")
-        case (nil, false): return prefs.directTouch ? String(localized: "Toucher direct") : String(localized: "Pavé tactile")
-        }
-    }
-
-    private var inputDetail: String {
-        if peripherals.keyboard != nil {
-            return host?.settings.commandAsControl ?? true
-                ? String(localized: "⌘ envoyée comme Ctrl · pointeur de l'ordinateur")
-                : String(localized: "Pointeur de l'ordinateur")
-        }
-        if peripherals.mouse { return String(localized: "Pointeur de l'ordinateur") }
-        return prefs.directTouch ? String(localized: "Le doigt est le pointeur") : String(localized: "Tout l'écran déplace le pointeur")
-    }
-}
-
-/// Règle des trames : la latence médiane (trait Spectre) et sa dispersion
-/// jusqu'au p95 (bande), face à la durée d'une image à la fréquence de la
-/// session et à 60 Hz. Échelle : 0 à 20 ms.
-struct HomeFrameRule: View {
-    let median: Double
-    let p95: Double?
-    let refresh: Int
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let x = { (ms: Double) in w * CGFloat(min(max(ms / 20, 0), 1)) }
-            let high = p95 ?? median
-            let low = max(0, median - (high - median))
-            ZStack(alignment: .topLeading) {
-                Rectangle().fill(Color.white.opacity(0.18)).frame(width: w, height: 2).offset(y: 16)
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(Theme.accent.opacity(0.22))
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.accent.opacity(0.5)))
-                    .frame(width: max(4, x(high) - x(low)), height: 10)
-                    .offset(x: x(low), y: 12)
-                RoundedRectangle(cornerRadius: 2).fill(Theme.accent)
-                    .frame(width: 3, height: 22)
-                    .offset(x: x(median) - 1.5, y: 6)
-                tick("\(refresh) Hz", at: x(1000 / Double(max(refresh, 1))), y: -4)
-                if refresh != 60 { tick("60 Hz", at: x(1000.0 / 60), y: 22) }
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func tick(_ text: String, at x: CGFloat, y: CGFloat) -> some View {
-        Text(verbatim: text)
-            .font(Theme.mono(9))
-            .foregroundStyle(Theme.faint)
-            .fixedSize()
-            .frame(width: 60)
-            .offset(x: x - 30, y: y)
     }
 }

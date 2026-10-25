@@ -1,8 +1,10 @@
 <!--
   Passage vers la session : l'accueil coupé en deux le long de la couture à
-  45°, un tube néon s'y allume pendant la préparation, puis les deux moitiés
-  s'écartent quand la fenêtre de la session se montre. Au retour, elles se
-  referment. Comme l'app Mac (Passage.swift).
+  45°, un tube néon s'y allume pendant la préparation (ses trois étapes, ou
+  « La Station redémarre… » quand le cœur la redémarre en dernier recours,
+  avant de reprendre), puis les deux moitiés s'écartent quand la fenêtre de
+  la session se montre : l'image seule, sans chiffre ni capsule par-dessus.
+  Au retour, elles se referment. Comme l'app Mac (Passage.swift).
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
@@ -15,8 +17,17 @@
     phase,
     opening,
     closing,
+    restarting = false,
     oncancel,
-  }: { computer: Computer; phase: Phase['phase']; opening: boolean; closing: boolean; oncancel: () => void } = $props()
+  }: {
+    computer: Computer
+    phase: Phase['phase']
+    opening: boolean
+    closing: boolean
+    /** Dernier recours : la Station redémarre, les étapes reprennent ensuite. */
+    restarting?: boolean
+    oncancel: () => void
+  } = $props()
 
   // Pas d'image au bout de 12 s : on le dit, plutôt qu'un passage figé.
   let slow = $state(false)
@@ -30,8 +41,8 @@
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
   const steps = $derived([
-    { label: t('passage.virtual'), from: 0 },
-    { label: t('passage.connection'), from: 1 },
+    { label: t('passage.preparing'), from: 0 },
+    { label: t('passage.connecting'), from: 1 },
     { label: t('passage.first_images'), from: 2 },
   ])
 
@@ -49,12 +60,16 @@
 
   {#if !opening && !closing}
     <div class="capsule" role="status">
-      {#each steps as s (s.from)}
-        <span class="step" class:done={at > s.from} class:now={at === s.from}>
-          {#if at > s.from}<Icon name="check" size={14} stroke={2.2} />{:else}<span class="dot"></span>{/if}
-          {s.label}
-        </span>
-      {/each}
+      {#if restarting}
+        <span class="step now"><span class="dot"></span>{t('station.restarting')}</span>
+      {:else}
+        {#each steps as s (s.from)}
+          <span class="step" class:done={at > s.from} class:now={at === s.from}>
+            {#if at > s.from}<Icon name="check" size={14} stroke={2.2} />{:else}<span class="dot"></span>{/if}
+            {s.label}
+          </span>
+        {/each}
+      {/if}
       <button onclick={oncancel}>{t('common.cancel')}</button>
     </div>
     {#if slow}

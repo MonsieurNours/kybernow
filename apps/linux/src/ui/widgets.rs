@@ -194,21 +194,6 @@ pub fn ghost(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, h: f32, 
     w
 }
 
-/// Lien souligné (« Réglages de l'ordinateur ») ; rend sa largeur.
-pub fn link(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, size: f32, s: &str) -> f32 {
-    let style = Text::new(Font::Regular, size, MUTED);
-    let w = cv.text_width(style, s);
-    let r = Rect::new(x - 6.0, y - size * 1.1, w + 12.0, size * 1.6);
-    let (focused, hover) = f.state(t, r);
-    if focused {
-        ring(cv, r, 6.0);
-    }
-    let c = if hover || focused { FROST } else { MUTED };
-    cv.text(x, y, style.color(c), s);
-    cv.rect(x, y + size * 0.3, w, 1.0, c.alpha(0.7));
-    w
-}
-
 /// Pastille d'information (écran virtuel) ; rend sa largeur.
 pub fn info_chip(cv: &mut Canvas, x: f32, y: f32, h: f32, size: f32, icon: Icon, parts: &[(&str, bool)]) -> f32 {
     let iw = size * 1.25;
@@ -346,7 +331,7 @@ pub fn card(cv: &mut Canvas, f: &mut Frame, t: Target, r: Rect, scale: f32, name
     }
 }
 
-/// Un panneau d'encre translucide (mesures de l'accueil, Prêt à jouer) :
+/// Un panneau d'encre translucide (dernière session) :
 /// lisible quelle que soit l'image derrière.
 pub fn panel(cv: &mut Canvas, r: Rect, radius: f32) {
     cv.rrect(r.x, r.y, r.w, r.h, radius, PANEL);

@@ -1,6 +1,6 @@
 // Une session avec un ordinateur, sur l'Apple TV, vue de l'interface : le
-// passage, le menu (bouton Retour ou L1 + R1 + Start + Select), les
-// capsules, les mesures, la fréquence du téléviseur. Le déroulé lui-même
+// passage et les étapes de la connexion, le menu (bouton Retour ou L1 + R1 +
+// Start + Select) et ses mesures, les avis, la fréquence du téléviseur. Le déroulé lui-même
 // (préparation par Admin : écran virtuel à la taille du téléviseur, 4K
 // à 60 Hz au plus, son au format de la sortie ; connexion à Kyber, choix de
 // l'écran, relances, reconnexions, repli quand l'image ne passe pas, signal
@@ -29,12 +29,13 @@ final class SessionController: ObservableObject {
     @Published private(set) var host: Host
     /// Instant où l'image est apparue (le passage s'ouvre).
     @Published private(set) var revealedAt: Date?
-    /// Capsule « Vous entrez dans… », quelques secondes après l'apparition.
-    @Published private(set) var entering = false
     /// Le passage (les deux moitiés de l'accueil) est dans la hiérarchie :
     /// jusqu'à la fin de son ouverture, puis retiré pour laisser la couche
     /// Metal seule à l'écran (voir SessionView).
     @Published private(set) var passageShown = true
+    /// Dernier recours de la connexion : le cœur redémarre la Station et
+    /// attend son retour (« La Station redémarre… ») ; jusqu'à la phase suivante.
+    @Published private(set) var stationRestarting = false
     @Published private(set) var menuOpen = false
     @Published private(set) var stats: VideoStats?
     @Published private(set) var audioStats: AudioStats?
@@ -52,9 +53,6 @@ final class SessionController: ObservableObject {
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans le menu (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
-    /// Du démarrage du flux à la première image affichée, en secondes.
-    @Published private(set) var firstImageDelay: Double?
-    private var streamStartedAt: Date?
 
     let streamView = StreamView(frame: CGRect(x: 0, y: 0, width: 1920, height: 1080))
     private let store: HostStore
@@ -124,14 +122,7 @@ final class SessionController: ObservableObject {
             self.streamMode = (mode.width, mode.height, mode.refresh)
             self.modeLabel = String(localized: "\(mode.width) × \(mode.height) à \(mode.refresh) Hz")
         }
-        engine.onVideoStats = { [weak self] stats in
-            guard let self else { return }
-            self.stats = stats
-            if stats.fps > 0, self.firstImageDelay == nil, let t = self.streamStartedAt {
-                // Les mesures arrivent chaque seconde : on retire la moitié d'une fenêtre.
-                self.firstImageDelay = max(0.1, Date().timeIntervalSince(t) - 0.5)
-            }
-        }
+        engine.onVideoStats = { [weak self] in self?.stats = $0 }
         engine.onAudioStats = { [weak self] in self?.audioStats = $0 }
         engine.onGameFullscreen = { game in
             KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
@@ -178,20 +169,20 @@ final class SessionController: ObservableObject {
         }
     }
 
-    /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`.
+    /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, seule
+    /// (aucune capsule à l'arrivée : les mesures sont dans le menu).
     private func phaseChanged(_ p: SessionEngine.Phase) {
         if case .failed = phase { return }
         engineStreaming = p == .streaming
+        if stationRestarting, p != .connecting { stationRestarting = false }
         switch p {
         case .preparing:
             phase = .preparing
         case .connecting:
             phase = .connecting
         case .starting:
-            if streamStartedAt == nil { streamStartedAt = Date() }
             if revealedAt == nil { phase = .starting }
         case .streaming:
-            if streamStartedAt == nil { streamStartedAt = Date() }
             guard revealedAt == nil else {
                 phase = .streaming
                 return
@@ -205,12 +196,6 @@ final class SessionController: ObservableObject {
                 }
                 self.startedAt = Date()
                 self.dismissPassage()
-                withAnimation(Theme.easeOut.delay(0.7)) { self.entering = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5.2) { [weak self] in
-                    withAnimation(.easeIn(duration: 0.35)) { self?.entering = false }
-                }
-                self.host.lastSession = Date()
-                self.store.update(self.host)
             }
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
@@ -248,6 +233,8 @@ final class SessionController: ObservableObject {
         case let .fallback(level, mbps):
             fallbackNote = level == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(mbps) Mbit/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in self?.fallbackNote = nil }
+        case .stationRestarting:
+            stationRestarting = true
         case .adapting, .adapted, .adaptFailed:
             // Pas d'adaptation à l'écran sur l'Apple TV : le téléviseur ne change pas en session.
             break
@@ -326,10 +313,20 @@ final class SessionController: ObservableObject {
     var sessionMinutes: Int { Int(Date().timeIntervalSince(startedAt) / 60) }
 
     #if DEBUG
-    /// Démonstration (simulateur) : le passage, puis le menu, sans ordinateur.
-    func demo(menu: Bool) {
-        phase = .starting
+    enum Demo { case connecting, restarting, passage, menu }
+
+    /// Démonstration (simulateur), sans ordinateur : les étapes de la
+    /// connexion (arrêtées sur « Connexion »), l'image seule, ou le menu.
+    func demo(_ kind: Demo) {
+        phase = .preparing
         streamView.startTestPattern()
+        if kind == .connecting || kind == .restarting {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.phase = .connecting
+                if kind == .restarting { self?.stationRestarting = true }
+            }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             guard let self else { return }
             withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.5)) {
@@ -345,11 +342,8 @@ final class SessionController: ObservableObject {
             stats.mbps = 78
             stats.format = "4:2:0 8 bits"
             self.stats = stats
-            self.firstImageDelay = 0.6
-            if menu {
+            if kind == .menu {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.openMenu() }
-            } else {
-                withAnimation(Theme.easeOut.delay(0.7)) { self.entering = true }
             }
         }
     }
@@ -359,15 +353,16 @@ final class SessionController: ObservableObject {
 
     /// Fin de session : le cœur rend la main à Admin (écrans et son de
     /// l'ordinateur rétablis, latence de la session donnée à ses appareils).
+    /// Une session d'au moins 3 s devient la « Dernière session » des Statistiques.
     func end() {
         guard phase != .ending && phase != .ended else { return }
         GamepadBridge.shared.onMenuRequest = nil
         streamView.padMouse = false
         if let last = engine?.snapshot(maxWidth: 1920) { store.imagery.saveLast(last, for: host) }
-        if let revealedAt { host.lastDuration = Date().timeIntervalSince(revealedAt) }
-        if let latency = engine?.sessionLatency {
-            host.lastLatencyMs = latency.median
-            host.lastLatencyP95Ms = latency.p95
+        if let revealedAt {
+            let m = streamMode
+            host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
+                               codec: engineSettings.codec, mbps: host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh))
         }
         store.update(host)
         withAnimation(.easeInOut(duration: 0.4)) {

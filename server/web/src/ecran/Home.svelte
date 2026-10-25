@@ -1,64 +1,59 @@
 <!--
-  Accueil : l'ordinateur en grand sur l'aperçu de son écran, le profil, et ce
-  que ce navigateur sait faire. Sur téléphone, une carte et deux conseils.
+  Accueil (docs/link-ui.md) : sur l'aperçu de l'écran de l'ordinateur, son
+  état, son nom, son système, l'écran que la session demandera,
+  « Se connecter », le profil et l'accès aux réglages. Rien d'autre : les
+  chiffres et ce que sait ce navigateur sont dans les réglages.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { backend, type Live, type Preview } from './backend'
+  import { backend, type Info, type Live, type Preview } from './backend'
   import { supportedCodecs, type CodecSupport } from './engine'
   import { choose, preferredProtocol } from './plan'
-  import {
-    canFullscreen,
-    deviceKind,
-    hasKeyboardLock,
-    isIsolated,
-    isStandalone,
-    isTouch,
-    measureRefresh,
-    screenMode,
-  } from './device'
-  import type { Prefs, Profile } from './prefs'
-  import { ago } from '../lib/format'
+  import { canFullscreen, deviceKind, isIsolated, measureRefresh, screenMode } from './device'
+  import { isCustom, pickProfile, PROFILES, type Prefs, type Profile } from './prefs'
   import Mark from '../lib/Mark.svelte'
   import Icon from '../lib/Icon.svelte'
   import Settings from './Settings.svelte'
   import { t } from '../lib/i18n/index.svelte'
+  import { tName } from './names'
 
   let {
     hostname,
     prefs = $bindable(),
+    notice = '',
     onConnect,
     onSignedOut,
-  }: { hostname: string; prefs: Prefs; onConnect: () => void; onSignedOut: () => void } = $props()
+  }: { hostname: string; prefs: Prefs; notice?: string; onConnect: () => void; onSignedOut: () => void } = $props()
 
   let preview = $state<Preview | null>(null)
   let live = $state<Live | null>(null)
+  let info = $state<Info | null>(null)
   let codecs = $state<CodecSupport[] | null>(null)
   let codecError = $state(false)
   let refresh = $state(60)
   let sheet = $state(false)
-  let now = $state(Date.now())
 
   const kind = deviceKind()
   const mode = $derived(screenMode(refresh))
   const plan = $derived(codecs ? choose(prefs, mode, codecs) : null)
   // Lu une fois le moteur chargé (avec les formats) : corrigé, il change le transport en tactile.
   const protocol = $derived(codecs ? preferredProtocol() : null)
-  const hardware = $derived(!!codecs?.find((c) => c.codec === (plan?.codec ?? 'h264'))?.hardware)
   const blocked = $derived(!isIsolated ? 'isolation' : codecError ? 'engine' : null)
+  const custom = $derived(isCustom(prefs))
+  /** En ligne : Admin répond (la page est là) et le moteur de Kyber se charge. */
+  const status = $derived(codecError ? 'offline' : codecs || !isIsolated ? 'online' : 'searching')
 
-  const profiles: { value: Profile; label: string; icon: string }[] = $derived([
-    { value: 'bureau', label: t('web.home.desktop'), icon: 'desk' },
-    { value: 'jeu', label: t('web.home.game'), icon: 'pad' },
-  ])
-
-  const profileNote = $derived(
-    prefs.profile === 'jeu'
-      ? t('web.home.noteGame')
-      : plan?.yuv444
-        ? t('web.home.noteDesktop444')
-        : t('web.home.noteDesktop'),
+  /** L'écran que la session demandera : celui de cet appareil, si l'ordinateur sait en créer un. */
+  const displayText = $derived(
+    prefs.virtualDisplay && info?.virtual_display.available !== false
+      ? t('web.home.displaySized', { width: mode.width, height: mode.height, refresh: mode.refresh })
+      : t('web.home.displaysAsIs'),
   )
+
+  /** Le nom peut passer à la ligne après un point (« pc-salon.home »), pas au milieu d'un mot. */
+  const displayName = $derived(hostname.replace(/([._])/g, '$1\u200b'))
+
+  const profileNote = $derived(custom ? t('web.profile.customNote') : t(`web.profile.${prefs.profile}Note`))
 
   async function loadPreview() {
     const width = Math.min(1920, Math.round(window.innerWidth * (window.devicePixelRatio || 1)))
@@ -69,18 +64,25 @@
     }
   }
 
-  async function loadLive() {
-    live = await backend.live().catch(() => null)
+  async function loadState() {
+    const [l, i] = await Promise.all([backend.live().catch(() => null), backend.info().catch(() => null)])
+    live = l
+    if (i) info = i
+  }
+
+  function loadCodecs() {
+    codecError = false
+    supportedCodecs()
+      .then((c) => (codecs = c))
+      .catch(() => (codecError = true))
   }
 
   onMount(() => {
     loadPreview()
-    loadLive()
+    loadState()
     measureRefresh().then((hz) => (refresh = hz))
-    supportedCodecs()
-      .then((c) => (codecs = c))
-      .catch(() => (codecError = true))
-    const timers = [setInterval(loadLive, 8000), setInterval(loadPreview, 30000), setInterval(() => (now = Date.now()), 5000)]
+    loadCodecs()
+    const timers = [setInterval(loadState, 8000), setInterval(loadPreview, 30000)]
     return () => {
       timers.forEach(clearInterval)
       if (preview) URL.revokeObjectURL(preview.url)
@@ -88,7 +90,15 @@
   })
 
   function connect() {
-    if (blocked) return
+    if (blocked === 'isolation') {
+      location.reload()
+      return
+    }
+    if (blocked === 'engine') {
+      // Le moteur se recharge : Kyber a pu repartir entre-temps.
+      loadCodecs()
+      return
+    }
     // Le plein écran se demande dans le clic lui-même.
     if (prefs.fullscreen && canFullscreen && !document.fullscreenElement) {
       document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {})
@@ -96,15 +106,8 @@
     onConnect()
   }
 
-  async function signOut() {
-    await fetch('/api/logout', { method: 'POST', headers: { 'x-kyber-admin': '1' }, credentials: 'same-origin' })
-    onSignedOut()
-  }
-
-  function previewAge(): string {
-    if (!preview) return ''
-    const s = Math.max(0, Math.round((now - preview.capturedAt) / 1000))
-    return s < 60 ? t('web.home.secondsAgo', { n: Math.max(s, 1) }) : ago(preview.capturedAt / 1000)
+  function choice(p: Profile) {
+    pickProfile(prefs, p)
   }
 </script>
 
@@ -121,12 +124,8 @@
     <nav>
       <a class="navlink" href="/">
         <Icon name="overview" size={16} />
-        <span>{t('web.home.console')}</span>
+        <span>{t('web.home.admin')}</span>
       </a>
-      <button type="button" class="navlink" onclick={signOut}>
-        <Icon name="logout" size={16} />
-        <span>{t('web.home.signOut')}</span>
-      </button>
     </nav>
   </header>
 
@@ -136,87 +135,66 @@
         {#if preview}<img src={preview.url} alt="" />{/if}
       </div>
     {/if}
-    {#if preview}<span class="lbl age">{t('web.home.preview', { age: previewAge() })}</span>{/if}
-    <h1 class="disp">{hostname}</h1>
-
+    {#if notice}<p class="notice" role="status"><Icon name="check" size={15} stroke={2.4} />{notice}</p>{/if}
     {#if live}
       <span class="pill busy"><span class="dot"></span>{t('web.home.live', { name: live.name })}</span>
     {:else}
-      <span class="pill"><span class="dot"></span>{t('web.home.free')}</span>
+      <span class="pill {status}"><span class="dot"></span>{status === 'offline' ? t('web.home.offline') : status === 'searching' ? t('web.home.searching') : t('web.home.online')}</span>
     {/if}
-
-    <div class="actions">
-      <button type="button" class="primary cta" onclick={connect} disabled={!!blocked}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-        {live ? t('web.home.takeOver') : t('web.home.connect')}
-      </button>
-      <div class="seg" role="radiogroup" aria-label={t('web.home.profile')}>
-        {#each profiles as p (p.value)}
-          <button type="button" role="radio" aria-checked={prefs.profile === p.value} onclick={() => (prefs.profile = p.value)}>
-            {#if p.icon === 'desk'}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
-            {:else}
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
-            {/if}
-            {p.label}
-          </button>
-        {/each}
-      </div>
-      <button type="button" class="glassbtn" onclick={() => (sheet = true)}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
-        {t('web.home.settings')}
-      </button>
+    <h1 class="disp" class:long={hostname.length > 14}>{displayName}</h1>
+    <div class="facts">
+      {#if info?.os}<span>{info.os}</span>{/if}
+      <span>{displayText}</span>
     </div>
-    <p class="note">{profileNote}</p>
 
     {#if blocked}
       <p class="blocked" role="alert">
-        {#if blocked === 'isolation'}
-          {t('web.home.blockedIsolation')}
-        {:else}
-          {t('web.home.blockedEngine')}
-        {/if}
+        {blocked === 'isolation' ? t('web.home.blockedIsolation') : t('web.home.blockedEngine')}
       </p>
     {/if}
 
-    {#if isTouch}
-      <div class="tips">
-        {#if kind === 'phone'}
-          <p class="tip"><Icon name="phone" size={18} /><span><b>{t('web.home.rotateTitle')}</b> {t('web.home.rotate')}</span></p>
+    <div class="actions">
+      <button type="button" class="primary cta" onclick={connect}>
+        {#if blocked}
+          <Icon name="restart" size={18} stroke={2.2} />
+          {t('web.home.retry')}
+        {:else}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          {t('web.home.connect')}
         {/if}
-        {#if !isStandalone}
-          <p class="tip"><Icon name="plus" size={18} /><span><b>{t('web.home.homeScreenTitle')}</b> {t('web.home.homeScreen')}</span></p>
-        {/if}
+      </button>
+      <div class="profiles">
+        <div class="seg" class:four={custom} role="radiogroup" aria-label={t('web.settings.profile')}>
+          {#each PROFILES as p (p)}
+            <button type="button" role="radio" aria-checked={!custom && prefs.profile === p} onclick={() => choice(p)}>
+              {#if p === 'bureau'}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></svg>
+              {:else if p === 'jeu'}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 8h10a4 4 0 0 1 4 4v1a3 3 0 0 1-5.4 1.8L14.5 13h-5l-1.1 1.8A3 3 0 0 1 3 13v-1a4 4 0 0 1 4-4z" /><path d="M8 10.5v3M6.5 12h3" /></svg>
+              {:else}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.4 5.2 5.6.6-4.2 3.8 1.2 5.6L12 15.4l-5 2.8 1.2-5.6L4 8.8l5.6-.6z" /></svg>
+              {/if}
+              {t(`web.profile.${p}`)}
+            </button>
+          {/each}
+          {#if custom}
+            <button type="button" role="radio" aria-checked="true" onclick={() => (sheet = true)}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>
+              {t('web.profile.custom')}
+            </button>
+          {/if}
+        </div>
+        <p class="note">{profileNote}</p>
       </div>
-    {/if}
+      <button type="button" class="glassbtn" aria-label={tName('web.home.settingsFor', 'name', hostname)} onclick={() => (sheet = true)}>
+        <Icon name="gear" size={18} stroke={1.7} />
+        {t('web.home.settings')}
+      </button>
+    </div>
   </main>
 
-  {#if kind !== 'phone'}
-    <section class="caps" aria-label={t('web.home.browser')}>
-      <div class="caps-title">
-        <span class="lbl">{t('web.home.browser')}</span>
-        <span class="strong">{blocked ? t('web.home.missing') : t('web.home.ready')}</span>
-      </div>
-      <span class="sep" aria-hidden="true"></span>
-      <ul>
-        {#if codecs}
-          <li class:off={!hardware}><Icon name={hardware ? 'check' : 'info'} size={14} stroke={2.4} />{hardware ? t('web.home.hardware') : t('web.home.software')}</li>
-        {/if}
-        <li class:off={!prefs.virtualDisplay}><Icon name={prefs.virtualDisplay ? 'check' : 'info'} size={14} stroke={2.4} />{prefs.virtualDisplay ? t('web.home.virtualDisplay') : t('web.home.displaysAsIs')}</li>
-        {#if protocol === 'websocket'}
-          <li class="off"><Icon name="info" size={14} stroke={2.4} />{t('web.home.websocket')}</li>
-        {/if}
-        <li class:off={!hasKeyboardLock}><Icon name={hasKeyboardLock ? 'check' : 'info'} size={14} stroke={2.4} />{hasKeyboardLock ? t('web.home.allKeys') : t('web.home.keysMenu')}</li>
-        {#if prefs.profile === 'bureau' && plan}
-          <li class:off={!plan.yuv444}><Icon name={plan.yuv444 ? 'check' : 'info'} size={14} stroke={2.4} />{plan.yuv444 ? t('web.home.text444') : t('web.home.text444Missing')}</li>
-        {/if}
-      </ul>
-      <span class="mono mode">{mode.width} × {mode.height} · {mode.refresh} Hz</span>
-    </section>
-  {/if}
-
   {#if sheet}
-    <Settings bind:prefs {hostname} {mode} {plan} onClose={() => (sheet = false)} />
+    <Settings bind:prefs {hostname} {mode} {plan} {codecs} {protocol} blocked={!!blocked} {info} onClose={() => (sheet = false)} {onSignedOut} />
   {/if}
 </div>
 
@@ -347,9 +325,22 @@
     }
   }
 
-  .age {
-    color: var(--muted);
-    font-size: 11px;
+  .notice {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    color: var(--ok-text);
+    background: rgb(9 12 17 / 0.7);
+    backdrop-filter: blur(22px);
+    box-shadow: inset 0 0 0 1px var(--ok-line);
+  }
+
+  .notice :global(svg) {
+    color: var(--ok);
   }
 
   h1 {
@@ -358,6 +349,24 @@
     font-weight: 680;
     letter-spacing: -0.045em;
     overflow-wrap: anywhere;
+  }
+
+  h1.long {
+    font-size: clamp(40px, 5vw, 72px);
+    line-height: 0.95;
+  }
+
+  .facts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 15px;
+    color: var(--text-2);
+    margin-top: 2px;
+  }
+
+  .facts span:first-child:not(:last-child) {
+    color: var(--muted);
   }
 
   .pill {
@@ -372,7 +381,6 @@
     background: rgb(9 12 17 / 0.6);
     backdrop-filter: blur(22px);
     box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09);
-    margin-top: 4px;
   }
 
   .pill .dot {
@@ -391,12 +399,35 @@
     background: var(--warn);
   }
 
+  .pill.offline .dot {
+    background: var(--ghost);
+  }
+
+  .pill.searching .dot {
+    background: var(--faint);
+    animation: pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  @keyframes pulse {
+    to {
+      opacity: 0.3;
+    }
+  }
+
   .actions {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     flex-wrap: wrap;
     gap: 14px;
     margin-top: 40px;
+  }
+
+  /* Les profils et leur phrase, juste dessous. */
+  .profiles {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 3px;
   }
 
   .cta {
@@ -437,6 +468,7 @@
   }
 
   .glassbtn {
+    margin-top: 3px;
     height: 50px;
     padding: 0 16px;
     border: 0;
@@ -456,7 +488,8 @@
   }
 
   .note {
-    max-width: 560px;
+    max-width: 420px;
+    padding-left: 4px;
     font-size: 14px;
     color: var(--muted);
   }
@@ -469,104 +502,6 @@
     box-shadow: inset 0 0 0 1px var(--warn-line);
     color: var(--warn-text);
     font-size: 13.5px;
-  }
-
-  .tips {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 8px;
-  }
-
-  .tip {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    max-width: 520px;
-    padding: 14px;
-    border-radius: 14px;
-    background: rgb(14 20 26 / 0.85);
-    box-shadow: inset 0 0 0 1px var(--line);
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .tip :global(svg) {
-    color: var(--signal);
-    margin-top: 1px;
-  }
-
-  .tip b {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .caps {
-    position: relative;
-    margin: 0 72px 36px;
-    border-radius: 16px;
-    padding: 16px 22px;
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 14px 28px;
-    background: rgb(9 12 17 / 0.6);
-    backdrop-filter: blur(22px) saturate(1.3);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), inset 0 1px 0 rgb(255 255 255 / 0.06);
-    animation: rise 0.8s 0.6s var(--ease-out) both;
-  }
-
-  .caps-title {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 150px;
-  }
-
-  .strong {
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .sep {
-    width: 1px;
-    align-self: stretch;
-    background: rgb(255 255 255 / 0.1);
-  }
-
-  ul {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 26px;
-    font-size: 13px;
-    color: var(--text-2);
-  }
-
-  li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  li :global(svg) {
-    color: var(--ok);
-  }
-
-  li.off {
-    color: var(--faint);
-  }
-
-  li.off :global(svg) {
-    color: var(--faint);
-  }
-
-  .mode {
-    margin-left: auto;
-    font-size: 11px;
-    color: var(--faint);
   }
 
   .thumb {
@@ -583,14 +518,6 @@
 
     header {
       padding: 14px 16px 0 24px;
-    }
-
-    .caps {
-      margin: 0 24px 24px;
-    }
-
-    .mode {
-      margin-left: 0;
     }
   }
 
@@ -630,20 +557,22 @@
     object-fit: cover;
   }
 
-  .phone .age {
-    margin-top: -36px;
-    margin-left: 14px;
-    position: relative;
-    color: var(--text);
-  }
-
   .phone h1 {
     font-size: 40px;
     margin-top: 10px;
   }
 
-  .phone .pill {
+  .phone h1.long {
+    font-size: 30px;
+  }
+
+  .phone .pill,
+  .phone .notice {
     background: var(--ink-2);
+  }
+
+  .phone .facts {
+    font-size: 14px;
   }
 
   .phone .actions {
@@ -653,14 +582,24 @@
     gap: 10px;
   }
 
+  .phone .profiles,
+  .phone .glassbtn {
+    margin-top: 0;
+  }
+
   .phone .seg {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     background: var(--ink-2);
+  }
+
+  .phone .seg.four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .phone .seg button {
     justify-content: center;
+    padding: 0 8px;
   }
 
   .phone .glassbtn {
@@ -668,15 +607,10 @@
     justify-content: flex-start;
   }
 
-  .phone .tips {
-    margin-top: auto;
-    padding-top: 12px;
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .bg img,
     main > *,
-    .caps {
+    .pill.searching .dot {
       animation: none;
     }
   }

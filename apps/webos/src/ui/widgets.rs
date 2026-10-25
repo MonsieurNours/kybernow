@@ -72,6 +72,16 @@ pub fn chip(cv: &mut Canvas, f: &mut Frame, t: Target, x: f32, y: f32, s: &str, 
     w
 }
 
+/// Pastille active qu'on ne choisit pas (« Personnalisé ») ; rend sa largeur.
+pub fn chip_static(cv: &mut Canvas, x: f32, y: f32, s: &str) -> f32 {
+    let style = Text::new(Font::Semibold, 22.0, FROST);
+    let w = cv.text_width(style, s) + 56.0;
+    cv.rrect(x, y, w, 56.0, 28.0, SPECTRE.alpha(0.18));
+    cv.rrect_dashed(x, y, w, 56.0, 28.0, 1.5, SPECTRE);
+    cv.text(x + 28.0, y + 36.0, style, s);
+    w
+}
+
 /// Largeur d'une pastille à icône (pour l'aligner à droite).
 pub fn icon_chip_width(cv: &mut Canvas, s: &str) -> f32 {
     cv.text_width(Text::new(Font::Regular, 22.0, FROST), s) + 28.0 + 30.0 + 12.0 + 28.0
@@ -145,6 +155,7 @@ pub fn row(cv: &mut Canvas, f: &mut Frame, t: Option<Target>, x: f32, y: f32, w:
     let h = 92.0;
     let focused = t.is_some_and(|t| f.hit(t, Rect::new(x, y, w, h)));
     let dashed = matches!(value, Value::Unavailable(_));
+    let danger_title = matches!(value, Value::Danger(_));
     if focused {
         cv.neon(x, y, w, h, 16.0, 0.8);
         cv.rrect(x, y, w, h, 16.0, Rgba(30, 28, 56, 255));
@@ -156,7 +167,6 @@ pub fn row(cv: &mut Canvas, f: &mut Frame, t: Option<Target>, x: f32, y: f32, w:
         cv.rrect_stroke(x, y, w, h, 16.0, 1.0, LINE);
     }
     let title_color = if dashed { FROST_2 } else { FROST };
-    cv.text(x + 28.0, y + 40.0, Text::new(Font::Regular, 25.0, title_color), title);
     let right = x + w - 28.0;
     let value_w = match &value {
         Value::Text(s) => cv.text(right, y + 54.0, Text::new(Font::Mono, 20.0, FROST).align(Align::Right), s),
@@ -182,7 +192,14 @@ pub fn row(cv: &mut Canvas, f: &mut Frame, t: Option<Target>, x: f32, y: f32, w:
             right - xx
         }
     };
-    cv.text_fit(x + 28.0, y + 70.0, Text::new(Font::Regular, 17.0, FROST_3), help, w - 90.0 - value_w);
+    // Sans aide, le libellé est centré dans la ligne.
+    let title_style = Text::new(Font::Regular, 25.0, if danger_title { DANGER } else { title_color });
+    if help.is_empty() {
+        cv.text_fit(x + 28.0, y + 55.0, title_style, title, w - 90.0 - value_w);
+    } else {
+        cv.text_fit(x + 28.0, y + 40.0, title_style, title, w - 90.0 - value_w);
+        cv.text_fit(x + 28.0, y + 70.0, Text::new(Font::Regular, 17.0, FROST_3), help, w - 90.0 - value_w);
+    }
     if focused && matches!(value, Value::Choices(..)) {
         // Flèches : gauche et droite changent la valeur.
         cv.text(x + w - 8.0, y + 54.0, Text::new(Font::Mono, 16.0, SPECTRE).align(Align::Right), "›");

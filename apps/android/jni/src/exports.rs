@@ -4,7 +4,10 @@
 //! correspondante. Les réponses d'Admin reviennent en JSON :
 //! `{"code": 0, "value": …}` ou `{"code": …, "error": "…"}` (code : 1
 //! injoignable, 3 certificat changé, −401 compte refusé, −404 appel inconnu
-//! de cette version d'Admin).
+//! de cette version d'Admin). Les appels de la Station (redémarrer, mettre à
+//! jour) ont leurs propres codes de refus, 10 à 15, avec `kind`, `device` et
+//! `seconds` (voir `station_envelope`). Le réveil par le réseau (`wake`)
+//! rend un code simple : 0 envoyé, 1 rien n'est parti, 20 aucune cible.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -14,11 +17,12 @@ use jni::sys::{jboolean, jdouble, jfloat, jint, jlong, jstring, JNI_FALSE, JNI_T
 use jni::JNIEnv;
 use ndk::native_window::NativeWindow;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::input::{MouseMode, MouseModeRules, PadAxis, PadButton};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
+use kybernow_core::wake;
 
 use crate::jvm::Listener;
 use crate::session::{self, Handle};
@@ -176,6 +180,100 @@ pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consolePair
     });
     let s = envelope(r);
     give(&mut env, &s)
+}
+
+// MARK: - Station (rubrique « Station » des réglages d'un ordinateur)
+
+/// Réponse d'un appel de la Station : `{"code": 0, "value": …}`, un refus
+/// `{"code": 10…15, "error", "kind", "device", "seconds"}` (10 appareil en
+/// session : refaire l'appel avec `force` coupe sa session ; 11 trop tôt ; 12
+/// rien à installer depuis un appareil ; 13 installateur requis, sur
+/// l'ordinateur ; 14 installation ou redémarrage déjà en cours ; 15 Station
+/// 0.4.9 ou plus ancienne), ou les codes des autres appels.
+fn station_envelope(r: Result<serde_json::Value, StationError>) -> String {
+    let e = match r {
+        Ok(v) => return serde_json::json!({ "code": 0, "value": v }).to_string(),
+        Err(StationError::Other(e)) => return envelope::<()>(Err(e)),
+        Err(e) => e,
+    };
+    let code = match &e {
+        StationError::InSession { .. } => 10,
+        StationError::TooSoon { .. } => 11,
+        StationError::NothingToInstall { .. } => 12,
+        StationError::RequiresSetup { .. } => 13,
+        StationError::Busy { .. } => 14,
+        StationError::Unsupported | StationError::Other(_) => 15,
+    };
+    let mut v = e.to_json();
+    v["code"] = serde_json::json!(code);
+    v["error"] = serde_json::json!(e.to_string());
+    v.to_string()
+}
+
+/// Redémarre la Station entière (Kyber et Admin, environ une minute) ;
+/// `device_id` : cet appareil (nommé dans le fil d'Admin), `force` : même si
+/// un appareil est en session. `value` : `{"ok": true}`. Bloquant (15 s au plus).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStationRestart(
+    mut env: Env,
+    _: JClass,
+    h: jlong,
+    device_id: JString,
+    force: jboolean,
+) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let device_id = optional(&mut env, &device_id);
+    let r = c.station_restart(device_id.as_deref(), force != JNI_FALSE).map(|()| serde_json::json!({ "ok": true }));
+    let s = station_envelope(r);
+    give(&mut env, &s)
+}
+
+/// Lance la mise à jour de la Station (comme « Installer maintenant » dans
+/// Admin). `value` : `{"version": "…"}`. Bloque le temps qu'Admin télécharge
+/// et vérifie le paquet (quelques minutes au plus).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleStationUpdate(
+    mut env: Env,
+    _: JClass,
+    h: jlong,
+    device_id: JString,
+    force: jboolean,
+) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let device_id = optional(&mut env, &device_id);
+    let r = c.station_update(device_id.as_deref(), force != JNI_FALSE).map(|version| serde_json::json!({ "version": version }));
+    let s = station_envelope(r);
+    give(&mut env, &s)
+}
+
+/// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_consoleAdminUrl(mut env: Env, _: JClass, h: jlong) -> jstring {
+    let Some(c) = console(h) else { return std::ptr::null_mut() };
+    let url = c.admin_url();
+    give(&mut env, &url)
+}
+
+// MARK: - Réveil par le réseau
+
+/// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
+/// par l'app pour cet ordinateur (`wake` de `consoleInfo`, une liste ; une
+/// cible seule, par exemple `{"mac": "…", "ipv4": "…"}` d'une adresse saisie,
+/// passe aussi). Le paquet magique part vers la diffusion du sous-réseau de
+/// chaque carte, vers 255.255.255.255 et vers sa dernière adresse IPv4, en
+/// direct. Rend 0 dès qu'un paquet est parti, 20 sans cible lisible, 1 si
+/// aucun n'est parti. Rapide, mais hors du fil principal.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_fr_leslignesclaires_kybernow_core_Native_wake(mut env: Env, _: JClass, targets_json: JString) -> jint {
+    let json = string(&mut env, &targets_json);
+    match wake::send(&wake::targets_from_json(&json)) {
+        Ok(_) => 0,
+        Err(wake::WakeError::NoTarget) => 20,
+        Err(e) => {
+            log::warn!("réveil : {e}");
+            1
+        }
+    }
 }
 
 // MARK: - Session

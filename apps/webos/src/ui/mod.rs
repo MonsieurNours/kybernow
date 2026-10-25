@@ -1,6 +1,7 @@
 //! Les écrans de l'app, dessinés d'après les maquettes webOS
-//! (https://claude.ai/artifact/2TNZZrYYZpHvdQqLXzSLGv) : accueil, ajout,
-//! réglages, manettes, session. Chaque fonction de dessin lit l'état (`App`)
+//! (https://claude.ai/artifact/2TNZZrYYZpHvdQqLXzSLGv) et les écrans communs
+//! des apps KyberNow Link (docs/link-ui.md) : accueil, ajout, réglages,
+//! manettes, session. Chaque fonction de dessin lit l'état (`App`)
 //! et inscrit les éléments choisissables dans un `Frame`.
 
 pub mod canvas;
@@ -65,6 +66,12 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets) -> Vec<(Target, Rect)> 
     match app.screen {
         Screen::Home => home::draw(app, cv, assets, &mut f),
         Screen::Add => pair::draw(app, cv, &mut f),
+        // Une confirmation ouverte : seuls ses boutons se choisissent.
+        Screen::Settings if app.dialog.is_some() => {
+            let mut under = Frame { hits: Vec::new(), focus: Target::DialogOk };
+            settings::draw(app, cv, &mut under);
+            settings::dialog(app, cv, &mut f);
+        }
         Screen::Settings => settings::draw(app, cv, &mut f),
         Screen::Gamepads => pads::draw(app, cv, &mut f),
         Screen::Session => session::draw(app, cv, &mut f),

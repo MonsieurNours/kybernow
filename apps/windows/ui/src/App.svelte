@@ -7,7 +7,7 @@
   import Settings from './Settings.svelte'
   import Passage from './Passage.svelte'
   import AppSheet from './AppSheet.svelte'
-  import type { Action, AppInfo, Candidate, Computer, Found, Phase, Snapshot, Summary, ThisPc, Update } from './lib/api'
+  import type { Action, AppInfo, Battery, Candidate, Computer, Found, Phase, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
   import { invoke, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -17,12 +17,19 @@
   let selectedId = $state<string | null>(read('kybernow.selected'))
   let settingsId = $state<string | null>(null)
   let adding = $state<{ found: Found | null } | null>(null)
-  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean } | null>(null)
+  /** `restarting` : dernier recours de la connexion, la Station redémarre. */
+  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean } | null>(null)
   let error = $state<string | null>(null)
   let appSheet = $state(false)
   let update = $state<Update | null>(null)
   let progress = $state<number | null>(null)
   let notice = $state<string | null>(null)
+  /** « Sur batterie » des réglages de l'app : l'écran que l'accueil annonce en dépend. */
+  let battery = $state<Battery>('alleger')
+  /** « Réessayer » en cours (accueil). */
+  let retrying = $state<string | null>(null)
+  /** Réveil par le réseau envoyé : l'ordinateur est sondé toutes les 2 s, 2 min au plus. */
+  let waking = $state<{ id: string; since: number } | null>(null)
 
   function read(k: string) {
     try {
@@ -56,15 +63,22 @@
       listen<number>('update-progress', (p) => (progress = p)),
       listen<Phase>('session-status', (p) => {
         if (!passage || passage.id !== p.id) return
+        // « La Station redémarre… » jusqu'à l'étape suivante (voir StationRestarting).
+        passage.restarting = false
         // Connectée mais sans image encore : le passage attend la première,
         // il ne s'ouvre pas sur du noir.
         passage.phase = p.phase === 'streaming' && !passage.opening ? 'first_images' : p.phase
+      }),
+      listen<StationRestarting>('session-station-restarting', ({ id }) => {
+        if (passage && passage.id === id) passage.restarting = true
       }),
       listen<string>('session-shown', (id) => {
         if (passage && passage.id === id) passage.opening = true
       }),
       listen<{ id: string; summary: Summary }>('session-ended', ({ summary }) => {
-        error = summary.error ? t('app.session_stopped', { error: summary.error }) : null
+        // Avant la première image, c'est la connexion qui a échoué.
+        const failed = passage != null && !passage.opening
+        error = summary.error ? t(failed ? 'app.connect_failed' : 'app.session_stopped', { error: summary.error }) : null
         if (!passage) return
         passage.opening = false
         passage.closing = true
@@ -81,6 +95,7 @@
         .then(() =>
           invoke<AppInfo>('app_info').then((i) => {
             update = i.update
+            battery = i.battery ?? battery
             setLang(i.lang)
           }),
         )
@@ -124,13 +139,61 @@
 
   async function connect(id: string) {
     error = null
-    passage = { id, phase: 'preparing', opening: false, closing: false }
+    passage = { id, phase: 'preparing', opening: false, closing: false, restarting: false }
     try {
       await invoke('connect', { id })
     } catch (e) {
       passage = null
+      error = t('app.connect_failed', { error: String(e) })
+    }
+  }
+
+  /** Hors ligne : « Réessayer » interroge l'ordinateur tout de suite. */
+  async function retry(id: string) {
+    error = null
+    retrying = id
+    try {
+      await invoke('poll_now', { id })
+    } catch (e) {
+      error = String(e)
+    } finally {
+      retrying = null
+    }
+  }
+
+  /** Hors ligne, cartes réseau connues : le paquet de réveil, puis l'ordinateur sondé jusqu'à son retour. */
+  async function wake(id: string) {
+    error = null
+    try {
+      await invoke('wake', { id })
+      waking = { id, since: Date.now() }
+    } catch (e) {
       error = String(e)
     }
+  }
+
+  const wakingId = $derived(waking?.id ?? null)
+  $effect(() => {
+    const id = wakingId
+    if (!id) return
+    const timer = setInterval(() => {
+      const c = computers.find((x) => x.id === id)
+      if (!c || c.online || !waking || Date.now() - waking.since > 120_000) {
+        waking = null
+        return
+      }
+      invoke('poll_now', { id }).catch(() => {})
+    }, 2000)
+    return () => clearInterval(timer)
+  })
+  // En ligne : le réveil a abouti.
+  $effect(() => {
+    if (waking && computers.find((x) => x.id === waking!.id)?.online) waking = null
+  })
+
+  async function setBattery(b: Battery) {
+    battery = b
+    battery = await invoke<Battery>('set_battery', { battery: b })
   }
 
   async function setProfile(id: string, profile: Computer['settings']['profile']) {
@@ -167,18 +230,23 @@
 
 {#if settingsFor}
   {#key settingsFor.id}
-    <Settings computer={settingsFor} {thisPc} onremoved={() => (settingsId = null)} />
+    <Settings computer={settingsFor} {thisPc} {battery} onremoved={() => (settingsId = null)} />
   {/key}
 {:else}
   <Home
     {computers}
     {discovered}
     {thisPc}
+    {battery}
     {selected}
     busy={passage !== null}
+    retrying={retrying !== null && retrying === selected?.id}
+    {wakingId}
     {error}
     onselect={select}
     onconnect={connect}
+    onretry={retry}
+    onwake={wake}
     onsettings={(id) => (settingsId = id)}
     onprofile={setProfile}
     onadd={(found) => (adding = { found: found ?? null })}
@@ -197,7 +265,7 @@
 {/if}
 
 {#if appSheet}
-  <AppSheet {update} {progress} onclose={() => (appSheet = false)} oninstall={installUpdate} />
+  <AppSheet {update} {progress} {thisPc} {battery} onbattery={setBattery} onclose={() => (appSheet = false)} oninstall={installUpdate} />
 {/if}
 
 {#if passage && passageFor}
@@ -206,6 +274,7 @@
     phase={passage.phase}
     opening={passage.opening}
     closing={passage.closing}
+    restarting={passage.restarting}
     oncancel={() => invoke('session_command', { command: 'disconnect' })}
   />
 {/if}

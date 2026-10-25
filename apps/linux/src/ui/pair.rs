@@ -4,7 +4,7 @@
 //! adresse : l'adresse d'Admin (clavier, ou pavé à la manette), et les
 //! quatre premiers groupes de l'empreinte à comparer. Le même champ et un
 //! pavé hexadécimal servent à l'adresse MAC du réveil par le réseau
-//! (Réglages de l'ordinateur › Compte).
+//! (Réglages de l'ordinateur › Réseau).
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::icons::Icon;
@@ -116,7 +116,7 @@ fn code(app: &App, cv: &mut Canvas, f: &mut Frame, x0: f32, y0: f32, u: f32, foo
         (cx + 8.0 * u * a.cos(), cy + 8.0 * u * a.sin())
     }).collect();
     cv.polyline(&pts, 2.0, SPECTRE);
-    cv.text(x0 + 28.0 * u, y + 15.0 * u, Text::new(Font::Regular, 14.0 * u, FAINT), tr("Recherche en cours, annonce Bonjour d'Admin", "Searching, Admin's Bonjour announcement"));
+    cv.text(x0 + 28.0 * u, y + 15.0 * u, Text::new(Font::Regular, 14.0 * u, FAINT), tr("Recherche des Stations sur ce réseau…", "Looking for Stations on this network…"));
     y += 44.0 * u;
     widgets::ghost(cv, f, Target::AddByAddress, x0, y, 44.0 * u, 15.0 * u, Some(Icon::Ethernet), tr("Avec une adresse", "With an address"), MUTED);
 

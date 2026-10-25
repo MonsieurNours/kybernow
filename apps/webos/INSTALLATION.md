@@ -65,18 +65,18 @@ L'ordinateur n'apparaît pas ? Choisissez **Ajouter** › **Par adresse et port*
 ## 5. Réglages du téléviseur conseillés
 
 - **Mode d'image : Optimiseur de jeu.** Pendant la session, bouton Réglages de la Magic Remote › Image › Mode › Optimiseur de jeu. Aucune app ne peut le choisir à votre place ; sans lui, le téléviseur ajoute ses traitements d'image (et de la latence).
-- **Manettes** : associez-les au téléviseur en Bluetooth, dans les réglages du téléviseur (rubrique des appareils ou des manettes ; le chemin varie selon la version de webOS). DualSense, DualShock 4, Xbox et Switch Pro marchent. Dans l'app, **Réglages › Manettes et Magic Remote › Tester les manettes** montre les touches et essaie les vibrations.
-- **Son 5.1 avec un ampli** : dans l'app, Réglages de l'ordinateur › Son › **5.1 Dolby** ; sur le téléviseur, Son › Sortie audio numérique › **Pass-Through** (« Interconnexion »). Sans ce réglage, l'ampli reçoit de la stéréo, des apps du téléviseur aussi. « 5.1 PCM » ne marche qu'avec les rares amplis qui annoncent le PCM multicanal.
+- **Manettes** : associez-les au téléviseur en Bluetooth, dans les réglages du téléviseur (rubrique des appareils ou des manettes ; le chemin varie selon la version de webOS). DualSense, DualShock 4, Xbox et Switch Pro marchent. Dans l'app, **Réglages de l'app › Manettes › Tester les manettes** montre les touches et essaie les vibrations.
+- **Son 5.1 avec un ampli** : dans l'app, les réglages de l'ordinateur › Son › **5.1 Dolby** ; sur le téléviseur, Son › Sortie audio numérique › **Pass-Through** (« Interconnexion »). Sans ce réglage, l'ampli reçoit de la stéréo, des apps du téléviseur aussi. « 5.1 PCM » ne marche qu'avec les rares amplis qui annoncent le PCM multicanal.
 - **Réseau** : la prise Ethernet des téléviseurs LG s'arrête à 100 Mbit/s ; l'app y plafonne le débit à 80 Mbit/s. Le Wi-Fi (5 GHz, près du point d'accès) va souvent plus loin : l'app y monte jusqu'à 95 Mbit/s.
 
 ## Mettre à jour
 
-L'app cherche les nouvelles versions (au lancement puis toutes les 6 heures) et affiche « Version X disponible » sur l'accueil ; Réglages › Ce téléviseur › Mises à jour choisit les versions stables ou aussi les bêtas. Elle ne peut pas s'installer elle-même (mode développeur) : téléchargez `KyberNow-Link-webOS.ipk` sur la page de la version (github.com/MonsieurNours/kybernow/releases) et installez-le comme à l'étape 3, il remplace l'ancien. Les ordinateurs ajoutés sont gardés (dans `/media/developer/temp/kybernow`, hors du dossier de l'app).
+L'app cherche les nouvelles versions (au lancement puis toutes les 6 heures) et affiche « Version X disponible » sur l'accueil ; Réglages de l'app › Ce téléviseur › Versions proposées choisit les versions stables ou aussi les bêtas. Elle ne peut pas s'installer elle-même (mode développeur) : téléchargez `KyberNow-Link-webOS.ipk` sur la page de la version (github.com/MonsieurNours/kybernow/releases) et installez-le comme à l'étape 3, il remplace l'ancien. Les ordinateurs ajoutés sont gardés (dans `/media/developer/temp/kybernow`, hors du dossier de l'app).
 
 ## En cas de souci
 
 - **L'app ne s'installe pas** : le mode développeur a peut-être expiré (rouvrez Developer Mode, réactivez, prolongez), ou l'adresse IP du téléviseur a changé (`ares-setup-device` ou Dev Manager).
-- **Écran noir en session, mais du son** : notez-le avec le journal (ci-dessous) ; le décodeur du téléviseur a refusé le flux. Essayez Réglages › Image › Format : H.264, ou une définition plus basse.
+- **Écran noir en session, mais du son** : notez-le avec le journal (ci-dessous) ; le décodeur du téléviseur a refusé le flux. Dans les réglages de l'ordinateur, essayez Image › Format vidéo : H.264, ou une définition plus basse.
 - **Le journal** : l'app écrit `kybernow.log` dans `/media/developer/temp/kybernow/` sur le téléviseur (avec `kybernow.json`, les ordinateurs ajoutés). Pour le lire depuis l'ordinateur :
 
   ```sh

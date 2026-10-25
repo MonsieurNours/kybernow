@@ -1,12 +1,13 @@
 // La session à l'écran, sur iPhone (toujours en paysage) et sur iPad
-// (maquettes iOS, planches 3, 4, 5 et 8) : l'image de l'ordinateur, le
-// passage à l'arrivée, la languette et la barre, le bouton du clavier et sa
-// rangée de touches, le menu Touches, les mesures, les capsules d'état.
+// (maquettes iOS, planches 3, 4, 5 et 8) : l'écran de connexion et ses trois
+// étapes (docs/link-ui.md), le passage qui s'ouvre sur l'image, la languette
+// et la barre, le bouton du clavier et sa rangée de touches, le menu Touches,
+// les statistiques, les capsules des événements.
 //
-// Les capsules sont toujours en haut de l'image, jamais une alerte modale :
-// l'image reste visible et, sauf reconnexion, reçoit encore les touches. Le
-// néon ne s'allume que pendant une connexion en cours ; les autres états
-// utilisent le givre, l'ambre ou le corail, jamais le signal.
+// Dès la première image, l'image seule : ni capsule d'arrivée, ni chiffre,
+// ni barre qui s'ouvre d'elle-même ; les statistiques sont dans la barre, à
+// la demande. Les capsules des événements (reconnexion, mode changé, manette
+// branchée) sont toujours en haut de l'image, jamais une alerte modale.
 
 import GameController
 import KyberKit
@@ -16,7 +17,6 @@ import UIKit
 struct SessionView: View {
     @ObservedObject var session: SessionController
     @EnvironmentObject private var pads: GamepadBridge
-    @State private var hint = false
     @State private var keyboardRow: KeyboardRow?
 
     private var revealed: Bool { session.revealedAt != nil }
@@ -39,19 +39,12 @@ struct SessionView: View {
                 }
 
                 if !revealed, session.phase != .ending, !isFailed {
-                    EnteringCapsule(session: session, cancellable: true)
-                        .frame(maxWidth: 560)
+                    ConnectingCard(session: session)
+                        .frame(maxWidth: 420)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                         .transition(.opacity)
-                } else if revealed, session.entering {
-                    EnteringCapsule(session: session, cancellable: false)
-                        .frame(maxWidth: 560)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
-                        .transition(.opacity.combined(with: .offset(y: 18)))
                 }
 
                 if streaming || isReconnecting {
@@ -59,7 +52,7 @@ struct SessionView: View {
                 }
 
                 if case let .failed(message) = session.phase {
-                    SessionFailure(host: session.host, message: message) { session.dismissFailure() }
+                    SessionFailure(host: session.host, message: message, connecting: !revealed) { session.dismissFailure() }
                         .transition(.opacity)
                 }
             }
@@ -84,13 +77,6 @@ struct SessionView: View {
             keyboardRow = row
             session.streamView.keyboardAccessory = row.view
         }
-        .onChange(of: revealed) { _, on in
-            guard on else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4.6) {
-                withAnimation(Theme.easeOut) { hint = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 7) { withAnimation(.easeIn(duration: 0.3)) { hint = false } }
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             session.keyboardHidden()
         }
@@ -98,7 +84,7 @@ struct SessionView: View {
 
     private var isFailed: Bool { if case .failed = session.phase { return true } else { return false } }
 
-    /// Languette, barre, capsules, clavier, mesures.
+    /// Languette, barre, capsules, clavier, statistiques.
     @ViewBuilder
     private func chrome(size: CGSize) -> some View {
         ZStack {
@@ -113,7 +99,7 @@ struct SessionView: View {
                 if isReconnecting {
                     StateCapsule(icon: nil, neon: true, title: String(localized: "Connexion perdue · reconnexion à \(session.host.name)…"),
                                  detail: String(localized: "L'image reste figée ; la session reprend où elle était.")) {
-                        Button("Quitter") { session.end() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
+                        Button("Se déconnecter") { session.end() }.buttonStyle(GlassButton(height: 44, fontSize: 14))
                     }
                 } else if let note = session.fallbackNote {
                     StateCapsule(icon: "warning", tint: Theme.warn, title: note, detail: nil) { EmptyView() }
@@ -147,10 +133,6 @@ struct SessionView: View {
 
             if streaming, !session.barOpen {
                 HStack(alignment: .bottom) {
-                    if hint {
-                        Hint(direct: session.directTouch)
-                            .transition(.opacity.combined(with: .offset(y: 10)))
-                    }
                     Spacer()
                     Button {
                         session.toggleKeyboard()
@@ -167,7 +149,7 @@ struct SessionView: View {
                 .padding(.bottom, 28)
             }
 
-            // iPad : le panneau des mesures, en bas à droite.
+            // iPad : le panneau des statistiques, en bas à droite.
             if DeviceDisplay.isPad, session.statsSheet {
                 SessionStatsView(session: session)
                     .frame(width: min(600, size.width - 48))
@@ -177,7 +159,7 @@ struct SessionView: View {
                         Button { session.statsSheet = false } label: {
                             Icon("x", size: 16).foregroundStyle(Theme.muted).frame(width: 44, height: 44)
                         }
-                        .accessibilityLabel(Text("Fermer les mesures"))
+                        .accessibilityLabel(Text("Fermer les statistiques"))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .padding(24)
@@ -309,89 +291,92 @@ struct HalfShape: Shape {
     }
 }
 
-// MARK: - Arrivée
+// MARK: - Connexion
 
-/// Ce qui se prépare (écran, son, manette) et l'écart en direct ; Annuler
-/// tant que l'image n'est pas là.
-struct EnteringCapsule: View {
+/// L'écran de connexion : ses trois étapes (préparation de l'écran par la
+/// Station, connexion, premières images), rien d'autre, et « Annuler ».
+/// Pendant le dernier recours du cœur (la Station redémarre, puis la
+/// connexion repart), « La Station redémarre… » remplace les étapes.
+struct ConnectingCard: View {
     @ObservedObject var session: SessionController
-    let cancellable: Bool
-    @EnvironmentObject private var pads: GamepadBridge
+
+    /// Étape en cours : 0, 1 ou 2.
+    private var current: Int {
+        switch session.phase {
+        case .preparing: return 0
+        case .connecting: return 1
+        default: return 2
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
-                Mark(size: 34, level: .lit)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Vous entrez dans \(session.host.name)").font(Theme.sans(17, .semibold)).foregroundStyle(Theme.text)
-                    Text(status).font(Theme.sans(13)).foregroundStyle(Theme.muted)
+                Mark(size: 30, level: .lit)
+                if session.stationRestarting {
+                    HStack(spacing: 10) {
+                        HomeSpinner(size: 13).foregroundStyle(Theme.accentLight).frame(width: 16, height: 16)
+                        Text(StationText.restarting)
+                            .font(Theme.sans(15, .semibold))
+                            .foregroundStyle(Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
+                } else {
+                    VStack(alignment: .leading, spacing: 9) {
+                        step(0, String(localized: "Préparation de l'écran"))
+                        step(1, String(localized: "Connexion"))
+                        step(2, String(localized: "Premières images"))
+                    }
+                    .transition(.opacity)
                 }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
-                        .font(Theme.mono(22, .medium))
-                        .foregroundStyle(Theme.accentLight)
-                        .shadow(color: Theme.neonCore, radius: 1)
-                        .shadow(color: Theme.accent, radius: 8)
-                    Text("ÉCART").font(Theme.mono(9.5)).tracking(0.8).foregroundStyle(Theme.faint)
-                }
+                Spacer(minLength: 0)
             }
-            HStack(spacing: 12) {
-                tick(session.modeLabel)
-                tick(soundLine)
-                if let first = session.firstImageDelay { tick(String(localized: "Image en \(Format.seconds(first))")) }
-            }
-            .font(Theme.mono(10.5))
-            .foregroundStyle(Theme.muted)
-            if cancellable {
-                Button("Annuler") { session.end() }
-                    .buttonStyle(GlassButton(height: 48, fontSize: 16))
-                    .frame(maxWidth: .infinity)
-            }
+            Button("Annuler") { session.end() }
+                .buttonStyle(GlassButton(height: 48, fontSize: 16))
+                .frame(maxWidth: .infinity)
         }
         .padding(18)
         .glass(22, tint: 0.5)
+        .animation(Theme.easeOut, value: current)
+        .animation(Theme.easeOut, value: session.stationRestarting)
     }
 
-    private var status: String {
-        switch session.phase {
-        case .preparing: return String(localized: "La Station prépare l'écran et le son.")
-        case .connecting: return String(localized: "Connexion à l'ordinateur…")
-        case .starting: return String(localized: "Les premières images arrivent.")
-        default: return String(localized: "Barre : languette en haut, ou glisser depuis le bord haut.")
+    private func step(_ index: Int, _ title: String) -> some View {
+        let done = index < current
+        let now = index == current
+        return HStack(spacing: 10) {
+            ZStack {
+                if done {
+                    Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
+                } else if now {
+                    HomeSpinner(size: 13).foregroundStyle(Theme.accentLight)
+                } else {
+                    Circle().strokeBorder(Theme.ghost, lineWidth: 1.4).frame(width: 9, height: 9)
+                }
+            }
+            .frame(width: 16, height: 16)
+            Text(now ? title + "…" : title)
+                .font(Theme.sans(15, now ? .semibold : .regular))
+                .foregroundStyle(done || now ? Theme.text : Theme.faint)
         }
-    }
-
-    private var soundLine: String {
-        guard session.host.settings.audio != .off else { return String(localized: "Son sur l'ordinateur") }
-        let players = pads.pads.filter { !$0.waiting }
-        let sound = "\(session.route.channelsLabel) · \(session.route.name)"
-        return players.isEmpty ? sound : String(localized: "\(sound) · \(players.count) manette(s)")
-    }
-
-    private func tick(_ text: String) -> some View {
-        HStack(spacing: 6) {
-            Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
-            Text(text).lineLimit(1)
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(now ? .updatesFrequently : [])
     }
 }
 
 // MARK: - Languette et barre
 
-/// La languette : la latence en direct ; la toucher ouvre la barre.
+/// La languette : la toucher ouvre la barre (et ses statistiques). Aucun
+/// chiffre sur l'image tant qu'on ne les demande pas.
 private struct Tab: View {
     @ObservedObject var session: SessionController
 
     var body: some View {
         Button { session.setBar(true) } label: {
-            HStack(spacing: 8) {
-                Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
-                    .font(Theme.mono(12))
-                    .foregroundStyle(Theme.accentLight)
-                Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.muted)
-            }
-            .frame(width: 120, height: 32)
+            Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.muted)
+            .frame(width: 88, height: 26)
             .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(.ultraThinMaterial))
             .background(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14).fill(Theme.background.opacity(0.5)))
             .environment(\.colorScheme, .dark)
@@ -414,16 +399,18 @@ struct SessionBar: View {
                 }
                 Button { session.statsSheet = true } label: {
                     HStack(spacing: 8) {
-                        Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
-                            .font(Theme.mono(14, .medium)).foregroundStyle(Theme.accentLight)
-                            .frame(minWidth: 58, alignment: .trailing)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(session.stats?.latencyMs.map { Format.ms($0) } ?? "—")
+                                .font(Theme.mono(14, .medium)).foregroundStyle(Theme.accentLight)
+                            Text("Statistiques").font(Theme.sans(9.5)).foregroundStyle(Theme.text2).lineLimit(1)
+                        }
+                        .frame(minWidth: 58, alignment: .trailing)
                         Sparkline(values: session.latencyHistory).frame(width: 52, height: 20)
-                        Text(modeLine).font(Theme.mono(9.5)).foregroundStyle(Theme.muted).multilineTextAlignment(.leading)
                     }
                     .padding(.horizontal, 8)
                     .frame(height: 44)
                 }
-                .accessibilityLabel(Text("Mesures détaillées"))
+                .accessibilityLabel(Text("Statistiques"))
                 separator
                 Menu {
                     ForEach(Profile.allCases) { profile in
@@ -435,12 +422,12 @@ struct SessionBar: View {
                     item("sliders-horizontal", session.host.settings.profileLabel)
                 }
                 item("speaker-high", session.host.settings.audio == .off ? String(localized: "Ordinateur") : session.route.name)
-                Picker("", selection: Binding(get: { session.directTouch }, set: { session.setDirectTouch($0) })) {
+                Picker("Toucher", selection: Binding(get: { session.directTouch }, set: { session.setDirectTouch($0) })) {
                     Text("Pavé").tag(false)
                     Text("Direct").tag(true)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 128)
+                .frame(width: 168)
                 .accessibilityLabel(Text("Toucher"))
                 Menu {
                     ForEach(MouseChoice.allCases, id: \.self) { choice in
@@ -449,7 +436,7 @@ struct SessionBar: View {
                         }
                     }
                 } label: {
-                    item("cursor", String(localized: "Souris · \(session.host.settings.mouse.label)"))
+                    item("cursor", session.host.settings.mouse == .auto ? String(localized: "Souris · \(session.host.settings.mouse.label)") : session.host.settings.mouse.label)
                 }
                 if session.canPickScreen {
                     Menu {
@@ -476,7 +463,7 @@ struct SessionBar: View {
                         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.danger.opacity(0.14)))
                         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.danger.opacity(0.4)))
                 }
-                .accessibilityLabel(Text("Quitter"))
+                .accessibilityLabel(Text("Se déconnecter"))
             }
             .padding(.horizontal, 6)
         }
@@ -489,13 +476,6 @@ struct SessionBar: View {
                     .offset(y: 28)
             }
         }
-    }
-
-    private var modeLine: String {
-        let s = session.stats
-        let size = s.map { "\($0.width) × \($0.height)" } ?? session.modeLabel
-        let codec = session.host.settings.codec.rawValue.uppercased()
-        return "\(size)\n\(s.map { "\(Int($0.fps.rounded())) i/s" } ?? "") · \(codec)"
     }
 
     private var separator: some View {
@@ -601,24 +581,6 @@ struct StateCapsule<Actions: View>: View {
         .padding(.vertical, 10)
         .glass(16, tint: 0.55)
         .transition(.opacity.combined(with: .offset(y: -10)))
-    }
-}
-
-/// Rappel des gestes, au début de la session.
-private struct Hint: View {
-    let direct: Bool
-
-    var body: some View {
-        (Text(direct ? "Toucher direct. " : "Pavé tactile. ").font(Theme.sans(12.5, .semibold)).foregroundColor(Theme.text)
-            + Text(direct
-                ? "Le pointeur va là où vous touchez. Maintenez pour glisser, deux doigts pour le clic droit. La barre est sous la languette, en haut."
-                : "Glissez n'importe où pour déplacer le pointeur, touchez pour cliquer, deux doigts pour le clic droit, deux doigts qui glissent pour la molette. La barre est sous la languette.")
-            .font(Theme.sans(12.5)).foregroundColor(Theme.text2))
-            .lineSpacing(2)
-            .frame(maxWidth: 440, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .glass(12)
     }
 }
 
@@ -766,10 +728,19 @@ private struct KeyboardRowView: View {
 
 // MARK: - Échec
 
+/// « La connexion a échoué » (avant l'image) ou « La session s'est arrêtée »,
+/// puis la raison en une phrase.
 struct SessionFailure: View {
     let host: Host
     let message: String
+    /// Avant la première image.
+    var connecting = true
     let done: () -> Void
+
+    private var reason: String {
+        let text = message.prefix(1).uppercased() + message.dropFirst()
+        return text.hasSuffix(".") ? text : text + "."
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -777,12 +748,12 @@ struct SessionFailure: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 10) {
                     Icon("warning", size: 20).foregroundStyle(Theme.warn)
-                    Theme.eyebrow(String(localized: "La session s'est arrêtée"), color: Theme.warnText)
+                    Theme.eyebrow(connecting ? String(localized: "La connexion a échoué") : String(localized: "La session s'est arrêtée"), color: Theme.warnText)
                 }
                 Text(host.name).font(Theme.display(40, 680)).tracking(-40 * 0.04).foregroundStyle(Theme.text)
-                Text(message.prefix(1).uppercased() + message.dropFirst() + ".")
+                Text(reason)
                     .font(Theme.sans(16)).foregroundStyle(Theme.text2)
-                Button("Retour à l'accueil", action: done)
+                Button("Retour", action: done)
                     .buttonStyle(PrimaryButton())
                     .frame(maxWidth: 320)
                     .padding(.top, 8)
@@ -803,10 +774,5 @@ enum Format {
     static func ms(_ v: Double) -> String {
         let s = v >= 100 ? String(Int(v.rounded())) : String(format: "%.1f", v)
         return (french ? s.replacingOccurrences(of: ".", with: ",") : s) + " ms"
-    }
-
-    static func seconds(_ v: Double) -> String {
-        let s = String(format: "%.1f s", v)
-        return french ? s.replacingOccurrences(of: ".", with: ",") : s
     }
 }

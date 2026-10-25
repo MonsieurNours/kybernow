@@ -1,5 +1,6 @@
-// La session à l'écran : l'image de l'ordinateur, le passage à l'arrivée
-// (maquette « 4 · Le passage »), le menu (« 5 · En session ») et ses rappels.
+// La session à l'écran : l'image de l'ordinateur, le passage et les étapes
+// de la connexion (maquette « 4 · Le passage »), puis l'image seule ; le menu
+// (« 5 · En session ») et ses rappels.
 //
 // L'image vit dans un GCEventViewController : tant que le menu est fermé, la
 // manette et la télécommande ne parlent qu'au jeu (le bouton Retour ne fait
@@ -17,6 +18,7 @@ struct SessionView: View {
     private var streaming: Bool { session.phase == .streaming || isReconnecting }
     private var isReconnecting: Bool { if case .reconnecting = session.phase { return true } else { return false } }
     private var revealed: Bool { session.revealedAt != nil }
+    private var connecting: Bool { [.preparing, .connecting, .starting].contains(session.phase) }
 
     var body: some View {
         ZStack {
@@ -54,10 +56,11 @@ struct SessionView: View {
                     .allowsHitTesting(false)
             }
 
-            if revealed, session.entering {
-                EnteringCapsule(session: session)
+            // La connexion : ses trois étapes et « Annuler », rien d'autre.
+            if !revealed, connecting {
+                ConnectingPanel(session: session)
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, 110)
                     .transition(.opacity.combined(with: .offset(y: 18)))
             }
 
@@ -102,7 +105,7 @@ struct SessionView: View {
             }
 
             if case let .failed(message) = session.phase {
-                SessionFailure(host: session.host, message: message) { session.finish() }
+                SessionFailure(host: session.host, message: message, afterImage: revealed) { session.finish() }
                     .transition(.opacity)
             }
         }
@@ -189,8 +192,7 @@ struct SessionStage: UIViewControllerRepresentable {
 struct Passage: View {
     let host: Host
     let open: Bool
-    @EnvironmentObject private var app: AppModel
-    @EnvironmentObject private var imagery: HostImagery
+    @EnvironmentObject private var store: HostStore
     @State private var tube = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -236,20 +238,17 @@ struct Passage: View {
     }
 
     /// Comme sur l'accueil : la photographie de l'accueil s'ouvre.
-    private var caption: String {
-        if let p = imagery.pictures[host.id] {
-            return p.source == .lastSession
-                ? String(localized: "Dernière image · \(HomeView.when(p.date))")
-                : String(localized: "Aperçu · \(HomeView.when(p.date))")
-        }
-        return host.lastSession.map { String(localized: "Dernière session · \(HomeView.when($0))") } ?? String(localized: "Jamais ouvert sur cette Apple TV")
-    }
-
     private func half(_ corner: Alignment) -> some View {
         ZStack(alignment: .topLeading) {
             HostBackdrop(host: host)
             VStack(alignment: .leading, spacing: 22) {
-                Theme.eyebrow(caption).font(Theme.mono(18))
+                HStack(spacing: 12) {
+                    Circle().fill(Theme.ok).frame(width: 10, height: 10)
+                    Text(LinkText.status(true)).font(Theme.sans(21))
+                }
+                .padding(.leading, 16).padding(.trailing, 18)
+                .frame(height: 44)
+                .glass(22)
                 Text(host.name)
                     .font(Theme.display(140, 680))
                     .tracking(-140 * 0.045)
@@ -257,14 +256,14 @@ struct Passage: View {
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.text)
                     .padding(.vertical, -16)
-                HStack(spacing: 12) {
-                    Circle().fill(Theme.ok).frame(width: 10, height: 10)
-                    (app.isLocal(host) ? Text("En ligne · réseau local") : Text("En ligne · par VPN")).font(Theme.sans(21))
+                if let os = store.status[host.id]?.info?.os {
+                    Text(os).font(Theme.sans(24)).foregroundStyle(Theme.muted)
                 }
-                .padding(.leading, 16).padding(.trailing, 18)
-                .frame(height: 44)
-                .glass(22)
-                Text("Se connecter")
+                HStack(spacing: 14) {
+                    Icon("monitor", size: 28).foregroundStyle(Theme.accent)
+                    Text(HomeView.screenLine(host, info: store.status[host.id]?.info)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
+                }
+                Text(String(localized: "Se connecter"))
                     .font(Theme.sans(28, .semibold))
                     .padding(.horizontal, 36)
                     .frame(height: 80)
@@ -272,10 +271,10 @@ struct Passage: View {
                     .foregroundStyle(.white)
                     .neon(.lit)
                     .scaleEffect(1.06, anchor: .leading)
-                    .padding(.top, 80)
+                    .padding(.top, 26)
             }
             .frame(width: 1080, alignment: .leading)
-            .offset(x: 96, y: 250)
+            .offset(x: 96, y: 176)
         }
         .frame(width: 1920, height: 1080, alignment: .topLeading)
         .clipShape(HalfShape(corner: corner))
@@ -304,68 +303,84 @@ struct HalfShape: Shape {
     }
 }
 
-// MARK: - Arrivée : ce qui se passe, en une ligne
+// MARK: - Connexion : les trois étapes
 
-struct EnteringCapsule: View {
+/// « Préparation de l'écran », « Connexion », « Premières images » et
+/// « Annuler » (le bouton Retour annule aussi) ; « La Station redémarre… » à
+/// leur place pendant le dernier recours de la connexion.
+struct ConnectingPanel: View {
     @ObservedObject var session: SessionController
-    @EnvironmentObject private var pads: GamepadBridge
+    @FocusState private var cancelFocused: Bool
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Étape en cours : 0, 1 ou 2.
+    private var current: Int {
+        switch session.phase {
+        case .preparing: return 0
+        case .connecting: return 1
+        default: return 2
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 26) {
+        HStack(spacing: 34) {
             Mark(size: 48, level: .lit)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Vous entrez dans \(session.host.name)").font(Theme.sans(25, .semibold))
-                Text("Menu : bouton Retour de la télécommande, ou L1 + R1 + Start + Select.")
-                    .font(Theme.sans(19)).foregroundStyle(Theme.muted)
+            VStack(alignment: .leading, spacing: 14) {
+                if session.stationRestarting {
+                    // Dernier recours : la Station redémarre, puis les étapes reprennent.
+                    restartLine
+                } else {
+                    step(0, String(localized: "Préparation de l'écran"))
+                    step(1, String(localized: "Connexion"))
+                    step(2, String(localized: "Premières images"))
+                }
             }
+            .frame(minWidth: 420, alignment: .leading)
             Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1)
-            VStack(alignment: .leading, spacing: 7) {
-                tick(String(localized: "Écran \(session.modeLabel)"))
-                tick(soundLine)
-                if let first = firstImage { tick(String(localized: "Premières images en \(first)")) }
-            }
-            .font(Theme.mono(15))
-            .foregroundStyle(Theme.muted)
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(session.stats?.latencyMs.map { "\(HomeView.ms($0)) ms" } ?? "—")
-                    .font(Theme.mono(36, .medium))
-                    .foregroundStyle(Theme.accentLight)
-                    .shadow(color: Theme.neonCore, radius: 1)
-                    .shadow(color: Theme.accent, radius: 10)
-                    .shadow(color: Theme.accentFill, radius: 24)
-                Text("ÉCART").font(Theme.mono(13)).tracking(1).foregroundStyle(Theme.faint)
-            }
-            .frame(minWidth: 150, alignment: .trailing)
+            Button(String(localized: "Annuler")) { session.end() }
+                .buttonStyle(ChoiceButton(selected: false, height: 64, light: true))
+                .focused($cancelFocused)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.leading, 24).padding(.trailing, 30).padding(.vertical, 22)
-        .glass(24, tint: 0.5)
-    }
-
-    private var soundLine: String {
-        let audio = session.host.settings.audio == .off ? String(localized: "Son sur l'ordinateur") : String(localized: "Son \(session.route.channelsLabel)")
-        let players = pads.pads.filter { !$0.waiting }.map { String(localized: "J\($0.player)") }
-        switch players.count {
-        case 0: return audio
-        case 1: return String(localized: "\(audio) · \(players[0]) branché")
-        default:
-            let first = players.dropLast().joined(separator: ", ")
-            let last = players.last!
-            return String(localized: "\(audio) · \(first) et \(last) branchés")
+        .padding(.leading, 30).padding(.trailing, 34).padding(.vertical, 26)
+        .glass(26, tint: 0.55)
+        .onAppear {
+            cancelFocused = true
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true }
         }
+        .accessibilityElement(children: .contain)
     }
 
-    private var firstImage: String? {
-        session.firstImageDelay.map {
-            let s = String(format: "%.1f s", $0)
-            return LanguageChoice.effective == "fr" ? s.replacingOccurrences(of: ".", with: ",") : s
+    private var restartLine: some View {
+        HStack(spacing: 16) {
+            Circle().fill(Theme.warn).frame(width: 12, height: 12)
+                .shadow(color: Theme.warn, radius: 8)
+                .opacity(pulse ? 0.4 : 1)
+                .frame(width: 24, height: 24)
+            Text(StationText.restarting).font(Theme.sans(24, .semibold)).foregroundStyle(Theme.text)
         }
+        .frame(minHeight: 116)
     }
 
-    private func tick(_ text: String) -> some View {
-        HStack(spacing: 10) {
-            Icon("check", size: 16, bold: true).foregroundStyle(Theme.ok)
-            Text(text)
+    private func step(_ i: Int, _ title: String) -> some View {
+        HStack(spacing: 16) {
+            ZStack {
+                if i < current {
+                    Icon("check", size: 22, bold: true).foregroundStyle(Theme.ok)
+                } else if i == current {
+                    Circle().fill(Theme.accent).frame(width: 12, height: 12)
+                        .shadow(color: Theme.accentFill, radius: 8)
+                        .opacity(pulse ? 0.4 : 1)
+                } else {
+                    Circle().strokeBorder(Theme.ghost, lineWidth: 1.6).frame(width: 12, height: 12)
+                }
+            }
+            .frame(width: 24, height: 24)
+            Text(i == current ? title + "…" : title)
+                .font(Theme.sans(24, i == current ? .semibold : .regular))
+                .foregroundStyle(i <= current ? Theme.text : Theme.faint)
         }
     }
 }
@@ -390,6 +405,8 @@ struct MenuHint: View {
 struct SessionFailure: View {
     let host: Host
     let message: String
+    /// L'image était arrivée : la session s'est arrêtée en route.
+    var afterImage = false
     let done: () -> Void
 
     var body: some View {
@@ -398,7 +415,7 @@ struct SessionFailure: View {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 14) {
                     Icon("warning", size: 28).foregroundStyle(Theme.warn)
-                    Theme.eyebrow(String(localized: "La session s'est arrêtée"), color: Theme.warnText).font(Theme.mono(18))
+                    Theme.eyebrow(afterImage ? String(localized: "La session s'est arrêtée") : String(localized: "La connexion a échoué"), color: Theme.warnText).font(Theme.mono(18))
                 }
                 Text(host.name).font(Theme.display(110, 680)).tracking(-110 * 0.045).foregroundStyle(Theme.text)
                 Text(message.prefix(1).uppercased() + message.dropFirst() + ".")

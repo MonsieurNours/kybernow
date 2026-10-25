@@ -545,6 +545,22 @@
         }
       }
     },
+    "session impossible" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "session failed"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "session impossible"
+          }
+        }
+      }
+    },
     "session terminée" : {
       "localizations" : {
         "en" : {

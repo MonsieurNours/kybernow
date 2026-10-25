@@ -12,7 +12,7 @@ pub const INK_2: Rgba = Rgba::hex(0x0E141A);
 pub const INK_3: Rgba = Rgba::hex(0x141B23);
 /// Fond de l'accueil sous la signature.
 pub const INK_BG: Rgba = Rgba::hex(0x070A0E);
-/// Panneau translucide (dernière session, Prêt à jouer, menus).
+/// Panneau translucide (dernière session, menus).
 pub const PANEL: Rgba = Rgba(9, 13, 18, 214);
 pub const CARD: Rgba = Rgba(14, 20, 26, 218);
 /// Lignes.

@@ -35,7 +35,22 @@ use crate::ui::{self, canvas::Canvas};
 
 /// Ce qui revient à la boucle principale (fils de fond, rappels du cœur).
 pub enum Event {
-    HostInfo { id: String, online: bool, os: Option<String>, gpu: Option<String>, av1: bool },
+    HostInfo {
+        id: String,
+        online: bool,
+        os: Option<String>,
+        gpu: Option<String>,
+        av1: bool,
+        virtual_display: Option<bool>,
+        station: Option<crate::app::StationLive>,
+        /// Les cartes réseau de l'ordinateur (vide : Station 0.4.9, ou rien de neuf).
+        wake: Vec<crate::model::WakeCard>,
+        own_device: Option<bool>,
+    },
+    /// Le réveil est parti (au moins un paquet), ou pourquoi rien n'est parti.
+    Woken { id: String, result: Result<(), String> },
+    /// La réponse d'Admin à un redémarrage ou une mise à jour de la Station.
+    StationReply { host: String, kind: crate::app::StationKind, result: Result<Option<String>, crate::app::StationRefusal> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
@@ -161,7 +176,10 @@ struct Live {
     started: Instant,
     latencies: Vec<f64>,
     mbps: Vec<f64>,
+    /// Définition (« 1920 × 1080 »), fréquence et format de la session, pour la dernière session.
     mode: String,
+    hz: u32,
+    codec: &'static str,
     game_fullscreen: bool,
     /// Souris choisie pour la session (barre, raccourci) ; sinon le réglage.
     mouse: MouseMode,
@@ -349,6 +367,8 @@ pub fn run(args: &[String]) {
     let mut live: Option<Live> = None;
     let mut pairing: Vec<Arc<AtomicBool>> = Vec::new();
     let mut last_poll = Instant::now() - Duration::from_secs(60);
+    let mut last_station_poll = Instant::now();
+    let mut last_wake_poll = Instant::now();
     let mut last_net = Instant::now();
     // KyberNow Link OS : le son de l'allumage, ce qui se prépare, le nom CEC, l'état A/B.
     let mut chime: Option<u32> = None;
@@ -372,7 +392,9 @@ pub fn run(args: &[String]) {
         let streaming = live.is_some() && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }));
         // Animations : lancement, passage, capsules, ajout, écran des manettes.
         let animating = app.screen == Screen::Launch
-            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages | Phase::Ending) || ui::passage_opening(s))
+            || app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages | Phase::Ending))
+            || app.waking_host().is_some() && app.screen == Screen::Home
+            || app.station_op.as_ref().is_some_and(|o| o.busy()) && app.screen == Screen::Settings
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.screen == Screen::Gamepads
@@ -462,6 +484,22 @@ pub fn run(args: &[String]) {
             }
         }
 
+        // Un réveil : l'ordinateur sondé toutes les 2 s, 2 min au plus, jusqu'à ce qu'il réponde.
+        if let Some(id) = app.waking_host()
+            && last_wake_poll.elapsed() > Duration::from_secs(2)
+            && let Some(h) = app.store.host(id)
+        {
+            last_wake_poll = Instant::now();
+            jobs::poll(h.clone(), false, tx.clone());
+        }
+        // La Station redémarre ou se met à jour : sondée toutes les 2 s jusqu'à son retour.
+        if let Some(id) = app.station_waiting()
+            && last_station_poll.elapsed() > Duration::from_secs(2)
+            && let Some(h) = app.store.host(id)
+        {
+            last_station_poll = Instant::now();
+            jobs::poll(h.clone(), false, tx.clone());
+        }
         // Sondage d'Admin toutes les 8 s, hors session ; le réseau et la batterie toutes les 5 s.
         if live.is_none() && last_poll.elapsed() > Duration::from_secs(8) && matches!(app.screen, Screen::Home | Screen::Settings | Screen::Launch) {
             last_poll = Instant::now();
@@ -653,7 +691,8 @@ fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, dirty: &mut bool, pr
         }
         unsafe { sdl::SDL_SetRelativeMouseMode(wanted as c_int) };
         log::info!("souris : {}", if wanted { "jeu (relative)" } else { "bureau" });
-        if wanted && app.layout == Layout::Desktop {
+        // Pas à l'arrivée de l'image (rien par-dessus elle) : seulement quand le jeu change de mode ensuite.
+        if wanted && app.layout == Layout::Desktop && s.opened_at.is_some_and(|t| t.elapsed() > Duration::from_secs(3)) {
             s.notice = Some((tr("Souris des jeux · Échap longtemps ou Ctrl+Alt+Maj+M pour rendre la souris", "Game mouse · hold Esc or Ctrl+Alt+Shift+M to release the mouse").into(), Instant::now()));
         }
         *dirty = true;
@@ -1056,11 +1095,26 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, win: &mut Win, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>) {
     match e {
-        Event::HostInfo { id, online, os, gpu, av1 } => {
+        Event::HostInfo { id, online, os, gpu, av1, virtual_display, station, wake, own_device } => {
             let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
             entry.online = if online { Online::Online } else { Online::Offline };
+            if online {
+                entry.virtual_display = virtual_display;
+                entry.station = station;
+                entry.own_device = own_device;
+                // Le réveil a marché : l'ordinateur répond.
+                if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
+                    app.waking = None;
+                }
+            }
+            app.station_progress(&id);
             if online && let Some(h) = app.store.host_mut(&id) {
-                let changed = h.os != os || h.gpu != gpu || h.av1 != av1;
+                // Les cartes du réveil : les nouvelles, sauf une liste vide (Station 0.4.9).
+                let mut changed = h.os != os || h.gpu != gpu || h.av1 != av1;
+                if !wake.is_empty() && h.wake != wake {
+                    h.wake = wake;
+                    changed = true;
+                }
                 h.os = os.or(h.os.take());
                 h.gpu = gpu.or(h.gpu.take());
                 h.av1 = av1;
@@ -1112,7 +1166,9 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             let Some(s) = app.session.as_mut() else { return };
             s.phase = match st {
                 Status::Preparing => Phase::Preparing,
+                // La Station redémarre (dernier recours) : « Connexion » en attendant de le montrer.
                 Status::Connecting => Phase::Connecting,
+                Status::StationRestarting => Phase::StationRestarting,
                 Status::FirstImages => Phase::FirstImages,
                 Status::Streaming => {
                     if s.phase != Phase::Streaming {
@@ -1146,6 +1202,16 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         Event::Mode(m) => {
             if let Some(l) = live.as_mut() {
                 l.mode = format!("{} × {}", m.width, m.height);
+                l.hz = m.refresh;
+            }
+        }
+        Event::StationReply { host, kind, result } => app.station_reply(&host, kind, result),
+        Event::Woken { id, result } => {
+            if let Err(e) = result {
+                if app.waking.as_ref().is_some_and(|(w, _)| *w == id) {
+                    app.waking = None;
+                }
+                app.toast(e);
             }
         }
         Event::Second { latency_ms, fps, mbps, lost, codec, audio_ms } => {
@@ -1173,8 +1239,13 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             }
         }
         Event::Notice(n) => {
-            if let Some(s) = app.session.as_mut() {
+            // Rien par-dessus l'image à son arrivée : une capsule seulement après les 3 premières secondes.
+            if let Some(s) = app.session.as_mut()
+                && s.opened_at.is_some_and(|t| t.elapsed() > Duration::from_secs(3))
+            {
                 s.notice = Some((n, Instant::now()));
+            } else {
+                log::info!("session : {n}");
             }
         }
         Event::Pointer { position, hidden, shape } => {
@@ -1469,7 +1540,6 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             let light = h.settings.battery_light && app.machine.on_battery();
             let relative = h.settings.mouse == "game";
             let handle = session::start(&h, profile, codec, mode, &app.machine, light, relative, device, tx.clone());
-            let mbps = session::settings(&h, profile, codec, mode, &app.machine, light).bitrate(mode.0, mode.1, mode.2) / 1_000_000;
             let codec_label = match codec {
                 "h264" => "H.264",
                 "av1" => "AV1",
@@ -1494,7 +1564,6 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 started: Instant::now(),
                 ending_since: None,
                 opened_at: None,
-                summary: format!("{} · {} × {} · {} Hz · {codec_label} · {mbps} Mbit/s", ui::profile_label(profile), mode.0, mode.1, mode.2),
             });
             app.screen = Screen::Session;
             app.focus = Target::CancelConnect;
@@ -1515,6 +1584,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 latencies: Vec::new(),
                 mbps: Vec::new(),
                 mode: format!("{} × {}", mode.0, mode.1),
+                hz: mode.2,
+                codec: codec_label,
                 game_fullscreen: false,
                 mouse: match h.settings.mouse.as_str() {
                     "desktop" => MouseMode::Desktop,
@@ -1640,9 +1711,21 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
         }
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
+        Action::Poll => {
+            for h in &app.store.hosts {
+                jobs::poll(h.clone(), false, tx.clone());
+            }
+        }
+        Action::Station { host, kind, force } => {
+            if let Some(h) = app.store.host(&host).cloned() {
+                log::info!("station : {} demandé{}", if kind == crate::app::StationKind::Update { "mise à jour" } else { "redémarrage" }, if force { " (session coupée)" } else { "" });
+                jobs::station(h, kind, force, app.store.device_id.clone(), tx.clone());
+            }
+        }
         Action::Wake(id) => {
-            let ok = app.store.host(&id).and_then(|h| h.mac.clone()).is_some_and(|m| jobs::wake(&m));
-            app.toast(if ok { tr("Réveil envoyé : l'ordinateur démarre…", "Wake sent: the computer is starting…") } else { tr("Réveil impossible", "Could not wake") });
+            if let Some(h) = app.store.host(&id).cloned() {
+                jobs::wake(h, tx.clone());
+            }
         }
         Action::Rumble { pad, low, high, triggers } => pads.test_rumble(pad, low, high, triggers),
     }
@@ -1656,7 +1739,8 @@ fn open_url(url: &str) {
     }
 }
 
-/// Fin de session : la dernière session (latence médiane, durée) pour l'accueil.
+/// Fin de session : la dernière session (latence médiane et 95e centile, durée,
+/// définition, fréquence, format, débit) pour Réglages › Statistiques.
 fn finish(app: &mut App, win: &mut Win, l: Live) {
     // L'interface a pu oublier la session (fin sans erreur) : l'ordinateur vient de `Live`.
     let host = Some(l.host.clone());
@@ -1683,12 +1767,11 @@ fn finish(app: &mut App, win: &mut Win, l: Live) {
     let Some(id) = host else { return };
     // La dernière session : latence si l'ordinateur l'a mesurée, sinon durée et mode seuls.
     let mbps = if l.mbps.is_empty() { 0.0 } else { l.mbps.iter().sum::<f64>() / l.mbps.len() as f64 };
-    let codec = l.handle.shared.codec();
     let (median, p95) = if lat.is_empty() { (0.0, 0.0) } else { (lat[lat.len() / 2], lat[((lat.len() as f64 * 0.95) as usize).min(lat.len() - 1)]) };
     if seconds >= 3
         && let Some(h) = app.store.host_mut(&id)
     {
-        h.last = Some(LastSession { median, p95, seconds, mode: format!("{} · {codec}", l.mode), mbps, at: now_secs() });
+        h.last = Some(LastSession { median, p95, seconds, mode: l.mode.clone(), hz: l.hz, codec: l.codec.into(), mbps, at: now_secs() });
     }
     app.store.save();
     if app.store.app.keep_last_image

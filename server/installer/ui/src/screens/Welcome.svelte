@@ -28,8 +28,11 @@
   const digits = (v: string) => v.replace(/[^0-9]/g, '').slice(0, 5)
 
   function detail(id: string, text: string) {
-    // Le détail du contrôle des ports suit les valeurs modifiées à la main.
-    return id === 'ports' && app.checksDone ? text.replace(/stream \d+ · console \d+/, t('common.portsPair', { stream: app.ports.stream, console: app.ports.console })) : text
+    // Le détail du contrôle des ports finit par `common.portsPair` (« flux 47984 · Admin 47990 »,
+    // même texte côté Rust) : il suit les valeurs modifiées à la main.
+    if (id !== 'ports' || !app.checksDone) return text
+    const pattern = t('common.portsPair', { stream: '#', console: '#' }).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').split('#').join('\\d+')
+    return text.replace(new RegExp(pattern), t('common.portsPair', { stream: app.ports.stream, console: app.ports.console }))
   }
 </script>
 

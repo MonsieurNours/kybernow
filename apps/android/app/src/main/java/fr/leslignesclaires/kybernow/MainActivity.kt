@@ -13,9 +13,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.lifecycleScope
 import fr.leslignesclaires.kybernow.model.Host
-import fr.leslignesclaires.kybernow.model.WakeOnLan
 import fr.leslignesclaires.kybernow.session.SessionActivity
 import fr.leslignesclaires.kybernow.tv.TvChannel
 import fr.leslignesclaires.kybernow.ui.AppModel
@@ -29,7 +27,6 @@ import fr.leslignesclaires.kybernow.ui.home.HomeActions
 import fr.leslignesclaires.kybernow.ui.home.HomeScreen
 import fr.leslignesclaires.kybernow.ui.settings.AppSettingsScreen
 import fr.leslignesclaires.kybernow.ui.settings.HostSettingsScreen
-import kotlinx.coroutines.launch
 
 /** Les écrans hors session. */
 sealed class Route {
@@ -51,33 +48,33 @@ class MainActivity : AppCompatActivity() {
         val app = KyberNowApp.instance
         setContent {
             KnTheme(app.form) {
-                BackHandler(route != Route.Home) { route = Route.Home }
+                // Le test des manettes s'ouvre depuis les réglages de l'app : Retour y revient.
+                BackHandler(route != Route.Home) { route = if (route == Route.Gamepads) Route.AppSettings else Route.Home }
                 when (val r = route) {
                     Route.Home -> HomeScreen(
                         model,
                         HomeActions(
                             select = model::select,
                             setProfile = model::setProfile,
-                            remove = model::remove,
                             connect = ::connect,
+                            retry = { h -> model.retry(h.id) },
                             add = { route = Route.Add() },
                             addAnnounced = { a -> route = Route.Add(Target(a.address, a.port, a.name, a.fingerprint)) },
                             hostSettings = { h -> route = Route.HostSettings(h.id) },
                             appSettings = { route = Route.AppSettings },
-                            gamepads = { route = Route.Gamepads },
                             wake = ::wake,
                         ),
                     )
                     is Route.Add -> AddHostScreen(r.target, onDone = { h -> model.select(h.id); route = Route.Home }, onBack = { route = Route.Home })
-                    is Route.HostSettings -> HostSettingsScreen(r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
-                    Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home })
+                    is Route.HostSettings -> HostSettingsScreen(model, r.id, onBack = { route = Route.Home }, onRemoved = { route = Route.Home })
+                    Route.AppSettings -> AppSettingsScreen(onBack = { route = Route.Home }, onGamepads = { route = Route.Gamepads })
                     Route.Gamepads -> {
                         DisposableEffect(Unit) {
                             PadMonitor.active = true
                             app.gamepads.start()
                             onDispose { PadMonitor.active = false; app.gamepads.stop() }
                         }
-                        GamepadsScreen(onBack = { route = Route.Home })
+                        GamepadsScreen(onBack = { route = Route.AppSettings })
                     }
                 }
             }
@@ -120,10 +117,7 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(this, SessionActivity::class.java).putExtra(SessionActivity.EXTRA_HOST, h.id))
     }
 
-    private fun wake(h: Host) {
-        val mac = h.mac ?: return
-        lifecycleScope.launch { WakeOnLan.send(mac, h.address) }
-    }
+    private fun wake(h: Host) = model.wake(h.id)
 
     // L'écran de test des manettes lit tout ce qu'elles envoient.
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {

@@ -1,5 +1,6 @@
-// Réglages de l'app (KyberNow Link › Réglages…, ⌘,) : ce qui vaut pour tous les
-// ordinateurs. Les réglages de connexion, eux, vont par ordinateur.
+// Réglages de l'app (KyberNow Link › Réglages…, ⌘, ; « Réglages de l'app » en
+// haut de l'accueil) : ce qui vaut pour tous les ordinateurs, et ce que ce Mac
+// sait faire. Les réglages de chaque ordinateur, eux, vont par ordinateur.
 
 import KyberKit
 import SwiftUI
@@ -18,9 +19,10 @@ struct AppSettingsView: View {
             iCloudCard
             updatesCard
             languageCard
+            macCard
         }
         .padding(20)
-        .frame(width: 480)
+        .frame(width: 500)
         .background(Theme.background)
         .preferredColorScheme(.dark)
     }
@@ -55,6 +57,37 @@ struct AppSettingsView: View {
         }
     }
 
+    /// Ce que KyberNow Link a mesuré de ce Mac : les profils s'y adaptent.
+    private var macCard: some View {
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let native = DisplayInfo.nativePixels(screen)
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+        return SettingsCard(icon: "cpu", title: String(localized: "Ce Mac")) {
+            VStack(alignment: .leading, spacing: 8) {
+                fact(String(localized: "Écran"), "\(screen.localizedName) · \(LinkFormat.dims(native.width, native.height)) · \(DisplayInfo.refreshLabel(screen))", mono: false)
+                if let looks = DisplayInfo.scaledLooksLike(screen) {
+                    fact(String(localized: "Affichage de macOS"), String(localized: "agrandi, comme \(looks)"), mono: false)
+                }
+                fact(String(localized: "Décodage matériel"), DecoderCapabilities.current.summary, mono: false)
+                fact(String(localized: "Version"), "KyberNow Link \(version)", mono: false)
+            }
+            Text(DisplayInfo.variableRefresh(screen)
+                 ? "L'écran se cale sur chaque image : latence minimale sans déchirure."
+                 : "Les profils demandent l'image à la fréquence de cet écran.")
+                .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            GamepadStatus()
+        }
+    }
+
+    private func fact(_ label: String, _ value: String, mono: Bool = true) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).font(Theme.sans(13)).foregroundStyle(Theme.muted).fixedSize()
+            Spacer(minLength: 12)
+            Text(verbatim: value).font(mono ? Theme.mono(12) : Theme.sans(13)).foregroundStyle(Theme.text)
+                .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var iCloudCard: some View {
         SettingsCard(icon: "cloud", title: "iCloud") {
             HStack(alignment: .top, spacing: 16) {
@@ -66,6 +99,8 @@ struct AppSettingsView: View {
                 }
                 Spacer(minLength: 0)
                 Switch(isOn: $cloud.enabled, label: String(localized: "Synchroniser avec iCloud"))
+                    // Ordinateurs de démonstration : rien ne part vers iCloud.
+                    .disabled(AppModel.demo)
             }
             if let status {
                 Text(status.text)

@@ -48,6 +48,9 @@ struct RootView: View {
             case let .settings(id):
                 SettingsView(hostID: id)
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))
+            case .appSettings:
+                AppSettingsView()
+                    .transition(.opacity.combined(with: .scale(scale: 1.02)))
             case .gamepads:
                 GamepadsView()
                     .transition(.opacity.combined(with: .scale(scale: 1.02)))

@@ -1,8 +1,10 @@
-//! La session, d'après les maquettes : le passage (l'accueil coupé le long de
-//! la couture à 45°, le néon, la capsule des étapes) ; puis par-dessus
-//! l'image, la barre du bureau (en haut, à l'approche du pointeur), le menu
-//! à la manette (santé du flux, tuiles, légende), les raccourcis, les mesures,
-//! les capsules ; la fin sur erreur.
+//! La session (docs/link-ui.md, « Connexion ») : la connexion montre ses
+//! trois étapes (le fond de l'ordinateur, le néon dans la couture à 45°, la
+//! capsule des étapes, Annuler), puis l'image seule dès la première image.
+//! Par-dessus l'image, à la demande : la barre du bureau (en haut, à
+//! l'approche du pointeur), le menu à la manette (santé du flux, tuiles,
+//! légende), les raccourcis, les statistiques ; les capsules de ce qui change
+//! (manette branchée, reconnexion) ; la fin sur erreur.
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text};
 use super::home;
@@ -20,14 +22,11 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
         return;
     };
     match &s.phase {
-        Phase::Preparing | Phase::Connecting | Phase::FirstImages => passage(app, cv, f, s),
+        Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => passage(app, cv, f, s),
         Phase::Ended { error } => ended(app, cv, f, s, error.as_deref()),
         Phase::Ending => ending(app, cv, s),
         _ => {
             cv.clear_transparent();
-            if super::passage_opening(s) {
-                opening(app, cv, s);
-            }
             if s.keys {
                 keys(app, cv, f);
             } else if s.menu {
@@ -53,8 +52,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
 
 // MARK: - Passage
 
-/// Durées du passage, celles de l'app Mac (apps/macos/KyberNow/Passage.swift).
-pub const OPEN: f32 = 1.1;
+/// Durée de la fermeture, celle de l'app Mac (apps/macos/KyberNow/Passage.swift).
 const CLOSE: f32 = 0.6;
 
 fn ease(p: f32) -> f32 {
@@ -128,107 +126,79 @@ fn ignite(t: f32, reduced: bool) -> (f32, f32) {
     (ease(t / 0.45), alpha)
 }
 
-/// Préparation : l'accueil joint, le tube s'allume dans la couture, la capsule des étapes.
+/// La connexion : le fond de l'ordinateur (son image ou sa signature),
+/// assombri ; le tube s'allume dans la couture ; la capsule des étapes.
 fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
-    let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
-    home::draw_body(app, cv, &mut under, true);
+    home::backdrop(app, cv, app.store.host(&s.host));
     let t = s.started.elapsed().as_secs_f32();
-    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (90.0 * ease(t / 0.4)) as u8));
+    cv.rect(0.0, 0.0, w, h, Rgba(5, 7, 10, (110.0 + 60.0 * ease(t / 0.4)) as u8));
     band(cv, u, 0.75 * ease(t / 0.6));
     let (scale, alpha) = ignite(t, app.reduce_motion);
     tube(cv, u, scale, alpha);
     capsule_steps(app, cv, f, s, t);
 }
 
-/// Première image : les moitiés de l'accueil s'écartent le long de la
-/// couture en s'effaçant, l'image de l'ordinateur apparaît derrière ; le néon s'éteint.
-fn opening(app: &App, cv: &mut Canvas, s: &SessionUi) {
-    let Some(at) = s.opened_at else { return };
-    let u = unit(app.layout);
-    let t = at.elapsed().as_secs_f32();
-    let dur = if app.reduce_motion { 0.25 } else { OPEN };
-    let p = ease(t / dur);
-    let (w, h) = (cv.w, cv.h);
-    let mut under = Frame { hits: Vec::new(), focus: Target::Back, show_focus: false, pointer: None };
-    home::draw_body(app, cv, &mut under, true);
-    let home = cv.pix.clone();
-    cv.clear_transparent();
-    let d = if app.reduce_motion { 0.0 } else { w.max(h) * 0.18 * p };
-    let (a, b, _) = halves(w, h);
-    cv.draw_masked(&home, &a, -d, -d, 1.0 - p);
-    cv.draw_masked(&home, &b, d, d, 1.0 - p);
-    let since_start = s.started.elapsed().as_secs_f32();
-    let (_, breathe) = ignite(since_start, app.reduce_motion);
-    let fade = |delay: f32, len: f32| 1.0 - ((t - delay) / len).clamp(0.0, 1.0);
-    band(cv, u, 0.75 * fade(0.2, 0.7));
-    tube(cv, u, 1.0, breathe * fade(0.45, 0.6));
-}
-
-/// La capsule « Vous entrez dans… », ses étapes et Annuler.
+/// La capsule : l'ordinateur, les trois étapes, Annuler.
 fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f32) {
     let u = unit(app.layout);
     let (w, h) = (cv.w, cv.h);
-    // La capsule.
-    let cw = 560.0 * u;
-    let ch = 300.0 * u;
+    let cw = 520.0 * u;
+    let ch = 236.0 * u;
     let (x, y) = ((w - cw) / 2.0, (h - ch) / 2.0);
     cv.rrect(x, y, cw, ch, 16.0 * u, Rgba(9, 13, 18, 236));
     cv.rrect_stroke(x, y, cw, ch, 16.0 * u, 1.0, LINE_2);
     let ix = x + 32.0 * u;
-    let mut yy = y + 28.0 * u + 12.0 * u;
-    eyebrow(cv, ix, yy, 12.0 * u, SPECTRE, tr("Vous entrez dans", "You are entering"));
-    yy += 50.0 * u;
-    cv.text_shrink(ix - 1.0, yy, Text::new(Font::Display, 40.0 * u, FROST).tracking(-0.8 * u), &s.name, cw - 64.0 * u);
-    yy += 28.0 * u;
-    cv.text_fit(ix, yy, Text::new(Font::Mono, 13.0 * u, MUTED), &s.summary, cw - 64.0 * u);
-    yy += 22.0 * u;
-    let steps: [(&str, bool); 4] = [
-        (tr("Écran virtuel créé à la taille de cet écran", "Virtual display created at this screen's size"), true),
-        (tr("Connexion à Kyber, certificat vérifié", "Connected to Kyber, certificate checked"), true),
-        (tr("Premières images…", "First frames…"), true),
-        (tr("Son sur cet appareil, manettes annoncées", "Sound on this device, controllers announced"), true),
+    let mut yy = y + 32.0 * u + 30.0 * u;
+    cv.text_shrink(ix - 1.0, yy, Text::new(Font::Display, 36.0 * u, FROST).tracking(-0.7 * u), &s.name, cw - 64.0 * u);
+    yy += 26.0 * u;
+    // Le dernier recours : la Station redémarre à la place de l'étape « Connexion », puis les étapes reprennent.
+    let restarting = s.phase == Phase::StationRestarting;
+    let steps = [
+        tr("Préparation de l'écran", "Preparing the display"),
+        if restarting { tr("La Station redémarre", "The Station is restarting") } else { tr("Connexion", "Connecting") },
+        tr("Premières images", "First frames"),
     ];
     let current = match s.phase {
         Phase::Preparing => 0,
-        Phase::Connecting => 1,
+        Phase::Connecting | Phase::StationRestarting => 1,
         _ => 2,
     };
-    for (i, (label, _)) in steps.iter().enumerate() {
+    for (i, label) in steps.iter().enumerate() {
         let sy = yy + 10.0 * u;
-        let (c, color) = (ix + 9.0 * u, if i < current { FROST } else if i == current { FROST } else { GHOST });
+        let c = ix + 9.0 * u;
         if i < current {
             cv.circle(c, sy, 9.0 * u, OK);
             cv.icon(&Icon::Check, c - 6.0 * u, sy - 6.0 * u, 12.0 * u, 2.6, INK);
         } else if i == current {
-            let a0 = t * 6.0;
-            let pts: Vec<(f32, f32)> = (0..=14).map(|k| {
-                let a = a0 + k as f32 * 0.32;
-                (c + 8.0 * u * a.cos(), sy + 8.0 * u * a.sin())
-            }).collect();
+            let a0 = if app.reduce_motion { 0.0 } else { t * 6.0 };
+            let pts: Vec<(f32, f32)> = (0..=14)
+                .map(|k| {
+                    let a = a0 + k as f32 * 0.32;
+                    (c + 8.0 * u * a.cos(), sy + 8.0 * u * a.sin())
+                })
+                .collect();
             cv.polyline(&pts, 2.0 * u, SPECTRE);
         } else {
-            cv.circle(c, sy, 8.0 * u, Rgba(0, 0, 0, 0));
             cv.rrect_stroke(c - 8.0 * u, sy - 8.0 * u, 16.0 * u, 16.0 * u, 8.0 * u, 2.0, LINE_2);
         }
-        cv.text_fit(ix + 28.0 * u, sy + 5.0 * u, Text::new(Font::Regular, 15.0 * u, color), label, cw - 90.0 * u);
-        yy += 26.0 * u;
+        let color = if i <= current { FROST } else { GHOST };
+        let label = if i == current { format!("{label}…") } else { label.to_string() };
+        cv.text_fit(ix + 28.0 * u, sy + 5.0 * u, Text::new(Font::Regular, 16.0 * u, color), &label, cw - 90.0 * u);
+        yy += 30.0 * u;
     }
     let by = y + ch - 30.0 * u;
-    cv.text(ix, by, Text::new(Font::Mono, 12.0 * u, FAINT), &format!("{} s", decimal(t as f64, 1)));
+    let label = tr("Annuler", "Cancel");
     if app.layout.console() {
-        let label = tr("Annuler", "Cancel");
         let lw = widgets::legend_width(cv, 26.0 * u, &["B"], label);
         legend(cv, x + cw - 32.0 * u - lw, by - 5.0 * u, 26.0 * u, &["B"], label);
         f.state(Target::CancelConnect, Rect::new(x + cw - 32.0 * u - lw, by - 20.0 * u, lw, 30.0 * u));
     } else {
-        let label = tr("Annuler", "Cancel");
         let bw = cv.text_width(Text::new(Font::Regular, 13.0, MUTED), label) + 26.0;
         widgets::ghost(cv, f, Target::CancelConnect, x + cw - 32.0 - bw, by - 24.0, 36.0, 13.0, None, label, MUTED);
     }
 }
-
 
 // MARK: - Déconnexion
 
@@ -290,7 +260,9 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     cv.rrect(x, y, cw, ch, 16.0 * u, Rgba(9, 13, 18, 240));
     cv.rrect_stroke(x, y, cw, ch, 16.0 * u, 1.0, BAD_LINE);
     let ix = x + 32.0 * u;
-    eyebrow(cv, ix, y + 40.0 * u, 12.0 * u, BAD_TEXT, tr("Session terminée", "Session ended"));
+    // Sans première image, c'est la connexion qui a échoué.
+    let title = if s.opened_at.is_none() { tr("La connexion a échoué", "The connection failed") } else { tr("Session terminée", "Session ended") };
+    eyebrow(cv, ix, y + 40.0 * u, 12.0 * u, BAD_TEXT, title);
     cv.text_shrink(ix - 1.0, y + 86.0 * u, Text::new(Font::Display, 34.0 * u, FROST).tracking(-0.6 * u), &s.name, cw - 64.0 * u);
     cv.paragraph(ix, y + 122.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), error.unwrap_or(""), cw - 64.0 * u, 22.0 * u);
     widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, tr("Retour à l'accueil", "Back to home"), false);
@@ -304,14 +276,14 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     // Largeur selon le contenu : mesurée d'abord.
     let st = s.stats.clone().unwrap_or_default();
     let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
-    let info = if st.fps > 0.0 { format!("{} · {:.0} i/s · {}", st.mode, st.fps, st.decoder) } else { st.mode.clone() };
+    let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", st.mode, st.fps, tr("i/s", "fps"), st.decoder) } else { st.mode.clone() };
     let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
     let mono12 = Text::new(Font::Mono, 12.0, MUTED);
     let lat_w = cv.text_width(mono14, &lat);
     let info_w = cv.text_width(mono12, &info);
     let profile = home::profile_label(s.profile);
     let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
-    let quit = tr("Quitter", "Quit");
+    let quit = tr("Se déconnecter", "Disconnect");
     let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
     let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * 3.0 + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
     let x0 = (w - total) / 2.0;
@@ -386,16 +358,9 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         Some(BarMenu::Profile) => {
             let items: Vec<(Target, String, String, bool)> = Profile::ALL
                 .iter()
-                .map(|p| {
-                    let hint = match p {
-                        Profile::Jeu => tr("latence la plus basse", "lowest latency"),
-                        Profile::Bureau => tr("texte net", "sharp text"),
-                        Profile::Max => tr("la meilleure image", "best picture"),
-                    };
-                    (Target::BarPick(*p), home::profile_label(*p).to_string(), hint.to_string(), *p == s.profile)
-                })
+                .map(|p| (Target::BarPick(*p), home::profile_label(*p).to_string(), crate::app::profile_phrase(Some(*p)).to_string(), *p == s.profile))
                 .collect();
-            dropdown(cv, f, profile_x, h + 6.0, 260.0, &items);
+            dropdown(cv, f, profile_x, h + 6.0, 420.0, &items);
         }
         Some(BarMenu::Keys) => {
             let items: Vec<(Target, String, String, bool)> = SHORTCUTS.iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), tr(k.0, k.1).to_string(), String::new(), false)).collect();
@@ -442,7 +407,7 @@ fn capsule(app: &App, cv: &mut Canvas, msg: &str, busy: bool) {
     cv.text(x + 32.0 * u, y + h / 2.0 + 5.0 * u, style, msg);
 }
 
-// MARK: - Mesures (par-dessus l'image)
+// MARK: - Statistiques (par-dessus l'image, à la demande)
 
 fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     let u = unit(app.layout);
@@ -467,7 +432,7 @@ fn stats(app: &App, cv: &mut Canvas, s: &SessionUi) {
     }
     yy += 58.0 * u;
     let mono = Text::new(Font::Mono, 11.5 * u, MUTED);
-    cv.text_fit(ix, yy, mono, &format!("{} · {:.0} i/s · {:.0} Mbit/s", st.mode, st.fps, st.mbps), w - 32.0 * u);
+    cv.text_fit(ix, yy, mono, &format!("{} · {:.0} {} · {:.0} Mbit/s", st.mode, st.fps, tr("i/s", "fps"), st.mbps), w - 32.0 * u);
     yy += 19.0 * u;
     let audio = st.audio_ms.map(|a| format!(" · {} {} ms", tr("son", "sound"), decimal(a, 0))).unwrap_or_default();
     cv.text_fit(ix, yy, mono, &format!("{}{audio}", st.decoder), w - 32.0 * u);
@@ -495,7 +460,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let lost_color = if st.lost == 0 { OK } else { WARN };
     let cells: Vec<(String, &str, Rgba)> = vec![
         (lat, tr("Latence", "Latency"), SPECTRE),
-        (format!("{:.0} i/s", st.fps), tr("Images", "Frames"), FROST),
+        (format!("{:.0} {}", st.fps, tr("i/s", "fps")), tr("Images", "Frames"), FROST),
         (format!("{:.0} Mbit/s", st.mbps), tr("Débit", "Bitrate"), FROST),
         (if st.decoder.is_empty() { "—".into() } else { st.decoder.clone() }, tr("Décodeur", "Decoder"), FROST),
         (home::profile_label(s.profile).into(), tr("Profil", "Profile"), FROST),
@@ -533,15 +498,15 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         (MenuItem::Profile(others[1]), home::profile_label(others[1]).into(), tr("Changer de profil", "Change profile").into(), false, false),
         (MenuItem::Sound, tr("Son", "Sound").into(), audio, s.muted, false),
         (MenuItem::PadMouse, tr("Manette en souris", "Controller as mouse").into(), format!("{} · {}", on_off(s.pad_mouse), tr("stick gauche", "left stick")), s.pad_mouse, false),
-        (MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam, Unicode", "Steam keyboard, Unicode").into(), false, false),
-        (MenuItem::Keys, tr("Touches", "Keys").into(), "Ctrl+Alt+Suppr, Alt+Tab, ⊞…".into(), false, false),
-        (MenuItem::Stats, tr("Mesures", "Stats").into(), tr("Courbe, décodeur, pertes", "Graph, decoder, losses").into(), s.show_stats, false),
+        (MenuItem::Keyboard, row2_keyboard.into(), tr("Clavier de Steam", "Steam keyboard").into(), false, false),
+        (MenuItem::Keys, tr("Touches", "Keys").into(), tr("Ctrl+Alt+Suppr, Alt+Tab", "Ctrl+Alt+Del, Alt+Tab").into(), false, false),
+        (MenuItem::Stats, tr("Statistiques", "Statistics").into(), tr("Latence, débit", "Latency, bitrate").into(), s.show_stats, false),
         if tv || app.machine.battery.is_none() {
             (MenuItem::Gamepads, tr("Manettes", "Controllers").into(), format!("{} · {}", app.pads.len(), tr("vibrations", "rumble")), false, false)
         } else {
-            (MenuItem::Light, tr("Alléger", "Lighter").into(), tr("Batterie : 60 i/s, débit réduit", "Battery: 60 fps, lower bitrate").into(), s.light, false)
+            (MenuItem::Light, tr("Alléger", "Lighter").into(), tr("60 i/s, débit réduit", "60 fps, lower bitrate").into(), s.light, false)
         },
-        (MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("L'ordinateur remet son écran", "The computer restores its screen").into(), false, true),
+        (MenuItem::Disconnect, tr("Se déconnecter", "Disconnect").into(), tr("Fin de la session", "Ends the session").into(), false, true),
     ];
     let ty = head + 36.0 * u;
     for (i, (item, title, sub, on, danger)) in tiles.iter().enumerate() {
@@ -561,7 +526,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         line.push_str(" · VRR");
     }
     if let Some(p) = app.pads.first() {
-        line.push_str(&format!(" · {} : {}, {}1", tr("manette", "controller"), p.name, tr("joueur ", "player ")));
+        line.push_str(&format!(" · {} {}, {}1", tr("manette :", "controller:"), p.name, tr("joueur ", "player ")));
     }
     cv.text_fit(x0 + 16.0 * u, sy, Text::new(Font::Mono, 12.0 * u, FAINT), &line, w * 0.6);
     cv.text(w - x0, sy, Text::new(Font::Mono, 12.0 * u, FAINT).align(Align::Right), tr("Pendant ce menu, l'ordinateur relâche tout", "While this menu is open, the computer releases everything"));

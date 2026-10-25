@@ -36,6 +36,8 @@ Options :
   --no-hw                   décodage par le processeur
   --no-audio                son laissé sur l'ordinateur
   --physical                écrans de l'ordinateur tels quels, sans écran virtuel
+  --no-station-restart      pas de redémarrage de la Station en dernier recours
+                            quand l'image ne vient pas
   --probe                   affiche ce que la carte graphique décode, puis quitte
 
 Raccourcis : Ctrl+Alt+Maj+D se déconnecter, +F plein écran, +M souris des jeux.
@@ -57,6 +59,8 @@ struct Args {
     hardware: bool,
     audio: bool,
     physical: bool,
+    /// Dernier recours de la connexion : redémarrer la Station si l'image ne vient pas.
+    station_restart: bool,
     probe: bool,
     probe_json: bool,
     forget_all: bool,
@@ -82,6 +86,7 @@ fn parse_args() -> Result<Args, String> {
         hardware: true,
         audio: true,
         physical: false,
+        station_restart: true,
         probe: false,
         probe_json: false,
         forget_all: false,
@@ -122,6 +127,7 @@ fn parse_args() -> Result<Args, String> {
             "--no-hw" => a.hardware = false,
             "--no-audio" => a.audio = false,
             "--physical" => a.physical = true,
+            "--no-station-restart" => a.station_restart = false,
             "--probe" => a.probe = true,
             // Processus de sonde lancé par l'app (pc.rs).
             "--probe-json" => a.probe_json = true,
@@ -293,7 +299,7 @@ pub fn main() -> i32 {
         auto_reconnect: true,
         gamepad_xbox360: true,
         clipboard: true,
-        recovery: Default::default(),
+        recovery: kybernow_core::session::Recovery { restart_station: args.station_restart, ..Default::default() },
     };
     let (tx, rx) = mpsc::channel();
     let _host = SessionHost::start(
@@ -305,6 +311,7 @@ pub fn main() -> i32 {
             fullscreen: !args.window,
             mouse: None,
             window_size: system::initial_window_size(mode),
+            title_stats: true,
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),
     );

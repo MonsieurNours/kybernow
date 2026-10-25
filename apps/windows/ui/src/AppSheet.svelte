@@ -1,14 +1,46 @@
-<!-- Réglages de l'app : version, langue, canal des mises à jour, recherche et installation. -->
+<!--
+  Réglages de l'app : version, langue, canal des mises à jour, recherche et
+  installation ; ce PC (ce que sa carte graphique décode, vérifié au
+  lancement, son écran, son son) et « Sur batterie », qui vaut pour toutes
+  les sessions.
+-->
 <script lang="ts">
   import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
-  import type { AppInfo, Update } from './lib/api'
+  import type { AppInfo, Battery, ThisPc, Update } from './lib/api'
   import { invoke } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
-  let { update, progress, onclose, oninstall }: { update: Update | null; progress: number | null; onclose: () => void; oninstall: () => void } = $props()
+  let {
+    update,
+    progress,
+    thisPc,
+    battery,
+    onbattery,
+    onclose,
+    oninstall,
+  }: {
+    update: Update | null
+    progress: number | null
+    thisPc: ThisPc | null
+    battery: Battery
+    onbattery: (b: Battery) => void
+    onclose: () => void
+    oninstall: () => void
+  } = $props()
+
+  const decodes = $derived(
+    thisPc
+      ? [
+          { k: 'H.264', v: thisPc.h264 },
+          { k: 'HEVC', v: thisPc.hevc },
+          { k: 'HEVC 4:4:4', v: thisPc.hevc444 },
+          { k: 'AV1', v: thisPc.av1 },
+        ]
+      : [],
+  )
 
   let info = $state<AppInfo | null>(null)
   let checking = $state(false)
@@ -105,6 +137,29 @@
     {#if error}<div class="error">{error}</div>{/if}
 
     <p class="help">{t('appsheet.help')}</p>
+
+    <div class="pc">
+      <div class="eyebrow">{t('appsheet.this_pc')}</div>
+      {#if thisPc}
+        <div class="pcname">{thisPc.name}</div>
+        <div class="mono gpu">{thisPc.gpu || t('appsheet.unknown_gpu')}</div>
+        <div class="table mono">
+          {#each decodes as d (d.k)}
+            <div class="tr"><span>{d.k}</span><span class:ok={d.v} class:no={!d.v}>{d.v ? t('appsheet.hardware') : d.k === 'AV1' ? t('appsheet.no') : t('appsheet.processor')}</span></div>
+          {/each}
+          <div class="tr"><span>{t('appsheet.display')}</span><span>{thisPc.width} × {thisPc.height} · {thisPc.refresh} Hz</span></div>
+          <div class="tr"><span>{t('appsheet.sound')}</span><span>{thisPc.audio_channels === 8 ? '7.1' : thisPc.audio_channels === 6 ? '5.1' : t('appsheet.stereo')}</span></div>
+        </div>
+        <p class="help">{t('appsheet.probe_help')}</p>
+        <div class="line">
+          <span class="battery"><Icon name="battery" size={16} /> {t('appsheet.battery')}</span>
+          <Segmented label={t('appsheet.battery')} value={battery} options={[{ value: 'alleger', label: t('appsheet.lighten') }, { value: 'garder', label: t('appsheet.keep') }]} onchange={onbattery} />
+        </div>
+        <p class="help">{t('appsheet.battery_help')}{thisPc.on_battery ? t('appsheet.on_battery_now') : ''}</p>
+      {:else}
+        <p class="help">{t('appsheet.probing')}</p>
+      {/if}
+    </div>
   </div>
 </div>
 
@@ -133,6 +188,11 @@
     border-radius: 22px;
     background: var(--ink-1);
     box-shadow: 0 40px 120px rgb(0 0 0 / 0.6);
+  }
+
+  /* La feuille défile : ses blocs gardent leur hauteur (les notes ne s'écrasent pas). */
+  .sheet > * {
+    flex: none;
   }
 
   .close {
@@ -235,5 +295,55 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--faint);
+  }
+
+  .pc {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+
+  .pcname {
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .gpu {
+    margin-top: -4px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+
+  .table {
+    font-size: 12px;
+  }
+
+  .tr {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+  }
+
+  .tr span:last-child {
+    color: var(--text);
+  }
+
+  .tr span.ok {
+    color: var(--ok);
+  }
+
+  .tr span.no {
+    color: var(--faint);
+  }
+
+  .battery {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 </style>

@@ -53,7 +53,7 @@ struct GamepadsView: View {
     }
 
     private func close() {
-        if let onClose { onClose() } else { app.screen = .home }
+        if let onClose { onClose() } else { app.screen = app.gamepadsReturn }
     }
 
     // MARK: Les joueurs

@@ -34,10 +34,14 @@ pub struct Settings {
     /// `auto`, `2`, `6`, `8` ou `0` (son laissé sur l'ordinateur).
     pub audio: String,
     pub virtual_display: bool,
-    /// Sur batterie : `alleger` (30 Hz au plus) ou `garder`.
+    /// Sur batterie : `alleger` ou `garder`. Le réglage vit dans les réglages
+    /// de l'app (`Prefs::battery`, il vaut pour ce PC) ; celui-ci ne sert qu'à
+    /// reprendre le choix quand `app.json` n'en a pas encore.
     pub battery: String,
     /// Garder la dernière image de la session comme fond sur l'accueil.
     pub keep_last_image: bool,
+    /// Reconnexion automatique quand le réseau décroche pendant la session.
+    pub auto_reconnect: bool,
 }
 
 impl Default for Settings {
@@ -58,20 +62,35 @@ impl Default for Settings {
             virtual_display: true,
             battery: "alleger".into(),
             keep_last_image: true,
+            auto_reconnect: true,
         }
     }
 }
 
-/// Dernière session, pour l'accueil.
+/// Dernière session d'au moins 3 s (rubrique Statistiques des réglages de
+/// l'ordinateur). Les champs de ce qui a été transmis sont absents des
+/// fichiers écrits par la 0.4.x, qui gardaient `label` à la place.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct LastSession {
     pub median_ms: Option<f64>,
     pub p95_ms: Option<f64>,
     pub seconds: u64,
-    /// « Bureau · HEVC 4:4:4 ».
-    pub label: String,
     /// Fin, en secondes depuis 1970.
     pub at: u64,
+    /// Définition et fréquence de l'image transmise.
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub refresh: Option<u32>,
+    /// Format vidéo (« HEVC », « H.264 », « AV1 »).
+    pub codec: Option<String>,
+    /// Débit demandé à l'ordinateur, en Mbit/s.
+    pub mbps: Option<u32>,
+    /// Profil et format en français (« Bureau · HEVC 4:4:4 ») : seulement
+    /// dans les fichiers de la 0.4.x, montré tant qu'une session ne l'a pas
+    /// remplacé.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +110,14 @@ pub struct Computer {
     pub settings: Settings,
     #[serde(default)]
     pub last: Option<LastSession>,
+    /// Ajouté avec un code : l'ordinateur a donné à ce PC son propre compte.
+    #[serde(default)]
+    pub by_code: bool,
+    /// Ses cartes réseau pour le réveiller une fois éteint (`wake` du dernier
+    /// `info` qui en donnait, Station 0.5.0 et suivantes) ; absentes des
+    /// fichiers écrits par la 0.4.x.
+    #[serde(default)]
+    pub wake: Vec<kybernow_core::wake::WakeTarget>,
 }
 
 pub struct Store {
@@ -155,6 +182,10 @@ impl Store {
             c.id = old.id.clone();
             c.settings = old.settings.clone();
             c.last = old.last.take();
+            // Une Station plus ancienne ne donne pas ses cartes : on garde les connues.
+            if c.wake.is_empty() {
+                c.wake = std::mem::take(&mut old.wake);
+            }
             *old = c;
             old.id.clone()
         } else {

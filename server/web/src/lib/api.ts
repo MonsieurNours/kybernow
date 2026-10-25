@@ -222,6 +222,22 @@ export interface Status {
   activity: { live: LiveSession | null; last: LastSession | null }
   update_available: string | null
   pair_requests: PairRequest[]
+  /** Cartes réseau pour le réveil par le réseau, Ethernet d'abord (absent avant la 0.5.0). */
+  wake?: WakeCard[]
+}
+
+/**
+ * Une carte réseau physique en service, pour le réveil par le réseau (`wake` de
+ * `/api/status` et de `/api/stream/info`). `armed` : Windows permet à la carte de
+ * réveiller l'ordinateur (`null` : inconnu).
+ */
+export interface WakeCard {
+  mac: string
+  ipv4: string | null
+  broadcast: string | null
+  kind: 'ethernet' | 'wifi'
+  armed: boolean | null
+  name: string
 }
 
 export interface LogFile {
@@ -326,7 +342,8 @@ export interface Pairing {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  /** `code` : raison stable d'un refus, quand Admin en donne une (`session`, `too_soon`…). */
+  constructor(public status: number, message: string, public code?: string) {
     super(message)
   }
 }
@@ -357,7 +374,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (!res.ok) {
     if (res.status === 401 && path !== '/api/login') onUnauthorized()
-    throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
+    throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }), typeof data?.code === 'string' ? data.code : undefined)
   }
   return data as T
 }
@@ -400,6 +417,8 @@ export const api = {
   /** 409 si un appareil est en session, sauf `force`. */
   updateInstall: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/install', force ? { force } : undefined),
   updateRollback: (force = false) => request<{ ok: boolean; version: string }>('POST', '/api/update/rollback', force ? { force } : undefined),
+  /** Redémarre la Station entière (Kyber et Admin) : 409 (`code` : `session`) si un appareil est en session, sauf `force`. */
+  stationRestart: (force = false) => request<{ ok: boolean }>('POST', '/api/station/restart', force ? { force } : undefined),
   audioSettings: (settings: AudioSettings) => request<AudioStatus>('PUT', '/api/audio/settings', settings),
 
   devices: () => request<{ devices: Device[] }>('GET', '/api/devices'),

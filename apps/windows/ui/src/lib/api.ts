@@ -34,13 +34,80 @@ export type Settings = {
   clipboard: boolean
   audio: 'auto' | '2' | '6' | '8' | '0'
   virtual_display: boolean
+  /** Repris par les réglages de l'app (`AppInfo.battery`) ; gardé pour l'aller-retour. */
   battery: 'alleger' | 'garder'
   keep_last_image: boolean
+  auto_reconnect: boolean
 }
 
-export type Info = { hostname: string; os: string; gpu: string | null; av1: boolean; virtual_display: { available: boolean } }
+/** Mise à jour de la Station, telle qu'Admin la connaît (`installable` : depuis l'app ; `requires_setup` : avec l'installateur, sur l'ordinateur). */
+export type StationUpdate = { available: boolean; version: string | null; installable: boolean; requires_setup: boolean; installing: boolean }
 
-export type LastSession = { median_ms: number | null; p95_ms: number | null; seconds: number; label: string; at: number }
+/** La Station de l'ordinateur (rubrique « Station » de ses réglages). */
+export type StationInfo = { version: string; update: StationUpdate; restarting: boolean }
+
+/**
+ * Refus de `station_restart` et `station_update` : `in_session` (redemander avec `force` coupe la
+ * session de `device`), `too_soon` (attendre `seconds`), `nothing_to_install`, `requires_setup`,
+ * `busy` (installation ou redémarrage en cours), `unsupported` (Station 0.4.9 ou plus ancienne), `other`.
+ */
+export type StationRefusal = {
+  kind: 'in_session' | 'too_soon' | 'nothing_to_install' | 'requires_setup' | 'busy' | 'unsupported' | 'other'
+  message: string
+  device: string | null
+  seconds: number | null
+}
+
+/**
+ * Une carte réseau de l'ordinateur pour le réveiller par le réseau (commande `wake`) : `ipv4`, sa
+ * dernière adresse ; `broadcast`, la diffusion de son sous-réseau ; `armed`, Windows la laisse
+ * réveiller l'ordinateur (`null` : inconnu) ; `name`, son nom (vide s'il est inconnu).
+ */
+export type WakeTarget = {
+  mac: string
+  ipv4: string | null
+  broadcast: string | null
+  kind: 'ethernet' | 'wifi' | ''
+  armed: boolean | null
+  name: string
+}
+
+/**
+ * `station` : nul avec une Station 0.4.9 ou plus ancienne (ni redémarrage ni mise à jour depuis l'app).
+ * `wake` : ses cartes réseau pour le réveil, Ethernet d'abord (vide avant la Station 0.5.0).
+ */
+export type Info = {
+  hostname: string
+  os: string
+  gpu: string | null
+  av1: boolean
+  /** Version d'Admin, donnée aussi par les Stations d'avant `station`. */
+  admin_version?: string | null
+  virtual_display: { available: boolean }
+  station: StationInfo | null
+  wake?: WakeTarget[]
+  /** `own_device` : un compte créé pour cet appareil par l'appairage par code (Station 0.5.0 et suivantes). */
+  account?: { own_device: boolean }
+}
+
+/**
+ * Dernière session d'au moins 3 s (rubrique Statistiques) : ce qui a été transmis
+ * (`width` à `mbps`) manque dans celles gardées par la 0.4.x, qui ont `label` à la place.
+ */
+export type LastSession = {
+  median_ms: number | null
+  p95_ms: number | null
+  seconds: number
+  /** Fin, en secondes depuis 1970. */
+  at: number
+  width?: number | null
+  height?: number | null
+  refresh?: number | null
+  codec?: string | null
+  mbps?: number | null
+  /** « Bureau · HEVC 4:4:4 », en français (0.4.x). */
+  label?: string
+}
 
 export type Computer = {
   id: string
@@ -53,6 +120,13 @@ export type Computer = {
   gpu: string | null
   settings: Settings
   last: LastSession | null
+  /** Ajouté avec un code : un compte propre à ce PC. */
+  by_code?: boolean
+  /**
+   * Ses cartes réseau gardées pour le réveiller une fois éteint (commande `wake`) : celles du
+   * dernier `info` qui en donnait ; vide sans Station 0.5.0 vue allumée.
+   */
+  wake: WakeTarget[]
   online: boolean | null
   info: Info | null
   preview: string | null
@@ -81,8 +155,11 @@ export type ThisPc = {
 
 export type Update = { version: string; channel: 'stable' | 'beta'; notes: string; page: string; file: string; size: number }
 
+/** Sur batterie : alléger (30 Hz au plus) ou garder, pour toutes les sessions de ce PC. */
+export type Battery = 'alleger' | 'garder'
+
 /** `language` : choix des réglages ; `lang` : langue appliquée. */
-export type AppInfo = { version: string; channel: 'stable' | 'beta'; language: 'auto' | 'fr' | 'en'; lang: 'fr' | 'en'; update: Update | null; arch: string }
+export type AppInfo = { version: string; channel: 'stable' | 'beta'; language: 'auto' | 'fr' | 'en'; lang: 'fr' | 'en'; update: Update | null; arch: string; battery: Battery }
 
 /** Ce que l'ouverture demande (lien, barre des tâches, notification, installateur). */
 export type Action =
@@ -96,6 +173,16 @@ export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: Th
 
 export type Phase = { id: string; phase: 'preparing' | 'connecting' | 'first_images' | 'streaming' | 'reconnecting' | 'ending' | 'ended'; detail: string | null }
 
+/**
+ * Événement `session-station-restarting` : dernier recours de la connexion,
+ * la Station redémarre (l'image n'arrivait pas, ou Kyber ne répondait pas).
+ * L'écran de connexion affiche « La Station redémarre… » jusqu'au prochain
+ * `session-status` (`preparing` si elle revient, `ending` puis `ended`
+ * sinon). Il suit toujours un `session-status` à `connecting`, l'étape
+ * montrée tant qu'on ne l'écoute pas.
+ */
+export type StationRestarting = { id: string }
+
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
 export type Stats = { latency_ms: number | null; fps: number; width: number; height: number; decoder: string; relative: boolean; rtt_ms: number | null; audio_ms: number | null; audio_gaps: number | null }
@@ -107,14 +194,39 @@ export const ms = (v: number | null | undefined, digits = 1) => {
   return i18n.lang === 'fr' ? s.replace('.', ',') : s
 }
 
+/** « 42 min », « 1 h 05 » (une minute au moins, comme sur Mac). */
 export const duration = (s: number) => {
   const h = Math.floor(s / 3600)
   const m = Math.floor((s % 3600) / 60)
-  return h > 0 ? t('time.hours', { h, m: String(m).padStart(2, '0') }) : t('time.minutes', { m })
+  return h > 0 ? t('time.hours', { h, m: String(m).padStart(2, '0') }) : t('time.minutes', { m: Math.max(1, m) })
 }
 
-/** Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». */
-export const isCustom = (s: Settings) => s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
+/** Quand : « à l'instant », « aujourd'hui, 14 h 05 », « hier, 14 h 05 », « il y a 3 jours », « le 3 octobre ». */
+export function moment(at: number, now = Date.now()) {
+  const date = new Date(at * 1000)
+  const locale = i18n.lang === 'fr' ? 'fr-FR' : 'en-GB'
+  const time =
+    i18n.lang === 'fr'
+      ? `${String(date.getHours()).padStart(2, '0')}\u00a0h\u00a0${String(date.getMinutes()).padStart(2, '0')}`
+      : date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((day(new Date(now)) - day(date)) / 86_400_000)
+  if (days <= 0) return now - date.getTime() < 120_000 ? t('time.just_now') : t('time.today', { time })
+  if (days === 1) return t('time.yesterday', { time })
+  if (days < 7) return t('time.days_ago', { days })
+  return t('time.on_day', { day: date.toLocaleDateString(locale, { day: 'numeric', month: 'long' }) })
+}
+
+/**
+ * Un profil retouché (format, couleurs, débit, transport) est « Personnalisé ». Un format
+ * choisi égal à celui du profil n'en est pas un écart (comme `plan` de plan.rs).
+ */
+export const isCustom = (s: Settings, pc: ThisPc | null) =>
+  (s.codec != null && s.codec !== profileBase(s.profile, pc).codec) || s.yuv444 != null || s.mbps != null || s.reliable != null
+
+/** Les quatre premiers groupes de l'empreinte d'Admin, comme Admin les montre (« 7C41 E09B AABB CCDD »). */
+export const fingerprintGroups = (fp: string | null) =>
+  (fp ?? '').replace(/^sha256:/, '').replaceAll(':', '').toUpperCase().match(/.{1,4}/g) ?? []
 
 /** Valeurs d'un profil pour ce PC, comme le cœur les calcule (`StreamSettings::for_profile`, profile.rs). */
 export function profileBase(profile: Settings['profile'], pc: ThisPc | null) {
@@ -141,13 +253,14 @@ function fit(m: Mode, maxW: number, maxH: number): Mode {
  * Ce que la session demandera à l'ordinateur : `session_plan` (ui.rs) et
  * `plan` (plan.rs), règle pour règle. Mode de l'écran virtuel et débit en
  * Mbit/s ; `null` sans écran connu (ni ce PC ni taille sur mesure).
+ * `battery` : « Sur batterie » des réglages de l'app.
  */
-export function sessionPlan(s: Settings, pc: ThisPc | null): (Mode & { mbps: number }) | null {
+export function sessionPlan(s: Settings, pc: ThisPc | null, battery: Battery): (Mode & { mbps: number }) | null {
   const custom = s.custom && s.custom.width >= 640 && s.custom.height >= 360 && s.custom.refresh >= 24 ? s.custom : null
   let mode: Mode | null = custom ?? (pc ? { width: pc.width, height: pc.height, refresh: pc.refresh } : null)
   if (!mode) return null
   if (s.max_4k && !s.custom) mode = fit(mode, 3840, 2160)
-  if (s.battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
+  if (battery === 'alleger' && pc?.on_battery) mode = { ...mode, refresh: Math.min(30, mode.refresh) }
   const base = profileBase(s.profile, pc)
   // NVENC n'encode pas l'H.264 au-delà de 4096 de large.
   if ((s.codec ?? base.codec) === 'h264') mode = fit(mode, 4096, 4096)
@@ -158,9 +271,7 @@ export function sessionPlan(s: Settings, pc: ThisPc | null): (Mode & { mbps: num
   return { ...mode, mbps }
 }
 
-export const profileLabel = (s: Settings) => (isCustom(s) ? t('profiles.custom') : t(`profiles.${s.profile}`))
-
-/** Noms des profils tels que l'app les écrit (« Bureau · HEVC 4:4:4 », barre et dernière session). */
+/** Noms des profils tels que le côté Rust les écrit (« Bureau · HEVC 4:4:4 » : barre, et dernière session de la 0.4.x). */
 const profileNames: Record<string, string> = { Jeu: 'jeu', Bureau: 'bureau', Max: 'max', Personnalisé: 'custom' }
 
 /** « Bureau · HEVC 4:4:4 » dans la langue de l'interface. */

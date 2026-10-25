@@ -1,6 +1,8 @@
 //! Client de KyberNow Admin (kyber-admin) : les routes `/api/stream/*` d'une
-//! session et de l'accueil (info, aperçu), et `/api/pair/*` (appairage par
-//! code). Les apps Apple y passent par `ConsoleClient` (ConsoleClientCore.swift).
+//! session et de l'accueil (info, aperçu), de la rubrique « Station » des
+//! réglages (redémarrer, mettre à jour la Station, ouvrir Admin), et
+//! `/api/pair/*` (appairage par code). Les apps Apple y passent par
+//! `ConsoleClient` (ConsoleClientCore.swift).
 //!
 //! Compte : Basic, le même que pour Kyber. Certificat : auto-signé, épinglé
 //! par son empreinte (`sha256:aa:bb:…`, SHA-256 du certificat DER).
@@ -17,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::i18n::{self, Lang, tr};
+use crate::wake::WakeTarget;
 
 #[derive(Debug)]
 pub enum ConsoleError {
@@ -136,6 +139,169 @@ pub struct Info {
     pub virtual_display: VirtualDisplayInfo,
     #[serde(default)]
     pub audio: AudioInfo,
+    /// Le compte qui appelle (Station 0.5.0 et suivantes).
+    #[serde(default)]
+    pub account: AccountInfo,
+    /// La Station (0.5.0 et suivantes) ; `None` avec une Station plus
+    /// ancienne : les apps n'y proposent ni redémarrage ni mise à jour.
+    #[serde(default)]
+    pub station: Option<StationInfo>,
+    /// Les cartes réseau de l'ordinateur pour le réveiller par le réseau
+    /// (Station 0.5.0 et suivantes ; vide avec une plus ancienne), Ethernet
+    /// d'abord. Les apps les gardent pour chaque ordinateur : voir [`crate::wake`].
+    #[serde(default, deserialize_with = "crate::wake::lenient")]
+    pub wake: Vec<WakeTarget>,
+}
+
+/// Le compte avec lequel l'app appelle Admin.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct AccountInfo {
+    /// Compte créé pour cet appareil par l'appairage par code : les apps
+    /// l'affichent comme « Accès propre à cet appareil ».
+    #[serde(default)]
+    pub own_device: bool,
+}
+
+/// `https://adresse:port` d'Admin, une adresse IPv6 entre crochets.
+fn base_url(host: &str, port: u16) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("https://[{host}]:{port}")
+    } else {
+        format!("https://{host}:{port}")
+    }
+}
+
+/// Adresse d'Admin à ouvrir dans le navigateur ou à mettre dans un QR code
+/// (`https://adresse:port/`), sans créer de [`Console`] : pour les écrans qui
+/// la montrent hors de toute connexion.
+pub fn admin_url(host: &str, port: u16) -> String {
+    format!("{}/", base_url(host, port))
+}
+
+/// La Station, pour la rubrique « Station » des réglages d'un ordinateur.
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct StationInfo {
+    /// Version de KyberNow Station (celle d'Admin).
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub update: StationUpdate,
+    /// Un redémarrage est en cours : Admin va s'arrêter puis revenir.
+    #[serde(default)]
+    pub restarting: bool,
+}
+
+/// Mise à jour de la Station, telle qu'Admin la connaît (sans appel réseau).
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
+pub struct StationUpdate {
+    /// Une version plus récente, signée par KyberNow, est publiée.
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub version: Option<String>,
+    /// Elle s'installe depuis un appareil (`Console::station_update`).
+    #[serde(default)]
+    pub installable: bool,
+    /// Elle s'installe avec l'installateur, sur l'ordinateur.
+    #[serde(default)]
+    pub requires_setup: bool,
+    /// Une installation est en cours.
+    #[serde(default)]
+    pub installing: bool,
+}
+
+/// Refus d'un redémarrage ou d'une mise à jour de la Station.
+#[derive(Debug)]
+pub enum StationError {
+    /// Un appareil est en session (son nom, si Admin le donne) : refaire
+    /// l'appel avec `force` coupe sa session.
+    InSession { device: Option<String>, message: String },
+    /// Trop tôt (429) : un redémarrage par minute au plus, ou trop d'essais
+    /// ratés depuis cette adresse ; `seconds` : l'attente.
+    TooSoon { seconds: Option<u64>, message: String },
+    /// Rien à installer depuis un appareil : Station à jour, ou version refusée.
+    NothingToInstall { message: String },
+    /// La version publiée s'installe avec l'installateur, sur l'ordinateur.
+    RequiresSetup { message: String },
+    /// Une installation ou un redémarrage est déjà en cours.
+    Busy { message: String },
+    /// Station 0.4.9 ou plus ancienne : elle ne connaît pas l'appel.
+    Unsupported,
+    /// Le reste : Admin injoignable, certificat changé, compte refusé, échec.
+    Other(ConsoleError),
+}
+
+impl StationError {
+    /// Le message dans une langue : celui d'Admin (écrit dans la langue de
+    /// l'app, `Accept-Language`), ou celui du cœur.
+    pub fn text(&self, lang: Lang) -> String {
+        match self {
+            Self::InSession { message, .. }
+            | Self::TooSoon { message, .. }
+            | Self::NothingToInstall { message }
+            | Self::RequiresSetup { message }
+            | Self::Busy { message } => message.clone(),
+            Self::Unsupported => tr(lang, "station.unsupported", &[]),
+            Self::Other(e) => e.text(lang),
+        }
+    }
+
+    /// Nom stable du refus, pour les ponts des apps : `in_session`,
+    /// `too_soon`, `nothing_to_install`, `requires_setup`, `busy`,
+    /// `unsupported`, `other`.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::InSession { .. } => "in_session",
+            Self::TooSoon { .. } => "too_soon",
+            Self::NothingToInstall { .. } => "nothing_to_install",
+            Self::RequiresSetup { .. } => "requires_setup",
+            Self::Busy { .. } => "busy",
+            Self::Unsupported => "unsupported",
+            Self::Other(_) => "other",
+        }
+    }
+
+    /// Le refus en JSON pour les ponts : `kind`, `message` (langue de
+    /// l'app), `device` (appareil en session) et `seconds` (attente), nuls
+    /// s'ils ne s'appliquent pas.
+    pub fn to_json(&self) -> serde_json::Value {
+        let (device, seconds) = match self {
+            Self::InSession { device, .. } => (device.clone(), None),
+            Self::TooSoon { seconds, .. } => (None, *seconds),
+            _ => (None, None),
+        };
+        serde_json::json!({ "kind": self.kind(), "message": self.to_string(), "device": device, "seconds": seconds })
+    }
+}
+
+impl std::fmt::Display for StationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text(i18n::current()))
+    }
+}
+
+impl std::error::Error for StationError {}
+
+/// Refus d'Admin sur une route de la Station, d'après le code HTTP et le corps
+/// (`error`, `code`, `device`, `retry_after`). `None` : erreur ordinaire.
+fn station_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u64>) -> Option<StationError> {
+    let message = body
+        .get("error")
+        .and_then(|e| e.as_str())
+        .filter(|m| !m.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
+    let code = body.get("code").and_then(|c| c.as_str()).unwrap_or_default();
+    Some(match (status, code) {
+        // Une Station qui ne connaît pas la route.
+        (404 | 405, _) => StationError::Unsupported,
+        (429, _) => StationError::TooSoon { seconds: body.get("retry_after").and_then(|s| s.as_u64()).or(retry_after), message },
+        (409, "session") => StationError::InSession { device: body.get("device").and_then(|d| d.as_str()).map(str::to_owned), message },
+        (409, "up_to_date" | "not_installable") => StationError::NothingToInstall { message },
+        (409, "requires_setup") => StationError::RequiresSetup { message },
+        (409, "installing" | "restarting") => StationError::Busy { message },
+        _ => return None,
+    })
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -304,14 +470,9 @@ impl Console {
             .tls_config(Arc::new(tls))
             .timeout_connect(Duration::from_secs(5))
             .build();
-        let bracketed = if host.contains(':') && !host.starts_with('[') {
-            format!("[{host}]")
-        } else {
-            host.to_string()
-        };
         let token = base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
         Self {
-            base: format!("https://{bracketed}:{port}"),
+            base: base_url(host, port),
             host: host.to_string(),
             authorization: format!("Basic {token}"),
             agent,
@@ -322,6 +483,13 @@ impl Console {
     /// Adresse de l'ordinateur, sans crochets : Kyber écoute à la même.
     pub fn host(&self) -> &str {
         &self.host
+    }
+
+    /// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`,
+    /// une adresse IPv6 entre crochets). Son certificat est auto-signé : le
+    /// navigateur demande de l'accepter la première fois.
+    pub fn admin_url(&self) -> String {
+        format!("{}/", self.base)
     }
 
     pub fn fingerprint_seen(&self) -> Option<String> {
@@ -452,6 +620,60 @@ impl Console {
         })
     }
 
+    /// Redémarre la Station entière (le serveur Kyber et Admin, environ 30
+    /// secondes ; Admin ne répond plus pendant ce temps). `device_id` : cet
+    /// appareil, nommé dans le fil d'Admin ; `force` : même si un appareil
+    /// est en session (elle est coupée). Tout appareil appairé peut le faire.
+    pub fn station_restart(&self, device_id: Option<&str>, force: bool) -> std::result::Result<(), StationError> {
+        self.station_call("api/stream/station/restart", device_id, force, Duration::from_secs(15)).map(|_| ())
+    }
+
+    /// Lance la mise à jour de la Station vers la version annoncée par
+    /// `Info::station` (comme « Installer maintenant » dans Admin) ; rend
+    /// cette version. Admin télécharge et vérifie le paquet avant de répondre
+    /// (quelques minutes au plus sur une connexion lente), puis s'arrête et
+    /// revient dans la nouvelle version, en une minute environ.
+    pub fn station_update(&self, device_id: Option<&str>, force: bool) -> std::result::Result<String, StationError> {
+        let v = self.station_call("api/stream/station/update", device_id, force, Duration::from_secs(300))?;
+        Ok(v.get("version").and_then(|v| v.as_str()).unwrap_or_default().to_string())
+    }
+
+    fn station_call(
+        &self,
+        path: &str,
+        device_id: Option<&str>,
+        force: bool,
+        timeout: Duration,
+    ) -> std::result::Result<serde_json::Value, StationError> {
+        let mut body = serde_json::json!({ "force": force });
+        if let Some(id) = device_id.filter(|id| !id.is_empty()) {
+            body["device_id"] = serde_json::json!(id);
+        }
+        match self.request("POST", path, timeout).send_json(body) {
+            // Une Station 0.4.9 répond la page d'Admin (200, HTML) à une route
+            // qu'elle ne connaît pas.
+            Ok(resp) => match resp.into_json::<serde_json::Value>() {
+                Ok(v) if v.get("ok").and_then(|o| o.as_bool()) == Some(true) => Ok(v),
+                _ => Err(StationError::Unsupported),
+            },
+            Err(ureq::Error::Status(status, resp)) => {
+                let retry_after = resp.header("Retry-After").and_then(|h| h.trim().parse().ok());
+                let body: serde_json::Value = resp.into_json().unwrap_or(serde_json::Value::Null);
+                Err(station_refusal(status, &body, retry_after).unwrap_or_else(|| {
+                    let message = body
+                        .get("error")
+                        .and_then(|e| e.as_str())
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| tr(i18n::current(), "console.http_status", &[("status", &status.to_string())]));
+                    StationError::Other(ConsoleError::Http { status, message })
+                }))
+            }
+            Err(e) => Err(StationError::Other(
+                self.read::<serde_json::Value>(Err(e)).err().unwrap_or_else(|| ConsoleError::Invalid(String::new())),
+            )),
+        }
+    }
+
     pub fn end(&self, device_id: &str, latency_ms: Option<f64>) -> Result<Ended> {
         let mut body = serde_json::json!({ "device_id": device_id });
         if let Some(l) = latency_ms {
@@ -461,5 +683,128 @@ impl Console {
             .request("POST", "api/stream/end", Duration::from_secs(20))
             .send_json(body);
         self.read(r)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn adresse_d_admin_sans_console() {
+        assert_eq!(super::admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
+        assert_eq!(super::admin_url("fe80::1", 9443), "https://[fe80::1]:9443/");
+        assert_eq!(super::admin_url("[fe80::1]", 9443), "https://[fe80::1]:9443/");
+    }
+
+    #[test]
+    fn compte_propre_a_l_appareil() {
+        let info: super::Info = serde_json::from_str(r#"{"account":{"own_device":true}}"#).unwrap();
+        assert!(info.account.own_device);
+        let old: super::Info = serde_json::from_str("{}").unwrap();
+        assert!(!old.account.own_device);
+    }
+
+    use super::*;
+
+    fn console(host: &str) -> Console {
+        Console::new(host, 9443, "mac", "secret", None)
+    }
+
+    #[test]
+    fn adresse_d_admin() {
+        assert_eq!(console("192.168.1.20").admin_url(), "https://192.168.1.20:9443/");
+        assert_eq!(console("fe80::1").admin_url(), "https://[fe80::1]:9443/");
+        assert_eq!(console("[fe80::1]").admin_url(), "https://[fe80::1]:9443/");
+        assert_eq!(console("bureau.local").admin_url(), "https://bureau.local:9443/");
+    }
+
+    #[test]
+    fn station_absente_avant_0_5_0() {
+        let old: Info = serde_json::from_str(r#"{"hostname":"Bureau","os":"Windows 11","admin_version":"0.4.9"}"#).unwrap();
+        assert_eq!(old.station, None);
+        let v = serde_json::to_value(&old).unwrap();
+        assert!(v["station"].is_null());
+        // Ni cartes pour le réveil : une liste vide.
+        assert!(old.wake.is_empty());
+        assert_eq!(v["wake"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn cartes_du_reveil_dans_info() {
+        let info: Info = serde_json::from_str(
+            r#"{"hostname":"Bureau","wake":[
+            {"mac":"3C:7C:3F:12:AB:CD","ipv4":"192.168.1.20","broadcast":"192.168.1.255","kind":"ethernet","armed":true,"name":"Intel(R) Ethernet Connection I219-V"},
+            {"mac":"A4:B1:C1:00:11:22","ipv4":null,"broadcast":null,"kind":"wifi","armed":null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(info.wake.len(), 2);
+        assert_eq!(info.wake[0].broadcast.as_deref(), Some("192.168.1.255"));
+        assert_eq!((info.wake[1].kind.as_str(), info.wake[1].armed), ("wifi", None));
+        // `wake` illisible : ignoré, le reste de la réponse est lu (l'ordinateur ne passe pas pour hors ligne).
+        for odd in [r#""wake":null"#, r#""wake":"?""#, r#""wake":[{"ipv4":"192.168.1.20"},{"mac":"3C:7C:3F:12:AB:CD"}]"#] {
+            let info: Info = serde_json::from_str(&format!(r#"{{"hostname":"Bureau",{odd}}}"#)).unwrap();
+            assert_eq!(info.hostname, "Bureau");
+            assert!(info.wake.len() <= 1, "{odd}");
+        }
+    }
+
+    #[test]
+    fn station_lue_dans_info() {
+        let info: Info = serde_json::from_str(
+            r#"{"hostname":"Bureau","admin_version":"0.5.0","station":{"version":"0.5.0","restarting":false,
+            "update":{"available":true,"version":"0.5.1","installable":true,"requires_setup":false,"installing":false}}}"#,
+        )
+        .unwrap();
+        let station = info.station.unwrap();
+        assert_eq!(station.version, "0.5.0");
+        assert!(station.update.available && station.update.installable && !station.update.requires_setup);
+        assert_eq!(station.update.version.as_deref(), Some("0.5.1"));
+        // Champs absents : valeurs par défaut.
+        let partial: Info = serde_json::from_str(r#"{"station":{"version":"0.5.0"}}"#).unwrap();
+        assert_eq!(partial.station.unwrap().update, StationUpdate::default());
+    }
+
+    #[test]
+    fn refus_de_la_station() {
+        let body = serde_json::json!({ "error": "Un appareil est connecté (Mac)", "code": "session", "device": "Mac" });
+        let refusal = station_refusal(409, &body, None).unwrap();
+        assert_eq!(
+            refusal.to_json(),
+            serde_json::json!({ "kind": "in_session", "message": "Un appareil est connecté (Mac)", "device": "Mac", "seconds": null })
+        );
+        match refusal {
+            StationError::InSession { device, message } => {
+                assert_eq!(device.as_deref(), Some("Mac"));
+                assert_eq!(message, "Un appareil est connecté (Mac)");
+            }
+            other => panic!("{other:?}"),
+        }
+        let soon = serde_json::json!({ "error": "réessayez dans 42 s", "code": "too_soon", "retry_after": 42 });
+        assert!(matches!(station_refusal(429, &soon, None), Some(StationError::TooSoon { seconds: Some(42), .. })));
+        // Le délai de l'en-tête, si le corps n'en a pas.
+        assert!(matches!(station_refusal(429, &serde_json::Value::Null, Some(7)), Some(StationError::TooSoon { seconds: Some(7), .. })));
+        for code in ["up_to_date", "not_installable"] {
+            let body = serde_json::json!({ "error": "à jour", "code": code });
+            assert!(matches!(station_refusal(409, &body, None), Some(StationError::NothingToInstall { .. })), "{code}");
+        }
+        let setup = serde_json::json!({ "error": "installateur", "code": "requires_setup" });
+        assert!(matches!(station_refusal(409, &setup, None), Some(StationError::RequiresSetup { .. })));
+        for code in ["installing", "restarting"] {
+            let body = serde_json::json!({ "error": "déjà", "code": code });
+            assert!(matches!(station_refusal(409, &body, None), Some(StationError::Busy { .. })), "{code}");
+        }
+        assert!(matches!(station_refusal(404, &serde_json::Value::Null, None), Some(StationError::Unsupported)));
+        // Le reste reste une erreur ordinaire (compte refusé, échec).
+        assert!(station_refusal(401, &serde_json::json!({ "error": "identifiants", "code": "unauthorized" }), None).is_none());
+        assert!(station_refusal(500, &serde_json::json!({ "error": "échec", "code": "failed" }), None).is_none());
+        assert!(station_refusal(409, &serde_json::json!({ "error": "autre" }), None).is_none());
+    }
+
+    #[test]
+    fn station_trop_ancienne() {
+        assert_eq!(
+            StationError::Unsupported.text(Lang::Fr),
+            "cette version de KyberNow Station ne le permet pas : mettez-la à jour depuis Admin"
+        );
+        assert_eq!(StationError::Unsupported.text(Lang::En), "this version of KyberNow Station can’t do this: update it from Admin");
     }
 }

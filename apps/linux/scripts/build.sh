@@ -49,7 +49,7 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
-[ -n "$PREFIX" ] || PREFIX="$ROOT/third_party/linux-$ARCH$([ "$RPI" = 1 ] && echo -rpi)"
+[ -n "$PREFIX" ] || PREFIX="$ROOT/third_party/linux-$ARCH$([ "$RPI" = 1 ] && echo -rpi || true)"
 [ -d "$KYSDK/kyctl" ] || { echo "SDK Kyber introuvable dans $KYSDK (voir docs/build-notes.md)" >&2; exit 1; }
 mkdir -p "$PREFIX"
 PREFIX="$(cd "$PREFIX" && pwd)"

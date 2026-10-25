@@ -1,14 +1,15 @@
-//! Accueil : l'ordinateur choisi en plein cadre (son image, son état), « Se
-//! connecter » et les profils, la colonne « Prêt à jouer » (téléviseur,
-//! réseau, manettes, dernière session), puis les ordinateurs en rangée.
+//! Accueil (docs/link-ui.md) : l'ordinateur choisi en plein cadre (son
+//! image), son état, son nom, son système, l'écran que la session créera ;
+//! « Se connecter », les profils et ses réglages ; en haut, les réglages de
+//! l'app et les manettes branchées ; puis les ordinateurs en rangée.
 
-use super::canvas::{Canvas, Font, Rgba, Text, H, W};
+use super::canvas::{Align, Canvas, Font, Rgba, Text, H, W};
 use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, Key};
 use super::{Assets, Frame};
-use crate::app::{App, NetKind, Online, Rect, Target};
-use crate::i18n::{decimal, tr};
+use crate::app::{App, Online, Problem, Rect, Target};
+use crate::i18n::{english, tr};
 use crate::model::Profile;
 
 pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
@@ -29,27 +30,37 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
 
     cv.image(&assets.logo, 96.0, 60.0, 1.0);
 
-    // Réglages globaux, en haut à droite : atteignables à la croix, sans
-    // touche particulière de la télécommande.
-    let label = tr("Réglages", "Settings");
+    // En haut à droite : les réglages de l'app (atteignables à la croix, sans
+    // touche particulière de la télécommande), les manettes branchées, et la
+    // mise à jour de l'app quand il y en a une.
+    let label = tr("Réglages de l'app", "App settings");
     let gw = widgets::icon_chip_width(cv, label);
-    widgets::icon_chip(cv, f, Target::AppSettings, W - 96.0 - gw, 64.0, Icon::Gear, label);
-    // Une mise à jour signée est publiée : rappel discret (détails dans Réglages › Ce téléviseur).
+    let mut x = W - 96.0 - gw;
+    widgets::icon_chip(cv, f, Target::AppSettings, x, 64.0, Icon::Gear, label);
+    x -= 36.0;
+    let pads = pads_label(app.pads.len());
+    let style = Text::new(Font::Regular, 22.0, FROST_2);
+    let pw = cv.text_width(style, &pads);
+    cv.text(x - pw, 100.0, style, &pads);
+    cv.icon(&Icon::Gamepad, x - pw - 42.0, 77.0, 30.0, 1.6, FROST_2);
+    x -= pw + 42.0 + 36.0;
     if let crate::app::UpdateState::Available { version, .. } = &app.update {
-        let s = format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available"));
-        let style = Text::new(Font::Mono, 16.0, SPECTRE).align(super::canvas::Align::Right);
-        cv.text(W - 96.0 - gw - 24.0, 100.0, style, &s.to_uppercase());
+        let s = if english() { format!("Version {version} available") } else { format!("Version {version} disponible") };
+        let style = Text::new(Font::Mono, 16.0, SPECTRE).tracking(1.0).align(Align::Right);
+        cv.text(x, 99.0, style, &s.to_uppercase());
     }
 
+    let mut primary = tr("Se connecter", "Connect");
     match host {
         Some(h) => {
             let live = app.live.get(&h.id).cloned().unwrap_or_default();
             let (status, lit) = match live.online {
-                Online::Online => (tr("En ligne · réseau local", "Online · local network"), true),
+                Online::Online => (tr("En ligne", "Online"), true),
                 Online::Offline => (tr("Hors ligne", "Offline"), false),
-                Online::Unknown => (tr("Recherche sur le réseau…", "Looking on the network…"), false),
+                Online::Unknown => (tr("Recherche…", "Searching…"), false),
             };
-            let y0 = 262.0;
+            // Une erreur prend une ligne de plus : le bloc remonte d'autant.
+            let y0 = if live.problem.is_some() { 202.0 } else { 240.0 };
             if lit {
                 cv.circle(101.0, y0 - 6.0, 13.0, HALO.alpha(0.35));
                 cv.circle(101.0, y0 - 6.0, 5.0, SPECTRE);
@@ -59,35 +70,44 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
             cv.text(122.0, y0, Text::new(Font::Mono, 18.0, FROST_2).tracking(2.0), &status.to_uppercase());
             let name_style = Text::new(Font::Display, 168.0, FROST).tracking(-5.0);
             cv.text_fit(90.0, y0 + 170.0, name_style, &h.name, 1000.0);
-            let mut info = vec![];
-            if let Some(os) = &h.os {
-                info.push(os.clone());
-            }
-            if let Some(gpu) = &h.gpu {
-                info.push(gpu.clone());
-            }
-            info.push(h.address.clone());
-            let mono = Text::new(Font::Mono, 19.0, FROST_2);
-            cv.text_fit(96.0, y0 + 232.0, mono, &info.join(" · "), 1000.0);
-            let (w, hh, fps) = app.session_mode(h);
-            // Le mode pris par l'écran virtuel à la dernière session, tant que la
-            // demande n'a pas changé ; sinon celui que la session demandera.
-            let ready = live.ready.filter(|(asked, _)| *asked == (w, hh, fps)).map(|(_, s)| s).unwrap_or_else(|| format!("{w} × {hh} {} {fps} Hz", tr("à", "at")));
-            cv.text_fit(96.0, y0 + 264.0, mono, &format!("{}{ready}", tr("Écran virtuel prêt : ", "Virtual display ready: ")), 1000.0);
 
-            let by = y0 + 312.0;
-            let mut x = 96.0;
-            if live.online == Online::Offline && h.mac.is_some() {
-                x += widgets::primary(cv, f, Target::Wake, x, by, tr("Réveiller l'ordinateur", "Wake the computer")) + 28.0;
-            } else {
-                x += widgets::primary(cv, f, Target::Connect, x, by, tr("Se connecter", "Connect")) + 28.0;
+            // Sous le nom : l'erreur s'il y en a une, le système, l'écran.
+            let mut yy = y0 + 232.0;
+            let line = Text::new(Font::Regular, 25.0, FROST_2);
+            if let Some(p) = live.problem {
+                cv.text_fit(96.0, yy, line.color(DANGER), problem_text(p), 1100.0);
+                yy += 38.0;
             }
+            if let Some(os) = &h.os {
+                cv.text_fit(96.0, yy, line, os, 1000.0);
+                yy += 38.0;
+            }
+            cv.text_fit(96.0, yy, line, &app.screen_line(h), 1000.0);
+
+            let by = yy + 44.0;
+            let mut x = 96.0;
+            if live.online == Online::Offline {
+                primary = if app.waking() == Some(h.id.as_str()) {
+                    tr("Réveil de l'ordinateur…", "Waking the computer…")
+                } else if h.can_wake() {
+                    tr("Réveiller l'ordinateur", "Wake the computer")
+                } else {
+                    tr("Réessayer", "Try again")
+                };
+            }
+            x += widgets::primary(cv, f, Target::Connect, x, by, primary) + 28.0;
+            let custom = h.settings.is_custom();
+            let chips_x = x;
             for p in Profile::ALL {
-                let label = profile_label(p);
-                x += widgets::chip(cv, f, Target::Chip(p), x, by + 14.0, label, h.settings.profile == p) + 10.0;
+                x += widgets::chip(cv, f, Target::Chip(p), x, by + 14.0, profile_label(p), !custom && h.settings.profile == p) + 10.0;
+            }
+            if custom {
+                x += widgets::chip_static(cv, x, by + 14.0, tr("Personnalisé", "Custom")) + 10.0;
             }
             x += 18.0;
-            widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages de l'ordinateur", "Computer settings"));
+            widgets::icon_chip(cv, f, Target::HostSettings, x, by + 14.0, Icon::Gear, tr("Réglages", "Settings"));
+            let phrase = if custom { tr("Vos propres réglages.", "Your own settings.") } else { profile_phrase(h.settings.profile) };
+            cv.text_fit(chips_x + 4.0, by + 84.0 + 44.0, Text::new(Font::Regular, 22.0, FROST_3), phrase, W - chips_x - 200.0);
         }
         None => {
             let y0 = 300.0;
@@ -108,20 +128,56 @@ pub fn draw(app: &App, cv: &mut Canvas, assets: &Assets, f: &mut Frame) {
         }
     }
 
-    ready_panel(app, cv);
     cards(app, cv, f);
 
     // Aides.
     let y = H - 48.0;
     let mut x = 96.0;
-    if host.is_some() {
-        x += widgets::hint(cv, x, y, Key::Ok, tr("Se connecter", "Connect")) + 40.0;
-        x += widgets::hint(cv, x, y, Key::Dots, tr("Réglages de l'ordinateur", "Computer settings")) + 40.0;
+    if let Some(h) = host {
+        x += widgets::hint(cv, x, y, Key::Ok, primary) + 40.0;
+        x += widgets::hint(cv, x, y, Key::Dots, &settings_for(&h.name)) + 40.0;
     }
     x += widgets::hint(cv, x, y, Key::Back, tr("Quitter", "Quit")) + 40.0;
     widgets::hint(cv, x, y, Key::Pointer, tr("Pointeur de la Magic Remote ou croix", "Magic Remote pointer or arrows"));
-    cv.text(W - 96.0, y, Text::new(Font::Mono, 15.0, FROST_4).align(super::canvas::Align::Right), &format!("KyberNow Link {}", app.version));
+    cv.text(W - 96.0, y, Text::new(Font::Mono, 15.0, FROST_4).align(Align::Right), &format!("KyberNow Link {}", app.version));
+}
 
+/// « 2 manettes », « 1 manette », « Aucune manette ».
+pub fn pads_label(n: usize) -> String {
+    match n {
+        0 => tr("Aucune manette", "No controller").into(),
+        1 => tr("1 manette", "1 controller").into(),
+        n => format!("{n} {}", tr("manettes", "controllers")),
+    }
+}
+
+/// « Réglages de {nom} ».
+pub fn settings_for(name: &str) -> String {
+    if english() { format!("Settings for {name}") } else { format!("Réglages {}{name}", crate::i18n::de(name)) }
+}
+
+/// La phrase de chaque profil, sous les pastilles.
+pub fn profile_phrase(p: Profile) -> &'static str {
+    match p {
+        Profile::Jeu => tr("La réactivité d'abord, pour jouer.", "Responsiveness first, for gaming."),
+        Profile::Bureau => tr("Un texte net, pour travailler.", "Sharp text, for work."),
+        Profile::Max => tr("La meilleure image que cet appareil affiche.", "The best picture this device can show."),
+    }
+}
+
+/// Ce qu'Admin refuse, dit sous le nom. Sur ce téléviseur, le compte vient
+/// toujours du code : on le retire, puis on ajoute l'ordinateur de nouveau.
+fn problem_text(p: Problem) -> &'static str {
+    match p {
+        Problem::Refused => tr(
+            "Accès refusé : retirez cet ordinateur dans ses réglages, puis ajoutez-le à nouveau.",
+            "Access refused: remove this computer in its settings, then add it again.",
+        ),
+        Problem::Reinstalled => tr(
+            "La Station a été réinstallée : retirez cet ordinateur dans ses réglages, puis ajoutez-le à nouveau.",
+            "The Station was reinstalled: remove this computer in its settings, then add it again.",
+        ),
+    }
 }
 
 pub fn profile_label(p: Profile) -> &'static str {
@@ -141,90 +197,6 @@ fn backdrop(cv: &mut Canvas) {
     cv.rrect_stroke(1040.0, 220.0, 760.0, 440.0, 10.0, 1.0, LINE);
     // La couture à 45°, en filigrane.
     cv.line(1180.0, 980.0, 1900.0, 260.0, 3.0, SPECTRE.alpha(0.12));
-}
-
-/// La colonne « Prêt à jouer ».
-fn ready_panel(app: &App, cv: &mut Canvas) {
-    let (x, y, w) = (W - 96.0 - 520.0, 150.0, 520.0);
-    let pad = 34.0;
-    // Hauteur selon le contenu.
-    let pads = app.pads.len().max(1) as f32;
-    let has_last = app.selected().and_then(|h| h.last.as_ref()).is_some();
-    let h = 82.0 + 2.0 * 104.0 + 30.0 + pads * 40.0 + 22.0 + if has_last { 104.0 } else { 0.0 } + 24.0;
-    cv.rrect(x, y, w, h, 22.0, Rgba(14, 19, 28, 214));
-    cv.rrect_stroke(x, y, w, h, 22.0, 1.0, BORDER);
-    let ix = x + pad;
-    let iw = w - 2.0 * pad;
-    let mut yy = y + pad + 14.0;
-    widgets::label(cv, ix, yy, tr("Prêt à jouer", "Ready to play"));
-    yy += 34.0;
-
-    let small = Text::new(Font::Regular, 17.0, FROST_3);
-    let big = Text::new(Font::Regular, 22.0, FROST);
-    let mono = Text::new(Font::Mono, 16.0, FROST_2);
-
-    // Téléviseur.
-    cv.text(ix, yy + 16.0, small, tr("Téléviseur", "TV"));
-    let (pw, ph) = app.tv.panel;
-    let res = if ph >= 2160 { "4K".to_string() } else { format!("{ph}p") };
-    cv.text_fit(ix, yy + 46.0, big, &format!("{} · {res} · {} Hz", app.tv.model, app.tv.refresh), iw);
-    let mut caps = vec!["HEVC"];
-    if app.tv.av1 {
-        caps.push("AV1");
-    }
-    let webos = if app.tv.webos.is_empty() { "webOS".to_string() } else { format!("webOS {}", app.tv.webos) };
-    let _ = pw;
-    cv.text_fit(ix, yy + 74.0, mono, &format!("{webos} · {}", caps.join(", ")), iw);
-    yy += 104.0;
-    cv.rect(ix, yy - 8.0, iw, 1.0, LINE);
-
-    // Réseau.
-    cv.text(ix, yy + 16.0, small, tr("Réseau", "Network"));
-    let (kind, detail) = match app.net.kind {
-        NetKind::Ethernet => (
-            "Ethernet".to_string(),
-            format!("{} {} Mbit/s · {} {} Mbit/s", tr("lien", "link"), app.net.link_mbps.unwrap_or(100), tr("plafond", "cap"), app.net.cap_mbps()),
-        ),
-        NetKind::Wifi => ("Wi-Fi".to_string(), format!("{} {} Mbit/s", tr("plafond", "cap"), app.net.cap_mbps())),
-        NetKind::Unknown => (tr("Inconnu", "Unknown").to_string(), String::new()),
-    };
-    cv.text_fit(ix, yy + 46.0, big, &kind, iw);
-    cv.text_fit(ix, yy + 74.0, mono, &detail, iw);
-    yy += 104.0;
-    cv.rect(ix, yy - 8.0, iw, 1.0, LINE);
-
-    // Manettes.
-    cv.text(ix, yy + 16.0, small, tr("Manettes", "Controllers"));
-    yy += 30.0;
-    if app.pads.is_empty() {
-        cv.text_fit(ix, yy + 26.0, Text::new(Font::Regular, 20.0, FROST_2), tr("Aucune : associez-la en Bluetooth à la télé", "None: pair it with the TV over Bluetooth"), iw);
-        yy += 40.0;
-    } else {
-        for p in &app.pads {
-            let j = format!("{}{}", tr("J", "P"), p.slot + 1);
-            cv.text(ix, yy + 26.0, Text::new(Font::Mono, 20.0, SPECTRE), &j);
-            cv.text_fit(ix + 50.0, yy + 26.0, big, &p.name, iw - 230.0);
-            let r = if p.rumble { tr("vibrations", "rumble") } else { tr("sans vibration", "no rumble") };
-            cv.text(ix + iw, yy + 26.0, mono.align(super::canvas::Align::Right), r);
-            yy += 40.0;
-        }
-    }
-    yy += 22.0;
-
-    // Dernière session.
-    if let Some(last) = app.selected().and_then(|h| h.last.clone()) {
-        cv.rect(ix, yy - 8.0, iw, 1.0, LINE);
-        cv.text(ix, yy + 16.0, small, tr("Dernière session", "Last session"));
-        cv.text(ix, yy + 58.0, Text::new(Font::MonoMedium, 30.0, FROST), &format!("{} ms", decimal(last.median, 1)));
-        let mins = last.seconds / 60;
-        let dur = if mins >= 60 { format!("{} h {:02}", mins / 60, mins % 60) } else { format!("{mins} min") };
-        let mut parts = vec![tr("médiane", "median").to_string()];
-        if !last.mode.is_empty() {
-            parts.push(last.mode.clone());
-        }
-        parts.push(dur);
-        cv.text_fit(ix, yy + 88.0, mono, &parts.join(" · "), iw);
-    }
 }
 
 /// La rangée des ordinateurs : enregistrés, trouvés sur le réseau, ajouter.
@@ -247,10 +219,13 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         let border = if focused { CORE } else if selected.as_deref() == Some(&h.id) { Rgba(227, 237, 240, 128) } else { BORDER };
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, if focused { 3.0 } else { 2.0 }, border);
         let name = Text::new(Font::Semibold, 21.0, FROST.alpha(dim));
-        let w = cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
-        if live == Online::Offline {
-            cv.text(r.x + w + 12.0, y + 168.0 + 34.0, Text::new(Font::Mono, 15.0, FROST_3), tr("hors ligne", "offline"));
-        }
+        cv.text_fit(r.x, y + 168.0 + 34.0, name, &h.name, 300.0);
+        let state = match live {
+            Online::Online => tr("En ligne", "Online"),
+            Online::Offline => tr("Hors ligne", "Offline"),
+            Online::Unknown => "",
+        };
+        cv.text(r.x, y + 168.0 + 62.0, Text::new(Font::Regular, 17.0, FROST_3), state);
         x += 328.0;
     }
     for (i, found) in app.new_found().iter().enumerate().take(3) {
@@ -261,7 +236,7 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
             cv.rrect(r.x, r.y, r.w, r.h, 14.0, Rgba(30, 28, 56, 255));
         }
         cv.rrect_dashed(r.x, r.y, r.w, r.h, 14.0, 1.5, SPECTRE.alpha(0.6));
-        cv.text(r.x + 150.0, r.y + 90.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(super::canvas::Align::Center), &tr("Sur le réseau", "On the network").to_uppercase());
+        cv.text(r.x + 150.0, r.y + 90.0, Text::new(Font::Mono, 15.0, SPECTRE).tracking(2.0).align(Align::Center), &tr("Sur le réseau", "On your network").to_uppercase());
         cv.text_fit(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), &found.name, 300.0);
         x += 328.0;
     }
@@ -276,5 +251,5 @@ fn cards(app: &App, cv: &mut Canvas, f: &mut Frame) {
         cv.rrect_stroke(r.x, r.y, r.w, r.h, 14.0, 1.0, BORDER);
         cv.icon(&Icon::Plus, r.x + 62.0, r.y + 62.0, 44.0, 1.5, FROST);
     }
-    cv.text(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), tr("Ajouter", "Add"));
+    cv.text(r.x, y + 168.0 + 34.0, Text::new(Font::Regular, 21.0, FROST), tr("Ajouter un ordinateur", "Add a computer"));
 }

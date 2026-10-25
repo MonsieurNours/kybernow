@@ -22,9 +22,11 @@ mod preview;
 mod schema;
 mod service;
 mod settings;
+mod station;
 mod system;
 mod tls;
 mod update;
+mod wake;
 #[cfg(windows)]
 mod winsvc;
 
@@ -107,6 +109,9 @@ enum Command {
         #[command(subcommand)]
         action: update::apply::Action,
     },
+    /// Redémarrage de KyberNow Station (Kyber et Admin), lancé par Admin (SYSTEM)
+    #[command(hide = true)]
+    RestartStation,
     /// Gestion du service Windows kyber-admin
     #[cfg(windows)]
     Service {
@@ -348,6 +353,8 @@ pub struct Inner {
     pub local_token: Arc<local_token::LocalToken>,
     /// Mises à jour depuis les versions publiées sur GitHub.
     pub updater: Arc<update::Updater>,
+    /// Redémarrage de la Station entière (Kyber et Admin).
+    pub station: station::Restarter,
     pub service: Box<dyn service::ServiceControl>,
     pub data_dir: PathBuf,
     pub kyber_dir: PathBuf,
@@ -395,6 +402,8 @@ impl AppState {
             pairing: pairing::Pairing::new(),
             local_token: local_token::LocalToken::new(&data_dir),
             updater: Arc::new(update::Updater::new(&data_dir)),
+            // L'assistant n'est jamais lancé : un redémarrage accepté est seulement noté.
+            station: station::Restarter::with_launcher(&data_dir, Box::new(|_| Ok(None))),
             service,
             data_dir: data_dir.clone(),
             kyber_dir: data_dir,
@@ -439,6 +448,7 @@ fn main() -> Result<()> {
         Some(Command::Init { user, kyber_port, encoder }) => init(&cli.run, &data_dir, &user, kyber_port, encoder),
         Some(Command::DisplayAgent { action }) => display_agent(action),
         Some(Command::Update { action }) => update::apply::run(action, &data_dir),
+        Some(Command::RestartStation) => station::run(&data_dir),
         Some(Command::Migrate { dry_run }) => migrate::command(&data_dir, dry_run),
         Some(Command::ResetPassword) => {
             let mut s = Settings::load(&data_dir)?;
@@ -546,6 +556,14 @@ async fn web(state: axum::extract::State<AppState>, req: axum::extract::Request)
     if kyber_proxy::is_kyber_path(path) || kyber_proxy::engine_file(path).is_some() {
         return kyber_proxy::proxy(state, req).await;
     }
+    // Une route d'API inconnue de cette version : 404, jamais la page de
+    // l'interface (une app plus récente sait ainsi que l'appel n'existe pas ici).
+    if path == "/api" || path.starts_with("/api/") {
+        use axum::response::IntoResponse;
+        let lang = i18n::Lang::from_accept_language(req.headers().get(axum::http::header::ACCEPT_LANGUAGE).and_then(|v| v.to_str().ok()));
+        let error = i18n::tr(lang, "api.unknownRoute", &[]);
+        return (axum::http::StatusCode::NOT_FOUND, axum::Json(serde_json::json!({ "error": error }))).into_response();
+    }
     assets::serve(req.uri().clone()).await
 }
 
@@ -583,6 +601,9 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
 
     // Cartes graphiques : liste et activité relevées en fond (flux en cours, console).
     gpu::start();
+
+    // Cartes réseau pour le réveil des apps : relues en fond, `info` lit la mémoire.
+    wake::start();
 
     // Écran virtuel : nettoyage d'une session interrompue, puis surveillance.
     let display = display::Manager::new(data_dir.clone(), settings.virtual_display.clone());
@@ -654,6 +675,7 @@ pub async fn run(args: RunArgs, shutdown: impl Future<Output = ()> + Send + 'sta
         pairing: pairing::Pairing::new(),
         local_token,
         updater: updater.clone(),
+        station: station::Restarter::new(&data_dir),
         service,
         data_dir: data_dir.clone(),
         kyber_dir,

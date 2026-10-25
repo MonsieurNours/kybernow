@@ -1,7 +1,9 @@
 // Une session avec un ordinateur, sur l'iPhone ou l'iPad, vue de
-// l'interface : le passage, la barre (languette, glissement depuis le bord
-// haut, ou L1 + R1 + Start + Select à la manette), le clavier et sa rangée
-// de touches, le menu Touches, les mesures, les capsules. Le déroulé
+// l'interface : le passage, l'écran de connexion et ses trois étapes, la
+// barre (languette, glissement depuis le bord haut, ou L1 + R1 + Start +
+// Select à la manette), le clavier et sa rangée de touches, le menu Touches,
+// les statistiques, les capsules des événements. Dès la première image,
+// l'image seule : rien ne s'affiche de lui-même à l'arrivée. Le déroulé
 // lui-même (préparation par Admin, connexion à Kyber, choix de l'écran,
 // relances, reconnexions, repli, signal de vie, fin vérifiée) est dans le
 // cœur Rust, par `SessionEngine`, comme sur Mac et Apple TV
@@ -35,8 +37,10 @@ final class SessionController: ObservableObject {
     @Published private(set) var host: Host
     /// Instant où l'image est apparue (le passage s'ouvre).
     @Published private(set) var revealedAt: Date?
-    /// Capsule « Vous entrez dans… », quelques secondes après l'apparition.
-    @Published private(set) var entering = false
+    /// Dernier recours du cœur : l'image ne venait pas, il redémarre la
+    /// Station et attend son retour (« La Station redémarre… » sur l'écran de
+    /// connexion), jusqu'à l'état suivant.
+    @Published private(set) var stationRestarting = false
     /// Barre de session ouverte.
     @Published private(set) var barOpen = false
     /// La manette pilote la barre (L1 + R1 + Start + Select).
@@ -57,21 +61,17 @@ final class SessionController: ObservableObject {
     @Published private(set) var fallbackNote: String?
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre 2622 × 1206 ».
     @Published private(set) var modeRestoreOffer: String?
-    /// Du démarrage du flux à la première image affichée, en secondes.
-    @Published private(set) var firstImageDelay: Double?
     /// Clavier de l'écran ouvert.
     @Published private(set) var keyboardShown = false
     /// Ctrl, Alt, ⊞ collants allumés (rangée de touches).
     @Published private(set) var sticky: Set<UInt16> = []
-    /// Feuilles : menu Touches, mesures détaillées.
+    /// Feuilles : menu Touches, statistiques.
     @Published var keysMenu = false
     @Published var statsSheet = false
     /// Écrans de l'ordinateur (choix dans la barre, sans écran virtuel).
     @Published private(set) var screens: [KyberDisplay] = []
     @Published private(set) var shownDisplay: UInt32?
     @Published private(set) var virtualDisplay = true
-    /// Ce que dit la capsule de l'entrée (écran, son, manette).
-    @Published private(set) var gamepadName: String?
     /// L'image est sur l'écran externe : l'appareil est le pupitre.
     @Published private(set) var external = false
 
@@ -81,7 +81,9 @@ final class SessionController: ObservableObject {
     private let prefs = Preferences.shared
     private var engine: SessionEngine?
     private var engineStreaming = false
-    private var streamStartedAt: Date?
+    /// Mode de l'écran de la session (demandé, puis celui obtenu de l'ordinateur) :
+    /// gardé avec la dernière session.
+    private var streamMode = (width: 0, height: 0, refresh: 0)
     private var observers: [NSObjectProtocol] = []
     private var externalWatch: AnyCancellable?
     private static let revealDelay: TimeInterval = 0.9
@@ -119,6 +121,7 @@ final class SessionController: ObservableObject {
         // « Comme cet écran » : l'écran externe s'il est branché, sinon celui de l'appareil.
         let mode = ExternalDisplay.shared.mode(for: settings) ?? DeviceDisplay.mode(for: settings, screen: deviceScreen)
         modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
+        streamMode = mode
         configureView()
         observeApp()
         if ExternalDisplay.shared.scene != nil { useExternal(true, adapt: false) }
@@ -134,6 +137,7 @@ final class SessionController: ObservableObject {
         engine.onMode = { [weak self] mode, virtualDisplay in
             guard let self else { return }
             self.modeLabel = "\(mode.width) × \(mode.height) · \(mode.refresh) Hz"
+            self.streamMode = (mode.width, mode.height, mode.refresh)
             self.virtualDisplay = virtualDisplay
         }
         engine.onVideoStats = { [weak self] in self?.received($0) }
@@ -260,9 +264,6 @@ final class SessionController: ObservableObject {
 
     private func received(_ stats: VideoStats) {
         self.stats = stats
-        if stats.fps > 0, firstImageDelay == nil, let t = streamStartedAt {
-            firstImageDelay = max(0.1, Date().timeIntervalSince(t) - 0.5)
-        }
         if let ms = stats.latencyMs {
             latencyHistory.append(ms)
             if latencyHistory.count > 40 { latencyHistory.removeFirst() }
@@ -277,16 +278,15 @@ final class SessionController: ObservableObject {
     private func phaseChanged(_ p: SessionEngine.Phase) {
         if case .failed = phase { return }
         engineStreaming = p == .streaming
+        if p != .connecting, stationRestarting { stationRestarting = false }
         switch p {
         case .preparing:
             phase = .preparing
         case .connecting:
             phase = .connecting
         case .starting:
-            if streamStartedAt == nil { streamStartedAt = Date() }
             if revealedAt == nil { phase = .starting }
         case .streaming:
-            if streamStartedAt == nil { streamStartedAt = Date() }
             guard revealedAt == nil else {
                 phase = .streaming
                 return
@@ -309,16 +309,13 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// La première image : le passage s'ouvre sur elle, et rien d'autre.
     private func reveal() {
         withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.2)) {
             revealedAt = Date()
             phase = .streaming
         }
         startedAt = Date()
-        withAnimation(Theme.easeOut.delay(0.7)) { entering = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { [weak self] in
-            withAnimation(.easeIn(duration: 0.35)) { self?.entering = false }
-        }
         host.lastSession = Date()
         store.update(host)
     }
@@ -343,6 +340,8 @@ final class SessionController: ObservableObject {
             show(notice: String(localized: "L'écran de l'ordinateur n'a pas pu être adapté : \(message)"), for: 6)
         case let .restoreOffer(mode):
             modeRestoreOffer = mode.map { String(localized: "Remettre \($0.width) × \($0.height)") }
+        case .stationRestarting:
+            stationRestarting = true
         }
     }
 
@@ -445,14 +444,27 @@ final class SessionController: ObservableObject {
     var sessionMinutes: Int { Int(Date().timeIntervalSince(startedAt) / 60) }
 
     #if DEBUG
-    /// Démonstration (simulateur) : le passage, puis la barre, sans ordinateur.
-    func demo(bar: Bool) {
-        phase = .starting
+    enum Demo { case connecting, restarting, image, bar }
+
+    /// Démonstration (simulateur), sans ordinateur : l'écran de connexion
+    /// arrêté à son étape « Connexion » (ou au redémarrage de la Station,
+    /// dernier recours), ou le passage puis l'image (une mire) seule, ou avec
+    /// la barre ouverte.
+    func demo(_ what: Demo) {
+        phase = .preparing
         configureView()
         streamView.startTestPattern()
+        guard what != .connecting, what != .restarting else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.phase = .connecting
+                if what == .restarting { self?.stationRestarting = true }
+            }
+            return
+        }
         externalWatch = ExternalDisplay.shared.$scene.sink { [weak self] scene in
             DispatchQueue.main.async { self?.useExternal(scene != nil, adapt: true) }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.phase = .starting }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
             guard let self else { return }
             withAnimation(.timingCurve(0.2, 0.9, 0.1, 1, duration: 1.2)) {
@@ -471,7 +483,7 @@ final class SessionController: ObservableObject {
                 s.height = 1206
                 self.received(s)
             }
-            if bar { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.setBar(true) } }
+            if what == .bar { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.setBar(true) } }
         }
     }
     #endif
@@ -485,10 +497,12 @@ final class SessionController: ObservableObject {
         GamepadBridge.shared.onMenuRequest = nil
         streamView.hideKeyboard()
         if let last = engine?.snapshot(maxWidth: 1600) { store.imagery.saveLast(last, for: host) }
-        if let revealedAt { host.lastDuration = Date().timeIntervalSince(revealedAt) }
-        if let latency = engine?.sessionLatency {
-            host.lastLatencyMs = latency.median
-            host.lastLatencyP95Ms = latency.p95
+        // Statistiques : la dernière session d'au moins 3 s, ce qu'elle a mesuré et transmis.
+        if let revealedAt {
+            let codec = engineSettings.codec
+            let mbps = host.settings.bitrate(width: streamMode.width, height: streamMode.height, refresh: streamMode.refresh)
+            host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: streamMode.width, height: streamMode.height,
+                               refresh: streamMode.refresh, codec: codec, mbps: mbps)
         }
         store.update(host)
         withAnimation(.easeInOut(duration: 0.4)) {

@@ -132,9 +132,9 @@ impl Platform for WebOsPlatform {
         self.0.pointer.set_host_size((d.width as f64, d.height as f64));
     }
 
-    fn on_mode(&self, mode: Mode, virtual_display: bool) {
+    fn on_mode(&self, mode: Mode, _virtual_display: bool) {
         *self.0.mode.lock().unwrap() = mode;
-        self.0.send(Event::Mode { mode, virtual_display });
+        self.0.send(Event::Mode(mode));
     }
 
     fn on_stream_stopped(&self) {
@@ -212,7 +212,8 @@ pub fn core_profile(p: Profile) -> CoreProfile {
 }
 
 /// Les réglages du flux : le profil ramené à ce que décode le téléviseur
-/// (HEVC, pas de 4:4:4), le format choisi, le débit plafonné par le réseau.
+/// (HEVC, pas de 4:4:4), le format et le transport choisis, le débit
+/// plafonné par le réseau.
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), cap_mbps: u32) -> StreamSettings {
     let caps = Capabilities { hevc: true, hevc444: false, av1: codec == "av1" };
     let mut s = StreamSettings::for_profile(core_profile(profile), caps);
@@ -222,8 +223,11 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         _ => Codec::Hevc,
     };
     s.yuv444 = false;
-    if host.settings.reliable {
-        s.reliable = true;
+    // Transport de l'image : choisi (Rapide, Fiable), sinon celui du profil.
+    match host.settings.transport.as_str() {
+        "reliable" => s.reliable = true,
+        "fast" => s.reliable = false,
+        _ => {}
     }
     // Le débit du profil suit les pixels par seconde ; on ramène sa base pour
     // ne pas dépasser le plafond (ou le débit choisi) au mode de la session.
@@ -293,7 +297,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         auto_reconnect: host.settings.reconnect,
         gamepad_xbox360: host.settings.xbox360,
         clipboard: false,
-        recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000) },
+        recovery: Recovery { watch_image: true, fallback_bitrate: Some((cap_mbps / 2).max(20) * 1_000_000), ..Recovery::default() },
     };
     let session = Session::start(params, Arc::new(WebOsPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

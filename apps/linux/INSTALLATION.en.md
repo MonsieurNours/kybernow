@@ -23,7 +23,7 @@ Then, with the controller: A confirms, B goes back, Y opens the computer's setti
 
 ## SteamOS in the living room (Steam Machine, PC on SteamOS or Bazzite)
 
-As on the Deck; the app picks the living-room interface by itself (larger text, "Ready to play" column) when the screen is larger than 1280 × 800 under gamescope. App settings › Interface forces Desktop, Handheld or Living room.
+As on the Deck; the app picks the living-room interface by itself (larger text, connected controllers on the home screen) when the screen is larger than 1280 × 800 under gamescope. App settings › Interface forces Desktop, Handheld or Living room.
 
 ## Desktop Linux (GNOME, KDE…)
 

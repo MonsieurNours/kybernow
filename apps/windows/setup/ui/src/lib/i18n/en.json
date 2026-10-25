@@ -33,50 +33,50 @@
   "titleBar": {
     "minimize": "Minimise",
     "close": "Close",
-    "wait": "Wait until the installation is complete"
+    "wait": "Please wait until the installation is complete"
   },
   "welcome": {
     "updateLabel": "Update",
-    "updateTitle": "A new version of KyberNow Link.",
-    "updateLead": "You are going from version {from} to {to}. Your computers, their passwords and your settings stay where they are.",
+    "updateTitle": "A new version of KyberNow Link is available.",
+    "updateLead": "You are going from version {from} to version {to}. Your computers, their passwords and your settings are kept.",
     "label": "Welcome",
-    "title": "Your computer, on this PC.",
-    "lead": "Find your computer's screen right here, as if it were in front of you: the picture in a few milliseconds, and a keyboard, mouse and gamepad that respond instantly.",
-    "note": "One minute, just for you, no administrator rights needed. Nothing changes on this PC until you click {action}.",
+    "title": "Use your computer from this PC.",
+    "lead": "Your computer's screen appears here, as if you were sitting in front of it. The picture arrives within a few milliseconds, and the keyboard, mouse and controller respond straight away.",
+    "note": "Setup takes a minute and needs no administrator rights: it only affects your Windows account. Nothing changes on this PC until you click {action}.",
     "install": "Install",
     "update": "Update",
     "desktop": "Desktop shortcut",
     "desktopNote": "KyberNow Link is in the Start menu either way.",
-    "looking": "Looking at this PC…",
-    "seen": "What we found",
-    "rerun": "Run again",
+    "looking": "Checking this PC…",
+    "seen": "What was checked",
+    "rerun": "Check again",
     "willClose": "KyberNow Link will be closed during installation.",
-    "analysing": "Analysing…"
+    "analysing": "Checking…"
   },
   "install": {
     "rows": {
       "close": {
         "title": "Closing KyberNow Link",
-        "text": "The open app closes for the duration of the installation."
+        "text": "The open app closes while the installation runs."
       },
       "files": {
         "title": "The KyberNow Link {version} app",
-        "text": "Its files go into your own folder, without touching the rest of the PC.",
+        "text": "Its files go into your personal folder, without touching the rest of the PC.",
         "fact": "{arch} version"
       },
       "webview": {
-        "title": "WebView2 display engine",
+        "title": "Display engine (WebView2)",
         "text": "Downloaded from Microsoft and installed for you.",
         "fact": "Microsoft"
       },
       "shortcuts": {
-        "title": "Start menu and kybernow:// link",
-        "text": "The pairing link or QR code from KyberNow Admin opens KyberNow Link directly.",
-        "warn": "to redo: open KyberNow Link once and it registers itself again"
+        "title": "Start menu and pairing links",
+        "text": "The pairing link from KyberNow Admin (kybernow://) opens KyberNow Link directly.",
+        "warn": "not finished: open KyberNow Link once to complete it"
       },
       "register": {
         "title": "Installed apps",
-        "text": "KyberNow Link offers you its updates, and uninstalls like any other app."
+        "text": "KyberNow Link offers you its updates and uninstalls like any other app."
       }
     },
     "preparing": "preparing",
@@ -86,11 +86,11 @@
     "failedLabel": "Installation interrupted",
     "finishedLabel": "Installation complete",
     "progressLabel": "Installation · {percent}%",
-    "failedTitle": "Something got in the way.",
+    "failedTitle": "Setup could not finish.",
     "finishedTitle": "Everything is in place.",
-    "title": "Your computer is coming to this PC.",
+    "title": "KyberNow Link is being installed on this PC.",
     "installed": "KyberNow Link {version} is installed.",
-    "lead": "Nothing to do: we show you each step as it happens.",
+    "lead": "There is nothing for you to do. Each step appears below as it happens.",
     "checkDetail": "to check: see the details",
     "failed": "failed",
     "back": "Back",
@@ -103,18 +103,18 @@
     "updateLabel": "Update complete",
     "installLabel": "Installation complete",
     "title": "KyberNow Link is ready.",
-    "updateLead": "Your computers are waiting for you on the home screen, with their settings.",
-    "lead": "Open it: a computer on the same network shows up on its own. Otherwise, add it with the pairing link or QR code from KyberNow Admin, or by its address.",
-    "where": "It is also waiting for you in the Start menu. Right-click its icon in the taskbar: your computers, one click away.",
-    "whereDesktop": "It is also waiting for you in the Start menu and on the desktop. Right-click its icon in the taskbar: your computers, one click away.",
+    "updateLead": "Your computers and their settings are on the home screen, as before.",
+    "lead": "Open it: a computer running KyberNow Station on the same network shows up on its own. Otherwise, add it with the pairing link from KyberNow Admin, or by its address.",
+    "where": "You can also find it in the Start menu. Right-clicking its icon in the taskbar shows your computers.",
+    "whereDesktop": "You can also find it in the Start menu and on the desktop. Right-clicking its icon in the taskbar shows your computers.",
     "session": "During a session",
     "shift": "Shift",
     "keys": {
       "disconnect": "Disconnect",
       "fullscreen": "Full screen or window",
-      "mouse": "Free or captured mouse (games)"
+      "mouse": "Game mouse or desktop mouse"
     },
-    "bar": "Moving the mouse to the top of the screen shows the session bar.",
+    "bar": "Move the mouse to the top of the screen to show the session bar.",
     "close": "Close",
     "open": "Open KyberNow Link"
   },
@@ -127,10 +127,10 @@
     "license": "Licence",
     "roles": {
       "kybernow": "The app and its installer",
-      "kyber": "Connection, sound and input (Kyber SAS)",
-      "ffmpeg": "Video decoding",
-      "opus": "Audio decoding",
-      "sdl": "Gamepads",
+      "kyber": "Connection, sound and controls (Kyber SAS)",
+      "ffmpeg": "Picture decoding",
+      "opus": "Sound decoding",
+      "sdl": "Controllers",
       "tauri": "Windows and interface",
       "svelte": "Interface and core",
       "fonts": "Interface fonts"
@@ -138,24 +138,24 @@
     "names": {
       "svelte": "Svelte, Rust libraries"
     },
-    "note": "KyberNow is distributed under the AGPL-3.0. The licence texts are in the project repository, on GitHub.",
+    "note": "KyberNow is distributed under the AGPL-3.0 licence. The licence texts are in the project repository, on GitHub.",
     "back": "Back"
   },
   "mock": {
-    "arm64Title": "ARM64 processor",
-    "arm64": "The ARM64 version of KyberNow Link will be installed: it runs without emulation, with the chip's video decoding.",
-    "x64Title": "x64 processor",
-    "x64": "The x64 version of KyberNow Link will be installed.",
-    "gpu": "{name}: it decodes the picture, for lower latency and longer battery life.",
-    "display": "2560 × 1600 · 120 Hz: your computer can take exactly this size during the session.",
+    "arm64Title": "ARM processor",
+    "arm64": "KyberNow Link installs its version built for this processor (ARM64): it runs without emulation and decodes the picture with the chip.",
+    "x64Title": "Intel or AMD processor",
+    "x64": "KyberNow Link installs its version built for this processor (x64).",
+    "gpu": "{name}: it decodes the picture, which lowers latency and saves battery.",
+    "display": "2560 × 1600 · 120 Hz: your computer can create a display at exactly this size during the session.",
     "network": "192.168.1.20: a computer on this network shows up in KyberNow Link on its own.",
-    "webviewTitle": "WebView2 display engine",
-    "webview": "Version 141.0.3537.71, by Microsoft: it draws the KyberNow Link interface.",
+    "webviewTitle": "Display engine (WebView2)",
+    "webview": "It displays the KyberNow Link windows (version 141.0.3537.71, from Microsoft).",
     "existingTitle": "KyberNow Link 0.2.7 is installed",
-    "existing": "It will be updated. Your computers, their passwords and your settings stay.",
+    "existing": "It will be updated. Your computers, their passwords and your settings are kept.",
     "runningTitle": "KyberNow Link is open",
-    "running": "It will be closed during installation: a session in progress will stop.",
-    "failed": "Could not put the files in C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
+    "running": "It will be closed during installation: a session in progress will be cut off.",
+    "failed": "Could not install the files in C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
     "finished": "installation complete"
   }
 }

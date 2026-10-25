@@ -118,7 +118,7 @@ const ms = (v) => (v >= 100 ? `${Math.round(v)} ms` : `${LANG === 'fr' ? v.toFix
 
 let state = null
 
-// « donner l'accès à Apple TV et retirer l'accès de iPad » (comme la console).
+// « donner l'accès à Apple TV et retirer l'accès de iPad » (comme Admin).
 function accessReason(pending) {
   const and = ` ${t('access.and')} `
   const join = (names) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')}${and}${names[names.length - 1]}`)
@@ -194,7 +194,7 @@ function render() {
     ? `<div class="code"><span>${esc(t('setupCode'))}</span><strong>${esc(s.setupCode)}</strong><button data-cmd="copyCode">${esc(t('copyCode'))}</button></div>`
     : ''
   // Appareils qui demandent l'accès par code (Apple TV) : le code ne passe
-  // pas par l'icône, il se compare dans la console (Appareils Link), qui accepte.
+  // pas par l'icône, il se compare dans Admin (Appareils Link), qui accepte.
   const pair = ((s.console && s.console.pairRequests) || []).map((r) => `<div class="pair" role="group" aria-label="${esc(t('pairRequest', { name: r.name }))}">
       <span class="lbl">${esc(t('pairRequest', { name: r.name }))}</span>
       <span class="hint">${esc(t('pairHint'))}</span>

@@ -23,7 +23,8 @@
     "sessionOf": "la session de {name}",
     "currentConnection": "la connexion en cours",
     "pairTooMany": "trop de demandes d'appairage : réessayez dans une minute",
-    "requestGone": "cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code"
+    "requestGone": "cette demande a expiré : l'appareil en enverra une nouvelle avec un autre code",
+    "unknownRoute": "route inconnue de cette version d'Admin"
   },
   "auth": {
     "adminHeader": "en-tête x-kyber-admin manquant",
@@ -77,6 +78,15 @@
     "noTag": "version sans numéro",
     "badGithubVersion": "numéro de version inattendu sur GitHub : {version}"
   },
+  "station": {
+    "windowsOnly": "redémarrer la Station n'est possible que sous Windows",
+    "alreadyRestarting": "la Station redémarre déjà",
+    "restartConflict": "Un appareil est connecté ({name}) : le redémarrage coupera sa session",
+    "tooSoon": "la Station vient de redémarrer : réessayez dans {seconds} s",
+    "upToDate": "KyberNow Station {version} est à jour : rien à installer",
+    "requiresSetup": "KyberNow Station {version} s'installe avec {setup}, sur l'ordinateur : téléchargez-le depuis Admin, page Système",
+    "notInstallable": "KyberNow Station {version} ne s'installe pas depuis un appareil : {reason}"
+  },
   "manifest": {
     "otherKey": "manifeste signé par une autre clé que celle de KyberNow",
     "badSignature": "signature du manifeste invalide : version falsifiée ou abîmée",
@@ -124,6 +134,11 @@
     "restartWaiting": "Redémarrage du serveur en attente pour {why} : il se fera dès la fin de la session en cours",
     "pairRefused": "Accès refusé à {name} (appairage par code)",
     "connectionsCut": "Connexions coupées depuis Admin (serveur redémarré)",
+    "stationRestarted": "{name} a redémarré la Station",
+    "stationRestartedAccount": "Un appareil du compte {account} a redémarré la Station",
+    "stationRestartedAdmin": "Station redémarrée depuis Admin",
+    "stationUpdate": "{name} a lancé la mise à jour vers {version}",
+    "stationUpdateAccount": "Un appareil du compte {account} a lancé la mise à jour vers {version}",
     "displayKeepsTurningOn": "Windows rallume sans cesse un écran de l'ordinateur : il reste allumé pour le reste de la session",
     "displayModeFollowed": "L'écran virtuel est passé en {mode} (demandé : {target}), laissé tel quel",
     "displayModeRestored": "L'écran virtuel est passé en {mode} : remis en {target}",

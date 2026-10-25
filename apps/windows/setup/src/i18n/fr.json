@@ -1,89 +1,89 @@
 {
   "setup": {
     "notInstaller": "Ce fichier ne contient pas KyberNow Link ({error}). Téléchargez à nouveau l'installateur complet.",
-    "cannotStart": "L'installation n'a pas pu démarrer :\n\n{error}",
-    "updateFailed": "La mise à jour de KyberNow Link n'a pas abouti :\n\n{error}\n\nKyberNow Link se rouvre. Le détail est dans %LOCALAPPDATA%\\KyberNow\\setup.log.",
-    "webview2Ask": "L'installation et l'app KyberNow Link s'affichent avec WebView2, le moteur d'affichage de Microsoft (celui d'Edge). Il manque sur ce PC.\n\nLe télécharger et l'installer maintenant ? (environ 2 Mo, puis l'installateur de Microsoft)",
-    "webview2Failed": "WebView2 n'a pas pu être installé : {error}\n\nLa page de Microsoft va s'ouvrir : installez « Microsoft Edge WebView2 Runtime », puis relancez cet installateur.",
+    "cannotStart": "L'installation n'a pas pu démarrer :\n\n{error}",
+    "updateFailed": "La mise à jour de KyberNow Link n'a pas abouti :\n\n{error}\n\nKyberNow Link se rouvre. Le détail est dans %LOCALAPPDATA%\\KyberNow\\setup.log.",
+    "webview2Ask": "Pour s'afficher, l'installation et l'app KyberNow Link ont besoin d'un composant de Microsoft, celui qu'utilise Edge (WebView2). Il manque sur ce PC.\n\nLe télécharger et l'installer maintenant ? Le téléchargement fait environ 2 Mo, puis l'installateur de Microsoft fait le reste.",
+    "webview2Failed": "Le composant de Microsoft (WebView2) n'a pas pu être installé : {error}\n\nLa page de Microsoft va s'ouvrir : installez « Microsoft Edge WebView2 Runtime », puis relancez cet installateur.",
     "windowTitle": "Installation de KyberNow Link"
   },
   "uninstall": {
     "title": "Désinstaller KyberNow Link",
-    "confirm": "KyberNow Link va être retirée de ce PC : l'app, ses raccourcis et son lien kybernow://.\n\nVos ordinateurs, eux, ne changent pas.\n\nContinuer ?",
-    "erase": "Effacer aussi la liste de vos ordinateurs, leurs réglages et leurs mots de passe ?\n\nNon : ils seront là si vous réinstallez KyberNow Link.",
+    "confirm": "KyberNow Link va être retirée de ce PC, avec ses raccourcis. Les liens d'appairage (kybernow://) ne l'ouvriront plus.\n\nRien ne change sur vos ordinateurs.\n\nContinuer ?",
+    "erase": "Effacer aussi la liste de vos ordinateurs, leurs réglages et leurs mots de passe ?\n\nNon : ils seront là si vous réinstallez KyberNow Link.",
     "done": "KyberNow Link a été désinstallée."
   },
   "checks": {
     "windows": {
       "title": "Windows",
-      "old": "Build {build} : KyberNow Link est prévue pour Windows 10 22H2 (19045) ou plus récent. Faites les mises à jour de Windows.",
-      "build": "Build {build}"
+      "old": "Windows trop ancien (build {build}) : KyberNow Link demande Windows 10 22H2 (19045) ou plus récent. Faites les mises à jour de Windows.",
+      "build": "Compatible (build {build})"
     },
     "arch": {
       "title": "Processeur",
-      "arm64Title": "Processeur ARM64",
-      "arm64": "La version ARM64 de KyberNow Link s'installe : elle tourne sans émulation, avec le décodage vidéo de la puce.",
-      "x64Title": "Processeur x64",
-      "x64": "La version x64 de KyberNow Link s'installe."
+      "arm64Title": "Processeur ARM",
+      "arm64": "KyberNow Link s'installe dans sa version pour ce processeur (ARM64) : elle tourne sans émulation et décode l'image avec la puce.",
+      "x64Title": "Processeur Intel ou AMD",
+      "x64": "KyberNow Link s'installe dans sa version pour ce processeur (x64)."
     },
     "gpu": {
       "title": "Carte graphique",
       "more1": " (et 1 autre)",
       "moreN": " (et {count} autres)",
-      "ok": "{name}{more} : elle décode l'image, pour moins de latence et moins de batterie.",
-      "basic": "Pilote de base de Windows : l'image sera décodée par le processeur. Installez le pilote de la carte graphique pour de meilleures performances."
+      "ok": "{name}{more} : elle décode l'image, ce qui réduit la latence et économise la batterie.",
+      "basic": "Pilote de base de Windows : le processeur décodera l'image, plus lentement. Installez le pilote de la carte graphique pour qu'elle s'en charge."
     },
     "display": {
       "title": "Écran",
-      "unknown": "Taille inconnue : KyberNow Link s'adaptera à la fenêtre.",
-      "ok": "{width} × {height} · {hz} Hz : votre ordinateur peut prendre exactement cette taille pendant la session."
+      "unknown": "Taille inconnue : KyberNow Link s'adaptera à la fenêtre.",
+      "ok": "{width} × {height} · {hz} Hz : votre ordinateur peut créer un écran exactement à cette taille pendant la session."
     },
     "network": {
       "title": "Réseau local",
-      "ok": "{ip} : un ordinateur sur ce réseau apparaît tout seul dans KyberNow Link.",
-      "none": "Pas de réseau pour l'instant : branchez-vous avant de vous connecter."
+      "ok": "{ip} : un ordinateur sur ce réseau apparaît tout seul dans KyberNow Link.",
+      "none": "Aucun réseau pour l'instant : connectez ce PC à votre réseau avant d'ouvrir une session."
     },
     "webview": {
       "title": "Moteur d'affichage",
-      "fullTitle": "Moteur d'affichage WebView2",
-      "ok": "Version {version}, de Microsoft : il dessine l'interface de KyberNow Link.",
-      "missing": "Absent : il sera téléchargé et installé (environ 2 Mo)."
+      "fullTitle": "Moteur d'affichage (WebView2)",
+      "ok": "Il affiche les fenêtres de KyberNow Link (version {version}, de Microsoft).",
+      "missing": "Absent de ce PC : il sera téléchargé chez Microsoft et installé (environ 2 Mo)."
     },
     "existing": {
       "label": "Version installée",
       "title": "KyberNow Link {version} est installée",
-      "detail": "Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages restent."
+      "detail": "Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages sont gardés."
     },
     "running": {
       "title": "KyberNow Link est ouverte",
-      "detail": "Elle sera fermée au moment d'installer : une session en cours s'arrêtera."
+      "detail": "Elle sera fermée pendant l'installation : une session en cours sera coupée."
     }
   },
   "install": {
     "log": {
       "start": "installation de KyberNow Link {version} ({arch}) dans {dir}",
       "closing": "fermeture de KyberNow Link",
-      "files": "{count} fichiers posés",
+      "files": "{count} fichiers installés",
       "webviewPresent": "WebView2 {version} présent",
       "webviewInstalled": "WebView2 {version} installé",
-      "shortcuts": "raccourcis : {error}",
+      "shortcuts": "raccourcis : {error}",
       "done": "installation terminée",
-      "failed": "échec ({task}) : {error}"
+      "failed": "échec ({task}) : {error}"
     }
   },
   "errors": {
     "appWontClose": "KyberNow Link est encore ouverte et refuse de se fermer. Fermez-la, puis réessayez.",
-    "placeFiles": "impossible de poser les fichiers dans {dir}",
-    "placeFilesOld": "impossible de poser les fichiers, et l'ancienne version est restée dans {dir}",
+    "placeFiles": "impossible d'installer les fichiers dans {dir}",
+    "placeFilesOld": "impossible d'installer les fichiers ; l'ancienne version est restée dans {dir}",
     "replaceFiles": "remplacement des fichiers",
     "locked": "{path} est verrouillé",
     "incomplete": "installateur incomplet",
-    "noApp": "l'app est introuvable dans l'installateur (fichier abîmé ?)",
+    "noApp": "l'app est introuvable dans l'installateur (fichier abîmé ?)",
     "damaged": "installateur abîmé",
     "noArch": "cet installateur ne contient pas la version {arch} de KyberNow Link",
-    "contentIncomplete": "contenu incomplet : {count} fichiers sur {total}",
-    "webview2Download": "téléchargement de WebView2 impossible (connexion à Internet ?) : {error}",
+    "contentIncomplete": "contenu incomplet : {count} fichiers sur {total}",
+    "webview2Download": "téléchargement de WebView2 impossible (connexion à Internet ?) : {error}",
     "webview2Code": "l'installateur de WebView2 a échoué (code {code})",
-    "webview2Start": "l'installateur de WebView2 n'a pas démarré : {error}"
+    "webview2Start": "l'installateur de WebView2 n'a pas démarré : {error}"
   }
 }

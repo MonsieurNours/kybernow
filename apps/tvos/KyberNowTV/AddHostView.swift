@@ -39,7 +39,7 @@ struct AddHostView: View {
             Button { app.screen = .home } label: {
                 HStack(spacing: 10) {
                     Icon("arrow-left", size: 26, bold: true)
-                    Text("Vos ordinateurs").font(Theme.sans(22, .medium))
+                    Text("Retour").font(Theme.sans(22, .medium))
                 }
                 .padding(.leading, 18).padding(.trailing, 26)
                 .frame(height: 60)
@@ -275,7 +275,8 @@ private struct LoginForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
-            Text("Le compte de \(candidate.name)").font(Theme.display(48, 640)).tracking(-48 * 0.03)
+            (French.elides(candidate.name) ? Text("Le compte d'\(candidate.name)") : Text("Le compte de \(candidate.name)"))
+                .font(Theme.display(48, 640)).tracking(-48 * 0.03)
             Text("Celui choisi à l'installation de KyberNow Station sur cet ordinateur.")
                 .font(Theme.sans(22)).foregroundStyle(Theme.text2)
             field(String(localized: "Identifiant")) {
@@ -299,7 +300,7 @@ private struct LoginForm: View {
             if let error {
                 Text(error).font(Theme.sans(21)).foregroundStyle(Theme.dangerText)
             } else if let seen, candidate.expected == nil {
-                Text("Empreinte de la Station : \(Self.groups(seen)) — à comparer à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil ».")
+                Text("Empreinte de la Station : \(LinkFormat.fingerprint(seen)). Comparez-la à celle de KyberNow Admin, Appareils Link › « Ajouter un appareil ».")
                     .font(Theme.mono(16)).foregroundStyle(Theme.muted)
             }
             HStack(spacing: 20) {
@@ -322,14 +323,6 @@ private struct LoginForm: View {
                 .font(Theme.sans(27))
                 .frame(width: 760)
         }
-    }
-
-    static func groups(_ fp: String) -> String {
-        let hex = fp.replacingOccurrences(of: "sha256:", with: "").replacingOccurrences(of: ":", with: "").uppercased()
-        return stride(from: 0, to: min(16, hex.count), by: 4).map { i in
-            let s = hex.index(hex.startIndex, offsetBy: i)
-            return String(hex[s ..< hex.index(s, offsetBy: 4)])
-        }.joined(separator: " ")
     }
 
     private func add() {
@@ -498,6 +491,8 @@ private struct CodePane: View {
                     let info = try? await check.info()
                     var host = Host(name: info?.hostname ?? c.name, address: c.address, consolePort: c.port, username: username)
                     host.consoleFingerprint = console.fingerprint
+                    // Compte créé par Admin pour cette Apple TV, à l'accord.
+                    host.pairedByCode = true
                     app.store.add(host, password: password)
                     app.selected = host.id
                     app.screen = .home

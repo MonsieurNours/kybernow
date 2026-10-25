@@ -1,4 +1,4 @@
-// Mesures détaillées d'une session (maquettes iOS, planche 6). Sur iPhone,
+// Statistiques d'une session, à la demande depuis la barre (maquettes iOS, planche 6). Sur iPhone,
 // une feuille compacte à mi-hauteur : latence et débit sur 30 s, le trajet
 // d'une image en une barre empilée, pertes, son. Sur iPad, le panneau du Mac
 // (apps/macos/KyberNow/SessionStats.swift) : le trajet en cascade sur une
@@ -25,7 +25,7 @@ struct SessionStatsView: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width = $0 }
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text("Mesures détaillées"))
+        .accessibilityLabel(Text("Statistiques"))
     }
 
     // MARK: - Données
@@ -186,7 +186,7 @@ struct SessionStatsView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text("Fermer les mesures"))
+            .accessibilityLabel(Text("Fermer les statistiques"))
         }
     }
 
@@ -265,7 +265,7 @@ struct SessionStatsView: View {
     private var panelHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Theme.eyebrow(String(localized: "Mesures détaillées"), color: Theme.muted)
+                Theme.eyebrow(String(localized: "Statistiques"), color: Theme.muted)
                 if let ms = stats?.latencyMs {
                     Text(verbatim: StatsFormat.ms(ms))
                         .font(Theme.mono(15, .medium))

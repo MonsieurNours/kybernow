@@ -3,7 +3,9 @@
 //! après une perte, fin propre ; et la continuité de l'image : image clé
 //! redemandée puis flux relancé, repli quand aucune image ne vient, taille
 //! de l'écran de l'ordinateur suivie, politique de mode (« Remettre »),
-//! adaptation à un nouveau mode de l'écran de l'appareil.
+//! adaptation à un nouveau mode de l'écran de l'appareil ; en dernier
+//! recours, la Station redémarrée pendant la connexion (voir
+//! [`Recovery::restart_station`]).
 //!
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
 //! et les demandes de l'app lui arrivent par un canal.
@@ -15,16 +17,19 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use kyclient::{
-    AudioProtocol, AudioSessionConfig, AuthCredentials, Client, ConnectConfig, Display, Event,
-    EventSink, InputSessionConfig, KyProtoConfig, KymuxConfig, StreamerPipelineEventType,
-    StreamingProtocol, StreamingSessionConfig, VideoPlayerConfig, VideoProtocol,
-    VideoSessionConfig,
+    AudioProtocol, AudioSessionConfig, AuthCredentials, Client, ConnectConfig, ConnectFailedReason,
+    Display, Event, EventSink, InputSessionConfig, KyProtoConfig, KymuxConfig, StopReason,
+    StreamerPipelineEventType, StreamingProtocol, StreamingSessionConfig, VideoPlayerConfig,
+    VideoProtocol, VideoSessionConfig,
 };
 use kynput_rs::{ControlEvent, InputTarget, Pipeline};
 use kyvlcplayer::WindowHandle;
 use log::{info, warn};
 
-use crate::console::{Console, DeviceInfo, Heartbeat, HeartbeatReply, Mode, PrepareRequest, Prepared};
+use crate::console::{
+    Console, ConsoleError, DeviceInfo, Heartbeat, HeartbeatReply, Mode, PrepareRequest, Prepared,
+    StationError,
+};
 use crate::i18n::{self, Lang};
 use crate::latency::{LatencyTracker, Second};
 use crate::media::{PacketHandler, packet_sink};
@@ -32,8 +37,9 @@ use crate::profile::StreamSettings;
 
 /// Reprise de l'image par le cœur (apps Apple, Android, Linux, webOS). Par
 /// défaut (Windows), la plateforme tient elle-même ses veilles et appelle
-/// [`Session::request_keyframe`] et [`Session::no_image`].
-#[derive(Debug, Clone, Default)]
+/// [`Session::request_keyframe`] et [`Session::no_image`] ; le dernier
+/// recours ([`Self::restart_station`]) vaut pour toutes.
+#[derive(Debug, Clone)]
 pub struct Recovery {
     /// Le cœur veille lui-même à la première image (4 s après le démarrage du
     /// flux, d'après [`Session::frame_displayed`]) et aux images clés
@@ -43,6 +49,20 @@ pub struct Recovery {
     /// Sans image : le flux est d'abord allégé, pour cette session seulement
     /// (débit ramené à ce plafond, en bit/s, puis 4:2:0), avant d'être relancé.
     pub fallback_bitrate: Option<u32>,
+    /// Dernier recours de la connexion (vrai par défaut) : Admin a répondu,
+    /// mais l'image n'arrive pas malgré les réparations ci-dessus, ou la
+    /// connexion à Kyber échoue. La Station est alors redémarrée une fois,
+    /// sans couper la session d'un autre appareil, attendue (90 s au plus),
+    /// puis la session reprend du début. Jamais une fois la première image
+    /// montrée. Faux : la session échoue tout de suite (ligne de commande,
+    /// bancs d'essai).
+    pub restart_station: bool,
+}
+
+impl Default for Recovery {
+    fn default() -> Self {
+        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
+    }
 }
 
 /// Ce qu'il faut pour ouvrir une session.
@@ -85,6 +105,12 @@ pub enum Status {
     FirstImages,
     Streaming,
     Reconnecting { attempt: u32, max: u32 },
+    /// Dernier recours de la connexion ([`Recovery::restart_station`]) : la
+    /// Station redémarre, l'écran de connexion affiche « La Station
+    /// redémarre… » jusqu'à l'état suivant (`Preparing` si elle revient,
+    /// `Ending` puis `Ended` sinon). Une app qui ne le montre pas encore reste
+    /// sur l'étape « Connexion ».
+    StationRestarting,
     Ending,
     /// Fin de session ; `error` dit pourquoi si elle n'était pas voulue.
     Ended { error: Option<String>, report: Option<EndReport> },
@@ -143,7 +169,7 @@ pub trait Platform: Send + Sync {
 enum Msg {
     Event(Event),
     Stop,
-    Fail(String),
+    Fail(Failure),
     KeyframeNeeded,
     KeyframeLost,
     KeyframeRecovered,
@@ -167,12 +193,183 @@ enum Msg {
     ModeRestored,
 }
 
-struct Events(Mutex<Sender<Msg>>);
+/// Les événements d'un client Kyber, tant que sa tentative de connexion vit
+/// (ceux d'un client arrêté avant un redémarrage de la Station ne comptent plus).
+struct Events {
+    tx: Mutex<Sender<Msg>>,
+    alive: Arc<AtomicBool>,
+}
 
 impl EventSink for Events {
     fn on_event(&self, event: &Event) {
         // Appelé sous le verrou de Kyber : on ne fait que transmettre.
-        let _ = self.0.lock().unwrap().send(Msg::Event(event.clone()));
+        if self.alive.load(Ordering::Relaxed) {
+            let _ = self.tx.lock().unwrap().send(Msg::Event(event.clone()));
+        }
+    }
+}
+
+/// Ce qu'un redémarrage de la Station peut réparer (voir [`restart_wanted`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Cause {
+    /// L'image n'arrive pas malgré les réparations de la session (image clé,
+    /// flux relancé, repli), ou Kyber la refuse.
+    NoImage,
+    /// La connexion à Kyber échoue, après ses propres essais.
+    Kyber,
+}
+
+/// Échec d'une tentative de connexion : la raison montrée à l'utilisateur
+/// (langue de l'app), et ce qu'un redémarrage de la Station pourrait réparer
+/// (`None` : rien, la session échoue comme elle est).
+#[derive(Debug, Clone, PartialEq)]
+struct Failure {
+    text: String,
+    cause: Option<Cause>,
+}
+
+impl Failure {
+    fn no_image(text: String) -> Self {
+        Self { text, cause: Some(Cause::NoImage) }
+    }
+
+    fn kyber(text: String) -> Self {
+        Self { text, cause: Some(Cause::Kyber) }
+    }
+}
+
+/// Une erreur ordinaire (Admin, compte, certificat, erreur locale) : jamais
+/// de redémarrage de la Station.
+impl From<String> for Failure {
+    fn from(text: String) -> Self {
+        Self { text, cause: None }
+    }
+}
+
+/// Kyber refuse la connexion : réseau, délai, erreur du serveur ou du
+/// protocole se réparent en redémarrant la Station. Pas le compte (Admin
+/// redémarre déjà Kyber pour les comptes en attente quand personne d'autre ne
+/// s'en sert : le refaire couperait quelqu'un), ni le certificat, ni une
+/// erreur de configuration de l'appareil.
+fn connect_failed_cause(reason: ConnectFailedReason) -> Option<Cause> {
+    match reason {
+        ConnectFailedReason::NetworkError
+        | ConnectFailedReason::TimedOut
+        | ConnectFailedReason::ServerError
+        | ConnectFailedReason::WebSocketFailed
+        | ConnectFailedReason::ProtocolFailed => Some(Cause::Kyber),
+        _ => None,
+    }
+}
+
+/// Kyber s'arrête de lui-même : connexion fermée ou muette, réparable ; une
+/// erreur de décodage de l'appareil, non.
+fn stopped_cause(reason: StopReason) -> Option<Cause> {
+    match reason {
+        StopReason::ControlPlaneClosed | StopReason::ControlPlaneTimeout => Some(Cause::Kyber),
+        _ => None,
+    }
+}
+
+/// Où en est la tentative de connexion quand elle échoue.
+#[derive(Debug, Clone, Copy)]
+struct Attempt {
+    /// [`Recovery::restart_station`].
+    enabled: bool,
+    /// Admin a répondu : `prepare` a réussi.
+    prepared: bool,
+    /// Une image a été montrée : la session était établie.
+    shown: bool,
+    /// Admin a demandé la fin (depuis Admin, ou un autre appareil prend la main).
+    end_requested: bool,
+    /// La Station a déjà été redémarrée pour cette connexion.
+    restarted: bool,
+}
+
+/// Le dernier recours s'applique-t-il ? Seulement pour un échec qu'un
+/// redémarrage répare, quand Admin a répondu, avant toute image, sans fin
+/// demandée par Admin, et une seule fois par connexion. Une session établie
+/// garde ses propres reprises (reconnexion, relances).
+fn restart_wanted(cause: Option<Cause>, a: Attempt) -> bool {
+    cause.is_some() && a.enabled && a.prepared && !a.shown && !a.end_requested && !a.restarted
+}
+
+/// Retour de la Station après un redémarrage de dernier recours : `info`
+/// toutes les 2 s, 90 s au plus.
+const STATION_POLL: Duration = Duration::from_secs(2);
+const STATION_BACK_WITHIN: Duration = Duration::from_secs(90);
+
+/// Ce que le dernier recours demande à Admin (une fausse console dans les tests).
+trait StationAdmin {
+    /// `POST /api/stream/station/restart` ; `device_id` nomme l'appareil dans le fil d'Admin.
+    fn restart(&self, device_id: &str, force: bool) -> Result<(), StationError>;
+    /// Admin répond, et la Station a fini de redémarrer.
+    fn back(&self) -> bool;
+}
+
+impl StationAdmin for Console {
+    fn restart(&self, device_id: &str, force: bool) -> Result<(), StationError> {
+        self.station_restart(Some(device_id), force)
+    }
+
+    fn back(&self) -> bool {
+        // `station` absent : rien ne dit qu'elle redémarre encore.
+        self.info().is_ok_and(|i| !i.station.is_some_and(|s| s.restarting))
+    }
+}
+
+/// Issue du redémarrage de dernier recours.
+#[derive(Debug)]
+enum Repair {
+    /// Admin refuse : un autre appareil est en session, trop tôt, Station
+    /// trop ancienne, ou erreur. La session échoue comme elle est.
+    Refused(StationError),
+    /// La Station est revenue : la connexion reprend du début.
+    Back,
+    /// Pas revenue dans le délai.
+    Late,
+    /// L'utilisateur a annulé pendant l'attente.
+    Cancelled,
+}
+
+/// Redémarre la Station, jamais au détriment d'un autre appareil (`force`
+/// faux : Admin refuse s'il en a un en session), puis attend son retour :
+/// `back` toutes les `poll`, `within` au plus. `restarting` : le redémarrage
+/// est accepté (la plateforme l'affiche). `stop(d)` attend au plus `d` et dit
+/// si l'utilisateur annule.
+fn repair(
+    admin: &dyn StationAdmin,
+    device_id: &str,
+    poll: Duration,
+    within: Duration,
+    restarting: impl FnOnce(),
+    mut stop: impl FnMut(Duration) -> bool,
+) -> Repair {
+    if let Err(e) = admin.restart(device_id, false) {
+        return Repair::Refused(e);
+    }
+    restarting();
+    let deadline = Instant::now() + within;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Repair::Late;
+        }
+        if stop(poll.min(left)) {
+            return Repair::Cancelled;
+        }
+        if admin.back() {
+            return Repair::Back;
+        }
+    }
+}
+
+/// Échec de la tentative qui suit le redémarrage : s'il est de ceux que le
+/// redémarrage devait réparer, la raison dit qu'il n'a pas suffi.
+fn after_restart(f: Failure) -> Failure {
+    match f.cause {
+        Some(_) => Failure { text: t("session.after_station_restart", &[("reason", &f.text)]), cause: f.cause },
+        None => f,
     }
 }
 
@@ -190,55 +387,7 @@ impl Session {
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));
         let hidden = Arc::new(AtomicBool::new(false));
-        let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
-        let worker = Worker {
-            requested: params.mode,
-            stream_mode: params.mode,
-            params,
-            platform,
-            tx: tx.clone(),
-            rx,
-            latency: latency.clone(),
-            has_image: has_image.clone(),
-            hidden: hidden.clone(),
-            console: None,
-            client: None,
-            prepared: None,
-            displays: Vec::new(),
-            streaming: None,
-            last_shown: None,
-            pipeline: None,
-            wait_until: None,
-            start_at: None,
-            retries: 0,
-            no_image: 0,
-            last_restore: None,
-            profile_label,
-            last_retry: None,
-            reconnected_at: None,
-            restored_after_reconnect: false,
-            ending: false,
-            last_latency: Arc::new(Mutex::new(None)),
-            device_id: String::new(),
-            alive: Arc::new(AtomicBool::new(true)),
-            fallback: 0,
-            streaming_fallback: 0,
-            image_deadline: None,
-            last_stall_restart: None,
-            keyframe: None,
-            host_size: (0, 0),
-            frame_size: None,
-            list_size: (0, 0),
-            bitrate_cap: None,
-            picked: None,
-            restore_offer: None,
-            last_mode_restore: None,
-            mode_restore_until: None,
-            mode_restoring: false,
-            adapting: false,
-            pending_notice: None,
-            relaunched: false,
-        };
+        let worker = Worker::new(params, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone());
         let guard_platform = worker.platform.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-session".into())
@@ -289,7 +438,8 @@ impl Session {
 
     /// Aucune image depuis le démarrage du flux : il est relancé (ce qui
     /// relance aussi le service vidéo de Kyber sur l'ordinateur), trois fois
-    /// au plus, puis la session s'arrête avec la raison.
+    /// au plus, puis la session s'arrête avec la raison (avant la première
+    /// image : après le dernier recours, voir [`Recovery::restart_station`]).
     pub fn no_image(&self) {
         self.send(Msg::NoImage);
     }
@@ -422,6 +572,15 @@ struct Worker {
     /// Capsule à montrer au prochain démarrage de l'image.
     pending_notice: Option<Notice>,
     relaunched: bool,
+    /// Admin a répondu à `prepare` pendant cette tentative.
+    prepared_ok: bool,
+    /// Admin a demandé la fin de la session (signal de vie).
+    end_requested: bool,
+    /// La Station a été redémarrée pour cette connexion (une fois au plus).
+    station_restarted: bool,
+    /// Fin déjà dite à Admin avant le redémarrage de la Station, quand la
+    /// session s'arrête là (refus, retard, annulation).
+    end_report: Option<EndReport>,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -434,13 +593,187 @@ fn usable(d: &Display) -> bool {
 }
 
 impl Worker {
+    fn new(
+        params: SessionParams,
+        platform: Arc<dyn Platform>,
+        tx: Sender<Msg>,
+        rx: Receiver<Msg>,
+        latency: Arc<LatencyTracker>,
+        has_image: Arc<AtomicBool>,
+        hidden: Arc<AtomicBool>,
+    ) -> Self {
+        let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
+        Worker {
+            requested: params.mode,
+            stream_mode: params.mode,
+            device_id: params.device.id.clone(),
+            params,
+            platform,
+            tx,
+            rx,
+            latency,
+            has_image,
+            hidden,
+            console: None,
+            client: None,
+            prepared: None,
+            displays: Vec::new(),
+            streaming: None,
+            last_shown: None,
+            pipeline: None,
+            wait_until: None,
+            start_at: None,
+            retries: 0,
+            no_image: 0,
+            last_restore: None,
+            profile_label,
+            last_retry: None,
+            reconnected_at: None,
+            restored_after_reconnect: false,
+            ending: false,
+            last_latency: Arc::new(Mutex::new(None)),
+            alive: Arc::new(AtomicBool::new(true)),
+            fallback: 0,
+            streaming_fallback: 0,
+            image_deadline: None,
+            last_stall_restart: None,
+            keyframe: None,
+            host_size: (0, 0),
+            frame_size: None,
+            list_size: (0, 0),
+            bitrate_cap: None,
+            picked: None,
+            restore_offer: None,
+            last_mode_restore: None,
+            mode_restore_until: None,
+            mode_restoring: false,
+            adapting: false,
+            pending_notice: None,
+            relaunched: false,
+            prepared_ok: false,
+            end_requested: false,
+            station_restarted: false,
+            end_report: None,
+        }
+    }
+
     fn run(mut self) {
-        self.device_id = self.params.device.id.clone();
-        let error = match self.open() {
+        let failure = match self.attempt() {
+            Some(f) if self.restart_wanted(&f) => self.last_resort(f),
+            other => other,
+        };
+        self.finish(failure.map(|f| f.text));
+    }
+
+    /// Une tentative de connexion : préparation, Kyber, puis la session
+    /// jusqu'à sa fin ; `None` : fin voulue (app, Admin).
+    fn attempt(&mut self) -> Option<Failure> {
+        match self.open() {
             Ok(()) => self.event_loop(),
             Err(e) => Some(e),
+        }
+    }
+
+    fn restart_wanted(&self, f: &Failure) -> bool {
+        restart_wanted(
+            f.cause,
+            Attempt {
+                enabled: self.params.recovery.restart_station,
+                prepared: self.prepared_ok,
+                shown: self.shown(),
+                end_requested: self.end_requested,
+                restarted: self.station_restarted,
+            },
+        )
+    }
+
+    /// Une image a été montrée pendant cette connexion : la session est établie.
+    fn shown(&self) -> bool {
+        self.latency.any_displayed() || self.has_image.load(Ordering::Relaxed)
+    }
+
+    /// Dernier recours de la connexion ([`Recovery::restart_station`]) : la
+    /// tentative est close chez Admin (sinon il compterait cet appareil comme
+    /// en session et refuserait), la Station redémarrée et attendue, puis la
+    /// session refaite depuis le début (écran virtuel recréé), une fois.
+    fn last_resort(&mut self, first: Failure) -> Option<Failure> {
+        warn!("connexion sans issue ({}) : redémarrage de la Station en dernier recours", first.text);
+        self.station_restarted = true;
+        let Some((report, answered)) = self.release(true) else { return Some(first) };
+        self.end_report = Some(report);
+        if !answered {
+            warn!("Admin ne répond plus : la Station n'est pas redémarrée");
+            return Some(first);
+        }
+        // Annulé entre-temps : rien n'est redémarré.
+        if self.stop_requested(Duration::ZERO) {
+            return None;
+        }
+        let console = self.console.clone().expect("console");
+        let device_id = self.device_id.clone();
+        let platform = self.platform.clone();
+        let restarting = || {
+            info!("session : {:?}", Status::StationRestarting);
+            platform.on_status(&Status::StationRestarting);
         };
-        self.finish(error);
+        match repair(&*console, &device_id, STATION_POLL, STATION_BACK_WITHIN, restarting, |d| self.stop_requested(d)) {
+            Repair::Refused(e) => {
+                warn!("la Station n'est pas redémarrée : {}", e.text(Lang::Fr));
+                Some(first)
+            }
+            Repair::Cancelled => None,
+            Repair::Late => {
+                warn!("la Station n'est pas revenue en {} s", STATION_BACK_WITHIN.as_secs());
+                Some(t("session.station_not_back", &[]).into())
+            }
+            Repair::Back => {
+                info!("la Station est revenue : la connexion reprend du début");
+                self.renew();
+                let failure = self.attempt()?;
+                // Établie puis perdue plus tard : la raison telle quelle.
+                Some(if self.shown() { failure } else { after_restart(failure) })
+            }
+        }
+    }
+
+    /// Attend au plus `wait` une demande de fin pendant le dernier recours
+    /// (`Duration::ZERO` : seulement ce qui est déjà arrivé). Le reste de la
+    /// tentative close est écarté ; les réglages changés entre-temps sont
+    /// gardés pour la suivante.
+    fn stop_requested(&mut self, wait: Duration) -> bool {
+        let until = Instant::now() + wait;
+        loop {
+            match self.rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+                Ok(Msg::Stop) | Err(RecvTimeoutError::Disconnected) => return true,
+                Ok(Msg::Beat(r)) if r.end => {
+                    self.end_requested = true;
+                    return true;
+                }
+                Ok(Msg::Settings(s)) => self.params.settings = s,
+                Ok(Msg::BitrateCap(cap)) => self.bitrate_cap = cap,
+                Ok(_) => {}
+                Err(RecvTimeoutError::Timeout) => return false,
+            }
+        }
+    }
+
+    /// Nouvelle tentative après le retour de la Station : tout ce qui tenait
+    /// à la précédente repart de zéro (mêmes paramètres, plateforme, canal,
+    /// mesures ; plafond de débit de la fenêtre gardé).
+    fn renew(&mut self) {
+        let rx = std::mem::replace(&mut self.rx, mpsc::channel().1);
+        let mut next = Worker::new(
+            self.params.clone(),
+            self.platform.clone(),
+            self.tx.clone(),
+            rx,
+            self.latency.clone(),
+            self.has_image.clone(),
+            self.hidden.clone(),
+        );
+        next.bitrate_cap = self.bitrate_cap;
+        next.station_restarted = true;
+        *self = next;
     }
 
     fn status(&self, s: Status) {
@@ -477,6 +810,7 @@ impl Worker {
             "console : écran {:?}, son {:?}, port {:?}",
             prepared.applied, prepared.audio_channels, prepared.kyber_port
         );
+        self.prepared_ok = true;
         self.apply_prepared(prepared);
         Ok(())
     }
@@ -500,7 +834,7 @@ impl Worker {
         self.prepared.as_ref().is_some_and(|p| p.virtual_display)
     }
 
-    fn open(&mut self) -> Result<(), String> {
+    fn open(&mut self) -> Result<(), Failure> {
         self.status(Status::Preparing);
         let p = self.params.clone();
         let console = Arc::new(Console::new(
@@ -537,9 +871,10 @@ impl Worker {
         let client = Client::new(config, true).map_err(|e| format!("Kyber : {e}"))?;
         let tracker = self.latency.clone();
         client.set_metrics_callback(Some(Box::new(move |m| tracker.on_metric(&m))));
-        client
-            .get_event_manager()
-            .add_event_sink(Box::new(Events(Mutex::new(self.tx.clone()))));
+        client.get_event_manager().add_event_sink(Box::new(Events {
+            tx: Mutex::new(self.tx.clone()),
+            alive: self.alive.clone(),
+        }));
         let client = Arc::new(client);
         self.client = Some(client.clone());
         client.connect().map_err(|e| format!("Kyber : {e}"))?;
@@ -574,7 +909,12 @@ impl Worker {
                     let (label, policy) = profile.lock().unwrap().clone();
                     hb.profile = Some(label);
                     hb.mode_policy = Some(policy);
-                    match console.heartbeat(&hb) {
+                    let reply = console.heartbeat(&hb);
+                    // Tentative close pendant l'appel (redémarrage de la Station) : réponse périmée.
+                    if !alive.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    match reply {
                         Ok(r) => {
                             let end = r.end;
                             let _ = tx.send(Msg::Beat(r));
@@ -649,7 +989,7 @@ impl Worker {
         }
     }
 
-    fn event_loop(&mut self) -> Option<String> {
+    fn event_loop(&mut self) -> Option<Failure> {
         let mut next_second = Instant::now() + Duration::from_secs(1);
         loop {
             match self.rx.recv_timeout(Duration::from_millis(100)) {
@@ -767,7 +1107,7 @@ impl Worker {
 
     /// Veilles du cœur (`watch_image`) : première image en 4 s, image clé en
     /// 1,5 s (redemandée toutes les 300 ms).
-    fn watch_image(&mut self, now: Instant) -> Option<String> {
+    fn watch_image(&mut self, now: Instant) -> Option<Failure> {
         if self.hidden.load(Ordering::Relaxed) && self.image_deadline.is_some() {
             // Rien n'est montré tant que l'app a figé l'image : 4 s de nouveau au retour.
             self.image_deadline = Some(now + Duration::from_secs(4));
@@ -831,11 +1171,11 @@ impl Worker {
         true
     }
 
-    fn no_image_restart(&mut self) -> Option<String> {
+    fn no_image_restart(&mut self) -> Option<Failure> {
         if self.streaming.is_some() && self.start_at.is_none() {
             self.no_image += 1;
             if self.no_image > 3 {
-                return Some(t("session.no_image", &[]));
+                return Some(Failure::no_image(t("session.no_image", &[])));
             }
             warn!("aucune image : flux relancé ({}/3)", self.no_image);
             self.restart_streaming(Duration::from_millis(500));
@@ -843,9 +1183,10 @@ impl Worker {
         None
     }
 
-    fn on_beat(&mut self, r: HeartbeatReply) -> Option<String> {
+    fn on_beat(&mut self, r: HeartbeatReply) -> Option<Failure> {
         if r.end {
             info!("la console met fin à la session");
+            self.end_requested = true;
             return None.or_else(|| {
                 let _ = self.tx.send(Msg::Stop);
                 None
@@ -859,7 +1200,7 @@ impl Worker {
                 self.last_restore = Some(Instant::now());
                 self.stop_streaming();
                 if let Err(e) = self.restore_screen() {
-                    return Some(e);
+                    return Some(e.into());
                 }
             }
             return None;
@@ -886,22 +1227,23 @@ impl Worker {
         None
     }
 
-    fn on_event(&mut self, event: Event) -> Option<String> {
+    fn on_event(&mut self, event: Event) -> Option<Failure> {
         match event {
             Event::ControlPlaneConnected { displays } | Event::DisplayListUpdated { displays } => {
                 self.displays_changed(displays);
             }
             Event::ControlPlaneConnectFailed { reason } => {
-                return Some(match reason {
+                let text = match reason {
                     // Compte d'appareil tout juste créé par la console : Kyber
                     // ne le lit qu'à son démarrage, que la console reporte
                     // pendant une session.
-                    kyclient::ConnectFailedReason::Unauthorized => t("session.unauthorized", &[]),
-                    kyclient::ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
+                    ConnectFailedReason::Unauthorized => t("session.unauthorized", &[]),
+                    ConnectFailedReason::TlsVerificationFailed => t("session.tls", &[]),
                     other => t("session.connect_failed", &[("reason", &format!("{other:?}"))]),
-                });
+                };
+                return Some(Failure { text, cause: connect_failed_cause(reason) });
             }
-            Event::DataPlaneConnectFailed => return Some(t("session.stream_failed", &[])),
+            Event::DataPlaneConnectFailed => return Some(Failure::kyber(t("session.stream_failed", &[]))),
             Event::StreamingStarted => {
                 self.latency.reset();
                 self.retries = 0;
@@ -916,7 +1258,7 @@ impl Worker {
             }
             // Kyber se déconnecte lui-même après cet échec : un nouvel essai
             // annoncerait « image démarrée » sans connexion (écran noir).
-            Event::StreamingStartFailed => return Some(t("session.image_refused", &[])),
+            Event::StreamingStartFailed => return Some(Failure::no_image(t("session.image_refused", &[]))),
             Event::StreamerPipelineEvent { type_, event, .. } => {
                 if event == StreamerPipelineEventType::Error {
                     return self.pipeline_failed(&format!("{type_:?}"));
@@ -941,7 +1283,7 @@ impl Worker {
                     // Kyber a pu redémarrer, l'écran virtuel parti avec lui.
                     self.streaming = None;
                     if let Err(e) = self.restore_screen() {
-                        return Some(e);
+                        return Some(e.into());
                     }
                 } else if self.streaming.is_none() {
                     // Image arrêtée par l'app juste avant la coupure (relance
@@ -955,10 +1297,11 @@ impl Worker {
                     self.status(Status::Streaming);
                 }
             }
-            Event::ReconnectionFailed => return Some(t("session.not_responding", &[])),
+            Event::ReconnectionFailed => return Some(Failure::kyber(t("session.not_responding", &[]))),
             Event::Stopped { reason } => {
                 if !self.ending {
-                    return Some(t("session.interrupted", &[("reason", &format!("{reason:?}"))]));
+                    let text = t("session.interrupted", &[("reason", &format!("{reason:?}"))]);
+                    return Some(Failure { text, cause: stopped_cause(reason) });
                 }
             }
             Event::InputServiceConnected => self.platform.on_input_connected(),
@@ -970,7 +1313,7 @@ impl Worker {
     /// Erreur de la chaîne d'image (`kind` : son étage) : écran redemandé
     /// juste après une reconnexion, sinon image relancée (3 fois au plus,
     /// le compte repart après 30 s sans relance).
-    fn pipeline_failed(&mut self, kind: &str) -> Option<String> {
+    fn pipeline_failed(&mut self, kind: &str) -> Option<Failure> {
         warn!("{}", i18n::tr(Lang::Fr, "session.pipeline", &[("kind", kind)]));
         if self.adapting {
             info!("image refusée pendant que l'écran virtuel revient : on attend");
@@ -980,14 +1323,14 @@ impl Worker {
             if at.elapsed() < Duration::from_secs(15) && !self.restored_after_reconnect {
                 self.restored_after_reconnect = true;
                 self.stop_streaming();
-                return self.restore_screen().err();
+                return self.restore_screen().err().map(Failure::from);
             }
         }
         if self.last_retry.is_some_and(|t| t.elapsed() > Duration::from_secs(30)) {
             self.retries = 0;
         }
         if self.retries >= 3 {
-            return Some(t("session.pipeline", &[("kind", kind)]));
+            return Some(Failure::no_image(t("session.pipeline", &[("kind", kind)])));
         }
         self.retries += 1;
         self.last_retry = Some(Instant::now());
@@ -1194,7 +1537,7 @@ impl Worker {
                 self.wait_until = Some(Instant::now() + Duration::from_secs(6));
             } else if deadline_passed {
                 self.wait_until = None;
-                let _ = self.tx.send(Msg::Fail(t("session.no_display", &[])));
+                let _ = self.tx.send(Msg::Fail(Failure::no_image(t("session.no_display", &[]))));
             }
             return;
         }
@@ -1318,7 +1661,7 @@ impl Worker {
         match client.start_streaming(config) {
             Ok(()) => self.platform.on_stream_started(),
             Err(e) => {
-                let _ = self.tx.send(Msg::Fail(t("session.start_image", &[("error", &e.to_string())])));
+                let _ = self.tx.send(Msg::Fail(t("session.start_image", &[("error", &e.to_string())]).into()));
             }
         }
         self.refresh_restore_offer();
@@ -1345,6 +1688,21 @@ impl Worker {
         self.ending = true;
         self.alive.store(false, Ordering::Relaxed);
         self.status(Status::Ending);
+        let report = match self.end_report.take() {
+            // Déjà dite à Admin avant le redémarrage de la Station.
+            Some(r) => Some(r),
+            None => self.release(error.is_some()).map(|(r, _)| r),
+        };
+        self.status(Status::Ended { error, report });
+    }
+
+    /// Clôt la tentative en cours : touches relâchées, image arrêtée, Kyber
+    /// déconnecté, fils du signal de vie arrêtés, fin dite à Admin (écrans
+    /// et son rétablis). Rend ce qu'Admin confirme, et s'il a répondu ;
+    /// `None` sans console.
+    fn release(&mut self, failed: bool) -> Option<(EndReport, bool)> {
+        self.ending = true;
+        self.alive.store(false, Ordering::Relaxed);
         // Rien ne reste enfoncé sur l'ordinateur.
         if let Some(pipeline) = &self.pipeline {
             pipeline
@@ -1356,30 +1714,211 @@ impl Worker {
             let _ = c.disconnect_and_stop(true);
         }
         self.pipeline = None;
-        let mut report = None;
-        if let Some(console) = &self.console {
-            let latency = if error.is_none() { self.latency.session().0 } else { None };
-            report = Some(match console.end(&self.device_id, latency) {
-                Ok(e) => {
-                    if !(e.display_restored && e.audio_restored) {
-                        warn!("fin : écrans {} son {} ({:?})", e.display_restored, e.audio_restored, e.error);
-                    }
-                    EndReport {
-                        display_restored: e.display_restored,
-                        audio_restored: e.audio_restored,
-                        error: e.error,
-                    }
+        self.streaming = None;
+        let console = self.console.as_ref()?;
+        let latency = if failed { None } else { self.latency.session().0 };
+        Some(match console.end(&self.device_id, latency) {
+            Ok(e) => {
+                if !(e.display_restored && e.audio_restored) {
+                    warn!("fin : écrans {} son {} ({:?})", e.display_restored, e.audio_restored, e.error);
                 }
-                Err(e) => {
-                    warn!("fin de session : {}", e.text(Lang::Fr));
-                    EndReport {
-                        display_restored: false,
-                        audio_restored: false,
-                        error: Some(e.to_string()),
-                    }
-                }
-            });
+                let report = EndReport {
+                    display_restored: e.display_restored,
+                    audio_restored: e.audio_restored,
+                    error: e.error,
+                };
+                (report, true)
+            }
+            Err(e) => {
+                warn!("fin de session : {}", e.text(Lang::Fr));
+                // Une erreur d'Admin est une réponse ; pas un compte refusé, ni Admin injoignable.
+                let answered = matches!(e, ConsoleError::Http { status, .. } if status != 401 && status != 403);
+                let report = EndReport {
+                    display_restored: false,
+                    audio_restored: false,
+                    error: Some(e.to_string()),
+                };
+                (report, answered)
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Une tentative qui a tout pour le dernier recours.
+    fn eligible() -> Attempt {
+        Attempt { enabled: true, prepared: true, shown: false, end_requested: false, restarted: false }
+    }
+
+    #[test]
+    fn dernier_recours_declenche() {
+        // L'image n'arrive pas malgré les réparations, ou Kyber ne répond pas.
+        assert!(restart_wanted(Some(Cause::NoImage), eligible()));
+        assert!(restart_wanted(Some(Cause::Kyber), eligible()));
+        assert!(Recovery::default().restart_station, "activé d'office");
+        assert_eq!((STATION_POLL, STATION_BACK_WITHIN), (Duration::from_secs(2), Duration::from_secs(90)));
+    }
+
+    #[test]
+    fn dernier_recours_exclu() {
+        // Erreur ordinaire : Admin injoignable ou refusant le compte, certificat, erreur locale.
+        assert!(!restart_wanted(None, eligible()));
+        assert_eq!(Failure::from("Admin injoignable".to_string()).cause, None);
+        let cases = [
+            ("coupé (ligne de commande, bancs d'essai)", Attempt { enabled: false, ..eligible() }),
+            ("Admin n'a pas répondu à prepare", Attempt { prepared: false, ..eligible() }),
+            ("session établie : une image a été montrée", Attempt { shown: true, ..eligible() }),
+            ("fin demandée par Admin ou par un autre appareil", Attempt { end_requested: true, ..eligible() }),
+            ("une fois par connexion", Attempt { restarted: true, ..eligible() }),
+        ];
+        for (why, a) in cases {
+            assert!(!restart_wanted(Some(Cause::NoImage), a), "{why}");
+            assert!(!restart_wanted(Some(Cause::Kyber), a), "{why}");
         }
-        self.status(Status::Ended { error, report });
+    }
+
+    #[test]
+    fn causes_de_kyber() {
+        use ConnectFailedReason::*;
+        for r in [NetworkError, TimedOut, ServerError, WebSocketFailed, ProtocolFailed] {
+            assert_eq!(connect_failed_cause(r), Some(Cause::Kyber), "{r:?}");
+        }
+        // Compte inconnu de Kyber, certificat, configuration de l'appareil : pas de redémarrage.
+        for r in [Unauthorized, TlsVerificationFailed, TlsConfigurationFailed] {
+            assert_eq!(connect_failed_cause(r), None, "{r:?}");
+        }
+        assert_eq!(stopped_cause(StopReason::ControlPlaneClosed), Some(Cause::Kyber));
+        assert_eq!(stopped_cause(StopReason::ControlPlaneTimeout), Some(Cause::Kyber));
+        assert_eq!(stopped_cause(StopReason::DecodeError), None);
+        assert_eq!(stopped_cause(StopReason::Requested), None);
+    }
+
+    /// Fausse console : refuse le redémarrage (une fois) ou l'accepte, puis
+    /// revient au `back_after`-ième appel de `info` (jamais si `None`).
+    struct FakeAdmin {
+        refuse: Mutex<Option<StationError>>,
+        back_after: Option<usize>,
+        polls: AtomicUsize,
+        restarts: Mutex<Vec<(String, bool)>>,
+    }
+
+    impl FakeAdmin {
+        fn new(refuse: Option<StationError>, back_after: Option<usize>) -> Self {
+            Self { refuse: Mutex::new(refuse), back_after, polls: AtomicUsize::new(0), restarts: Mutex::new(Vec::new()) }
+        }
+
+        fn polls(&self) -> usize {
+            self.polls.load(Ordering::SeqCst)
+        }
+    }
+
+    impl StationAdmin for FakeAdmin {
+        fn restart(&self, device_id: &str, force: bool) -> Result<(), StationError> {
+            self.restarts.lock().unwrap().push((device_id.to_string(), force));
+            self.refuse.lock().unwrap().take().map_or(Ok(()), Err)
+        }
+
+        fn back(&self) -> bool {
+            let n = self.polls.fetch_add(1, Ordering::SeqCst) + 1;
+            self.back_after.is_some_and(|k| n >= k)
+        }
+    }
+
+    const POLL: Duration = Duration::from_millis(2);
+
+    fn sleep_only(d: Duration) -> bool {
+        std::thread::sleep(d);
+        false
+    }
+
+    #[test]
+    fn redemarrage_refuse_la_session_echoue() {
+        let refusals = [
+            StationError::InSession { device: Some("Apple TV du salon".into()), message: "en session".into() },
+            StationError::TooSoon { seconds: Some(42), message: "trop tôt".into() },
+            StationError::Unsupported,
+            StationError::Busy { message: "déjà en cours".into() },
+            StationError::Other(ConsoleError::Network("injoignable".into())),
+        ];
+        for refusal in refusals {
+            let kind = refusal.kind();
+            let admin = FakeAdmin::new(Some(refusal), Some(1));
+            let mut shown = 0;
+            let r = repair(&admin, "mac-1", POLL, Duration::from_secs(1), || shown += 1, sleep_only);
+            assert!(matches!(r, Repair::Refused(ref e) if e.kind() == kind), "{kind} : {r:?}");
+            assert_eq!(shown, 0, "{kind} : rien à afficher");
+            assert_eq!(admin.polls(), 0, "{kind} : pas d'attente");
+            // Jamais au détriment d'un autre appareil : sans `force`, au nom de cet appareil.
+            assert_eq!(*admin.restarts.lock().unwrap(), vec![("mac-1".to_string(), false)]);
+        }
+    }
+
+    #[test]
+    fn redemarrage_accepte_puis_retour() {
+        // Admin injoignable deux fois (la Station redémarre), puis revenu.
+        let admin = FakeAdmin::new(None, Some(3));
+        let mut shown = 0;
+        let r = repair(&admin, "mac-1", POLL, Duration::from_secs(5), || shown += 1, sleep_only);
+        assert!(matches!(r, Repair::Back), "{r:?}");
+        assert_eq!(shown, 1);
+        assert_eq!(admin.polls(), 3);
+        assert_eq!(*admin.restarts.lock().unwrap(), vec![("mac-1".to_string(), false)]);
+    }
+
+    #[test]
+    fn station_pas_revenue_a_temps() {
+        let admin = FakeAdmin::new(None, None);
+        let start = Instant::now();
+        let r = repair(&admin, "mac-1", Duration::from_millis(5), Duration::from_millis(40), || {}, sleep_only);
+        assert!(matches!(r, Repair::Late), "{r:?}");
+        assert!(start.elapsed() >= Duration::from_millis(40));
+        // Un essai par intervalle, rien au-delà du délai.
+        assert!((1..=8).contains(&admin.polls()), "{} essais", admin.polls());
+    }
+
+    #[test]
+    fn annule_pendant_l_attente() {
+        let admin = FakeAdmin::new(None, None);
+        let mut waits = 0;
+        let r = repair(&admin, "mac-1", POLL, Duration::from_secs(5), || {}, |d| {
+            waits += 1;
+            assert!(d <= POLL);
+            waits == 2
+        });
+        assert!(matches!(r, Repair::Cancelled), "{r:?}");
+        assert_eq!(admin.polls(), 1);
+    }
+
+    #[test]
+    fn raison_apres_le_redemarrage() {
+        let f = after_restart(Failure::no_image("l'ordinateur n'envoie pas d'image".into()));
+        assert_eq!(f.cause, Some(Cause::NoImage));
+        assert!(f.text.contains("l'ordinateur n'envoie pas d'image") && f.text.len() > 40, "{}", f.text);
+        // Une autre erreur (Admin, compte) reste telle quelle.
+        let other = Failure::from("Admin injoignable".to_string());
+        assert_eq!(after_restart(other.clone()), other);
+        assert_eq!(
+            i18n::tr(Lang::Fr, "session.after_station_restart", &[("reason", "connexion au flux impossible")]),
+            "connexion au flux impossible, même après un redémarrage de la Station"
+        );
+        assert_eq!(
+            i18n::tr(Lang::En, "session.after_station_restart", &[("reason", "cannot connect to the stream")]),
+            "cannot connect to the stream, even after restarting the Station"
+        );
+        assert!(i18n::tr(Lang::Fr, "session.station_not_back", &[]).starts_with("la Station tarde à revenir"));
+        assert!(i18n::tr(Lang::En, "session.station_not_back", &[]).starts_with("the Station is taking a while"));
+    }
+
+    #[test]
+    fn image_montree_avant_une_remise_a_zero() {
+        let l = LatencyTracker::new();
+        assert!(!l.any_displayed());
+        l.displayed(1, crate::latency::now_micros());
+        l.reset();
+        assert!(l.any_displayed(), "la session a eu ses premières images");
     }
 }

@@ -23,6 +23,8 @@ fontdue = "0.9"
 zune-jpeg = "0.4"
 mdns-sd = { version = "0.13", default-features = false }
 getrandom = "0.2"
+# QR code d'Admin (Réglages de l'ordinateur › Station, à la manette et sur KyberNow Link OS) : pur Rust, sans dépendance.
+qrcodegen = "1.8"
 
 [features]
 # L'app : cœur, FFmpeg, SDL. Sans elle (--no-default-features), seule

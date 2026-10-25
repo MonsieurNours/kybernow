@@ -1,6 +1,7 @@
-// Accueil (maquettes « App · Accueil » et « App · Premier contact ») :
-// l'image de l'ordinateur en plein cadre, son nom en grand, un seul geste pour
-// entrer ; en bas, les autres ordinateurs, ceux trouvés sur le réseau, l'ajout.
+// Accueil (maquettes « App · Accueil » et « App · Premier contact » ;
+// docs/link-ui.md) : l'image de l'ordinateur en plein cadre, son état, son
+// nom en grand, un seul geste pour entrer ; en bas, les autres ordinateurs
+// (nom et état), ceux trouvés sur le réseau, l'ajout.
 
 import KyberKit
 import SwiftUI
@@ -20,13 +21,14 @@ private struct HomeContent: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject var imagery: HostImagery
     @ObservedObject var discovery: Discovery
-    @State private var selectedID: UUID?
+    @ObservedObject var updates = UpdateChannels.shared
+    @Environment(\.openSettings) private var openSettings
     /// Arrivée de l'écran : cascade et allumage du symbole, une fois.
     @State private var arrived = false
     @State private var ignite = 0
 
     private var hosts: [Host] { app.store.ordered }
-    private var featured: Host? { hosts.first { $0.id == selectedID } ?? hosts.first }
+    private var featured: Host? { hosts.first { $0.id == app.selectedID } ?? hosts.first }
     private var others: [Host] { hosts.filter { $0.id != featured?.id } }
 
     var body: some View {
@@ -36,27 +38,17 @@ private struct HomeContent: View {
                 backdrop
                 legibility
                 if let host = featured {
-                    Hero(host: host, picture: imagery.pictures[host.id], fetching: imagery.fetching.contains(host.id), arrived: arrived, size: geo.size)
+                    Hero(host: host, arrived: arrived, size: geo.size)
                         .id(host.id)
                         .transition(.opacity)
                         .padding(.leading, 72)
                         .padding(.top, max(96, geo.size.height * 0.15))
-                    if let ms = host.lastLatencyMs {
-                        LastSessionPanel(median: ms, p95: host.lastLatencyP95Ms, duration: host.lastDuration)
-                            .frame(width: 300)
-                            .padding(.trailing, 72)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.top, max(330, geo.size.height * 0.46))
-                            .opacity(arrived ? 1 : 0)
-                            .offset(x: arrived ? 0 : 24)
-                            .animation(Theme.easeOut.delay(0.7), value: arrived)
-                    }
                 } else {
                     Welcome(arrived: arrived)
                         .padding(.leading, 72)
                         .padding(.top, max(150, geo.size.height * 0.24))
                 }
-                Shelf(featured: featured, others: others, selectedID: $selectedID, discovery: discovery, imagery: imagery, arrived: arrived)
+                Shelf(featured: featured, others: others, discovery: discovery, imagery: imagery, arrived: arrived)
                     .padding(.horizontal, 72)
                     .padding(.bottom, 34)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -75,6 +67,12 @@ private struct HomeContent: View {
             discovery.start()
             arrived = true
             ignite += 1
+            #if DEBUG
+            app.demoAppeared()
+            if AppModel.demo, UserDefaults.standard.string(forKey: "screen") == "app" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { openSettings() }
+            }
+            #endif
         }
     }
 
@@ -98,7 +96,8 @@ private struct HomeContent: View {
         .allowsHitTesting(false)
     }
 
-    /// Barre de titre transparente : symbole et nom, puis les actions de l'app.
+    /// Barre de titre transparente : symbole et nom, la mise à jour de l'app
+    /// quand il y en a une, les réglages de l'app.
     private var header: some View {
         HStack(spacing: 10) {
             ZStack {
@@ -107,20 +106,16 @@ private struct HomeContent: View {
             }
             Wordmark(size: 14)
             Spacer()
-            Button { app.add(tab: .link) } label: {
-                HStack(spacing: 8) { Icon("qr-code", size: 16); Text("Scanner un QR code") }
+            if let version = updates.available {
+                Button { app.checkForUpdates() } label: {
+                    HStack(spacing: 8) { Icon("arrows-clockwise", size: 15); Text("Version \(version) disponible") }
+                }
+                .buttonStyle(SignalButton(height: 32))
+            }
+            SettingsLink {
+                HStack(spacing: 8) { Icon("gear-six", size: 16); Text("Réglages de l'app") }
             }
             .buttonStyle(GhostButton(height: 32))
-            Button { app.add() } label: { Icon("plus", size: 16) }
-                .buttonStyle(GhostButton(height: 32))
-                .help("Ajouter un ordinateur")
-                .accessibilityLabel("Ajouter un ordinateur")
-            if let host = featured {
-                Button { app.route = .settings(host.id) } label: { Icon("sliders-horizontal", size: 16) }
-                    .buttonStyle(GhostButton(height: 32))
-                    .help("Réglages de \(host.name)")
-                    .accessibilityLabel("Réglages de \(host.name)")
-            }
         }
         .padding(.leading, 92)
         .padding(.trailing, 18)
@@ -130,23 +125,23 @@ private struct HomeContent: View {
 
 // MARK: - L'ordinateur affiché
 
+/// Pour l'ordinateur choisi, dans cet ordre et rien d'autre (docs/link-ui.md) :
+/// état, nom, système, l'écran que la session demandera, « Se connecter »,
+/// le profil et sa phrase, les réglages de l'ordinateur.
 private struct Hero: View {
     @EnvironmentObject var app: AppModel
     let host: Host
-    let picture: HostImagery.Picture?
-    let fetching: Bool
     let arrived: Bool
     let size: CGSize
 
     private var width: CGFloat { size.width }
     /// Le nom en très grand, mais jamais au point de pousser le reste sur les autres ordinateurs.
     private var nameSize: CGFloat { min(104, size.width * 0.072, size.height * 0.095) }
-    /// Assez de hauteur pour montrer d'où vient l'image ?
+    /// Assez de hauteur pour aérer les boutons.
     private var roomy: Bool { size.height > 920 }
 
     private var status: HostStatus? { app.store.status[host.id] }
     private var online: Bool? { status?.online }
-    private var neverOpened: Bool { host.lastSession == nil }
 
     private var profile: Binding<Profile?> {
         Binding(get: { host.settings.profile }, set: { p in
@@ -157,88 +152,70 @@ private struct Hero: View {
         })
     }
 
-    private var eyebrow: String {
-        switch picture?.source {
-        case .lastSession: return String(localized: "Dernière image · \(Moment.describe(picture!.date))")
-        case .preview:
-            let fresh = Date().timeIntervalSince(picture!.date) < 120
-            let when = fresh ? String(localized: "à l'instant") : Moment.describe(picture!.date)
-            return String(localized: "Aperçu · \(when), depuis la Station")
-        case nil:
-            if neverOpened { return String(localized: "Nouvel ordinateur · jamais ouvert depuis ce Mac") }
-            return host.settings.keepLastImage ? String(localized: "Sa signature · pas encore d'image") : String(localized: "Sa signature · aucune image gardée")
-        }
-    }
-
-    private var meta: String {
-        [status?.info?.os, status?.info?.gpu, host.address].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private var screenLine: String {
-        switch host.settings.display {
-        case .physical: return String(localized: "Ses écrans tels quels, sans écran virtuel.")
-        case .window: return String(localized: "Un écran à la taille de cette fenêtre l'attend.")
-        case .custom: return String(localized: "Un écran de \(host.settings.customWidth) × \(host.settings.customHeight) à \(host.settings.customRefresh) Hz l'attend.")
-        case .match:
-            let m = DisplayInfo.mode(for: NSScreen.main ?? NSScreen.screens[0], codec: host.settings.codec, limit4K: host.settings.limit4K)
-            return String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend, taillé pour cet écran.")
-        }
-    }
-
-    private var statusText: String {
-        switch online {
-        case nil: return String(localized: "Recherche…")
-        case true?: return String(localized: "En ligne")
-        case false?: return String(localized: "Hors ligne")
-        }
-    }
+    private var screenLine: String { HomeScreen.line(for: host, info: status?.info) }
 
     private func rise(_ i: Int) -> some ViewModifier { Rise(arrived: arrived, delay: 0.15 + Double(i) * 0.1) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 10) {
-                Circle().fill(picture == nil ? Theme.faint : Theme.accent).frame(width: 6, height: 6)
-                Text(eyebrow.uppercased()).font(Theme.mono(11, .medium)).tracking(0.9).foregroundStyle(Theme.muted)
+            StatusPill(online: online, text: LinkText.status(online))
+                .modifier(rise(0))
+            VStack(alignment: .leading, spacing: 10) {
+                Text(host.name)
+                    .font(Theme.display(nameSize, .bold))
+                    .tracking(-nameSize * 0.045)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.5)
+                    .foregroundStyle(Theme.text)
+                    .frame(maxWidth: width * 0.56, alignment: .leading)
+                if let os = status?.info?.os {
+                    Text(verbatim: os).font(Theme.sans(16)).foregroundStyle(Theme.muted).lineLimit(1)
+                }
+                if let problem = status?.problem {
+                    // Le réglage qui le règle : le mot de passe (Station), l'empreinte (Statistiques).
+                    Button { app.openSettings(host, section: problem == .passwordRefused ? .station : .statistics) } label: {
+                        HStack(spacing: 8) {
+                            Icon("warning", size: 15, bold: true).foregroundStyle(Theme.warn)
+                            Text(LinkText.problem(problem)).font(Theme.sans(14)).foregroundStyle(Theme.warnText)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .modifier(rise(0))
-            Text(host.name)
-                .font(Theme.display(nameSize, .bold))
-                .tracking(-nameSize * 0.045)
-                .lineLimit(2)
-                .minimumScaleFactor(0.5)
-                .foregroundStyle(Theme.text)
-                .frame(maxWidth: width * 0.56, alignment: .leading)
-                .modifier(rise(1))
-            HStack(spacing: 14) {
-                StatusPill(online: online, text: statusText)
-                Text(meta).font(Theme.mono(12)).foregroundStyle(Theme.muted).lineLimit(1)
-            }
-            .modifier(rise(2))
+            .modifier(rise(1))
             HStack(spacing: 10) {
                 Icon("monitor", size: 18).foregroundStyle(Theme.accent)
                 Text(screenLine).font(Theme.sans(15)).foregroundStyle(Theme.text2)
             }
-            .modifier(rise(3))
+            .modifier(rise(2))
             actions
                 .padding(.top, roomy ? 22 : 10)
-                .modifier(rise(4))
-            Text(host.settings.profile?.hint ?? String(localized: "Personnalisé : vos propres réglages, dans Réglages."))
+                .modifier(rise(3))
+            Text(Profile.hint(host.settings.profile))
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.muted)
                 .modifier(rise(4))
-            if picture?.source != .lastSession, roomy {
-                ImageChain(source: picture?.source, fetching: fetching, neverOpened: neverOpened)
-                    .padding(.top, 10)
-                    .modifier(rise(5))
-            }
         }
         .frame(maxWidth: 820, alignment: .leading)
     }
 
     @ViewBuilder private var actions: some View {
         HStack(spacing: 14) {
-            if online == false {
+            if online == false, app.store.waking.contains(host.id) {
+                // Réveil en cours : l'ordinateur est sondé toutes les 2 s.
+                Button {} label: {
+                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking) }
+                }
+                .buttonStyle(GhostButton(height: 56))
+                .disabled(true)
+            } else if online == false, app.store.canWake(host) {
+                Button { app.store.wake(host) } label: {
+                    HStack(spacing: 10) { Icon("power", size: 18, bold: true); Text(LinkText.wake) }
+                }
+                .buttonStyle(PrimaryButton(height: 56))
+                .keyboardShortcut(.defaultAction)
+            } else if online == false {
                 Button {
                     Task { await app.store.refresh(host) }
                 } label: {
@@ -251,7 +228,7 @@ private struct Hero: View {
                         Icon("arrow-elbow-down-left", size: 14, bold: true)
                             .padding(.horizontal, 7).padding(.vertical, 4)
                             .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
-                        Text(neverOpened ? "Ouvrir pour la première fois" : "Se connecter")
+                        Text("Se connecter")
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
@@ -262,88 +239,38 @@ private struct Hero: View {
             Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
                       icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 40)
                 .fixedSize()
-            Menu {
-                Button("Réglages de \(host.name)") { app.route = .settings(host.id) }
-                Divider()
-                Button("Oublier cet ordinateur", role: .destructive) { app.store.remove(host) }
-            } label: {
-                Image(systemName: "ellipsis").foregroundStyle(Theme.text2)
+            Button { app.openSettings(host) } label: {
+                HStack(spacing: 8) { Icon("gear-six", size: 17); Text("Réglages") }
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .frame(width: 40, height: 40)
-            .glass(10)
+            .buttonStyle(GhostButton(height: 48))
+            .help(LinkText.settingsTitle(host.name))
+            .accessibilityLabel(LinkText.settingsTitle(host.name))
         }
     }
 }
 
-/// D'où vient l'image affichée : dernière session, aperçu, signature.
-private struct ImageChain: View {
-    let source: HostImagery.Source?
-    let fetching: Bool
-    let neverOpened: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var pulse = false
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Theme.eyebrow(String(localized: "Image affichée"))
-            step(neverOpened ? String(localized: "Dernière session, aucune") : String(localized: "Dernière session, aucune gardée"), state: .absent)
-            rule
-            step(fetching && source == nil ? String(localized: "Aperçu, en cours…") : source == .preview ? String(localized: "Aperçu demandé à la Station") : String(localized: "Aperçu"), state: source == .preview ? .on : fetching ? .loading : .absent)
-            rule
-            step(String(localized: "Signature"), state: source == nil ? .on : .absent)
+/// L'écran que la session demandera, dit comme sur toutes les apps : même
+/// calcul que la session (`SessionController.start`).
+enum HomeScreen {
+    static func line(for host: Host, info: HostInfo?) -> String {
+        let s = host.settings
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
+        switch s.display {
+        case .custom:
+            return LinkText.screen(width: s.customWidth, height: s.customHeight, refresh: s.customRefresh, virtual: virtual, sizedForThisScreen: false)
+        case .window:
+            // Session fenêtrée : l'écran prendra la taille de la fenêtre, en pixels.
+            let window = NSApp.keyWindow ?? NSApp.mainWindow
+            let content = window?.contentLayoutRect.size ?? screen.frame.size
+            let scale = CGFloat(DisplayInfo.nativePixels(screen).width) / screen.frame.width
+            let w = Int(content.width * scale) / 2 * 2, h = Int(content.height * scale) / 2 * 2
+            guard virtual else { return LinkText.screen(width: w, height: h, refresh: 0, virtual: false, sizedForThisScreen: false) }
+            return String(localized: "Écran de \(LinkFormat.dims(w, h)) à \(max(30, screen.maximumFramesPerSecond)) Hz, à la taille de cette fenêtre")
+        case .match, .physical:
+            let m = DisplayInfo.mode(for: screen, codec: s.codec, limit4K: s.limit4K)
+            return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual, sizedForThisScreen: !s.limit4K || m.width == DisplayInfo.mode(for: screen, codec: s.codec).width)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .glass(12)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) { pulse = true }
-        }
-    }
-
-    private enum State { case on, loading, absent }
-
-    private var rule: some View { Rectangle().fill(Color.white.opacity(0.15)).frame(width: 18, height: 1) }
-
-    private func step(_ title: String, state: State) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(state == .on ? Theme.neonCore : state == .loading ? Theme.text2 : .clear)
-                .overlay(Circle().strokeBorder(state == .absent ? Theme.ghost : .clear))
-                .frame(width: 7, height: 7)
-                .neon(state == .on ? .lit : .off)
-                .opacity(state == .loading && pulse ? 0.35 : 1)
-            Text(title).font(Theme.sans(13)).foregroundStyle(state == .absent ? Theme.ghost : Theme.text)
-        }
-    }
-}
-
-/// Latence de la dernière session, lue contre la durée d'une image.
-private struct LastSessionPanel: View {
-    let median: Double
-    let p95: Double?
-    let duration: TimeInterval?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Theme.eyebrow(String(localized: "Dernière session"))
-                Spacer()
-                if let duration { Text(Moment.duration(duration)).font(Theme.sans(12.5)).foregroundStyle(Theme.muted) }
-            }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(Moment.ms(median, unit: false)).font(Theme.mono(30, .medium)).foregroundStyle(Theme.text)
-                Text("ms médiane").font(Theme.mono(12)).foregroundStyle(Theme.muted)
-            }
-            FrameRuler(median: median, p95: p95)
-            if let p95 {
-                Text("95 % des images sous \(Moment.ms(p95))").font(Theme.sans(12)).foregroundStyle(Theme.faint)
-            }
-        }
-        .padding(.horizontal, 18).padding(.vertical, 16)
-        .glass(14)
     }
 }
 
@@ -354,12 +281,13 @@ private struct Welcome: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Theme.eyebrow(String(localized: "Bienvenue"), color: Theme.muted).modifier(Rise(arrived: arrived, delay: 0.15))
-            Text("Vos ordinateurs,\nici.")
-                .font(Theme.display(96, .bold)).tracking(-96 * 0.045)
+            Text("Ouvrez votre ordinateur sur ce Mac")
+                .font(Theme.display(64, .bold)).tracking(-64 * 0.045)
                 .foregroundStyle(Theme.text)
+                .frame(maxWidth: 900, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .modifier(Rise(arrived: arrived, delay: 0.25))
-            Text("Ajoutez un ordinateur équipé de KyberNow Station, qu'il soit sous Windows, macOS ou Linux. Sur ce réseau, il apparaît tout seul en bas de l'écran.")
+            Text("Ajoutez un ordinateur équipé de KyberNow Station. Sur ce réseau, il apparaît tout seul en bas de l'écran.")
                 .font(Theme.sans(16)).foregroundStyle(Theme.text2)
                 .frame(maxWidth: 560, alignment: .leading)
                 .modifier(Rise(arrived: arrived, delay: 0.35))
@@ -379,7 +307,6 @@ private struct Shelf: View {
     @EnvironmentObject var app: AppModel
     let featured: Host?
     let others: [Host]
-    @Binding var selectedID: UUID?
     @ObservedObject var discovery: Discovery
     @ObservedObject var imagery: HostImagery
     let arrived: Bool
@@ -399,21 +326,14 @@ private struct Shelf: View {
         }
     }
 
-    private var count: Int { others.count + newcomers.count + 1 }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Theme.eyebrow(featured == nil ? String(localized: "Sur ce réseau") : String(localized: "Vos autres ordinateurs"), color: Theme.muted)
-                Spacer()
-                Text("Windows, macOS ou Linux : ils s'ouvrent tous de la même façon.")
-                    .font(Theme.sans(12.5)).foregroundStyle(Theme.faint)
-            }
+            Theme.eyebrow(featured == nil ? String(localized: "Sur ce réseau") : String(localized: "Vos autres ordinateurs"), color: Theme.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(others.enumerated()), id: \.element.id) { i, host in
                         HostCard(host: host, picture: imagery.pictures[host.id]) {
-                            selectedID = host.id
+                            app.selectedID = host.id
                         }
                         .modifier(Rise(arrived: arrived, delay: 0.8 + Double(i) * 0.08))
                     }
@@ -442,6 +362,7 @@ private struct Shelf: View {
 
 private let cardSize = CGSize(width: 244, height: 164)
 
+/// Un autre ordinateur : son nom et son état, rien d'autre.
 private struct HostCard: View {
     @EnvironmentObject var app: AppModel
     let host: Host
@@ -450,16 +371,6 @@ private struct HostCard: View {
     @State private var hovering = false
 
     private var status: HostStatus? { app.store.status[host.id] }
-
-    private var line: String {
-        switch status?.online {
-        case nil: return String(localized: "Recherche…")
-        case false?: return String(localized: "Hors ligne")
-        case true?:
-            let parts = [status?.info?.os, host.lastLatencyMs.map { Moment.ms($0) }].compactMap { $0 }
-            return parts.isEmpty ? String(localized: "En ligne") : parts.joined(separator: " · ")
-        }
-    }
 
     var body: some View {
         Button(action: select) {
@@ -474,7 +385,7 @@ private struct HostCard: View {
                             .fill(status?.online == true ? Theme.ok : .clear)
                             .overlay(Circle().strokeBorder(status?.online == true ? .clear : Theme.faint))
                             .frame(width: 6, height: 6)
-                        Text(line).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
+                        Text(LinkText.status(status?.online)).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 14).padding(.vertical, 11)
@@ -490,9 +401,7 @@ private struct HostCard: View {
         .onHover { h in withAnimation(Theme.easeOut) { hovering = h } }
         .contextMenu {
             Button("Se connecter") { app.connect(host) }.disabled(status?.online != true || app.session != nil)
-            Button("Réglages…") { app.route = .settings(host.id) }
-            Divider()
-            Button("Oublier cet ordinateur", role: .destructive) { app.store.remove(host) }
+            Button(LinkText.settingsTitle(host.name)) { app.openSettings(host) }
         }
     }
 }
@@ -511,11 +420,10 @@ private struct FoundCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
                     Icon("wifi-high", size: 14)
-                    Text("TROUVÉ SUR LE RÉSEAU").font(Theme.mono(10, .medium)).tracking(0.8)
+                    Theme.eyebrow(String(localized: "Sur le réseau"), color: Theme.accentLight)
                 }
                 .foregroundStyle(Theme.accentLight)
                 Text(found.name).font(Theme.display(22, .semibold)).tracking(-0.4).foregroundStyle(Theme.text).lineLimit(1)
-                Text(candidate.address).font(Theme.mono(11)).foregroundStyle(Theme.muted)
             }
             Spacer(minLength: 0)
             Button("Ajouter") { app.add(link: candidate) }
@@ -544,19 +452,10 @@ private struct AddCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading) {
-                HStack(spacing: 8) {
-                    Icon("plus", size: 16, bold: true).foregroundStyle(Theme.accent)
-                    Text("Ajouter un ordinateur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                Icon("plus", size: 22, bold: true).foregroundStyle(Theme.accent)
                 Spacer()
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("QR code d'appairage")
-                    Text("Lien kybernow://")
-                    Text("Adresse et port")
-                }
-                .font(Theme.sans(12.5))
-                .foregroundStyle(Theme.muted)
+                Text("Ajouter un ordinateur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
             }
             .padding(16)
             .frame(width: cardSize.width, height: cardSize.height, alignment: .topLeading)

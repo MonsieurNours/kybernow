@@ -38,13 +38,13 @@ import fr.leslignesclaires.kybernow.model.LastSession
 import fr.leslignesclaires.kybernow.model.Profile
 import fr.leslignesclaires.kybernow.model.Screen
 import fr.leslignesclaires.kybernow.model.ScreenMode
+import fr.leslignesclaires.kybernow.model.SessionMode
 import fr.leslignesclaires.kybernow.ui.KnTheme
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.FileOutputStream
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -100,6 +100,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             profile = host.settings.profile
             mouseMode = host.settings.mouse
             directTouch = host.settings.directTouch
+            backOpensMenu = host.settings.backOpensMenu
+            combo = host.settings.combo
         }
         touch = TouchInput({ handle }, ::viewToHost, ::hostPerViewPixel).apply { direct = host.settings.directTouch }
 
@@ -126,48 +128,6 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     }
 
     // MARK: - Mode de la session et écran
-
-    /**
-     * Définition et fréquence de la session : « comme cet écran » par défaut,
-     * à la plus haute fréquence qu'il tient. Une fréquence demandée que la
-     * définition de l'écran ne tient pas fait descendre la définition (la
-     * Shield : 4K à 60 Hz ou 1080p à 120 Hz). Ramenée à ce que le décodeur
-     * accepte (4096 de large au plus en H.264).
-     */
-    private fun pickMode(screen: Screen, codec: String): Triple<Int, Int, Int> {
-        val cur = screen.current
-        val w0 = max(cur.width, cur.height)
-        val h0 = min(cur.width, cur.height)
-        val set = host.settings
-        var (w, h, r) = when {
-            set.resolution == 0 && set.refresh == 0 -> Triple(w0, h0, screen.bestRefresh(w0, h0))
-            set.resolution == 0 -> {
-                val exact = screen.modes.any { max(it.width, it.height) == w0 && it.refresh == set.refresh }
-                if (exact) Triple(w0, h0, set.refresh)
-                else screen.modes.filter { it.refresh >= set.refresh }.maxByOrNull { it.width * it.height }
-                    ?.let { Triple(max(it.width, it.height), min(it.width, it.height), set.refresh) }
-                    ?: Triple(w0, h0, screen.bestRefresh(w0, h0))
-            }
-            else -> {
-                val hh = set.resolution
-                val ww = (hh * w0.toDouble() / h0 / 2).roundToInt() * 2
-                Triple(ww, hh, if (set.refresh > 0) set.refresh else screen.bestRefresh(ww, hh))
-            }
-        }
-        val dec = when (codec) {
-            "hevc" -> app.decoders.hevc
-            "av1" -> app.decoders.av1
-            else -> app.decoders.h264
-        }
-        val maxW = min(if (codec == "h264") 4096 else 7680, dec?.maxWidth?.takeIf { it > 0 } ?: 7680)
-        val maxH = dec?.maxHeight?.takeIf { it > 0 } ?: 4320
-        if (w > maxW || h > maxH) {
-            val k = min(maxW.toDouble() / w, maxH.toDouble() / h)
-            w = (w * k / 2).roundToInt() * 2
-            h = (h * k / 2).roundToInt() * 2
-        }
-        return Triple(w, h, r.coerceIn(24, 240))
-    }
 
     /** Caler l'écran (HDMI) sur la session, et le mode jeu du téléviseur (ALLM). */
     private fun applyDisplay() {
@@ -197,7 +157,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             "av1" -> if (d.av1 != null && host.av1) base.put("codec", "av1").put("yuv444", false)
         }
         if (set.mbps > 0) base.put("mbps", set.mbps).remove("profile")
-        if (set.reliable) base.put("reliable", true)
+        if (set.transport != "auto") base.put("reliable", set.reliable)
         return base
     }
 
@@ -212,7 +172,8 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
     private fun start() {
         val screen = Screen.of(display ?: return)
         val settings = settingsJson(ui.profile)
-        sessionMode = pickMode(screen, settings.optString("codec"))
+        // Le même calcul que l'accueil (« Écran de … »).
+        sessionMode = SessionMode.pick(screen, host.settings, settings.optString("codec"), app.decoders)
         applyDisplay()
         val (w, h, r) = sessionMode
         val device = JSONObject(app.device.json())
@@ -225,7 +186,7 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
             .put("device", device)
             .put("mode", JSONObject().put("width", w).put("height", h).put("refresh", r))
             .put("audio_channels", audioChannels())
-            .put("virtual_display", host.virtualDisplay)
+            .put("virtual_display", host.virtualDisplay && host.settings.virtualDisplay)
             .put("settings", settings)
             .put("auto_reconnect", host.settings.reconnect)
             .put("gamepad_xbox360", host.settings.xbox360)
@@ -388,13 +349,23 @@ class SessionActivity : AppCompatActivity(), SurfaceHolder.Callback, SessionActi
         }.onFailure { thread.quitSafely(); then() }
     }
 
+    /**
+     * La dernière session de l'ordinateur (Statistiques), à partir de 3 s d'image : latence
+     * médiane et 95e centile, durée, quand, et ce qui a été transmis (mode, format, débit).
+     */
     private fun saveLast() {
         val h = handle
         if (h == 0L) return
-        val lat = Native.sessionLatency(h) ?: return
         val started = state.firstImageAt.get()
-        val seconds = if (started > 0) (System.currentTimeMillis() - started) / 1000 else 0
-        app.hosts.update(host.id) { it.copy(last = LastSession(lat[0], lat[1], seconds, System.currentTimeMillis())) }
+        if (started == 0L) return
+        val seconds = (System.currentTimeMillis() - started) / 1000
+        if (seconds < 3) return
+        val lat = Native.sessionLatency(h) ?: return
+        val (w, hh, r) = state.mode.value ?: sessionMode
+        val settings = settingsJson(ui.profile)
+        val mbps = SessionMode.bitrate(settings.optInt("mbps"), settings.has("profile"), w, hh, r)
+        val last = LastSession(lat[0], lat[1], seconds, System.currentTimeMillis(), w, hh, r, settings.optString("codec").ifEmpty { null }, mbps)
+        app.hosts.update(host.id) { it.copy(last = last) }
     }
 
     private fun finishSession() {

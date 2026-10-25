@@ -23,6 +23,8 @@ fontdue = "0.9"
 zune-jpeg = "0.4"
 mdns-sd = { version = "0.13", default-features = false }
 getrandom = "0.2"
+# QR code de l'adresse d'Admin (rubrique Station) : pur Rust, sans dépendance.
+qrcodegen = "1.8"
 
 [features]
 # L'app pour le téléviseur : cœur, décodeur NDL, SDL. Sans elle (--no-default-features),

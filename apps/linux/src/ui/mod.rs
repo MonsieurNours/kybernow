@@ -1,7 +1,7 @@
 //! Les écrans de l'app, dessinés d'après les maquettes
-//! (https://claude.ai/artifact/MgBJNBJ4WEMFvVB6Ujfxhc) : lancement, accueil,
-//! ajout, réglages, manettes, session, chacun pour le bureau, le Steam Deck
-//! et le salon. Chaque fonction de dessin lit l'état (`App`) et inscrit les
+//! (https://claude.ai/artifact/MgBJNBJ4WEMFvVB6Ujfxhc) et les écrans communs
+//! des apps Link (docs/link-ui.md) : lancement, accueil, ajout, réglages,
+//! manettes, session, chacun pour le bureau, le Steam Deck et le salon. Chaque fonction de dessin lit l'état (`App`) et inscrit les
 //! éléments choisissables dans un `Frame`.
 
 pub mod brand;
@@ -15,6 +15,7 @@ mod session;
 mod settings;
 mod setup;
 mod device;
+mod station;
 pub mod theme;
 mod widgets;
 
@@ -70,19 +71,14 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
     f.hits
 }
 
-/// L'interface se voit-elle pendant la session (menu, barre, capsule,
-/// passage) ; sinon l'image seule.
+/// L'interface se voit-elle pendant la session (connexion, menu, barre,
+/// statistiques, capsule) ; sinon l'image seule.
 pub fn session_overlay_visible(app: &App) -> bool {
     let Some(s) = &app.session else { return false };
-    if !matches!(s.phase, Phase::Streaming) || passage_opening(s) {
+    if !matches!(s.phase, Phase::Streaming) {
         return true;
     }
     s.menu || s.keys || s.show_stats || s.bar || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
-}
-
-/// Les moitiés de l'accueil s'écartent encore (1,1 s après la première image).
-pub fn passage_opening(s: &crate::app::SessionUi) -> bool {
-    s.phase == Phase::Streaming && s.opened_at.is_some_and(|t| t.elapsed().as_secs_f32() < session::OPEN)
 }
 
 /// L'échelle des éléments d'une interface par rapport aux maquettes du Deck

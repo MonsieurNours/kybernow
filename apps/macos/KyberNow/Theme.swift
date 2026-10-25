@@ -861,7 +861,9 @@ struct StatusPill: View {
     }
 }
 
-/// Règle de trame : la latence lue contre la durée d'une image (160, 120, 60 Hz).
+/// Règle de trame : la latence lue contre la durée d'une image (160, 120,
+/// 60 Hz), en millisecondes de 0 à 20 (plus si la mesure dépasse) ; c'est le
+/// modèle de la carte « Dernière session » de toutes les apps (docs/link-ui.md).
 struct FrameRuler: View {
     var median: Double
     var p95: Double?
@@ -876,8 +878,9 @@ struct FrameRuler: View {
             let x = { (ms: Double) in CGFloat(min(ms, scale) / scale) * w }
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(Color.white.opacity(0.16)).frame(height: 2).offset(y: 16)
-                if let p95 {
-                    let lo = max(0, median - (p95 - median) * 0.6)
+                // Bande de la médiane au 95e centile.
+                if let p95, p95 > median {
+                    let lo = median
                     RoundedRectangle(cornerRadius: 3)
                         .fill(Theme.accent.opacity(live ? 0.26 : 0.2))
                         .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.accent.opacity(0.5)))

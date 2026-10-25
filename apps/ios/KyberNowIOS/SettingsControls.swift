@@ -1,5 +1,5 @@
 // Briques des réglages d'un ordinateur : lignes à choix, à bascule, à valeur,
-// le débit, le sélecteur de profil, et le lien réseau de l'appareil. Une
+// le sélecteur de profil, et le lien réseau de l'appareil. Une
 // ligne se pose en largeur (iPad, détail large) ou en hauteur (iPhone).
 
 import KyberKit
@@ -229,10 +229,11 @@ struct SettingsProfilePicker: View {
             ForEach(Array((Profile.allCases.map(Optional.some) + [nil]).enumerated()), id: \.offset) { _, p in
                 let on = current == p
                 Button { if let p { pick(p) } } label: {
-                    Text(p?.label ?? (fill ? String(localized: "Perso.") : String(localized: "Personnalisé")))
+                    Text(Profile.label(p))
                         .font(Theme.sans(fill ? 13 : 14, .semibold))
                         .foregroundStyle(on ? Theme.text : p == nil ? Theme.faint : Theme.muted)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                         .padding(.horizontal, fill ? 4 : 14)
                         .frame(maxWidth: fill ? .infinity : nil, minHeight: 44)
                         .background {
@@ -250,7 +251,7 @@ struct SettingsProfilePicker: View {
                 .buttonStyle(SettingsPressStyle())
                 .disabled(p == nil || on)
                 .accessibilityAddTraits(on ? .isSelected : [])
-                .accessibilityLabel(Text(p?.label ?? String(localized: "Personnalisé")))
+                .accessibilityLabel(Text(Profile.label(p)))
             }
         }
         .padding(4)

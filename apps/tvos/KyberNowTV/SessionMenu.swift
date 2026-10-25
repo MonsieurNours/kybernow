@@ -1,5 +1,6 @@
-// Menu de session (maquette « 5 · En session ») : l'image recule, la santé
-// du flux en haut, les actions en bas. Ouvert par le bouton Retour de la
+// Menu de session (maquette « 5 · En session ») : l'image recule, les
+// statistiques du flux en haut (les seules mesures de la session, à la
+// demande), les actions en bas. Ouvert par le bouton Retour de la
 // télécommande ou L1 + R1 + Start + Select ; pendant le menu, les manettes
 // pilotent KyberNow et le jeu ne reçoit rien.
 
@@ -28,7 +29,10 @@ struct SessionMenu: View {
                     Text(session.host.name).font(Theme.display(60, 660)).tracking(-60 * 0.035).foregroundStyle(Theme.text)
                 }
                 Spacer()
-                statsStrip
+                VStack(alignment: .trailing, spacing: 10) {
+                    Theme.eyebrow(String(localized: "Statistiques"))
+                    statsStrip
+                }
             }
             .frame(width: 1920 - 192)
             .padding(.leading, 96).padding(.top, 56)
@@ -234,7 +238,9 @@ struct SessionMenu: View {
                 (session.host.settings.audio == .off ? Text("Le son reste sur l'ordinateur") : Text("Son \(r.channelsLabel) · \(r.name)"))
                     .font(Theme.display(44, 640)).tracking(-1.2)
                 (session.host.settings.audio == .off
-                    ? Text("Ses haut-parleurs ou son casque. Pour l'entendre ici, changez « Le son joue » dans les réglages de l'ordinateur.")
+                    ? (French.elides(session.host.name)
+                        ? Text("Ses haut-parleurs ou son casque. Pour l'entendre ici, choisissez Auto dans Réglages d'\(session.host.name), Son.")
+                        : Text("Ses haut-parleurs ou son casque. Pour l'entendre ici, choisissez Auto dans Réglages de \(session.host.name), Son."))
                     : r.isLate
                     ? Text("Sortie mesurée : \(r.latencyMs) ms. Une sortie sans fil ajoute du retard : la sortie HDMI reste la plus rapide.")
                     : Text("Sortie mesurée : \(r.latencyMs) ms. C'est la sortie la plus rapide de l'Apple TV."))

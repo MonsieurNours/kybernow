@@ -65,18 +65,18 @@ The computer does not show up? Choose **Add** › **With address and port** and 
 ## 5. Recommended TV settings
 
 - **Picture mode: Game Optimizer.** During the session, Magic Remote Settings button › Picture › Mode › Game Optimizer. No app can pick it for you; without it, the TV adds its picture processing (and latency).
-- **Controllers**: pair them with the TV over Bluetooth, in the TV's settings (devices or gamepads section; the path depends on the webOS version). DualSense, DualShock 4, Xbox and Switch Pro work. In the app, **Settings › Controllers and Magic Remote › Test controllers** shows the buttons and tries the rumble.
-- **5.1 sound with a receiver**: in the app, Computer settings › Sound › **5.1 Dolby**; on the TV, Sound › Digital Sound Output › **Pass-Through**. Without it the receiver gets stereo, from the TV's apps too. "5.1 PCM" only works with the few receivers that announce multichannel PCM.
+- **Controllers**: pair them with the TV over Bluetooth, in the TV's settings (devices or gamepads section; the path depends on the webOS version). DualSense, DualShock 4, Xbox and Switch Pro work. In the app, **App settings › Controllers › Test controllers** shows the buttons and tries the rumble.
+- **5.1 sound with a receiver**: in the app, the computer's settings › Sound › **5.1 Dolby**; on the TV, Sound › Digital Sound Output › **Pass-Through**. Without it the receiver gets stereo, from the TV's apps too. "5.1 PCM" only works with the few receivers that announce multichannel PCM.
 - **Network**: LG TVs' Ethernet port stops at 100 Mbit/s; the app caps the bitrate at 80 Mbit/s there. Wi-Fi (5 GHz, close to the access point) often goes further: the app goes up to 95 Mbit/s there.
 
 ## Updating
 
-The app looks for new versions (at launch then every 6 hours) and shows "Version X available" on the home screen; Settings › This TV › Updates picks stable versions or betas too. It cannot install itself (developer mode): download `KyberNow-Link-webOS.ipk` from the release page (github.com/MonsieurNours/kybernow/releases) and install it as in step 3, it replaces the old one. The added computers are kept (in `/media/developer/temp/kybernow`, outside the app's folder).
+The app looks for new versions (at launch then every 6 hours) and shows "Version X available" on the home screen; App settings › This TV › Versions offered picks stable versions or betas too. It cannot install itself (developer mode): download `KyberNow-Link-webOS.ipk` from the release page (github.com/MonsieurNours/kybernow/releases) and install it as in step 3, it replaces the old one. The added computers are kept (in `/media/developer/temp/kybernow`, outside the app's folder).
 
 ## Troubleshooting
 
 - **The app does not install**: developer mode may have expired (open Developer Mode again, turn it on, extend), or the TV's IP address changed (`ares-setup-device` or Dev Manager).
-- **Black screen in session, but sound**: note it with the log (below); the TV's decoder refused the stream. Try Settings › Picture › Codec: H.264, or a lower resolution.
+- **Black screen in session, but sound**: note it with the log (below); the TV's decoder refused the stream. In the computer's settings, try Picture › Video format: H.264, or a lower resolution.
 - **The log**: the app writes `kybernow.log` in `/media/developer/temp/kybernow/` on the TV (with `kybernow.json`, the added computers). To read it from the computer:
 
   ```sh

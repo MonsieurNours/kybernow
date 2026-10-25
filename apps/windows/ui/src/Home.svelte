@@ -1,24 +1,32 @@
 <!--
-  Accueil : l'ordinateur choisi en plein cadre (son image, sinon sa signature),
-  le bouton principal et le profil ; à droite la dernière session ; en bas les
-  autres ordinateurs, ceux annoncés sur le réseau et l'ajout.
+  Accueil (docs/link-ui.md) : l'ordinateur choisi en plein cadre (son image,
+  sinon sa signature) avec, dans l'ordre, son état, son nom, son système,
+  l'écran que la session demandera, le bouton principal (hors ligne :
+  « Réveiller l'ordinateur » quand ses cartes réseau sont connues, sinon
+  « Réessayer »), le profil et l'accès à ses réglages ; en bas les autres ordinateurs (nom et état), ceux annoncés
+  sur le réseau et l'ajout.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { Computer, Found, Settings, ThisPc } from './lib/api'
-  import { duration, hue, isCustom, localLabel, ms, sessionPlan } from './lib/api'
+  import type { Battery, Computer, Found, Settings, ThisPc } from './lib/api'
+  import { hue, isCustom, sessionPlan } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
     computers,
     discovered,
     thisPc,
+    battery,
     selected,
     busy,
+    retrying,
+    wakingId,
     error,
     onselect,
     onconnect,
+    onretry,
+    onwake,
     onsettings,
     onprofile,
     onadd,
@@ -26,11 +34,18 @@
     computers: Computer[]
     discovered: Found[]
     thisPc: ThisPc | null
+    battery: Battery
     selected: Computer | null
     busy: boolean
+    /** « Réessayer » en cours pour cet ordinateur. */
+    retrying: boolean
+    /** L'ordinateur qu'un réveil par le réseau attend. */
+    wakingId: string | null
     error: string | null
     onselect: (id: string) => void
     onconnect: (id: string) => void
+    onretry: (id: string) => void
+    onwake: (id: string) => void
     onsettings: (id: string) => void
     onprofile: (id: string, p: Settings['profile']) => void
     onadd: (found?: Found) => void
@@ -38,33 +53,44 @@
 
   const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
 
+  const stateOf = (c: Computer, searching = false) =>
+    c.id === wakingId && !c.online
+      ? t('home.waking')
+      : searching || c.online == null
+        ? t('common.searching')
+        : c.online
+          ? t('home.online')
+          : t('home.offline')
+
+  const waking = $derived(!!selected && selected.id === wakingId && !selected.online)
+  /** Hors ligne, l'app sait le réveiller : ses cartes réseau, apprises de la Station. */
+  const canWake = $derived(!!selected && (selected.wake?.length ?? 0) > 0)
+
   const status = $derived.by(() => {
     if (!selected) return null
-    if (selected.online === true) return { text: t('home.online_available'), tone: 'ok' }
-    if (selected.online === false) return { text: t('home.offline'), tone: 'off' }
-    return { text: t('common.searching'), tone: 'wait' }
+    if (waking) return { text: t('home.waking'), tone: 'wait' }
+    if (retrying || selected.online == null) return { text: t('common.searching'), tone: 'wait' }
+    return selected.online ? { text: t('home.online'), tone: 'ok' } : { text: t('home.offline'), tone: 'off' }
   })
 
-  const meta = $derived(
-    selected ? [selected.info?.os || selected.os, selected.info?.gpu ?? selected.gpu, selected.host].filter(Boolean).join(' · ') : '',
-  )
-
-  /** Ce que la session demandera à l'ordinateur. */
+  /** L'écran que la session demandera (même calcul que plan.rs : au plus 4K, H.264, sur batterie). */
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
-    if (!s.virtual_display) return t('home.screens_as_is')
-    // Le mode que plan.rs demandera (au plus 4K, H.264, sur batterie).
-    const p = sessionPlan(s, thisPc)
-    return p ? `${p.width} × ${p.height} · ${p.refresh} Hz` : null
+    if (!s.virtual_display || selected.info?.virtual_display.available === false) return t('home.screens_as_is')
+    const p = sessionPlan(s, thisPc, battery)
+    if (!p) return null
+    const params = { width: p.width, height: p.height, refresh: p.refresh }
+    return !s.custom && p.width === thisPc.width && p.height === thisPc.height ? t('home.screen_match', params) : t('home.screen', params)
   })
 
-  const frame = $derived(thisPc ? 1000 / Math.max(30, thisPc.refresh) : 16.7)
+  const custom = $derived(selected ? isCustom(selected.settings, thisPc) : false)
   const profiles: { value: Settings['profile']; label: string }[] = $derived([
     { value: 'jeu', label: t('profiles.jeu') },
     { value: 'bureau', label: t('profiles.bureau') },
     { value: 'max', label: t('profiles.max') },
   ])
+  const sentence = $derived(selected ? (custom ? t('profiles.custom_sub') : t(`profiles.${selected.settings.profile}_sub`)) : '')
 
   const signature = (fp: string | null) =>
     `radial-gradient(900px 600px at 78% 22%, hsl(${hue(fp)} 90% 62% / 0.38), transparent 70%), radial-gradient(700px 520px at 18% 78%, hsl(${hue(fp, 7)} 70% 55% / 0.16), transparent 70%), #070a0e`
@@ -82,39 +108,41 @@
   </div>
 
   <div class="layout">
-  <div class="top">
   <section class="hero">
     {#if selected}
       <div class="eyebrow status {status?.tone}"><span class="dot"></span>{status?.text}</div>
       <h1>{selected.name}</h1>
-      <div class="meta mono">{meta}</div>
+      {#if selected.info?.os || selected.os}<div class="system">{selected.info?.os || selected.os}</div>{/if}
+      {#if error}<div class="error" role="alert">{error}</div>{/if}
       {#if screen}
-        <div class="chip">
-          <Icon name="monitor" size={20} />
-          {#if selected.settings.virtual_display}
-            <span>{t('home.virtual_at')}<span class="mono">{screen}</span>{selected.settings.custom ? t('home.virtual_custom') : t('home.virtual_match')}</span>
-          {:else}
-            <span>{screen}</span>
-          {/if}
-        </div>
+        <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
       {/if}
       <div class="actions">
-        <button class="primary" disabled={busy} onclick={() => onconnect(selected!.id)}>
-          <Icon name="play" size={18} />{t('home.connect')}
-        </button>
+        {#if selected.online === false && canWake}
+          <button class="primary" disabled={busy || waking} onclick={() => onwake(selected!.id)}>
+            <Icon name="power" size={18} />{waking ? t('home.waking') : t('home.wake')}
+          </button>
+        {:else if selected.online === false}
+          <button class="primary" disabled={busy || retrying} onclick={() => onretry(selected!.id)}>
+            <Icon name="restart" size={18} />{t('home.retry')}
+          </button>
+        {:else}
+          <button class="primary" disabled={busy} onclick={() => onconnect(selected!.id)}>
+            <Icon name="play" size={18} />{t('home.connect')}
+          </button>
+        {/if}
         <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
           {#each profiles as p (p.value)}
-            {@const on = selected.settings.profile === p.value}
+            {@const on = !custom && selected.settings.profile === p.value}
             <button role="radio" aria-checked={on} class:on onclick={() => onprofile(selected!.id, p.value)}>{p.label}</button>
           {/each}
+          {#if custom}<span class="on custom" role="radio" aria-checked="true" aria-disabled="true">{t('profiles.custom')}</span>{/if}
         </div>
-        <button class="link" onclick={() => onsettings(selected!.id)}>{t('home.computer_settings')}</button>
+        <button class="gear" aria-label={t('home.settings_for', { name: selected.name })} onclick={() => onsettings(selected!.id)}>
+          <Icon name="gear" size={18} stroke={1.6} />{t('home.settings')}
+        </button>
       </div>
-      <div class="note">
-        {#if isCustom(selected.settings)}{t('home.custom_note')}{/if}
-        {selected.preview_source === 'last' ? t('home.image_last') : selected.preview ? t('home.image_preview') : t('home.image_signature')}
-      </div>
-      {#if error}<div class="error" role="alert">{error}</div>{/if}
+      <p class="sentence">{sentence}</p>
     {:else}
       <div class="eyebrow">{t('home.welcome')}</div>
       <h1>{t('home.welcome_title')}</h1>
@@ -126,27 +154,6 @@
     {/if}
   </section>
 
-  {#if selected}
-    <aside class="last">
-      <div class="eyebrow">{t('home.last_session')}</div>
-      {#if selected.last}
-        {@const l = selected.last}
-        <div class="big"><span class="mono value">{ms(l.median_ms)}</span><span class="mono unit">{t('home.median')}</span></div>
-        <div class="ruler" aria-hidden="true">
-          <div class="track"></div>
-          <div class="fill" style:width="{Math.min(100, ((l.median_ms ?? 0) / frame) * 100)}%"></div>
-          <div class="tick" style:left="{Math.min(100, ((l.median_ms ?? 0) / frame) * 100)}%"></div>
-          {#if l.p95_ms != null}<div class="p95" style:left="{Math.min(100, (l.p95_ms / frame) * 100)}%"></div>{/if}
-        </div>
-        <div class="scale mono"><span>0</span><span>p95 {ms(l.p95_ms)}</span><span>{t('home.one_frame', { ms: ms(frame) })}</span></div>
-        <div class="sub">{duration(l.seconds)} · {localLabel(l.label)}</div>
-      {:else}
-        <div class="sub">{t('home.no_session_yet')}</div>
-      {/if}
-    </aside>
-  {/if}
-  </div>
-
   <section class="row">
     <div class="eyebrow">{t('home.your_computers')}</div>
     <div class="cards">
@@ -155,16 +162,15 @@
           {#if c.preview}<img src={c.preview} alt="" />{:else}<span class="sig" style:background={signature(c.fingerprint)}></span>{/if}
           <span class="label">
             <span class="name">{c.name}</span>
-            <span class="state">{c.online === true ? (c.last?.median_ms != null ? t('home.online_latency', { ms: ms(c.last.median_ms) }) : t('home.online')) : c.online === false ? t('home.offline') : '…'}</span>
+            <span class="state">{stateOf(c, retrying && c.id === selected?.id)}</span>
           </span>
         </button>
       {/each}
       {#each fresh as f (f.id)}
-        <button class="card found" onclick={() => onadd(f)}>
-          <span class="badge eyebrow"><span class="pulse"></span>{t('home.on_network')}</span>
+        <button class="card found" aria-label={t('home.add_named', { name: f.name })} onclick={() => onadd(f)}>
           <span class="label">
             <span class="name">{f.name}</span>
-            <span class="state">{t('home.add_this')}</span>
+            <span class="state found-state"><span class="pulse"></span>{t('home.on_network')}</span>
           </span>
         </button>
       {/each}
@@ -244,9 +250,9 @@
       linear-gradient(90deg, rgb(5 7 10 / 0.55) 0%, transparent 60%);
   }
 
-  /* Mise en page qui suit la fenêtre (960 × 600 au plus petit) : le haut
-     (ordinateur et dernière session) prend la place, la rangée des
-     ordinateurs reste en bas ; trop petit, la page défile. */
+  /* Mise en page qui suit la fenêtre (960 × 600 au plus petit) : l'ordinateur
+     choisi prend la place, la rangée des ordinateurs reste en bas ; trop
+     petit, la page défile. */
   .layout {
     position: absolute;
     inset: 40px 0 0 0;
@@ -257,17 +263,8 @@
     overflow-y: auto;
   }
 
-  .top {
-    flex: 1 0 auto;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 28px 40px;
-  }
-
   .hero {
-    flex: 1 1 520px;
+    flex: 1 0 auto;
     max-width: 760px;
     min-width: 0;
     display: flex;
@@ -315,10 +312,9 @@
     overflow-wrap: anywhere;
   }
 
-  .meta {
-    font-size: 13px;
+  .system {
+    font-size: 15px;
     color: var(--muted);
-    line-height: 1.7;
   }
 
   .lead {
@@ -346,9 +342,6 @@
     color: var(--signal);
   }
 
-  .chip .mono {
-    font-size: 13px;
-  }
 
   .actions {
     display: flex;
@@ -376,108 +369,45 @@
     font-size: 14px;
   }
 
-  .profiles button.on {
+  /* « Personnalisé » : l'état des réglages, pas un choix (un profil le remet). */
+  .profiles .custom {
+    display: flex;
+    align-items: center;
+    height: 42px;
+    padding: 0 18px;
+    font-size: 14px;
+  }
+
+  .profiles .on {
+    border-radius: 7px;
     background: var(--ink-3);
     box-shadow: inset 0 0 0 1px var(--line-2);
     color: var(--text);
     font-weight: 600;
   }
 
-  .link {
-    border: 0;
-    background: none;
+  .gear {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 52px;
+    padding: 0 18px;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: rgb(9 13 18 / 0.75);
     color: var(--muted);
     font-size: 14px;
-    text-decoration: underline;
-    text-underline-offset: 4px;
-    padding: 10px 6px;
   }
 
-  .link:hover {
+  .gear:hover {
     color: var(--text);
+    border-color: var(--faint);
   }
 
-  .note {
-    font-size: 12px;
-    color: var(--faint);
-  }
-
-  .last {
-    flex: 0 0 300px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 22px;
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    background: rgb(9 13 18 / 0.72);
-  }
-
-  .big {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  .value {
-    font-size: 40px;
-    font-weight: 500;
-  }
-
-  .unit {
+  .sentence {
+    margin: 0;
     font-size: 14px;
     color: var(--muted);
-  }
-
-  .ruler {
-    position: relative;
-    height: 22px;
-  }
-
-  .ruler .track,
-  .ruler .fill {
-    position: absolute;
-    left: 0;
-    top: 10px;
-    height: 2px;
-  }
-
-  .ruler .track {
-    right: 0;
-    background: var(--line-2);
-  }
-
-  .ruler .fill {
-    background: var(--signal);
-  }
-
-  .ruler .tick {
-    position: absolute;
-    top: 3px;
-    width: 2px;
-    height: 16px;
-    background: var(--text);
-  }
-
-  .ruler .p95 {
-    position: absolute;
-    top: 6px;
-    width: 1px;
-    height: 10px;
-    background: var(--faint);
-  }
-
-  .scale {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--faint);
-  }
-
-  .sub {
-    font-size: 13px;
-    color: var(--muted);
-    line-height: 1.5;
   }
 
   .row {
@@ -490,7 +420,7 @@
   .cards {
     display: grid;
     grid-auto-flow: column;
-    grid-auto-columns: minmax(220px, 1fr);
+    grid-auto-columns: minmax(190px, 1fr);
     gap: 16px;
     overflow-x: auto;
     padding: 2px 2px 6px;
@@ -570,15 +500,11 @@
     }
   }
 
-  .badge {
-    position: absolute;
-    left: 18px;
-    top: 16px;
+  .found-state {
     display: flex;
     align-items: center;
     gap: 8px;
     color: var(--signal);
-    font-size: 10px;
   }
 
   .pulse {

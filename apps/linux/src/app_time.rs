@@ -22,14 +22,13 @@ pub fn local_hhmm() -> String {
     }
 }
 
-/// « aujourd'hui, 9:12 », « hier, 21:40 », sinon « 12/10 ».
+/// « aujourd'hui », « hier », sinon « 12/10 ».
 pub fn relative_day(at: u64) -> String {
     let (Some(t), Some(n)) = (local(at as i64), local(now())) else { return String::new() };
     let day = |tm: &libc::tm| tm.tm_year * 400 + tm.tm_yday;
-    let hm = format!("{}:{:02}", t.tm_hour, t.tm_min);
     match day(&n) - day(&t) {
-        0 => format!("{}, {hm}", tr("aujourd'hui", "today")),
-        1 => format!("{}, {hm}", tr("hier", "yesterday")),
+        0 => tr("aujourd'hui", "today").into(),
+        1 => tr("hier", "yesterday").into(),
         _ => format!("{:02}/{:02}", t.tm_mday, t.tm_mon + 1),
     }
 }

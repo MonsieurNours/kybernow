@@ -92,6 +92,93 @@ pub enum Online {
 #[derive(Clone, Debug, Default)]
 pub struct HostLive {
     pub online: Online,
+    /// La Station a un écran virtuel (`None` : pas encore su).
+    pub virtual_display: Option<bool>,
+    /// La Station, depuis sa dernière réponse (`None` : jamais répondu).
+    pub station: Option<StationLive>,
+    /// Le compte de cet appareil a été créé par l'appairage par code (Admin
+    /// 0.5.0 et suivantes ; `None` : Admin ne le dit pas).
+    pub own_device: Option<bool>,
+}
+
+/// La Station d'un ordinateur, d'après `GET /api/stream/info` (cœur :
+/// `Info::station`, absent avant la 0.5.0).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StationLive {
+    /// Version de la Station (celle d'Admin), vide si elle ne la dit pas.
+    pub version: String,
+    /// La Station se redémarre et se met à jour depuis un appareil (0.5.0 et suivantes).
+    pub supported: bool,
+    /// Une version plus récente est publiée.
+    pub available: bool,
+    pub update_version: Option<String>,
+    /// Elle s'installe depuis un appareil.
+    pub installable: bool,
+    /// Elle s'installe sur l'ordinateur, avec l'installateur.
+    pub requires_setup: bool,
+    pub installing: bool,
+    pub restarting: bool,
+}
+
+impl StationLive {
+    /// Une mise à jour à lancer depuis cet appareil : sa version.
+    pub fn installable_version(&self) -> Option<&str> {
+        (self.supported && self.available && self.installable && !self.requires_setup).then(|| self.update_version.as_deref().unwrap_or(""))
+    }
+}
+
+/// Redémarrer ou mettre à jour la Station.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StationKind {
+    Restart,
+    Update,
+}
+
+/// Où en est un redémarrage ou une mise à jour de la Station.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StationStep {
+    /// La demande est partie (une mise à jour : Admin télécharge et vérifie d'abord).
+    Asking,
+    /// Admin a accepté : la Station s'arrête puis revient ; l'app la sonde
+    /// toutes les 2 s. `target` : la version attendue (mise à jour).
+    Waiting { since: Instant, target: Option<String>, saw_down: bool },
+    Done(String),
+    Failed(String),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StationOp {
+    pub host: String,
+    pub kind: StationKind,
+    pub step: StationStep,
+}
+
+impl StationOp {
+    pub fn busy(&self) -> bool {
+        matches!(self.step, StationStep::Asking | StationStep::Waiting { .. })
+    }
+}
+
+/// Un refus d'Admin, pour l'interface (cœur : `StationError`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum StationRefusal {
+    /// Un appareil est en session (son nom, si Admin le donne).
+    InSession(Option<String>),
+    TooSoon,
+    RequiresSetup,
+    /// Station 0.4.9 ou plus ancienne.
+    Unsupported,
+    /// Le reste, avec le message d'Admin ou du cœur.
+    Other(String),
+}
+
+/// Une confirmation par-dessus les réglages.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Confirm {
+    /// Retirer l'ordinateur de cet appareil.
+    Remove { host: String, name: String },
+    /// Un appareil est en session : recommencer avec `force` coupe sa session.
+    Force { host: String, kind: StationKind, device: String },
 }
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.
@@ -121,7 +208,7 @@ pub struct NetInfo {
     pub band: Option<String>,
 }
 
-/// Ce que sait faire cet appareil (« Cet ordinateur », « Prêt à jouer »).
+/// Ce que sait faire cet appareil (Réglages de l'app › « Cet appareil »).
 #[derive(Clone, Debug)]
 pub struct Machine {
     /// « Fedora Linux 42 », « SteamOS 3.7 ».
@@ -206,11 +293,6 @@ impl Pi {
             _ => "VideoCore IV",
         }
     }
-
-    /// Le H.264 décodé par la puce s'arrête à 1080p (60 Hz sur Pi 4, 30 Hz sur Pi 3).
-    pub fn h264_hw_hz(&self) -> u32 {
-        if self.generation >= 4 { 60 } else { 30 }
-    }
 }
 
 impl Default for Machine {
@@ -264,9 +346,9 @@ impl Machine {
         self.hw_h264 || self.hw_hevc || self.hw_av1
     }
 
-    /// Le nom du décodeur matériel, pour les étiquettes : « VA-API », « décodeur du Pi ».
+    /// Le nom du décodeur matériel, pour les étiquettes : « carte graphique », « décodeur du Pi ».
     pub fn hw_name(&self) -> &'static str {
-        if self.pi.is_some() { tr("décodeur du Pi", "Pi decoder") } else { "VA-API" }
+        if self.pi.is_some() { tr("décodeur du Pi", "Pi decoder") } else { tr("carte graphique", "graphics card") }
     }
 
     /// La plus grande hauteur d'image que cet appareil affiche (Pi : sa sortie HDMI).
@@ -325,11 +407,14 @@ pub enum Phase {
     FirstImages,
     Streaming,
     Reconnecting { attempt: u32, max: u32 },
+    /// Dernier recours de la connexion : le cœur redémarre la Station, puis
+    /// reprend du début (« La Station redémarre… »).
+    StationRestarting,
     Ending,
     Ended { error: Option<String> },
 }
 
-/// Mesures de la dernière seconde.
+/// Statistiques de la dernière seconde (barre, menu de session).
 #[derive(Clone, Debug, Default)]
 pub struct Stats {
     pub latency_ms: Option<f64>,
@@ -401,11 +486,10 @@ pub struct SessionUi {
     /// Capsule passagère (manette branchée, mode changé…).
     pub notice: Option<(String, Instant)>,
     pub started: Instant,
-    /// Résumé de la session (« Jeu · 1280 × 800 · 90 Hz · HEVC · 30 Mbit/s »).
-    pub summary: String,
     /// Déconnexion demandée : l'accueil revient en fondu sous « Déconnexion… ».
     pub ending_since: Option<Instant>,
-    /// Première image : les moitiés de l'accueil s'écartent (passage).
+    /// La première image : l'image seule à partir d'elle ; sans elle, une
+    /// fin sur erreur est un échec de la connexion.
     pub opened_at: Option<Instant>,
 }
 
@@ -419,7 +503,7 @@ pub enum AddStep {
     /// Empreinte du certificat à comparer avec celle d'Admin.
     Verify { address: String, port: u16, fingerprint: String },
     /// L'adresse MAC de l'ordinateur choisi, pour le réveil par le réseau
-    /// (Réglages de l'ordinateur › Compte) : même champ et même pavé, en
+    /// (Réglages de l'ordinateur › Réseau) : même champ et même pavé, en
     /// hexadécimal.
     Mac,
 }
@@ -461,6 +545,12 @@ pub enum Setting {
     /// L'adresse MAC de l'ordinateur (réveil par le réseau).
     WakeMac,
     Remove,
+    /// Station : ouvrir Admin dans le navigateur, redémarrer, mettre à jour.
+    StationAdmin,
+    StationRestart,
+    StationUpdate,
+    /// Une ligne d'information (Statistiques, Compte) : rien à choisir.
+    Info,
     Language,
     Interface,
     UpdateChannel,
@@ -489,10 +579,13 @@ pub enum Section {
     Profile,
     Picture,
     Sound,
-    Controllers,
-    Inputs,
+    /// Manettes, souris, clavier, presse-papiers.
+    Controls,
     Network,
-    Account,
+    /// La dernière session et ce que la Station dit de l'ordinateur.
+    Statistics,
+    /// Admin, redémarrer, mettre à jour, compte, retirer.
+    Station,
     /// Réglages de l'app.
     App,
     Gamepads,
@@ -513,10 +606,10 @@ impl Section {
             Section::Profile => tr("Profil", "Profile"),
             Section::Picture => tr("Image", "Picture"),
             Section::Sound => tr("Son", "Sound"),
-            Section::Controllers => tr("Manettes", "Controllers"),
-            Section::Inputs => tr("Souris et clavier", "Mouse and keyboard"),
-            Section::Network => tr("Transport", "Transport"),
-            Section::Account => tr("Compte", "Account"),
+            Section::Controls => tr("Commandes", "Controls"),
+            Section::Network => tr("Réseau", "Network"),
+            Section::Statistics => tr("Statistiques", "Statistics"),
+            Section::Station => "Station",
             Section::App => tr("KyberNow Link", "KyberNow Link"),
             Section::Gamepads => tr("Manettes", "Controllers"),
             Section::OsUsage => tr("Usage", "Use"),
@@ -563,7 +656,9 @@ pub enum OsAction {
 /// l'ordinateur, le réseau et le décodeur le tiennent.
 pub const BITRATES: [u32; 14] = [0, 10, 20, 30, 40, 50, 60, 80, 100, 150, 200, 300, 400, 500];
 
-pub const HOST_SECTIONS: [Section; 7] = [Section::Profile, Section::Picture, Section::Sound, Section::Controllers, Section::Inputs, Section::Network, Section::Account];
+/// Les rubriques des réglages d'un ordinateur (docs/link-ui.md) : le profil en
+/// tête, puis les six rubriques communes à toutes les apps Link.
+pub const HOST_SECTIONS: [Section; 7] = [Section::Profile, Section::Picture, Section::Sound, Section::Controls, Section::Network, Section::Statistics, Section::Station];
 pub const APP_SECTIONS: [Section; 2] = [Section::App, Section::Gamepads];
 
 /// La forme d'une ligne de réglage.
@@ -573,12 +668,21 @@ pub enum RowKind {
     /// `tags` : une étiquette par valeur, s'il y en a (« décodeur du Pi », « processeur »).
     Choice { options: Vec<String>, current: usize, disabled: Vec<bool>, tags: Vec<Option<Tag>> },
     Toggle(bool),
-    /// Ouvre un écran ou lance quelque chose.
+    /// Ouvre un écran ou lance quelque chose (la valeur à droite, « › »).
     Action(String),
-    /// Retirer l'ordinateur.
-    Danger(String),
+    /// Un bouton qui dit ce qu'il fait (« Redémarrer la Station ») : sur le
+    /// bureau, le bouton puis l'aide ; à la manette, son texte en libellé.
+    Button { text: String, style: ButtonStyle },
     /// Information seule.
     Info(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonStyle {
+    Ghost,
+    Primary,
+    /// Retirer l'ordinateur.
+    Danger,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -615,7 +719,7 @@ impl Tag {
         Some(Tag { text: text.into(), kind: TagKind::Hw })
     }
     pub fn cpu() -> Option<Tag> {
-        Some(Tag { text: tr("processeur", "CPU").into(), kind: TagKind::Cpu })
+        Some(Tag { text: tr("processeur", "processor").into(), kind: TagKind::Cpu })
     }
     pub fn note(text: &str) -> Option<Tag> {
         Some(Tag { text: text.into(), kind: TagKind::Note })
@@ -734,11 +838,18 @@ pub struct OsUpdate {
 pub enum Target {
     Connect,
     Chip(Profile),
+    /// « Personnalisé » sur l'accueil : ouvre les réglages de l'ordinateur.
+    CustomChip,
     Host(usize),
     Found(usize),
     AddCard,
     Wake,
+    /// Hors ligne, sans adresse MAC : sonder l'ordinateur à nouveau.
+    Retry,
     HostSettings,
+    /// Les deux boutons d'une confirmation : faire, annuler.
+    ConfirmYes,
+    ConfirmNo,
     /// Réglages de l'app.
     AppSettings,
     AddFound(usize),
@@ -795,6 +906,11 @@ pub enum Action {
     PairAddress { address: String, port: u16, fingerprint: String },
     Probe { address: String, port: u16 },
     Wake(String),
+    /// Sonder les ordinateurs maintenant (Réessayer).
+    Poll,
+    /// Redémarrer ou mettre à jour la Station de cet ordinateur ; `force` :
+    /// même si un appareil est en session.
+    Station { host: String, kind: StationKind, force: bool },
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(Vec<u16>),
     SetProfile(Profile),
@@ -889,6 +1005,13 @@ pub struct App {
     pub os_loading: Option<(String, f32)>,
     /// Veille : écran éteint.
     pub standby: bool,
+    /// Une confirmation ouverte par-dessus les réglages.
+    pub confirm: Option<Confirm>,
+    /// Le dernier redémarrage ou la dernière mise à jour de la Station demandés.
+    pub station_op: Option<StationOp>,
+    /// Le réveil envoyé à un ordinateur, et quand : l'accueil dit « Réveil de
+    /// l'ordinateur… » et l'app le sonde toutes les 2 s, 2 min au plus.
+    pub waking: Option<(String, Instant)>,
 }
 
 impl App {
@@ -939,6 +1062,9 @@ impl App {
             os_update: OsUpdate::default(),
             os_loading: None,
             standby: false,
+            confirm: None,
+            station_op: None,
+            waking: None,
         }
     }
 
@@ -1012,7 +1138,24 @@ impl App {
         self.section = self.first_desktop_section();
         self.scroll = 0.0;
         self.back_to = from;
+        self.confirm = None;
+        // Un redémarrage fini (ou raté) ne se raconte plus en rouvrant les réglages.
+        if self.station_op.as_ref().is_some_and(|o| !o.busy()) {
+            self.station_op = None;
+        }
         self.go(Screen::Settings);
+    }
+
+    /// Ouvre une rubrique des réglages de l'ordinateur choisi.
+    pub fn open_host_section(&mut self, section: Section, from: Screen) {
+        self.open_settings(false, from);
+        if let Some(i) = HOST_SECTIONS.iter().position(|s| *s == section) {
+            self.section = i;
+            self.focus = Target::Section(i);
+            if self.layout == Layout::Desktop {
+                self.focus = self.first_setting().map(Target::Setting).unwrap_or(Target::Back);
+            }
+        }
     }
 
     pub fn toast(&mut self, s: impl Into<String>) {
@@ -1078,6 +1221,33 @@ impl App {
             return Some(if self.os.as_ref().is_some_and(|o| !o.pending.is_empty()) || matches!(self.update, UpdateState::Available { .. }) { Setting::OsUpdateApply } else { Setting::OsAutoUpdate });
         }
         self.rows(s).into_iter().find(|r| r.enabled && !matches!(r.kind, RowKind::Info(_))).map(|r| r.setting)
+    }
+
+    /// Le focus est sur une valeur au choix ou un interrupteur (‹ › les changent).
+    fn focus_adjustable(&self) -> bool {
+        let Target::Setting(s) = self.focus else { return false };
+        if s == Setting::OsAutoUpdate {
+            return true;
+        }
+        let secs: &[Section] = if self.screen == Screen::Device { &OS_SECTIONS } else { self.sections() };
+        secs.iter().flat_map(|sec| self.rows(*sec)).any(|r| r.setting == s && matches!(r.kind, RowKind::Choice { .. } | RowKind::Toggle(_)))
+    }
+
+    /// Choisit un profil pour un ordinateur : ce qui s'en écartait (format,
+    /// débit, 4:4:4 en Jeu, transport fiable hors Bureau) revient au profil.
+    pub fn set_profile(&mut self, id: &str, p: Profile) {
+        if let Some(h) = self.store.host_mut(id) {
+            let st = &mut h.settings;
+            st.profile = p;
+            st.codec = "auto".into();
+            st.mbps = 0;
+            if p == Profile::Jeu {
+                st.yuv444 = false;
+            }
+            if p != Profile::Bureau {
+                st.reliable = false;
+            }
+        }
     }
 
     /// L'adresse MAC de l'ordinateur est en cours de saisie.
@@ -1202,6 +1372,19 @@ impl App {
             }
             return Vec::new();
         }
+        // Une confirmation ouverte : ses deux boutons, B l'annule.
+        if self.confirm.is_some() {
+            match n {
+                Nav::Ok => {
+                    let t = self.focus;
+                    return self.activate(t);
+                }
+                Nav::Back => return self.activate(Target::ConfirmNo),
+                Nav::Up | Nav::Down | Nav::Left | Nav::Right => self.move_focus(n),
+                _ => {}
+            }
+            return Vec::new();
+        }
         match n {
             Nav::Ok => {
                 let t = self.focus;
@@ -1241,9 +1424,7 @@ impl App {
                         let Some(h) = self.selected().map(|h| (h.id.clone(), h.settings.profile)) else { return Vec::new() };
                         let i = Profile::ALL.iter().position(|p| *p == h.1).unwrap_or(0);
                         let p = Profile::ALL[cycle(i, 3, dir)];
-                        if let Some(host) = self.store.host_mut(&h.0) {
-                            host.settings.profile = p;
-                        }
+                        self.set_profile(&h.0, p);
                         vec![Action::Save]
                     }
                     Screen::Device => {
@@ -1275,11 +1456,12 @@ impl App {
                 }
                 Vec::new()
             }
-            Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(_)) && self.layout.console() => {
+            // ‹ › changent une valeur ou un interrupteur ; sur un bouton, ils déplacent le focus.
+            Nav::Left | Nav::Right if self.layout.console() && self.focus_adjustable() => {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
             }
-            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect) && self.layout.console() && self.store.hosts.len() > 1 => {
+            Nav::Left | Nav::Right if self.screen == Screen::Home && matches!(self.focus, Target::Connect | Target::Wake | Target::Retry) && self.layout.console() && self.store.hosts.len() > 1 => {
                 // Accueil à la manette : ‹ › changent d'ordinateur.
                 let i = self.selected_index().unwrap_or(0);
                 let j = cycle(i, self.store.hosts.len(), if n == Nav::Right { 1 } else { -1 });
@@ -1431,7 +1613,7 @@ impl App {
     pub fn session_back(&mut self) -> Vec<Action> {
         let Some(s) = self.session.as_mut() else { return Vec::new() };
         match s.phase {
-            Phase::Preparing | Phase::Connecting | Phase::FirstImages => vec![Action::CancelConnect],
+            Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => vec![Action::CancelConnect],
             Phase::Ended { .. } => {
                 self.session = None;
                 self.go(Screen::Home);
@@ -1480,11 +1662,24 @@ impl App {
             }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
-                if let Some(h) = self.store.host_mut(&id) {
-                    h.settings.profile = p;
-                }
+                self.set_profile(&id, p);
                 vec![Action::Save]
             }
+            Target::CustomChip => {
+                self.open_settings(false, Screen::Home);
+                Vec::new()
+            }
+            Target::Retry => {
+                if let Some(id) = self.selected().map(|h| h.id.clone()) {
+                    self.live.entry(id).or_default().online = Online::Unknown;
+                }
+                vec![Action::Poll]
+            }
+            Target::ConfirmNo => {
+                self.close_confirm();
+                Vec::new()
+            }
+            Target::ConfirmYes => self.confirmed(),
             Target::Host(i) => {
                 let Some(h) = self.store.hosts.get(i) else { return Vec::new() };
                 let id = h.id.clone();
@@ -1643,7 +1838,11 @@ impl App {
                 self.go(Screen::Add);
                 Vec::new()
             }
-            Target::Wake => self.selected().map(|h| vec![Action::Wake(h.id.clone())]).unwrap_or_default(),
+            Target::Wake => {
+                let Some(id) = self.selected().filter(|h| h.can_wake()).map(|h| h.id.clone()) else { return Vec::new() };
+                self.waking = Some((id.clone(), Instant::now()));
+                vec![Action::Wake(id)]
+            }
             Target::HostSettings => {
                 if self.selected().is_none() {
                     return Vec::new();
@@ -1732,10 +1931,133 @@ impl App {
 
     /// Le profil choisi en session est gardé pour cet ordinateur.
     fn remember_profile(&mut self, p: Profile) {
-        if let Some(id) = self.session.as_ref().map(|s| s.host.clone())
-            && let Some(h) = self.store.host_mut(&id)
-        {
-            h.settings.profile = p;
+        if let Some(id) = self.session.as_ref().map(|s| s.host.clone()) {
+            self.set_profile(&id, p);
+        }
+    }
+
+    // MARK: - Confirmations et Station
+
+    /// Ferme la confirmation ; le focus revient sur ce qui l'a ouverte.
+    fn close_confirm(&mut self) {
+        let back = match self.confirm.take() {
+            Some(Confirm::Remove { .. }) => Setting::Remove,
+            Some(Confirm::Force { kind: StationKind::Update, .. }) => Setting::StationUpdate,
+            _ => Setting::StationRestart,
+        };
+        self.focus = Target::Setting(back);
+    }
+
+    fn open_confirm(&mut self, c: Confirm) {
+        self.confirm = Some(c);
+        // Annuler a le focus : deux appuis sur A ne retirent rien par mégarde.
+        self.focus = Target::ConfirmNo;
+    }
+
+    fn confirmed(&mut self) -> Vec<Action> {
+        match self.confirm.take() {
+            Some(Confirm::Remove { host, name }) => {
+                self.store.remove(&host);
+                self.live.remove(&host);
+                self.toast(format!("{name} {}", tr("est retiré de cet appareil", "is removed from this device")));
+                self.go(Screen::Home);
+                vec![Action::Save]
+            }
+            Some(Confirm::Force { host, kind, .. }) => {
+                self.focus = Target::Setting(if kind == StationKind::Update { Setting::StationUpdate } else { Setting::StationRestart });
+                self.start_station(host, kind, true)
+            }
+            None => Vec::new(),
+        }
+    }
+
+    /// La Station de l'ordinateur choisi, si elle a répondu.
+    pub fn station(&self, id: &str) -> Option<&StationLive> {
+        self.live.get(id).and_then(|l| l.station.as_ref())
+    }
+
+    /// Redémarrer ou mettre à jour la Station se peut : elle répond, elle le
+    /// connaît, rien n'est déjà en cours.
+    pub fn station_ready(&self, id: &str) -> bool {
+        let online = self.live.get(id).is_some_and(|l| l.online == Online::Online);
+        let busy = self.station_op.as_ref().is_some_and(|o| o.busy());
+        online && !busy && self.station(id).is_some_and(|s| s.supported && !s.installing && !s.restarting)
+    }
+
+    fn start_station(&mut self, host: String, kind: StationKind, force: bool) -> Vec<Action> {
+        self.station_op = Some(StationOp { host: host.clone(), kind, step: StationStep::Asking });
+        vec![Action::Station { host, kind, force }]
+    }
+
+    /// La réponse d'Admin à un redémarrage ou une mise à jour : accepté (la
+    /// version visée), ou refusé.
+    pub fn station_reply(&mut self, host: &str, kind: StationKind, r: Result<Option<String>, StationRefusal>) {
+        if self.station_op.as_ref().is_none_or(|o| o.host != host || o.kind != kind) {
+            return;
+        }
+        let step = match r {
+            Ok(version) => {
+                let target = version.filter(|v| !v.is_empty()).or_else(|| self.station(host).and_then(|s| s.update_version.clone()));
+                StationStep::Waiting { since: Instant::now(), target: if kind == StationKind::Update { target } else { None }, saw_down: false }
+            }
+            Err(StationRefusal::InSession(device)) => {
+                self.station_op = None;
+                let device = device.filter(|d| !d.is_empty()).unwrap_or_else(|| tr("Un appareil", "A device").into());
+                self.open_confirm(Confirm::Force { host: host.into(), kind, device });
+                return;
+            }
+            Err(StationRefusal::TooSoon) => StationStep::Failed(tr("La Station vient de redémarrer. Réessayez dans une minute.", "The Station has just restarted. Try again in a minute.").into()),
+            Err(StationRefusal::RequiresSetup) => {
+                let v = self.station(host).and_then(|s| s.update_version.clone()).unwrap_or_default();
+                StationStep::Failed(requires_setup_text(&v))
+            }
+            Err(StationRefusal::Unsupported) => StationStep::Failed(too_old_text().into()),
+            Err(StationRefusal::Other(m)) => StationStep::Failed(m),
+        };
+        if let Some(o) = self.station_op.as_mut() {
+            o.step = step;
+        }
+    }
+
+    /// Un réveil est en cours pour cet ordinateur (2 min au plus).
+    pub fn is_waking(&self, id: &str) -> bool {
+        self.waking.as_ref().is_some_and(|(h, t)| h == id && t.elapsed().as_secs() < 120)
+    }
+
+    /// L'ordinateur qu'on réveille, sondé toutes les 2 s.
+    pub fn waking_host(&self) -> Option<&str> {
+        self.waking.as_ref().filter(|(_, t)| t.elapsed().as_secs() < 120).map(|(h, _)| h.as_str())
+    }
+
+    /// L'ordinateur dont l'app attend le retour de la Station (sondé toutes les 2 s).
+    pub fn station_waiting(&self) -> Option<&str> {
+        self.station_op.as_ref().filter(|o| matches!(o.step, StationStep::Waiting { .. })).map(|o| o.host.as_str())
+    }
+
+    /// Une réponse (ou un silence) de la Station attendue : revenue, à la
+    /// bonne version pour une mise à jour ; trop longtemps absente.
+    pub fn station_progress(&mut self, id: &str) {
+        let online = self.live.get(id).is_some_and(|l| l.online == Online::Online);
+        let st = self.station(id).cloned();
+        let Some(op) = self.station_op.as_mut().filter(|o| o.host == id) else { return };
+        let StationStep::Waiting { since, target, saw_down } = &mut op.step else { return };
+        let elapsed = since.elapsed().as_secs();
+        let busy = st.as_ref().is_none_or(|s| s.restarting || s.installing);
+        if !online || busy {
+            *saw_down = true;
+        }
+        let late = if op.kind == StationKind::Update { 600 } else { 180 };
+        let step = match (op.kind, online && !busy, st) {
+            (StationKind::Restart, true, _) if *saw_down || elapsed >= 20 => Some(StationStep::Done(tr("La Station a redémarré.", "The Station has restarted.").into())),
+            (StationKind::Update, true, Some(s)) if target.as_deref().is_some_and(|t| t == s.version) || (target.is_none() && *saw_down) => {
+                Some(StationStep::Done(format!("{} {} {}", tr("KyberNow Station", "KyberNow Station"), s.version, tr("est en place.", "is installed."))))
+            }
+            (StationKind::Update, true, Some(_)) if *saw_down && elapsed >= 120 => Some(StationStep::Failed(tr("La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus.", "The update did not complete. Open Admin to find out more.").into())),
+            _ if elapsed >= late => Some(StationStep::Failed(tr("La Station tarde à revenir. Ouvrez Admin pour en savoir plus.", "The Station is taking a while to come back. Open Admin to find out more.").into())),
+            _ => None,
+        };
+        if let Some(s) = step {
+            op.step = s;
         }
     }
 
@@ -1826,13 +2148,15 @@ impl App {
             tag: None,
         };
         let toggle = |setting, label: &str, hint: String, on: bool| Row { setting, label: label.to_string(), hint, kind: RowKind::Toggle(on), enabled: true, tag: None };
+        let info = |label: &str, hint: String, value: String| Row { setting: Setting::Info, label: label.to_string(), hint, kind: RowKind::Info(value), enabled: true, tag: None };
+        let button = |setting, text: &str, hint: String, style: ButtonStyle, enabled: bool| Row { setting, label: text.to_string(), hint, kind: RowKind::Button { text: text.to_string(), style }, enabled, tag: None };
         if section == Section::App {
             let lang = ["auto", "fr", "en"].iter().position(|v| *v == self.store.app.language).unwrap_or(0);
             let iface = ["auto", "desktop", "handheld", "tv"].iter().position(|v| *v == self.store.app.interface).unwrap_or(0);
             let update = match &self.update {
                 UpdateState::Unknown => String::new(),
                 UpdateState::Checking => tr("Recherche…", "Checking…").into(),
-                UpdateState::UpToDate => format!("{} {}", tr("À jour :", "Up to date:"), self.version),
+                UpdateState::UpToDate => tr("À jour", "Up to date").into(),
                 UpdateState::Available { version, .. } => format!("{} {version} {}", tr("Version", "Version"), tr("disponible", "available")),
                 UpdateState::Failed(e) => e.clone(),
             };
@@ -1840,20 +2164,20 @@ impl App {
                 choice(
                     Setting::Interface,
                     tr("Interface", "Interface"),
-                    tr("Auto : console sous gamescope (mode Jeu de SteamOS), bureau ailleurs", "Auto: console under gamescope (SteamOS Gaming Mode), desktop elsewhere").into(),
+                    tr("Auto : console en mode Jeu de SteamOS, bureau ailleurs.", "Auto: console in SteamOS Gaming Mode, desktop elsewhere.").into(),
                     vec!["Auto".into(), tr("Bureau", "Desktop").into(), tr("Portable", "Handheld").into(), tr("Salon", "Living room").into()],
                     iface,
                     vec![false; 4],
                 ),
-                choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système", "Auto: the system's").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3]),
-                toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last picture"), tr("L'accueil montre la dernière image de chaque session", "The home screen shows the last picture of each session").into(), self.store.app.keep_last_image),
+                choice(Setting::Language, tr("Langue", "Language"), tr("Auto : celle du système.", "Auto: the system's.").into(), vec!["Auto".into(), "Français".into(), "English".into()], lang, vec![false; 3]),
+                toggle(Setting::KeepImage, tr("Garder la dernière image", "Keep the last image"), tr("L'accueil montre la dernière image de chaque session, pour tous les ordinateurs.", "The home screen shows the last image of each session, for every computer.").into(), self.store.app.keep_last_image),
                 choice(
                     Setting::UpdateChannel,
                     tr("Versions proposées", "Offered versions"),
                     if flatpak() {
-                        tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée", "The Flatpak does not update itself: the app tells you when a version is published").into()
+                        tr("Le Flatpak ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The Flatpak does not update itself: the app tells you when a version is published.").into()
                     } else {
-                        tr("Le paquet .deb ne se met pas à jour seul : l'app prévient quand une version est publiée", "The .deb package does not update itself: the app tells you when a version is published").into()
+                        tr("Le paquet .deb ne se met pas à jour seul : l'app prévient quand une version est publiée.", "The .deb package does not update itself: the app tells you when a version is published.").into()
                     },
                     vec![tr("Stables", "Stable").into(), tr("Aussi les bêtas", "Betas too").into()],
                     self.store.app.beta as usize,
@@ -1865,7 +2189,7 @@ impl App {
         if section == Section::Gamepads {
             let n = self.pads.len();
             let hint = if n == 0 {
-                tr("Aucune manette vue : branchez-la ou associez-la en Bluetooth", "No controller seen: plug it in or pair it over Bluetooth").to_string()
+                tr("Aucune manette : branchez-la, ou associez-la en Bluetooth.", "No controller: plug it in, or pair it over Bluetooth.").to_string()
             } else {
                 self.pads.iter().map(|p| format!("{}{} {}", tr("J", "P"), p.slot + 1, p.name)).collect::<Vec<_>>().join(" · ")
             };
@@ -1877,24 +2201,28 @@ impl App {
         let Some(h) = self.selected() else { return Vec::new() };
         let st = &h.settings;
         match section {
-            Section::Profile => vec![choice(
-                Setting::Profile,
-                tr("Profil de la session", "Session profile"),
-                tr("Jeu : latence la plus basse · Bureau : texte net · Max : la meilleure image", "Game: lowest latency · Desktop: sharp text · Max: best picture").into(),
-                vec![tr("Jeu", "Game").into(), tr("Bureau", "Desktop").into(), "Max".into()],
-                Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0),
-                vec![false; 3],
-            )],
+            Section::Profile => {
+                let custom = st.custom();
+                let mut options: Vec<String> = Profile::ALL.iter().map(|p| crate::ui::profile_label(*p).to_string()).collect();
+                let mut disabled = vec![false; 3];
+                // « Personnalisé » se lit, ne se choisit pas : il vient des réglages.
+                if custom {
+                    options.push(tr("Personnalisé", "Custom").into());
+                    disabled.push(true);
+                }
+                let current = if custom { 3 } else { Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0) };
+                vec![choice(Setting::Profile, tr("Profil", "Profile"), profile_phrase((!custom).then_some(st.profile)).into(), options, current, disabled)]
+            }
             Section::Picture => {
                 let (_, dh) = m.display;
                 let pi = m.pi.as_ref();
                 let res = [0u32, 2160, 1440, 1080, 800, 720];
-                let res_labels: Vec<String> = res.iter().map(|r| if *r == 0 { format!("{} · {}", tr("Comme cet écran", "Like this screen"), Machine::height_label(dh)) } else { Machine::height_label(*r) }).collect();
+                let res_labels: Vec<String> = res.iter().map(|r| if *r == 0 { format!("{} · {}", tr("Comme cet écran", "Match this display"), Machine::height_label(dh)) } else { Machine::height_label(*r) }).collect();
                 // Au-delà de ce que la sortie affiche (Pi 3 : 1080p), grisé.
                 let res_off: Vec<bool> = res.iter().map(|r| *r > m.max_height()).collect();
                 let height = if st.resolution == 0 { dh } else { st.resolution };
                 let fps = [0u32, 30, 60, 90, 120, 144];
-                let fps_labels: Vec<String> = fps.iter().map(|f| if *f == 0 { format!("{} · {} Hz", tr("Écran", "Screen"), m.refresh) } else { format!("{f} Hz") }).collect();
+                let fps_labels: Vec<String> = fps.iter().map(|f| if *f == 0 { format!("{} · {} Hz", tr("Comme cet écran", "Match this display"), m.refresh) } else { format!("{f} Hz") }).collect();
                 let fps_off: Vec<bool> = fps.iter().map(|f| *f != 0 && *f > m.max_hz(height)).collect();
                 // Sur le Pi, 120 Hz n'existe qu'en 1080p : l'étiquette le dit.
                 let fps_tags: Vec<Option<Tag>> = fps.iter().map(|f| if pi.is_some_and(|p| p.generation >= 4) && *f == 120 { Tag::note("1080p") } else { None }).collect();
@@ -1905,50 +2233,56 @@ impl App {
                 let codec_tags = vec![None, who(m.hw_hevc), who(m.hw_h264), if m.hw_av1 { Tag::hw(m.hw_name()) } else { None }];
                 let display = ["auto", "vsync", "immediate", "vrr"];
                 let vrr_hint = match (pi, m.vrr) {
-                    (Some(_), _) => tr("Pas de fréquence variable sur la sortie HDMI du Pi · Immédiat : chaque image dès qu'elle est décodée", "No variable refresh on the Pi's HDMI output · Immediate: each frame as soon as it is decoded"),
-                    (None, Some(true)) => tr("Fréquence variable : l'écran suit la cadence du flux · Immédiat : déchirure permise", "Variable refresh: the screen follows the stream's pace · Immediate: tearing allowed"),
-                    (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable · Immédiat : chaque image dès qu'elle est décodée", "This screen does not announce variable refresh · Immediate: each frame as soon as it is decoded"),
-                    (None, None) => tr("Fréquence variable : quand l'écran et le compositeur la permettent", "Variable refresh: when the screen and compositor allow it"),
+                    (Some(_), _) => tr("La sortie HDMI du Pi n'a pas de fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "The Pi's HDMI output has no variable refresh. Immediate: each frame as soon as it is decoded."),
+                    (None, Some(true)) => tr("Fréquence variable : l'écran suit le rythme des images. Immédiat : l'image peut se déchirer.", "Variable refresh: the screen follows the pace of the frames. Immediate: the picture may tear."),
+                    (None, Some(false)) => tr("Cet écran n'annonce pas la fréquence variable. Immédiat : chaque image dès qu'elle est décodée.", "This screen does not announce variable refresh. Immediate: each frame as soon as it is decoded."),
+                    (None, None) => tr("Fréquence variable : quand l'écran et le système la permettent.", "Variable refresh: when the screen and the system allow it."),
                 };
-                let bitrates = BITRATES;
-                let br_labels: Vec<String> = bitrates.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
-                let mut res_row = choice(Setting::Resolution, tr("Écran", "Screen"), picture_hints(m).0, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
-                if pi.is_none() {
-                    res_row.label = tr("Écran de l'ordinateur", "Computer's screen").into();
-                }
-                let mut fps_row = choice(Setting::Fps, tr("Fréquence", "Refresh rate"), picture_hints(m).1, fps_labels, fps.iter().position(|v| *v == st.fps).unwrap_or(0), fps_off);
+                let br_labels: Vec<String> = BITRATES.iter().map(|b| if *b == 0 { "Auto".into() } else { format!("{b} Mbit/s") }).collect();
+                let (res_hint, fps_hint, codec_hint) = picture_hints(m);
+                let res_row = choice(Setting::Resolution, tr("Définition", "Resolution"), res_hint, res_labels, res.iter().position(|v| *v == st.resolution).unwrap_or(0), res_off);
+                let mut fps_row = choice(Setting::Fps, tr("Fréquence", "Refresh rate"), fps_hint, fps_labels, fps.iter().position(|v| *v == st.fps).unwrap_or(0), fps_off);
                 if let RowKind::Choice { tags, .. } = &mut fps_row.kind {
                     *tags = fps_tags;
                 }
-                let mut codec_row = choice(Setting::Codec, tr("Format", "Format"), picture_hints(m).2, vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()], codecs.iter().position(|v| *v == st.codec).unwrap_or(0), codec_off);
+                let mut codec_row = choice(Setting::Codec, tr("Format vidéo", "Video format"), codec_hint, vec!["Auto".into(), "HEVC".into(), "H.264".into(), "AV1".into()], codecs.iter().position(|v| *v == st.codec).unwrap_or(0), codec_off);
                 if let RowKind::Choice { tags, .. } = &mut codec_row.kind {
                     *tags = codec_tags;
                 }
                 let mut rows = vec![
                     res_row,
                     fps_row,
+                    toggle(
+                        Setting::VirtualDisplay,
+                        tr("Écran virtuel", "Virtual display"),
+                        tr(
+                            "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
+                            "The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.",
+                        )
+                        .into(),
+                        st.virtual_display,
+                    ),
                     codec_row,
                     Row {
                         setting: Setting::Yuv444,
-                        label: tr("Couleurs 4:4:4", "4:4:4 colour").into(),
-                        hint: yuv444_hint(m, hevc).into(),
+                        label: tr("Texte net (4:4:4)", "Sharp text (4:4:4)").into(),
+                        hint: yuv444_hint(m, hevc),
                         kind: RowKind::Toggle(st.yuv444 && hevc),
                         enabled: hevc,
                         tag: if hevc { who(m.hw_hevc444) } else { None },
                     },
+                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : il suit la définition, la fréquence et le profil.", "Auto: it follows the resolution, the refresh rate and the profile.").into(), br_labels, BITRATES.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; BITRATES.len()]),
                     choice(
                         Setting::Display,
-                        tr("Affichage", "Display"),
+                        tr("Affichage des images", "Frame display"),
                         vrr_hint.into(),
-                        vec!["Auto".into(), tr("Synchronisé", "Synchronised").into(), tr("Immédiat", "Immediate").into(), tr("Fréquence variable", "Variable refresh").into()],
+                        vec!["Auto".into(), tr("Synchronisé", "Synced").into(), tr("Immédiat", "Immediate").into(), tr("Fréquence variable", "Variable refresh").into()],
                         display.iter().position(|v| *v == st.display).unwrap_or(0),
                         vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
-                    choice(Setting::Bitrate, tr("Débit", "Bitrate"), tr("Auto : proportionné aux pixels par seconde du profil", "Auto: in proportion to the profile's pixels per second").into(), br_labels, bitrates.iter().position(|v| *v == st.mbps).unwrap_or(0), vec![false; bitrates.len()]),
-                    toggle(Setting::VirtualDisplay, tr("Écran virtuel", "Virtual display"), tr("Créé par la Station au début de la session ; sinon, les écrans de l'ordinateur tels quels", "Created by the Station when the session starts; otherwise the computer's screens as they are").into(), st.virtual_display),
                 ];
                 if m.battery.is_some() {
-                    rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit", "On battery: 60 frames per second at most, lower bitrate").into(), st.battery_light));
+                    rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit.", "On battery: 60 frames per second at most, lower bitrate.").into(), st.battery_light));
                 }
                 rows
             }
@@ -1958,84 +2292,116 @@ impl App {
                 vec![choice(
                     Setting::Audio,
                     tr("Son", "Sound"),
-                    format!("{} {} : {} {}", tr("Auto suit la sortie", "Auto follows the output"), m.audio_name, m.audio_channels, tr("voies", "channels")),
+                    format!("{} ({}, {} {}).", tr("Auto suit la sortie de cet appareil", "Auto follows this device's output"), m.audio_name, m.audio_channels, tr("voies", "channels")),
                     vec!["Auto".into(), tr("Stéréo", "Stereo").into(), "5.1".into(), "7.1".into(), tr("Sur l'ordinateur", "On the computer").into()],
                     audio.iter().position(|v| *v == st.audio).unwrap_or(0),
                     off,
                 )]
             }
-            Section::Controllers => vec![
+            Section::Controls => vec![
                 choice(
                     Setting::Xbox360,
-                    tr("Manette vue par l'ordinateur", "Gamepad seen by the computer"),
-                    tr("Xbox 360 : reconnue par tous les jeux · Fidèle : le modèle branché", "Xbox 360: recognised by every game · Faithful: the actual model").into(),
-                    vec!["Xbox 360".into(), tr("Fidèle", "Faithful").into()],
+                    tr("Manette vue par l'ordinateur", "Controller seen by the computer"),
+                    tr("Xbox 360 : tous les jeux la reconnaissent. Fidèle : le modèle branché.", "Xbox 360: every game recognises it. As is: the model you plugged in.").into(),
+                    vec!["Xbox 360".into(), tr("Fidèle", "As is").into()],
                     (!st.xbox360) as usize,
                     vec![false; 2],
                 ),
-                toggle(Setting::Combo, tr("L1 + R1 + Start + Select", "L1 + R1 + Start + Select"), tr("Tenus ensemble : ouvrent le menu de session", "Held together: open the session menu").into(), st.combo),
-                Row {
-                    setting: Setting::Pads,
-                    label: tr("Tester les manettes", "Test the controllers").into(),
-                    hint: if self.pads.is_empty() { tr("Aucune manette vue", "No controller seen").into() } else { self.pads.iter().map(|p| p.name.clone()).collect::<Vec<_>>().join(" · ") },
-                    kind: RowKind::Action(format!("{}", self.pads.len())),
-                    enabled: true,
-                    tag: None,
-                },
-            ],
-            Section::Inputs => vec![
+                toggle(Setting::Combo, "L1 + R1 + Start + Select", tr("Tenus ensemble, ils ouvrent le menu de session.", "Held together, they open the session menu.").into(), st.combo),
                 choice(
                     Setting::Mouse,
                     tr("Souris", "Mouse"),
-                    tr("Auto : souris des jeux quand l'ordinateur cache son pointeur dans un jeu en plein écran", "Auto: game mouse when the computer hides its pointer in a full-screen game").into(),
-                    vec!["Auto".into(), tr("Bureau", "Desktop").into(), tr("Jeu", "Game").into()],
+                    tr("Auto : souris des jeux quand un jeu en plein écran cache le pointeur de l'ordinateur.", "Auto: game mouse when a full-screen game hides the computer's pointer.").into(),
+                    vec!["Auto".into(), tr("Souris du bureau", "Desktop mouse").into(), tr("Souris des jeux", "Game mouse").into()],
                     ["auto", "desktop", "game"].iter().position(|v| *v == st.mouse).unwrap_or(0),
                     vec![false; 3],
                 ),
-                toggle(Setting::Clipboard, tr("Presse-papiers", "Clipboard"), tr("Texte dans les deux sens", "Text both ways").into(), st.clipboard),
+                toggle(Setting::Clipboard, tr("Presse-papiers partagé", "Shared clipboard"), tr("Le texte copié passe dans les deux sens.", "Copied text goes both ways.").into(), st.clipboard),
             ],
             Section::Network => vec![
                 choice(
                     Setting::Reliable,
-                    tr("Transport", "Transport"),
-                    tr("Rapide : pertes possibles, image clé redemandée · Fiable : tout arrive, plus de retard", "Fast: losses possible, keyframe requested again · Reliable: everything arrives, more delay").into(),
+                    tr("Transport de l'image", "Picture transport"),
+                    tr("Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai.", "Fast suits your home network and gaming. Reliable resends what gets lost, at the cost of a little delay.").into(),
                     vec![tr("Rapide", "Fast").into(), tr("Fiable", "Reliable").into()],
                     st.reliable as usize,
                     vec![false; 2],
                 ),
-                toggle(Setting::Reconnect, tr("Reconnexion automatique", "Automatic reconnection"), tr("Quand le réseau coupe en cours de session", "When the network drops during a session").into(), st.reconnect),
-            ],
-            Section::Account => vec![
-                Row {
-                    setting: Setting::Remove,
-                    label: tr("Compte", "Account").into(),
-                    hint: format!("{} · {}", h.user, h.fingerprint.as_deref().map(short_fp).unwrap_or_default()),
-                    kind: RowKind::Info(format!("{}:{}", h.address, h.port)),
-                    enabled: true,
-                    tag: None,
+                toggle(Setting::Reconnect, tr("Reconnexion automatique", "Reconnect automatically"), tr("Quand le réseau coupe pendant une session.", "When the network drops during a session.").into(), st.reconnect),
+                {
+                    // La carte apprise d'Admin (Ethernet d'abord), sinon la MAC saisie.
+                    let help = tr("Allume l'ordinateur à distance quand il est en veille. Il faut aussi l'autoriser sur l'ordinateur (Admin › Système).", "Turns the computer on remotely when it is asleep. It must also be allowed on the computer (Admin › System).");
+                    let (value, hint) = match (h.wake.first(), &h.mac) {
+                        (Some(card), _) => (tr("Prêt", "Ready"), format!("{}. {help}", card.mac)),
+                        (None, Some(m)) => (tr("Prêt", "Ready"), format!("{m} ({}). {help}", tr("saisie", "entered by hand"))),
+                        (None, None) => ("", format!("{} {help}", tr("Pas encore d'adresse : connectez-vous une fois à cet ordinateur.", "No address yet: connect to this computer once."))),
+                    };
+                    info(tr("Réveil par le réseau", "Wake on LAN"), hint, value.into())
                 },
                 Row {
                     setting: Setting::WakeMac,
-                    label: tr("Réveil par le réseau", "Wake on LAN").into(),
-                    hint: match &h.mac {
-                        Some(m) => format!("{m} · {}", tr("« Réveiller l'ordinateur » apparaît sur l'accueil quand il est hors ligne", "“Wake the computer” appears on the home screen when it is offline")),
-                        None => tr("L'adresse MAC de la carte réseau de l'ordinateur : « Réveiller l'ordinateur » apparaît sur l'accueil quand il est hors ligne", "The computer's network card MAC address: “Wake the computer” appears on the home screen when it is offline").into(),
-                    },
-                    kind: RowKind::Action(if h.mac.is_some() { tr("Changer", "Change") } else { tr("Saisir", "Enter") }.into()),
-                    enabled: true,
-                    tag: None,
-                },
-                Row {
-                    setting: Setting::Remove,
-                    label: tr("Retirer l'ordinateur", "Remove the computer").into(),
-                    hint: tr("Son compte sur cet appareil se retire aussi dans Admin › Appareils Link", "Its account on this device is also removed in Admin › Link devices").into(),
-                    kind: RowKind::Danger(tr("Retirer", "Remove").into()),
+                    label: tr("Adresse MAC à la main", "MAC address by hand").into(),
+                    hint: tr("Réglage avancé, si la Station ne donne pas la carte réseau de l'ordinateur.", "Advanced setting, if the Station does not give the computer's network card.").into(),
+                    kind: RowKind::Action(match &h.mac {
+                        Some(m) => m.clone(),
+                        None => tr("Saisir", "Enter").into(),
+                    }),
                     enabled: true,
                     tag: None,
                 },
             ],
+            Section::Statistics => {
+                let dash = || "—".to_string();
+                vec![
+                    info(tr("Système", "System"), String::new(), h.os.clone().unwrap_or_else(dash)),
+                    info(tr("Carte graphique", "Graphics card"), String::new(), h.gpu.clone().unwrap_or_else(dash)),
+                    info(tr("Adresse", "Address"), String::new(), format!("{}:{}", bracketed(&h.address), h.port)),
+                    info(tr("Empreinte", "Fingerprint"), String::new(), h.fingerprint.as_deref().map(short_fp).unwrap_or_else(dash)),
+                ]
+            }
+            Section::Station => {
+                let ready = self.station_ready(&h.id);
+                let mut rows = Vec::new();
+                // Admin : un lien au bureau ; à la manette et sur KyberNow Link OS, un QR code (ui/station.rs).
+                if !self.admin_by_qr() {
+                    rows.push(button(
+                        Setting::StationAdmin,
+                        tr("Ouvrir Admin", "Open Admin"),
+                        tr(
+                            "Admin s'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c'est normal.",
+                            "Admin opens in your browser and asks for its password. The browser may warn about the certificate: the Station signs its own connection, this is expected.",
+                        )
+                        .into(),
+                        ButtonStyle::Ghost,
+                        true,
+                    ));
+                }
+                rows.push(button(Setting::StationRestart, tr("Redémarrer la Station", "Restart the Station"), tr("Environ 30 secondes. Une session en cours sera coupée.", "About 30 seconds. A session in progress will be cut off.").into(), ButtonStyle::Ghost, ready));
+                if let Some(v) = self.station(&h.id).and_then(|s| s.installable_version()) {
+                    rows.push(button(
+                        Setting::StationUpdate,
+                        tr("Mettre à jour la Station", "Update the Station"),
+                        format!("{} {v}. {}", tr("Version", "Version"), tr("Environ une minute. Une session en cours sera coupée.", "About a minute. A session in progress will be cut off.")),
+                        ButtonStyle::Primary,
+                        ready,
+                    ));
+                }
+                // L'ajout par code donne à cet appareil son propre compte ; Admin 0.5.0 le confirme (`own_device`).
+                let own = self.live.get(&h.id).and_then(|l| l.own_device).unwrap_or(true);
+                let account_hint = if own { tr("Accès propre à cet appareil", "This device's own access") } else { "" };
+                rows.push(info(tr("Compte", "Account"), account_hint.into(), h.user.clone()));
+                rows.push(button(Setting::Remove, tr("Retirer cet ordinateur", "Remove this computer"), tr("Cet appareil l'oublie. Son accès se retire dans Admin, Appareils Link.", "This device forgets it. Its access is removed in Admin, Link devices.").into(), ButtonStyle::Danger, true));
+                rows
+            }
             _ => Vec::new(),
         }
+    }
+
+    /// Admin s'ouvre par un QR code (manette, KyberNow Link OS) plutôt que
+    /// dans un navigateur de cet appareil : en mode Jeu de SteamOS
+    /// (gamescope), un navigateur s'ouvre mal ; Link OS n'en a pas.
+    pub fn admin_by_qr(&self) -> bool {
+        self.layout.console() || self.is_os()
     }
 
     /// Les lignes des réglages de l'appareil (KyberNow Link OS) ; `None` pour
@@ -2237,17 +2603,38 @@ impl App {
             self.go(Screen::Add);
             return vec![Action::OpenKeyboard];
         }
-        if s == Setting::Remove {
-            self.store.remove(&id);
-            self.toast(tr("Ordinateur retiré de cet appareil", "Computer removed from this device"));
-            self.go(Screen::Home);
-            return vec![Action::Save];
+        match s {
+            Setting::Remove => {
+                let name = self.store.host(&id).map(|h| h.name.clone()).unwrap_or_default();
+                self.open_confirm(Confirm::Remove { host: id, name });
+                return Vec::new();
+            }
+            Setting::StationAdmin => {
+                let Some(h) = self.store.host(&id) else { return Vec::new() };
+                return vec![Action::OpenUrl(admin_url(&h.address, h.port))];
+            }
+            Setting::StationRestart => {
+                return if self.station_ready(&id) { self.start_station(id, StationKind::Restart, false) } else { Vec::new() };
+            }
+            Setting::StationUpdate => {
+                let installable = self.station(&id).and_then(|s| s.installable_version()).is_some();
+                return if installable && self.station_ready(&id) { self.start_station(id, StationKind::Update, false) } else { Vec::new() };
+            }
+            Setting::Info => return Vec::new(),
+            Setting::Profile => {
+                // Valeur suivante (‹ ›, A) ; « Personnalisé » (la quatrième) ne se choisit pas.
+                if i < Profile::ALL.len() {
+                    self.set_profile(&id, Profile::ALL[i]);
+                    return vec![Action::Save];
+                }
+                return Vec::new();
+            }
+            _ => {}
         }
         let Some(h) = self.store.host_mut(&id) else { return Vec::new() };
         let st = &mut h.settings;
         let pick = |opts: &[&str], i: usize| opts[i.min(opts.len() - 1)].to_string();
         match s {
-            Setting::Profile => st.profile = Profile::ALL[i.min(2)],
             Setting::Resolution => st.resolution = [0u32, 2160, 1440, 1080, 800, 720][i.min(5)],
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
             Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1"], i),
@@ -2303,9 +2690,13 @@ impl App {
 /// Pi, ce que sa sortie HDMI et ses décodeurs permettent ; ailleurs, VA-API.
 fn picture_hints(m: &Machine) -> (String, String, String) {
     let Some(p) = &m.pi else {
-        let screen = tr("Écran virtuel créé par la Station au début de la session", "Virtual display created by the Station when the session starts").to_string();
-        let fps = tr("Images par seconde demandées à l'ordinateur", "Frames per second asked of the computer").to_string();
-        let codec = if m.vaapi && m.hw_any() { format!("{} · {}", tr("Ceux que la carte décode par VA-API", "Those the GPU decodes through VA-API"), decoders_label(m)) } else { tr("Pas de décodage par la carte : le processeur décode H.264 et HEVC", "No GPU decoding: the CPU decodes H.264 and HEVC").into() };
+        let screen = tr("La définition de l'image que l'ordinateur envoie.", "The resolution of the picture the computer sends.").to_string();
+        let fps = tr("Les images par seconde demandées à l'ordinateur.", "The frames per second asked of the computer.").to_string();
+        let codec = if m.vaapi && m.hw_any() {
+            format!("{} {}. {}", tr("La carte graphique de cet appareil décode :", "This device's graphics card decodes:"), decoders_label(m), tr("Sans elle, le processeur décode H.264 et HEVC.", "Without it, the processor decodes H.264 and HEVC."))
+        } else {
+            tr("La carte graphique de cet appareil ne décode rien : le processeur décode H.264 et HEVC.", "This device's graphics card decodes nothing: the processor decodes H.264 and HEVC.").into()
+        };
         return (screen, fps, codec);
     };
     let screen = match p.generation {
@@ -2335,16 +2726,54 @@ fn picture_hints(m: &Machine) -> (String, String, String) {
     (screen, fps, codec)
 }
 
-/// Ce que dit la ligne 4:4:4 : qui décode, et ce qu'il en coûte.
-fn yuv444_hint(m: &Machine, hevc: bool) -> &'static str {
+/// Ce que dit la ligne 4:4:4 : ce qu'elle apporte, et sur le Pi ce qu'il en coûte.
+fn yuv444_hint(m: &Machine, hevc: bool) -> String {
+    let base = tr("Couleurs complètes : le texte reste net, au prix d'un débit plus élevé.", "Full colour: text stays sharp, at the cost of a higher bitrate.");
     if !hevc {
-        tr("En HEVC seulement", "HEVC only")
+        format!("{base} {}", tr("En HEVC seulement.", "HEVC only."))
     } else if m.pi.is_some() {
-        tr("Texte plus net. Sur ce Pi, le décodeur ne les prend pas : le processeur décode, 1080p au plus.", "Sharper text. On this Pi the decoder does not take them: the CPU decodes, 1080p at most.")
-    } else if m.hw_hevc444 {
-        tr("Texte net : la carte décode le 4:4:4, l'app convertit les couleurs (plus de débit)", "Sharp text: the GPU decodes 4:4:4, the app converts the colours (more bitrate)")
+        format!("{base} {}", tr("Sur ce Pi, le processeur décode : 1080p au plus.", "On this Pi, the processor decodes: 1080p at most."))
     } else {
-        tr("Texte net : le processeur décode le 4:4:4 (exigeant au-delà du 1440p)", "Sharp text: the CPU decodes 4:4:4 (demanding above 1440p)")
+        base.into()
+    }
+}
+
+/// « La version 0.5.1 s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe. »
+pub fn requires_setup_text(v: &str) -> String {
+    format!("{} {v} {}", tr("La version", "Version"), tr("s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.", "installs on the computer, with KyberNow-Station-Setup.exe."))
+}
+
+/// Une Station 0.4.9 ou plus ancienne : ni redémarrage ni mise à jour depuis un appareil.
+pub fn too_old_text() -> &'static str {
+    tr("Pour redémarrer ou mettre à jour la Station depuis cet appareil, mettez-la d'abord à jour depuis Admin.", "To restart or update the Station from this device, first update it from Admin.")
+}
+
+/// La phrase d'un profil (`None` : Personnalisé).
+pub fn profile_phrase(p: Option<Profile>) -> &'static str {
+    match p {
+        Some(Profile::Jeu) => tr("La réactivité d'abord, pour jouer.", "Responsiveness first, for gaming."),
+        Some(Profile::Bureau) => tr("Un texte net, pour travailler.", "Sharp text, for work."),
+        Some(Profile::Max) => tr("La meilleure image que cet appareil affiche.", "The best picture this device can show."),
+        None => tr("Vos propres réglages.", "Your own settings."),
+    }
+}
+
+/// Une adresse IPv6 entre crochets (« [fe80::1] »), les autres telles quelles.
+pub fn bracketed(address: &str) -> String {
+    let a = address.trim_start_matches('[').trim_end_matches(']');
+    if a.contains(':') { format!("[{a}]") } else { a.to_string() }
+}
+
+/// L'adresse d'Admin à ouvrir dans un navigateur ou à mettre dans le QR code :
+/// celle du cœur avec l'app ; sans lui (captures), la même, recalculée.
+pub fn admin_url(address: &str, port: u16) -> String {
+    #[cfg(feature = "device")]
+    {
+        kybernow_core::console::admin_url(address, port)
+    }
+    #[cfg(not(feature = "device"))]
+    {
+        format!("https://{}:{port}/", bracketed(address))
     }
 }
 
@@ -2434,6 +2863,7 @@ mod tests {
             gpu: None,
             av1: true,
             mac: None,
+            wake: Vec::new(),
             settings: Default::default(),
             last: None,
         }
@@ -2511,5 +2941,148 @@ mod tests {
         app.adjust(Setting::Codec, 1); // → h264
         app.adjust(Setting::Codec, 1); // av1 indisponible → auto
         assert_eq!(app.selected().unwrap().settings.codec, "auto");
+    }
+
+    fn online(app: &mut App, id: &str, station: Option<StationLive>) {
+        let l = app.live.entry(id.into()).or_default();
+        l.online = Online::Online;
+        l.station = station;
+    }
+
+    #[test]
+    fn remove_asks_first() {
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(host());
+        app.open_host_section(Section::Station, Screen::Home);
+        app.focus = Target::Setting(Setting::Remove);
+        // ‹ › ne déclenchent pas un bouton.
+        app.hits = vec![(Target::Setting(Setting::Remove), Rect::new(0.0, 0.0, 10.0, 10.0))];
+        app.nav(Nav::Right);
+        assert!(app.confirm.is_none() && app.store.hosts.len() == 1);
+        assert!(app.nav(Nav::Ok).is_empty());
+        assert!(matches!(app.confirm, Some(Confirm::Remove { .. })));
+        assert_eq!(app.focus, Target::ConfirmNo);
+        app.nav(Nav::Back);
+        assert!(app.confirm.is_none() && app.store.hosts.len() == 1);
+        app.activate(Target::Setting(Setting::Remove));
+        assert_eq!(app.activate(Target::ConfirmYes), vec![Action::Save]);
+        assert!(app.store.hosts.is_empty());
+        assert_eq!(app.screen, Screen::Home);
+    }
+
+    #[test]
+    fn station_restart_flow() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        // Station ancienne : rien ne part.
+        online(&mut app, "a", Some(StationLive { version: "0.4.9".into(), ..Default::default() }));
+        assert!(app.activate(Target::Setting(Setting::StationRestart)).is_empty());
+        online(&mut app, "a", Some(StationLive { version: "0.5.0".into(), supported: true, ..Default::default() }));
+        let acts = app.activate(Target::Setting(Setting::StationRestart));
+        assert_eq!(acts, vec![Action::Station { host: "a".into(), kind: StationKind::Restart, force: false }]);
+        // Un appareil est en session : confirmation, puis « quand même ».
+        app.station_reply("a", StationKind::Restart, Err(StationRefusal::InSession(Some("iPad".into()))));
+        assert!(matches!(&app.confirm, Some(Confirm::Force { device, .. }) if device == "iPad"));
+        let acts = app.activate(Target::ConfirmYes);
+        assert_eq!(acts, vec![Action::Station { host: "a".into(), kind: StationKind::Restart, force: true }]);
+        app.station_reply("a", StationKind::Restart, Ok(None));
+        assert_eq!(app.station_waiting(), Some("a"));
+        // Partie, puis revenue.
+        app.live.get_mut("a").unwrap().online = Online::Offline;
+        app.station_progress("a");
+        online(&mut app, "a", Some(StationLive { version: "0.5.0".into(), supported: true, ..Default::default() }));
+        app.station_progress("a");
+        assert!(matches!(app.station_op.as_ref().map(|o| &o.step), Some(StationStep::Done(_))));
+        assert_eq!(app.station_waiting(), None);
+    }
+
+    #[test]
+    fn station_update_waits_for_version() {
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(host());
+        let mut st = StationLive { version: "0.5.0".into(), supported: true, available: true, installable: true, update_version: Some("0.5.1".into()), ..Default::default() };
+        online(&mut app, "a", Some(st.clone()));
+        let acts = app.activate(Target::Setting(Setting::StationUpdate));
+        assert_eq!(acts, vec![Action::Station { host: "a".into(), kind: StationKind::Update, force: false }]);
+        app.station_reply("a", StationKind::Update, Ok(Some("0.5.1".into())));
+        st.installing = true;
+        online(&mut app, "a", Some(st.clone()));
+        app.station_progress("a");
+        assert_eq!(app.station_waiting(), Some("a"));
+        st = StationLive { version: "0.5.1".into(), supported: true, ..Default::default() };
+        online(&mut app, "a", Some(st));
+        app.station_progress("a");
+        assert!(matches!(app.station_op.as_ref().map(|o| &o.step), Some(StationStep::Done(m)) if m.contains("0.5.1")));
+        // Trop tôt : le texte du contrat.
+        app.station_op = None;
+        online(&mut app, "a", Some(StationLive { version: "0.5.1".into(), supported: true, ..Default::default() }));
+        app.activate(Target::Setting(Setting::StationRestart));
+        app.station_reply("a", StationKind::Restart, Err(StationRefusal::TooSoon));
+        assert!(matches!(app.station_op.as_ref().map(|o| &o.step), Some(StationStep::Failed(_))));
+    }
+
+    #[test]
+    fn custom_profile() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        assert!(!app.selected().unwrap().settings.custom());
+        app.store.hosts[0].settings.mbps = 80;
+        assert!(app.selected().unwrap().settings.custom());
+        // Choisir un profil y revient.
+        app.activate(Target::Chip(Profile::Max));
+        let st = &app.selected().unwrap().settings;
+        assert!(!st.custom() && st.profile == Profile::Max && st.mbps == 0);
+    }
+
+    #[test]
+    fn last_session_of_0_4() {
+        // Un fichier écrit par la 0.4.x : ni fréquence ni format à part.
+        let old: crate::model::LastSession = serde_json::from_str(r#"{"median":6.8,"p95":9.4,"seconds":4320,"mode":"1920 × 1200 · HEVC","mbps":38.0,"at":1}"#).unwrap();
+        assert_eq!((old.hz, old.codec.as_str()), (0, ""));
+        assert_eq!(old.transmitted(), "1920 × 1200 · HEVC · 38 Mbit/s");
+        let new = crate::model::LastSession { mode: "2560 × 1440".into(), hz: 120, codec: "HEVC".into(), mbps: 80.0, ..Default::default() };
+        assert_eq!(new.transmitted(), "2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s");
+    }
+
+    #[test]
+    fn admin_address() {
+        assert_eq!(admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
+        assert_eq!(admin_url("fe80::1", 24811), "https://[fe80::1]:24811/");
+        assert!(qrcodegen::QrCode::encode_text(&admin_url("192.168.1.20", 24811), qrcodegen::QrCodeEcc::Medium).is_ok());
+    }
+
+    #[test]
+    fn wake_or_retry() {
+        let mut app = App::new(Store::default(), Layout::Handheld);
+        app.store.hosts.push(host());
+        app.live.entry("a".into()).or_default().online = Online::Offline;
+        // Ni carte apprise ni MAC saisie : rien à envoyer.
+        assert!(app.activate(Target::Wake).is_empty());
+        app.store.hosts[0].wake.push(crate::model::WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ..Default::default() });
+        assert_eq!(app.activate(Target::Wake), vec![Action::Wake("a".into())]);
+        assert!(app.is_waking("a"));
+        assert_eq!(app.waking_host(), Some("a"));
+        // Pendant la connexion, le redémarrage de la Station s'annule comme le reste.
+        app.session = Some(SessionUi {
+            host: "a".into(),
+            name: "A".into(),
+            profile: Profile::Jeu,
+            phase: Phase::StationRestarting,
+            menu: false,
+            keys: false,
+            stats: None,
+            show_stats: false,
+            pad_mouse: false,
+            muted: false,
+            light: false,
+            relative: false,
+            bar: false,
+            bar_menu: None,
+            notice: None,
+            started: Instant::now(),
+            ending_since: None,
+            opened_at: None,
+        });
+        assert_eq!(app.session_back(), vec![Action::CancelConnect]);
     }
 }

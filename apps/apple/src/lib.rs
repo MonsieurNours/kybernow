@@ -20,13 +20,14 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Deserialize;
 
-use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
 use kybernow_core::profile::{Codec, Profile, StreamSettings};
 use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status};
+use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
 
 pub mod audio;
@@ -194,7 +195,16 @@ fn console_result<T: serde::Serialize>(r: Result<T, ConsoleError>, out: *mut *mu
 }
 
 /// `GET /api/stream/info`, en JSON (`hostname`, `os`, `gpu`, `av1`,
-/// `admin_version`, `virtual_display.available`, `audio.speakers`).
+/// `admin_version`, `virtual_display.available`, `audio.speakers`,
+/// `station` : `version`, `update` (`available`, `version`, `installable`,
+/// `requires_setup`, `installing`) et `restarting` ; nul avec une Station
+/// 0.4.9 ou plus ancienne, qui ne sait ni redémarrer ni se mettre à jour
+/// depuis un appareil ; et `wake` : les cartes réseau de l'ordinateur pour le
+/// réveiller, Ethernet d'abord, chacune avec `mac`, `ipv4`, `broadcast`,
+/// `kind` (`ethernet`, `wifi`), `armed` (Windows la laisse réveiller
+/// l'ordinateur ; nul : inconnu) et `name`, liste vide avec une Station
+/// d'avant la 0.5.0). L'app garde `wake` pour chaque ordinateur, tel quel,
+/// quand la liste n'est pas vide, et le rend à `kn_wake`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_console_info(c: *const KnConsole, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
     let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
@@ -299,6 +309,126 @@ pub unsafe extern "C" fn kn_console_pair_status(
             KN_OK
         }
         Err(e) => failure(e, error),
+    }
+}
+
+// MARK: - Station (rubrique « Station » des réglages d'un ordinateur)
+
+/// Refus des appels de la Station (`kn_console_station_*`), en plus des
+/// codes des autres appels : un appareil est en session (refaire l'appel avec
+/// `force` coupe sa session), trop tôt (un redémarrage par minute, ou trop
+/// d'essais ratés), rien à installer depuis un appareil, version à installer
+/// avec l'installateur sur l'ordinateur, installation ou redémarrage déjà en
+/// cours, Station 0.4.9 ou plus ancienne.
+pub const KN_STATION_IN_SESSION: i32 = 10;
+pub const KN_STATION_TOO_SOON: i32 = 11;
+pub const KN_STATION_NOTHING_TO_INSTALL: i32 = 12;
+pub const KN_STATION_REQUIRES_SETUP: i32 = 13;
+pub const KN_STATION_BUSY: i32 = 14;
+pub const KN_STATION_UNSUPPORTED: i32 = 15;
+
+/// Un refus : son code, `error` (le message), `out` (le détail en JSON :
+/// `kind`, `message`, `device`, `seconds`). Le reste comme les autres appels.
+fn station_failure(e: StationError, out: *mut *mut c_char, error: *mut *mut c_char) -> i32 {
+    let code = match &e {
+        StationError::InSession { .. } => KN_STATION_IN_SESSION,
+        StationError::TooSoon { .. } => KN_STATION_TOO_SOON,
+        StationError::NothingToInstall { .. } => KN_STATION_NOTHING_TO_INSTALL,
+        StationError::RequiresSetup { .. } => KN_STATION_REQUIRES_SETUP,
+        StationError::Busy { .. } => KN_STATION_BUSY,
+        StationError::Unsupported => KN_STATION_UNSUPPORTED,
+        StationError::Other(_) => KN_ERROR,
+    };
+    if let StationError::Other(e) = e {
+        return failure(e, error);
+    }
+    give_to(out, e.to_json().to_string());
+    give_to(error, e.to_string());
+    code
+}
+
+/// Redémarre la Station entière : le serveur Kyber et Admin (environ une
+/// minute, Admin ne répond plus pendant ce temps). `device_id` : cet appareil
+/// (son nom va au fil d'Admin), ou vide ; `force` : même si un appareil est
+/// en session (elle est coupée). `out` : `{"ok": true}`, ou le détail d'un
+/// refus (`KN_STATION_*`). Appel bloquant (15 s au plus).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_station_restart(
+    c: *const KnConsole,
+    device_id: *const c_char,
+    force: bool,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    match c.0.station_restart(optional(device_id).as_deref(), force) {
+        Ok(()) => {
+            give_to(out, serde_json::json!({ "ok": true }).to_string());
+            KN_OK
+        }
+        Err(e) => station_failure(e, out, error),
+    }
+}
+
+/// Lance la mise à jour de la Station vers la version de `station.update`
+/// (comme « Installer maintenant » dans Admin). Mêmes paramètres que
+/// `kn_console_station_restart` ; `out` : `{"version": "…"}`, ou le détail
+/// d'un refus. Bloque le temps qu'Admin télécharge et vérifie le paquet
+/// (quelques minutes au plus) ; la Station s'arrête ensuite et revient dans
+/// la nouvelle version, en une minute environ.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_station_update(
+    c: *const KnConsole,
+    device_id: *const c_char,
+    force: bool,
+    out: *mut *mut c_char,
+    error: *mut *mut c_char,
+) -> i32 {
+    let Some(c) = (unsafe { c.as_ref() }) else { return KN_ERROR };
+    match c.0.station_update(optional(device_id).as_deref(), force) {
+        Ok(version) => {
+            give_to(out, serde_json::json!({ "version": version }).to_string());
+            KN_OK
+        }
+        Err(e) => station_failure(e, out, error),
+    }
+}
+
+/// Adresse d'Admin à ouvrir dans le navigateur (`https://adresse:port/`,
+/// IPv6 entre crochets) ; à libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_console_admin_url(c: *const KnConsole) -> *mut c_char {
+    match unsafe { c.as_ref() } {
+        Some(c) => give(c.0.admin_url()),
+        None => std::ptr::null_mut(),
+    }
+}
+
+// MARK: - Réveil par le réseau
+
+/// Aucune cible lisible dans `kn_wake` (ni adresse MAC) : l'app ne connaît
+/// pas encore la carte réseau de l'ordinateur.
+pub const KN_WAKE_NO_TARGET: i32 = 20;
+
+/// Réveille un ordinateur (Wake-on-LAN) : `targets_json`, les cartes gardées
+/// par l'app pour cet ordinateur (`wake` de `kn_console_info`, une liste ; une
+/// cible seule ou l'info entière passent aussi). Le paquet magique part vers
+/// la diffusion du sous-réseau de chaque carte, vers 255.255.255.255 et vers
+/// sa dernière adresse IPv4, en direct. Rend `KN_OK` dès qu'un paquet est
+/// parti, `KN_WAKE_NO_TARGET` sans cible lisible, `KN_ERROR` si aucun n'est
+/// parti. Sur iPhone, iPad et Apple TV, la diffusion demande l'autorisation
+/// `com.apple.developer.networking.multicast` (sinon refusée, souvent
+/// `EHOSTUNREACH`) : l'envoi direct part quand même, et l'appel réussit.
+/// Rapide, mais hors du fil principal comme tout envoi réseau.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_wake(targets_json: *const c_char) -> i32 {
+    match wake::send(&wake::targets_from_json(&text(targets_json))) {
+        Ok(_) => KN_OK,
+        Err(wake::WakeError::NoTarget) => KN_WAKE_NO_TARGET,
+        Err(e) => {
+            log::warn!("réveil : {e}");
+            KN_ERROR
+        }
     }
 }
 
@@ -496,6 +626,15 @@ pub const KN_NOTICE_ADAPTED: u32 = 4;
 pub const KN_NOTICE_ADAPT_FAILED: u32 = 5;
 /// « Remettre W × H » à proposer (`has_mode`) ou à retirer.
 pub const KN_NOTICE_RESTORE_OFFER: u32 = 6;
+/// Dernier recours de la connexion : l'image n'arrivait pas, ou Kyber ne
+/// répondait pas, et la Station redémarre (une fois, sans couper la session
+/// d'un autre appareil). L'écran de connexion affiche « La Station
+/// redémarre… » jusqu'au prochain `on_status` (`KN_STATUS_PREPARING` si elle
+/// revient, `KN_STATUS_ENDING` puis `KN_STATUS_ENDED` sinon). Toujours juste
+/// après un `KN_STATUS_CONNECTING`, l'étape que montre une app qui ne connaît
+/// pas cet avis (pas de nouvel état : les apps prennent un état inconnu pour
+/// la fin de session).
+pub const KN_NOTICE_STATION_RESTARTING: u32 = 7;
 
 #[repr(C)]
 pub struct KnNotice {
@@ -602,6 +741,8 @@ impl Platform for ApplePlatform {
             Status::FirstImages => (KN_STATUS_FIRST_IMAGES, 0, 0),
             Status::Streaming => (KN_STATUS_STREAMING, 0, 0),
             Status::Reconnecting { attempt, max } => (KN_STATUS_RECONNECTING, *attempt, *max),
+            // Puis l'avis KN_NOTICE_STATION_RESTARTING, ci-dessous.
+            Status::StationRestarting => (KN_STATUS_CONNECTING, 0, 0),
             Status::Ending => (KN_STATUS_ENDING, 0, 0),
             Status::Ended { .. } => (KN_STATUS_ENDED, 0, 0),
         };
@@ -625,6 +766,21 @@ impl Platform for ApplePlatform {
             report_error: report_error_c.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null()),
         };
         unsafe { f(self.cb.userdata, &s) };
+        if matches!(status, Status::StationRestarting) {
+            if let Some(notice) = self.cb.on_notice {
+                let n = KnNotice {
+                    kind: KN_NOTICE_STATION_RESTARTING,
+                    width: 0,
+                    height: 0,
+                    back: false,
+                    level: 0,
+                    bitrate_mbps: 0,
+                    has_mode: false,
+                    error: std::ptr::null(),
+                };
+                unsafe { notice(self.cb.userdata, &n) };
+            }
+        }
     }
 
     fn on_display(&self, display: &Display) {
@@ -758,12 +914,21 @@ impl SettingsWire {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct RecoveryWire {
     #[serde(default)]
     watch_image: bool,
     /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
     fallback_bitrate: Option<u32>,
+    /// Dernier recours (`Recovery::restart_station`) : vrai si absent.
+    #[serde(default = "yes")]
+    restart_station: bool,
+}
+
+impl Default for RecoveryWire {
+    fn default() -> Self {
+        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
+    }
 }
 
 #[derive(Deserialize)]
@@ -805,8 +970,9 @@ pub struct KnSession {
 /// `audio_channels` (0 : son laissé sur l'ordinateur), `virtual_display`,
 /// `settings` (`profile`, `codec`, `yuv444`, `mbps`, `reliable`),
 /// `auto_reconnect`, `gamepad_xbox360`, `clipboard`, `recovery`
-/// (`watch_image`, `fallback_bitrate`). Nul si les paramètres sont illisibles
-/// (`error`). La session commence tout de suite ; `on_status` suit.
+/// (`watch_image`, `fallback_bitrate`, `restart_station` : vrai si absent).
+/// Nul si les paramètres sont illisibles (`error`). La session commence tout
+/// de suite ; `on_status` suit.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_start(
     params_json: *const c_char,
@@ -845,6 +1011,7 @@ pub unsafe extern "C" fn kn_session_start(
         recovery: Recovery {
             watch_image: wire.recovery.watch_image,
             fallback_bitrate: wire.recovery.fallback_bitrate,
+            restart_station: wire.recovery.restart_station,
         },
     };
     let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0) });

@@ -5,7 +5,7 @@
   "steps": {
     "welcome": "Bienvenue",
     "install": "Installation",
-    "done": "C’est prêt"
+    "done": "C'est prêt"
   },
   "checks": {
     "windows": "Windows",
@@ -13,7 +13,7 @@
     "gpu": "Carte graphique",
     "display": "Écran",
     "network": "Réseau local",
-    "webview": "Moteur d’affichage"
+    "webview": "Moteur d'affichage"
   },
   "status": {
     "running": "En cours",
@@ -37,61 +37,61 @@
   },
   "welcome": {
     "updateLabel": "Mise à jour",
-    "updateTitle": "Une nouvelle version de KyberNow Link.",
-    "updateLead": "Vous passez de la version {from} à la {to}. Vos ordinateurs, leurs mots de passe et vos réglages restent où ils sont.",
+    "updateTitle": "Une nouvelle version de KyberNow Link est disponible.",
+    "updateLead": "Vous passez de la version {from} à la version {to}. Vos ordinateurs, leurs mots de passe et vos réglages sont gardés.",
     "label": "Bienvenue",
-    "title": "Votre ordinateur, sur ce PC.",
-    "lead": "Retrouvez l'écran de votre ordinateur ici, comme s'il était devant vous : l'image en quelques millisecondes, le clavier, la souris et la manette qui répondent tout de suite.",
-    "note": "Une minute, pour vous seul, sans droits d'administrateur. Rien ne change sur ce PC avant que vous cliquiez sur {action}.",
+    "title": "Retrouvez votre ordinateur sur ce PC.",
+    "lead": "L'écran de votre ordinateur s'affiche ici, comme s'il était devant vous. L'image arrive en quelques millisecondes, et le clavier, la souris et la manette répondent tout de suite.",
+    "note": "L'installation prend une minute, sans droits d'administrateur : elle ne concerne que votre compte Windows. Rien ne change sur ce PC avant que vous cliquiez sur {action}.",
     "install": "Installer",
     "update": "Mettre à jour",
     "desktop": "Raccourci sur le Bureau",
     "desktopNote": "KyberNow Link est toujours dans le menu Démarrer.",
-    "looking": "Nous regardons ce PC…",
-    "seen": "Ce que nous avons vu",
+    "looking": "Vérification de ce PC…",
+    "seen": "Ce qui a été vérifié",
     "rerun": "Relancer",
     "willClose": "KyberNow Link sera fermée pendant l'installation.",
-    "analysing": "Analyse en cours…"
+    "analysing": "Vérification…"
   },
   "install": {
     "rows": {
       "close": {
         "title": "Fermeture de KyberNow Link",
-        "text": "L’app ouverte se ferme le temps de l’installation."
+        "text": "L'app ouverte se ferme le temps de l'installation."
       },
       "files": {
-        "title": "L’app KyberNow Link {version}",
-        "text": "Ses fichiers se posent dans votre dossier, sans toucher au reste du PC.",
+        "title": "L'app KyberNow Link {version}",
+        "text": "Ses fichiers s'installent dans votre dossier personnel, sans toucher au reste du PC.",
         "fact": "version {arch}"
       },
       "webview": {
-        "title": "Moteur d’affichage WebView2",
+        "title": "Moteur d'affichage (WebView2)",
         "text": "Téléchargé chez Microsoft et installé pour vous.",
         "fact": "Microsoft"
       },
       "shortcuts": {
-        "title": "Menu Démarrer et lien kybernow://",
-        "text": "Le lien ou le QR code de KyberNow Admin ouvre KyberNow Link directement.",
-        "warn": "à refaire : ouvrez KyberNow Link une fois, elle se réinscrit"
+        "title": "Menu Démarrer et liens d'appairage",
+        "text": "Le lien d'appairage de KyberNow Admin (kybernow://) ouvre directement KyberNow Link.",
+        "warn": "inachevé : ouvrez KyberNow Link une fois pour le terminer"
       },
       "register": {
         "title": "Applications installées",
-        "text": "KyberNow Link vous propose ses mises à jour, et se retire comme toute app."
+        "text": "KyberNow Link vous propose ses mises à jour et se désinstalle comme toute autre app."
       }
     },
     "preparing": "préparation",
     "preparingLog": "Préparation…",
     "fewSeconds": "Encore quelques secondes",
-    "almost": "C’est presque fini",
+    "almost": "C'est presque fini",
     "failedLabel": "Installation interrompue",
     "finishedLabel": "Installation terminée",
-    "progressLabel": "Installation · {percent} %",
-    "failedTitle": "Quelque chose a bloqué.",
+    "progressLabel": "Installation · {percent} %",
+    "failedTitle": "L'installation n'a pas pu aller au bout.",
     "finishedTitle": "Tout est en place.",
-    "title": "Votre ordinateur arrive sur ce PC.",
+    "title": "KyberNow Link s'installe sur ce PC.",
     "installed": "KyberNow Link {version} est installée.",
-    "lead": "Rien à faire : on vous montre ce qui se passe, au fur et à mesure.",
-    "checkDetail": "à vérifier : voir le détail",
+    "lead": "Vous n'avez rien à faire. Chaque étape s'affiche ci-dessous, au fur et à mesure.",
+    "checkDetail": "à vérifier : voir le détail",
     "failed": "échec",
     "back": "Retour",
     "retry": "Réessayer",
@@ -103,18 +103,18 @@
     "updateLabel": "Mise à jour terminée",
     "installLabel": "Installation terminée",
     "title": "KyberNow Link est prête.",
-    "updateLead": "Vos ordinateurs vous attendent dans l'accueil, avec leurs réglages.",
-    "lead": "Ouvrez-la : un ordinateur sur le même réseau apparaît tout seul. Sinon, ajoutez-le avec le lien ou le QR code de KyberNow Admin, ou par son adresse.",
-    "where": "Elle vous attend aussi dans le menu Démarrer. Clic droit sur son icône dans la barre des tâches : vos ordinateurs, en un clic.",
-    "whereDesktop": "Elle vous attend aussi dans le menu Démarrer et sur le Bureau. Clic droit sur son icône dans la barre des tâches : vos ordinateurs, en un clic.",
+    "updateLead": "Vos ordinateurs et leurs réglages sont dans l'accueil, comme avant.",
+    "lead": "Ouvrez-la : un ordinateur équipé de KyberNow Station, sur le même réseau, apparaît tout seul. Sinon, ajoutez-le avec le lien d'appairage de KyberNow Admin, ou par son adresse.",
+    "where": "Vous la trouvez aussi dans le menu Démarrer. Un clic droit sur son icône, dans la barre des tâches, affiche vos ordinateurs.",
+    "whereDesktop": "Vous la trouvez aussi dans le menu Démarrer et sur le Bureau. Un clic droit sur son icône, dans la barre des tâches, affiche vos ordinateurs.",
     "session": "Pendant une session",
     "shift": "Maj",
     "keys": {
       "disconnect": "Se déconnecter",
       "fullscreen": "Plein écran ou fenêtre",
-      "mouse": "Souris libre ou captée (jeux)"
+      "mouse": "Souris des jeux ou du bureau"
     },
-    "bar": "La souris en haut de l'écran montre la barre de la session.",
+    "bar": "Amenez la souris en haut de l'écran pour afficher la barre de session.",
     "close": "Fermer",
     "open": "Ouvrir KyberNow Link"
   },
@@ -126,36 +126,36 @@
     "role": "Rôle",
     "license": "Licence",
     "roles": {
-      "kybernow": "L’app et son installateur",
-      "kyber": "Connexion, son et entrées (Kyber SAS)",
-      "ffmpeg": "Décodage vidéo",
-      "opus": "Décodage audio",
+      "kybernow": "L'app et son installateur",
+      "kyber": "Connexion, son et commandes (Kyber SAS)",
+      "ffmpeg": "Décodage de l'image",
+      "opus": "Décodage du son",
       "sdl": "Manettes",
       "tauri": "Fenêtres et interface",
       "svelte": "Interface et cœur",
-      "fonts": "Polices de l’interface"
+      "fonts": "Polices de l'interface"
     },
     "names": {
       "svelte": "Svelte, bibliothèques Rust"
     },
-    "note": "KyberNow est distribué sous AGPL-3.0. Les textes des licences sont dans le dépôt du projet, sur GitHub.",
+    "note": "KyberNow est distribué sous licence AGPL-3.0. Les textes des licences sont dans le dépôt du projet, sur GitHub.",
     "back": "Retour"
   },
   "mock": {
-    "arm64Title": "Processeur ARM64",
-    "arm64": "La version ARM64 de KyberNow Link s'installe : elle tourne sans émulation, avec le décodage vidéo de la puce.",
-    "x64Title": "Processeur x64",
-    "x64": "La version x64 de KyberNow Link s'installe.",
-    "gpu": "{name} : elle décode l'image, pour moins de latence et moins de batterie.",
-    "display": "2560 × 1600 · 120 Hz : votre ordinateur peut prendre exactement cette taille pendant la session.",
-    "network": "192.168.1.20 : un ordinateur sur ce réseau apparaît tout seul dans KyberNow Link.",
-    "webviewTitle": "Moteur d’affichage WebView2",
-    "webview": "Version 141.0.3537.71, de Microsoft : il dessine l’interface de KyberNow Link.",
+    "arm64Title": "Processeur ARM",
+    "arm64": "KyberNow Link s'installe dans sa version pour ce processeur (ARM64) : elle tourne sans émulation et décode l'image avec la puce.",
+    "x64Title": "Processeur Intel ou AMD",
+    "x64": "KyberNow Link s'installe dans sa version pour ce processeur (x64).",
+    "gpu": "{name} : elle décode l'image, ce qui réduit la latence et économise la batterie.",
+    "display": "2560 × 1600 · 120 Hz : votre ordinateur peut créer un écran exactement à cette taille pendant la session.",
+    "network": "192.168.1.20 : un ordinateur sur ce réseau apparaît tout seul dans KyberNow Link.",
+    "webviewTitle": "Moteur d'affichage (WebView2)",
+    "webview": "Il affiche les fenêtres de KyberNow Link (version 141.0.3537.71, de Microsoft).",
     "existingTitle": "KyberNow Link 0.2.7 est installée",
-    "existing": "Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages restent.",
+    "existing": "Elle sera mise à jour. Vos ordinateurs, leurs mots de passe et vos réglages sont gardés.",
     "runningTitle": "KyberNow Link est ouverte",
-    "running": "Elle sera fermée au moment d’installer : une session en cours s’arrêtera.",
-    "failed": "Impossible de poser les fichiers dans C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
+    "running": "Elle sera fermée pendant l'installation : une session en cours sera coupée.",
+    "failed": "Impossible d'installer les fichiers dans C:\\Users\\Camille\\AppData\\Local\\Programs\\KyberNow (simulation).",
     "finished": "installation terminée"
   }
 }

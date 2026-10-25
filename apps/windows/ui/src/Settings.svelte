@@ -1,24 +1,38 @@
 <!--
-  Réglages d'un ordinateur : profils (ajuster un réglage rend le profil
-  « Personnalisé »), image, entrées et son, et la carte « Ce PC » (ce que la
-  carte graphique décode, vérifié au lancement).
+  Réglages d'un ordinateur (docs/link-ui.md) : son nom, le profil (ajuster un
+  réglage le rend « Personnalisé »), puis six rubriques choisies dans la
+  colonne de gauche : Image, Son, Commandes, Réseau, Statistiques, Station.
+  Fenêtre étroite (moins de 1040 px) : les rubriques passent en rangée
+  au-dessus de leur contenu.
 -->
 <script lang="ts">
   import Segmented from './lib/Segmented.svelte'
   import Switch from './lib/Switch.svelte'
   import Icon from './lib/Icon.svelte'
+  import Statistics from './Statistics.svelte'
+  import Station from './Station.svelte'
   import { untrack } from 'svelte'
-  import type { Computer, Settings, ThisPc } from './lib/api'
+  import type { Battery, Computer, Settings, ThisPc } from './lib/api'
   import { invoke, isCustom, profileBase, sessionPlan } from './lib/api'
-  import { t } from './lib/i18n/index.svelte'
+  import { beforeName, t } from './lib/i18n/index.svelte'
 
-  let { computer, thisPc, onremoved }: { computer: Computer; thisPc: ThisPc | null; onremoved: () => void } = $props()
+  let { computer, thisPc, battery, onremoved }: { computer: Computer; thisPc: ThisPc | null; battery: Battery; onremoved: () => void } = $props()
 
   // Copie de travail, enregistrée à chaque changement (l'écran est recréé
   // pour un autre ordinateur).
   let s = $state<Settings>(untrack(() => structuredClone($state.snapshot(computer.settings)) as Settings))
-  let confirmRemove = $state(false)
   let name = $state(untrack(() => computer.name))
+
+  type Rubric = 'image' | 'sound' | 'controls' | 'network' | 'stats' | 'station'
+  let rubric = $state<Rubric>('image')
+  const rubrics: { id: Rubric; icon: string }[] = [
+    { id: 'image', icon: 'monitor' },
+    { id: 'sound', icon: 'speaker' },
+    { id: 'controls', icon: 'gamepad' },
+    { id: 'network', icon: 'wifi' },
+    { id: 'stats', icon: 'chart' },
+    { id: 'station', icon: 'station' },
+  ]
 
   // Enregistrements à la suite : le dernier état gagne toujours.
   let saving: Promise<unknown> = Promise.resolve()
@@ -28,10 +42,8 @@
     saving = saving.then(() => invoke('save_settings', { id: computer.id, settings })).catch(() => {})
   }
 
-  const custom = $derived(isCustom(s))
-  const profiles: { value: Settings['profile']; title: string; sub: string }[] = $derived(
-    (['jeu', 'bureau', 'max'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`settings.${value}_sub`) })),
-  )
+  const custom = $derived(isCustom(s, thisPc))
+  const profiles = $derived((['jeu', 'bureau', 'max'] as const).map((value) => ({ value, title: t(`profiles.${value}`), sub: t(`profiles.${value}_sub`) })))
 
   /** Valeurs du profil choisi, comme le cœur les calcule (profile.rs). */
   const base = $derived(profileBase(s.profile, thisPc))
@@ -41,14 +53,14 @@
   const reliable = $derived(s.reliable ?? base.reliable)
 
   /** Débit réel d'une session : celui que plan.rs demandera. */
-  const realMbps = $derived(sessionPlan(s, thisPc)?.mbps ?? s.mbps ?? base.mbps)
+  const realMbps = $derived(sessionPlan(s, thisPc, battery)?.mbps ?? s.mbps ?? base.mbps)
 
   function pickProfile(p: Settings['profile']) {
     save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
   }
 
   // Un réglage égal à celui du profil n'en est pas un écart.
-  const over = <K extends 'codec' | 'yuv444' | 'reliable'>(k: K, v: Settings[K], b: Settings[K]) => save({ [k]: v === b ? null : v } as Partial<Settings>)
+  const over = <K extends 'yuv444' | 'reliable'>(k: K, v: Settings[K], b: Settings[K]) => save({ [k]: v === b ? null : v } as Partial<Settings>)
 
   let mbpsDraft = $state<number | null>(null)
   const sliderMbps = $derived(mbpsDraft ?? realMbps)
@@ -72,34 +84,15 @@
   async function rename() {
     if (name.trim() && name.trim() !== computer.name) await invoke('rename_computer', { id: computer.id, name })
   }
-
-  async function remove() {
-    await invoke('remove_computer', { id: computer.id })
-    onremoved()
-  }
-
-  const decodes = $derived(
-    thisPc
-      ? [
-          { k: 'H.264', v: thisPc.h264 },
-          { k: 'HEVC', v: thisPc.hevc },
-          { k: 'HEVC 4:4:4', v: thisPc.hevc444 },
-          { k: 'AV1', v: thisPc.av1 },
-        ]
-      : [],
-  )
 </script>
 
 <main>
   <div class="head">
-    <div class="title">
-      <div class="eyebrow">{t('settings.settings_of')}</div>
-      <input class="name" aria-label={t('settings.computer_name')} bind:value={name} onblur={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
-      <div class="mono addr">{computer.host}:{computer.port} · {t('settings.account', { user: computer.user })}</div>
-    </div>
-    <div class="mono real">{t('settings.real_bitrate', { mbps: realMbps })}</div>
+    <div class="eyebrow">{beforeName(t('settings.settings_of'), name)}</div>
+    <input class="name" aria-label={t('settings.computer_name')} bind:value={name} onblur={rename} onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()} />
   </div>
 
+  <div class="eyebrow">{t('home.profile')}</div>
   <div class="profiles" role="radiogroup" aria-label={t('home.profile')}>
     {#each profiles as p (p.value)}
       {@const on = !custom && s.profile === p.value}
@@ -108,181 +101,205 @@
       </button>
     {/each}
     <div class="custom" class:on={custom}>
-      <span class="t">{t('profiles.custom')}</span><span class="s">{custom ? t('settings.custom_based', { profile: t(`profiles.${s.profile}`) }) : t('settings.custom_when')}</span>
+      <span class="t">{t('profiles.custom')}</span><span class="s">{custom ? t('profiles.custom_sub') : t('settings.custom_when')}</span>
     </div>
   </div>
 
-  <div class="cols">
-    <section>
-      <h2 class="eyebrow">{t('settings.image')}</h2>
-      <div class="line stack">
-        <div class="lr">
-          <span>{t('settings.computer_display')}</span>
-          <Segmented
-            label={t('settings.computer_display')}
-            value={s.custom ? 'custom' : s.max_4k ? 'max4k' : 'match'}
-            options={[
-              { value: 'match', label: t('settings.match') },
-              { value: 'max4k', label: t('settings.max4k') },
-              { value: 'custom', label: t('settings.custom') },
-            ]}
-            onchange={(v) =>
-              save(
-                v === 'custom'
-                  ? { custom: { width: thisPc?.width ?? 1920, height: thisPc?.height ?? 1080, refresh: thisPc?.refresh ?? 60 } }
-                  : { custom: null, max_4k: v === 'max4k' },
-              )}
-          />
-        </div>
-        {#if s.custom}
-          {@const c = s.custom}
-          <div class="custom-mode">
-            <label><span class="eyebrow">{t('settings.width')}</span><input class="field mono" type="number" min="640" max="7680" step="2" value={c.width} onchange={(e) => setCustom({ width: num(e) })} /></label>
-            <span class="x">×</span>
-            <label><span class="eyebrow">{t('settings.height')}</span><input class="field mono" type="number" min="360" max="4320" step="2" value={c.height} onchange={(e) => setCustom({ height: num(e) })} /></label>
-            <label><span class="eyebrow">Hz</span><input class="field mono" type="number" min="24" max="240" value={c.refresh} onchange={(e) => setCustom({ refresh: num(e) })} /></label>
-          </div>
-          <div class="presets">
-            {#each presets as p (p.label)}
-              <button class:on={c.width === p.width && c.height === p.height} onclick={() => setCustom({ width: p.width, height: p.height })}>{p.label}</button>
-            {/each}
-            {#each [60, 120, 144] as hz (hz)}
-              <button class:on={c.refresh === hz} onclick={() => setCustom({ refresh: hz })}>{hz} Hz</button>
-            {/each}
-          </div>
-          <span class="help">{t('settings.custom_help')}</span>
-        {/if}
-      </div>
-      <div class="line">
-        <span>{t('settings.format')}</span>
-        <Segmented
-          label={t('settings.format')}
-          value={codec}
-          options={[
-            { value: 'h264', label: 'H.264' },
-            ...(thisPc?.hevc !== false ? [{ value: 'hevc' as const, label: 'HEVC' }] : []),
-            ...(thisPc?.av1 ? [{ value: 'av1' as const, label: 'AV1' }] : []),
-          ]}
-          onchange={(v) => over('codec', v, base.codec)}
-        />
-      </div>
-      <div class="line">
-        <span>{t('settings.full_color')}</span>
-        <Switch label={t('settings.full_color_short')} checked={yuv444 && codec === 'hevc'} disabled={codec !== 'hevc' || !thisPc?.hevc444} onchange={(v) => over('yuv444', v, base.yuv444)} />
-      </div>
-      <div class="line stack">
-        <div class="lr">
-          <span>{t('settings.display_mode')}</span>
-          <Segmented label={t('settings.display_short')} value={s.vsync ? 'sync' : 'now'} options={[{ value: 'sync', label: t('settings.synced') }, { value: 'now', label: t('settings.immediate') }]} onchange={(v) => save({ vsync: v === 'sync' })} />
-        </div>
-        <span class="help">{t('settings.display_help')}</span>
-      </div>
-      <div class="line stack">
-        <div class="lr">
-          <span>{t('settings.bitrate')}</span>
-          <span class="mono val">{sliderMbps} Mbit/s {s.mbps == null ? t('settings.profile_suffix') : ''}</span>
-        </div>
-        <input
-          type="range"
-          min="5"
-          max="500"
-          step="5"
-          value={sliderMbps}
-          aria-label={t('settings.bitrate')}
-          oninput={(e) => (mbpsDraft = Number((e.currentTarget as HTMLInputElement).value))}
-          onchange={() => {
-            if (mbpsDraft != null) save({ mbps: mbpsDraft })
-            mbpsDraft = null
-          }}
-        />
-        {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>{t('settings.reset_bitrate')}</button>{/if}
-        {#if sliderMbps > 300}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
-      </div>
-    </section>
+  <div class="body">
+    <nav aria-label={t('settings.rubrics')}>
+      {#each rubrics as r (r.id)}
+        <button class:on={rubric === r.id} aria-current={rubric === r.id ? 'page' : undefined} onclick={() => (rubric = r.id)}>
+          <Icon name={r.icon} size={18} stroke={1.6} />{t(`settings.rubric.${r.id}`)}
+        </button>
+      {/each}
+    </nav>
 
-    <section>
-      <h2 class="eyebrow">{t('settings.inputs')}</h2>
-      <div class="line">
-        <span>{t('settings.mouse')}</span>
-        <Segmented label={t('settings.mouse')} value={s.mouse} options={[{ value: 'auto', label: 'Auto' }, { value: 'bureau', label: t('settings.mouse_desktop') }, { value: 'jeu', label: t('settings.mouse_game') }]} onchange={(v) => save({ mouse: v })} />
-      </div>
-      <div class="line">
-        <span>{t('settings.gamepad')}</span>
-        <Segmented label={t('settings.gamepad_short')} value={s.gamepad} options={[{ value: 'xbox360', label: 'Xbox 360' }, { value: 'fidele', label: t('settings.faithful') }]} onchange={(v) => save({ gamepad: v })} />
-      </div>
-      <div class="line">
-        <span>{t('settings.clipboard')}</span>
-        <Switch label={t('settings.clipboard')} checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />
-      </div>
-      <div class="line">
-        <span>{t('settings.sound')}</span>
-        <Segmented
-          label={t('settings.sound')}
-          value={s.audio}
-          options={[
-            { value: 'auto', label: 'Auto' },
-            { value: '2', label: t('settings.stereo') },
-            { value: '6', label: '5.1' },
-            { value: '8', label: '7.1' },
-            { value: '0', label: t('settings.none') },
-          ]}
-          onchange={(v) => save({ audio: v })}
-        />
-      </div>
-      <div class="line">
-        <span>{t('settings.transport')}</span>
-        <Segmented label={t('settings.transport')} value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: t('settings.fast') }, { value: 'fiable', label: t('settings.reliable') }]} onchange={(v) => over('reliable', v === 'fiable', base.reliable)} />
-      </div>
-      <div class="line stack">
-        <div class="lr">
-          <span>{t('settings.virtual')}</span>
-          <Switch label={t('settings.virtual')} checked={s.virtual_display} onchange={(v) => save({ virtual_display: v })} />
-        </div>
-        <span class="help">{t('settings.virtual_help')}</span>
-      </div>
-      <div class="line stack">
-        <div class="lr">
-          <span>{t('settings.keep_last')}</span>
-          <Switch label={t('settings.keep_last')} checked={s.keep_last_image} onchange={(v) => save({ keep_last_image: v })} />
-        </div>
-        <span class="help">{t('settings.keep_help')}</span>
-      </div>
-    </section>
+    <div class="pane">
+      <h2>{t(`settings.rubric.${rubric}`)}</h2>
 
-    <section class="pc">
-      <h2 class="eyebrow">{t('settings.this_pc')}</h2>
-      {#if thisPc}
-        <div class="pcname">{thisPc.name}</div>
-        <div class="mono gpu">{thisPc.gpu || t('settings.unknown_gpu')}</div>
-        <div class="table mono">
-          {#each decodes as d (d.k)}
-            <div class="tr"><span>{d.k}</span><span class:ok={d.v} class:no={!d.v}>{d.v ? t('settings.hardware') : d.k === 'AV1' ? t('settings.no') : t('settings.processor')}</span></div>
-          {/each}
-          <div class="tr"><span>{t('settings.display')}</span><span>{thisPc.width} × {thisPc.height} · {thisPc.refresh} Hz</span></div>
-          <div class="tr"><span>{t('settings.sound')}</span><span>{thisPc.audio_channels === 8 ? '7.1' : thisPc.audio_channels === 6 ? '5.1' : t('settings.stereo_lower')}</span></div>
-        </div>
-        <p class="help">{t('settings.probe_help')}</p>
-        <div class="line stack battery">
-          <div class="lr">
-            <span><Icon name="battery" size={16} /> {t('settings.battery')}</span>
-            <Segmented label={t('settings.battery')} value={s.battery} options={[{ value: 'alleger', label: t('settings.lighten') }, { value: 'garder', label: t('settings.keep') }]} onchange={(v) => save({ battery: v })} />
+      {#if rubric === 'image'}
+        <section>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.resolution')}</span>
+              <Segmented
+                label={t('settings.resolution')}
+                value={s.custom ? 'custom' : s.max_4k ? 'max4k' : 'match'}
+                options={[
+                  { value: 'match', label: t('settings.match') },
+                  { value: 'max4k', label: t('settings.max4k') },
+                  { value: 'custom', label: t('settings.custom') },
+                ]}
+                onchange={(v) =>
+                  save(
+                    v === 'custom'
+                      ? { custom: { width: thisPc?.width ?? 1920, height: thisPc?.height ?? 1080, refresh: thisPc?.refresh ?? 60 } }
+                      : { custom: null, max_4k: v === 'max4k' },
+                  )}
+              />
+            </div>
+            {#if s.custom}
+              {@const c = s.custom}
+              <div class="custom-mode">
+                <label><span class="eyebrow">{t('settings.width')}</span><input class="field mono" type="number" min="640" max="7680" step="2" value={c.width} onchange={(e) => setCustom({ width: num(e) })} /></label>
+                <span class="x">×</span>
+                <label><span class="eyebrow">{t('settings.height')}</span><input class="field mono" type="number" min="360" max="4320" step="2" value={c.height} onchange={(e) => setCustom({ height: num(e) })} /></label>
+                <label><span class="eyebrow">{t('settings.refresh')}</span><input class="field mono" type="number" min="24" max="240" value={c.refresh} onchange={(e) => setCustom({ refresh: num(e) })} /></label>
+              </div>
+              <div class="presets">
+                {#each presets as p (p.label)}
+                  <button class:on={c.width === p.width && c.height === p.height} onclick={() => setCustom({ width: p.width, height: p.height })}>{p.label}</button>
+                {/each}
+                {#each [60, 120, 144] as hz (hz)}
+                  <button class:on={c.refresh === hz} onclick={() => setCustom({ refresh: hz })}>{hz} Hz</button>
+                {/each}
+              </div>
+              <span class="help">{t('settings.custom_help')}</span>
+            {:else}
+              <span class="help">{t('settings.refresh_help')}</span>
+            {/if}
           </div>
-          <span class="help">{t('settings.battery_help')}{thisPc.on_battery ? t('settings.on_battery_now') : ''}</span>
-        </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.virtual')}</span>
+              <Switch label={t('settings.virtual')} checked={s.virtual_display} onchange={(v) => save({ virtual_display: v })} />
+            </div>
+            <span class="help">{t('settings.virtual_help')}</span>
+          </div>
+          <div class="line">
+            <span>{t('settings.format')}</span>
+            <Segmented
+              label={t('settings.format')}
+              value={s.codec ?? 'auto'}
+              options={[
+                { value: 'auto' as const, label: 'Auto' },
+                ...(thisPc?.hevc !== false ? [{ value: 'hevc' as const, label: 'HEVC' }] : []),
+                { value: 'h264' as const, label: 'H.264' },
+                ...(thisPc?.av1 ? [{ value: 'av1' as const, label: 'AV1' }] : []),
+              ]}
+              onchange={(v) => save({ codec: v === 'auto' ? null : v })}
+            />
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.sharp_text')}</span>
+              <Switch label={t('settings.sharp_text')} checked={yuv444 && codec === 'hevc'} disabled={codec !== 'hevc' || !thisPc?.hevc444} onchange={(v) => over('yuv444', v, base.yuv444)} />
+            </div>
+            <span class="help">{t('settings.sharp_text_help')}</span>
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.bitrate')}</span>
+              <span class="mono val">{s.mbps == null && mbpsDraft == null ? t('settings.bitrate_auto', { mbps: sliderMbps }) : `${sliderMbps} Mbit/s`}</span>
+            </div>
+            <input
+              type="range"
+              min="5"
+              max="500"
+              step="5"
+              value={sliderMbps}
+              aria-label={t('settings.bitrate')}
+              oninput={(e) => (mbpsDraft = Number((e.currentTarget as HTMLInputElement).value))}
+              onchange={() => {
+                if (mbpsDraft != null) save({ mbps: mbpsDraft })
+                mbpsDraft = null
+              }}
+            />
+            {#if s.mbps != null}<button class="reset" onclick={() => save({ mbps: null })}>{t('settings.reset_bitrate')}</button>{/if}
+            {#if sliderMbps > 300}<span class="help warn">{t('settings.wifi_warn')}</span>{/if}
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.frame_display')}</span>
+              <Segmented label={t('settings.frame_display')} value={s.vsync ? 'sync' : 'now'} options={[{ value: 'sync', label: t('settings.synced') }, { value: 'now', label: t('settings.immediate') }]} onchange={(v) => save({ vsync: v === 'sync' })} />
+            </div>
+            <span class="help">{t('settings.display_help')}</span>
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.keep_last')}</span>
+              <Switch label={t('settings.keep_last')} checked={s.keep_last_image} onchange={(v) => save({ keep_last_image: v })} />
+            </div>
+            <span class="help">{t('settings.keep_help')}</span>
+          </div>
+        </section>
+      {:else if rubric === 'sound'}
+        <section>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.sound')}</span>
+              <Segmented
+                label={t('settings.sound')}
+                value={s.audio}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: '2', label: t('settings.stereo') },
+                  { value: '6', label: '5.1' },
+                  { value: '8', label: '7.1' },
+                  { value: '0', label: t('settings.on_computer') },
+                ]}
+                onchange={(v) => save({ audio: v })}
+              />
+            </div>
+            <span class="help">{t('settings.sound_help')}</span>
+          </div>
+        </section>
+      {:else if rubric === 'controls'}
+        <section>
+          <div class="line">
+            <span>{t('settings.gamepad')}</span>
+            <Segmented label={t('settings.gamepad')} value={s.gamepad} options={[{ value: 'xbox360', label: 'Xbox 360' }, { value: 'fidele', label: t('settings.as_is') }]} onchange={(v) => save({ gamepad: v })} />
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.mouse')}</span>
+              <Segmented label={t('settings.mouse')} value={s.mouse} options={[{ value: 'auto', label: 'Auto' }, { value: 'bureau', label: t('settings.mouse_desktop') }, { value: 'jeu', label: t('settings.mouse_game') }]} onchange={(v) => save({ mouse: v })} />
+            </div>
+            <span class="help">{t('settings.mouse_help')}</span>
+          </div>
+          <div class="line stack">
+            <span>{t('settings.keyboard')}</span>
+            <span class="help">{t('settings.keyboard_help')}</span>
+          </div>
+          <div class="line">
+            <span>{t('settings.clipboard')}</span>
+            <Switch label={t('settings.clipboard')} checked={s.clipboard} onchange={(v) => save({ clipboard: v })} />
+          </div>
+        </section>
+      {:else if rubric === 'network'}
+        <section>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.transport')}</span>
+              <Segmented label={t('settings.transport')} value={reliable ? 'fiable' : 'rapide'} options={[{ value: 'rapide', label: t('settings.fast') }, { value: 'fiable', label: t('settings.reliable') }]} onchange={(v) => over('reliable', v === 'fiable', base.reliable)} />
+            </div>
+            <span class="help">{t('settings.transport_help')}</span>
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.reconnect')}</span>
+              <Switch label={t('settings.reconnect')} checked={s.auto_reconnect} onchange={(v) => save({ auto_reconnect: v })} />
+            </div>
+            <span class="help">{t('settings.reconnect_help')}</span>
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.wake')}</span>
+              {#if computer.wake?.length}
+                <span class="wake"><span class="ready">{t('settings.wake_ready')}</span><span class="mono">{computer.wake[0].mac}</span></span>
+              {:else}
+                <span class="wake none">{t('settings.wake_none')}</span>
+              {/if}
+            </div>
+            <span class="help">{t('settings.wake_help')}</span>
+          </div>
+        </section>
+      {:else if rubric === 'stats'}
+        <Statistics {computer} />
       {:else}
-        <p class="help">{t('settings.probing')}</p>
+        <Station {computer} {onremoved} />
       {/if}
-    </section>
-  </div>
-
-  <div class="foot">
-    {#if confirmRemove}
-      <span>{t('settings.remove_confirm', { name: computer.name })}</span>
-      <button class="danger" onclick={remove}>{t('settings.remove')}</button>
-      <button class="ghost" onclick={() => (confirmRemove = false)}>{t('common.cancel')}</button>
-    {:else}
-      <button class="ghost" onclick={() => (confirmRemove = true)}><Icon name="trash" size={16} /> {t('settings.remove_computer')}</button>
-    {/if}
+    </div>
   </div>
 </main>
 
@@ -294,20 +311,14 @@
     padding: 20px 56px 40px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: 14px;
   }
 
   .head {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    gap: 20px;
-  }
-
-  .title {
-    display: flex;
     flex-direction: column;
     gap: 6px;
+    margin-bottom: 8px;
   }
 
   .name {
@@ -328,16 +339,11 @@
     box-shadow: 0 2px 0 var(--signal);
   }
 
-  .addr,
-  .real {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
   .profiles {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+    margin-bottom: 14px;
   }
 
   .profiles button,
@@ -365,6 +371,7 @@
 
   .s {
     font-size: 12px;
+    line-height: 1.4;
     color: var(--faint);
   }
 
@@ -379,23 +386,70 @@
     color: var(--muted);
   }
 
-  .cols {
+  /* Rubriques à gauche, leur contenu à droite (comme les réglages de Windows). */
+  .body {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 340px;
-    gap: 18px;
+    grid-template-columns: 220px minmax(0, 820px);
+    gap: 32px;
     align-items: start;
+  }
+
+  nav {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  nav button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 9px;
+    background: none;
+    color: var(--muted);
+    font-size: 14px;
+    text-align: left;
+  }
+
+  nav button:hover {
+    background: rgb(255 255 255 / 0.04);
+    color: var(--text);
+  }
+
+  nav button.on {
+    background: var(--ink-3);
+    box-shadow: inset 3px 0 0 var(--signal);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  nav button.on :global(svg) {
+    color: var(--signal);
+  }
+
+  .pane {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  h2 {
+    margin: 6px 0 0;
+    font-size: 22px;
+    font-weight: 600;
   }
 
   section {
     border: 1px solid var(--line);
     border-radius: 16px;
     background: var(--ink-1);
-    padding: 6px 20px 12px;
-  }
-
-  h2 {
-    margin: 14px 0 6px;
-    font-weight: 500;
+    padding: 4px 22px 6px;
   }
 
   /* Libellé et choix sur une ligne quand il y a la place, sinon le choix
@@ -406,7 +460,7 @@
     justify-content: space-between;
     align-items: center;
     gap: 8px 12px;
-    padding: 12px 0;
+    padding: 14px 0;
     border-bottom: 1px solid var(--ink-3);
     font-size: 14px;
   }
@@ -429,12 +483,6 @@
     gap: 8px 12px;
   }
 
-  .lr span:first-child {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
   .help {
     font-size: 12px;
     line-height: 1.45;
@@ -450,11 +498,32 @@
     color: var(--muted);
   }
 
+  .wake {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 13px;
+  }
+
+  .wake .ready {
+    color: var(--ok);
+  }
+
+  .wake .mono {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .wake.none {
+    color: var(--muted);
+  }
+
   .custom-mode {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 0.7fr);
     align-items: end;
     gap: 8px;
+    max-width: 520px;
   }
 
   .custom-mode label {
@@ -510,98 +579,49 @@
     color: var(--signal);
   }
 
-  .pc {
-    background: var(--ink-2);
-    padding: 6px 20px 16px;
-  }
-
-  .pcname {
-    font-size: 18px;
-    font-weight: 600;
-    margin-top: 4px;
-  }
-
-  .gpu {
-    font-size: 11px;
-    color: var(--muted);
-    margin: 4px 0 10px;
-    line-height: 1.6;
-  }
-
-  .table {
-    font-size: 12px;
-  }
-
-  .tr {
-    display: flex;
-    justify-content: space-between;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--line);
-    color: var(--muted);
-  }
-
-  .tr span:last-child {
-    color: var(--text);
-  }
-
-  .tr span.ok {
-    color: var(--ok);
-  }
-
-  .tr span.no {
-    color: var(--faint);
-  }
-
-  .battery {
-    margin-top: 6px;
-    border-top: 1px solid var(--line);
-  }
-
-  .foot {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 14px;
-    color: var(--muted);
-  }
-
-  .foot .ghost {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .danger {
-    height: 40px;
-    padding: 0 16px;
-    border: 0;
-    border-radius: 8px;
-    background: #c42b1c;
-    color: #fff;
-    font-weight: 600;
-  }
-
   @media (max-width: 1280px) {
-    .cols {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    }
-
-    .pc {
-      grid-column: 1 / -1;
+    .body {
+      grid-template-columns: 200px minmax(0, 1fr);
+      gap: 24px;
     }
   }
 
+  /* Fenêtre étroite : une colonne, les rubriques en rangée. */
   @media (max-width: 1040px) {
     main {
       padding: 20px 32px 32px;
     }
 
-    .cols {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
     .profiles {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .body {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 18px;
+    }
+
+    nav {
+      position: static;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    nav button {
+      height: 38px;
+      padding: 0 12px;
+      gap: 8px;
+      border: 1px solid var(--line);
+    }
+
+    nav button.on {
+      border-color: var(--signal);
+      box-shadow: none;
+    }
+
+    h2 {
+      display: none;
     }
   }
 </style>

@@ -31,9 +31,17 @@ impl Profile {
             Profile::Max => "max",
         }
     }
+
+    /// Transport fiable d'office : Bureau, comme `StreamSettings::for_profile`
+    /// du cœur (l'interface se compile sans lui, pour les captures).
+    pub fn reliable(self) -> bool {
+        self == Profile::Bureau
+    }
 }
 
 /// Réglages d'un ordinateur, comme Réglages › par ordinateur sur les autres apps.
+/// Le profil donne le format, le débit et le transport ; en choisir un autre
+/// à la main (`codec`, `mbps`, `transport`) rend le profil « Personnalisé ».
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct HostSettings {
@@ -59,7 +67,10 @@ pub struct HostSettings {
     /// Sans effet : pas de presse-papiers sur webOS (la session le coupe).
     pub clipboard: bool,
     pub reconnect: bool,
-    /// Transport fiable même en profil Jeu (Wi-Fi chargé).
+    /// Transport de l'image : `""` celui du profil, `fast` ou `reliable`.
+    pub transport: String,
+    /// Copie de `transport == "reliable"` : le seul champ que lisent les
+    /// versions 0.4.x (« Transport fiable » forcé).
     pub reliable: bool,
     /// Rappeler, dans le menu de session, de passer la télé en Optimiseur de jeu.
     pub game_mode_hint: bool,
@@ -79,15 +90,48 @@ impl Default for HostSettings {
             back_opens_menu: true,
             clipboard: true,
             reconnect: true,
+            transport: String::new(),
             reliable: false,
             game_mode_hint: true,
         }
     }
 }
 
-/// La dernière session : latence médiane et 95e centile (ms), durée (s),
-/// mode et débit moyen.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+impl HostSettings {
+    /// Les réglages s'écartent du profil : « Personnalisé ».
+    pub fn is_custom(&self) -> bool {
+        self.codec != "auto" || self.mbps != 0 || !self.transport.is_empty()
+    }
+
+    /// Choisit un profil : format, débit et transport reviennent aux siens.
+    pub fn apply(&mut self, p: Profile) {
+        self.profile = p;
+        self.codec = "auto".into();
+        self.mbps = 0;
+        self.set_transport("");
+    }
+
+    /// Transport fiable pour la session : le choix, sinon celui du profil.
+    pub fn reliable_transport(&self) -> bool {
+        match self.transport.as_str() {
+            "reliable" => true,
+            "fast" => false,
+            _ => self.profile.reliable(),
+        }
+    }
+
+    pub fn set_transport(&mut self, t: &str) {
+        self.transport = t.into();
+        self.reliable = t == "reliable";
+    }
+}
+
+/// La dernière session (au moins 3 s) : latence médiane et 95e centile (ms),
+/// durée (s), date (secondes Unix), définition, fréquence, format et débit
+/// moyen. Les fichiers de la 0.4.x n'ont que `mode` (« 3840 × 2160 · HEVC »)
+/// à la place de la définition et du format : les champs nouveaux sont
+/// facultatifs.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct LastSession {
     pub median: f64,
     pub p95: f64,
@@ -97,6 +141,16 @@ pub struct LastSession {
     #[serde(default)]
     pub mbps: f64,
     pub at: u64,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    /// Fréquence de l'écran de la session (Hz).
+    #[serde(default)]
+    pub refresh: u32,
+    /// `HEVC`, `AV1`, `H.264`.
+    #[serde(default)]
+    pub codec: String,
 }
 
 /// Un ordinateur équipé de KyberNow Station.
@@ -118,13 +172,52 @@ pub struct Host {
     pub gpu: Option<String>,
     #[serde(default)]
     pub av1: bool,
-    /// Adresse matérielle pour le réveil (Wake-on-LAN), si connue.
+    /// Adresse matérielle pour le réveil, écrite à la main (aucun écran ne
+    /// la saisit au téléviseur ; lue si un fichier en porte une).
     #[serde(default)]
     pub mac: Option<String>,
+    /// Les cartes réseau de l'ordinateur pour le réveil (Wake-on-LAN), telles
+    /// qu'Admin les donne (`wake` d'`info`) : gardées au dernier sondage
+    /// réussi qui en donne, pour le réveiller une fois éteint.
+    #[serde(default)]
+    pub wake: Vec<WakeTarget>,
     #[serde(default)]
     pub settings: HostSettings,
     #[serde(default)]
     pub last: Option<LastSession>,
+}
+
+impl Host {
+    /// L'app sait réveiller cet ordinateur : des cartes données par Admin, ou
+    /// une adresse MAC écrite à la main.
+    pub fn can_wake(&self) -> bool {
+        !self.wake.is_empty() || self.mac.as_deref().is_some_and(|m| !m.trim().is_empty())
+    }
+
+    /// L'adresse MAC montrée dans les réglages : celle de la première carte
+    /// (Ethernet d'abord, dans l'ordre d'Admin), sinon celle écrite à la main.
+    pub fn wake_mac(&self) -> Option<String> {
+        self.wake.first().map(|t| t.mac.clone()).or_else(|| self.mac.clone().filter(|m| !m.trim().is_empty()))
+    }
+}
+
+/// Une carte réseau de l'ordinateur à réveiller, au format JSON de
+/// `kybernow_core::wake::WakeTarget` (le même dans `kybernow.json` que dans
+/// la réponse d'Admin) ; l'interface se compile sans le cœur, pour les captures.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct WakeTarget {
+    pub mac: String,
+    #[serde(default)]
+    pub ipv4: Option<String>,
+    #[serde(default)]
+    pub broadcast: Option<String>,
+    /// `ethernet` ou `wifi` (vide : inconnu).
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub armed: Option<bool>,
+    #[serde(default)]
+    pub name: String,
 }
 
 /// Réglages de l'app.
@@ -188,6 +281,14 @@ impl Store {
         if s.device_id.is_empty() {
             s.device_id = new_id();
         }
+        // Fichier de la 0.4.x : « Transport fiable » forcé devient le choix
+        // « Fiable », sauf en Bureau, où il l'est déjà.
+        for h in &mut s.hosts {
+            if h.settings.reliable && h.settings.transport.is_empty() {
+                let t = if h.settings.profile.reliable() { "" } else { "reliable" };
+                h.settings.set_transport(t);
+            }
+        }
         s.path = Some(path);
         s.save();
         s
@@ -217,7 +318,8 @@ impl Store {
             let id = h.id.clone();
             let settings = h.settings.clone();
             let last = h.last.clone();
-            *h = Host { id: id.clone(), settings, last, ..host };
+            let wake = if host.wake.is_empty() { h.wake.clone() } else { host.wake.clone() };
+            *h = Host { id: id.clone(), settings, last, wake, ..host };
             return id;
         }
         let id = host.id.clone();

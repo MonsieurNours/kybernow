@@ -70,6 +70,7 @@ targets:
       - path: KyberNowTV
       - path: ../macos/KyberNow/Model.swift
       - path: ../macos/KyberNow/Discovery.swift
+      - path: ../macos/KyberNow/LinkUI.swift
       - path: ../macos/KyberNow/Fonts
         buildPhase: resources
     dependencies:

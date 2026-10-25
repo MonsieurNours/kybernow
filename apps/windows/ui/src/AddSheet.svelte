@@ -7,7 +7,7 @@
   import { onDestroy, untrack } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import type { Candidate, Computer, Found } from './lib/api'
-  import { invoke } from './lib/api'
+  import { fingerprintGroups, invoke } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -56,7 +56,6 @@
   if (first) choose({ host: first.host, port: first.port, name: first.name, fingerprint: first.fingerprint })
 
   const known = (f: Found) => computers.some((c) => c.host === f.host && c.port === f.port)
-  const groups = (fp: string | null) => (fp ?? '').replace(/^sha256:/, '').split(':')
 
   function stopPolling() {
     round++
@@ -204,7 +203,7 @@
           {:else}
             <div class="eyebrow">{t('add.fingerprint')}</div>
             <div class="fp mono">
-              {#each groups(seen.fingerprint) as g, i}<span class:strong={i < 4}>{g}</span>{/each}
+              {#each fingerprintGroups(seen.fingerprint) as g, i}<span class:strong={i < 4}>{g}</span>{/each}
             </div>
             <p class="hint">{t('add.compare')}</p>
             <div class="row">

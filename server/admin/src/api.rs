@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
@@ -21,7 +21,7 @@ use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
 use crate::launch::Launch;
 use crate::pairing::{self, RequestError};
-use crate::{AppState, auth, gpu, logs, preview, schema, service};
+use crate::{AppState, auth, gpu, logs, preview, schema, service, station};
 
 pub fn router(state: AppState) -> Router<AppState> {
     Router::new()
@@ -52,6 +52,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/update/check", post(update_check))
         .route("/api/update/install", post(update_install))
         .route("/api/update/rollback", post(update_rollback))
+        // La Station entière (Kyber et Admin), depuis Admin.
+        .route("/api/station/restart", post(admin_station_restart))
         .route("/api/devices", get(devices))
         .route("/api/devices/{id}", axum::routing::delete(forget_device))
         .route("/api/devices/{id}/launch", put(set_launch))
@@ -81,6 +83,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/stream/foreground", get(stream_foreground))
         .route("/api/stream/preview", get(stream_preview))
         .route("/api/stream/end", post(stream_end))
+        // Réglages « Station » des apps : redémarrer, mettre à jour.
+        .route("/api/stream/station/restart", post(stream_station_restart))
+        .route("/api/stream/station/update", post(stream_station_update))
         .layer(axum::middleware::from_fn_with_state(state, auth::require_session))
         // La langue des réponses (`Accept-Language`, français sans en-tête),
         // posée avant tout le reste : les refus de `require_session` aussi.
@@ -252,6 +257,8 @@ async fn status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
         "activity": s.activity.summary(),
         "update_available": s.updater.available(),
         "pair_requests": s.pairing.pending(),
+        // Ligne « Réveil par le réseau » de la page Système.
+        "wake": crate::wake::cards(),
     })))
 }
 
@@ -378,14 +385,32 @@ fn session_guard(s: &AppState, body: &Bytes) -> ApiResult<()> {
     }
 }
 
+/// 409 pendant un redémarrage de la Station : Admin va s'arrêter, et
+/// l'assistant tourne depuis le dossier qu'une mise à jour renomme.
+fn not_restarting(s: &AppState) -> ApiResult<()> {
+    if s.station.restarting() {
+        return Err(ApiError::msg(StatusCode::CONFLICT, Msg::new("station.alreadyRestarting")));
+    }
+    Ok(())
+}
+
+/// Télécharge, vérifie et lance l'installation de la dernière version : le
+/// même chemin pour Admin (`/api/update/install`) et pour les apps
+/// (`/api/stream/station/update`). Rend la version installée.
+async fn launch_install(s: &AppState) -> ApiResult<String> {
+    not_restarting(s)?;
+    let u = s.updater.clone();
+    let version = blocking(move || u.install()).await?;
+    tracing::info!("mise à jour {version} lancée");
+    Ok(version)
+}
+
 /// Télécharge et lance l'installation : la console s'arrête dans la minute
 /// et revient dans la nouvelle version. 409 pendant une session, sauf
 /// `{"force": true}`.
 async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     session_guard(&s, &body)?;
-    let u = s.updater.clone();
-    let version = blocking(move || u.install()).await?;
-    tracing::info!("mise à jour {version} lancée");
+    let version = launch_install(&s).await?;
     s.activity.event("info", Msg::new("events.installing").with("version", version.as_str()));
     Ok(Json(json!({ "ok": true, "version": version })))
 }
@@ -395,6 +420,7 @@ async fn update_install(State(s): State<AppState>, body: Bytes) -> ApiResult<Jso
 /// l'installation.
 async fn update_rollback(State(s): State<AppState>, body: Bytes) -> ApiResult<Json<Value>> {
     session_guard(&s, &body)?;
+    not_restarting(&s)?;
     let u = s.updater.clone();
     let version = blocking(move || u.rollback()).await?;
     tracing::info!("retour à la version {version} lancé");
@@ -708,9 +734,13 @@ async fn pairing(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     })))
 }
 
-/// Ce que l'app affiche d'un ordinateur : nom, système, carte graphique, possibilités.
+/// Ce que l'app affiche d'un ordinateur : nom, système, carte graphique,
+/// possibilités, la Station, et les cartes réseau pour le réveiller.
 async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
-    stream_user(&s, &headers)?;
+    let user = stream_user(&s, &headers)?;
+    // Compte créé pour un appareil par l'appairage par code : les apps
+    // l'affichent comme « Accès propre à cet appareil ».
+    let own_account = s.activity.own_accounts().iter().any(|(u, _)| *u == user);
     let gpu = tokio::task::spawn_blocking(gpu::status).await.ok().flatten();
     let gpu_name = gpu.as_ref().and_then(|g| g.devices.first()).map(|d| d.name.clone());
     // AV1 en NVENC : à partir des cartes Ada (RTX 40) et suivantes.
@@ -732,7 +762,253 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
             "trigger": audio["settings"]["trigger"],
         },
         "admin_version": env!("CARGO_PKG_VERSION"),
+        "account": { "own_device": own_account },
+        "station": station_info(&s),
+        // Cartes Ethernet et Wi-Fi pour le réveil par le réseau (`wake.rs`),
+        // lues en mémoire ; les apps les gardent pour réveiller l'ordinateur.
+        "wake": crate::wake::cards(),
     })))
+}
+
+/// La Station pour la rubrique « Station » des réglages des apps : sa
+/// version, la mise à jour disponible, un redémarrage en cours. Lu en
+/// mémoire seulement : les apps demandent `info` toutes les 8 s.
+fn station_info(s: &AppState) -> Value {
+    json!({
+        "version": crate::update::current(),
+        "update": s.updater.brief().json(),
+        "restarting": s.station.restarting(),
+    })
+}
+
+// --- La Station entière : redémarrage et mise à jour --------------------------
+
+/// Réponse à un compte refusé sur les routes de la Station, comme à un mot de
+/// passe faux à la connexion d'Admin : ralentit les essais répétés.
+const FAILED_TRY_DELAY: Duration = Duration::from_millis(800);
+
+#[derive(Deserialize, Default)]
+struct StationBody {
+    /// Identifiant de l'appareil qui demande : son nom va au fil d'événements,
+    /// il ne donne aucun droit.
+    #[serde(default)]
+    device_id: Option<String>,
+    /// Même si un appareil est en session (sa session sera coupée).
+    #[serde(default)]
+    force: bool,
+}
+
+/// Corps facultatif (`{}` ou rien).
+fn station_body(body: &Bytes) -> Result<StationBody, Refusal> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(StationBody::default());
+    }
+    serde_json::from_slice(body).map_err(|e| {
+        Refusal::new(StatusCode::BAD_REQUEST, "bad_request", Msg::new("api.unreadableBody").with("error", e.to_string()))
+    })
+}
+
+/// Refus d'une route de la Station : le message (langue de la requête), un
+/// code stable que lisent les apps (`code` : `session`, `installing`,
+/// `restarting`, `up_to_date`, `requires_setup`, `not_installable`,
+/// `too_soon`, `locked`, `unauthorized`, `bad_request`, `failed`) et, selon
+/// le cas, l'appareil en session (`device`) ou le délai d'attente en
+/// secondes (`retry_after`, aussi en en-tête `Retry-After`).
+#[derive(Debug)]
+struct Refusal {
+    status: StatusCode,
+    code: &'static str,
+    error: String,
+    device: Option<String>,
+    retry_after: Option<u64>,
+}
+
+impl Refusal {
+    fn new(status: StatusCode, code: &'static str, msg: Msg) -> Self {
+        Refusal { status, code, error: msg.text(), device: None, retry_after: None }
+    }
+
+    fn device(mut self, name: &str) -> Self {
+        self.device = Some(name.to_string());
+        self
+    }
+
+    fn retry_after(mut self, seconds: u64) -> Self {
+        self.retry_after = Some(seconds);
+        self
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        let mut body = json!({ "error": self.error, "code": self.code });
+        if let Some(device) = &self.device {
+            body["device"] = json!(device);
+        }
+        if let Some(seconds) = self.retry_after {
+            body["retry_after"] = json!(seconds);
+        }
+        let mut res = (self.status, Json(body)).into_response();
+        if let Some(seconds) = self.retry_after {
+            res.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        res
+    }
+}
+
+impl From<ApiError> for Refusal {
+    fn from(e: ApiError) -> Self {
+        Refusal { status: e.0, code: "failed", error: e.1, device: None, retry_after: None }
+    }
+}
+
+/// Qui demande un redémarrage ou une mise à jour de la Station.
+enum Caller {
+    /// Une app KyberNow Link : son compte Kyber.
+    Device(String),
+    /// Admin lui-même (sa session, sans `Authorization`).
+    Admin,
+}
+
+/// Le compte de la requête, comme `stream_user`, avec le blocage de la
+/// connexion d'Admin après des essais ratés (par adresse, même compteur). Un
+/// succès ne remet pas ce compteur à zéro : un compte Kyber ne doit pas
+/// servir à effacer les échecs de la connexion d'Admin depuis la même adresse.
+/// Le droit ne dépend que du compte : tout appareil appairé peut redémarrer
+/// et mettre à jour.
+async fn station_caller(s: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Result<Caller, Refusal> {
+    if let Some(wait) = s.auth.locked_for(peer.ip()) {
+        let seconds = wait.as_secs().max(1);
+        return Err(Refusal::new(StatusCode::TOO_MANY_REQUESTS, "locked", Msg::new("api.tooManyTries").with("seconds", seconds)).retry_after(seconds));
+    }
+    let admin = !headers.contains_key(header::AUTHORIZATION) && auth::session_token(headers).is_some_and(|t| s.auth.session_valid(&t));
+    match stream_user(s, headers) {
+        Ok(_) if admin => Ok(Caller::Admin),
+        Ok(user) => Ok(Caller::Device(user)),
+        Err(e) => {
+            s.auth.note_failure(peer.ip());
+            tokio::time::sleep(FAILED_TRY_DELAY).await;
+            Err(Refusal { code: "unauthorized", ..e.into() })
+        }
+    }
+}
+
+/// La ligne du fil : l'appareil (par son identifiant, s'il utilise ce compte),
+/// sinon son compte, ou Admin.
+fn station_event(s: &AppState, caller: &Caller, device_id: Option<&str>, keys: [&str; 3]) -> Msg {
+    let [named, account, admin] = keys;
+    match caller {
+        Caller::Admin => Msg::new(admin),
+        Caller::Device(user) => match device_id.and_then(|id| s.activity.device_name(id, user)) {
+            Some(name) => Msg::new(named).with("name", name),
+            None => Msg::new(account).with("account", user.as_str()),
+        },
+    }
+}
+
+/// 409 pendant une installation ou un redémarrage déjà lancés.
+fn station_busy(s: &AppState, installing: bool) -> Result<(), Refusal> {
+    if installing {
+        return Err(Refusal::new(StatusCode::CONFLICT, "installing", Msg::new("update.alreadyInstalling")));
+    }
+    if s.station.restarting() {
+        return Err(Refusal::new(StatusCode::CONFLICT, "restarting", Msg::new("station.alreadyRestarting")));
+    }
+    Ok(())
+}
+
+/// Redémarre la Station entière par l'assistant détaché (Admin et Kyber
+/// s'arrêtent, puis Kyber et Admin repartent) : 409 pendant une installation,
+/// un redémarrage ou une session (sauf `force`), 429 moins d'une minute après
+/// le précédent. `event` : la ligne du fil, écrite si le redémarrage part.
+fn restart_station(s: &AppState, force: bool, event: Msg) -> Result<(), Refusal> {
+    station_busy(s, s.updater.installing())?;
+    if !force && let Some(live) = s.activity.live() {
+        let msg = Msg::new("station.restartConflict").with("name", live.name.as_str());
+        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(&live.name));
+    }
+    match s.station.restart() {
+        Ok(()) => {
+            tracing::info!("redémarrage de la Station lancé : {event}");
+            s.activity.event("info", event);
+            Ok(())
+        }
+        Err(station::Refused::TooSoon(wait)) => {
+            let seconds = wait.as_secs().max(1);
+            Err(Refusal::new(StatusCode::TOO_MANY_REQUESTS, "too_soon", Msg::new("station.tooSoon").with("seconds", seconds)).retry_after(seconds))
+        }
+        Err(station::Refused::Failed(e)) => {
+            tracing::warn!("redémarrage de la Station : {e:#}");
+            Err(Refusal { status: StatusCode::INTERNAL_SERVER_ERROR, code: "failed", error: i18n::error_text(i18n::current(), &e), device: None, retry_after: None })
+        }
+    }
+}
+
+fn accepted(body: Value) -> Response {
+    (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+/// « Redémarrer la Station » d'une app (compte Kyber, ou session d'Admin) :
+/// `{"device_id", "force"}` facultatifs, `202 {"ok": true}` avant l'arrêt.
+async fn stream_station_restart(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, Refusal> {
+    let caller = station_caller(&s, peer, &headers).await?;
+    let body = station_body(&body)?;
+    let keys = ["events.stationRestarted", "events.stationRestartedAccount", "events.stationRestartedAdmin"];
+    let event = station_event(&s, &caller, body.device_id.as_deref(), keys);
+    restart_station(&s, body.force, event)?;
+    Ok(accepted(json!({ "ok": true })))
+}
+
+/// « Redémarrer la Station » de la page Système d'Admin (sa session).
+async fn admin_station_restart(State(s): State<AppState>, body: Bytes) -> Result<Response, Refusal> {
+    let body = station_body(&body)?;
+    restart_station(&s, body.force, Msg::new("events.stationRestartedAdmin"))?;
+    Ok(accepted(json!({ "ok": true })))
+}
+
+/// « Mettre à jour la Station » d'une app : la même installation
+/// qu'« Installer maintenant » dans Admin. 409 sans version installable
+/// depuis un appareil (à jour, installateur requis, paquet refusé), pendant
+/// une installation, un redémarrage, ou une session (sauf `force`) ; sinon
+/// le paquet est téléchargé et vérifié, l'applicateur lancé, puis
+/// `202 {"ok": true, "version"}`.
+async fn stream_station_update(
+    State(s): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Response, Refusal> {
+    let caller = station_caller(&s, peer, &headers).await?;
+    let body = station_body(&body)?;
+    let brief = s.updater.brief();
+    station_busy(&s, brief.installing)?;
+    let Some(version) = brief.available.as_deref() else {
+        let msg = Msg::new("station.upToDate").with("version", crate::update::current());
+        return Err(Refusal::new(StatusCode::CONFLICT, "up_to_date", msg));
+    };
+    if brief.requires_setup {
+        let msg = Msg::new("station.requiresSetup").with("version", version).with("setup", brief.setup);
+        return Err(Refusal::new(StatusCode::CONFLICT, "requires_setup", msg));
+    }
+    if !brief.installable {
+        let reason = brief.refusal.clone().unwrap_or_else(|| Msg::new("update.unknownReason"));
+        let msg = Msg::new("station.notInstallable").with("version", version).with_msg("reason", reason);
+        return Err(Refusal::new(StatusCode::CONFLICT, "not_installable", msg));
+    }
+    if !body.force && let Some(live) = s.activity.live() {
+        let msg = Msg::new("update.sessionConflictNamed").with("name", live.name.as_str());
+        return Err(Refusal::new(StatusCode::CONFLICT, "session", msg).device(&live.name));
+    }
+    let installed = launch_install(&s).await?;
+    let keys = ["events.stationUpdate", "events.stationUpdateAccount", "events.installing"];
+    let event = station_event(&s, &caller, body.device_id.as_deref(), keys).with("version", installed.as_str());
+    s.activity.event("info", event);
+    Ok(accepted(json!({ "ok": true, "version": installed })))
 }
 
 /// Une app annonce son écran avant de se connecter à Kyber.
@@ -1512,6 +1788,154 @@ mod tests {
         assert!(c.s.pending_access.waits_for("apple-tv"));
         // Ni la reprise de main : le Mac reste en session.
         assert_eq!(c.s.activity.live_device_id().as_deref(), Some("mac"));
+    }
+
+    /// En-têtes d'une app : Basic du compte Kyber `user`.
+    fn basic(user: &str, password: &str) -> HeaderMap {
+        const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let bytes = format!("{user}:{password}").into_bytes();
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | (u32::from(*b) << (16 - 8 * i)));
+            for i in 0..4 {
+                out.push(if i <= chunk.len() { ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+            }
+        }
+        let mut h = HeaderMap::new();
+        h.insert(header::AUTHORIZATION, format!("Basic {out}").parse().unwrap());
+        h
+    }
+
+    /// Console avec un compte Kyber `mac` (mot de passe `mot-de-passe-mac`).
+    fn console_with_account() -> Console {
+        let c = console();
+        std::fs::write(c.dir.join("kyber_config.toml"), "").unwrap();
+        c.s.kyber.upsert_user("mac", "mot-de-passe-mac").unwrap();
+        assert!(base64_decode(basic("mac", "mot-de-passe-mac")[header::AUTHORIZATION].to_str().unwrap().strip_prefix("Basic ").unwrap()).as_deref() == Some("mac:mot-de-passe-mac"));
+        c
+    }
+
+    fn peer() -> ConnectInfo<SocketAddr> {
+        ConnectInfo("192.168.1.20:50000".parse().unwrap())
+    }
+
+    fn texts(s: &AppState, lang: i18n::Lang) -> Vec<String> {
+        s.activity.events(20, lang).into_iter().map(|e| e.text).collect()
+    }
+
+    async fn restart_from(s: &AppState, headers: HeaderMap, body: &str) -> Result<Response, Refusal> {
+        stream_station_restart(State(s.clone()), peer(), headers, Bytes::from(body.to_string())).await
+    }
+
+    #[tokio::test]
+    async fn info_tells_the_apps_about_the_station() {
+        let c = console();
+        let info = station_info(&c.s);
+        assert_eq!(info["version"], crate::update::current());
+        assert_eq!(info["restarting"], false);
+        assert_eq!(info["update"], json!({ "available": false, "version": null, "installable": false, "requires_setup": false, "installing": false }));
+    }
+
+    #[tokio::test]
+    async fn info_gives_the_cards_to_wake_the_computer() {
+        let c = console_with_account();
+        let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+        // Lu en mémoire : vide tant que la relecture de fond n'a pas tourné (jamais en test).
+        assert_eq!(info["wake"], json!(crate::wake::cards()));
+        assert!(info["wake"].is_array());
+    }
+
+    #[tokio::test]
+    async fn a_device_restarts_the_station_after_asking_about_the_session() {
+        let c = console_with_account();
+        c.s.activity.begin(Some(device("mac-1", "Mac de Léa")), "mac", None, None);
+        let refused = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), r#"{"device_id": "mac-1"}"#).await.err().unwrap();
+        assert_eq!((refused.status, refused.code, refused.device.as_deref()), (StatusCode::CONFLICT, "session", Some("Mac de Léa")));
+        assert_eq!(refused.error, "Un appareil est connecté (Mac de Léa) : le redémarrage coupera sa session");
+        assert!(!c.s.station.restarting());
+
+        let ok = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), r#"{"device_id": "mac-1", "force": true}"#).await.ok().unwrap();
+        assert_eq!(ok.status(), StatusCode::ACCEPTED);
+        assert!(c.s.station.restarting());
+        assert_eq!(station_info(&c.s)["restarting"], true);
+        assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Mac de Léa a redémarré la Station");
+        assert_eq!(texts(&c.s, i18n::Lang::En)[0], "Mac de Léa restarted the Station");
+
+        // Déjà en cours : ni second redémarrage ni mise à jour.
+        let again = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), r#"{"force": true}"#).await.err().unwrap();
+        assert_eq!((again.status, again.code), (StatusCode::CONFLICT, "restarting"));
+        let update = stream_station_update(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), Bytes::new()).await.err().unwrap();
+        assert_eq!((update.status, update.code), (StatusCode::CONFLICT, "restarting"));
+        let install = update_install(State(c.s.clone()), Bytes::new()).await.err().unwrap();
+        assert_eq!(install.0, StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn one_restart_per_minute() {
+        let c = console();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        std::fs::create_dir_all(c.dir.join("station")).unwrap();
+        std::fs::write(c.dir.join("station/dernier-redemarrage"), now.to_string()).unwrap();
+        let refused = admin_station_restart(State(c.s.clone()), Bytes::new()).await.err().unwrap();
+        assert_eq!((refused.status, refused.code), (StatusCode::TOO_MANY_REQUESTS, "too_soon"));
+        let seconds = refused.retry_after.unwrap();
+        assert!((55..=60).contains(&seconds), "{seconds}");
+        let response = refused.into_response();
+        assert_eq!(response.headers()[header::RETRY_AFTER], seconds.to_string().as_str());
+        // Une minute plus tard : accepté, et noté comme venant d'Admin.
+        std::fs::write(c.dir.join("station/dernier-redemarrage"), (now - 61).to_string()).unwrap();
+        assert_eq!(admin_station_restart(State(c.s.clone()), Bytes::new()).await.ok().unwrap().status(), StatusCode::ACCEPTED);
+        assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Station redémarrée depuis Admin");
+    }
+
+    #[tokio::test]
+    async fn a_declared_device_id_never_borrows_another_device_name() {
+        let c = console_with_account();
+        // L'Apple TV du salon s'est connectée avec un autre compte.
+        c.s.activity.begin(Some(device("tv-1", "Apple TV du salon")), "salon", None, None);
+        c.s.activity.end("salon", Some("tv-1"), None);
+        let ok = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), r#"{"device_id": "tv-1"}"#).await.ok().unwrap();
+        assert_eq!(ok.status(), StatusCode::ACCEPTED);
+        assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Un appareil du compte mac a redémarré la Station");
+        assert_eq!(texts(&c.s, i18n::Lang::En)[0], "A device on account mac restarted the Station");
+    }
+
+    #[tokio::test]
+    async fn the_admin_session_also_works_on_the_device_route() {
+        let c = console();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, format!("{}={}", auth::COOKIE, c.s.auth.open_session()).parse().unwrap());
+        assert_eq!(restart_from(&c.s, headers, "").await.ok().unwrap().status(), StatusCode::ACCEPTED);
+        assert_eq!(texts(&c.s, i18n::Lang::Fr)[0], "Station redémarrée depuis Admin");
+    }
+
+    #[tokio::test]
+    async fn wrong_accounts_are_locked_out_like_the_admin_login() {
+        let c = console_with_account();
+        let refused = restart_from(&c.s, basic("mac", "pas-le-bon"), "").await.err().unwrap();
+        assert_eq!((refused.status, refused.code), (StatusCode::UNAUTHORIZED, "unauthorized"));
+        // Même compteur que la connexion d'Admin, par adresse.
+        for _ in 0..4 {
+            c.s.auth.note_failure(peer().0.ip());
+        }
+        let locked = restart_from(&c.s, basic("mac", "mot-de-passe-mac"), "").await.err().unwrap();
+        assert_eq!((locked.status, locked.code), (StatusCode::TOO_MANY_REQUESTS, "locked"));
+        assert!(locked.retry_after.is_some_and(|s| s > 0));
+        let update = stream_station_update(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), Bytes::new()).await.err().unwrap();
+        assert_eq!(update.code, "locked");
+        assert!(!c.s.station.restarting());
+        // Les autres routes des apps ne sont pas bloquées.
+        assert!(stream_user(&c.s, &basic("mac", "mot-de-passe-mac")).is_ok());
+    }
+
+    #[tokio::test]
+    async fn nothing_to_install_from_a_device() {
+        let c = console_with_account();
+        let refused = stream_station_update(State(c.s.clone()), peer(), basic("mac", "mot-de-passe-mac"), Bytes::from(r#"{"force": true}"#)).await.err().unwrap();
+        assert_eq!((refused.status, refused.code), (StatusCode::CONFLICT, "up_to_date"));
+        assert_eq!(refused.error, format!("KyberNow Station {} est à jour : rien à installer", crate::update::current()));
+        let body = station_body(&Bytes::from("{pas du json")).err().unwrap();
+        assert_eq!((body.status, body.code), (StatusCode::BAD_REQUEST, "bad_request"));
     }
 
     #[tokio::test]

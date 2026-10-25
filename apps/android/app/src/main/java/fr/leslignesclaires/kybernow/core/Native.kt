@@ -29,6 +29,16 @@ object Native {
     @JvmStatic external fun consolePairRequest(handle: Long, code: String, deviceJson: String): String?
     @JvmStatic external fun consolePairStatus(handle: Long, id: String): String?
 
+    // La Station (réglages d'un ordinateur) : redémarrer, mettre à jour, adresse d'Admin.
+    // Refus : codes 10 à 15, avec `kind`, `device` et `seconds` (voir [Reply.Failed]).
+    @JvmStatic external fun consoleStationRestart(handle: Long, deviceId: String?, force: Boolean): String?
+    @JvmStatic external fun consoleStationUpdate(handle: Long, deviceId: String?, force: Boolean): String?
+    @JvmStatic external fun consoleAdminUrl(handle: Long): String?
+
+    // Réveil par le réseau (Wake-on-LAN) : les cartes gardées pour l'ordinateur ([WakeTarget.toJson]).
+    /** 0 : le paquet magique est parti ; 20 : aucune cible lisible ; 1 : rien n'est parti. Hors du fil principal. */
+    @JvmStatic external fun wake(targetsJson: String): Int
+
     // Mises à jour de l'app (réseau : jamais sur le fil principal).
     /** `{"available": {version, channel, notes, page, size}}`, `{"none": true}` ou `{"error": "…"}`. */
     @JvmStatic external fun updateCheck(current: String, beta: Boolean): String
@@ -115,6 +125,16 @@ object Pad {
  * principal ce qui touche l'interface.
  */
 interface SessionListener {
+    companion object {
+        /**
+         * Avis `onNotice` : dernier recours de la connexion, la Station redémarre (l'image
+         * n'arrivait pas, ou Kyber ne répondait pas). L'écran de connexion affiche « La Station
+         * redémarre… » jusqu'au prochain `onStatus` (0 si elle revient, 5 puis 6 sinon). Il suit
+         * toujours un `onStatus` à 1 (connexion), l'étape montrée tant que l'avis est ignoré.
+         */
+        const val NOTICE_STATION_RESTARTING = 7
+    }
+
     /** 0 préparation, 1 connexion, 2 premières images, 3 image, 4 reconnexion, 5 fin, 6 terminée. */
     fun onStatus(kind: Int, attempt: Int, max: Int, error: String?, hasReport: Boolean, displayRestored: Boolean, audioRestored: Boolean, reportError: String?)
     fun onDisplay(id: Int, width: Int, height: Int)
@@ -127,7 +147,10 @@ interface SessionListener {
      * encodage, envoi, réseau, décodage, affichage (ms).
      */
     fun onSecond(values: DoubleArray)
-    /** 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre ». */
+    /**
+     * 0 relancée, 1 mode changé, 2 repli, 3 adaptation, 4 adaptée, 5 adaptation refusée, 6 « Remettre »,
+     * 7 la Station redémarre ([NOTICE_STATION_RESTARTING]).
+     */
     fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?)
     fun onGameFullscreen(game: Boolean)
     fun onInputConnected()

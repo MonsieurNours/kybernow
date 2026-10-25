@@ -278,7 +278,10 @@ struct AddHostCloudPane: View {
             app.sheet = nil
             app.show(String(localized: "\(c.name) est ajouté"))
         } else {
-            missing = String(localized: "Le mot de passe de \(c.name) n'est pas encore arrivé par le Trousseau iCloud. Réessayez dans un instant.")
+            // « de » s'élide devant une voyelle ou un h (« d'Atelier »).
+            missing = French.elides(c.name)
+                ? String(localized: "Le mot de passe d'\(c.name) n'est pas encore arrivé par le Trousseau iCloud. Réessayez dans un instant.")
+                : String(localized: "Le mot de passe de \(c.name) n'est pas encore arrivé par le Trousseau iCloud. Réessayez dans un instant.")
         }
     }
 }
@@ -526,6 +529,8 @@ struct AddHostCodePane: View {
                     let info = try? await check.info()
                     var host = Host(name: info?.hostname ?? r.candidate.name, address: r.candidate.address, consolePort: r.candidate.port, username: username)
                     host.consoleFingerprint = r.console.fingerprint
+                    // Compte créé par Admin pour cet appareil, à l'accord.
+                    host.pairedByCode = true
                     app.store.add(host, password: password)
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     app.selected = host.id
@@ -639,7 +644,7 @@ struct AddHostVerifyPane: View {
             if !probed {
                 HStack(spacing: 12) {
                     ProgressView().tint(Theme.accent)
-                    Text("Connexion à la Station de \(candidate.name)…")
+                    Text(French.elides(candidate.name) ? String(localized: "Connexion à la Station d'\(candidate.name)…") : String(localized: "Connexion à la Station de \(candidate.name)…"))
                         .font(Theme.sans(wide ? 16 : 14.5)).foregroundStyle(Theme.muted)
                 }
                 .padding(.top, 6)
@@ -746,7 +751,7 @@ struct AddHostAccountPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: wide ? 20 : 14) {
-            AddHostHeader(eyebrow: String(localized: "Dernière étape"), title: named ? String(localized: "Le compte de \(candidate.name)") : String(localized: "Le compte de l'ordinateur"))
+            AddHostHeader(eyebrow: String(localized: "Dernière étape"), title: named ? (French.elides(candidate.name) ? String(localized: "Le compte d'\(candidate.name)") : String(localized: "Le compte de \(candidate.name)")) : String(localized: "Le compte de l'ordinateur"))
             AddHostParagraph(DeviceDisplay.isPad
                 ? String(localized: "Celui choisi à l'installation de KyberNow Station sur cet ordinateur. Il est gardé dans le Trousseau de cet iPad.")
                 : String(localized: "Celui choisi à l'installation de KyberNow Station sur cet ordinateur. Il est gardé dans le Trousseau de cet iPhone."))

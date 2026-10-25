@@ -5,6 +5,12 @@ import { langHeaders, t } from '../lib/i18n/index.svelte'
 import type { Mode } from './device'
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const { res, data } = await request(method, path, body)
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
+  return data as T
+}
+
+async function request(method: string, path: string, body?: unknown): Promise<{ res: Response; data: any }> {
   // La console répond dans la langue de ce client (messages d'erreur).
   const headers: Record<string, string> = { ...langHeaders() }
   if (method !== 'GET') headers['x-kyber-admin'] = '1'
@@ -22,7 +28,30 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   } catch {
     data = { error: text }
   }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? t('common.error', { status: res.status }))
+  return { res, data }
+}
+
+/** Refus d'une route de la Station (`code` : `session`, `too_soon`…, voir server/README.md). */
+export class StationRefusal extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public code: string,
+    /** L'appareil en session (`code` : `session`). */
+    public device: string | null,
+    /** Secondes à attendre (`too_soon`, `locked`). */
+    public retryAfter: number | null,
+  ) {
+    super(message)
+  }
+}
+
+async function station<T>(path: string, body: { device_id: string; force: boolean }): Promise<T> {
+  const { res, data } = await request('POST', path, body)
+  if (!res.ok) {
+    const message = data?.error ?? t('common.error', { status: res.status })
+    throw new StationRefusal(res.status, message, String(data?.code ?? 'failed'), data?.device ?? null, typeof data?.retry_after === 'number' ? data.retry_after : null)
+  }
   return data as T
 }
 
@@ -47,13 +76,34 @@ export interface Live {
   started_at: number
 }
 
+/** La Station, pour la rubrique Station (absente avant la 0.5.0). */
+export interface StationInfo {
+  version: string
+  update: { available: boolean; version: string | null; installable: boolean; requires_setup: boolean; installing: boolean }
+  restarting: boolean
+}
+
+/** `GET /api/stream/info` : ce que l'accueil et les réglages montrent de l'ordinateur. */
+export interface Info {
+  hostname: string | null
+  os?: string | null
+  gpu: string | null
+  virtual_display: { available: boolean; active: boolean }
+  station?: StationInfo
+}
+
 export interface Preview {
   url: string
   capturedAt: number
 }
 
 export const backend = {
-  session: () => call<Session>('GET', '/api/session'),
+  session: () => call<Session & { version?: string }>('GET', '/api/session'),
+  info: () => call<Info>('GET', '/api/stream/info'),
+  /** Empreinte du certificat d'Admin (session d'Admin requise). */
+  fingerprint: async (): Promise<string | null> => (await call<{ fingerprint: string | null }>('GET', '/api/pairing')).fingerprint ?? null,
+  stationRestart: (body: { device_id: string; force: boolean }) => station<{ ok: boolean }>('/api/stream/station/restart', body),
+  stationUpdate: (body: { device_id: string; force: boolean }) => station<{ ok: boolean; version: string }>('/api/stream/station/update', body),
   login: (password: string) => call('POST', '/api/login', { password }),
   ticket: () => call<Ticket>('GET', '/api/web/ticket'),
   live: async (): Promise<Live | null> => {

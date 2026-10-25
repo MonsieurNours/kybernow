@@ -1,7 +1,7 @@
 {
   "app": {
     "start_failed": "The app could not start: {error}",
-    "bar_title": "KyberNow Link — bar"
+    "bar_title": "Session bar · KyberNow Link"
   },
   "errors": {
     "session_open_install_later": "a session is open: install after it ends",
@@ -21,7 +21,8 @@
     "unknown_profile": "unknown profile",
     "session_not_ready": "session not ready yet",
     "session_window": "session window: {error}",
-    "video_thread": "the picture thread stopped"
+    "video_thread": "the picture thread stopped",
+    "open_admin": "Admin could not be opened in the browser (code {code})"
   },
   "notify": {
     "update_title": "KyberNow Link {version} is ready",

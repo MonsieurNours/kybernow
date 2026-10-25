@@ -11,8 +11,11 @@ use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, Found, HostLive, MenuItem, NetKind, Online, PadInfo, Phase, Screen, SessionUi, Setting, Stats, Target};
-use crate::model::{Host, HostSettings, LastSession, Profile, Store};
+use crate::app::{
+    AddStep, App, Found, HostLive, MenuItem, NetKind, Online, PadInfo, Phase, Polled, Problem, Screen, Section, SessionUi, Setting, StationKnown, StationLive, StationOp, StationPhase, StationRefusal, StationUi, Stats, Target,
+    UpdateState, HOST_SECTIONS,
+};
+use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeTarget};
 use crate::ui::{self, canvas::Canvas, Assets};
 
 fn demo_image(seed: u32) -> Pixmap {
@@ -50,19 +53,43 @@ fn host(id: &str, name: &str, addr: &str) -> Host {
         user: "link-g2-salon".into(),
         password: String::new(),
         os: Some("Windows 11 Pro 24H2".into()),
-        gpu: Some("RTX 3080 Ti".into()),
+        gpu: Some("NVIDIA GeForce RTX 3080 Ti".into()),
         av1: true,
-        mac: Some("00:11:22:33:44:55".into()),
+        mac: None,
+        wake: Vec::new(),
         settings: HostSettings::default(),
         last: None,
     }
+}
+
+/// Une carte Ethernet de démonstration, comme Admin la donne.
+fn wake_target(mac: &str, ipv4: &str) -> WakeTarget {
+    WakeTarget { mac: mac.into(), ipv4: Some(ipv4.into()), broadcast: Some("192.168.1.255".into()), kind: "ethernet".into(), armed: Some(true), name: "Intel(R) Ethernet Connection I219-V".into() }
+}
+
+/// La Station de démonstration : 0.5.0, à jour.
+fn station(version: &str) -> StationKnown {
+    StationKnown::Info(StationLive { version: version.into(), ..Default::default() })
 }
 
 fn demo(english: bool) -> App {
     crate::i18n::set_english(english);
     let mut store = Store::default();
     let mut a = host("a", "Atelier", "192.168.1.20");
-    a.last = Some(LastSession { median: 14.6, p95: 21.0, seconds: 3900, mode: "4K 120 Hz · HEVC".into(), mbps: 82.0, at: 0 });
+    let now = crate::model::now_secs();
+    a.last = Some(LastSession {
+        median: 8.9,
+        p95: 14.2,
+        seconds: 42 * 60 + 10,
+        mode: "2560 × 1440 · HEVC".into(),
+        mbps: 79.6,
+        at: now - 86_400,
+        width: 2560,
+        height: 1440,
+        refresh: 120,
+        codec: "HEVC".into(),
+    });
+    a.wake = vec![wake_target("3c:7c:3f:12:ab:cd", "192.168.1.20")];
     store.hosts.push(a);
     store.hosts.push(host("b", "Portable", "192.168.1.31"));
     store.selected = Some("a".into());
@@ -70,8 +97,8 @@ fn demo(english: bool) -> App {
     app.tv.model = "OLED83G2".into();
     app.tv.webos = "25".into();
     app.net.kind = NetKind::Wifi;
-    app.live.insert("a".into(), HostLive { online: Online::Online, ready: None });
-    app.live.insert("b".into(), HostLive { online: Online::Offline, ready: None });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: station("0.5.0"), problem: None, own_device: Some(true) });
+    app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
     app.images.insert("a".into(), demo_image(1));
     app.found.push(Found { name: "Salon-PC".into(), address: "192.168.1.42".into(), port: 31250, fingerprint: None });
     app.pads = vec![
@@ -87,9 +114,10 @@ fn session(app: &App) -> SessionUi {
         name: "Atelier".into(),
         profile: Profile::Jeu,
         phase: Phase::Streaming,
+        streamed: true,
         menu: true,
         keys: false,
-        stats: Some(Stats { latency_ms: Some(14.6), fps: 120.0, mbps: 82.0, lost: 0, mode: "3840 × 2160".into(), codec: "HEVC".into() }),
+        stats: Some(Stats { latency_ms: Some(8.9), fps: 120.0, mbps: 80.0, lost: 0, mode: "2560 × 1440".into(), codec: "HEVC".into() }),
         show_stats: false,
         remote_mouse: false,
         pad_mouse: false,
@@ -108,10 +136,12 @@ fn shot(app: &mut App, cv: &mut Canvas, assets: &Assets, video: Option<&Pixmap>,
     app.hits = hits;
     let out = match video {
         Some(v) => {
-            // Le plan vidéo dessous, l'interface par-dessus.
+            // Le plan vidéo dessous, l'interface par-dessus (rien en jeu).
             let mut base = Pixmap::new(1920, 1080).unwrap();
             base.draw_pixmap(0, 0, v.as_ref(), &tiny_skia::PixmapPaint { quality: tiny_skia::FilterQuality::Bilinear, ..Default::default() }, tiny_skia::Transform::from_scale(4.0, 4.0), None);
-            base.draw_pixmap(0, 0, cv.pix.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+            if app.screen != Screen::Session || ui::session_overlay_visible(app) {
+                base.draw_pixmap(0, 0, cv.pix.as_ref(), &tiny_skia::PixmapPaint::default(), tiny_skia::Transform::identity(), None);
+            }
             base
         }
         None => cv.pix.clone(),
@@ -123,6 +153,13 @@ fn shot(app: &mut App, cv: &mut Canvas, assets: &Assets, video: Option<&Pixmap>,
     }
 }
 
+/// Ouvre une rubrique des réglages de l'ordinateur choisi.
+fn open(app: &mut App, section: Section, focus: Target) {
+    app.open_settings(false, Screen::Home);
+    app.section = HOST_SECTIONS.iter().position(|s| *s == section).unwrap_or(0);
+    app.focus = focus;
+}
+
 pub fn run(dir: &Path, lang: &str) {
     let _ = std::fs::create_dir_all(dir);
     let en = lang == "en";
@@ -131,11 +168,46 @@ pub fn run(dir: &Path, lang: &str) {
     let assets = Assets::load();
     let video = demo_image(3);
 
+    // Accueil.
     app.go(Screen::Home);
     shot(&mut app, &mut cv, &assets, None, dir, "1-accueil");
-    app.update = crate::app::UpdateState::Available { version: "0.4.6".into(), channel: "stable".into(), page: String::new() };
+    app.update = UpdateState::Available { version: "0.5.1".into(), channel: "stable".into(), page: String::new() };
     shot(&mut app, &mut cv, &assets, None, dir, "1b-accueil-mise-a-jour");
-    app.update = crate::app::UpdateState::Unknown;
+    app.update = UpdateState::Unknown;
+
+    app.store.selected = Some("b".into());
+    app.go(Screen::Home);
+    shot(&mut app, &mut cv, &assets, None, dir, "1c-accueil-hors-ligne");
+    app.store.host_mut("b").unwrap().wake = vec![wake_target("a4:bb:6d:01:02:03", "192.168.1.31")];
+    app.live.get_mut("b").unwrap().problem = Some(Problem::Reinstalled);
+    shot(&mut app, &mut cv, &assets, None, dir, "1d-accueil-reveil-erreur");
+    app.live.get_mut("b").unwrap().problem = None;
+    let _ = app.activate(Target::Connect);
+    shot(&mut app, &mut cv, &assets, None, dir, "1g-accueil-reveil-en-cours");
+    app.waking = None;
+    app.store.host_mut("b").unwrap().wake.clear();
+    app.store.selected = Some("a".into());
+
+    // Profil personnalisé, définition sur mesure, Station sans écran virtuel.
+    let saved = app.store.host("a").unwrap().settings.clone();
+    {
+        let st = &mut app.store.host_mut("a").unwrap().settings;
+        st.mbps = 60;
+        st.resolution = 1080;
+        st.fps = 60;
+    }
+    app.pads.truncate(1);
+    app.go(Screen::Home);
+    shot(&mut app, &mut cv, &assets, None, dir, "1e-accueil-personnalise");
+    app.live.get_mut("a").unwrap().virtual_display = Some(false);
+    app.live.get_mut("a").unwrap().online = Online::Unknown;
+    let pads = std::mem::take(&mut app.pads);
+    shot(&mut app, &mut cv, &assets, None, dir, "1f-accueil-recherche-tels-quels");
+    app.pads = pads;
+    app.live.get_mut("a").unwrap().virtual_display = Some(true);
+    app.live.get_mut("a").unwrap().online = Online::Online;
+    app.store.host_mut("a").unwrap().settings = saved;
+    app.pads = demo(en).pads;
 
     let mut empty = App::new(Store::default());
     empty.found = app.found.clone();
@@ -143,7 +215,9 @@ pub fn run(dir: &Path, lang: &str) {
     empty.net = app.net.clone();
     empty.go(Screen::Home);
     shot(&mut empty, &mut cv, &assets, None, dir, "2-accueil-vide");
+    crate::i18n::set_english(en);
 
+    // Ajout.
     app.add.code = "482913".into();
     app.add.step = AddStep::Code;
     app.add.asked = vec![("Salon-PC".into(), "192.168.1.42".into())];
@@ -162,53 +236,147 @@ pub fn run(dir: &Path, lang: &str) {
     app.go(Screen::Add);
     shot(&mut app, &mut cv, &assets, None, dir, "5-ajout-empreinte");
 
-    for (i, name) in ["6-reglages-image", "7-reglages-son", "8-reglages-manettes", "9-reglages-reseau", "10-reglages-compte"].iter().enumerate() {
-        app.open_settings(false, Screen::Home);
-        app.section = i;
-        app.focus = if i == 0 { Target::Setting(Setting::Fps) } else { Target::Section(i) };
-        shot(&mut app, &mut cv, &assets, None, dir, name);
-    }
-    app.update = crate::app::UpdateState::Available { version: "0.4.6".into(), channel: "stable".into(), page: String::new() };
-    for (i, name) in ["11-reglages-televiseur", "11b-reglages-manettes-globales"].iter().enumerate() {
+    // Réglages de l'ordinateur.
+    open(&mut app, Section::Picture, Target::Setting(Setting::Fps));
+    shot(&mut app, &mut cv, &assets, None, dir, "6-reglages-image");
+    open(&mut app, Section::Sound, Target::Section(1));
+    shot(&mut app, &mut cv, &assets, None, dir, "7-reglages-son");
+    open(&mut app, Section::Controls, Target::Section(2));
+    shot(&mut app, &mut cv, &assets, None, dir, "8-reglages-commandes");
+    open(&mut app, Section::Network, Target::Setting(Setting::Transport));
+    shot(&mut app, &mut cv, &assets, None, dir, "9-reglages-reseau");
+    let wake = std::mem::take(&mut app.store.host_mut("a").unwrap().wake);
+    open(&mut app, Section::Network, Target::Section(3));
+    shot(&mut app, &mut cv, &assets, None, dir, "9b-reglages-reseau-sans-adresse");
+    app.store.host_mut("a").unwrap().wake = wake;
+    open(&mut app, Section::Statistics, Target::Section(4));
+    shot(&mut app, &mut cv, &assets, None, dir, "10-reglages-statistiques");
+    let last = app.store.host_mut("a").unwrap().last.take();
+    open(&mut app, Section::Statistics, Target::Chip(Profile::Jeu));
+    shot(&mut app, &mut cv, &assets, None, dir, "10b-reglages-statistiques-sans-session");
+    app.store.host_mut("a").unwrap().last = last;
+
+    // Station.
+    let set_station = |app: &mut App, st: StationKnown| app.live.get_mut("a").unwrap().station = st;
+    open(&mut app, Section::Station, Target::Setting(Setting::Restart));
+    shot(&mut app, &mut cv, &assets, None, dir, "11-reglages-station-a-jour");
+    let available = StationKnown::Info(StationLive {
+        version: "0.5.0".into(),
+        update_available: true,
+        update_version: Some("0.5.1".into()),
+        installable: true,
+        ..Default::default()
+    });
+    set_station(&mut app, available.clone());
+    open(&mut app, Section::Station, Target::Setting(Setting::Update));
+    shot(&mut app, &mut cv, &assets, None, dir, "11b-reglages-station-mise-a-jour-disponible");
+    set_station(&mut app, StationKnown::Info(StationLive {
+        version: "0.5.0".into(),
+        update_available: true,
+        update_version: Some("0.6.0".into()),
+        requires_setup: true,
+        ..Default::default()
+    }));
+    open(&mut app, Section::Station, Target::Setting(Setting::Restart));
+    shot(&mut app, &mut cv, &assets, None, dir, "11c-reglages-station-installateur");
+    set_station(&mut app, available);
+    open(&mut app, Section::Station, Target::Section(5));
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Update), message: None });
+    shot(&mut app, &mut cv, &assets, None, dir, "11d-reglages-station-mise-a-jour-en-cours");
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Restart, since: Instant::now(), down: true, target: None }, message: None });
+    shot(&mut app, &mut cv, &assets, None, dir, "11e-reglages-station-redemarre");
+    // Retour de la Station après la mise à jour : le message de fin.
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Waiting { op: StationOp::Update, since: Instant::now(), down: true, target: Some("0.5.1".into()) }, message: None });
+    app.polled("a", Polled { online: true, station: station("0.5.1"), virtual_display: Some(true), ..Default::default() });
+    open(&mut app, Section::Station, Target::Setting(Setting::Restart));
+    shot(&mut app, &mut cv, &assets, None, dir, "11f-reglages-station-mise-a-jour-faite");
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None });
+    app.station_answer("a", StationOp::Restart, Err(StationRefusal::TooSoon));
+    open(&mut app, Section::Station, Target::Setting(Setting::Restart));
+    shot(&mut app, &mut cv, &assets, None, dir, "11g-reglages-station-trop-tot");
+    app.station = Some(StationUi { host: "a".into(), phase: StationPhase::Asking(StationOp::Restart), message: None });
+    app.station_answer("a", StationOp::Restart, Err(StationRefusal::InSession(Some("Pixel 9".into()))));
+    shot(&mut app, &mut cv, &assets, None, dir, "11h-reglages-station-appareil-en-session");
+    app.dialog = None;
+    app.station = None;
+    set_station(&mut app, StationKnown::Old(Some("0.4.9".into())));
+    open(&mut app, Section::Station, Target::Setting(Setting::Remove));
+    shot(&mut app, &mut cv, &assets, None, dir, "11i-reglages-station-ancienne");
+    set_station(&mut app, station("0.5.0"));
+    let _ = app.nav(crate::app::Nav::Ok);
+    shot(&mut app, &mut cv, &assets, None, dir, "11j-reglages-station-retirer");
+    app.dialog = None;
+
+    // Réglages de l'app.
+    app.update = UpdateState::Available { version: "0.5.1".into(), channel: "stable".into(), page: String::new() };
+    for (i, name) in ["12-reglages-app-televiseur", "12b-reglages-app-manettes"].iter().enumerate() {
         app.open_settings(true, Screen::Home);
         app.section = i;
         app.focus = Target::Section(i);
         shot(&mut app, &mut cv, &assets, None, dir, name);
     }
+    app.update = UpdateState::Unknown;
 
     app.pad_selected = 0;
     app.go(Screen::Gamepads);
-    shot(&mut app, &mut cv, &assets, None, dir, "12-manettes");
+    shot(&mut app, &mut cv, &assets, None, dir, "13-manettes");
 
+    // Session.
     let mut s = session(&app);
     s.phase = Phase::Connecting;
+    s.streamed = false;
     s.menu = false;
     app.session = Some(s);
     app.screen = Screen::Session;
     app.focus = Target::CancelConnect;
-    shot(&mut app, &mut cv, &assets, None, dir, "13-session-arrivee");
+    shot(&mut app, &mut cv, &assets, None, dir, "14-session-connexion");
+
+    let mut s = session(&app);
+    s.phase = Phase::FirstImages;
+    s.streamed = false;
+    s.menu = false;
+    app.session = Some(s);
+    shot(&mut app, &mut cv, &assets, None, dir, "14b-session-premieres-images");
+
+    let mut s = session(&app);
+    s.phase = Phase::StationRestarting;
+    s.streamed = false;
+    s.menu = false;
+    app.session = Some(s);
+    shot(&mut app, &mut cv, &assets, None, dir, "14c-session-station-redemarre");
+
+    let mut s = session(&app);
+    s.menu = false;
+    app.session = Some(s);
+    shot(&mut app, &mut cv, &assets, Some(&video), dir, "15-session-image");
 
     app.session = Some(session(&app));
     app.focus = Target::Menu(MenuItem::Resume);
-    shot(&mut app, &mut cv, &assets, Some(&video), dir, "14-session-menu");
+    shot(&mut app, &mut cv, &assets, Some(&video), dir, "16-session-menu");
 
     let mut s = session(&app);
     s.keys = true;
     app.session = Some(s);
     app.focus = Target::Shortcut(0);
-    shot(&mut app, &mut cv, &assets, Some(&video), dir, "15-session-touches");
+    shot(&mut app, &mut cv, &assets, Some(&video), dir, "17-session-touches");
 
     let mut s = session(&app);
     s.menu = false;
     s.show_stats = true;
     app.session = Some(s);
-    shot(&mut app, &mut cv, &assets, Some(&video), dir, "16-session-mesures");
+    shot(&mut app, &mut cv, &assets, Some(&video), dir, "18-session-statistiques");
 
     let mut s = session(&app);
+    s.streamed = false;
     s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
     app.session = Some(s);
     app.focus = Target::Back;
-    shot(&mut app, &mut cv, &assets, None, dir, "17-session-fin");
+    shot(&mut app, &mut cv, &assets, None, dir, "19-session-echec");
+
+    let mut s = session(&app);
+    s.phase = Phase::Ended { error: Some(if en { "the computer is no longer responding" } else { "l'ordinateur ne répond plus" }.into()) };
+    app.session = Some(s);
+    shot(&mut app, &mut cv, &assets, None, dir, "19b-session-fin");
 }
 
 #[cfg(test)]

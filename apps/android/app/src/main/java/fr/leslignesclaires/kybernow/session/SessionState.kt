@@ -56,6 +56,11 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
     private val main = Handler(Looper.getMainLooper())
 
     val phase = MutableStateFlow(Phase.PREPARING)
+    /**
+     * Dernier recours de la connexion : le cœur redémarre la Station (l'image ne venait pas) ;
+     * l'écran de connexion le dit jusqu'au prochain changement d'étape.
+     */
+    val stationRestarting = MutableStateFlow(false)
     val ended = MutableStateFlow<Ended?>(null)
     val second = MutableStateFlow<Second?>(null)
     val capsule = MutableStateFlow<Capsule?>(null)
@@ -92,6 +97,8 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
 
     override fun onStatus(kind: Int, attempt: Int, max: Int, error: String?, hasReport: Boolean, displayRestored: Boolean, audioRestored: Boolean, reportError: String?) {
         val p = Phase.entries[kind.coerceIn(0, 6)]
+        // L'avis du redémarrage suit un état « connexion » : seul l'état suivant le clôt.
+        stationRestarting.value = false
         phase.value = p
         when (p) {
             Phase.RECONNECTING -> show(Capsule.Reconnecting(attempt, max), 0)
@@ -136,6 +143,7 @@ class SessionState(private val context: Context, private val gamepads: Gamepads)
 
     override fun onNotice(kind: Int, width: Int, height: Int, back: Boolean, level: Int, mbps: Int, hasMode: Boolean, error: String?) {
         when (kind) {
+            SessionListener.NOTICE_STATION_RESTARTING -> stationRestarting.value = true
             0 -> show(Capsule.Relaunched)
             1 -> show(Capsule.ModeChanged(width, height, back))
             2 -> show(Capsule.Fallback(level, mbps), 6000)

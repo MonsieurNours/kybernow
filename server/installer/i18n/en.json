@@ -2,12 +2,12 @@
   "setup": {
     "startFailed": "Setup could not start:\n\n{error}",
     "notAPayload": "this file does not contain KyberNow Station. Download the full installer again.",
-    "webview2Missing": "The installer needs Microsoft Edge WebView2, included in Windows 11 and most Windows 10 installations.\n\nMicrosoft's download page will open: install it, then run KyberNow-Station-Setup again."
+    "webview2Missing": "To display its window, setup needs Microsoft Edge WebView2, a Microsoft component. It comes with Windows 11 and most Windows 10 installations, but it is missing on this computer.\n\nMicrosoft's download page will open: install it, then run KyberNow-Station-Setup again."
   },
   "uninstall": {
     "title": "Uninstall KyberNow Station",
-    "confirm": "KyberNow Station will be removed from this computer: streaming server, KyberNow Admin, tray icon, virtual display. The power mode and network category from before the Station are restored.\n\nThe ViGEmBus gamepad driver stays installed, as other software may use it.\n\nContinue?",
-    "keepData": "Keep KyberNow Station's settings on this computer?\n\nYes: C:\\ProgramData\\KyberNow stays (Admin settings and certificate, known devices, logs, a copy of Kyber's settings), readable by administrators only.\nNo: everything is deleted.",
+    "confirm": "KyberNow Station will be removed from this computer, along with the Kyber engine, KyberNow Admin, the tray icon and the virtual display. The power mode and the network type (“Public” or “Private”) go back to what they were before the installation.\n\nThe controller driver (ViGEmBus) stays installed, as other software may use it.\n\nContinue?",
+    "keepData": "Keep KyberNow Station's settings on this computer?\n\nYes: the C:\\ProgramData\\KyberNow folder stays, readable by administrators only. It holds Admin's settings and certificate, known devices, logs and a copy of Kyber's settings.\nNo: everything is deleted.",
     "doneKept": "KyberNow Station has been uninstalled. Its settings remain in C:\\ProgramData\\KyberNow.",
     "done": "KyberNow Station has been uninstalled.",
     "failed": "Uninstalling ran into a problem:\n\n{error}"
@@ -19,27 +19,27 @@
   "checks": {
     "gpu": {
       "title": "Graphics card",
-      "detail": "{name} · {encoder} hardware encoding",
+      "detail": "{name} · compresses the picture ({encoder})",
       "noneTitle": "No compatible graphics card",
-      "noneDetail": "Encoding will be done by the processor (x264): slower and more demanding."
+      "noneDetail": "The processor will compress the picture itself (x264). This is slower and keeps it busier."
     },
     "driver": {
       "title": "Graphics driver",
       "version": "Version {version}",
       "unknown": "Unknown version: consider updating the graphics card driver.",
-      "none": "No graphics card driver: install the manufacturer's (NVIDIA, AMD or Intel) to get hardware encoding."
+      "none": "No graphics card driver. Install the one from the manufacturer (NVIDIA, AMD or Intel) so the card can compress the picture."
     },
     "network": {
       "title": "Local network",
       "unknownAddress": "unknown address",
       "ethernet": "Ethernet · {ip}",
-      "wifi": "Wi-Fi · {ip} · an Ethernet cable avoids micro-dropouts",
-      "public": " · network set to “Public”: we will switch it to “Private” so your devices can connect"
+      "wifi": "Wi-Fi · {ip} · an Ethernet cable avoids short dropouts",
+      "public": " · network set to “Public”: setup will switch it to “Private” so your devices can connect"
     },
     "ports": {
       "title": "Network ports",
       "defaultBusy": "The usual port 8080 is already in use{by}. ",
-      "picked": "{reason}Drawn at random and checked free: stream {stream} · Admin {console}"
+      "picked": "{reason}Free ports, picked at random: stream {stream} · Admin {console}"
     },
     "display": {
       "title": "Main display",
@@ -49,8 +49,8 @@
     "power": {
       "title": "Power mode",
       "titleWithPlan": "Power mode: {plan}",
-      "tuned": "The GPU keeps its full power during the stream.",
-      "notTuned": "The GPU slows down to save energy, which can triple the encoding time. We will offer to change it at the Options step.",
+      "tuned": "The graphics card keeps its full power during sessions.",
+      "notTuned": "The graphics card slows down to save energy, and compressing each picture can take up to three times longer. The Options step offers to change this mode.",
       "high": "High performance",
       "ultimate": "Ultimate Performance",
       "saver": "Power saver",
@@ -58,24 +58,24 @@
       "unknown": "unknown"
     },
     "audio": {
-      "title": "Remote sound",
-      "ok": "Steam's virtual speakers are available: during the stream, the computer goes silent and the sound goes out in stereo, 5.1 or 7.1.",
-      "missing": "Steam is not installed: sound will also come out of the computer's speakers, in Windows' format. Install Steam, then run the installation again to get it."
+      "title": "Sound on your devices",
+      "ok": "Steam's virtual speakers found: during a session, sound plays on your device (stereo, 5.1 or 7.1) and the computer stays quiet.",
+      "missing": "Steam is not installed: sound will also play on the computer, in the format set in Windows. To send it to your device only, install Steam, then run setup again."
     },
     "existing": {
       "title": "Existing installation",
       "installed": "KyberNow Station {version} is installed",
       "keepChoice": "At the next step, you will choose to keep your settings and devices, or to start from scratch.",
       "noSettings": "Its settings cannot be found: the installation will start from scratch.",
-      "kyberTitle": "A Kyber installation exists",
-      "kyberDetail": "It will be removed and replaced by KyberNow Station (same engine, tuned for you)."
+      "kyberTitle": "Kyber is already installed",
+      "kyberDetail": "It will be removed and replaced by KyberNow Station, which includes the same engine, set up for you."
     }
   },
   "ports": {
     "range": "Choose a port between 1024 and 65535.",
     "samePort": "The stream and Admin need two different ports.",
     "reservedByWindows": "Port {port} is reserved by Windows.",
-    "reservedBy": "Port {port} is in {owner}'s range ({first}–{last}), which that software often takes: choose another one.",
+    "reservedBy": "Port {port} is in the range {owner} often uses ({first}–{last}): choose another one.",
     "inUse": "Port {port} is already in use{by}.",
     "by": " by {process}",
     "windowsHttp": "Windows (system HTTP service)",
@@ -85,9 +85,9 @@
     "commandFailed": "{command} failed (code {code}): {output}",
     "launching": "launching {program}",
     "payloadIncomplete": "incomplete installer",
-    "payloadMissing": "installer payload not found (corrupted file?)",
+    "payloadMissing": "installer contents not found (damaged file?)",
     "settingsMissing": "settings not found ({path}): choose “Start from scratch”",
-    "vigembusMissing": "ViGEmBus installer missing from the payload",
+    "vigembusMissing": "controller driver installer (ViGEmBus) missing from the installer",
     "initialConfiguration": "initial configuration",
     "backup": "backing up {path}",
     "serviceName": "KyberNow Station - streaming server",

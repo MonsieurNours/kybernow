@@ -1,12 +1,12 @@
 // Réglages de l'app (fiche) : ce qui vaut sur cet appareil pour tous les
-// ordinateurs : iCloud, langue, toucher et pointeur, manettes, clavier, son,
-// données mobiles. Les réglages de connexion (image, débit, profil), eux,
-// vont par ordinateur (SettingsView). Même langage que les réglages par
-// ordinateur (maquette « Réglages », n7a) : des lignes de verre, des choix en
-// pastilles, des interrupteurs Spectre.
+// ordinateurs : iCloud, langue, données mobiles, ce que l'appareil sait faire
+// (écran, décodage, sortie du son), la version. Les réglages d'un ordinateur
+// (image, son, commandes, réseau, statistiques, Station), eux, vont par
+// ordinateur (SettingsView) : chaque réglage à un seul endroit. Même langage
+// que les réglages par ordinateur (maquette « Réglages », n7a) : des lignes de
+// verre, des choix en pastilles, des interrupteurs Spectre.
 //
-// On y arrive par un appui long sur le bouton des réglages de l'accueil, ou
-// en le touchant quand aucun ordinateur n'est encore ajouté.
+// On y arrive par le bouton « Réglages de l'app » de l'accueil.
 
 import AVFoundation
 import KyberKit
@@ -32,6 +32,7 @@ private struct AppSettingsContent: View {
     @State private var language = LanguageChoice.current
     private static let launchLanguage = LanguageChoice.current
     @State private var route = AudioRoute.current
+    @StateObject private var link = SettingsLink()
 
     private var isPad: Bool { DeviceDisplay.isPad }
 
@@ -43,10 +44,8 @@ private struct AppSettingsContent: View {
                     header
                     section(String(localized: "iCloud")) { icloudRows }
                     section(String(localized: "Langue")) { languageRow }
-                    section(String(localized: "Toucher et pointeur")) { touchRows }
-                    section(String(localized: "Manettes et clavier")) { inputRows }
-                    section(String(localized: "Son · \(route.name), \(route.channelsLabel)")) { soundRows }
                     section(String(localized: "Réseau")) { networkRows }
+                    section(isPad ? String(localized: "Cet iPad") : String(localized: "Cet iPhone")) { deviceRows }
                     section(String(localized: "À propos")) { aboutRows }
                 }
                 .padding(.horizontal, 24)
@@ -78,7 +77,7 @@ private struct AppSettingsContent: View {
 
     private var navigation: some View {
         HStack {
-            Text(isPad ? "Sur cet iPad".uppercased() : "Sur cet iPhone".uppercased())
+            Text((isPad ? String(localized: "Sur cet iPad") : String(localized: "Sur cet iPhone")).uppercased())
                 .font(Theme.mono(10.5, .medium)).tracking(0.85).foregroundStyle(Theme.faint)
             Spacer()
             Button(action: close) {
@@ -103,7 +102,7 @@ private struct AppSettingsContent: View {
                 .tracking(-34 * 0.03)
                 .foregroundStyle(Theme.text)
                 .accessibilityAddTraits(.isHeader)
-            Text("Pour tous vos ordinateurs. L'image, le débit et le profil se règlent par ordinateur.")
+            Text("Pour tous vos ordinateurs. L'image, le son, les commandes et le profil se règlent par ordinateur.")
                 .font(Theme.sans(13.5))
                 .foregroundStyle(Theme.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -155,41 +154,21 @@ private struct AppSettingsContent: View {
         }
     }
 
-    @ViewBuilder private var touchRows: some View {
-        SettingsChoiceRow(title: String(localized: "Le doigt sur l'image"),
-                          note: prefs.directTouch
-                              ? String(localized: "Toucher direct : le pointeur va là où le doigt touche, comme sur une tablette.")
-                              : String(localized: "Pavé tactile : tout l'écran déplace le pointeur ; toucher clique, deux doigts font le clic droit et la molette."),
-                          options: [("pad", String(localized: "Pavé tactile")), ("direct", String(localized: "Toucher direct"))],
-                          current: prefs.directTouch ? "direct" : "pad") { v in
-            prefs.directTouch = v == "direct"
-        }
-        SettingsSpeedRow(value: $prefs.pointerSpeed)
-    }
-
-    @ViewBuilder private var inputRows: some View {
-        SettingsToggleRow(title: String(localized: "Vibrations"),
-                          note: String(localized: "Renvoyées par le jeu, sur chaque manette."),
-                          on: prefs.rumble) { prefs.rumble.toggle() }
-        SettingsToggleRow(title: String(localized: "Barre avec L1 + R1 + Start + Select"),
-                          note: String(localized: "Ouvre la barre de session depuis la manette, sans toucher l'écran."),
-                          on: prefs.menuCombo) { prefs.menuCombo.toggle() }
-        SettingsToggleRow(title: String(localized: "Clavier Apple ISO"),
-                          note: String(localized: "Clavier Apple européen (touche @# ou §± sous Échap) : la touche sous Échap et celle près de Maj retrouvent leur place sur l'ordinateur."),
-                          on: prefs.appleISOKeyboard) { prefs.appleISOKeyboard.toggle() }
-    }
-
-    @ViewBuilder private var soundRows: some View {
-        SettingsToggleRow(title: String(localized: "Audio spatial dans les AirPods"),
-                          note: String(localized: "Le 5.1 ou le 7.1 du jeu, autour de vous ; sans suivi de la tête."),
-                          on: prefs.spatialAudio) { prefs.spatialAudio.toggle() }
-        SettingsToggleRow(title: String(localized: "Prévenir d'un son en retard"),
-                          note: String(localized: "AirPods, enceintes Bluetooth, AirPlay : une alerte au-delà de 40 ms ajoutées."),
-                          on: prefs.latencyAlert) { prefs.latencyAlert.toggle() }
-        SettingsValueRow(title: String(localized: "Retard mesuré de la sortie"),
-                         note: String(localized: "Mis à jour à chaque changement de sortie."),
-                         value: "\(route.latencyMs) ms",
-                         warn: route.isLate)
+    /// Ce que l'appareil sait faire : les profils s'y adaptent.
+    @ViewBuilder private var deviceRows: some View {
+        let n = DeviceDisplay.native()
+        let caps = DecoderCapabilities.current
+        SettingsFactRow(title: String(localized: "Écran"),
+                        value: "\(LinkFormat.dims(n.width, n.height)) · \(n.refresh) Hz",
+                        note: String(localized: "« Comme cet écran » demande cette définition à l'ordinateur."))
+        SettingsFactRow(title: String(localized: "Décodage matériel"),
+                        value: caps.summary,
+                        note: caps.hevc444 ? String(localized: "Texte net (4:4:4) testé au lancement : oui.") : String(localized: "Texte net (4:4:4) testé au lancement : non."))
+        SettingsFactRow(title: String(localized: "Sortie du son"),
+                        value: "\(route.name) · \(route.channelsLabel) · \(route.latencyMs) ms",
+                        note: String(localized: "Retard mesuré, mis à jour à chaque changement de sortie."),
+                        warn: route.isLate)
+        SettingsFactRow(title: String(localized: "Réseau"), value: link.label, note: String(localized: "Le lien de cet appareil en ce moment."))
     }
 
     private var networkRows: some View {
@@ -329,63 +308,29 @@ private struct SettingsValueRow: View {
     }
 }
 
-/// Vitesse du pointeur (pavé tactile, manette en souris) : moins, plus.
-private struct SettingsSpeedRow: View {
-    @Binding var value: Double
-    private static let range = 0.6 ... 3.0
+/// Ce que l'appareil sait faire : le titre, la valeur en dessous (elle peut
+/// être longue), et une note.
+private struct SettingsFactRow: View {
+    let title: String
+    let value: String
+    let note: String
+    var warn = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Vitesse du pointeur").font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
-                Spacer()
-                Text(verbatim: "× " + HomeView.ms(value)).font(Theme.mono(15)).foregroundStyle(Theme.accentLight)
-            }
-            GeometryReader { geo in
-                let f = (value - Self.range.lowerBound) / (Self.range.upperBound - Self.range.lowerBound)
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.14))
-                    Capsule().fill(Theme.accent).frame(width: max(8, geo.size.width * f))
-                }
-            }
-            .frame(height: 8)
-            .accessibilityHidden(true)
-            HStack(spacing: 10) {
-                Text("Au pavé tactile et à la manette en souris.")
-                    .font(Theme.sans(12)).foregroundStyle(Theme.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                step("−", -0.2, label: String(localized: "Pointeur plus lent"))
-                step("+", 0.2, label: String(localized: "Pointeur plus rapide"))
-            }
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+            Text(verbatim: value)
+                .font(Theme.mono(13))
+                .foregroundStyle(warn ? Theme.warnText : Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(note)
+                .font(Theme.sans(12))
+                .foregroundStyle(Theme.muted)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(SettingsRowBackground())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text("Vitesse du pointeur"))
-        .accessibilityValue(Text(verbatim: "× " + HomeView.ms(value)))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: change(0.2)
-            case .decrement: change(-0.2)
-            @unknown default: break
-            }
-        }
-    }
-
-    private func step(_ glyph: String, _ delta: Double, label: String) -> some View {
-        Button { change(delta) } label: {
-            Text(verbatim: glyph)
-                .font(Theme.sans(20))
-                .foregroundStyle(Theme.text)
-                .frame(width: 44, height: 44)
-                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(0.08)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(Text(label))
-    }
-
-    private func change(_ delta: Double) {
-        let next = ((value + delta) * 10).rounded() / 10
-        withAnimation(Theme.easeOut) { value = min(max(next, Self.range.lowerBound), Self.range.upperBound) }
+        .accessibilityElement(children: .combine)
     }
 }

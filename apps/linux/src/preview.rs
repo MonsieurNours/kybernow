@@ -3,17 +3,18 @@
 //!
 //!     cargo run -p kybernow-linux --no-default-features -- --preview <dossier> [fr|en]
 //!
-//! Une image PNG par écran et par interface : bureau (1280 × 800), Steam
-//! Deck (1280 × 800) et salon (1920 × 1080), en pixels doubles pour le bureau
-//! (écran HiDPI). Les écrans de session sont posés sur une fausse image d'ordinateur.
+//! Une image PNG par écran et par interface : bureau (1280 × 800, en pixels
+//! doubles : écran HiDPI ; et la fenêtre la plus étroite, 960 × 600), Steam
+//! Deck (1280 × 800) et salon (1920 × 1080). Les écrans de session sont posés
+//! sur une fausse image d'ordinateur.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
 
-use crate::app::{AddStep, App, BarMenu, Found, HostLive, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, SessionUi, Setting, Stats, Target};
-use crate::model::{Host, HostSettings, LastSession, Profile, Store};
+use crate::app::{AddStep, App, BarMenu, Confirm, Found, HostLive, Layout, MenuItem, NetKind, Online, PadInfo, Phase, Screen, Section, SessionUi, Setting, StationKind, StationLive, StationOp, StationStep, Stats, Target};
+use crate::model::{Host, HostSettings, LastSession, Profile, Store, WakeCard};
 use crate::ui::{self, canvas::Canvas};
 
 fn demo_image(seed: u32) -> Pixmap {
@@ -37,6 +38,18 @@ fn demo_image(seed: u32) -> Pixmap {
     p
 }
 
+/// Une Station 0.5.0 ; `update` : une version publiée, installable depuis un appareil.
+fn station(version: &str, update: Option<&str>) -> StationLive {
+    StationLive {
+        version: version.into(),
+        supported: true,
+        available: update.is_some(),
+        update_version: update.map(str::to_string),
+        installable: update.is_some(),
+        ..Default::default()
+    }
+}
+
 fn host(id: &str, name: &str, addr: &str) -> Host {
     Host {
         id: id.into(),
@@ -49,7 +62,8 @@ fn host(id: &str, name: &str, addr: &str) -> Host {
         os: Some("Windows 11 Pro 24H2".into()),
         gpu: Some("GeForce RTX 4070".into()),
         av1: true,
-        mac: Some("00:11:22:33:44:55".into()),
+        mac: None,
+        wake: vec![WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ipv4: Some(addr.into()), kind: "ethernet".into(), armed: Some(true), ..Default::default() }],
         settings: HostSettings::default(),
         last: None,
     }
@@ -60,7 +74,7 @@ fn demo(english: bool, layout: Layout) -> App {
     let mut store = Store::default();
     let mut a = host("a", "Tour du salon", "192.168.1.42");
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200 · HEVC".into(), mbps: 38.0, at: now - 86400 });
+    a.last = Some(LastSession { median: 6.8, p95: 9.4, seconds: 4320, mode: "1920 × 1200".into(), hz: 120, codec: "HEVC".into(), mbps: 38.0, at: now - 86400 });
     store.hosts.push(a);
     let mut b = host("b", "Portable pro", "100.84.12.9");
     b.os = Some("Windows 11 Pro".into());
@@ -110,9 +124,9 @@ fn demo(english: bool, layout: Layout) -> App {
     app.net.kind = if layout == Layout::Tv { NetKind::Ethernet } else { NetKind::Wifi };
     app.net.link_mbps = Some(2500);
     app.net.band = Some("5 GHz".into());
-    app.live.insert("a".into(), HostLive { online: Online::Online });
-    app.live.insert("b".into(), HostLive { online: Online::Offline });
-    app.live.insert("c".into(), HostLive { online: Online::Online });
+    app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true) });
+    app.live.insert("b".into(), HostLive { online: Online::Offline, ..Default::default() });
+    app.live.insert("c".into(), HostLive { online: Online::Online, virtual_display: Some(true), station: Some(station("0.5.0", None)), own_device: Some(true) });
     app.images.insert("a".into(), demo_image(1));
     app.image_is_last.insert("a".into(), true);
     app.found.push(Found { name: "MINI-PC".into(), address: "192.168.1.57".into(), port: 31207, fingerprint: Some("sha256:7c:3a:91:e0:4b:2d:a8:1f".into()) });
@@ -152,8 +166,7 @@ fn session(app: &App) -> SessionUi {
         notice: None,
         started: Instant::now() - Duration::from_millis(2100),
         ending_since: None,
-        opened_at: None,
-        summary: format!("{} · {w} × {h} · {fps} Hz · HEVC · 30 Mbit/s", ui::profile_label(Profile::Jeu)),
+        opened_at: Some(Instant::now() - Duration::from_secs(30)),
     }
 }
 
@@ -186,11 +199,12 @@ pub fn run(dir: &Path, lang: &str) {
     let _ = std::fs::create_dir_all(dir);
     let en = lang == "en";
     let video = demo_image(3);
-    for (layout, prefix, (pw, ph, k)) in [(Layout::Desktop, "bureau", (2560u32, 1600u32, 2.0f32)), (Layout::Handheld, "deck", (1280, 800, 1.0)), (Layout::Tv, "salon", (1920, 1080, 1.0))] {
+    for (layout, prefix, (pw, ph, k)) in [(Layout::Desktop, "bureau", (2560u32, 1600u32, 2.0f32)), (Layout::Desktop, "bureau-etroit", (960, 600, 1.0)), (Layout::Handheld, "deck", (1280, 800, 1.0)), (Layout::Tv, "salon", (1920, 1080, 1.0))] {
         let mut app = demo(en, layout);
         let mut cv = Canvas::new();
         cv.resize(pw, ph, k);
         let p = |n: &str| format!("{prefix}-{n}");
+        let narrow = prefix == "bureau-etroit";
 
         if layout.console() {
             app.launched = Instant::now() - Duration::from_millis(1000);
@@ -205,8 +219,31 @@ pub fn run(dir: &Path, lang: &str) {
         }
         shot(&mut app, &mut cv, None, dir, &p("01-accueil"));
         app.pointer = None;
+        // Hors ligne : réveiller l'ordinateur (une carte apprise d'Admin), le réveil en cours,
+        // puis sans carte ni MAC : Réessayer.
+        app.store.selected = Some("b".into());
+        app.go(Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("01b-accueil-hors-ligne"));
+        app.waking = Some(("b".into(), Instant::now()));
+        shot(&mut app, &mut cv, None, dir, &p("01d-accueil-reveil-en-cours"));
+        app.waking = None;
+        let wake_b = app.store.host_mut("b").map(|h| std::mem::take(&mut h.wake)).unwrap_or_default();
+        app.go(Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("01e-accueil-reessayer"));
+        if let Some(h) = app.store.host_mut("b") {
+            h.wake = wake_b;
+        }
+        // Les réglages s'écartent du profil : Personnalisé.
+        app.store.selected = Some("c".into());
+        if let Some(h) = app.store.host_mut("c") {
+            h.settings.mbps = 80;
+        }
+        app.go(Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("01c-accueil-personnalise"));
+        app.store.selected = Some("a".into());
+        app.go(Screen::Home);
         app.images.clear();
-        app.update = crate::app::UpdateState::Available { version: "0.4.7".into(), channel: "stable".into(), page: String::new(), file: String::new(), url: String::new(), sha256: String::new(), size: 0 };
+        app.update = crate::app::UpdateState::Available { version: "0.5.1".into(), channel: "stable".into(), page: String::new(), file: String::new(), url: String::new(), sha256: String::new(), size: 0 };
         shot(&mut app, &mut cv, None, dir, &p("02-accueil-signature"));
         app.update = crate::app::UpdateState::Unknown;
         app.images.insert("a".into(), demo_image(1));
@@ -218,63 +255,143 @@ pub fn run(dir: &Path, lang: &str) {
         empty.go(Screen::Home);
         shot(&mut empty, &mut cv, None, dir, &p("03-accueil-vide"));
 
-        app.add.code = "482917".into();
-        app.add.step = AddStep::Code;
-        app.add.asked = vec![("MINI-PC".into(), "192.168.1.57".into())];
-        app.add.message = None;
-        app.go(Screen::Add);
-        shot(&mut app, &mut cv, None, dir, &p("04-ajout-code"));
-        app.add.step = AddStep::Address;
-        app.add.address = "192.168.1.20:248".into();
-        app.go(Screen::Add);
-        app.focus = Target::Key('1');
-        shot(&mut app, &mut cv, None, dir, &p("05-ajout-adresse"));
-        app.add.step = AddStep::Verify { address: "192.168.1.20".into(), port: 24811, fingerprint: "sha256:7c:3a:91:e0:4b:2d:a8:1f".into() };
-        app.go(Screen::Add);
-        shot(&mut app, &mut cv, None, dir, &p("06-ajout-empreinte"));
-        app.add.step = AddStep::Mac;
-        app.add.mac = "3C:7C:3F:12:A".into();
-        app.go(Screen::Add);
-        app.focus = Target::Key('B');
-        shot(&mut app, &mut cv, None, dir, &p("06b-reveil-mac"));
+        if !narrow {
+            app.add.code = "482917".into();
+            app.add.step = AddStep::Code;
+            app.add.asked = vec![("MINI-PC".into(), "192.168.1.57".into())];
+            app.add.message = None;
+            app.go(Screen::Add);
+            shot(&mut app, &mut cv, None, dir, &p("04-ajout-code"));
+            app.add.step = AddStep::Address;
+            app.add.address = "192.168.1.20:248".into();
+            app.go(Screen::Add);
+            app.focus = Target::Key('1');
+            shot(&mut app, &mut cv, None, dir, &p("05-ajout-adresse"));
+            app.add.step = AddStep::Verify { address: "192.168.1.20".into(), port: 24811, fingerprint: "sha256:7c:3a:91:e0:4b:2d:a8:1f".into() };
+            app.go(Screen::Add);
+            shot(&mut app, &mut cv, None, dir, &p("06-ajout-empreinte"));
+            app.add.step = AddStep::Mac;
+            app.add.mac = "3C:7C:3F:12:A".into();
+            app.go(Screen::Add);
+            app.focus = Target::Key('B');
+            shot(&mut app, &mut cv, None, dir, &p("06b-reveil-mac"));
+        }
 
-        app.open_settings(false, Screen::Home);
-        if layout.console() {
-            app.section = 1;
-            app.focus = Target::Setting(Setting::Display);
+        // Les réglages de l'ordinateur, rubrique par rubrique.
+        let sections: &[(Section, &str)] = &[
+            (Section::Profile, "07a-reglages-profil"),
+            (Section::Picture, "07b-reglages-image"),
+            (Section::Sound, "07c-reglages-son"),
+            (Section::Controls, "07d-reglages-commandes"),
+            (Section::Network, "07e-reglages-reseau"),
+            (Section::Statistics, "07f-reglages-statistiques"),
+            (Section::Station, "07h-reglages-station"),
+        ];
+        for (section, name) in sections {
+            // Le profil est une rangée de boutons de la colonne du bureau.
+            if *section == Section::Profile && layout == Layout::Desktop {
+                continue;
+            }
+            app.open_host_section(*section, Screen::Home);
+            if layout.console() && *section == Section::Picture {
+                app.focus = Target::Setting(Setting::Display);
+            }
+            shot(&mut app, &mut cv, None, dir, &p(name));
         }
-        shot(&mut app, &mut cv, None, dir, &p("07-reglages-ordinateur"));
-        if layout.console() {
-            app.section = 2;
-            app.focus = Target::Section(2);
-            shot(&mut app, &mut cv, None, dir, &p("07b-reglages-son"));
+        // Réseau : pas encore de carte apprise.
+        let wake_a = app.store.host_mut("a").map(|h| std::mem::take(&mut h.wake)).unwrap_or_default();
+        app.open_host_section(Section::Network, Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("07e2-reglages-reseau-sans-adresse"));
+        if let Some(h) = app.store.host_mut("a") {
+            h.wake = wake_a;
         }
+        // Statistiques sans session.
+        let last = app.store.host_mut("a").and_then(|h| h.last.take());
+        app.open_host_section(Section::Statistics, Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("07g-reglages-statistiques-vide"));
+        if let Some(h) = app.store.host_mut("a") {
+            h.last = last;
+        }
+        // La Station : une version disponible ; la mise à jour en cours ; faite ;
+        // une version qui demande l'installateur ; une Station ancienne.
+        let set_station = |app: &mut App, s: StationLive| {
+            if let Some(l) = app.live.get_mut("a") {
+                l.station = Some(s);
+            }
+        };
+        set_station(&mut app, station("0.5.0", Some("0.5.1")));
+        app.open_host_section(Section::Station, Screen::Home);
+        app.focus = Target::Setting(Setting::StationUpdate);
+        shot(&mut app, &mut cv, None, dir, &p("07i-reglages-station-version"));
+        app.station_op = Some(StationOp { host: "a".into(), kind: StationKind::Update, step: StationStep::Waiting { since: Instant::now(), target: Some("0.5.1".into()), saw_down: true } });
+        app.focus = Target::Section(6);
+        shot(&mut app, &mut cv, None, dir, &p("07j-reglages-station-en-cours"));
+        app.station_op = Some(StationOp { host: "a".into(), kind: StationKind::Update, step: StationStep::Done(if en { "KyberNow Station 0.5.1 is installed.".into() } else { "KyberNow Station 0.5.1 est en place.".into() }) });
+        set_station(&mut app, station("0.5.1", None));
+        shot(&mut app, &mut cv, None, dir, &p("07k-reglages-station-faite"));
+        app.station_op = None;
+        let mut setup = station("0.5.0", Some("0.6.0"));
+        setup.installable = false;
+        setup.requires_setup = true;
+        set_station(&mut app, setup);
+        app.open_host_section(Section::Station, Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("07l-reglages-station-installateur"));
+        set_station(&mut app, StationLive { version: "0.4.9".into(), ..Default::default() });
+        app.open_host_section(Section::Station, Screen::Home);
+        shot(&mut app, &mut cv, None, dir, &p("07m-reglages-station-ancienne"));
+        set_station(&mut app, station("0.5.0", Some("0.5.1")));
+        app.open_host_section(Section::Station, Screen::Home);
+        app.confirm = Some(Confirm::Force { host: "a".into(), kind: StationKind::Restart, device: "iPad de Léa".into() });
+        app.focus = Target::ConfirmNo;
+        shot(&mut app, &mut cv, None, dir, &p("07n-reglages-station-confirmation"));
+        app.confirm = Some(Confirm::Remove { host: "a".into(), name: "Tour du salon".into() });
+        shot(&mut app, &mut cv, None, dir, &p("07o-reglages-retirer"));
+        app.confirm = None;
+        set_station(&mut app, station("0.5.0", None));
+
         app.open_settings(true, Screen::Home);
         shot(&mut app, &mut cv, None, dir, &p("08-reglages-app"));
+        if narrow {
+            continue;
+        }
 
         app.pad_selected = 0;
         app.go(Screen::Gamepads);
         shot(&mut app, &mut cv, None, dir, &p("09-manettes"));
 
+        // La connexion : ses étapes, puis l'image seule.
         let mut s = session(&app);
-        s.phase = Phase::FirstImages;
+        s.phase = Phase::Connecting;
+        s.opened_at = None;
         s.menu = false;
         app.session = Some(s);
         app.screen = Screen::Session;
         app.focus = Target::CancelConnect;
-        shot(&mut app, &mut cv, None, dir, &p("10-passage"));
+        shot(&mut app, &mut cv, None, dir, &p("10-connexion"));
+        // Le dernier recours : la Station redémarre, puis les étapes reprennent.
+        if let Some(s) = app.session.as_mut() {
+            s.phase = Phase::StationRestarting;
+        }
+        shot(&mut app, &mut cv, None, dir, &p("10a-connexion-station-redemarre"));
+        let mut s = session(&app);
+        s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
+        s.opened_at = None;
+        app.session = Some(s);
+        app.focus = Target::Back;
+        shot(&mut app, &mut cv, None, dir, &p("10b-connexion-echec"));
         let mut s = session(&app);
         s.menu = false;
-        s.opened_at = Some(Instant::now() - Duration::from_millis(120));
+        s.opened_at = Some(Instant::now() - Duration::from_millis(100));
         app.session = Some(s);
-        shot(&mut app, &mut cv, Some(&video), dir, &p("10b-ouverture"));
+        let overlay = ui::session_overlay_visible(&app);
+        assert!(!overlay, "l'image seule dès la première image");
+        shot(&mut app, &mut cv, Some(&video), dir, &p("10c-image-seule"));
 
         let mut s = session(&app);
         if layout == Layout::Desktop {
             s.menu = false;
             s.bar = true;
             s.bar_menu = Some(BarMenu::Profile);
-            s.notice = Some(("Souris des jeux · Échap longtemps ou Ctrl+Alt+Maj+M pour rendre la souris".into(), Instant::now()));
             app.pointer = Some((700.0, 20.0));
         }
         app.session = Some(s);
@@ -292,13 +409,14 @@ pub fn run(dir: &Path, lang: &str) {
         s.menu = false;
         s.show_stats = true;
         app.session = Some(s);
-        shot(&mut app, &mut cv, Some(&video), dir, &p("13-session-mesures"));
+        shot(&mut app, &mut cv, Some(&video), dir, &p("13-session-statistiques"));
 
         let mut s = session(&app);
         s.phase = Phase::Ended { error: Some(if en { "Admin did not answer: is the computer still on the network?" } else { "Admin ne répond plus : l'ordinateur est-il toujours sur le réseau ?" }.into()) };
         app.session = Some(s);
         app.focus = Target::Back;
         shot(&mut app, &mut cv, None, dir, &p("14-session-fin"));
+        app.session = None;
     }
 
     // Raspberry Pi 5 sous Raspberry Pi OS (interface Bureau, écran 1080p) : les
@@ -309,14 +427,14 @@ pub fn run(dir: &Path, lang: &str) {
     cv.resize(1280, 800, 1.0);
     app.go(Screen::Home);
     shot(&mut app, &mut cv, None, dir, "rpi-01-accueil");
-    app.open_settings(false, Screen::Home);
-    shot(&mut app, &mut cv, None, dir, "rpi-07-reglages-image");
-    app.section = 2;
-    shot(&mut app, &mut cv, None, dir, "rpi-07b-reglages-son");
-    app.section = 3;
-    shot(&mut app, &mut cv, None, dir, "rpi-07c-reglages-manettes");
-    app.section = 6;
-    shot(&mut app, &mut cv, None, dir, "rpi-07d-reglages-compte");
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07b-reglages-image");
+    app.open_host_section(Section::Sound, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07c-reglages-son");
+    app.open_host_section(Section::Statistics, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07f-reglages-statistiques");
+    app.open_host_section(Section::Station, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "rpi-07h-reglages-station");
     app.open_settings(true, Screen::Home);
     shot(&mut app, &mut cv, None, dir, "rpi-08-reglages-app");
 
@@ -362,7 +480,7 @@ fn os_shots(en: bool, dir: &Path) {
     app.machine.audio_name = "vc4hdmi0".into();
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Jeu;
-        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "4K HEVC 60 Hz".into(), mbps: 60.0, at: 0 });
+        h.last = Some(LastSession { median: 9.8, p95: 14.0, seconds: 6000, mode: "3840 × 2160".into(), hz: 60, codec: "HEVC".into(), mbps: 60.0, at: 0 });
     }
     let mut cv = Canvas::new();
     cv.resize(1920, 1080, 1.0);
@@ -412,6 +530,11 @@ fn os_shots(en: bool, dir: &Path) {
     let (update, ready) = (std::mem::replace(&mut app.update, UpdateState::UpToDate), app.os_update.ready.take());
     shot(&mut app, &mut cv, None, dir, "os-10b-accueil-a-jour");
     (app.update, app.os_update.ready) = (update, ready);
+    // Les réglages de l'ordinateur : Admin par un QR code (pas de navigateur sur l'OS).
+    app.open_host_section(Section::Station, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "os-07h-reglages-station");
+    app.open_host_section(Section::Statistics, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "os-07f-reglages-statistiques");
     // Les réglages de l'appareil : la mise à jour, puis l'écran.
     app.open_device_settings(Screen::Home);
     app.device_section = OS_SECTIONS.iter().position(|s| *s == crate::app::Section::OsUpdate).unwrap_or(5);
@@ -423,6 +546,10 @@ fn os_shots(en: bool, dir: &Path) {
     app.device_section = 2;
     app.focus = Target::DeviceSection(2);
     shot(&mut app, &mut cv, None, dir, "os-11c-reglages-manettes");
+    // KyberNow Link OS au bureau : Admin par le QR code aussi.
+    app.layout = Layout::Desktop;
+    app.open_host_section(Section::Station, Screen::Home);
+    shot(&mut app, &mut cv, None, dir, "os-bureau-07h-reglages-station");
 }
 
 /// La machine de démonstration devient un Raspberry Pi 5 (8 Go, Raspberry Pi
@@ -456,7 +583,7 @@ fn raspberry(app: &mut App) {
     app.net.band = None;
     if let Some(h) = app.store.host_mut("a") {
         h.settings.profile = Profile::Bureau;
-        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1080p HEVC".into(), mbps: 28.0, at: 0 });
+        h.last = Some(LastSession { median: 11.2, p95: 15.0, seconds: 6000, mode: "1920 × 1080".into(), hz: 60, codec: "HEVC".into(), mbps: 28.0, at: 0 });
     }
 }
 
@@ -489,20 +616,57 @@ mod tests {
         assert_eq!(app.selected().unwrap().id, "b");
     }
 
-    /// Ouverture : les moitiés de l'accueil sont encore là juste après la première image.
+    /// Au Deck et au salon, « Réglages » se voit sur l'accueil : le toucher et la souris l'ouvrent.
     #[test]
-    fn opening_draws_halves() {
+    fn console_settings_target() {
+        for layout in [Layout::Handheld, Layout::Tv] {
+            let mut app = demo(false, layout);
+            let mut cv = Canvas::new();
+            cv.resize(if layout == Layout::Tv { 1920 } else { 1280 }, if layout == Layout::Tv { 1080 } else { 800 }, 1.0);
+            app.go(Screen::Home);
+            app.hits = ui::draw(&app, &mut cv);
+            let (_, r) = *app.hits.iter().find(|(t, _)| *t == Target::HostSettings).expect("Réglages sur l'accueil");
+            app.pointer_click(r.x + 4.0, r.y + 4.0);
+            assert_eq!((app.screen, app.settings_global), (Screen::Settings, false));
+        }
+    }
+
+    /// Dès la première image, rien par-dessus : ni passage, ni capsule.
+    #[test]
+    fn picture_alone() {
         let mut app = demo(false, Layout::Handheld);
         let mut cv = Canvas::new();
         cv.resize(1280, 800, 1.0);
         let mut s = session(&app);
         s.menu = false;
-        s.opened_at = Some(Instant::now() - Duration::from_millis(100));
+        s.opened_at = Some(Instant::now() - Duration::from_millis(50));
         app.session = Some(s);
         app.screen = Screen::Session;
+        assert!(!ui::session_overlay_visible(&app));
         ui::draw(&app, &mut cv);
-        let a = cv.pix.pixel(200, 400).unwrap().alpha();
-        assert!(a > 100, "alpha {a}");
+        assert_eq!(cv.pix.pixel(200, 400).unwrap().alpha(), 0);
+    }
+
+    /// Les sept rubriques des réglages de l'ordinateur se dessinent aux trois
+    /// interfaces, avec et sans dernière session, Station ancienne comprise.
+    #[test]
+    fn host_sections_draw() {
+        for (layout, w, h) in [(Layout::Desktop, 960, 600), (Layout::Handheld, 1280, 800), (Layout::Tv, 1920, 1080)] {
+            let mut app = demo(true, layout);
+            let mut cv = Canvas::new();
+            cv.resize(w, h, 1.0);
+            for s in crate::app::HOST_SECTIONS {
+                app.open_host_section(s, Screen::Home);
+                app.hits = ui::draw(&app, &mut cv);
+            }
+            app.live.get_mut("a").unwrap().station = Some(StationLive { version: "0.4.9".into(), ..Default::default() });
+            app.store.host_mut("a").unwrap().last = None;
+            app.open_host_section(Section::Station, Screen::Home);
+            app.hits = ui::draw(&app, &mut cv);
+            assert!(!app.hits.iter().any(|(t, _)| *t == Target::Setting(Setting::StationRestart)), "Station ancienne : pas de redémarrage");
+            app.open_host_section(Section::Statistics, Screen::Home);
+            ui::draw(&app, &mut cv);
+        }
     }
 
     /// Le bureau : survol puis clic sur un segment de profil.

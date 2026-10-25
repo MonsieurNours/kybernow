@@ -26,6 +26,9 @@ struct CloudHost: Codable, Equatable {
     var username: String
     var streamPort: UInt16?
     var consoleFingerprint: String?
+    /// Cartes réseau pour le réveil par le réseau, apprises par le Mac
+    /// (absentes d'une liste publiée par une version précédente).
+    var wake: [WakeTarget]?
     /// Appareil qui l'a publié (« Mac de Léa »).
     var from: String?
 
@@ -37,6 +40,7 @@ struct CloudHost: Codable, Equatable {
         username = h.username
         streamPort = h.streamPort
         consoleFingerprint = h.consoleFingerprint
+        wake = h.wake
         self.from = from
     }
 }

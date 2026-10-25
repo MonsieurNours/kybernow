@@ -9,20 +9,33 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kybernow_core::console::{Console, DeviceInfo, PairStatus};
+use kybernow_core::console::{Console, DeviceInfo, Info, PairStatus, StationError};
+use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::Found;
-use crate::model::{new_id, Host, HostSettings};
+use crate::app::{Found, StationKind, StationLive, StationRefusal};
+use crate::model::{new_id, Host, HostSettings, WakeCard};
 
-/// Sonde un ordinateur : en ligne ou non, son système, et son aperçu s'il en manque un.
+/// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
+/// aperçu s'il en manque un.
 pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
     std::thread::spawn(move || {
         let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
         match c.info() {
             Ok(info) => {
                 let os = (!info.os.is_empty()).then(|| info.os.clone());
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: true, os, gpu: info.gpu.clone(), av1: info.av1 });
+                let station = station_live(&info);
+                let _ = tx.send(Event::HostInfo {
+                    id: host.id.clone(),
+                    online: true,
+                    os,
+                    gpu: info.gpu.clone(),
+                    av1: info.av1,
+                    virtual_display: Some(info.virtual_display.available),
+                    station: Some(station),
+                    wake: wake_cards(&info),
+                    own_device: info.station.is_some().then_some(info.account.own_device),
+                });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
                     && !bytes.is_empty()
@@ -32,10 +45,55 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
             }
             Err(e) => {
                 log::info!("{} : hors ligne ({e})", host.name);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false, virtual_display: None, station: None, wake: Vec::new(), own_device: None });
             }
         }
     });
+}
+
+/// La Station vue par l'interface : celle d'`Info::station` ; une Station
+/// d'avant la 0.5.0 n'en dit rien (sa version est celle d'Admin).
+fn station_live(info: &Info) -> StationLive {
+    match &info.station {
+        Some(s) => StationLive {
+            version: s.version.clone(),
+            supported: true,
+            available: s.update.available,
+            update_version: s.update.version.clone(),
+            installable: s.update.installable,
+            requires_setup: s.update.requires_setup,
+            installing: s.update.installing,
+            restarting: s.restarting,
+        },
+        None => StationLive { version: info.admin_version.clone().unwrap_or_default(), ..Default::default() },
+    }
+}
+
+/// Redémarre ou met à jour la Station (`POST /api/stream/station/restart`,
+/// `/update`) ; la réponse revient en `Event::StationReply`. Une mise à jour
+/// attend qu'Admin ait téléchargé et vérifié la version (quelques minutes au plus).
+pub fn station(host: Host, kind: StationKind, force: bool, device_id: String, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("station".into())
+        .spawn(move || {
+            let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+            let r = match kind {
+                StationKind::Restart => c.station_restart(Some(&device_id), force).map(|_| None),
+                StationKind::Update => c.station_update(Some(&device_id), force).map(Some),
+            };
+            let result = r.map_err(|e| {
+                log::warn!("station : {} refusé ({e})", if kind == StationKind::Update { "mise à jour" } else { "redémarrage" });
+                match e {
+                    StationError::InSession { device, .. } => StationRefusal::InSession(device),
+                    StationError::TooSoon { .. } => StationRefusal::TooSoon,
+                    StationError::RequiresSetup { .. } => StationRefusal::RequiresSetup,
+                    StationError::Unsupported => StationRefusal::Unsupported,
+                    other => StationRefusal::Other(other.to_string()),
+                }
+            });
+            let _ = tx.send(Event::StationReply { host: host.id.clone(), kind, result });
+        })
+        .ok();
 }
 
 /// Découverte des Stations sur le réseau (annonce Bonjour d'Admin).
@@ -138,6 +196,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             gpu: None,
                             av1: false,
                             mac: None,
+                            wake: Vec::new(),
                             settings: HostSettings::default(),
                             last: None,
                         };
@@ -149,6 +208,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             host.os = (!info.os.is_empty()).then(|| info.os.clone());
                             host.gpu = info.gpu.clone();
                             host.av1 = info.av1;
+                            host.wake = wake_cards(&info);
                         }
                         let _ = tx.send(Event::PairAccepted(host));
                         return;
@@ -171,19 +231,36 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
     });
 }
 
-/// Réveille un ordinateur (Wake-on-LAN, paquet magique en diffusion).
-pub fn wake(mac: &str) -> bool {
-    let bytes: Vec<u8> = mac.split([':', '-']).filter_map(|p| u8::from_str_radix(p, 16).ok()).collect();
-    if bytes.len() != 6 {
-        return false;
-    }
-    let mut packet = vec![0xFFu8; 6];
-    for _ in 0..16 {
-        packet.extend_from_slice(&bytes);
-    }
-    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else { return false };
-    let _ = sock.set_broadcast(true);
-    sock.send_to(&packet, "255.255.255.255:9").is_ok()
+/// Réveille un ordinateur par le réseau (le cœur, `kybernow_core::wake`) :
+/// le paquet magique part vers chaque carte apprise d'Admin et vers la MAC
+/// saisie à la main (avec l'adresse de l'ordinateur pour l'envoi direct).
+/// La réponse revient en `Event::Woken` : le nombre de paquets partis, ou pourquoi rien n'est parti.
+pub fn wake(host: Host, tx: Sender<Event>) {
+    std::thread::Builder::new()
+        .name("wake".into())
+        .spawn(move || {
+            let mut targets: Vec<WakeTarget> = host.wake.iter().map(core_target).collect();
+            if let Some(t) = host.mac.as_deref().and_then(|m| WakeTarget::from_mac(m, Some(&host.address))) {
+                targets.push(t);
+            }
+            let r = kybernow_core::wake::send(&targets).map_err(|e| e.to_string());
+            match &r {
+                Ok(n) => log::info!("réveil de {} : {n} paquet(s) envoyé(s)", host.name),
+                Err(e) => log::warn!("réveil de {} : {e}", host.name),
+            }
+            let _ = tx.send(Event::Woken { id: host.id.clone(), result: r.map(|_| ()) });
+        })
+        .ok();
+}
+
+/// Une carte gardée (`WakeCard`, le JSON du cœur) vers celle du cœur.
+fn core_target(c: &WakeCard) -> WakeTarget {
+    WakeTarget { mac: c.mac.clone(), ipv4: c.ipv4.clone(), broadcast: c.broadcast.clone(), kind: c.kind.clone(), armed: c.armed, name: c.name.clone() }
+}
+
+/// Les cartes d'`info`, à garder pour l'ordinateur.
+fn wake_cards(info: &Info) -> Vec<WakeCard> {
+    info.wake.iter().map(|t| WakeCard { mac: t.mac.clone(), ipv4: t.ipv4.clone(), broadcast: t.broadcast.clone(), kind: t.kind.clone(), armed: t.armed, name: t.name.clone() }).collect()
 }
 
 /// Le paquet Flatpak de cette architecture dans chaque version publiée.

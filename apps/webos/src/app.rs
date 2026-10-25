@@ -13,8 +13,8 @@ use std::time::Instant;
 
 use tiny_skia::Pixmap;
 
-use crate::i18n::tr;
-use crate::model::{Host, Profile, Store};
+use crate::i18n::{english, tr};
+use crate::model::{Host, Profile, Store, WakeTarget};
 
 /// Un rectangle à l'écran (1920 × 1080).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -63,14 +63,123 @@ pub enum Online {
     Offline,
 }
 
+/// Ce qu'on sait d'un ordinateur depuis le dernier sondage.
 #[derive(Clone, Debug, Default)]
 pub struct HostLive {
     pub online: Online,
-    /// Mode que l'écran virtuel a pris à la dernière session (`3840 × 2160 à
-    /// 120 Hz`, d'après l'ordinateur, qui peut l'adapter), et le mode demandé
-    /// alors (`App::session_mode`) : il ne vaut que pour la même demande.
-    pub ready: Option<((u32, u32, u32), String)>,
+    /// La Station sait créer un écran virtuel (`None` : pas encore sondée).
+    pub virtual_display: Option<bool>,
+    /// Gardée d'un sondage à l'autre, même hors ligne.
+    pub station: StationKnown,
+    pub problem: Option<Problem>,
+    /// Compte créé pour cet appareil par le code, d'après Admin (`None` :
+    /// Admin ne le dit pas ; sur ce téléviseur, tout compte vient du code).
+    pub own_device: Option<bool>,
 }
+
+/// La Station, pour la rubrique « Station » (`Info::station` du cœur).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct StationLive {
+    pub version: String,
+    /// Une version plus récente, signée par KyberNow, est publiée.
+    pub update_available: bool,
+    pub update_version: Option<String>,
+    /// … et elle s'installe depuis un appareil.
+    pub installable: bool,
+    /// … ou elle s'installe avec l'installateur, sur l'ordinateur.
+    pub requires_setup: bool,
+    pub installing: bool,
+    pub restarting: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum StationKnown {
+    /// Pas encore sondée.
+    #[default]
+    Unknown,
+    /// Station 0.4.9 ou plus ancienne (`info` sans `station`), avec la
+    /// version d'Admin si elle la donne : ni redémarrage ni mise à jour d'ici.
+    Old(Option<String>),
+    Info(StationLive),
+}
+
+/// Ce qu'Admin refuse au sondage, dit sous le nom de l'ordinateur.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Problem {
+    /// Compte refusé (401) : retiré dans Admin.
+    Refused,
+    /// Certificat changé : Station réinstallée.
+    Reinstalled,
+}
+
+/// Un sondage d'Admin (`GET /api/stream/info`).
+#[derive(Clone, Debug, Default)]
+pub struct Polled {
+    pub online: bool,
+    pub os: Option<String>,
+    pub gpu: Option<String>,
+    pub av1: bool,
+    pub virtual_display: Option<bool>,
+    pub station: StationKnown,
+    pub problem: Option<Problem>,
+    /// Les cartes réseau pour le réveil (vide avec une Station 0.4.9).
+    pub wake: Vec<WakeTarget>,
+    pub own_device: Option<bool>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StationOp {
+    Restart,
+    Update,
+}
+
+/// Refus d'un redémarrage ou d'une mise à jour (`StationError` du cœur).
+#[derive(Clone, Debug, PartialEq)]
+pub enum StationRefusal {
+    /// Un appareil est en session (son nom, si Admin le donne).
+    InSession(Option<String>),
+    TooSoon,
+    /// Station 0.4.9 ou plus ancienne.
+    Unsupported,
+    RequiresSetup,
+    /// Le message d'Admin ou du cœur : rien à installer, déjà en cours, injoignable…
+    Other(String),
+}
+
+/// Où en est un redémarrage ou une mise à jour de la Station.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StationPhase {
+    Idle,
+    /// Demande envoyée. Pour une mise à jour, Admin télécharge et vérifie le
+    /// paquet avant de répondre (quelques minutes au plus).
+    Asking(StationOp),
+    /// Acceptée : la Station s'arrête, puis revient (sondée toutes les 2 s) ;
+    /// `down` : vue arrêtée ; `target` : la version attendue.
+    Waiting { op: StationOp, since: Instant, down: bool, target: Option<String> },
+}
+
+/// La rubrique Station d'un ordinateur : l'opération en cours et le dernier message.
+#[derive(Clone, Debug)]
+pub struct StationUi {
+    pub host: String,
+    pub phase: StationPhase,
+    pub message: Option<String>,
+}
+
+/// Fenêtre de confirmation, par-dessus les réglages.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Dialog {
+    /// « Retirer {nom} de cet appareil ? »
+    Remove { host: String, name: String },
+    /// Un appareil est en session : redémarrer ou mettre à jour quand même.
+    Force { host: String, op: StationOp, device: String },
+}
+
+/// Attente au plus du retour de la Station : redémarrage, mise à jour.
+const RESTART_WAIT: u64 = 180;
+const UPDATE_WAIT: u64 = 300;
+/// Après un réveil, l'ordinateur est sondé toutes les 2 s, 2 min au plus.
+pub const WAKE_WAIT: u64 = 120;
 
 /// Une Station trouvée sur le réseau (mDNS `_kybernow._tcp`), pas encore ajoutée.
 #[derive(Clone, Debug, PartialEq)]
@@ -152,6 +261,9 @@ pub struct PadInfo {
 pub enum Phase {
     Preparing,
     Connecting,
+    /// Dernier recours de la connexion : le cœur redémarre la Station, puis
+    /// reprend la connexion du début.
+    StationRestarting,
     FirstImages,
     Streaming,
     Reconnecting { attempt: u32, max: u32 },
@@ -204,6 +316,9 @@ pub struct SessionUi {
     pub name: String,
     pub profile: Profile,
     pub phase: Phase,
+    /// L'image est arrivée au moins une fois : une fin d'erreur avant elle
+    /// est un échec de la connexion.
+    pub streamed: bool,
     pub menu: bool,
     pub keys: bool,
     pub stats: Option<Stats>,
@@ -242,18 +357,21 @@ pub struct AddState {
 /// Une ligne de réglage.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Setting {
-    Profile,
     Resolution,
     Fps,
     Codec,
     Bitrate,
     GameHint,
     Audio,
-    Xbox360,
+    /// Manette vue par l'ordinateur : Xbox 360 ou fidèle.
+    Gamepad,
     Combo,
     BackMenu,
+    Transport,
     Reconnect,
-    Reliable,
+    /// Redémarrer la Station, la mettre à jour.
+    Restart,
+    Update,
     Remove,
     Language,
     /// Mises à jour : stables, ou aussi les bêtas.
@@ -262,18 +380,28 @@ pub enum Setting {
     Pads,
 }
 
+impl Setting {
+    /// Une ligne qui agit (OK) au lieu de changer de valeur (gauche, droite).
+    pub fn is_action(self) -> bool {
+        matches!(self, Setting::Restart | Setting::Update | Setting::Remove | Setting::Pads)
+    }
+}
+
 /// Une rubrique des réglages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Picture,
     Sound,
-    /// Manettes et Magic Remote, réglages de l'ordinateur.
-    Controllers,
+    /// Manettes et Magic Remote, vues par l'ordinateur.
+    Controls,
     Network,
-    Account,
-    /// Réglages globaux : langue, téléviseur, réseau du téléviseur, version.
+    /// Dernière session et cet ordinateur.
+    Statistics,
+    /// Admin, redémarrer, mettre à jour, compte, retirer.
+    Station,
+    /// Réglages de l'app : langue, téléviseur, réseau du téléviseur, version.
     Tv,
-    /// Réglages globaux : manettes branchées et leur test.
+    /// Réglages de l'app : manettes branchées et leur test.
     Gamepads,
 }
 
@@ -282,18 +410,19 @@ impl Section {
         match self {
             Section::Picture => tr("Image", "Picture"),
             Section::Sound => tr("Son", "Sound"),
-            Section::Controllers => tr("Manettes et Magic Remote", "Controllers and Magic Remote"),
+            Section::Controls => tr("Commandes", "Controls"),
             Section::Network => tr("Réseau", "Network"),
-            Section::Account => tr("Compte", "Account"),
+            Section::Statistics => tr("Statistiques", "Statistics"),
+            Section::Station => "Station",
             Section::Tv => tr("Ce téléviseur", "This TV"),
             Section::Gamepads => tr("Manettes", "Controllers"),
         }
     }
 }
 
-/// Réglages de l'ordinateur choisi.
-pub const HOST_SECTIONS: [Section; 5] = [Section::Picture, Section::Sound, Section::Controllers, Section::Network, Section::Account];
-/// Réglages globaux (de l'app sur ce téléviseur), sans ordinateur.
+/// Réglages de l'ordinateur choisi (docs/link-ui.md : six rubriques, dans cet ordre).
+pub const HOST_SECTIONS: [Section; 6] = [Section::Picture, Section::Sound, Section::Controls, Section::Network, Section::Statistics, Section::Station];
+/// Réglages de l'app sur ce téléviseur, même sans ordinateur.
 pub const APP_SECTIONS: [Section; 2] = [Section::Tv, Section::Gamepads];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -313,9 +442,8 @@ pub enum Target {
     Host(usize),
     Found(usize),
     AddCard,
-    Wake,
     HostSettings,
-    /// Réglages globaux (bouton de l'accueil).
+    /// Réglages de l'app (bouton de l'accueil).
     AppSettings,
     AddFound(usize),
     AddByAddress,
@@ -332,6 +460,9 @@ pub enum Target {
     Shortcut(usize),
     CancelConnect,
     HintDismiss,
+    /// Boutons de la fenêtre de confirmation : agir, annuler.
+    DialogOk,
+    DialogCancel,
     Back,
 }
 
@@ -346,6 +477,11 @@ pub enum Action {
     PairAddress { address: String, port: u16, fingerprint: String },
     Probe { address: String, port: u16 },
     Wake(String),
+    /// Sonder un ordinateur tout de suite.
+    Poll(String),
+    /// Redémarrer ou mettre à jour la Station ; `force` : même si un appareil
+    /// est en session.
+    Station { host: String, op: StationOp, force: bool },
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
     Shortcut(Vec<u16>),
     SetProfile(Profile),
@@ -389,8 +525,15 @@ pub struct App {
     pub pads: Vec<PadInfo>,
     pub add: AddState,
     pub section: usize,
-    /// Écran des réglages : globaux (vrai) ou de l'ordinateur choisi.
+    /// Écran des réglages : ceux de l'app (vrai) ou de l'ordinateur choisi.
     pub settings_global: bool,
+    /// Confirmation ouverte par-dessus les réglages.
+    pub dialog: Option<Dialog>,
+    /// Redémarrage ou mise à jour de la Station, pour un ordinateur à la fois.
+    pub station: Option<StationUi>,
+    /// Réveil envoyé à cet ordinateur : « Réveil de l'ordinateur… » jusqu'à
+    /// ce qu'il soit en ligne (`WAKE_WAIT` au plus).
+    pub waking: Option<(String, Instant)>,
     pub pad_selected: usize,
     pub session: Option<SessionUi>,
     pub toast: Option<(String, Instant)>,
@@ -417,6 +560,9 @@ impl App {
             add: AddState { step: AddStep::Code, code: String::new(), asked: Vec::new(), address: String::new(), message: None, busy: false },
             section: 0,
             settings_global: false,
+            dialog: None,
+            station: None,
+            waking: None,
             pad_selected: 0,
             session: None,
             toast: None,
@@ -449,10 +595,11 @@ impl App {
         s[self.section.min(s.len() - 1)]
     }
 
-    /// Ouvre les réglages : globaux, ou ceux de l'ordinateur choisi.
+    /// Ouvre les réglages : ceux de l'app, ou ceux de l'ordinateur choisi.
     pub fn open_settings(&mut self, global: bool, from: Screen) {
         self.settings_global = global;
         self.section = 0;
+        self.dialog = None;
         self.back_to = from;
         self.go(Screen::Settings);
     }
@@ -531,11 +678,13 @@ impl App {
                 }
                 Vec::new()
             }
-            Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(_)) => {
+            Nav::Left | Nav::Right if matches!(self.focus, Target::Setting(s) if !s.is_action()) => {
                 let Target::Setting(s) = self.focus else { return Vec::new() };
                 self.adjust(s, if n == Nav::Right { 1 } else { -1 })
             }
-            Nav::Left if matches!(self.focus, Target::Setting(_) | Target::Pad(_)) => Vec::new(),
+            // Une ligne qui agit : à gauche, les rubriques ; rien à droite.
+            Nav::Right if matches!(self.focus, Target::Setting(_)) => Vec::new(),
+            Nav::Left if matches!(self.focus, Target::Pad(_)) => Vec::new(),
             _ => {
                 self.move_focus(n);
                 Vec::new()
@@ -597,6 +746,10 @@ impl App {
                 }
             },
             Screen::Settings | Screen::Gamepads => {
+                if self.screen == Screen::Settings && self.dialog.is_some() {
+                    self.close_dialog();
+                    return Vec::new();
+                }
                 if self.screen == Screen::Settings && matches!(self.focus, Target::Setting(_)) {
                     self.focus = Target::Section(self.section);
                     return Vec::new();
@@ -624,7 +777,7 @@ impl App {
     pub fn session_back(&mut self) -> Vec<Action> {
         let Some(s) = self.session.as_mut() else { return Vec::new() };
         match s.phase {
-            Phase::Preparing | Phase::Connecting | Phase::FirstImages => vec![Action::CancelConnect],
+            Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => vec![Action::CancelConnect],
             Phase::Ended { .. } => {
                 self.session = None;
                 self.go(Screen::Home);
@@ -664,15 +817,26 @@ impl App {
 
     pub fn activate(&mut self, t: Target) -> Vec<Action> {
         match t {
+            // Le bouton principal : se connecter ; hors ligne, réveiller
+            // l'ordinateur (adresse MAC connue) ou le sonder de nouveau.
             Target::Connect => {
                 let Some(h) = self.selected() else { return Vec::new() };
+                let id = h.id.clone();
+                if self.live.get(&id).is_some_and(|l| l.online == Online::Offline) {
+                    if h.can_wake() {
+                        self.waking = Some((id.clone(), Instant::now()));
+                        return vec![Action::Wake(id)];
+                    }
+                    self.live.entry(id.clone()).or_default().online = Online::Unknown;
+                    return vec![Action::Poll(id)];
+                }
                 let profile = h.settings.profile;
-                vec![Action::Connect { host: h.id.clone(), profile }]
+                vec![Action::Connect { host: id, profile }]
             }
             Target::Chip(p) => {
                 let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
                 if let Some(h) = self.store.host_mut(&id) {
-                    h.settings.profile = p;
+                    h.settings.apply(p);
                 }
                 vec![Action::Save]
             }
@@ -739,7 +903,6 @@ impl App {
                 self.go(Screen::Add);
                 Vec::new()
             }
-            Target::Wake => self.selected().map(|h| vec![Action::Wake(h.id.clone())]).unwrap_or_default(),
             Target::HostSettings => {
                 if self.selected().is_none() {
                     return Vec::new();
@@ -783,6 +946,23 @@ impl App {
                 vec![Action::Shortcut(keys)]
             }
             Target::CancelConnect => vec![Action::CancelConnect],
+            Target::DialogOk => match self.dialog.take() {
+                Some(Dialog::Remove { host, name }) => {
+                    self.store.remove(&host);
+                    if self.station.as_ref().is_some_and(|s| s.host == host) {
+                        self.station = None;
+                    }
+                    self.toast(format!("{name} {}", tr("est retiré de ce téléviseur", "removed from this TV")));
+                    self.go(Screen::Home);
+                    vec![Action::Save]
+                }
+                Some(Dialog::Force { host, op, .. }) => self.station_ask(&host, op, true),
+                None => Vec::new(),
+            },
+            Target::DialogCancel => {
+                self.close_dialog();
+                Vec::new()
+            }
             Target::HintDismiss => {
                 let Some(id) = self.session.as_ref().map(|s| s.host.clone()) else { return Vec::new() };
                 if let Some(s) = self.session.as_mut() {
@@ -872,21 +1052,21 @@ impl App {
             self.store.app.language = order[cycle(i, order.len(), dir)].into();
             return vec![Action::Language, Action::Save];
         }
-        let Some(id) = self.selected().map(|h| h.id.clone()) else { return Vec::new() };
-        if s == Setting::Remove {
-            self.store.remove(&id);
-            self.toast(tr("Ordinateur retiré de ce téléviseur", "Computer removed from this TV"));
-            self.go(Screen::Home);
-            return vec![Action::Save];
+        let Some((id, name)) = self.selected().map(|h| (h.id.clone(), h.name.clone())) else { return Vec::new() };
+        match s {
+            Setting::Remove => {
+                self.dialog = Some(Dialog::Remove { host: id, name });
+                self.focus = Target::DialogCancel;
+                return Vec::new();
+            }
+            Setting::Restart => return self.station_ask(&id, StationOp::Restart, false),
+            Setting::Update => return self.station_ask(&id, StationOp::Update, false),
+            _ => {}
         }
         let panel_h = self.tv.panel.1;
         let Some(h) = self.store.host_mut(&id) else { return Vec::new() };
         let st = &mut h.settings;
         match s {
-            Setting::Profile => {
-                let i = Profile::ALL.iter().position(|p| *p == st.profile).unwrap_or(0);
-                st.profile = Profile::ALL[cycle(i, 3, dir)];
-            }
             Setting::Resolution => {
                 let mut opts = vec![0u32, 2160, 1440, 1080, 720];
                 opts.retain(|v| *v == 0 || *v <= panel_h.max(1080));
@@ -914,14 +1094,161 @@ impl App {
                 st.audio = opts[cycle(i, opts.len(), dir)].into();
             }
             Setting::GameHint => st.game_mode_hint = !st.game_mode_hint,
-            Setting::Xbox360 => st.xbox360 = !st.xbox360,
+            Setting::Gamepad => st.xbox360 = !st.xbox360,
             Setting::Combo => st.combo = !st.combo,
             Setting::BackMenu => st.back_opens_menu = !st.back_opens_menu,
             Setting::Reconnect => st.reconnect = !st.reconnect,
-            Setting::Reliable => st.reliable = !st.reliable,
-            Setting::Remove | Setting::Language | Setting::Pads | Setting::UpdateChannel => {}
+            // Rapide ou Fiable ; le choix du profil n'est pas un écart.
+            Setting::Transport => {
+                let reliable = !st.reliable_transport();
+                let t = if reliable == st.profile.reliable() { "" } else if reliable { "reliable" } else { "fast" };
+                st.set_transport(t);
+            }
+            Setting::Remove | Setting::Restart | Setting::Update | Setting::Language | Setting::Pads | Setting::UpdateChannel => {}
         }
         vec![Action::Save]
+    }
+
+    /// Ferme la confirmation ; le focus revient à la ligne qui l'a ouverte.
+    fn close_dialog(&mut self) {
+        self.focus = match self.dialog.take() {
+            Some(Dialog::Force { op: StationOp::Restart, .. }) => Target::Setting(Setting::Restart),
+            Some(Dialog::Force { op: StationOp::Update, .. }) => Target::Setting(Setting::Update),
+            _ => Target::Setting(Setting::Remove),
+        };
+    }
+
+    /// Demande un redémarrage ou une mise à jour de la Station.
+    fn station_ask(&mut self, host: &str, op: StationOp, force: bool) -> Vec<Action> {
+        if self.station.as_ref().is_some_and(|s| s.host == host && s.phase != StationPhase::Idle) {
+            return Vec::new();
+        }
+        self.station = Some(StationUi { host: host.into(), phase: StationPhase::Asking(op), message: None });
+        // Les lignes d'action laissent la place à l'état : le focus revient à la rubrique.
+        if self.screen == Screen::Settings {
+            self.focus = Target::Section(self.section);
+        }
+        vec![Action::Station { host: host.into(), op, force }]
+    }
+
+    /// La réponse d'Admin : acceptée (avec la version visée pour une mise à
+    /// jour), ou refusée.
+    pub fn station_answer(&mut self, host: &str, op: StationOp, r: Result<Option<String>, StationRefusal>) {
+        let setup_version = match self.live.get(host).map(|l| &l.station) {
+            Some(StationKnown::Info(st)) => st.update_version.clone(),
+            _ => None,
+        };
+        let Some(ui) = self.station.as_mut().filter(|s| s.host == host) else { return };
+        ui.phase = StationPhase::Idle;
+        match r {
+            Ok(target) => ui.phase = StationPhase::Waiting { op, since: Instant::now(), down: false, target: target.filter(|v| !v.is_empty()) },
+            Err(StationRefusal::InSession(device)) => {
+                let device = device.unwrap_or_else(|| tr("Un appareil", "A device").into());
+                self.dialog = Some(Dialog::Force { host: host.into(), op, device });
+                self.focus = Target::DialogCancel;
+            }
+            Err(StationRefusal::TooSoon) => ui.message = Some(tr("La Station vient de redémarrer. Réessayez dans une minute.", "The Station has just restarted. Try again in a minute.").into()),
+            Err(StationRefusal::Unsupported) => ui.message = Some(station_too_old().into()),
+            Err(StationRefusal::RequiresSetup) => ui.message = Some(setup_version.map(|v| setup_text(&v)).unwrap_or_else(|| tr("Cette version s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.", "This version installs on the computer, with KyberNow-Station-Setup.exe.").into())),
+            Err(StationRefusal::Other(m)) => ui.message = Some(m),
+        }
+    }
+
+    /// L'ordinateur dont la Station redémarre ou se met à jour : sondé plus souvent.
+    pub fn station_waiting(&self) -> Option<&str> {
+        self.station.as_ref().filter(|s| matches!(s.phase, StationPhase::Waiting { .. })).map(|s| s.host.as_str())
+    }
+
+    /// L'ordinateur qu'on réveille, tant qu'on l'attend (`WAKE_WAIT` au plus).
+    pub fn waking(&self) -> Option<&str> {
+        self.waking.as_ref().filter(|(_, at)| at.elapsed().as_secs() < WAKE_WAIT).map(|(id, _)| id.as_str())
+    }
+
+    /// Les ordinateurs à sonder toutes les 2 s : Station qui revient, ordinateur qui se réveille.
+    pub fn fast_poll(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.station_waiting().into_iter().chain(self.waking()).map(str::to_string).collect();
+        ids.dedup();
+        ids
+    }
+
+    /// Un sondage d'Admin : état, système, Station ; suit le retour de la
+    /// Station après un redémarrage ou une mise à jour.
+    pub fn polled(&mut self, id: &str, p: Polled) -> bool {
+        let entry = self.live.entry(id.to_string()).or_default();
+        entry.online = if p.online { Online::Online } else { Online::Offline };
+        entry.problem = p.problem;
+        if p.online {
+            entry.virtual_display = p.virtual_display;
+            entry.station = p.station.clone();
+            entry.own_device = p.own_device;
+            // Réveillé : le bouton redevient « Se connecter ».
+            if self.waking.as_ref().is_some_and(|(w, _)| w == id) {
+                self.waking = None;
+            }
+        }
+        let mut save = false;
+        if p.online
+            && let Some(h) = self.store.host_mut(id)
+        {
+            save = h.os != p.os || h.gpu != p.gpu || h.av1 != p.av1;
+            h.os = p.os.or(h.os.take());
+            h.gpu = p.gpu.or(h.gpu.take());
+            h.av1 = p.av1;
+            // Les cartes pour le réveil : les dernières données, gardées si Admin n'en donne plus.
+            if !p.wake.is_empty() && h.wake != p.wake {
+                h.wake = p.wake;
+                save = true;
+            }
+        }
+        let mut done: Option<String> = None;
+        if let Some(ui) = self.station.as_mut().filter(|s| s.host == id)
+            && let StationPhase::Waiting { op, since, down, target } = &mut ui.phase
+        {
+            if !p.online {
+                *down = true;
+            } else if let StationKnown::Info(st) = &p.station {
+                match op {
+                    StationOp::Restart if *down && !st.restarting => done = Some(tr("La Station a redémarré.", "The Station has restarted.").into()),
+                    StationOp::Update if !st.installing && (target.as_deref() == Some(st.version.as_str()) || (*down && target.is_none())) => {
+                        done = Some(if english() { format!("KyberNow Station {} is installed.", st.version) } else { format!("KyberNow Station {} est en place.", st.version) });
+                    }
+                    StationOp::Update if *down && !st.installing && !st.restarting => {
+                        done = Some(tr("La mise à jour n'a pas abouti. Ouvrez Admin pour en savoir plus.", "The update did not complete. Open Admin to find out more.").into());
+                    }
+                    _ => {}
+                }
+            }
+            let wait = if *op == StationOp::Restart { RESTART_WAIT } else { UPDATE_WAIT };
+            if done.is_none() && since.elapsed().as_secs() > wait {
+                done = Some(tr("La Station tarde à revenir. Ouvrez Admin pour en savoir plus.", "The Station is taking a while to come back. Open Admin to find out more.").into());
+            }
+            if let Some(m) = &done {
+                ui.phase = StationPhase::Idle;
+                ui.message = Some(m.clone());
+            }
+        }
+        if let Some(m) = done
+            && self.screen != Screen::Settings
+        {
+            self.toast(m);
+        }
+        save
+    }
+
+    /// L'écran que la session créera ou utilisera, comme `session_mode` :
+    /// docs/link-ui.md, Accueil.
+    pub fn screen_line(&self, h: &Host) -> String {
+        if self.live.get(&h.id).and_then(|l| l.virtual_display) == Some(false) {
+            return tr("Les écrans de l'ordinateur, tels quels", "The computer's own displays, as they are").into();
+        }
+        let (w, hh, fps) = self.session_mode(h);
+        let sized = h.settings.resolution == 0;
+        match (english(), sized) {
+            (false, true) => format!("Écran de {w} × {hh} à {fps} Hz, à la taille de cet écran"),
+            (false, false) => format!("Écran de {w} × {hh} à {fps} Hz"),
+            (true, true) => format!("{w} × {hh} display at {fps} Hz, sized for this screen"),
+            (true, false) => format!("{w} × {hh} display at {fps} Hz"),
+        }
     }
 
     /// Le mode que la session demandera : définition et fréquence.
@@ -943,6 +1270,35 @@ impl App {
             _ => "hevc",
         }
     }
+}
+
+/// « Station trop ancienne » : docs/link-ui.md, Station.
+pub fn station_too_old() -> &'static str {
+    tr(
+        "Pour redémarrer ou mettre à jour la Station depuis cet appareil, mettez-la d'abord à jour depuis Admin.",
+        "To restart or update the Station from this device, first update it from Admin.",
+    )
+}
+
+/// Une version de la Station qui s'installe avec l'installateur.
+pub fn setup_text(v: &str) -> String {
+    if english() {
+        format!("Version {v} installs on the computer, with KyberNow-Station-Setup.exe.")
+    } else {
+        format!("La version {v} s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe.")
+    }
+}
+
+/// L'adresse d'Admin à ouvrir dans un navigateur (le QR code de la rubrique
+/// Station) : celle du cœur sur le téléviseur.
+#[cfg(feature = "device")]
+pub use kybernow_core::console::admin_url;
+
+/// Sans le cœur (captures sur l'ordinateur, `--no-default-features`, qui ne
+/// compile pas les bibliothèques de Kyber) : la même règle, recopiée.
+#[cfg(not(feature = "device"))]
+pub fn admin_url(address: &str, port: u16) -> String {
+    if address.contains(':') && !address.starts_with('[') { format!("https://[{address}]:{port}/") } else { format!("https://{address}:{port}/") }
 }
 
 fn cycle(i: usize, n: usize, dir: i32) -> usize {
@@ -988,6 +1344,153 @@ mod tests {
         assert!(matches!(app.focus, Target::Connect | Target::Chip(_)));
     }
 
+    fn demo_host() -> Host {
+        Host {
+            id: "a".into(),
+            name: "A".into(),
+            address: "192.168.1.20".into(),
+            port: 24811,
+            fingerprint: None,
+            user: String::new(),
+            password: String::new(),
+            os: None,
+            gpu: None,
+            av1: true,
+            mac: None,
+            wake: Vec::new(),
+            settings: Default::default(),
+            last: None,
+        }
+    }
+
+    fn info(version: &str) -> Polled {
+        Polled { online: true, station: StationKnown::Info(StationLive { version: version.into(), ..Default::default() }), ..Default::default() }
+    }
+
+    #[test]
+    fn admin_address() {
+        assert_eq!(admin_url("192.168.1.20", 24811), "https://192.168.1.20:24811/");
+        assert_eq!(admin_url("fe80::1", 9443), "https://[fe80::1]:9443/");
+        assert_eq!(admin_url("[fe80::1]", 9443), "https://[fe80::1]:9443/");
+    }
+
+    #[test]
+    fn custom_profile_and_transport() {
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        let h = &app.store.hosts[0].settings;
+        assert!(!h.is_custom() && !h.reliable_transport());
+        // Fiable en Jeu : un écart ; revenir à Rapide n'en est plus un.
+        app.adjust(Setting::Transport, 1);
+        let h = &app.store.hosts[0].settings;
+        assert!(h.is_custom() && h.reliable_transport() && h.reliable);
+        app.adjust(Setting::Transport, 1);
+        assert!(!app.store.hosts[0].settings.is_custom());
+        // Bureau : fiable d'office ; Rapide est un écart, effacé par le choix d'un profil.
+        app.activate(Target::Chip(Profile::Bureau));
+        assert!(app.store.hosts[0].settings.reliable_transport());
+        app.adjust(Setting::Transport, 1);
+        assert!(app.store.hosts[0].settings.is_custom() && !app.store.hosts[0].settings.reliable_transport());
+        app.store.hosts[0].settings.mbps = 40;
+        app.activate(Target::Chip(Profile::Max));
+        let h = &app.store.hosts[0].settings;
+        assert!(!h.is_custom() && h.profile == Profile::Max && h.mbps == 0);
+    }
+
+    #[test]
+    fn screen_line_follows_the_session() {
+        crate::i18n::set_english(false);
+        let mut app = App::new(Store::default());
+        app.tv.panel = (3840, 2160);
+        app.tv.refresh = 120;
+        let mut h = demo_host();
+        assert_eq!(app.screen_line(&h), "Écran de 3840 × 2160 à 120 Hz, à la taille de cet écran");
+        h.settings.resolution = 1080;
+        h.settings.fps = 60;
+        assert_eq!(app.screen_line(&h), "Écran de 1920 × 1080 à 60 Hz");
+        app.live.insert("a".into(), HostLive { online: Online::Online, virtual_display: Some(false), ..Default::default() });
+        assert_eq!(app.screen_line(&h), "Les écrans de l'ordinateur, tels quels");
+    }
+
+    #[test]
+    fn station_restart_and_update() {
+        crate::i18n::set_english(false);
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        app.screen = Screen::Settings;
+        app.polled("a", info("0.5.0"));
+
+        // Redémarrage : un appareil en session, puis « quand même ».
+        let a = app.adjust(Setting::Restart, 1);
+        assert_eq!(a, vec![Action::Station { host: "a".into(), op: StationOp::Restart, force: false }]);
+        app.station_answer("a", StationOp::Restart, Err(StationRefusal::InSession(Some("Pixel 9".into()))));
+        assert!(matches!(&app.dialog, Some(Dialog::Force { device, .. }) if device == "Pixel 9"));
+        let a = app.activate(Target::DialogOk);
+        assert_eq!(a, vec![Action::Station { host: "a".into(), op: StationOp::Restart, force: true }]);
+        app.station_answer("a", StationOp::Restart, Ok(None));
+        assert_eq!(app.station_waiting(), Some("a"));
+        // Encore là (pas encore arrêtée), puis arrêtée, puis revenue.
+        app.polled("a", info("0.5.0"));
+        assert_eq!(app.station_waiting(), Some("a"));
+        app.polled("a", Polled::default());
+        app.polled("a", info("0.5.0"));
+        assert_eq!(app.station_waiting(), None);
+        assert_eq!(app.station.as_ref().and_then(|s| s.message.as_deref()), Some("La Station a redémarré."));
+
+        // Mise à jour : finie quand la Station revient dans la version visée.
+        app.adjust(Setting::Update, 1);
+        app.station_answer("a", StationOp::Update, Ok(Some("0.5.1".into())));
+        app.polled("a", Polled::default());
+        app.polled("a", info("0.5.1"));
+        assert_eq!(app.station.as_ref().and_then(|s| s.message.as_deref()), Some("KyberNow Station 0.5.1 est en place."));
+
+        // Trop tôt, Station trop ancienne : un message, rien en cours.
+        app.adjust(Setting::Restart, 1);
+        app.station_answer("a", StationOp::Restart, Err(StationRefusal::TooSoon));
+        assert!(app.station.as_ref().is_some_and(|s| s.phase == StationPhase::Idle && s.message.as_deref() == Some("La Station vient de redémarrer. Réessayez dans une minute.")));
+        app.adjust(Setting::Restart, 1);
+        app.station_answer("a", StationOp::Restart, Err(StationRefusal::Unsupported));
+        assert_eq!(app.station.as_ref().and_then(|s| s.message.as_deref()), Some(station_too_old()));
+    }
+
+    #[test]
+    fn wake_targets_kept_and_used() {
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        let target = WakeTarget { mac: "3c:7c:3f:12:ab:cd".into(), ..Default::default() };
+        // Hors ligne sans cible : « Réessayer » sonde de nouveau.
+        app.polled("a", Polled::default());
+        assert_eq!(app.activate(Target::Connect), vec![Action::Poll("a".into())]);
+        // Les cibles d'Admin sont gardées, même si un sondage suivant n'en donne pas.
+        assert!(app.polled("a", Polled { online: true, wake: vec![target.clone()], ..Default::default() }));
+        app.polled("a", Polled { online: true, ..Default::default() });
+        assert_eq!(app.store.hosts[0].wake, vec![target]);
+        // Hors ligne avec des cibles : réveil, puis sondé souvent jusqu'au retour.
+        app.polled("a", Polled::default());
+        assert_eq!(app.activate(Target::Connect), vec![Action::Wake("a".into())]);
+        assert_eq!(app.fast_poll(), vec!["a".to_string()]);
+        app.polled("a", Polled::default());
+        assert_eq!(app.waking(), Some("a"));
+        app.polled("a", Polled { online: true, ..Default::default() });
+        assert!(app.waking().is_none() && app.fast_poll().is_empty());
+    }
+
+    #[test]
+    fn remove_asks_first() {
+        let mut app = App::new(Store::default());
+        app.store.hosts.push(demo_host());
+        app.screen = Screen::Settings;
+        app.adjust(Setting::Remove, 1);
+        assert_eq!(app.store.hosts.len(), 1);
+        assert_eq!(app.focus, Target::DialogCancel);
+        app.nav(Nav::Back);
+        assert!(app.dialog.is_none() && app.store.hosts.len() == 1);
+        assert_eq!(app.focus, Target::Setting(Setting::Remove));
+        app.adjust(Setting::Remove, 1);
+        app.activate(Target::DialogOk);
+        assert!(app.store.hosts.is_empty() && app.screen == Screen::Home);
+    }
+
     #[test]
     fn mode_follows_panel() {
         let mut app = App::new(Store::default());
@@ -1005,6 +1508,7 @@ mod tests {
             gpu: None,
             av1: true,
             mac: None,
+            wake: Vec::new(),
             settings: Default::default(),
             last: None,
         };

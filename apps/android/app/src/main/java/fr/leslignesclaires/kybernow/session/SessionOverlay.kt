@@ -3,6 +3,10 @@ package fr.leslignesclaires.kybernow.session
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,6 +14,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +61,8 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
@@ -70,6 +77,7 @@ import fr.leslignesclaires.kybernow.ui.GlassButton
 import fr.leslignesclaires.kybernow.ui.Kn
 import fr.leslignesclaires.kybernow.ui.KnIcon
 import fr.leslignesclaires.kybernow.ui.KnIcons
+import fr.leslignesclaires.kybernow.ui.LocalMotion
 import fr.leslignesclaires.kybernow.ui.LocalScale
 import fr.leslignesclaires.kybernow.ui.Mono
 import fr.leslignesclaires.kybernow.ui.PrimaryButton
@@ -102,6 +110,9 @@ class SessionUi(
     var padMouse by mutableStateOf(false)
     /** Hors téléviseur, la barre ouverte par la combinaison de la manette : la manette la pilote, le jeu ne reçoit rien. */
     var padBar by mutableStateOf(false)
+    /** Ce qui ouvre le menu (réglages de l'ordinateur), pour l'aide de l'écran de connexion. */
+    var backOpensMenu by mutableStateOf(true)
+    var combo by mutableStateOf(true)
     /** Modificateurs collants de la rangée de touches (Ctrl, Alt, ⊞). */
     var sticky by mutableStateOf(emptySet<Int>())
 
@@ -133,7 +144,7 @@ fun SessionOverlay(ui: SessionUi) {
         if (ui.tv) {
             AnimatedVisibility(ui.menuOpen, enter = fadeIn(tween(160)), exit = fadeOut(tween(160))) { TvMenu(ui) }
         } else {
-            if (ui.passageDone && !ui.barOpen && !ui.keyboardOpen) Tab(ui, Modifier.align(Alignment.TopCenter))
+            // Rien sur l'image tant que la barre est fermée : elle s'ouvre par le geste Retour.
             AnimatedVisibility(ui.barOpen, Modifier.align(Alignment.TopCenter), enter = slideInVertically { -it } + fadeIn(), exit = slideOutVertically { -it } + fadeOut()) { PhoneBar(ui) }
             if (ui.keyboardOpen) KeyRow(ui, Modifier.align(Alignment.BottomCenter).imePadding())
         }
@@ -162,14 +173,17 @@ private fun Leaving() {
 // MARK: - Passage
 
 /**
- * Le passage : l'accueil se coupe le long de la couture à 45°, le tube néon
- * s'allume, puis les deux moitiés s'écartent sur l'image. Capsule « Vous
- * entrez dans… » : comment ouvrir le menu, le temps jusqu'à la première image.
+ * L'écran de connexion : l'accueil se coupe le long de la couture à 45°, le tube néon s'allume ;
+ * le nom de l'ordinateur et les trois étapes (docs/link-ui.md), ou « La Station redémarre… »
+ * quand le cœur la redémarre en dernier recours, comment ouvrir le menu, Annuler.
+ * À la première image, les deux moitiés s'écartent sur l'image seule.
  */
 @Composable
 private fun Passage(ui: SessionUi) {
     val s = LocalScale.current
     val phase by ui.state.phase.collectAsState()
+    val ended by ui.state.ended.collectAsState()
+    val restarting by ui.state.stationRestarting.collectAsState()
     val open = remember { Animatable(0f) }
     val neon = remember { Animatable(0f) }
     LaunchedEffect(Unit) { neon.animateTo(1f, tween(900)) }
@@ -196,30 +210,63 @@ private fun Passage(ui: SessionUi) {
                 drawLine(Kn.neonCore.copy(alpha = a), Offset(0f, h), Offset(w, 0f), strokeWidth = 1.dp.toPx(), cap = StrokeCap.Round)
             }
         }
-        if (open.value < 0.5f) {
+        // Un échec laisse sa carte seule (EndedCard).
+        if (open.value < 0.5f && ended == null) {
+            val step = when (phase) {
+                Phase.PREPARING -> 0
+                Phase.CONNECTING -> 1
+                Phase.FIRST_IMAGES -> 2
+                else -> 3
+            }
             Column(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = s.dp(if (ui.tv) 64f else 28f)).panel(22.dp).padding(horizontal = s.dp(24f), vertical = s.dp(16f)),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(s.dp(6f)),
+                Modifier.align(Alignment.BottomCenter).padding(bottom = s.dp(if (ui.tv) 56f else 24f)).padding(horizontal = s.dp(20f))
+                    .panel(22.dp).padding(horizontal = s.dp(26f), vertical = s.dp(18f)).widthIn(min = s.dp(280f), max = s.dp(520f)),
+                verticalArrangement = Arrangement.spacedBy(s.dp(8f)),
             ) {
-                Eyebrow(stringResource(R.string.session_entering))
-                Title(ui.hostName, size = if (ui.tv) 34f else 22f)
-                Mono(
-                    stringResource(
-                        when (phase) {
-                            Phase.PREPARING -> R.string.session_preparing
-                            Phase.CONNECTING -> R.string.session_connecting
-                            else -> R.string.session_first_images
-                        },
-                    ),
-                    size = 12f,
-                )
-                Body(stringResource(if (ui.tv) R.string.session_menu_hint_tv else R.string.session_menu_hint_touch), size = 13f, color = Kn.muted)
-                Spacer(Modifier.height(s.dp(4f)))
-                GlassButton(stringResource(R.string.session_cancel), { ui.actions.quit() })
+                Title(ui.hostName, size = if (ui.tv) 30f else 22f)
+                Spacer(Modifier.height(s.dp(2f)))
+                // La Station redémarre (dernier recours) : à la place des étapes, qui reprennent ensuite.
+                if (restarting) StepLine(stringResource(R.string.station_restarting), done = false, current = true)
+                else listOf(R.string.session_preparing, R.string.session_connecting, R.string.session_first_images).forEachIndexed { i, label ->
+                    StepLine(stringResource(label), done = i < step, current = i == step)
+                }
+                hint(ui)?.let { Body(it, size = 13f, color = Kn.muted, modifier = Modifier.padding(top = s.dp(4f))) }
+                Spacer(Modifier.height(s.dp(2f)))
+                GlassButton(stringResource(R.string.cancel), { ui.actions.quit() })
             }
         }
     }
+}
+
+/** Une étape : faite (coche), en cours (point qui bat), à venir (cercle). */
+@Composable
+private fun StepLine(label: String, done: Boolean, current: Boolean) {
+    val s = LocalScale.current
+    val a = if (current && LocalMotion.current) {
+        val pulse = rememberInfiniteTransition(label = "étape")
+        pulse.animateFloat(1f, 0.35f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "battement").value
+    } else 1f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(s.dp(16f)), contentAlignment = Alignment.Center) {
+            when {
+                done -> KnIcon(KnIcons.check, tint = Kn.spectre, size = 16f)
+                current -> Box(Modifier.size(s.dp(8f)).alpha(a).clip(CircleShape).background(Kn.neonCore))
+                else -> Box(Modifier.size(s.dp(8f)).clip(CircleShape).border(1.dp, Kn.muted, CircleShape))
+            }
+        }
+        Spacer(Modifier.width(s.dp(12f)))
+        Body(label, size = 15f, color = if (done || current) Kn.frost else Kn.muted, weight = if (current) 600 else 400)
+    }
+}
+
+/** Comment ouvrir le menu ou la barre, d'après les réglages de l'ordinateur ; nul s'il n'y a rien à dire. */
+@Composable
+private fun hint(ui: SessionUi): String? = when {
+    !ui.tv -> stringResource(R.string.session_hint_touch)
+    ui.backOpensMenu && ui.combo -> stringResource(R.string.session_hint_tv_both)
+    ui.backOpensMenu -> stringResource(R.string.session_hint_tv_back)
+    ui.combo -> stringResource(R.string.session_hint_combo)
+    else -> null
 }
 
 // MARK: - Capsules
@@ -242,7 +289,7 @@ private fun Capsules(ui: SessionUi, modifier: Modifier) {
                 Body(capsuleText(capsule), size = 14f)
                 if (capsule is Capsule.Reconnecting) {
                     Spacer(Modifier.width(s.dp(12f)))
-                    GlassButton(stringResource(R.string.session_quit), { ui.actions.quit() })
+                    GlassButton(stringResource(R.string.session_disconnect), { ui.actions.quit() })
                 }
             }
         }
@@ -265,20 +312,6 @@ private fun capsuleText(c: Capsule): String = when (c) {
 
 // MARK: - Téléphone et tablette
 
-/** La languette : latence en direct ; un toucher ouvre la barre. */
-@Composable
-private fun Tab(ui: SessionUi, modifier: Modifier) {
-    val s = LocalScale.current
-    val sec by ui.state.second.collectAsState()
-    FocusCard({ ui.barOpen = true }, modifier.padding(top = s.dp(6f)), shape = RoundedCornerShape(bottomStart = 14.dp, bottomEnd = 14.dp)) {
-        Row(Modifier.background(Kn.panel.copy(alpha = 0.72f)).padding(horizontal = s.dp(14f), vertical = s.dp(5f)), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(s.dp(6f)).clip(CircleShape).background(Kn.spectre))
-            Spacer(Modifier.width(s.dp(7f)))
-            Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 11f, color = Kn.frost)
-        }
-    }
-}
-
 @Composable
 private fun PhoneBar(ui: SessionUi) {
     val s = LocalScale.current
@@ -293,28 +326,37 @@ private fun PhoneBar(ui: SessionUi) {
         }
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Les réglages défilent ; « Se déconnecter » et la croix restent toujours visibles, à droite.
         Row(
-            Modifier.padding(s.dp(10f)).panel(16.dp).horizontalScroll(rememberScrollState()).padding(s.dp(8f)),
+            Modifier.padding(s.dp(10f)).panel(16.dp).padding(s.dp(8f)),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
         ) {
-            FocusCard({ ui.statsOpen = !ui.statsOpen }, Modifier.focusRequester(first)) {
-                Column(Modifier.padding(horizontal = s.dp(8f))) {
-                    Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
-                    Mono("${sec?.fps ?: 0} i/s · ${fmt("%.0f", sec?.mbps ?: 0.0)} Mbit/s", size = 9f)
+            Row(
+                Modifier.weight(1f, fill = false).horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(s.dp(6f)),
+            ) {
+                // Statistiques : les mesures en direct, et leur panneau au toucher.
+                val statsLabel = stringResource(R.string.session_stats)
+                FocusCard({ ui.statsOpen = !ui.statsOpen }, Modifier.focusRequester(first).semantics { contentDescription = statsLabel }) {
+                    Column(Modifier.padding(horizontal = s.dp(8f))) {
+                        Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 14f, color = Kn.frost, weight = 500)
+                        Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.0f Mbit/s", sec?.mbps ?: 0.0), size = 9f)
+                    }
                 }
+                Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
+                GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
+                GlassButton(
+                    stringResource(listOf(R.string.session_mouse_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode]),
+                    { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
+                )
+                screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
+                BarIcon(KnIcons.keyboard) { ui.actions.openKeyboard(true) }
+                GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
             }
-            Profile.entries.forEach { p -> GlassButton(profileLabel(p), { ui.actions.setProfile(p) }, selected = ui.profile == p) }
-            GlassButton(stringResource(if (ui.directTouch) R.string.touch_direct else R.string.touch_trackpad), { ui.actions.setDirectTouch(!ui.directTouch) })
-            GlassButton(
-                stringResource(R.string.session_mouse, stringResource(listOf(R.string.settings_auto, R.string.mouse_desktop, R.string.mouse_game)[ui.mouseMode])),
-                { ui.actions.setMouseMode((ui.mouseMode + 1) % 3) },
-            )
-            screenChoice(ui)?.let { c -> GlassButton(stringResource(R.string.session_screen, c.index + 1, c.width, c.height), { ui.actions.pickDisplay(c.next) }) }
-            BarIcon(KnIcons.keyboard) { ui.actions.openKeyboard(true) }
-            GlassButton(stringResource(R.string.session_keys), { ui.keysOpen = true })
+            GlassButton(stringResource(R.string.session_disconnect), { ui.actions.quit() })
             BarIcon(KnIcons.close) { ui.barOpen = false }
-            GlassButton(stringResource(R.string.session_quit), { ui.actions.quit() })
         }
         if (ui.padBar) Body(stringResource(R.string.session_pad_bar), Modifier.panel(999.dp).padding(horizontal = s.dp(14f), vertical = s.dp(6f)), size = 12f, color = Kn.frost2)
     }
@@ -378,7 +420,7 @@ private fun KeyRow(ui: SessionUi, modifier: Modifier) {
             Modifier.fillMaxWidth().background(Kn.panel.copy(alpha = 0.95f)).horizontalScroll(rememberScrollState()).padding(s.dp(6f)),
             horizontalArrangement = Arrangement.spacedBy(s.dp(5f)),
         ) {
-            KeyCap("Échap") { ui.actions.key(Sc.ESC) }
+            KeyCap(stringResource(R.string.keys_escape)) { ui.actions.key(Sc.ESC) }
             KeyCap("Tab") { ui.actions.key(Sc.TAB) }
             for ((code, label) in listOf(Sc.CTRL to "Ctrl", Sc.ALT to "Alt", Sc.WIN to "⊞")) {
                 KeyCap(label, selected = code in ui.sticky) { ui.sticky = if (code in ui.sticky) ui.sticky - code else ui.sticky + code }
@@ -388,7 +430,7 @@ private fun KeyRow(ui: SessionUi, modifier: Modifier) {
             KeyCap("↓") { ui.actions.key(Sc.DOWN) }
             KeyCap("→") { ui.actions.key(Sc.RIGHT) }
             Sc.F.forEachIndexed { i, c -> KeyCap("F${i + 1}") { ui.actions.key(c) } }
-            KeyCap("Ctrl+Alt+Suppr") { ui.actions.shortcut(Shortcut.CTRL_ALT_DEL) }
+            KeyCap(stringResource(R.string.keys_ctrl_alt_del_short)) { ui.actions.shortcut(Shortcut.CTRL_ALT_DEL) }
             KeyCap("✕") { ui.actions.openKeyboard(false) }
         }
     }
@@ -411,7 +453,6 @@ private fun TvMenu(ui: SessionUi) {
     val s = LocalScale.current
     val sec by ui.state.second.collectAsState()
     val mode by ui.state.mode.collectAsState()
-    val decoder by ui.state.decoder.collectAsState()
     val audio by ui.state.audioOutput.collectAsState()
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
@@ -420,34 +461,34 @@ private fun TvMenu(ui: SessionUi) {
             Row(Modifier.panel(999.dp).padding(horizontal = s.dp(26f), vertical = s.dp(12f)), horizontalArrangement = Arrangement.spacedBy(s.dp(26f)), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(s.dp(8f)).clip(CircleShape).background(Kn.spectre))
                 Mono(sec?.latencyMs?.let { fmt("%.1f ms", it) } ?: "—", size = 15f, color = Kn.frost)
-                Mono("${sec?.fps ?: 0} i/s", size = 15f, color = Kn.frost)
+                Mono(stringResource(R.string.session_fps, sec?.fps ?: 0), size = 15f, color = Kn.frost)
                 Mono(fmt("%.0f Mbit/s", sec?.mbps ?: 0.0), size = 15f, color = Kn.frost)
                 mode?.let { (w, h, r) -> Mono("$w × $h · $r Hz", size = 15f, color = Kn.frost) }
                 Mono(stringResource(R.string.session_losses, (sec?.lostFrames ?: 0) + (sec?.holes ?: 0)), size = 15f)
             }
             Eyebrow("${ui.hostName} · ${profileLabel(ui.profile)}")
-            TvTiles(ui, first, decoder, audio)
+            TvTiles(ui, first, audio)
         }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun TvTiles(ui: SessionUi, first: FocusRequester, decoder: String?, audio: Pair<Int, Double>?) {
+private fun TvTiles(ui: SessionUi, first: FocusRequester, audio: Pair<Int, Double>?) {
     val s = LocalScale.current
     FlowRow(Modifier.widthIn(max = s.dp(900f)), horizontalArrangement = Arrangement.spacedBy(s.dp(14f), Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(s.dp(14f)), maxItemsInEachRow = 5) {
         Tile(KnIcons.play, stringResource(R.string.session_resume), null, Modifier.focusRequester(first), primary = true) { ui.actions.resume() }
         Profile.entries.forEach { p ->
             if (p != ui.profile) Tile(KnIcons.screen, profileLabel(p), stringResource(R.string.session_switch_profile)) { ui.actions.setProfile(p) }
         }
-        Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, ms) -> stringResource(R.string.session_sound_detail, c, ms) }) { ui.statsOpen = !ui.statsOpen }
+        Tile(KnIcons.sound, stringResource(R.string.session_sound), audio?.let { (c, _) -> stringResource(R.string.session_sound_channels, c) }) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.remote, stringResource(R.string.session_remote_mouse), stringResource(if (ui.remoteMouse) R.string.session_on else R.string.session_off), selected = ui.remoteMouse) { ui.actions.setRemoteMouse(!ui.remoteMouse) }
         Tile(KnIcons.gamepad, stringResource(R.string.session_pad_mouse), stringResource(if (ui.padMouse) R.string.session_on else R.string.session_off), selected = ui.padMouse) { ui.actions.setPadMouse(!ui.padMouse) }
         // Le menu reste ouvert : on passe d'un écran à l'autre en voyant l'image derrière.
         screenChoice(ui)?.let { c -> Tile(KnIcons.screen, stringResource(R.string.session_computer_screen), "${c.index + 1} / ${c.count} · ${c.width} × ${c.height}") { ui.actions.pickDisplay(c.next) } }
         Tile(KnIcons.keyboard, stringResource(R.string.session_type_text), null) { ui.typing = true }
-        Tile(KnIcons.keys, stringResource(R.string.session_keys), "Ctrl+Alt+Suppr, Alt+Tab…") { ui.keysOpen = true }
-        Tile(KnIcons.pulse, stringResource(R.string.session_stats), decoder) { ui.statsOpen = !ui.statsOpen }
+        Tile(KnIcons.keys, stringResource(R.string.session_keys), stringResource(R.string.keys_ctrl_alt_del_short)) { ui.keysOpen = true }
+        Tile(KnIcons.pulse, stringResource(R.string.session_stats), null) { ui.statsOpen = !ui.statsOpen }
         Tile(KnIcons.exit, stringResource(R.string.session_disconnect), null, danger = true) { ui.actions.quit() }
     }
 }
@@ -478,7 +519,7 @@ private fun KeysSheet(ui: SessionUi, modifier: Modifier) {
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
     val items = listOf(
-        Shortcut.CTRL_ALT_DEL to "Ctrl + Alt + Suppr", Shortcut.ALT_TAB to "Alt + Tab", Shortcut.WIN to "⊞", Shortcut.WIN_D to "⊞ + D",
+        Shortcut.CTRL_ALT_DEL to stringResource(R.string.keys_ctrl_alt_del), Shortcut.ALT_TAB to "Alt + Tab", Shortcut.WIN to "⊞", Shortcut.WIN_D to "⊞ + D",
         Shortcut.PRINT to stringResource(R.string.keys_print), Shortcut.ALT_F4 to "Alt + F4", Shortcut.WIN_L to "⊞ + L",
         Shortcut.TASK_MANAGER to stringResource(R.string.keys_task_manager), Shortcut.F11 to "F11", Shortcut.ESC to stringResource(R.string.keys_escape),
     )
@@ -533,7 +574,7 @@ private fun Stats(ui: SessionUi, modifier: Modifier) {
             names.forEachIndexed { i, n -> Mono("  ${stringResource(n)} ${f(c[i])} ms", size = 11f) }
         }
         Mono("${stringResource(R.string.stats_rtt)} ${f(sec?.rttMs)} ms", size = 11f)
-        Mono("${sec?.fps ?: 0} i/s · ${fmt("%.1f", sec?.mbps ?: 0.0)} Mbit/s", size = 11f)
+        Mono(stringResource(R.string.session_fps, sec?.fps ?: 0) + " · " + fmt("%.1f Mbit/s", sec?.mbps ?: 0.0), size = 11f)
         Mono(stringResource(R.string.stats_losses, sec?.lostFrames ?: 0, sec?.holes ?: 0, sec?.lostPackets ?: 0), size = 11f)
         video?.let { (w, h) -> Mono("$w × $h · ${decoder ?: ""}", size = 11f) }
         audio?.let { (c, ms) -> Mono(stringResource(R.string.session_sound_detail, c, ms), size = 11f) }
@@ -547,9 +588,19 @@ private fun EndedCard(ui: SessionUi, e: Ended, modifier: Modifier) {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
     Column(modifier.padding(s.dp(20f)).panel(22.dp).padding(s.dp(24f)).widthIn(max = s.dp(620f)), verticalArrangement = Arrangement.spacedBy(s.dp(12f))) {
-        Title(stringResource(R.string.session_ended_title), size = 24f)
-        Body(e.error ?: "", color = Kn.frost2, size = 15f)
+        // Avant la première image, c'est la connexion qui a échoué ; la raison, en une phrase.
+        val failed = ui.state.firstImageAt.get() == 0L
+        Title(stringResource(if (failed) R.string.session_failed else R.string.session_ended_title), size = 24f)
+        Body(sentence(e.error ?: ""), color = Kn.frost2, size = 15f)
         if (e.displayRestored == false || e.audioRestored == false) Body(stringResource(R.string.session_not_restored), color = Kn.warn, size = 13f)
         PrimaryButton(stringResource(R.string.session_back_home), { ui.actions.quit() }, Modifier.focusRequester(focus))
     }
+}
+
+/** Un message du cœur (« l'ordinateur ne répond plus ») en phrase : majuscule, point final. */
+private fun sentence(m: String): String {
+    val t = m.trim()
+    if (t.isEmpty()) return t
+    val first = t.replaceFirstChar { it.uppercase() }
+    return if (first.last() in ".!?…") first else "$first."
 }

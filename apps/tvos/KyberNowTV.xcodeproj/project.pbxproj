@@ -29,6 +29,7 @@
 		55648362D3F43B7B69A955D2 /* VideoPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E56869493711B171A05A7A2 /* VideoPipeline.swift */; };
 		587E08141723DEE88741D971 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0716FDE27E489961A197FD /* InputCore.swift */; };
 		5F6ED7451E5A10C9D362900F /* RemoteNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16667FD645BA9D805BA7E79 /* RemoteNavigationTests.swift */; };
+		62D55CC21A49D57DE1CBF8D3 /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C038544172704B17A5CAB374 /* LinkUI.swift */; };
 		637DC2EE5BF26184003D6964 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 1AB941B7E1DF4EECD5F6E82D /* Localizable.xcstrings */; };
 		6653A4ED3F13552933EA6268 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C48FEEB2EF3F0C1C29CF932A /* SystemConfiguration.framework */; };
 		6900DF869CD96B84CB3D2982 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 943CF5575AABD133E0381912 /* OFL.txt */; };
@@ -52,11 +53,13 @@
 		A31E48236FDAF2929F833C78 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF2B83E12E2DC745DEDD61EC /* AppModel.swift */; };
 		A56EAA94638A85D6DD0CBFCA /* CoreBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5F933505AA41A6122515B30 /* CoreBridge.swift */; };
 		A6DE0CF31474618CD510D114 /* AV1.swift in Sources */ = {isa = PBXBuildFile; fileRef = 967E9CA93E220D6FB480C877 /* AV1.swift */; };
+		AAA56A471D38C873853CFD6E /* StatsCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7531C686A3D883AC1D448499 /* StatsCard.swift */; };
 		B96BE33574AF78B3735C1016 /* libiconv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 35E2162DA9EA9189EFA5F4A1 /* libiconv.tbd */; };
 		BF0E0AE61204CEF8EE57A897 /* KyberNowTopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5680458539B0010845C420CE /* KyberNowTopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		C061C90F011E8A35C9773AD7 /* VideoDecoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93E03D3845A43D3E44AA9AF8 /* VideoDecoder.swift */; };
 		C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */; };
 		E500B3D5892A7F414E0B3893 /* SessionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */; };
+		E6D050DC393637D95EC5439E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 272FAFC7C3A7322B56993025 /* AppSettingsView.swift */; };
 		E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72AAACDD20D1A7BE25E7960F /* Discovery.swift */; };
 		F1356014C5801F4CEC87CB2E /* StreamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 244CC1D072B43F4A58082CF6 /* StreamView.swift */; };
 		F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */; };
@@ -120,6 +123,7 @@
 		1AB941B7E1DF4EECD5F6E82D /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		244CC1D072B43F4A58082CF6 /* StreamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamView.swift; sourceTree = "<group>"; };
 		26D28B4D290D3288CCF63CD9 /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
+		272FAFC7C3A7322B56993025 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
 		2CB3A590C1D32478DB5C67FF /* KyberNowTV.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = KyberNowTV.entitlements; sourceTree = "<group>"; };
 		32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionMenu.swift; sourceTree = "<group>"; };
 		3545217235A0986F4EC8F7D3 /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
@@ -137,6 +141,7 @@
 		68E5FAAE774C0DD788031289 /* KyberLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KyberLog.swift; sourceTree = "<group>"; };
 		717AA2D038A1CC613B959D31 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		72AAACDD20D1A7BE25E7960F /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
+		7531C686A3D883AC1D448499 /* StatsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatsCard.swift; sourceTree = "<group>"; };
 		7A5D35E1D1F39460ADA6CF27 /* MetalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalSurface.swift; sourceTree = "<group>"; };
 		7ECA1A96C6FB50960289154D /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 		82813EE36CC6DB67A977F840 /* GamepadsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GamepadsView.swift; sourceTree = "<group>"; };
@@ -155,6 +160,7 @@
 		BF0727561C05D7242B1942A3 /* DecoderCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecoderCapabilities.swift; sourceTree = "<group>"; };
 		BF924BDB17D639C4D686F6D3 /* KeyboardMouse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardMouse.swift; sourceTree = "<group>"; };
 		C01C02F7344D665AEF5528C9 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
+		C038544172704B17A5CAB374 /* LinkUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUI.swift; sourceTree = "<group>"; };
 		C48FEEB2EF3F0C1C29CF932A /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		C5EBB9D1294B8B710001295B /* KyberSDK.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = KyberSDK.xcframework; path = Vendor/KyberSDK.xcframework; sourceTree = "<group>"; };
 		C9000517004D823B86FDA012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -247,6 +253,7 @@
 			isa = PBXGroup;
 			children = (
 				72AAACDD20D1A7BE25E7960F /* Discovery.swift */,
+				C038544172704B17A5CAB374 /* LinkUI.swift */,
 				E21C4D60AA32188AAD952FAB /* Model.swift */,
 			);
 			name = KyberNow;
@@ -331,6 +338,7 @@
 			children = (
 				9D4C7D00D61D4DFD1B56106D /* AddHostView.swift */,
 				FF2B83E12E2DC745DEDD61EC /* AppModel.swift */,
+				272FAFC7C3A7322B56993025 /* AppSettingsView.swift */,
 				A2FAFDEE9E251B51A36ED17B /* Assets.xcassets */,
 				F939135052A5C51A4CDFEDB0 /* Backdrops.swift */,
 				717AA2D038A1CC613B959D31 /* CloudSync.swift */,
@@ -346,6 +354,7 @@
 				32AF9E5AF89DE0A46B958768 /* SessionMenu.swift */,
 				E0F2BA8BAEB89A64A30ECB9F /* SessionView.swift */,
 				DA5781CC43CFB55F18BB4B91 /* SettingsView.swift */,
+				7531C686A3D883AC1D448499 /* StatsCard.swift */,
 				E0E4AFD0C75F8B87AA9B1CE5 /* Theme.swift */,
 				03F9F1EF316B759497E181F0 /* Shared */,
 			);
@@ -524,18 +533,21 @@
 			files = (
 				2E4327F1FDBDB0EF09529956 /* AddHostView.swift in Sources */,
 				A31E48236FDAF2929F833C78 /* AppModel.swift in Sources */,
+				E6D050DC393637D95EC5439E /* AppSettingsView.swift in Sources */,
 				49222371EEE67F2DE41F4B4A /* Backdrops.swift in Sources */,
 				19EC14DFC8515AF215310E98 /* CloudSync.swift in Sources */,
 				E82B7C26247B96A00884AB17 /* Discovery.swift in Sources */,
 				6EB4D0D61C6AC05D90761C23 /* GamepadsView.swift in Sources */,
 				18228ACA5C76D4BDB8617E8A /* HomeView.swift in Sources */,
 				73E7C2E5A5EC5FF6E2CE896C /* KyberNowTVApp.swift in Sources */,
+				62D55CC21A49D57DE1CBF8D3 /* LinkUI.swift in Sources */,
 				9F9EA4BB5B137A5F4AF8485D /* Model.swift in Sources */,
 				9DDACBC5030D4B3D6219E1B7 /* Platform.swift in Sources */,
 				6AF6DC2A12BD51242201E613 /* SessionController.swift in Sources */,
 				F7523557BADDFFF74D023474 /* SessionMenu.swift in Sources */,
 				78859B87684A3E6F58C5BA7D /* SessionView.swift in Sources */,
 				C3E62956C630251A7B89D7B7 /* SettingsView.swift in Sources */,
+				AAA56A471D38C873853CFD6E /* StatsCard.swift in Sources */,
 				72E9242B4F7DCC758E7412EA /* Theme.swift in Sources */,
 				009D902343AEA9CBC7B52ADD /* TopShelfStore.swift in Sources */,
 			);

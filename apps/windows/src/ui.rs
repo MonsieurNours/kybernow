@@ -75,6 +75,15 @@ struct Running {
     id: String,
     host: SessionHost,
     bar: Arc<Mutex<BarLabel>>,
+    sent: Arc<Mutex<Sent>>,
+}
+
+/// Ce que la session transmet (rubrique Statistiques à sa fin) : réglages du
+/// flux, suivis quand le profil change depuis la barre, et mode de l'image,
+/// à la taille que l'ordinateur envoie vraiment.
+struct Sent {
+    settings: kybernow_core::profile::StreamSettings,
+    mode: kybernow_core::console::Mode,
 }
 
 #[derive(Default)]
@@ -131,6 +140,22 @@ pub struct Prefs {
     pub channel: Channel,
     /// Langue de l'app : `auto` (celle de Windows, aussi si absent), `fr`, `en`.
     pub language: String,
+    /// Sur batterie : `alleger` (30 Hz au plus) ou `garder` ; absent, repris
+    /// des réglages des ordinateurs (voir `battery_choice`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub battery: Option<String>,
+}
+
+/// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
+/// Sans choix dans `app.json`, celui que gardaient les réglages des
+/// ordinateurs (`garder` si l'un l'avait).
+fn battery_choice(state: &UiState) -> &'static str {
+    let chosen = state.prefs.lock().unwrap().battery.clone();
+    let keep = match chosen.as_deref() {
+        Some(b) => b == "garder",
+        None => state.with_store(|s| s.computers.iter().any(|c| c.settings.battery == "garder")),
+    };
+    if keep { "garder" } else { "alleger" }
 }
 
 /// `auto`, `fr` ou `en`.
@@ -242,6 +267,8 @@ struct AppInfo {
     lang: &'static str,
     update: Option<Available>,
     arch: &'static str,
+    /// Sur batterie : `alleger` ou `garder`.
+    battery: &'static str,
 }
 
 #[tauri::command(async)]
@@ -254,7 +281,21 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
         lang: i18n::lang().code(),
         update: state.update.lock().unwrap().clone(),
         arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
+        battery: battery_choice(&state),
     }
+}
+
+/// « Sur batterie » dans les réglages de l'app : `alleger` ou `garder`.
+#[tauri::command(async)]
+fn set_battery(app: AppHandle, battery: String) -> &'static str {
+    let state = app.state::<UiState>();
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        p.battery = Some(if battery == "garder" { "garder" } else { "alleger" }.into());
+        p.clone()
+    };
+    save_prefs(&prefs);
+    battery_choice(&state)
 }
 
 /// Cherche une version plus récente sur le canal choisi.
@@ -373,7 +414,58 @@ fn console_for(c: &Computer) -> Console {
     Console::new(&c.host, c.port, &c.user, &password, c.fingerprint.clone())
 }
 
-/// Toutes les 8 s : qui est en ligne ; un aperçu de l'écran par minute au plus.
+/// Interroge Admin d'un ordinateur : en ligne ou non, ce qu'il dit de lui
+/// (`info`, Station comprise) et un aperçu de son écran, une fois par minute
+/// au plus. Rend vrai si l'accueil doit le revoir.
+fn refresh(app: &AppHandle, c: &Computer) -> bool {
+    let state = app.state::<UiState>();
+    let console = console_for(c);
+    let info = console.info().ok();
+    let online = Some(info.is_some());
+    // Les cartes réseau pour le réveil, gardées avec l'ordinateur pour le
+    // réveiller une fois éteint (le fichier n'est réécrit que si elles changent).
+    let mut wake_changed = false;
+    if let Some(i) = info.as_ref().filter(|i| !i.wake.is_empty() && i.wake != c.wake) {
+        let wake = i.wake.clone();
+        wake_changed = state.with_store(|s| {
+            let found = s.get_mut(&c.id).map(|m| m.wake = wake).is_some();
+            if found {
+                s.save();
+            }
+            found
+        });
+    }
+    let mut preview = None;
+    let wants_preview = {
+        let live = state.live.lock().unwrap();
+        // Pas d'aperçu quand la dernière image de la session est là (comme sur Mac).
+        live.get(&c.id).is_none_or(|l| l.last.is_none() && l.preview_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)))
+    };
+    if info.is_some() && wants_preview {
+        if let Ok(jpeg) = console.preview(1280) {
+            if !jpeg.is_empty() {
+                preview = Some(data_url(&jpeg));
+            }
+        }
+    }
+    let mut live = state.live.lock().unwrap();
+    let l = live.entry(c.id.clone()).or_default();
+    // La Station suivie après un redémarrage ou une mise à jour : son état
+    // (version, installation, redémarrage) compte aussi.
+    let station_changed = info.as_ref().is_some_and(|i| l.info.as_ref().map(|o| &o.station) != Some(&i.station));
+    let changed = l.online != online || preview.is_some() || station_changed || wake_changed;
+    l.online = online;
+    if info.is_some() {
+        l.info = info;
+    }
+    if let Some(p) = preview {
+        l.preview = Some(p);
+        l.preview_at = Some(Instant::now());
+    }
+    changed
+}
+
+/// Toutes les 8 s : chaque ordinateur, sauf celui de la session.
 fn poll(app: AppHandle) {
     loop {
         let state = app.state::<UiState>();
@@ -384,44 +476,28 @@ fn poll(app: AppHandle) {
             if in_session.as_deref() == Some(c.id.as_str()) {
                 continue;
             }
-            let console = console_for(&c);
-            let info = console.info().ok();
-            let online = Some(info.is_some());
-            let mut preview = None;
-            let wants_preview = {
-                let live = state.live.lock().unwrap();
-                // Pas d'aperçu quand la dernière image de la session est là (comme sur Mac).
-                live.get(&c.id).is_none_or(|l| l.last.is_none() && l.preview_at.is_none_or(|t| t.elapsed() > Duration::from_secs(60)))
-            };
-            if info.is_some() && wants_preview {
-                if let Ok(jpeg) = console.preview(1280) {
-                    if !jpeg.is_empty() {
-                        preview = Some(format!(
-                            "data:image/jpeg;base64,{}",
-                            base64::engine::general_purpose::STANDARD.encode(jpeg)
-                        ));
-                    }
-                }
-            }
-            let mut live = state.live.lock().unwrap();
-            let l = live.entry(c.id.clone()).or_default();
-            if l.online != online || preview.is_some() || (info.is_some() && l.info.is_none()) {
-                changed = true;
-            }
-            l.online = online;
-            if info.is_some() {
-                l.info = info;
-            }
-            if let Some(p) = preview {
-                l.preview = Some(p);
-                l.preview_at = Some(Instant::now());
-            }
+            changed |= refresh(&app, &c);
         }
         if changed {
             emit_computers(&app);
         }
         std::thread::sleep(Duration::from_secs(8));
     }
+}
+
+/// Un ordinateur tout de suite : « Réessayer » à l'accueil, et le suivi de
+/// la Station qui redémarre ou se met à jour (plus souvent que toutes les 8 s).
+#[tauri::command(async)]
+fn poll_now(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<UiState>();
+    if state.session.lock().unwrap().as_ref().is_some_and(|r| r.id == id) {
+        return Ok(());
+    }
+    let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    refresh(&app, &c);
+    // Toujours : l'accueil sort de « Recherche… » même si rien n'a changé.
+    emit_computers(&app);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -506,7 +582,7 @@ fn parse_link(link: String) -> Result<Candidate, String> {
 
 /// Vérifie le compte auprès de la console (et son certificat), puis retient
 /// l'ordinateur et son mot de passe.
-fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str) -> Result<String, String> {
+fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_code: bool) -> Result<String, String> {
     let console = Console::new(&candidate.host, candidate.port, user, password, candidate.fingerprint.clone());
     let info = console.info().map_err(|e| e.to_string())?;
     let fingerprint = candidate.fingerprint.clone().or_else(|| console.fingerprint_seen());
@@ -527,6 +603,8 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str) -> Re
             gpu: info.gpu.clone(),
             settings: Settings::default(),
             last: None,
+            by_code,
+            wake: info.wake.clone(),
         })
     });
     if !store::set_password(&id, user, password) {
@@ -539,7 +617,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str) -> Re
 
 #[tauri::command(async)]
 fn add_computer(app: AppHandle, candidate: Candidate, user: String, password: String) -> Result<String, String> {
-    add(&app, &candidate, user.trim(), &password)
+    add(&app, &candidate, user.trim(), &password, false)
 }
 
 /// Code à six chiffres envoyé à la console, à y accepter.
@@ -570,7 +648,7 @@ fn pair_poll(app: AppHandle) -> Result<String, String> {
         PairStatus::Accepted { username, password } => {
             // La demande n'est oubliée qu'une fois l'ordinateur ajouté : la
             // console ne redonne pas ce compte.
-            let id = add(&app, &candidate, &username, &password)?;
+            let id = add(&app, &candidate, &username, &password, true)?;
             *state.pairing.lock().unwrap() = None;
             Ok(id)
         }
@@ -580,6 +658,74 @@ fn pair_poll(app: AppHandle) -> Result<String, String> {
 #[tauri::command(async)]
 fn pair_cancel(state: tauri::State<'_, UiState>) {
     *state.pairing.lock().unwrap() = None;
+}
+
+/// Admin de l'ordinateur `id` (compte et empreinte retenus).
+fn console_of(app: &AppHandle, id: &str) -> Result<Console, String> {
+    let c = app.state::<UiState>().with_store(|s| s.get(id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    Ok(console_for(&c))
+}
+
+/// Refus d'une commande de la Station, comme `StationError::to_json` : `kind`
+/// (`in_session` : redemander avec `force` coupe la session de `device` ;
+/// `too_soon` : attendre `seconds` ; `nothing_to_install`, `requires_setup`,
+/// `busy`, `unsupported`, `other`) et `message`, dans la langue de l'app.
+fn station_refusal(message: String) -> serde_json::Value {
+    serde_json::json!({ "kind": "other", "message": message, "device": null, "seconds": null })
+}
+
+/// L'état de la Station change tout de suite à l'accueil (redémarrage ou
+/// installation en cours), sans attendre le relevé suivant.
+fn mark_station(app: &AppHandle, id: &str, change: impl FnOnce(&mut kybernow_core::console::StationInfo)) {
+    let state = app.state::<UiState>();
+    if let Some(station) = state.live.lock().unwrap().get_mut(id).and_then(|l| l.info.as_mut()).and_then(|i| i.station.as_mut()) {
+        change(station);
+    }
+    emit_computers(app);
+}
+
+/// « Redémarrer la Station » dans les réglages de l'ordinateur `id` : Admin
+/// et le serveur Kyber s'arrêtent puis repartent, Kyber d'abord (environ
+/// 30 secondes, pendant lesquelles Admin ne répond pas). `force` : même si un
+/// appareil est en session (elle est coupée). Refus : voir `station_refusal`.
+#[tauri::command(async)]
+fn station_restart(app: AppHandle, id: String, force: bool) -> Result<(), serde_json::Value> {
+    let console = console_of(&app, &id).map_err(station_refusal)?;
+    console.station_restart(Some(&system::device_info().id), force).map_err(|e| e.to_json())?;
+    log::info!("redémarrage de la Station de {} demandé", console.host());
+    mark_station(&app, &id, |s| s.restarting = true);
+    Ok(())
+}
+
+/// « Mettre à jour la Station » : la même installation qu'« Installer
+/// maintenant » dans Admin ; rend la version installée. Bloque le temps
+/// qu'Admin télécharge le paquet. Refus : voir `station_refusal`.
+#[tauri::command(async)]
+fn station_update(app: AppHandle, id: String, force: bool) -> Result<String, serde_json::Value> {
+    let console = console_of(&app, &id).map_err(station_refusal)?;
+    let version = console.station_update(Some(&system::device_info().id), force).map_err(|e| e.to_json())?;
+    log::info!("mise à jour de la Station de {} vers {version} lancée", console.host());
+    mark_station(&app, &id, |s| s.update.installing = true);
+    Ok(version)
+}
+
+/// « Ouvrir Admin » : son adresse dans le navigateur par défaut.
+#[tauri::command(async)]
+fn open_admin(app: AppHandle, id: String) -> Result<(), String> {
+    shell::open_url(&console_of(&app, &id)?.admin_url())
+}
+
+/// « Réveiller l'ordinateur » `id` (hors ligne) : le paquet magique vers ses
+/// cartes réseau gardées (`wake` de `Computer`, voir `kybernow_core::wake`),
+/// en diffusion et en direct. Rend le nombre de paquets partis. Refus, dans
+/// la langue de l'app : aucune carte connue (Station d'avant la 0.5.0, ou
+/// jamais vue allumée depuis), ou aucun paquet parti.
+#[tauri::command(async)]
+fn wake(app: AppHandle, id: String) -> Result<usize, String> {
+    let c = app.state::<UiState>().with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    let sent = kybernow_core::wake::send(&c.wake).map_err(|e| e.to_string())?;
+    log::info!("réveil de {} : {sent} paquets envoyés", c.name);
+    Ok(sent)
 }
 
 #[tauri::command(async)]
@@ -631,6 +777,7 @@ struct UiEvents {
     id: String,
     /// Profil et format montrés dans la barre (le profil peut changer en session).
     label: Arc<Mutex<BarLabel>>,
+    sent: Arc<Mutex<Sent>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -646,6 +793,12 @@ struct Phase {
     detail: Option<String>,
 }
 
+/// `session-station-restarting` : la Station redémarre en dernier recours.
+#[derive(Clone, Serialize)]
+struct StationRestarting {
+    id: String,
+}
+
 impl HostEvents for UiEvents {
     fn status(&self, s: &Status) {
         let (phase, detail) = match s {
@@ -654,13 +807,27 @@ impl HostEvents for UiEvents {
             Status::FirstImages => ("first_images", None),
             Status::Streaming => ("streaming", None),
             Status::Reconnecting { attempt, max } => ("reconnecting", Some(format!("{attempt}/{max}"))),
+            // L'étape « Connexion », puis `session-station-restarting` (ci-dessous).
+            Status::StationRestarting => ("connecting", None),
             Status::Ending => ("ending", None),
             Status::Ended { error, .. } => ("ended", error.clone()),
         };
         let _ = self.app.emit("session-status", Phase { id: self.id.clone(), phase, detail });
+        if matches!(s, Status::StationRestarting) {
+            // Dernier recours de la connexion : « La Station redémarre… »
+            // jusqu'au prochain `session-status` (voir ui/src/lib/api.ts).
+            let _ = self.app.emit("session-station-restarting", StationRestarting { id: self.id.clone() });
+        }
     }
 
     fn stats(&self, s: &Stats) {
+        // L'image telle que l'ordinateur l'envoie (sans écran virtuel, la
+        // taille de son écran, pas celle demandée).
+        if s.width > 0 && s.height > 0 {
+            let mut sent = self.sent.lock().unwrap();
+            sent.mode.width = s.width;
+            sent.mode.height = s.height;
+        }
         let _ = self.app.emit_to("bar", "stats", s);
     }
 
@@ -710,20 +877,32 @@ impl HostEvents for UiEvents {
             snapshot::save(&self.id, jpeg);
             state.live.lock().unwrap().entry(self.id.clone()).or_default().last = Some(data_url(jpeg));
         }
-        if s.error.is_none() && s.seconds > 0 {
+        // Une session d'au moins 3 s qui a mesuré sa latence : la rubrique
+        // Statistiques de cet ordinateur la montre.
+        if s.seconds >= 3 && s.median_ms.is_some() {
             let at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
+            let last = {
+                let sent = self.sent.lock().unwrap();
+                let m = sent.mode;
+                LastSession {
+                    median_ms: s.median_ms,
+                    p95_ms: s.p95_ms,
+                    seconds: s.seconds,
+                    at,
+                    width: Some(m.width),
+                    height: Some(m.height),
+                    refresh: Some(m.refresh),
+                    codec: Some(sent.settings.codec.label().into()),
+                    mbps: Some(sent.settings.bitrate(m.width, m.height, m.refresh) / 1_000_000),
+                    label: String::new(),
+                }
+            };
             state.with_store(|st| {
                 if let Some(c) = st.get_mut(&self.id) {
-                    c.last = Some(LastSession {
-                        median_ms: s.median_ms,
-                        p95_ms: s.p95_ms,
-                        seconds: s.seconds,
-                        label: self.label.lock().unwrap().label.clone(),
-                        at,
-                    });
+                    c.last = Some(last);
                     st.save();
                 }
             });
@@ -766,8 +945,9 @@ impl HostEvents for UiEvents {
 }
 
 /// Réglages de la session et mode de l'écran pour un ordinateur, d'après ses
-/// réglages et ce que ce PC sait décoder.
-fn session_plan(c: &Computer, pc: &ThisPc) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
+/// réglages, ce que ce PC sait décoder et « Sur batterie » des réglages de
+/// l'app (`lighten` : alléger, et ce PC est sur batterie).
+fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
     let s = &c.settings;
     let choices = Choices {
         profile: Profile::parse(&s.profile),
@@ -777,7 +957,7 @@ fn session_plan(c: &Computer, pc: &ThisPc) -> (kybernow_core::profile::StreamSet
         reliable: s.reliable,
         max_4k: s.max_4k && s.custom.is_none(),
         size: s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24),
-        lighten: s.battery == "alleger" && pc::on_battery(),
+        lighten,
     };
     let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };
     let (settings, mode) = plan(&choices, caps, system::screen_mode());
@@ -819,7 +999,8 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         }
     };
     let s = &c.settings;
-    let (settings, mode, label) = session_plan(&c, &pc);
+    let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
+    let (settings, mode, label) = session_plan(&c, &pc, lighten);
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -834,8 +1015,8 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         mode,
         audio_channels,
         virtual_display: s.virtual_display,
-        settings,
-        auto_reconnect: true,
+        settings: settings.clone(),
+        auto_reconnect: s.auto_reconnect,
         gamepad_xbox360: s.gamepad != "fidele",
         clipboard: s.clipboard,
         recovery: Default::default(),
@@ -853,6 +1034,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         return Err(t("errors.session_already_open", &[]));
     }
     let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
+    let sent = Arc::new(Mutex::new(Sent { settings, mode }));
     let host = SessionHost::start(
         c.name.clone(),
         params,
@@ -862,10 +1044,11 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
             fullscreen: true,
             mouse,
             window_size: system::initial_window_size(mode),
+            title_stats: false,
         },
-        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone() }),
+        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone(), sent: sent.clone() }),
     );
-    *running = Some(Running { id, host, bar });
+    *running = Some(Running { id, host, bar, sent });
     Ok(())
 }
 
@@ -891,7 +1074,7 @@ fn session_command(state: tauri::State<'_, UiState>, command: String) {
 #[tauri::command(async)]
 fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     let state = app.state::<UiState>();
-    let Some((id, bar)) = state.session.lock().unwrap().as_ref().map(|r| (r.id.clone(), r.bar.clone())) else {
+    let Some((id, bar, sent)) = state.session.lock().unwrap().as_ref().map(|r| (r.id.clone(), r.bar.clone(), r.sent.clone())) else {
         return Err(t("errors.no_session", &[]));
     };
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
@@ -908,7 +1091,9 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     })?;
     emit_computers(&app);
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
-    let (settings, _, label) = session_plan(&c, &pc);
+    let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
+    let (settings, _, label) = session_plan(&c, &pc, lighten);
+    sent.lock().unwrap().settings = settings.clone();
     let shown = BarLabel { label, profile };
     *bar.lock().unwrap() = shown.clone();
     let _ = app.emit_to("bar", "bar-label", &shown);
@@ -968,7 +1153,13 @@ pub fn run(args: Vec<String>) {
             check_update,
             set_channel,
             set_language,
-            install_update
+            set_battery,
+            install_update,
+            poll_now,
+            station_restart,
+            station_update,
+            open_admin,
+            wake
         ])
         .setup(|app| {
             let handle = app.handle().clone();

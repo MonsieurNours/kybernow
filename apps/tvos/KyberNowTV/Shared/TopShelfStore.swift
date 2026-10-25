@@ -8,7 +8,7 @@ struct TopShelfEntry: Codable, Identifiable {
     var id: UUID
     var name: String
     var online: Bool
-    /// « réseau local », « par VPN », « hors ligne ».
+    /// « en ligne », « hors ligne ».
     var reach: String
     var lastSession: Date?
     /// Image du dernier passage (ou aperçu), dans le dossier partagé.

@@ -147,12 +147,12 @@
 
   let serviceBusy = $state(false)
 
-  async function service(action: 'start' | 'stop' | 'restart') {
+  async function service(action: 'start' | 'stop') {
     if (action === 'stop' && !confirm(t('system.server.confirmStop'))) return
     serviceBusy = true
     try {
       await api.service(action)
-      notify('ok', t(action === 'stop' ? 'system.server.stopped' : action === 'start' ? 'system.server.started' : 'system.server.restarted'))
+      notify('ok', t(action === 'stop' ? 'system.server.stopped' : 'system.server.started'))
       await refreshStatus()
     } catch (e) {
       notify('error', errorText(e))
@@ -160,6 +160,62 @@
       serviceBusy = false
     }
   }
+
+  // La Station entière (Kyber et Admin) redémarre : un appareil en session,
+  // Admin répond 409 (`session`) et l'on demande avant de couper.
+  let stationRestarting = $state(false)
+  let stationTimer: ReturnType<typeof setInterval> | undefined
+
+  async function restartStation() {
+    serviceBusy = true
+    try {
+      try {
+        await api.stationRestart(false)
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === 'session')) throw e
+        if (!confirm(t('system.station.confirmForce', { message: e.message }))) return
+        await api.stationRestart(true)
+      }
+      stationRestarting = true
+      waitForStation()
+      // La carte d'attente est en haut de la page : on la montre.
+      tick().then(() => document.getElementById('redemarrage')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    } catch (e) {
+      notify('error', errorText(e))
+    } finally {
+      serviceBusy = false
+    }
+  }
+
+  // Admin s'arrête avec la Station, et ses sessions avec lui : on attend que
+  // `GET /api/session` réponde de nouveau, après une coupure ou sans la
+  // session d'avant (Admin redémarré). L'écran de connexion prend la suite.
+  function waitForStation() {
+    const started = Date.now()
+    let down = false
+    clearInterval(stationTimer)
+    stationTimer = setInterval(async () => {
+      try {
+        const s = await api.session()
+        if (down || !s.authenticated) {
+          clearInterval(stationTimer)
+          stationRestarting = false
+          notify('ok', t('system.station.restarted'))
+          refreshStatus()
+          return
+        }
+      } catch {
+        down = true
+      }
+      if (Date.now() - started > 180_000) {
+        clearInterval(stationTimer)
+        stationRestarting = false
+        notify('error', t('system.station.timeout'))
+      }
+    }, 2000)
+  }
+
+  $effect(() => () => clearInterval(stationTimer))
 
   // La carte qui encode : celle de l'encodeur réglé, sinon la première
   // (NVIDIA, puis AMD, puis Intel, comme à l'installation).
@@ -206,6 +262,22 @@
       default:
         return { dot: 'bad', text: t('system.server.missing') }
     }
+  })
+
+  // Réveil par le réseau : la première carte (Ethernet d'abord), ce que
+  // Windows en permet, et quoi faire sinon. Le Wi-Fi ne réveille pas toujours.
+  const WAKE_KINDS: Record<string, string> = { ethernet: 'Ethernet', wifi: 'Wi-Fi' }
+  const wakeLine = $derived.by(() => {
+    const cards = status?.wake
+    if (!cards) return null
+    const card = cards[0]
+    if (!card) return { dot: 'bad', state: t('system.wake.none'), text: t('system.wake.noneHelp'), card: '' }
+    const kind = WAKE_KINDS[card.kind] ?? card.kind
+    const wifi = card.kind === 'wifi' ? ` ${t('system.wake.wifiHelp')}` : ''
+    const name = card.name ? t('system.wake.card', { kind, name: card.name }) : t('system.wake.cardKind', { kind })
+    if (card.armed === true) return { dot: 'ok', state: t('system.wake.allowed'), text: t('system.wake.allowedHelp') + wifi, card: name }
+    if (card.armed === false) return { dot: 'warn', state: t('system.wake.notAllowed'), text: t('system.wake.notAllowedHelp') + wifi, card: name }
+    return { dot: 'warn', state: t('system.wake.unknown'), text: t('system.wake.unknownHelp') + wifi, card: name }
   })
 
   // Journaux
@@ -406,6 +478,18 @@
 </header>
 
 <div class="space-body">
+  {#if stationRestarting}
+    <!-- La Station redémarre (Admin compris) : la page attend son retour. -->
+    <section id="redemarrage" class="card feature update" aria-live="polite">
+      <div class="update-text">
+        <span class="lbl signal">{t('system.station.restarting')}</span>
+        <h2 class="disp big">KyberNow Station</h2>
+        <p class="lead">{t('system.station.restartingLead')}</p>
+      </div>
+      <div class="progress" aria-hidden="true"><span></span></div>
+    </section>
+  {/if}
+
   <!-- Mises à jour -->
   {#if installing}
     <section id="maj" class="card feature update" aria-live="polite">
@@ -486,13 +570,15 @@
       <div>
         <h2 id="t-srv">{t('system.server.title')}</h2>
         <span class="state"><span class="dot {serviceLine.dot}"></span>{serviceLine.text}{status?.service.simulated ? ` ${t('system.server.simulated')}` : ''}</span>
+        <span class="sub hint" id="station-hint">{t('system.station.restartHint')}</span>
       </div>
       <div class="buttons">
         {#if status?.service.state === 'stopped'}
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('start')}><Icon name="play" size={15} />{t('system.server.start')}</button>
-        {:else}
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('restart')}><Icon name="restart" size={15} />{t('system.server.restart')}</button>
-          <button type="button" class="ghost" disabled={serviceBusy} onclick={() => service('stop')}><Icon name="stop" size={15} />{t('system.server.stop')}</button>
+          <button type="button" class="ghost" disabled={serviceBusy || stationRestarting} onclick={() => service('start')}><Icon name="play" size={15} />{t('system.server.start')}</button>
+        {/if}
+        <button type="button" class="ghost" disabled={serviceBusy || stationRestarting || !!installing} aria-describedby="station-hint" onclick={restartStation}><Icon name="restart" size={15} />{t('system.station.restart')}</button>
+        {#if status?.service.state !== 'stopped'}
+          <button type="button" class="ghost" disabled={serviceBusy || stationRestarting} onclick={() => service('stop')}><Icon name="stop" size={15} />{t('system.server.stop')}</button>
         {/if}
       </div>
     </div>
@@ -501,6 +587,16 @@
       <div class="set">
         <div><h3>{t('system.server.trayTitle')}</h3><p>{f.help} {t('system.server.trayNote')}</p></div>
         <Switch label={f.label} checked={!!value('network.tray')} onchange={(v) => setValues({ 'network.tray': v })} />
+      </div>
+    {/if}
+    {#if wakeLine}
+      <div class="set">
+        <div>
+          <h3>{t('system.wake.title')}</h3>
+          <p>{wakeLine.text}</p>
+          {#if wakeLine.card}<p class="wake-card">{wakeLine.card}{status?.service.simulated ? ` ${t('system.server.simulated')}` : ''}</p>{/if}
+        </div>
+        <span class="state"><span class="dot {wakeLine.dot}"></span>{wakeLine.state}</span>
       </div>
     {/if}
     <div class="kv-grid">
@@ -788,6 +884,23 @@
 
   .card-head .wide {
     max-width: 70ch;
+  }
+
+  .card-head .hint {
+    max-width: 48ch;
+  }
+
+  .set .state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .set .wake-card {
+    color: var(--text-2);
   }
 
   .buttons {

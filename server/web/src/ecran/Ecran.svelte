@@ -7,6 +7,7 @@
   import { onMount } from 'svelte'
   import { backend, type Session as ConsoleSession } from './backend'
   import { loadPrefs, savePrefs, type Prefs } from './prefs'
+  import { takeNotice, takeResume } from './station.svelte'
   import Gate from './Gate.svelte'
   import Home from './Home.svelte'
   import Session from './Session.svelte'
@@ -16,6 +17,10 @@
   let prefs = $state<Prefs>(loadPrefs())
   let inSession = $state(false)
   let loadError = $state(false)
+  /** Phrase laissée par un redémarrage ou une mise à jour de la Station. */
+  const notice = takeNotice()
+  /** Dernier recours de la connexion : elle reprend une fois le mot de passe donné. */
+  let resume = takeResume()
 
   $effect(() => savePrefs($state.snapshot(prefs)))
 
@@ -23,6 +28,10 @@
     try {
       session = await backend.session()
       if (session.hostname) document.title = `${session.hostname} · KyberNow Link`
+      if (session.authenticated && resume) {
+        resume = false
+        inSession = true
+      }
     } catch {
       loadError = true
     }
@@ -41,7 +50,7 @@
     <a class="primary" href="/">{t('web.app.openConsole')}</a>
   </div>
 {:else if !session.authenticated}
-  <Gate hostname={session.hostname ?? null} onDone={load} />
+  <Gate hostname={session.hostname ?? null} {notice} onDone={load} />
 {:else if inSession}
   <Session
     hostname={session.hostname ?? t('web.app.thisComputer')}
@@ -59,7 +68,7 @@
     }}
   />
 {:else}
-  <Home hostname={session.hostname ?? t('web.app.thisComputer')} bind:prefs onConnect={() => (inSession = true)} onSignedOut={load} />
+  <Home hostname={session.hostname ?? t('web.app.thisComputer')} bind:prefs {notice} onConnect={() => (inSession = true)} onSignedOut={load} />
 {/if}
 
 <style>

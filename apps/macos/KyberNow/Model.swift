@@ -17,22 +17,23 @@ enum Profile: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Phrase courte, sous le sélecteur de l'accueil.
+    /// Phrase du profil, sous le sélecteur (accueil et réglages ; docs/link-ui.md).
     var hint: String {
         switch self {
-        case .jeu: return String(localized: "Latence minimale, image à la fréquence de cet écran, manette prête.")
-        case .bureau: return String(localized: "Texte net (4:4:4), aucune image perdue, débit plus élevé.")
-        case .max: return String(localized: "Sans compromis : latence minimale, 4:4:4 et gros débit. Idéal en réseau local.")
+        case .jeu: return String(localized: "La réactivité d'abord, pour jouer.")
+        case .bureau: return String(localized: "Un texte net, pour travailler.")
+        case .max: return String(localized: "La meilleure image que cet appareil affiche.")
         }
     }
 
-    /// Phrase de la page Réglages.
-    var summary: String {
-        switch self {
-        case .jeu: return String(localized: "Jeu : latence minimale, image fluide.")
-        case .bureau: return String(localized: "Bureau : texte net, aucune image perdue.")
-        case .max: return String(localized: "Max : sans compromis. Latence minimale, 4:4:4, gros débit.")
-        }
+    /// Phrase d'un profil, ou de « Personnalisé » (`nil`).
+    static func hint(_ profile: Profile?) -> String {
+        profile?.hint ?? String(localized: "Vos propres réglages.")
+    }
+
+    /// Nom d'un profil, ou « Personnalisé » (`nil`).
+    static func label(_ profile: Profile?) -> String {
+        profile?.label ?? String(localized: "Personnalisé")
     }
 }
 
@@ -52,10 +53,9 @@ enum Transport: String, Codable, CaseIterable {
 
     var label: String { self == .fast ? String(localized: "Rapide") : String(localized: "Fiable") }
 
-    var hint: String {
-        self == .fast
-            ? String(localized: "Une image perdue est réparée ou sautée, jamais attendue : la latence reste basse.")
-            : String(localized: "Chaque image arrive, quitte à attendre un peu sur un réseau chargé.")
+    /// Aide du réglage « Transport de l'image » (docs/link-ui.md).
+    static var help: String {
+        String(localized: "Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d'un peu de délai.")
     }
 }
 
@@ -71,14 +71,14 @@ enum MouseChoice: String, Codable, CaseIterable {
     var label: String {
         switch self {
         case .auto: return String(localized: "Auto")
-        case .desktop: return String(localized: "Bureau")
-        case .game: return String(localized: "Jeu")
+        case .desktop: return String(localized: "Souris du bureau")
+        case .game: return String(localized: "Souris des jeux")
         }
     }
 
     var hint: String {
         switch self {
-        case .auto: return String(localized: "Mode jeu dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran restent en mode bureau.")
+        case .auto: return String(localized: "Souris des jeux dès qu'un jeu est en plein écran sur l'ordinateur et cache son pointeur ; souris du bureau le reste du temps. Les navigateurs et lecteurs vidéo en plein écran gardent la souris du bureau.")
         case .desktop: return String(localized: "Le pointeur du Mac, toujours : bureau, vidéos, jeux à la souris (stratégie, cartes).")
         case .game: return String(localized: "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser.")
         }
@@ -102,7 +102,7 @@ enum AudioChoice: String, Codable, CaseIterable {
         case .stereo: return String(localized: "Stéréo")
         case .surround51: return "5.1"
         case .surround71: return "7.1"
-        case .off: return String(localized: "Aucun")
+        case .off: return String(localized: "Sur l'ordinateur")
         }
     }
 
@@ -243,7 +243,7 @@ struct ConnectionSettings: Codable, Hashable {
         return o
     }
 
-    var profileLabel: String { profile?.label ?? String(localized: "Personnalisé") }
+    var profileLabel: String { Profile.label(profile) }
 
     /// Profil dit à la console (activité, fil des événements) : toujours le
     /// libellé français, quelle que soit la langue de l'interface.
@@ -313,12 +313,25 @@ struct Host: Codable, Identifiable, Hashable {
     /// Empreinte du certificat de la console, retenue au premier contact.
     var consoleFingerprint: String?
     var settings = ConnectionSettings()
+    /// Début de la dernière session (l'ordre de l'accueil, « jamais ouvert »).
     var lastSession: Date?
-    /// Latence médiane de la dernière session, en millisecondes.
+    /// Dernière session d'au moins 3 s (rubrique Statistiques) : latence
+    /// médiane et 95e centile en millisecondes, durée.
     var lastLatencyMs: Double?
-    /// 95e centile de la dernière session, et sa durée.
     var lastLatencyP95Ms: Double?
     var lastDuration: TimeInterval?
+    /// Ce qu'elle a transmis : définition, fréquence, format, débit en Mbit/s.
+    var lastWidth: Int?
+    var lastHeight: Int?
+    var lastRefresh: Int?
+    var lastCodec: VideoCodec?
+    var lastMbps: Int?
+    /// Ajouté par code à six chiffres : un compte propre à cet appareil,
+    /// créé par Admin à l'accord.
+    var pairedByCode: Bool?
+    /// Cartes réseau de l'ordinateur, pour le réveiller par le réseau :
+    /// apprises d'Admin à chaque info (gardées si la nouvelle liste est vide).
+    var wake: [WakeTarget]?
 
     init(name: String, address: String, consolePort: UInt16, username: String) {
         self.name = name
@@ -327,10 +340,27 @@ struct Host: Codable, Identifiable, Hashable {
         self.username = username
     }
 
+    /// Fin d'une session commencée à `start` (l'image arrivée) : une session
+    /// de moins de 3 s ne remplace pas la précédente dans les Statistiques.
+    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int) {
+        let duration = Date().timeIntervalSince(start)
+        guard duration >= 3 else { return }
+        lastSession = start
+        lastDuration = duration
+        lastLatencyMs = latency?.median
+        lastLatencyP95Ms = latency?.p95
+        lastWidth = width > 0 ? width : nil
+        lastHeight = height > 0 ? height : nil
+        lastRefresh = refresh > 0 ? refresh : nil
+        lastCodec = codec
+        lastMbps = mbps > 0 ? mbps : nil
+    }
+
     // Lecture tolérante : les ordinateurs enregistrés par les versions
-    // précédentes n'avaient qu'un profil.
+    // précédentes n'avaient qu'un profil, ni le détail de la dernière session.
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
+        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, pairedByCode, wake
     }
 
     init(from decoder: Decoder) throws {
@@ -346,6 +376,13 @@ struct Host: Codable, Identifiable, Hashable {
         lastLatencyMs = try c.decodeIfPresent(Double.self, forKey: .lastLatencyMs)
         lastLatencyP95Ms = try c.decodeIfPresent(Double.self, forKey: .lastLatencyP95Ms)
         lastDuration = try c.decodeIfPresent(TimeInterval.self, forKey: .lastDuration)
+        lastWidth = try? c.decodeIfPresent(Int.self, forKey: .lastWidth)
+        lastHeight = try? c.decodeIfPresent(Int.self, forKey: .lastHeight)
+        lastRefresh = try? c.decodeIfPresent(Int.self, forKey: .lastRefresh)
+        lastCodec = try? c.decodeIfPresent(VideoCodec.self, forKey: .lastCodec)
+        lastMbps = try? c.decodeIfPresent(Int.self, forKey: .lastMbps)
+        pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
+        wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         if let s = try c.decodeIfPresent(ConnectionSettings.self, forKey: .settings) {
             settings = s
         } else if let p = try c.decodeIfPresent(Profile.self, forKey: .profile) {
@@ -367,33 +404,64 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(lastLatencyMs, forKey: .lastLatencyMs)
         try c.encodeIfPresent(lastLatencyP95Ms, forKey: .lastLatencyP95Ms)
         try c.encodeIfPresent(lastDuration, forKey: .lastDuration)
+        try c.encodeIfPresent(lastWidth, forKey: .lastWidth)
+        try c.encodeIfPresent(lastHeight, forKey: .lastHeight)
+        try c.encodeIfPresent(lastRefresh, forKey: .lastRefresh)
+        try c.encodeIfPresent(lastCodec, forKey: .lastCodec)
+        try c.encodeIfPresent(lastMbps, forKey: .lastMbps)
+        try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
+        try c.encodeIfPresent(wake, forKey: .wake)
     }
 }
 
-/// État d'un ordinateur vu depuis ce Mac, rafraîchi en continu.
+/// Ce qui empêche d'entrer dans un ordinateur qui répond pourtant.
+enum HostProblem: Equatable {
+    /// Admin refuse le compte (mot de passe changé ou compte retiré).
+    case passwordRefused
+    /// Le certificat d'Admin n'est plus celui retenu (Station réinstallée).
+    case certificateChanged
+}
+
+/// État d'un ordinateur vu depuis cet appareil, rafraîchi en continu.
 struct HostStatus: Equatable {
     var online: Bool
     var info: HostInfo?
+    var problem: HostProblem? = nil
 }
 
 @MainActor
 final class HostStore: ObservableObject {
     @Published private(set) var hosts: [Host] = []
     @Published private(set) var status: [UUID: HostStatus] = [:]
+    /// Redémarrage ou mise à jour de la Station en cours, par ordinateur
+    /// (rubrique « Station », LinkUI.swift).
+    @Published var stationTasks: [UUID: StationTask] = [:]
+    /// Un appareil est en session : « Redémarrer quand même » à confirmer.
+    @Published var stationConfirm: StationConfirm?
+    /// Réveil par le réseau en cours (« Réveil de l'ordinateur… »), par ordinateur.
+    @Published private(set) var waking: Set<UUID> = []
     /// Image de chaque ordinateur sur l'accueil.
     let imagery = HostImagery()
     private let key = "hosts"
     private var polling: Task<Void, Never>?
+    /// Ordinateurs de démonstration (`-demo YES`, en Debug) : leurs propres
+    /// préférences, mots de passe en mémoire, états posés par l'app, aucun
+    /// appel réseau.
+    let demo: Bool
+    private let defaults: UserDefaults
+    private var demoPasswords: [UUID: String] = [:]
     /// Appelé après chaque ajout, modification ou retrait : l'app Mac publie
     /// ses ordinateurs dans iCloud pour l'Apple TV (CloudPublisher).
     var didSave: (([Host]) -> Void)?
 
-    init() {
-        if let data = UserDefaults.standard.data(forKey: key),
+    init(demo: Bool = false) {
+        self.demo = demo
+        defaults = demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
+        if let data = defaults.data(forKey: key),
            let saved = try? JSONDecoder().decode([Host].self, from: data) {
             hosts = saved
         }
-        startPolling()
+        if !demo { startPolling() }
     }
 
     /// Le plus récemment utilisé d'abord.
@@ -403,14 +471,14 @@ final class HostStore: ObservableObject {
 
     private func save() {
         if let data = try? JSONEncoder().encode(hosts) {
-            UserDefaults.standard.set(data, forKey: key)
+            defaults.set(data, forKey: key)
         }
         didSave?(hosts)
     }
 
     func add(_ host: Host, password: String) {
         hosts.append(host)
-        Keychain.set(password, for: host.id)
+        setPassword(password, for: host.id)
         save()
         Task { await refresh(host) }
     }
@@ -429,12 +497,44 @@ final class HostStore: ObservableObject {
         imagery.forget(host)
         hosts.removeAll { $0.id == host.id }
         status[host.id] = nil
-        Keychain.delete(host.id)
+        stationTasks[host.id] = nil
+        if demo { demoPasswords[host.id] = nil } else { Keychain.delete(host.id) }
         save()
     }
 
     func password(for host: Host) -> String? {
-        Keychain.get(host.id)
+        demo ? demoPasswords[host.id] : Keychain.get(host.id)
+    }
+
+    private func setPassword(_ password: String, for id: UUID) {
+        if demo { demoPasswords[id] = password } else { Keychain.set(password, for: id) }
+    }
+
+    /// Nouveau mot de passe (rubrique Station, « Mot de passe refusé ») :
+    /// gardé, puis vérifié tout de suite auprès d'Admin.
+    func updatePassword(_ password: String, for host: Host) {
+        setPassword(password, for: host.id)
+        Task { await refresh(host) }
+    }
+
+    /// Nouvelle empreinte acceptée (Station réinstallée, empreinte comparée
+    /// à celle d'Admin) : retenue à la place de l'ancienne.
+    func trust(fingerprint: String, for host: Host) {
+        guard var h = self.host(host.id) else { return }
+        h.consoleFingerprint = fingerprint
+        update(h)
+        Task { await refresh(h) }
+    }
+
+    /// Empreinte que présente Admin en ce moment, sans la comparer à celle retenue.
+    func presentedFingerprint(of host: Host) async -> String? {
+        #if DEBUG
+        // Démonstration : une Station « réinstallée », pour l'écran de l'empreinte.
+        if demo { return "sha256:c41be0f2d79a3e58b6014c7dd2e95a1f03b8c6e4927d5a0f1e3b6c8d9a2f4e71" }
+        #endif
+        guard !demo else { return nil }
+        let probe = ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password(for: host) ?? "", fingerprint: nil)
+        return await probe.probeFingerprint()
     }
 
     // MARK: - En ligne ou pas
@@ -455,7 +555,7 @@ final class HostStore: ObservableObject {
     }
 
     func console(for host: Host) -> ConsoleClient? {
-        guard let password = password(for: host) else { return nil }
+        guard !demo, let password = password(for: host) else { return nil }
         return ConsoleClient(host: host.address, port: host.consolePort, username: host.username, password: password, fingerprint: host.consoleFingerprint)
     }
 
@@ -464,7 +564,13 @@ final class HostStore: ObservableObject {
         do {
             let info = try await console.info()
             status[host.id] = HostStatus(online: true, info: info)
-            // Jamais ouvert depuis ce Mac (ou image non gardée) : un aperçu à jour.
+            // Les cartes réseau pour le réveil : une liste vide (Station
+            // plus ancienne, carte absente) garde la précédente.
+            if !info.wake.isEmpty, var h = self.host(host.id), h.wake != info.wake {
+                h.wake = info.wake
+                update(h)
+            }
+            // Jamais ouvert depuis cet appareil (ou image non gardée) : un aperçu à jour.
             if imagery.wantsPreview(host) { await imagery.fetchPreview(for: host, console: console) }
             if host.consoleFingerprint == nil, let fp = console.fingerprint, var h = self.host(host.id) {
                 h.consoleFingerprint = fp
@@ -473,10 +579,54 @@ final class HostStore: ObservableObject {
         } catch ConsoleError.http(404, _) {
             // Console d'une version précédente, sans /api/stream/info : elle répond, donc en ligne.
             status[host.id] = HostStatus(online: true, info: nil)
+        } catch ConsoleError.http(401, _) {
+            // Elle répond, mais refuse le compte.
+            status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .passwordRefused)
+        } catch ConsoleError.certificateChanged {
+            status[host.id] = HostStatus(online: true, info: status[host.id]?.info, problem: .certificateChanged)
         } catch {
             status[host.id] = HostStatus(online: false, info: status[host.id]?.info)
         }
     }
+
+    // MARK: - Réveil par le réseau
+
+    /// L'app connaît une carte réseau de l'ordinateur : « Réveiller l'ordinateur ».
+    func canWake(_ host: Host) -> Bool {
+        !(self.host(host.id)?.wake ?? host.wake ?? []).isEmpty
+    }
+
+    /// « Réveiller l'ordinateur » : le paquet part, puis l'ordinateur est
+    /// sondé toutes les 2 s, 2 min au plus, jusqu'à ce qu'il soit en ligne.
+    func wake(_ host: Host) {
+        guard !waking.contains(host.id), let targets = self.host(host.id)?.wake, !targets.isEmpty else { return }
+        waking.insert(host.id)
+        Task {
+            if !demo {
+                // Un envoi parti suffit (la diffusion peut être refusée sur iPhone, iPad, Apple TV).
+                _ = await Wake.send(targets)
+            }
+            let start = Date()
+            while Date().timeIntervalSince(start) < 120, self.host(host.id) != nil {
+                try? await Task.sleep(for: .seconds(2))
+                #if DEBUG
+                if demo, Date().timeIntervalSince(start) > 8, let info = status[host.id]?.info {
+                    setDemoStatus(HostStatus(online: true, info: info), for: host.id)
+                }
+                #endif
+                await refresh(host)
+                if status[host.id]?.online == true { break }
+            }
+            waking.remove(host.id)
+        }
+    }
+
+    #if DEBUG
+    /// Démonstration : l'état d'un ordinateur, posé par l'app.
+    func setDemoStatus(_ s: HostStatus?, for id: UUID) {
+        status[id] = s
+    }
+    #endif
 }
 
 enum Keychain {

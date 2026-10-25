@@ -11,7 +11,7 @@ What is planned or still to try, and only here: the other documents describe wha
 - **iPad**: external display and Stage Manager.
 - **Android**: 1080p at 120 Hz on the Shield, end-to-end update from a published release, a tablet, a handheld console, DeX and ChromeOS; DualSense and Shield controller rumble on the Shield; sound losses on the Shield at 4K 60 (100 Mbit/s Ethernet) to check again over gigabit or at a lower bitrate.
 - **LG TVs**: latency on the G2 at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps; audio-video offset and added latency of 5.1 Dolby; Magic Remote as mouse: motion sent while the TV's pointer is hidden.
-- **Station**: the “For any connection” mode (virtual display created during the stream).
+- **Station**: the “For any connection” mode (virtual display created during the stream); on a real Windows PC, restarting and updating the Station from an app, the connection last resort, the network cards listed for waking, and a real wake from sleep and after a full shutdown.
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
 
 ## KyberNow Station and Admin
@@ -21,7 +21,7 @@ What is planned or still to try, and only here: the other documents describe wha
 - **KyberNow-signed audio driver** (EV certificate + Partner Center), should Steam's speakers no longer be enough.
 - **Attested virtual display driver** (EV + Partner Center), so SudoVDA's certificate no longer has to be added to the root authorities.
 - **Authenticode signing** of the installer, the Windows app and the manual update package (SignPath targeted; prerequisite: Windows binaries built in CI).
-- **Wake-on-LAN**: Admin gives the computer's MAC address to the apps, and every app offers to wake it (today: Android and Linux, address typed by hand).
+- **Wake on LAN on iPhone, iPad and Apple TV**: ask Apple for the multicast entitlement (`com.apple.developer.networking.multicast`), so the packet goes out by broadcast and not only directly.
 - **Controller API**: list what `kycontroller` exposes over HTTP (session state, metrics).
 - **Open question**: several simultaneous users on the same computer?
 

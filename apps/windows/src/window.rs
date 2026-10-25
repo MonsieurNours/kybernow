@@ -235,6 +235,8 @@ pub struct App {
     pub events: Arc<dyn crate::host::HostEvents>,
     /// Plein écran quand la fenêtre se montre.
     pub fullscreen: bool,
+    /// Mesures dans le titre (ligne de commande) ; sinon le nom seul.
+    title_stats: bool,
     /// Plein écran en ce moment (lu par le crochet clavier, sans verrou).
     fullscreen_now: AtomicBool,
     shown: AtomicBool,
@@ -255,6 +257,7 @@ impl App {
         shared: Arc<Shared>,
         events: Arc<dyn crate::host::HostEvents>,
         fullscreen: bool,
+        title_stats: bool,
     ) -> Arc<Self> {
         let app = Arc::new(Self {
             hwnd: AtomicIsize::new(0),
@@ -279,6 +282,7 @@ impl App {
             error: Mutex::new(None),
             events,
             fullscreen,
+            title_stats,
             fullscreen_now: AtomicBool::new(false),
             shown: AtomicBool::new(false),
             last_edge: Mutex::new(None),
@@ -337,11 +341,18 @@ impl App {
         }
     }
 
+    /// « {nom} · KyberNow Link » ; en ligne de commande, suivi de l'étape ou
+    /// des mesures (latence, définition, décodeur, images par seconde).
     fn title(&self) -> String {
+        let name = format!("{} · {}", self.host_name, crate::shell::DISPLAY_NAME);
+        if !self.title_stats {
+            return name;
+        }
         let status = self.status.lock().unwrap().clone();
         let detail = match status {
             None | Some(Status::Preparing) => t("window.preparing", &[]),
-            Some(Status::Connecting) => t("window.connecting", &[]),
+            // La Station redémarre en dernier recours : l'étape reste « Connexion ».
+            Some(Status::Connecting | Status::StationRestarting) => t("window.connecting", &[]),
             Some(Status::FirstImages) => t("window.first_images", &[]),
             Some(Status::Streaming) => {
                 let lat = self
@@ -368,7 +379,7 @@ impl App {
             Some(Status::Ending) => t("window.ending", &[]),
             Some(Status::Ended { .. }) => t("window.ended", &[]),
         };
-        format!("{} — {} · {detail}", crate::shell::DISPLAY_NAME, self.host_name)
+        format!("{name} · {detail}")
     }
 }
 

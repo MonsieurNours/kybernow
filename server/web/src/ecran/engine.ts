@@ -146,6 +146,15 @@ class LatencyWindow {
     return span > 0 ? Math.round((this.samples.length - 1) / span) : 0
   }
 
+  /** Médiane de bout en bout de la dernière seconde seulement. */
+  lastSecond(): number | null {
+    const from = performance.now() - 1000
+    const v = this.samples.filter((s) => s.t >= from).map((s) => s.total)
+    if (v.length < 3) return null
+    v.sort((a, b) => a - b)
+    return v[Math.floor(v.length / 2)]
+  }
+
   median(): Latency | null {
     if (this.samples.length < 5) return null
     const med = (k: 'total' | 'server' | 'network' | 'client') => {
@@ -188,8 +197,6 @@ export class Engine {
   /** Relance de l'image demandée (`stop_streaming`), en attente de `streaming_stopped`. */
   private restartWatch: ReturnType<typeof setTimeout> | null = null
   readonly latency = new LatencyWindow()
-  /** Médianes de toute la session (pour la console, à la fin). */
-  private sessionTotals: number[] = []
 
   constructor(
     private canvasId: string,
@@ -336,17 +343,9 @@ export class Engine {
     }
   }
 
-  /** Médiane de bout en bout des dernières secondes (et mémorisée pour la fin). */
+  /** Médiane de bout en bout des dernières secondes (signal de vie). */
   sample(): Latency | null {
-    const l = this.latency.median()
-    if (l) this.sessionTotals.push(l.total)
-    return l
-  }
-
-  sessionMedian(): number | null {
-    if (!this.sessionTotals.length) return null
-    const v = [...this.sessionTotals].sort((a, b) => a - b)
-    return v[Math.floor(v.length / 2)]
+    return this.latency.median()
   }
 
   /** Relance l'image sans se déconnecter (écran changé, erreur de capture) :

@@ -3,67 +3,67 @@
     "notInstaller": "This file does not contain KyberNow Link ({error}). Download the full installer again.",
     "cannotStart": "Setup could not start:\n\n{error}",
     "updateFailed": "The KyberNow Link update did not go through:\n\n{error}\n\nKyberNow Link is reopening. Details are in %LOCALAPPDATA%\\KyberNow\\setup.log.",
-    "webview2Ask": "Setup and the KyberNow Link app are displayed with WebView2, Microsoft's display engine (the one in Edge). It is missing on this PC.\n\nDownload and install it now? (about 2 MB, then Microsoft's installer)",
-    "webview2Failed": "WebView2 could not be installed: {error}\n\nMicrosoft's page will open: install “Microsoft Edge WebView2 Runtime”, then run this installer again.",
+    "webview2Ask": "To display their windows, setup and the KyberNow Link app need a Microsoft component, the one Edge uses (WebView2). It is missing on this PC.\n\nDownload and install it now? The download is about 2 MB, then Microsoft's installer does the rest.",
+    "webview2Failed": "The Microsoft component (WebView2) could not be installed: {error}\n\nMicrosoft's page will open: install “Microsoft Edge WebView2 Runtime”, then run this installer again.",
     "windowTitle": "KyberNow Link Setup"
   },
   "uninstall": {
     "title": "Uninstall KyberNow Link",
-    "confirm": "KyberNow Link will be removed from this PC: the app, its shortcuts and its kybernow:// link.\n\nYour computers themselves do not change.\n\nContinue?",
+    "confirm": "KyberNow Link will be removed from this PC, along with its shortcuts. Pairing links (kybernow://) will no longer open it.\n\nNothing changes on your computers.\n\nContinue?",
     "erase": "Also erase your list of computers, their settings and their passwords?\n\nNo: they will still be there if you reinstall KyberNow Link.",
     "done": "KyberNow Link has been uninstalled."
   },
   "checks": {
     "windows": {
       "title": "Windows",
-      "old": "Build {build}: KyberNow Link is designed for Windows 10 22H2 (19045) or later. Install the Windows updates.",
-      "build": "Build {build}"
+      "old": "This Windows is too old (build {build}): KyberNow Link needs Windows 10 22H2 (19045) or later. Install the Windows updates.",
+      "build": "Supported (build {build})"
     },
     "arch": {
       "title": "Processor",
-      "arm64Title": "ARM64 processor",
-      "arm64": "The ARM64 version of KyberNow Link will be installed: it runs without emulation, with the chip's video decoding.",
-      "x64Title": "x64 processor",
-      "x64": "The x64 version of KyberNow Link will be installed."
+      "arm64Title": "ARM processor",
+      "arm64": "KyberNow Link installs its version built for this processor (ARM64): it runs without emulation and decodes the picture with the chip.",
+      "x64Title": "Intel or AMD processor",
+      "x64": "KyberNow Link installs its version built for this processor (x64)."
     },
     "gpu": {
       "title": "Graphics card",
       "more1": " (and 1 other)",
       "moreN": " (and {count} others)",
-      "ok": "{name}{more}: it decodes the picture, for lower latency and longer battery life.",
-      "basic": "Windows basic driver: the picture will be decoded by the processor. Install the graphics card driver for better performance."
+      "ok": "{name}{more}: it decodes the picture, which lowers latency and saves battery.",
+      "basic": "Windows basic driver: the processor will decode the picture, more slowly. Install the graphics card driver so the card can do it."
     },
     "display": {
       "title": "Display",
       "unknown": "Unknown size: KyberNow Link will fit the window.",
-      "ok": "{width} × {height} · {hz} Hz: your computer can take exactly this size during the session."
+      "ok": "{width} × {height} · {hz} Hz: your computer can create a display at exactly this size during the session."
     },
     "network": {
       "title": "Local network",
       "ok": "{ip}: a computer on this network shows up in KyberNow Link on its own.",
-      "none": "No network for now: join one before connecting to a computer."
+      "none": "No network for now: connect this PC to your network before starting a session."
     },
     "webview": {
       "title": "Display engine",
-      "fullTitle": "WebView2 display engine",
-      "ok": "Version {version}, by Microsoft: it draws the KyberNow Link interface.",
-      "missing": "Missing: it will be downloaded and installed (about 2 MB)."
+      "fullTitle": "Display engine (WebView2)",
+      "ok": "It displays the KyberNow Link windows (version {version}, from Microsoft).",
+      "missing": "Missing on this PC: it will be downloaded from Microsoft and installed (about 2 MB)."
     },
     "existing": {
       "label": "Installed version",
       "title": "KyberNow Link {version} is installed",
-      "detail": "It will be updated. Your computers, their passwords and your settings stay."
+      "detail": "It will be updated. Your computers, their passwords and your settings are kept."
     },
     "running": {
       "title": "KyberNow Link is open",
-      "detail": "It will be closed during installation: a session in progress will stop."
+      "detail": "It will be closed during installation: a session in progress will be cut off."
     }
   },
   "install": {
     "log": {
       "start": "installing KyberNow Link {version} ({arch}) in {dir}",
       "closing": "closing KyberNow Link",
-      "files": "{count} files in place",
+      "files": "{count} files installed",
       "webviewPresent": "WebView2 {version} present",
       "webviewInstalled": "WebView2 {version} installed",
       "shortcuts": "shortcuts: {error}",
@@ -73,8 +73,8 @@
   },
   "errors": {
     "appWontClose": "KyberNow Link is still open and will not close. Close it, then try again.",
-    "placeFiles": "could not put the files in {dir}",
-    "placeFilesOld": "could not put the files in place, and the previous version was left in {dir}",
+    "placeFiles": "could not install the files in {dir}",
+    "placeFilesOld": "could not install the files; the previous version is still in {dir}",
     "replaceFiles": "replacing the files",
     "locked": "{path} is locked",
     "incomplete": "incomplete installer",

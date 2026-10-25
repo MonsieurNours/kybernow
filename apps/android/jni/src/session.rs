@@ -79,6 +79,12 @@ impl Shared {
 
 struct AndroidPlatform(Arc<Shared>);
 
+/// Avis `onNotice` : la Station redémarre en dernier recours pendant la
+/// connexion (`SessionListener.NOTICE_STATION_RESTARTING` côté Kotlin) ;
+/// toujours juste après l'état 1 (connexion), que montre une app qui ne le
+/// connaît pas. Pas de nouvel état : Kotlin prend un état inconnu pour la fin.
+const NOTICE_STATION_RESTARTING: i32 = 7;
+
 impl Platform for AndroidPlatform {
     fn window_handle(&self) -> WindowHandle {
         // L'image et le son vont à l'app : Kyber ne crée pas de lecteur VLC.
@@ -123,6 +129,8 @@ impl Platform for AndroidPlatform {
             Status::FirstImages => (2, 0, 0),
             Status::Streaming => (3, 0, 0),
             Status::Reconnecting { attempt, max } => (4, *attempt, *max),
+            // « Connexion » pour l'app, puis l'avis NOTICE_STATION_RESTARTING (ci-dessous).
+            Status::StationRestarting => (1, 0, 0),
             Status::Ending => (5, 0, 0),
             Status::Ended { .. } => (6, 0, 0),
         };
@@ -153,6 +161,23 @@ impl Platform for AndroidPlatform {
             )
             .map(|_| ())
         });
+        if matches!(status, Status::StationRestarting) {
+            let null = JObject::null();
+            self.0.listener.void(
+                "onNotice",
+                "(IIIZIIZLjava/lang/String;)V",
+                &[
+                    JValue::Int(NOTICE_STATION_RESTARTING),
+                    JValue::Int(0),
+                    JValue::Int(0),
+                    JValue::Bool(0),
+                    JValue::Int(0),
+                    JValue::Int(0),
+                    JValue::Bool(0),
+                    JValue::Object(&null),
+                ],
+            );
+        }
     }
 
     fn on_display(&self, d: &Display) {
@@ -373,12 +398,21 @@ pub fn parse_settings(json: &str) -> Result<StreamSettings, String> {
     wire.settings()
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 struct RecoveryWire {
     #[serde(default)]
     watch_image: bool,
     /// Plafond du repli, en bit/s (comme `Recovery::fallback_bitrate`).
     fallback_bitrate: Option<u32>,
+    /// Dernier recours (`Recovery::restart_station`) : vrai si absent.
+    #[serde(default = "yes")]
+    restart_station: bool,
+}
+
+impl Default for RecoveryWire {
+    fn default() -> Self {
+        Self { watch_image: false, fallback_bitrate: None, restart_station: true }
+    }
 }
 
 #[derive(Deserialize)]
@@ -491,7 +525,11 @@ pub fn start(params_json: &str, listener: Listener, window: Option<NativeWindow>
         auto_reconnect: wire.auto_reconnect,
         gamepad_xbox360: wire.gamepad_xbox360,
         clipboard: wire.clipboard,
-        recovery: Recovery { watch_image: wire.recovery.watch_image, fallback_bitrate: wire.recovery.fallback_bitrate },
+        recovery: Recovery {
+            watch_image: wire.recovery.watch_image,
+            fallback_bitrate: wire.recovery.fallback_bitrate,
+            restart_station: wire.recovery.restart_station,
+        },
     };
     let session = Session::start(params, Arc::new(AndroidPlatform(shared.clone())));
     let _ = shared.session.set(Arc::downgrade(&session));

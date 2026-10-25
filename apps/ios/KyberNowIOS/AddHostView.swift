@@ -215,7 +215,7 @@ private struct AddHostStack: View {
             Button(action: back) {
                 HStack(spacing: 4) {
                     Icon("arrow-left", size: 20, bold: true)
-                    if atMenu { Text("Vos ordinateurs") } else { Text("Ajouter") }
+                    if atMenu { Text("Retour") } else { Text("Ajouter") }
                 }
                 .font(Theme.sans(16))
                 .foregroundStyle(Theme.accentLight)
@@ -346,7 +346,7 @@ private struct AddHostSplit: View {
             Button { app.sheet = nil } label: {
                 HStack(spacing: 8) {
                     Icon("arrow-left", size: 18, bold: true)
-                    Text("Vos ordinateurs")
+                    Text("Retour")
                 }
                 .font(Theme.sans(15, .medium))
                 .foregroundStyle(Theme.text)

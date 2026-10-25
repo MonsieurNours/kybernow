@@ -29,14 +29,17 @@ use kybernow_core::input::GamepadRumble;
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::session::Status;
 
-use crate::app::{Action, AddStep, App, Found, HostLive, Nav, Online, Phase, Screen, SessionUi, Stats};
+use crate::app::{Action, AddStep, App, Found, Nav, Phase, Polled, Screen, SessionUi, StationOp, StationRefusal, Stats};
 use crate::i18n::{self, tr};
 use crate::model::{now_secs, LastSession, Store};
 use crate::ui::{self, canvas::Canvas, Assets};
 
 /// Ce qui revient à la boucle principale (fils de fond, rappels du cœur).
 pub enum Event {
-    HostInfo { id: String, online: bool, os: Option<String>, gpu: Option<String>, av1: bool },
+    Polled { id: String, polled: Polled },
+    /// Réponse d'Admin à un redémarrage ou une mise à jour de la Station
+    /// (la version visée pour une mise à jour).
+    Station { id: String, op: StationOp, result: Result<Option<String>, StationRefusal> },
     Preview { id: String, jpeg: Vec<u8> },
     Found(Vec<Found>),
     Probed { address: String, port: u16, fingerprint: Result<String, String> },
@@ -44,8 +47,8 @@ pub enum Event {
     PairAccepted(crate::model::Host),
     PairFailed(String),
     Status(Status),
-    /// Mode de l'écran de la session, et si c'est l'écran virtuel.
-    Mode { mode: Mode, virtual_display: bool },
+    /// Mode de l'écran de la session (pour la dernière session).
+    Mode(Mode),
     Second { latency_ms: Option<f64>, fps: f64, mbps: f64, lost: u32, codec: String },
     Notice(String),
     Pointer { position: Option<(f64, f64)>, hidden: bool, shape: Option<(u32, u32, u32, u32, Vec<u32>)> },
@@ -72,11 +75,8 @@ struct Live {
     started: Instant,
     latencies: Vec<f64>,
     mbps: Vec<f64>,
-    mode: String,
-    /// Mode demandé (`App::session_mode`), et le premier mode de l'écran déjà
-    /// retenu pour l'accueil (`HostLive::ready`).
-    asked: (u32, u32, u32),
-    ready_seen: bool,
+    /// Mode de l'écran de la session : définition et fréquence.
+    mode: (u32, u32, u32),
     /// Dernière position du pointeur de la Magic Remote (souris).
     remote: Option<(f32, f32)>,
     game_fullscreen: bool,
@@ -160,6 +160,7 @@ pub fn run() {
     let mut live: Option<Live> = None;
     let mut pairing: Vec<Arc<AtomicBool>> = Vec::new();
     let mut last_poll = Instant::now() - Duration::from_secs(60);
+    let mut last_fast_poll = Instant::now();
     let mut last_net = Instant::now();
     let mut last_multichannel = Instant::now() - Duration::from_secs(60);
     let mut dirty = true;
@@ -170,7 +171,7 @@ pub fn run() {
 
     while !quit {
         // Animations : l'arrivée en session, les capsules, les vibrations d'essai.
-        let animating = app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::FirstImages))
+        let animating = app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages))
             || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || app.session.as_ref().and_then(|s| s.notice.as_ref()).is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
             || (app.screen == Screen::Gamepads)
@@ -227,6 +228,16 @@ pub fn run() {
             last_poll = Instant::now();
             for h in &app.store.hosts {
                 jobs::poll(h.clone(), !app.images.contains_key(&h.id), tx.clone());
+            }
+        }
+        // La Station redémarre ou se met à jour, ou l'ordinateur se réveille :
+        // sondé toutes les 2 s jusqu'à son retour.
+        if live.is_none() && last_fast_poll.elapsed() > Duration::from_secs(2) {
+            last_fast_poll = Instant::now();
+            for id in app.fast_poll() {
+                if let Some(h) = app.store.host(&id) {
+                    jobs::poll(h.clone(), false, tx.clone());
+                }
             }
         }
         // Sortie multicanal du téléviseur (réglages de son, ampli) : relue
@@ -565,19 +576,12 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
 #[allow(clippy::too_many_arguments)]
 fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Live>, video: &mut Video, actions: &mut Vec<Action>, pairing: &mut Vec<Arc<AtomicBool>>) {
     match e {
-        Event::HostInfo { id, online, os, gpu, av1 } => {
-            let entry = app.live.entry(id.clone()).or_insert_with(HostLive::default);
-            entry.online = if online { Online::Online } else { Online::Offline };
-            if online && let Some(h) = app.store.host_mut(&id) {
-                let changed = h.os != os || h.gpu != gpu || h.av1 != av1;
-                h.os = os.or(h.os.take());
-                h.gpu = gpu.or(h.gpu.take());
-                h.av1 = av1;
-                if changed {
-                    app.store.save();
-                }
+        Event::Polled { id, polled } => {
+            if app.polled(&id, polled) {
+                app.store.save();
             }
         }
+        Event::Station { id, op, result } => app.station_answer(&id, op, result),
         Event::Preview { id, jpeg } => {
             if let Some(img) = ui::canvas::decode_jpeg(&jpeg) {
                 let _ = std::fs::write(Store::image_path(&id), &jpeg);
@@ -625,12 +629,15 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             let Some(s) = app.session.as_mut() else { return };
             s.phase = match st {
                 Status::Preparing => Phase::Preparing,
+                // La Station redémarre (dernier recours) : « Connexion » en attendant de le montrer.
                 Status::Connecting => Phase::Connecting,
+                Status::StationRestarting => Phase::StationRestarting,
                 Status::FirstImages => Phase::FirstImages,
                 Status::Streaming => {
                     if s.phase != Phase::Streaming && app.screen == Screen::Session {
                         app.focus = crate::app::Target::Menu(crate::app::MenuItem::Resume);
                     }
+                    s.streamed = true;
                     Phase::Streaming
                 }
                 Status::Reconnecting { attempt, max } => Phase::Reconnecting { attempt, max },
@@ -653,21 +660,10 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                 app.focus = crate::app::Target::Back;
             }
         }
-        Event::Mode { mode: m, virtual_display } => {
+        Event::Mode(m) => {
             if let Some(l) = live.as_mut() {
-                l.mode = format!("{} × {}", m.width, m.height);
-                // Le premier mode est celui que l'ordinateur a donné à l'écran
-                // virtuel pour cette demande (les suivants viennent d'une
-                // adaptation ou d'un changement sur l'ordinateur) : l'accueil le
-                // montre ensuite.
-                if !l.ready_seen
-                    && let Some(s) = app.session.as_ref()
-                {
-                    l.ready_seen = true;
-                    let fps = if m.refresh > 0 { m.refresh } else { l.asked.2 };
-                    let ready = virtual_display.then(|| (l.asked, format!("{} × {} {} {fps} Hz", m.width, m.height, tr("à", "at"))));
-                    app.live.entry(s.host.clone()).or_default().ready = ready;
-                }
+                let refresh = if m.refresh > 0 { m.refresh } else { l.mode.2 };
+                l.mode = (m.width, m.height, refresh);
             }
         }
         Event::Second { latency_ms, fps, mbps, lost, codec } => {
@@ -679,7 +675,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
                     l.mbps.push(mbps);
                 }
                 if let Some(s) = app.session.as_mut() {
-                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: l.mode.clone(), codec });
+                    s.stats = Some(Stats { latency_ms, fps, mbps, lost, mode: format!("{} × {}", l.mode.0, l.mode.1), codec });
                 }
             }
         }
@@ -782,6 +778,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 name: h.name.clone(),
                 profile,
                 phase: Phase::Preparing,
+                streamed: false,
                 menu: false,
                 keys: false,
                 stats: None,
@@ -801,9 +798,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 started: Instant::now(),
                 latencies: Vec::new(),
                 mbps: Vec::new(),
-                mode: format!("{} × {}", mode.0, mode.1),
-                asked: mode,
-                ready_seen: false,
+                mode,
                 remote: None,
                 game_fullscreen: false,
             });
@@ -889,15 +884,31 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
         }
         Action::Probe { address, port } => jobs::probe(address, port, tx.clone()),
+        Action::Poll(id) => {
+            if let Some(h) = app.store.host(&id) {
+                jobs::poll(h.clone(), !app.images.contains_key(&id), tx.clone());
+            }
+        }
+        Action::Station { host, op, force } => {
+            if let Some(h) = app.store.host(&host) {
+                log::info!("station : {} demandé à {}{}", if op == StationOp::Restart { "redémarrage" } else { "mise à jour" }, h.name, if force { " (quand même)" } else { "" });
+                jobs::station(h.clone(), op, force, app.store.device_id.clone(), tx.clone());
+            }
+        }
+        // « Réveil de l'ordinateur… » sur l'accueil (`App::waking`) ; un envoi
+        // impossible le dit, et le bouton revient.
         Action::Wake(id) => {
-            let ok = app.store.host(&id).and_then(|h| h.mac.clone()).is_some_and(|m| jobs::wake(&m));
-            app.toast(if ok { tr("Réveil envoyé : l'ordinateur démarre…", "Wake sent: the computer is starting…") } else { tr("Réveil impossible", "Could not wake") });
+            let Some(h) = app.store.host(&id) else { return };
+            if let Err(e) = jobs::wake(h) {
+                app.waking = None;
+                app.toast(e);
+            }
         }
         Action::Rumble { pad, low, high, triggers } => pads.test_rumble(pad, low, high, triggers),
     }
 }
 
-/// Fin de session : la dernière session (latence médiane, durée) pour l'accueil.
+/// Fin de session : la dernière session (au moins 3 s), pour Statistiques.
 fn finish(app: &mut App, l: Live) {
     let host = app.session.as_ref().map(|s| s.host.clone());
     if app.session.as_ref().is_some_and(|s| !matches!(s.phase, Phase::Ended { error: Some(_) })) {
@@ -909,13 +920,26 @@ fn finish(app: &mut App, l: Live) {
     let mut lat = l.latencies.clone();
     lat.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let seconds = l.started.elapsed().as_secs();
-    if let (Some(id), false) = (host, lat.is_empty()) {
+    if let (Some(id), false, true) = (host, lat.is_empty(), seconds >= 3) {
         let median = lat[lat.len() / 2];
         let p95 = lat[((lat.len() as f64 * 0.95) as usize).min(lat.len() - 1)];
         let mbps = if l.mbps.is_empty() { 0.0 } else { l.mbps.iter().sum::<f64>() / l.mbps.len() as f64 };
         let codec = l.handle.shared.codec();
+        let (width, height, refresh) = l.mode;
         if let Some(h) = app.store.host_mut(&id) {
-            h.last = Some(LastSession { median, p95, seconds, mode: format!("{} · {codec}", l.mode), mbps, at: now_secs() });
+            h.last = Some(LastSession {
+                median,
+                p95,
+                seconds,
+                // Lu par la 0.4.x.
+                mode: format!("{width} × {height} · {codec}"),
+                mbps,
+                at: now_secs(),
+                width,
+                height,
+                refresh,
+                codec,
+            });
         }
         app.store.save();
         // L'aperçu sera repris d'Admin (l'image de la session est sur le plan vidéo).

@@ -82,6 +82,35 @@ struct State {
     previous: Option<String>,
 }
 
+/// État résumé de la mise à jour (voir `Updater::brief`).
+#[derive(Debug, Clone)]
+pub struct Brief {
+    /// Version plus récente et signée par KyberNow, s'il y en a une.
+    pub available: Option<String>,
+    /// Elle s'installe depuis Admin (manifeste vérifié, compatible, paquet présent).
+    pub installable: bool,
+    /// Elle s'installe avec l'installateur (`setup`), sur l'ordinateur.
+    pub requires_setup: bool,
+    /// Pourquoi elle ne s'installe pas depuis Admin.
+    pub refusal: Option<Msg>,
+    /// Installateur de la Station listé par son manifeste.
+    pub setup: &'static str,
+    pub installing: bool,
+}
+
+impl Brief {
+    /// `station.update` de `GET /api/stream/info`.
+    pub fn json(&self) -> Value {
+        json!({
+            "available": self.available.is_some(),
+            "version": self.available,
+            "installable": self.installable,
+            "requires_setup": self.requires_setup,
+            "installing": self.installing,
+        })
+    }
+}
+
 pub struct Updater {
     dir: PathBuf,
     layout: apply::Layout,
@@ -211,6 +240,32 @@ impl Updater {
             "rollback": s.previous,
             "repo": REPO,
         })
+    }
+
+    /// Ce que les apps KyberNow Link montrent de la mise à jour de la Station
+    /// (`station.update` de `GET /api/stream/info`, toutes les 8 s par
+    /// appareil) : lu en mémoire, sans appel réseau. Une version n'y est
+    /// « disponible » que plus récente et signée par KyberNow, comme pour l'icône.
+    pub fn brief(&self) -> Brief {
+        let mut s = self.state.lock().unwrap();
+        self.reap(&mut s);
+        let latest = s.latest.as_ref().filter(|r| newer(&r.version, current()) && r.manifest.is_some());
+        let refusal = latest.and_then(|r| r.refusal.as_ref());
+        Brief {
+            available: latest.map(|r| r.version.clone()),
+            installable: latest.is_some_and(Release::installable),
+            requires_setup: matches!(refusal, Some(Refusal::Setup(_))),
+            refusal: refusal.map(|r| r.message().clone()),
+            setup: latest.and_then(|r| r.manifest.as_ref()).map_or(manifest::SETUP, Manifest::setup_installer),
+            installing: s.installing.is_some(),
+        }
+    }
+
+    /// Une installation (ou un retour en arrière) est en cours.
+    pub fn installing(&self) -> bool {
+        let mut s = self.state.lock().unwrap();
+        self.reap(&mut s);
+        s.installing.is_some()
     }
 
     /// Applicateur terminé alors que la console tourne encore : l'installation
@@ -515,6 +570,23 @@ fn read_failure(path: &Path) -> Option<Value> {
 /// `lancement.log`, son journal dans `update.log`.
 #[cfg(windows)]
 fn launch_applicator(layout: &apply::Layout, log_dir: &Path, args: &[std::ffi::OsString]) -> Result<std::process::Child> {
+    use anyhow::Context;
+    let staging = layout.staging();
+    std::fs::create_dir_all(&staging).with_context(|| format!("création de {}", staging.display()))?;
+    let applicator = staging.join(apply::APPLICATOR);
+    let exe = std::env::current_exe().context("chemin de la console")?;
+    std::fs::copy(&exe, &applicator).with_context(|| format!("copie de la console dans {}", applicator.display()))?;
+    let child = spawn_detached(&applicator, args, &staging, &log_dir.join("lancement.log")).context("lancement de l'applicateur")?;
+    tracing::info!("mise à jour : applicateur lancé (processus {})", child.id());
+    Ok(child)
+}
+
+/// Lance `exe` sans fenêtre, détaché d'Admin, qui va s'arrêter : hors du
+/// « job » du service s'il y en a un (sinon l'arrêt d'Admin l'emporterait),
+/// sortie et erreurs dans `output`. Sert à l'applicateur des mises à jour et
+/// à l'assistant de redémarrage de la Station (`station`).
+#[cfg(windows)]
+pub fn spawn_detached(exe: &Path, args: &[std::ffi::OsString], cwd: &Path, output: &Path) -> Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
     use std::process::Stdio;
 
@@ -522,28 +594,20 @@ fn launch_applicator(layout: &apply::Layout, log_dir: &Path, args: &[std::ffi::O
     const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
-    let staging = layout.staging();
-    std::fs::create_dir_all(&staging).with_context(|| format!("création de {}", staging.display()))?;
-    let applicator = staging.join(apply::APPLICATOR);
-    let exe = std::env::current_exe().context("chemin de la console")?;
-    std::fs::copy(&exe, &applicator).with_context(|| format!("copie de la console dans {}", applicator.display()))?;
-    let output = std::fs::File::create(log_dir.join("lancement.log")).context("création de lancement.log")?;
+    let output = std::fs::File::create(output).with_context(|| format!("création de {}", output.display()))?;
     let spawn = |flags: u32| -> std::io::Result<std::process::Child> {
-        std::process::Command::new(&applicator)
+        std::process::Command::new(exe)
             .args(args)
-            .current_dir(&staging)
+            .current_dir(cwd)
             .stdin(Stdio::null())
             .stdout(output.try_clone()?)
             .stderr(output.try_clone()?)
             .creation_flags(flags)
             .spawn()
     };
-    // Hors du « job » du service s'il y en a un : sinon l'arrêt de la console l'emporterait.
-    let child = spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
+    spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB)
         .or_else(|_| spawn(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP))
-        .context("lancement de l'applicateur")?;
-    tracing::info!("mise à jour : applicateur lancé (processus {})", child.id());
-    Ok(child)
+        .with_context(|| format!("lancement de {}", exe.display()))
 }
 
 #[cfg(not(windows))]
@@ -681,8 +745,10 @@ mod tests {
         assert!(status["verify_error"].as_str().unwrap().contains("pas signée"), "{status}");
         assert_eq!(status["channel"], "stable");
         assert!(status["rollback"].is_null());
-        // L'icône n'en parle pas, et l'installation est refusée avant tout téléchargement.
+        // L'icône et les apps n'en parlent pas, et l'installation est refusée avant tout téléchargement.
         assert_eq!(updater.available(), None);
+        let brief = updater.brief();
+        assert_eq!((brief.available, brief.installable, brief.requires_setup), (None, false, false));
         assert!(updater.install().unwrap_err().to_string().contains("pas signée"));
         assert!(updater.state.lock().unwrap().installing.is_none());
         assert!(updater.rollback().is_err());
@@ -708,8 +774,15 @@ mod tests {
         assert_eq!(status["requires_setup"], true);
         assert!(status["verify_error"].as_str().unwrap().contains("KyberNow-Station-Setup.exe"));
         assert_eq!(status["setup"], "KyberNow-Station-Setup.exe");
-        // Signée : l'icône la signale (pour réinstaller).
+        // Signée : l'icône la signale (pour réinstaller), les apps aussi.
         assert_eq!(updater.available().as_deref(), Some("99.0.0"));
+        let brief = updater.brief();
+        assert_eq!((brief.available.as_deref(), brief.installable, brief.requires_setup), (Some("99.0.0"), false, true));
+        assert_eq!(brief.setup, "KyberNow-Station-Setup.exe");
+        assert_eq!(
+            brief.json(),
+            json!({ "available": true, "version": "99.0.0", "installable": false, "requires_setup": true, "installing": false })
+        );
         assert!(updater.install().is_err());
         // Manifeste d'avant le renommage : l'ancien nom de l'installateur.
         let mut r = release("99.0.0");

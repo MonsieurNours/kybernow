@@ -301,3 +301,17 @@ pub fn notify(title: &str, body: &str, action: Option<(&str, &str)>) {
         }
     });
 }
+
+/// Ouvre une adresse `https://` dans le navigateur par défaut (`ShellExecuteW`,
+/// verbe `open`) : jamais un chemin ni une commande.
+pub fn open_url(url: &str) -> Result<(), String> {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    if !url.starts_with("https://") || url.chars().any(|c| c.is_whitespace() || c.is_control() || c == '"') {
+        return Err(t("errors.open_admin", &[("code", "0")]));
+    }
+    let r = unsafe { ShellExecuteW(None, windows::core::w!("open"), &HSTRING::from(url), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+    // Plus de 32 : ouvert (convention de ShellExecute) ; sinon le code d'erreur.
+    let code = r.0 as isize;
+    if code > 32 { Ok(()) } else { Err(t("errors.open_admin", &[("code", &code.to_string())])) }
+}

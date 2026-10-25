@@ -1,8 +1,8 @@
 <!--
   Barre de session : fenêtre transparente au-dessus de la session, montrée
   quand le pointeur touche le haut de l'écran, cachée quand il la quitte (le
-  clavier revient alors à la session). Mesures en direct, profil, touches
-  spéciales, souris, plein écran, fin de la session. Un menu ouvert fait
+  clavier revient alors à la session). Statistiques en direct, profil,
+  touches, souris, plein écran, « Se déconnecter ». Un menu ouvert fait
   grandir la fenêtre vers le bas le temps de son affichage.
 -->
 <script lang="ts">
@@ -20,7 +20,7 @@
 
   type Shown = { label: string; profile: string }
   const profiles = $derived(
-    ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`bar.${id}_hint`) })),
+    ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
   const keys = $derived(
     [
@@ -114,12 +114,14 @@
 
 <div class="bar" role="toolbar" aria-label={t('bar.toolbar')} tabindex="-1" onmouseleave={() => scheduleHide()} onmouseenter={cancelHide}>
   <Mark size={20} state="now" lit />
-  <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
-    <span class="mono">{ms(stats?.latency_ms)} ms</span>
-    <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
+  <div class="stats" role="group" aria-label={t('bar.statistics')} title={t('bar.statistics')}>
+    <div class="lat" title={stats?.audio_ms != null ? t('bar.audio', { ms: ms(stats.audio_ms, 0), gaps: stats.audio_gaps ?? 0 }) : undefined}>
+      <span class="mono">{ms(stats?.latency_ms)} ms</span>
+      <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
+    </div>
+    <span class="sep"></span>
+    <span class="mono info">{stats ? t('bar.info', { width: stats.width, height: stats.height, fps: stats.fps, decoder: stats.decoder }) : '—'}</span>
   </div>
-  <span class="sep"></span>
-  <span class="mono info">{stats ? t('bar.info', { width: stats.width, height: stats.height, fps: stats.fps, decoder: stats.decoder }) : '—'}</span>
   <span class="sep"></span>
   <div class="anchor">
     <button class="chip" class:open={menu === 'profile'} aria-haspopup="menu" aria-expanded={menu === 'profile'} title={t('bar.session_profile')} onclick={() => toggle('profile')}>
@@ -141,7 +143,7 @@
       <Icon name="keyboard" size={20} stroke={1.6} />
     </button>
     {#if menu === 'keys'}
-      <div class="menu" role="menu" aria-label={t('bar.keys_menu')}>
+      <div class="menu keys" role="menu" aria-label={t('bar.keys')}>
         {#each keys as k (k.id)}
           <button role="menuitem" onclick={() => pickKeys(k.id)}>
             <span class="name">{k.name}</span><span class="hint">{k.hint}</span>
@@ -157,7 +159,7 @@
     <Icon name="fullscreen" size={20} stroke={1.6} />
   </button>
   <span class="sep"></span>
-  <button class="quit" onclick={() => command('disconnect')}>{t('bar.quit')}</button>
+  <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
 </div>
 
 <style>
@@ -171,7 +173,7 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     height: 56px;
     padding: 0 8px 0 16px;
     border: 1px solid rgb(43 55 66 / 0.9);
@@ -189,11 +191,17 @@
     }
   }
 
+  .stats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   .lat {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 0 8px;
+    padding: 0 4px;
     font-size: 15px;
   }
 
@@ -204,13 +212,13 @@
   }
 
   .info {
-    padding: 0 8px;
+    padding: 0 4px;
     font-size: 12px;
     color: var(--muted);
   }
 
   .icon {
-    width: 44px;
+    width: 40px;
     height: 40px;
     border: 0;
     border-radius: 8px;
@@ -289,7 +297,7 @@
     font-size: 13px;
   }
 
-  .menu[aria-label='Touches'] button {
+  .menu.keys button {
     grid-template-columns: auto 1fr;
   }
 
@@ -305,9 +313,13 @@
   .hint {
     justify-self: end;
     padding-left: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .menu.keys .hint {
     font-family: var(--mono);
     font-size: 11px;
-    color: var(--muted);
   }
 
   .quit {

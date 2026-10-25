@@ -1,6 +1,7 @@
 //! Ce qui se fait en arrière-plan, sur des fils à part : sondage d'Admin
-//! (état, système, aperçu), découverte des Stations (mDNS `_kybernow._tcp`),
-//! ajout par code ou par adresse, recherche de mises à jour ; et le réveil
+//! (état, système, Station, aperçu), redémarrage et mise à jour de la
+//! Station, découverte des Stations (mDNS `_kybernow._tcp`), ajout par code
+//! ou par adresse, recherche de mises à jour ; et le réveil
 //! (Wake-on-LAN), envoyé tout de suite. Les résultats reviennent à la boucle
 //! principale par le canal des événements.
 
@@ -10,20 +11,44 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::Duration;
 
-use kybernow_core::console::{Console, DeviceInfo, PairStatus};
+use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Info, PairStatus, StationError};
+use kybernow_core::wake::WakeTarget;
 
 use super::Event;
-use crate::app::Found;
+use crate::app::{Found, Polled, Problem, StationKnown, StationLive, StationOp, StationRefusal};
 use crate::model::{new_id, Host, HostSettings};
 
-/// Sonde un ordinateur : en ligne ou non, son système, et son aperçu s'il en manque un.
+/// Sonde un ordinateur : en ligne ou non, son système, sa Station, et son
+/// aperçu s'il en manque un.
 pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
     std::thread::spawn(move || {
         let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
         match c.info() {
             Ok(info) => {
-                let os = (!info.os.is_empty()).then(|| info.os.clone());
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: true, os, gpu: info.gpu.clone(), av1: info.av1 });
+                let station = match &info.station {
+                    Some(st) => StationKnown::Info(StationLive {
+                        version: st.version.clone(),
+                        update_available: st.update.available,
+                        update_version: st.update.version.clone(),
+                        installable: st.update.installable,
+                        requires_setup: st.update.requires_setup,
+                        installing: st.update.installing,
+                        restarting: st.restarting,
+                    }),
+                    None => StationKnown::Old(info.admin_version.clone()),
+                };
+                let polled = Polled {
+                    online: true,
+                    os: (!info.os.is_empty()).then(|| info.os.clone()),
+                    gpu: info.gpu.clone(),
+                    av1: info.av1,
+                    virtual_display: Some(info.virtual_display.available),
+                    station,
+                    problem: None,
+                    wake: wake_targets(&info),
+                    own_device: Some(info.account.own_device),
+                };
+                let _ = tx.send(Event::Polled { id: host.id.clone(), polled });
                 if want_preview
                     && let Ok(bytes) = c.preview(960)
                     && !bytes.is_empty()
@@ -33,9 +58,49 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
             }
             Err(e) => {
                 log::info!("{} : hors ligne ({e})", host.name);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false });
+                let problem = match &e {
+                    ConsoleError::CertificateChanged { .. } => Some(Problem::Reinstalled),
+                    ConsoleError::Http { status: 401, .. } => Some(Problem::Refused),
+                    _ => None,
+                };
+                let _ = tx.send(Event::Polled { id: host.id.clone(), polled: Polled { problem, ..Default::default() } });
             }
         }
+    });
+}
+
+/// Les cartes réseau pour le réveil, telles qu'Admin les donne.
+fn wake_targets(info: &Info) -> Vec<crate::model::WakeTarget> {
+    info.wake
+        .iter()
+        .map(|t| crate::model::WakeTarget { mac: t.mac.clone(), ipv4: t.ipv4.clone(), broadcast: t.broadcast.clone(), kind: t.kind.clone(), armed: t.armed, name: t.name.clone() })
+        .collect()
+}
+
+/// Redémarre ou met à jour la Station (rubrique Station des réglages) ; la
+/// réponse revient par `Event::Station`. Une mise à jour attend qu'Admin ait
+/// téléchargé et vérifié le paquet (quelques minutes au plus).
+pub fn station(host: Host, op: StationOp, force: bool, device_id: String, tx: Sender<Event>) {
+    std::thread::spawn(move || {
+        let c = Console::new(&host.address, host.port, &host.user, &host.password, host.fingerprint.clone());
+        let r = match op {
+            StationOp::Restart => c.station_restart(Some(&device_id), force).map(|_| None),
+            StationOp::Update => c.station_update(Some(&device_id), force).map(Some),
+        };
+        let result = r.map_err(|e| {
+            log::warn!("station : {} refusé par {} ({e})", if op == StationOp::Restart { "redémarrage" } else { "mise à jour" }, host.name);
+            match e {
+                StationError::InSession { device, .. } => StationRefusal::InSession(device),
+                StationError::TooSoon { .. } => StationRefusal::TooSoon,
+                StationError::Unsupported => StationRefusal::Unsupported,
+                StationError::RequiresSetup { .. } => StationRefusal::RequiresSetup,
+                e => StationRefusal::Other(e.to_string()),
+            }
+        });
+        if result.is_ok() {
+            log::info!("station : {} accepté par {}", if op == StationOp::Restart { "redémarrage" } else { "mise à jour" }, host.name);
+        }
+        let _ = tx.send(Event::Station { id: host.id.clone(), op, result });
     });
 }
 
@@ -139,6 +204,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             gpu: None,
                             av1: false,
                             mac: None,
+                            wake: Vec::new(),
                             settings: HostSettings::default(),
                             last: None,
                         };
@@ -150,6 +216,7 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
                             host.os = (!info.os.is_empty()).then(|| info.os.clone());
                             host.gpu = info.gpu.clone();
                             host.av1 = info.av1;
+                            host.wake = wake_targets(&info);
                         }
                         let _ = tx.send(Event::PairAccepted(host));
                         return;
@@ -172,19 +239,29 @@ pub fn pair(targets: Vec<Target>, code: String, device: DeviceInfo, cancel: Arc<
     });
 }
 
-/// Réveille un ordinateur (Wake-on-LAN, paquet magique en diffusion).
-pub fn wake(mac: &str) -> bool {
-    let bytes: Vec<u8> = mac.split([':', '-']).filter_map(|p| u8::from_str_radix(p, 16).ok()).collect();
-    if bytes.len() != 6 {
-        return false;
+/// Réveille un ordinateur (Wake-on-LAN) par le cœur : ses cartes données par
+/// Admin, ou l'adresse MAC écrite à la main ; le message d'erreur sinon.
+pub fn wake(host: &Host) -> Result<(), String> {
+    let mut targets: Vec<WakeTarget> = host
+        .wake
+        .iter()
+        .map(|t| WakeTarget { mac: t.mac.clone(), ipv4: t.ipv4.clone(), broadcast: t.broadcast.clone(), kind: t.kind.clone(), armed: t.armed, name: t.name.clone() })
+        .collect();
+    if targets.is_empty()
+        && let Some(t) = host.mac.as_deref().and_then(|m| WakeTarget::from_mac(m, Some(&host.address)))
+    {
+        targets.push(t);
     }
-    let mut packet = vec![0xFFu8; 6];
-    for _ in 0..16 {
-        packet.extend_from_slice(&bytes);
+    match kybernow_core::wake::send(&targets) {
+        Ok(n) => {
+            log::info!("réveil : {n} paquet(s) envoyé(s) à {}", host.name);
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!("réveil : {} ({e})", host.name);
+            Err(e.to_string())
+        }
     }
-    let Ok(sock) = std::net::UdpSocket::bind("0.0.0.0:0") else { return false };
-    let _ = sock.set_broadcast(true);
-    sock.send_to(&packet, "255.255.255.255:9").is_ok()
 }
 
 /// Nom du paquet de l'app des téléviseurs LG dans chaque version publiée.

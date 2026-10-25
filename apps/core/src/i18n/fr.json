@@ -7,10 +7,17 @@
     "invalid": "réponse d'Admin illisible : {error}",
     "no_request_id": "identifiant de demande absent"
   },
+  "station": {
+    "unsupported": "cette version de KyberNow Station ne le permet pas : mettez-la à jour depuis Admin"
+  },
+  "wake": {
+    "no_target": "carte réseau de l'ordinateur inconnue : l'app l'apprend de KyberNow Station (0.5.0 ou plus récente) quand l'ordinateur est allumé",
+    "network": "aucun paquet de réveil n'est parti ({error})"
+  },
   "session": {
     "internal": "erreur interne de la session",
     "no_image": "l'ordinateur n'envoie pas d'image (son encodeur ne répond pas : voir son journal dans Admin, Système › Journaux)",
-    "unauthorized": "le serveur Kyber de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans Admin, redémarrez le serveur (Système), puis réessayez",
+    "unauthorized": "le serveur Kyber de l'ordinateur ne reconnaît pas encore le compte de cet appareil : dans Admin, redémarrez la Station (Système), puis réessayez",
     "tls": "le certificat du serveur Kyber de l'ordinateur ne correspond pas à celui que donne Admin",
     "connect_failed": "connexion à Kyber impossible ({reason})",
     "stream_failed": "connexion au flux impossible",
@@ -19,7 +26,9 @@
     "not_responding": "l'ordinateur ne répond plus",
     "interrupted": "session interrompue ({reason})",
     "no_display": "aucun écran utilisable sur l'ordinateur",
-    "start_image": "démarrage de l'image : {error}"
+    "start_image": "démarrage de l'image : {error}",
+    "after_station_restart": "{reason}, même après un redémarrage de la Station",
+    "station_not_back": "la Station tarde à revenir après son redémarrage : ouvrez Admin pour en savoir plus"
   },
   "update": {
     "download_of": "téléchargement de {url} : {error}",

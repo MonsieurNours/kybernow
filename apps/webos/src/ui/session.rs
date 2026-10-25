@@ -1,6 +1,7 @@
-//! La session : rien par-dessus l'image (transparent : le plan vidéo du
-//! téléviseur se voit), sauf l'arrivée (« Vous entrez dans… »), les états en
-//! capsule, les mesures et le menu (bouton Retour, L1 + R1 + Start + Select).
+//! La session : l'écran de connexion (ses trois étapes), puis rien par-dessus
+//! l'image (transparent : le plan vidéo du téléviseur se voit), sauf les
+//! états en capsule (reconnexion, manette branchée…), les statistiques à la
+//! demande et le menu (bouton Retour, L1 + R1 + Start + Select).
 
 use super::canvas::{Align, Canvas, Font, Rgba, Text, H, W};
 use super::icons::Icon;
@@ -15,7 +16,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     cv.clear_transparent();
     let Some(s) = &app.session else { return };
     match &s.phase {
-        Phase::Preparing | Phase::Connecting | Phase::FirstImages => arrival(app, cv, f, s),
+        Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => arrival(app, cv, f, s),
         Phase::Ended { error } => ended(cv, f, s, error.as_deref()),
         Phase::Ending => {
             cv.rect(0.0, 0.0, W, H, Rgba(5, 7, 10, 200));
@@ -56,7 +57,9 @@ fn capsule(cv: &mut Canvas, y: f32, msg: &str, lit: bool) {
     cv.text(tx, y + 41.0, style, msg);
 }
 
-/// « Vous entrez dans… » : l'étape en cours et Annuler.
+/// La connexion (docs/link-ui.md) : le nom, les trois étapes et Annuler,
+/// rien d'autre ; puis l'image seule. Pendant le dernier recours (la Station
+/// redémarre), « La Station redémarre… » à la place des étapes.
 fn arrival(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.clear(INK);
     if let Some(img) = app.images.get(&s.host) {
@@ -71,18 +74,44 @@ fn arrival(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     }
     cv.line(560.0, 1080.0, 1640.0, 0.0, 3.0, SPECTRE.alpha(glow + 0.2));
 
-    let step = match s.phase {
-        Phase::Preparing => tr("Préparation de l'écran virtuel", "Preparing the virtual display"),
-        Phase::Connecting => tr("Connexion à Kyber", "Connecting to Kyber"),
-        _ => tr("Premières images", "First frames"),
+    let current = match s.phase {
+        Phase::Preparing => 0,
+        Phase::Connecting => 1,
+        _ => 2,
     };
-    let (w, h) = (900.0, 220.0);
+    let steps = [
+        tr("Préparation de l'écran", "Preparing the display"),
+        tr("Connexion", "Connecting"),
+        tr("Premières images", "First frames"),
+    ];
+    let (w, h) = (900.0, 400.0);
     let (x, y) = ((W - w) / 2.0, (H - h) / 2.0);
     cv.rrect(x, y, w, h, 28.0, Rgba(14, 19, 28, 240));
     cv.rrect_stroke(x, y, w, h, 28.0, 1.5, SPECTRE.alpha(0.6));
-    cv.text(x + w / 2.0, y + 62.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0).align(Align::Center), &tr("Vous entrez dans", "Entering").to_uppercase());
-    cv.text_fit(x + 60.0, y + 132.0, Text::new(Font::Display, 58.0, FROST).tracking(-1.5), &s.name, w - 120.0);
-    cv.text(x + 60.0, y + 182.0, Text::new(Font::Mono, 17.0, FROST_2), &format!("{step}…"));
+    cv.text_fit(x + 60.0, y + 112.0, Text::new(Font::Display, 58.0, FROST).tracking(-1.5), &s.name, w - 120.0);
+    if s.phase == Phase::StationRestarting {
+        let (cx, cy) = (x + 76.0, y + 172.0);
+        cv.circle(cx, cy, 14.0, HALO.alpha(0.2 + glow * 0.3));
+        cv.circle(cx, cy, 6.0, SPECTRE);
+        cv.text(cx + 30.0, cy + 9.0, Text::new(Font::Regular, 25.0, FROST), tr("La Station redémarre…", "The Station is restarting…"));
+    } else {
+        // Faites, en cours (avec « … »), à venir.
+        for (i, label) in steps.iter().enumerate() {
+            let (cx, cy) = (x + 76.0, y + 172.0 + i as f32 * 48.0);
+            let style = Text::new(Font::Regular, 25.0, if i > current { FROST_4 } else { FROST });
+            if i < current {
+                cv.icon(&Icon::Check, cx - 14.0, cy - 14.0, 28.0, 2.2, SPECTRE);
+                cv.text(cx + 30.0, cy + 9.0, style.color(FROST_2), label);
+            } else if i == current {
+                cv.circle(cx, cy, 14.0, HALO.alpha(0.2 + glow * 0.3));
+                cv.circle(cx, cy, 6.0, SPECTRE);
+                cv.text(cx + 30.0, cy + 9.0, style, &format!("{label}…"));
+            } else {
+                cv.circle_stroke(cx, cy, 6.0, 1.5, FROST_4);
+                cv.text(cx + 30.0, cy + 9.0, style, label);
+            }
+        }
+    }
     let bw = 220.0;
     let r = Rect::new(x + w - bw - 40.0, y + h - 84.0, bw, 56.0);
     let focused = f.hit(Target::CancelConnect, r);
@@ -101,7 +130,12 @@ fn ended(cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option<&str>) {
     cv.rrect(x, y, w, h, 28.0, PANEL_SOLID);
     cv.rrect_stroke(x, y, w, h, 28.0, 1.0, BORDER);
     cv.text(x + 60.0, y + 80.0, Text::new(Font::Mono, 16.0, FROST_3).tracking(3.0), &s.name.to_uppercase());
-    cv.text(x + 60.0, y + 140.0, Text::new(Font::Title, 40.0, FROST), if error.is_some() { tr("La session s'est arrêtée", "The session stopped") } else { tr("Session terminée", "Session ended") });
+    let title = match (error.is_some(), s.streamed) {
+        (true, false) => tr("La connexion a échoué", "The connection failed"),
+        (true, true) => tr("La session s'est arrêtée", "The session stopped"),
+        _ => tr("Session terminée", "Session ended"),
+    };
+    cv.text(x + 60.0, y + 140.0, Text::new(Font::Title, 40.0, FROST), title);
     if let Some(e) = error {
         cv.paragraph(x + 60.0, y + 188.0, Text::new(Font::Regular, 21.0, FROST_2), e, w - 120.0, 30.0);
     }
@@ -116,7 +150,7 @@ fn stats_pill(cv: &mut Canvas, s: &SessionUi, y: f32) {
     };
     let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
     let lost = if st.lost == 0 { tr("0 perte", "0 loss").to_string() } else { format!("{} {}", st.lost, tr("pertes", "losses")) };
-    let parts = [lat, format!("{} i/s", st.fps.round()), format!("{} Mbit/s", st.mbps.round()), format!("{} · {}", st.mode, st.codec), lost];
+    let parts = [lat, format!("{} {}", st.fps.round(), tr("i/s", "fps")), format!("{} Mbit/s", st.mbps.round()), format!("{} · {}", st.mode, st.codec), lost];
     let style = Text::new(Font::Mono, 19.0, FROST);
     let gap = 36.0;
     let widths: Vec<f32> = parts.iter().map(|p| cv.text_width(style, p)).collect();
@@ -156,7 +190,7 @@ fn menu(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     tiles.push((MenuItem::RemoteMouse, Icon::Pointer, "Magic Remote".into(), Some(tr("en souris · OK = clic", "as mouse · OK = click").into()), false, s.remote_mouse));
     tiles.push((MenuItem::PadMouse, Icon::Gamepad, tr("Manette en souris", "Controller as mouse").into(), Some(tr("stick gauche", "left stick").into()), false, s.pad_mouse));
     tiles.push((MenuItem::Keys, Icon::Keys, tr("Touches", "Keys").into(), Some("Ctrl+Alt+Suppr…".into()), false, false));
-    tiles.push((MenuItem::Stats, Icon::Chart, tr("Mesures", "Stats").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
+    tiles.push((MenuItem::Stats, Icon::Chart, tr("Statistiques", "Statistics").into(), Some(tr("en haut de l'image", "over the picture").into()), false, s.show_stats));
     tiles.push((MenuItem::Gamepads, Icon::Gamepad, tr("Manettes", "Controllers").into(), Some(format!("{} {}", app.pads.len(), tr("branchée(s)", "connected"))), false, false));
     tiles.push((MenuItem::Settings, Icon::Gear, tr("Réglages", "Settings").into(), Some(tr("prochaine session", "next session").into()), false, false));
     tiles.push((MenuItem::Disconnect, Icon::Logout, tr("Se déconnecter", "Disconnect").into(), None, true, false));

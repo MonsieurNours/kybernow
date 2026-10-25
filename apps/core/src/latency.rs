@@ -23,6 +23,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use kyclient_common::metrics::{Metric, NetworkStats, VideoMetricData};
 
@@ -309,6 +310,8 @@ impl Inner {
 
 pub struct LatencyTracker {
     inner: Mutex<Inner>,
+    /// Une image a été montrée depuis la création (jamais remis à zéro).
+    shown: AtomicBool,
 }
 
 impl Default for LatencyTracker {
@@ -329,7 +332,14 @@ impl LatencyTracker {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(Inner::new()),
+            shown: AtomicBool::new(false),
         }
+    }
+
+    /// Une image a été montrée depuis la création du suivi, même avant un
+    /// [`Self::reset`] : la session a eu ses premières images.
+    pub fn any_displayed(&self) -> bool {
+        self.shown.load(Ordering::Relaxed)
     }
 
     /// Les numéros d'image repartent de zéro à chaque démarrage de l'image.
@@ -390,6 +400,7 @@ impl LatencyTracker {
 
     /// Image `pts` reçue, décodée puis montrée (µs, horloge [`now_micros`]).
     pub fn frame_displayed(&self, pts: u64, received: i64, decoded: i64, at: i64) {
+        self.shown.store(true, Ordering::Relaxed);
         let mut i = self.inner.lock().unwrap();
         i.second.displayed += 1;
         if i.done.contains(&pts) {

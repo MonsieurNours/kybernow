@@ -42,6 +42,7 @@
 		86468B92C625C587213360F0 /* OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = F0FC01552ACFFE060EB414DC /* OFL.txt */; };
 		86BFD5BA8C1E2F5D7EB45061 /* ConsoleClientCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D768A88B9A4537A90254938 /* ConsoleClientCore.swift */; };
 		8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A6E1351863BB088A8938F59 /* Model.swift */; };
+		8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15AA9F9EFA3E6C151832988 /* LinkUI.swift */; };
 		9ECBAC17D48DC6E5EFD0F599 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */; };
 		A7EB72E7360A2589DCCAA24E /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C5BC11DCB9BAF29FE7F1722 /* AppSettingsView.swift */; };
 		AA646ACFCCEDA7CA1C36A75C /* KeyboardMouse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BC5E83B7193B1F27746462 /* KeyboardMouse.swift */; };
@@ -49,6 +50,7 @@
 		B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5209938CBDB61B7A681C9DB /* Platform.swift */; };
 		B807C6D5D7D989473B8C327D /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383556364DF843C9D46F9B81 /* AppModel.swift */; };
 		B8212CF41830876E669E0A4A /* AudioPlayerCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDD825886035EA70C8A338E /* AudioPlayerCore.swift */; };
+		BA981DE8BEA2B6DDFA59F919 /* SettingsStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */; };
 		C17855BA68F77C49CA160194 /* CloudSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2CC5531BE91A2E596139D8 /* CloudSync.swift */; };
 		CF1672C3B10A503BCCE9BB62 /* InputCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D096F84DF3830EBF98CCE6EF /* InputCore.swift */; };
 		D0970783026227DA84F25AEC /* SessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDADC5155C777613D3C1002 /* SessionView.swift */; };
@@ -124,7 +126,9 @@
 		9F2CC5531BE91A2E596139D8 /* CloudSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSync.swift; sourceTree = "<group>"; };
 		A2B1FC1C1CB40956666D1104 /* Discovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Discovery.swift; sourceTree = "<group>"; };
 		A311A16A82D70847AAB768D2 /* CoreBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridge.swift; sourceTree = "<group>"; };
+		B15AA9F9EFA3E6C151832988 /* LinkUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkUI.swift; sourceTree = "<group>"; };
 		B3F54BF416D5315CDBC05036 /* SessionStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionStats.swift; sourceTree = "<group>"; };
+		B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStats.swift; sourceTree = "<group>"; };
 		BAA93A815BCDC3DCEF4B2B8B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C061F9A3683E8F0952178D5A /* SessionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEngine.swift; sourceTree = "<group>"; };
 		C4F5C6D95599975901557ED5 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -217,6 +221,7 @@
 				B3F54BF416D5315CDBC05036 /* SessionStats.swift */,
 				CFDADC5155C777613D3C1002 /* SessionView.swift */,
 				66675E7942D7F082D80B96EB /* SettingsControls.swift */,
+				B5B21EE1EB8228AF8F50DED6 /* SettingsStats.swift */,
 				2E3E0113565D7CF768FB0FE2 /* SettingsView.swift */,
 				4D24E60CD6CB22677E5A6149 /* Theme.swift */,
 			);
@@ -265,6 +270,7 @@
 			children = (
 				9DA666EFDB697E3073C49AC0 /* AppIcon.icon */,
 				A2B1FC1C1CB40956666D1104 /* Discovery.swift */,
+				B15AA9F9EFA3E6C151832988 /* LinkUI.swift */,
 				2A6E1351863BB088A8938F59 /* Model.swift */,
 			);
 			name = KyberNow;
@@ -430,12 +436,14 @@
 				D72A5578EFCFB0F409F02FF0 /* HomeView.swift in Sources */,
 				2047075896E2379979E6B37D /* KyberNowApp.swift in Sources */,
 				1DD21AA9FE7A5C7271CEAB42 /* LaunchView.swift in Sources */,
+				8EE5514C9D6756205285D44F /* LinkUI.swift in Sources */,
 				8AC74F5174920E95A6B94BC0 /* Model.swift in Sources */,
 				B215E1C9CFE4119FBA31D9A2 /* Platform.swift in Sources */,
 				F3AA316CF4C8F01ECA8EEEA5 /* SessionController.swift in Sources */,
 				3C818532EDC9B3E2AD14165F /* SessionStats.swift in Sources */,
 				D0970783026227DA84F25AEC /* SessionView.swift in Sources */,
 				1C13DF9E94B8190A40F99521 /* SettingsControls.swift in Sources */,
+				BA981DE8BEA2B6DDFA59F919 /* SettingsStats.swift in Sources */,
 				753300D2372C70A39FF07F61 /* SettingsView.swift in Sources */,
 				644211D9653E7804B75A37CD /* Theme.swift in Sources */,
 			);

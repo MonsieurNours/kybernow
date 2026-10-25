@@ -10,8 +10,7 @@ import UIKit
 // MARK: - Écran
 
 enum DeviceDisplay {
-    /// iPad (orientation libre en session, colonne « Prêt à jouer », mesures
-    /// en panneau) ou iPhone.
+    /// iPad (orientation libre en session, statistiques en panneau) ou iPhone.
     static var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// Pixels réels de l'écran, en paysage, et sa fréquence la plus haute.
@@ -104,9 +103,8 @@ final class Preferences: ObservableObject {
     @Published var appleISOKeyboard: Bool { didSet { d.set(appleISOKeyboard, forKey: "appleISOKeyboard") } }
     /// Pavé tactile virtuel (le doigt déplace le pointeur) ou toucher direct (le doigt est le pointeur).
     @Published var directTouch: Bool { didSet { d.set(directTouch, forKey: "directTouch") } }
-    /// « Sessions en données mobiles » (aussi « Autoriser les données
-    /// mobiles » dans les réglages d'un ordinateur) : coupé, l'accueil demande
-    /// avant d'ouvrir une session en données mobiles (`AppModel.connect`).
+    /// « Sessions en données mobiles » (Réglages de l'app) : coupé, l'accueil
+    /// demande avant d'ouvrir une session en données mobiles (`AppModel.connect`).
     @Published var allowCellular: Bool { didSet { d.set(allowCellular, forKey: "allowCellular") } }
     /// Vitesse du pointeur au pavé tactile et à la manette.
     @Published var pointerSpeed: Double { didSet { d.set(pointerSpeed, forKey: "pointerSpeed") } }

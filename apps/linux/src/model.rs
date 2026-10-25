@@ -95,18 +95,56 @@ impl Default for HostSettings {
     }
 }
 
-/// La dernière session : latence médiane et 95e centile (ms), durée (s),
-/// mode et débit moyen.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+impl HostSettings {
+    /// Les réglages s'écartent du profil (« Personnalisé ») : format ou débit
+    /// choisis, 4:4:4 en Jeu (Bureau et Max le prennent quand il est permis),
+    /// transport fiable hors Bureau (Bureau l'est déjà).
+    pub fn custom(&self) -> bool {
+        self.codec != "auto" || self.mbps != 0 || (self.yuv444 && self.profile == Profile::Jeu) || (self.reliable && self.profile != Profile::Bureau)
+    }
+}
+
+/// La dernière session d'au moins 3 s (Réglages de l'ordinateur ›
+/// Statistiques) : latence médiane et 95e centile (ms, 0 : non mesurée),
+/// durée (s), date, définition, fréquence, format et débit moyen.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
 pub struct LastSession {
     pub median: f64,
     pub p95: f64,
     pub seconds: u64,
+    /// « 1920 × 1200 » ; les fichiers de la 0.4.x y mettent aussi le format
+    /// (« 1920 × 1200 · HEVC ») et n'ont ni `hz` ni `codec`.
     #[serde(default)]
     pub mode: String,
     #[serde(default)]
     pub mbps: f64,
     pub at: u64,
+    /// Fréquence (Hz), 0 : inconnue.
+    #[serde(default)]
+    pub hz: u32,
+    /// « HEVC », « H.264 », « AV1 » ; vide : inconnu.
+    #[serde(default)]
+    pub codec: String,
+}
+
+impl LastSession {
+    /// Ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s ».
+    pub fn transmitted(&self) -> String {
+        let mut v: Vec<String> = Vec::new();
+        if !self.mode.is_empty() {
+            v.push(self.mode.clone());
+        }
+        if self.hz > 0 {
+            v.push(format!("{} Hz", self.hz));
+        }
+        if !self.codec.is_empty() {
+            v.push(self.codec.clone());
+        }
+        if self.mbps > 0.0 {
+            v.push(format!("{:.0} Mbit/s", self.mbps));
+        }
+        v.join(" · ")
+    }
 }
 
 /// Un ordinateur équipé de KyberNow Station.
@@ -128,13 +166,41 @@ pub struct Host {
     pub gpu: Option<String>,
     #[serde(default)]
     pub av1: bool,
-    /// Adresse matérielle pour le réveil (Wake-on-LAN), si connue.
+    /// Adresse MAC saisie à la main (Réglages › Réseau, réglage avancé) :
+    /// le réveil s'en sert quand la Station n'a pas donné ses cartes.
     #[serde(default)]
     pub mac: Option<String>,
+    /// Les cartes réseau de l'ordinateur pour le réveil, telles qu'Admin les
+    /// donne (`wake` de `GET /api/stream/info`, Station 0.5.0 et suivantes),
+    /// gardées d'un `info` réussi à l'autre (une liste vide ne les efface pas).
+    #[serde(default)]
+    pub wake: Vec<WakeCard>,
     #[serde(default)]
     pub settings: HostSettings,
     #[serde(default)]
     pub last: Option<LastSession>,
+}
+
+/// Une carte réseau de l'ordinateur à réveiller, au JSON de `WakeTarget` du
+/// cœur (`apps/core/src/wake.rs`) : l'app la garde telle qu'Admin la donne.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(default)]
+pub struct WakeCard {
+    /// `AA:BB:CC:DD:EE:FF`.
+    pub mac: String,
+    pub ipv4: Option<String>,
+    pub broadcast: Option<String>,
+    /// `ethernet`, `wifi`, ou vide.
+    pub kind: String,
+    pub armed: Option<bool>,
+    pub name: String,
+}
+
+impl Host {
+    /// L'app sait réveiller cet ordinateur : des cartes apprises d'Admin, ou une MAC saisie.
+    pub fn can_wake(&self) -> bool {
+        !self.wake.is_empty() || self.mac.is_some()
+    }
 }
 
 /// Réglages de l'app.
@@ -244,7 +310,10 @@ impl Store {
             let id = h.id.clone();
             let settings = h.settings.clone();
             let last = h.last.clone();
-            *h = Host { id: id.clone(), settings, last, ..host };
+            // Ajouté à nouveau : ses réglages, sa dernière session et de quoi le réveiller restent.
+            let wake = if host.wake.is_empty() { h.wake.clone() } else { host.wake.clone() };
+            let mac = host.mac.clone().or_else(|| h.mac.clone());
+            *h = Host { id: id.clone(), settings, last, wake, mac, ..host };
             return id;
         }
         let id = host.id.clone();

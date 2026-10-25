@@ -1,4 +1,4 @@
-// Mesures détaillées de la session, en bas à droite de l'image (clic sur les
+// Statistiques de la session, en bas à droite de l'image (clic sur les
 // mesures de la barre, ou ⌃⌥⌘S) : le trajet d'une image étape par étape, les
 // 30 dernières secondes en courbes, et les pertes. Le panneau reste ouvert et
 // laisse passer clics et mouvements vers l'ordinateur ; seul son bouton de
@@ -40,7 +40,7 @@ struct StatsPanel: View {
                 rule
                 details(stats)
             } else {
-                Text("Les mesures détaillées s'affichent dès que l'image arrive.")
+                Text("Les statistiques s'affichent dès que l'image arrive.")
                     .font(Theme.sans(12.5))
                     .foregroundStyle(Theme.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,7 +58,7 @@ struct StatsPanel: View {
         }
         .environment(\.colorScheme, .dark)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Mesures détaillées")
+        .accessibilityLabel("Statistiques")
     }
 
     private var rule: some View { Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1) }
@@ -68,7 +68,7 @@ struct StatsPanel: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Theme.eyebrow(String(localized: "Mesures détaillées"))
+                Theme.eyebrow(String(localized: "Statistiques"))
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     if let ms = stats?.latencyMs {
                         LitNumber(text: Moment.ms(ms), size: 26)
@@ -91,8 +91,8 @@ struct StatsPanel: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .help("Fermer les mesures (⌃⌥⌘S)")
-            .accessibilityLabel("Fermer les mesures")
+            .help("Fermer les statistiques (⌃⌥⌘S)")
+            .accessibilityLabel("Fermer les statistiques")
             .background(GeometryReader { g in
                 Color.clear.preference(key: StatsCloseRectKey.self, value: g.frame(in: .named(SessionChrome.space)))
             })
@@ -131,7 +131,7 @@ struct StatsPanel: View {
     }
 
     static func mbps(_ v: Double) -> String {
-        (v >= 100 ? String(Int(v.rounded())) : String(format: "%.1f", v).replacingOccurrences(of: ".", with: LanguageChoice.effective == "fr" ? "," : ".")) + " Mb/s"
+        (v >= 100 ? String(Int(v.rounded())) : String(format: "%.1f", v).replacingOccurrences(of: ".", with: LanguageChoice.effective == "fr" ? "," : ".")) + " Mbit/s"
     }
 
     // MARK: Pertes

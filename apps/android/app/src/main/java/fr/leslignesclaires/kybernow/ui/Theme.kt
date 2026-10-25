@@ -95,6 +95,12 @@ data class KnScale(val tv: Boolean, val unit: Float) {
 val LocalScale = staticCompositionLocalOf { KnScale(false, 1f) }
 val LocalForm = staticCompositionLocalOf { FormFactor.PHONE }
 
+/**
+ * Les animations sans fin (attente, étape en cours, zoom du fond). Coupées dans les captures :
+ * Robolectric n'y retrouve jamais le repos (le fil principal tourne sans fin).
+ */
+val LocalMotion = staticCompositionLocalOf { true }
+
 private val scheme: ColorScheme = darkColorScheme(
     primary = Kn.spectre,
     onPrimary = Kn.ink,
@@ -108,14 +114,14 @@ private val scheme: ColorScheme = darkColorScheme(
 )
 
 @Composable
-fun KnTheme(form: FormFactor, content: @Composable () -> Unit) {
+fun KnTheme(form: FormFactor, motion: Boolean = true, content: @Composable () -> Unit) {
     val scale = when (form) {
         FormFactor.TV -> KnScale(true, 1.0f)
         FormFactor.TABLET -> KnScale(false, 1.05f)
         FormFactor.PHONE -> KnScale(false, 1f)
     }
     MaterialTheme(colorScheme = scheme, typography = MaterialTheme.typography) {
-        CompositionLocalProvider(LocalScale provides scale, LocalForm provides form, content = content)
+        CompositionLocalProvider(LocalScale provides scale, LocalForm provides form, LocalMotion provides motion, content = content)
     }
 }
 

@@ -11,7 +11,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **iPad** : écran externe et Stage Manager.
 - **Android** : 1080p à 120 Hz sur la Shield, mise à jour de bout en bout depuis une version publiée, une tablette, une console portable, DeX et ChromeOS ; vibrations de la DualSense et de la manette Shield sur la Shield ; pertes de son sur la Shield en 4K 60 (Ethernet à 100 Mbit/s) à revoir en gigabit ou à débit plus bas.
 - **Téléviseurs LG** : latence sur la G2 en 4K à 120 Hz, 1440p et 1080p, à 30, 60 et 120 i/s ; écart son-image et latence ajoutée du 5.1 Dolby ; Magic Remote en souris : mouvements envoyés quand le pointeur du téléviseur est caché.
-- **Station** : le mode « Pour toute connexion » (écran virtuel créé en cours de flux).
+- **Station** : le mode « Pour toute connexion » (écran virtuel créé en cours de flux) ; sur un vrai PC Windows, le redémarrage et la mise à jour de la Station depuis une app, le dernier recours de la connexion, les cartes réseau listées pour le réveil et un vrai réveil depuis la veille et après un arrêt complet.
 - **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
 
 ## KyberNow Station et Admin
@@ -21,7 +21,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Pilote audio signé KyberNow** (certificat EV + Partner Center), si les haut-parleurs de Steam ne suffisent plus.
 - **Pilote d'écran virtuel attesté** (EV + Partner Center), pour ne plus ajouter le certificat de SudoVDA aux autorités racines.
 - **Signature Authenticode** de l'installateur, de l'app Windows et du paquet de mise à jour manuelle (SignPath visé ; préalable : binaires Windows construits en CI).
-- **Wake-on-LAN** : Admin donne l'adresse MAC de l'ordinateur aux apps, et toutes les apps proposent le réveil (aujourd'hui : Android et Linux, adresse saisie à la main).
+- **Réveil par le réseau sur iPhone, iPad et Apple TV** : demander à Apple l'autorisation multicast (`com.apple.developer.networking.multicast`), pour envoyer le paquet en diffusion et pas seulement en direct.
 - **API du contrôleur** : inventorier ce que `kycontroller` expose en HTTP (état de session, métriques).
 - **Question ouverte** : plusieurs utilisateurs simultanés sur le même ordinateur ?
 

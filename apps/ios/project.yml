@@ -71,6 +71,7 @@ targets:
       - path: KyberNowIOS
       - path: ../macos/KyberNow/Model.swift
       - path: ../macos/KyberNow/Discovery.swift
+      - path: ../macos/KyberNow/LinkUI.swift
       - path: ../tvos/KyberNowTV/CloudSync.swift
       - path: ../tvos/KyberNowTV/Backdrops.swift
       - path: ../macos/KyberNow/Fonts

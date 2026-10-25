@@ -39,10 +39,25 @@ function lookup(catalogue: Catalogue, key: string): string | undefined {
   return typeof node === 'string' ? node : undefined
 }
 
-/** Texte de `key` dans la langue courante, `{nom}` remplacé par sa valeur. */
+/** Un nom qui commence par une voyelle (accentuées comprises) ou un h élide « de » : « d'Atelier », « d'Hugo-PC ». */
+const elides = (name: string) => /^[aeiouyhàâäéèêëîïôöùûüÿæœ]/i.test(name.trim())
+
+/**
+ * Texte de `key` dans la langue courante, `{nom}` remplacé par sa valeur. En
+ * français, « de {nom} » devient « d'{nom} » devant une voyelle ou un h
+ * (« Réglages d'Atelier », mais « Réglages de Bureau-Salon »).
+ */
 export function t(key: string, params: Record<string, string | number> = {}): string {
-  const text = lookup(catalogues[i18n.lang], key) ?? lookup(catalogues.fr, key) ?? key
+  let text = lookup(catalogues[i18n.lang], key) ?? lookup(catalogues.fr, key) ?? key
+  if (i18n.lang === 'fr') {
+    text = text.replace(/\bde \{(\w+)\}/g, (all, name: string) => (name in params && elides(String(params[name])) ? `d'{${name}}` : all))
+  }
   return text.replace(/\{(\w+)\}/g, (all, name: string) => (name in params ? String(params[name]) : all))
+}
+
+/** Un libellé qui finit par « de », suivi d'un nom affiché à part (« Réglages de » au-dessus du nom) : élidé en français. */
+export function beforeName(text: string, name: string): string {
+  return i18n.lang === 'fr' && / de$/.test(text) && elides(name) ? `${text.slice(0, -2)}d'` : text
 }
 
 /** Applique la langue (textes, attribut `lang` du document). */

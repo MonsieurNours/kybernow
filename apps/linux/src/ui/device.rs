@@ -67,8 +67,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
     } else {
         let rows = app.rows(section);
         for r in &rows {
-            settings::row_console(cv, f, r, mx, y, mw, 88.0, 1.5);
-            y += 88.0;
+            y += settings::row_console(cv, f, r, mx, y, mw, 88.0, 1.5);
         }
     }
 

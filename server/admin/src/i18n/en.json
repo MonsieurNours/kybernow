@@ -23,7 +23,8 @@
     "sessionOf": "{name}’s session",
     "currentConnection": "the current connection",
     "pairTooMany": "too many pairing requests: try again in a minute",
-    "requestGone": "this request has expired: the device will send a new one with another code"
+    "requestGone": "this request has expired: the device will send a new one with another code",
+    "unknownRoute": "route unknown to this version of Admin"
   },
   "auth": {
     "adminHeader": "missing x-kyber-admin header",
@@ -77,6 +78,15 @@
     "noTag": "version without a number",
     "badGithubVersion": "unexpected version number on GitHub: {version}"
   },
+  "station": {
+    "windowsOnly": "restarting the Station only works on Windows",
+    "alreadyRestarting": "the Station is already restarting",
+    "restartConflict": "A device is connected ({name}): restarting will end its session",
+    "tooSoon": "the Station has just restarted: try again in {seconds} s",
+    "upToDate": "KyberNow Station {version} is up to date: nothing to install",
+    "requiresSetup": "KyberNow Station {version} installs with {setup}, on the computer: download it from Admin, System page",
+    "notInstallable": "KyberNow Station {version} can’t be installed from a device: {reason}"
+  },
   "manifest": {
     "otherKey": "manifest signed with a key other than KyberNow’s",
     "badSignature": "invalid manifest signature: tampered or damaged version",
@@ -124,6 +134,11 @@
     "restartWaiting": "Server restart pending to {why}: it will happen as soon as the current session ends",
     "pairRefused": "Access declined for {name} (pairing with a code)",
     "connectionsCut": "Connections cut from Admin (server restarted)",
+    "stationRestarted": "{name} restarted the Station",
+    "stationRestartedAccount": "A device on account {account} restarted the Station",
+    "stationRestartedAdmin": "Station restarted from Admin",
+    "stationUpdate": "{name} started the update to {version}",
+    "stationUpdateAccount": "A device on account {account} started the update to {version}",
     "displayKeepsTurningOn": "Windows keeps turning a display of the computer back on: it stays on for the rest of the session",
     "displayModeFollowed": "The virtual display switched to {mode} (requested: {target}), left as is",
     "displayModeRestored": "The virtual display switched to {mode}: set back to {target}",

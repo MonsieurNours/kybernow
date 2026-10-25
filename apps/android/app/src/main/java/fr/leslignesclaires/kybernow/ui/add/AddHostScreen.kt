@@ -323,7 +323,7 @@ private fun CodePane(targets: List<Target>, onDone: (Host) -> Unit) {
                 val st = (r.first as? Reply.Ok)?.value ?: continue
                 when (st.state) {
                     PairState.ACCEPTED -> {
-                        val h = Host(name = t.name, address = t.address, port = t.port, fingerprint = t.fingerprint ?: r.second, user = st.username ?: "")
+                        val h = Host(name = t.name, address = t.address, port = t.port, fingerprint = t.fingerprint ?: r.second, user = st.username ?: "", paired = true)
                         app.hosts.put(h, st.password ?: "")
                         onDone(app.hosts.get(h.id) ?: h)
                         return@LaunchedEffect

@@ -12,6 +12,7 @@
 
 import Combine
 import Foundation
+import KyberKit
 import Security
 
 struct CloudHost: Codable, Identifiable, Equatable {
@@ -22,6 +23,9 @@ struct CloudHost: Codable, Identifiable, Equatable {
     var username: String
     var streamPort: UInt16?
     var consoleFingerprint: String?
+    /// Cartes réseau pour le réveil par le réseau, apprises par le Mac
+    /// (absentes d'une liste publiée par une version précédente).
+    var wake: [WakeTarget]?
     /// Appareil qui l'a publié (« Mac de Léa »).
     var from: String?
 }
@@ -70,6 +74,7 @@ final class CloudSync: ObservableObject {
         h.id = c.id
         h.streamPort = c.streamPort
         h.consoleFingerprint = c.consoleFingerprint
+        h.wake = c.wake
         return h
     }
 }

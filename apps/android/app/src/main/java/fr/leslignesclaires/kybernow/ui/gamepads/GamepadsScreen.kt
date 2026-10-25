@@ -136,7 +136,7 @@ private fun PadCard(p: Gamepad, selected: Boolean, onClick: () -> Unit) {
             Box(
                 Modifier.size(s.dp(44f)).clip(RoundedCornerShape(10.dp)).background(if (p.slot >= 0) Kn.spectreFlat else Kn.frost.copy(alpha = 0.1f)),
                 contentAlignment = Alignment.Center,
-            ) { Mono(if (p.slot >= 0) "J${p.slot + 1}" else "…", size = 15f, color = Kn.neonCore, weight = 600) }
+            ) { Mono(if (p.slot >= 0) stringResource(R.string.gamepads_player, p.slot + 1) else "…", size = 15f, color = Kn.neonCore, weight = 600) }
             Spacer(Modifier.width(s.dp(14f)))
             Column(Modifier.weight(1f)) {
                 Body(p.name, size = 17f, weight = 600, maxLines = 1)

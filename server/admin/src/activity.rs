@@ -499,6 +499,13 @@ impl Activity {
         s.stored.devices.iter().find(|d| d.id == id).and_then(|d| d.launch.clone().map(|l| (l, d.name.clone())))
     }
 
+    /// Nom d'un appareil connu, s'il utilise ce compte Kyber : un identifiant
+    /// déclaré ne suffit pas à se faire passer pour un autre appareil dans le fil.
+    pub fn device_name(&self, id: &str, user: &str) -> Option<String> {
+        let s = self.state.lock().unwrap();
+        s.stored.devices.iter().find(|d| d.id == id && d.user == user).map(|d| d.name.clone())
+    }
+
     /// Compte propre à un appareil appairé → nom de l'appareil.
     pub fn own_accounts(&self) -> Vec<(String, String)> {
         let s = self.state.lock().unwrap();

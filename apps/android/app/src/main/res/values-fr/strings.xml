@@ -4,39 +4,35 @@
     <string name="app_name">KyberNow</string>
     <string name="tv_channel">Reprendre sur un ordinateur</string>
     <string name="home_connect">Se connecter</string>
+    <string name="home_retry">Réessayer</string>
     <string name="home_wake">Réveiller l\'ordinateur</string>
-    <string name="home_gamepads">Manettes</string>
+    <string name="home_waking">Réveil de l\'ordinateur…</string>
     <string name="home_app_settings">Réglages de l\'app</string>
     <string name="home_host_settings">Réglages</string>
-    <string name="home_remove">Retirer</string>
-    <string name="home_add">Ajouter</string>
+    <string name="home_add">Ajouter un ordinateur</string>
     <string name="home_on_network">Sur le réseau</string>
     <string name="home_your_computers">Vos ordinateurs</string>
-    <string name="home_checking">Recherche…</string>
+    <string name="home_searching">Recherche…</string>
+    <string name="home_online">En ligne</string>
     <string name="home_offline">Hors ligne</string>
-    <string name="home_offline_short">hors ligne</string>
-    <string name="home_online_local">En ligne · réseau local</string>
-    <string name="home_online_vpn">En ligne · VPN</string>
-    <string name="home_online_remote">En ligne · à distance</string>
-    <string name="home_account_refused">Admin refuse ce compte : changez-le dans les réglages de l\'ordinateur.</string>
-    <string name="home_certificate_changed">Le certificat d\'Admin a changé : retirez l\'ordinateur puis ajoutez-le de nouveau.</string>
+    <string name="home_display_match" formatted="true">Écran de %1$d × %2$d à %3$d Hz, à la taille de cet écran</string>
+    <string name="home_display_custom" formatted="true">Écran de %1$d × %2$d à %3$d Hz</string>
+    <string name="home_display_as_is">Les écrans de l\'ordinateur, tels quels</string>
+    <string name="home_pads_none">Aucune manette</string>
+    <string name="home_pads_one">1 manette</string>
+    <string name="home_pads_many" formatted="true">%1$d manettes</string>
+    <string name="home_account_refused">Mot de passe refusé : mettez-le à jour dans les réglages.</string>
+    <string name="home_certificate_changed">La Station a été réinstallée : vérifiez son empreinte dans les réglages.</string>
     <string name="welcome_title">Retrouvez votre ordinateur</string>
     <string name="welcome_body">Ajoutez un ordinateur équipé de KyberNow Station : sur le réseau, avec un code à accepter dans KyberNow Admin, son QR code ou son adresse.</string>
-    <string name="welcome_add">Ajouter un ordinateur</string>
     <string name="profile_game">Jeu</string>
     <string name="profile_desktop">Bureau</string>
     <string name="profile_max">Max</string>
-    <string name="ready_title">Prêt à jouer</string>
-    <string name="ready_gamepads">Manettes</string>
-    <string name="ready_no_gamepad">Aucune manette</string>
-    <string name="ready_sound">Son</string>
-    <string name="ready_bluetooth_delay">Bluetooth : retard de la sortie probable</string>
-    <string name="ready_tv">Téléviseur</string>
-    <string name="ready_screen">Écran</string>
-    <string name="ready_game_mode">mode jeu</string>
-    <string name="ready_vrr_yes">fréquence variable</string>
-    <string name="ready_vrr_no">pas de VRR</string>
-    <string name="ready_last_session">Dernière session</string>
+    <string name="profile_custom">Personnalisé</string>
+    <string name="profile_game_help">La réactivité d\'abord, pour jouer.</string>
+    <string name="profile_desktop_help">Un texte net, pour travailler.</string>
+    <string name="profile_max_help">La meilleure image que cet appareil affiche.</string>
+    <string name="profile_custom_help">Vos propres réglages.</string>
     <string name="motors_two">2 moteurs</string>
     <string name="motors_one">1 moteur</string>
     <string name="motors_none">sans vibration</string>
@@ -44,6 +40,8 @@
     <string name="audio_bluetooth">Bluetooth</string>
     <string name="audio_device">Cet appareil</string>
     <string name="audio_stereo">Stéréo</string>
+    <string name="audio_bluetooth_delay">En Bluetooth, le son arrive souvent en retard.</string>
+    <string name="cancel">Annuler</string>
     <string name="add_title">Ajouter un ordinateur</string>
     <string name="add_tab_network">Réseau</string>
     <string name="add_tab_code">Code</string>
@@ -76,80 +74,139 @@
     <string name="add_code_update_station">Cette Station ne connaît pas les codes : mettez-la à jour sur l\'ordinateur.</string>
     <string name="add_qr_help">Dans KyberNow Admin, ouvrez Appareils Link et visez le QR code. L\'empreinte de l\'ordinateur est vérifiée toute seule.</string>
     <string name="add_qr_permission">La caméra est refusée : autorisez-la dans les réglages d\'Android.</string>
-    <string name="settings_title">Réglages</string>
+    <string name="settings_for" formatted="true">Réglages de %1$s</string>
+    <string name="settings_for_elided" formatted="true">Réglages d\'%1$s</string>
     <string name="settings_profile">Profil</string>
-    <string name="settings_profile_default">Profil au départ</string>
-    <string name="settings_profile_help">Jeu : faible latence, haut débit d\'images. Bureau : texte net (4:4:4 si l\'appareil le décode), transport fiable. Max : le plus de qualité.</string>
     <string name="settings_image">Image</string>
+    <string name="settings_sound">Son</string>
+    <string name="settings_controls">Commandes</string>
+    <string name="settings_network">Réseau</string>
+    <string name="settings_stats">Statistiques</string>
+    <string name="settings_station">Station</string>
     <string name="settings_auto">Auto</string>
     <string name="settings_like_screen">Comme cet écran</string>
     <string name="settings_resolution">Définition</string>
     <string name="settings_refresh">Fréquence</string>
-    <string name="settings_refresh_help" formatted="true">En 1080p : jusqu\'à %1$d Hz. À la définition de cet écran : %2$d Hz. Une fréquence que l\'écran ne tient pas fait baisser la définition.</string>
-    <string name="settings_codec">Format</string>
-    <string name="settings_codec_help">Auto : HEVC si l\'appareil le décode en matériel, sinon H.264.</string>
-    <string name="settings_bitrate">Débit (Mbit/s)</string>
-    <string name="settings_bitrate_help">Celui du profil suit les pixels par seconde de la session.</string>
-    <string name="settings_bitrate_profile">Du profil</string>
-    <string name="settings_444">4:4:4</string>
-    <string name="settings_444_help">Couleurs pleines pour le texte (profil Bureau), si l\'appareil décode le HEVC 4:4:4 en matériel.</string>
-    <string name="settings_available">disponible</string>
-    <string name="settings_unavailable">indisponible</string>
+    <string name="settings_refresh_help" formatted="true">En 1080p : jusqu\'à %1$d Hz. À la définition de cet écran : %2$d Hz. Une fréquence que l\'écran ne tient pas fait baisser la définition.</string>
+    <string name="settings_virtual_display">Écran virtuel</string>
+    <string name="settings_virtual_display_help">L\'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s\'éteignent, puis reviennent à la fin.</string>
+    <string name="settings_virtual_display_none">La Station de cet ordinateur ne crée pas d\'écran virtuel : la session montre ses écrans tels quels.</string>
+    <string name="settings_codec">Format vidéo</string>
+    <string name="settings_codec_help">Auto : HEVC si cet appareil le décode par sa carte graphique, sinon H.264.</string>
+    <string name="settings_bitrate">Débit</string>
+    <string name="settings_bitrate_help">Auto : celui du profil, ajusté à la définition et à la fréquence.</string>
+    <string name="settings_mbps" formatted="true">%1$d Mbit/s</string>
+    <string name="settings_444">Texte net (4:4:4)</string>
+    <string name="settings_444_help">Couleurs complètes : le texte reste net, au prix d\'un débit plus élevé.</string>
+    <string name="settings_444_yes">Profils Bureau et Max</string>
+    <string name="settings_444_no">Pas sur cet appareil</string>
+    <string name="settings_frame_display">Affichage des images</string>
+    <string name="settings_frame_immediate">Immédiat</string>
+    <string name="settings_frame_display_help">Chaque image s\'affiche dès qu\'elle est décodée ; la plus récente remplace les autres.</string>
     <string name="settings_match_display">Caler l\'écran sur la session</string>
-    <string name="settings_match_display_help">La sortie HDMI prend la définition et la fréquence de la session (1080p à 120 Hz par exemple), le temps de la session.</string>
+    <string name="settings_match_display_help">La sortie HDMI prend la définition et la fréquence de la session (1080p à 120 Hz par exemple), le temps de la session.</string>
     <string name="settings_game_mode">Mode jeu du téléviseur</string>
     <string name="settings_game_mode_help">Demande au téléviseur de couper ses traitements d\'image (ALLM) pendant la session.</string>
     <string name="settings_game_mode_unsupported">Cet écran ne le propose pas.</string>
-    <string name="settings_vrr">Fréquence variable (VRR)</string>
-    <string name="settings_vrr_variable">variable</string>
-    <string name="settings_vrr_help_yes">Chaque image part dès qu\'elle est décodée : l\'écran se cale sur son arrivée.</string>
-    <string name="settings_vrr_help_no">Android ne donne pas la main sur le VRR en HDMI. Chaque image part dès qu\'elle est décodée.</string>
-    <string name="settings_sound">Son</string>
-    <string name="settings_sound_output">Sortie</string>
     <string name="settings_sound_help">Auto suit la sortie : 5.1 ou 7.1 sur un ampli HDMI, stéréo ailleurs.</string>
     <string name="settings_sound_computer">Sur l\'ordinateur</string>
-    <string name="settings_gamepads">Manettes</string>
     <string name="settings_gamepad_seen">Manette vue par l\'ordinateur</string>
     <string name="settings_gamepad_seen_help">Xbox 360 : toutes les manettes en deviennent une. Fidèle : une manette Sony reste une DualShock 4.</string>
     <string name="settings_gamepad_faithful">Fidèle</string>
     <string name="settings_combo">L1 + R1 + Start + Select ouvrent le menu</string>
-    <string name="settings_combo_help">Tenues ensemble 250 ms ; en dessous, le jeu les reçoit.</string>
+    <string name="settings_combo_help">Tenues ensemble 250 ms. Plus brèves, elles vont au jeu.</string>
     <string name="settings_back_menu">Retour ouvre le menu</string>
     <string name="settings_back_menu_help">Sinon, le bouton Retour de la télécommande part à l\'ordinateur comme Échap.</string>
     <string name="settings_guide">Bouton Guide</string>
-    <string name="settings_guide_help">Jeu : il part au jeu (Steam Big Picture). Appui long : Start tenu 600 ms. Système : il reste à Android.</string>
+    <string name="settings_guide_help">Jeu : il part au jeu (Steam Big Picture). Appui long : Start tenu 600 ms. Système : il reste à Android.</string>
     <string name="settings_guide_game">Jeu</string>
     <string name="settings_guide_long">Appui long</string>
     <string name="settings_guide_system">Système</string>
-    <string name="settings_pointer">Souris et toucher</string>
     <string name="settings_mouse">Souris</string>
     <string name="settings_mouse_help">Auto passe en souris des jeux quand Admin voit un jeu en plein écran sur l\'ordinateur.</string>
-    <string name="mouse_desktop">Bureau</string>
-    <string name="mouse_game">Jeu</string>
-    <string name="settings_touch">Au doigt</string>
+    <string name="mouse_desktop">Souris du bureau</string>
+    <string name="mouse_game">Souris des jeux</string>
+    <string name="settings_touch">Toucher</string>
     <string name="touch_trackpad">Pavé tactile</string>
     <string name="touch_direct">Toucher direct</string>
     <string name="settings_clipboard">Presse-papiers partagé</string>
     <string name="settings_clipboard_help">Le texte copié passe d\'un côté à l\'autre ; celui de l\'appareil n\'est lu que quand l\'ordinateur colle.</string>
-    <string name="settings_network">Réseau</string>
-    <string name="settings_reliable">Transport fiable</string>
-    <string name="settings_reliable_help">Aussi en profil Jeu : utile en Wi-Fi chargé, au prix d\'un peu de latence.</string>
+    <string name="settings_transport">Transport de l\'image</string>
+    <string name="settings_transport_fast">Rapide</string>
+    <string name="settings_transport_reliable">Fiable</string>
+    <string name="settings_transport_help">Rapide convient au réseau local et au jeu. Fiable renvoie ce qui se perd, au prix d\'un peu de délai.</string>
     <string name="settings_reconnect">Reconnexion automatique</string>
     <string name="settings_wake">Réveil par le réseau</string>
-    <string name="settings_wake_help">L\'adresse matérielle de la carte réseau de l\'ordinateur : « Réveiller » apparaît quand il est hors ligne.</string>
+    <string name="settings_wake_ready">Prêt</string>
+    <string name="settings_wake_none">Pas encore d\'adresse : connectez-vous une fois à cet ordinateur.</string>
+    <string name="settings_wake_help">Allume l\'ordinateur à distance quand il est en veille. Il faut aussi l\'autoriser sur l\'ordinateur (Admin › Système).</string>
+    <string name="settings_mac_enter">Saisir l\'adresse MAC</string>
+    <string name="settings_mac_help">Pour une Station qui ne la donne pas encore : l\'adresse matérielle de la carte réseau de l\'ordinateur, envoyée en plus de celles qu\'Admin donne.</string>
     <string name="settings_mac">Adresse MAC</string>
-    <string name="settings_account">Compte</string>
-    <string name="settings_address">Adresse d\'Admin</string>
-    <string name="settings_account_help">Le compte de KyberNow Admin pour cet ordinateur. Le mot de passe reste dans cet appareil, chiffré.</string>
-    <string name="settings_new_password">Nouveau mot de passe</string>
-    <string name="settings_remove">Retirer l\'ordinateur</string>
+    <string name="last_title">Dernière session</string>
+    <string name="last_median">médiane</string>
+    <string name="last_p95" formatted="true">95 %% des images sous %1$s ms</string>
+    <string name="last_today">aujourd\'hui</string>
+    <string name="last_yesterday">hier</string>
+    <string name="last_seconds" formatted="true">%1$d s</string>
+    <string name="last_help">Le délai entre l\'ordinateur et cet écran. Sous un repère, l\'image arrive avant l\'image suivante à cette fréquence.</string>
+    <string name="last_none">Pas encore de session sur cet ordinateur.</string>
+    <string name="computer_title">Cet ordinateur</string>
+    <string name="computer_system">Système</string>
+    <string name="computer_gpu">Carte graphique</string>
+    <string name="computer_address">Adresse</string>
+    <string name="computer_fingerprint">Empreinte</string>
+    <string name="computer_fingerprint_new">Nouvelle empreinte</string>
+    <string name="computer_fingerprint_help">La Station a été réinstallée. Comparez ces quatre groupes à ceux affichés dans KyberNow Admin › Appareils Link.</string>
+    <string name="computer_fingerprint_reading">Lecture de l\'empreinte…</string>
+    <string name="computer_fingerprint_unreachable">Admin ne répond pas : réessayez quand l\'ordinateur est en ligne.</string>
+    <string name="station_version" formatted="true">KyberNow Station %1$s</string>
+    <string name="station_up_to_date">À jour</string>
+    <string name="station_available" formatted="true">Version %1$s disponible</string>
+    <string name="station_open_admin">Ouvrir Admin</string>
+    <string name="station_admin_help">Admin s\'ouvre dans votre navigateur et demande son mot de passe. Le navigateur peut signaler le certificat : la Station signe elle-même sa connexion, c\'est normal.</string>
+    <string name="station_admin_qr">Scannez ce code avec votre téléphone pour ouvrir Admin.</string>
+    <string name="station_restart">Redémarrer la Station</string>
+    <string name="station_restart_help">Environ 30 secondes. Une session en cours sera coupée.</string>
+    <string name="station_update">Mettre à jour la Station</string>
+    <string name="station_update_help" formatted="true">Version %1$s. Environ une minute. Une session en cours sera coupée.</string>
+    <string name="station_requires_setup" formatted="true">La version %1$s s\'installe sur l\'ordinateur, avec KyberNow-Station-Setup.exe.</string>
+    <string name="station_in_session" formatted="true">%1$s est connecté</string>
+    <string name="station_in_session_unknown">Un appareil est connecté</string>
+    <string name="station_in_session_restart">Redémarrer la Station coupera sa session.</string>
+    <string name="station_in_session_update">La mise à jour coupera sa session.</string>
+    <string name="station_restart_anyway">Redémarrer quand même</string>
+    <string name="station_update_anyway">Mettre à jour quand même</string>
+    <string name="station_restarting">La Station redémarre…</string>
+    <string name="station_updating">Mise à jour de la Station…</string>
+    <string name="station_restarted">La Station a redémarré.</string>
+    <string name="station_updated" formatted="true">KyberNow Station %1$s est en place.</string>
+    <string name="station_too_soon">La Station vient de redémarrer. Réessayez dans une minute.</string>
+    <string name="station_too_old">Pour redémarrer ou mettre à jour la Station depuis cet appareil, mettez-la d\'abord à jour depuis Admin.</string>
+    <string name="station_not_back">La Station tarde à revenir. Ouvrez Admin pour en savoir plus.</string>
+    <string name="station_update_failed">La mise à jour n\'a pas abouti. Ouvrez Admin pour en savoir plus.</string>
+    <string name="station_account">Compte</string>
+    <string name="station_own_access">Accès propre à cet appareil</string>
+    <string name="station_account_help">Le compte de KyberNow Admin pour cet ordinateur. Le mot de passe reste dans cet appareil, chiffré.</string>
+    <string name="station_new_password">Nouveau mot de passe</string>
+    <string name="station_remove">Retirer cet ordinateur</string>
+    <string name="station_remove_confirm" formatted="true">Retirer %1$s de cet appareil ? Vous pourrez l\'ajouter à nouveau.</string>
+    <string name="station_remove_yes">Retirer</string>
     <string name="app_settings_title">Réglages de l\'app</string>
     <string name="app_settings_language">Langue</string>
     <string name="app_settings_language_help">Auto suit Android : français s\'il est en français, anglais sinon.</string>
     <string name="app_settings_device">Cet appareil</string>
     <string name="app_settings_device_name">Nom vu par Admin</string>
-    <string name="app_settings_decoders">Décodage matériel</string>
+    <string name="app_settings_decoders">Décodage par la carte graphique</string>
     <string name="app_settings_screen">Écran</string>
+    <string name="app_settings_sound">Son</string>
+    <string name="app_settings_available">Oui</string>
+    <string name="app_settings_unavailable">Non</string>
+    <string name="app_settings_vrr">Fréquence variable (VRR)</string>
+    <string name="app_settings_vrr_help_yes">L\'écran se cale sur l\'arrivée de chaque image.</string>
+    <string name="app_settings_vrr_help_no">Android ne donne pas la main sur le VRR en HDMI.</string>
+    <string name="app_settings_gamepads">Manettes</string>
+    <string name="app_settings_gamepads_help">Touches, sticks, gâchettes et vibrations de chaque manette.</string>
     <string name="app_settings_about">À propos</string>
     <string name="updates_section">Mises à jour</string>
     <string name="updates_channel">Versions proposées</string>
@@ -174,7 +231,6 @@
     <string name="updates_permission_tv">Réglages d\'Android › Applications › Sécurité et restrictions › Sources inconnues : activez KyberNow Link, puis revenez ici.</string>
     <string name="updates_conflict">L\'app installée n\'est pas signée par la clé de publication (version de développement) : désinstallez-la une fois, puis installez l\'APK de la version. Vos ordinateurs sont à rajouter.</string>
     <string name="updates_install_failed" formatted="true">Android a refusé l\'installation (%1$s)</string>
-    <string name="updates_home" formatted="true">Version %1$s</string>
     <string name="app_settings_about_body">KyberNow Link, par Les Lignes Claires. Construit sur Kyber, sans affiliation.</string>
     <string name="app_settings_licenses">Licences</string>
     <string name="app_settings_licenses_body">KyberNow et Kyber : AGPL-3.0. Archivo et Martian Mono : SIL OFL 1.1. AndroidX (dont Jetpack Compose et CameraX), Kotlin et kotlinx.coroutines, zxing, JmDNS : Apache 2.0.</string>
@@ -184,6 +240,7 @@
     <string name="gamepads_builtin">Intégrée</string>
     <string name="gamepads_external">Bluetooth ou USB</string>
     <string name="gamepads_waiting">en attente</string>
+    <string name="gamepads_player" formatted="true">J%1$d</string>
     <string name="gamepads_press">Appuyez sur une touche</string>
     <string name="gamepads_test_rumble">Vibration d\'essai</string>
     <string name="gamepads_left_low">Gauche · grave</string>
@@ -191,35 +248,37 @@
     <string name="gamepads_both">Les deux</string>
     <string name="gamepads_no_rumble">Android ne donne aucun vibreur pour cette manette.</string>
     <string name="gamepads_one_motor_help">Un seul vibreur sur cet appareil : les deux moteurs du jeu y sont réunis.</string>
-    <string name="session_entering">Vous entrez dans…</string>
-    <string name="session_preparing">Préparation de l\'écran virtuel…</string>
-    <string name="session_connecting">Connexion…</string>
-    <string name="session_first_images">Premières images…</string>
-    <string name="session_menu_hint_tv">Menu : bouton Retour, ou L1 + R1 + Start + Select</string>
-    <string name="session_menu_hint_touch">La barre : touchez la languette en haut</string>
-    <string name="session_cancel">Annuler</string>
-    <string name="session_quit">Quitter</string>
+    <string name="session_preparing">Préparation de l\'écran</string>
+    <string name="session_connecting">Connexion</string>
+    <string name="session_first_images">Premières images</string>
+    <string name="session_failed">La connexion a échoué</string>
+    <string name="session_hint_tv_both">Le bouton Retour ouvre le menu, comme L1 + R1 + Start + Select.</string>
+    <string name="session_hint_tv_back">Le bouton Retour ouvre le menu.</string>
+    <string name="session_hint_combo">L1 + R1 + Start + Select ouvrent le menu.</string>
+    <string name="session_hint_touch">Le geste Retour ouvre la barre de session.</string>
     <string name="session_resume">Reprendre</string>
     <string name="session_disconnect">Se déconnecter</string>
     <string name="session_leaving">Déconnexion…</string>
     <string name="session_leaving_detail">L\'ordinateur retrouve son écran et son son</string>
     <string name="session_switch_profile">Changer de profil</string>
     <string name="session_sound">Son</string>
-    <string name="session_sound_detail" formatted="true">%1$d voies · tampon %2$.0f ms</string>
+    <string name="session_sound_detail" formatted="true">%1$d voies · tampon %2$.0f ms</string>
+    <string name="session_sound_channels" formatted="true">%1$d voies</string>
     <string name="session_remote_mouse">Télécommande en souris</string>
     <string name="session_pad_mouse">Manette en souris</string>
     <string name="session_on">activée</string>
     <string name="session_off">coupée</string>
     <string name="session_type_text">Taper du texte</string>
     <string name="session_keys">Touches</string>
-    <string name="session_stats">Mesures</string>
+    <string name="session_stats">Statistiques</string>
     <string name="session_close">Fermer</string>
     <string name="session_send">Envoyer</string>
     <string name="session_send_enter">Envoyer + Entrée</string>
-    <string name="session_mouse" formatted="true">Souris %1$s</string>
+    <string name="session_mouse_auto">Souris : Auto</string>
+    <string name="session_fps" formatted="true">%1$d i/s</string>
     <string name="session_losses" formatted="true">%1$d perte(s)</string>
-    <string name="session_restore" formatted="true">Remettre %1$d × %2$d</string>
-    <string name="session_screen" formatted="true">Écran %1$d · %2$d × %3$d</string>
+    <string name="session_restore" formatted="true">Remettre %1$d × %2$d</string>
+    <string name="session_screen" formatted="true">Écran %1$d · %2$d × %3$d</string>
     <string name="session_computer_screen">Écran de l\'ordinateur</string>
     <string name="session_pad_bar">La manette pilote la barre, le jeu ne reçoit rien ; B la ferme.</string>
     <string name="session_ended_title">La session s\'est arrêtée</string>
@@ -227,16 +286,18 @@
     <string name="session_back_home">Retour à l\'accueil</string>
     <string name="capsule_reconnecting" formatted="true">Reconnexion… (%1$d sur %2$d)</string>
     <string name="capsule_relaunched">L\'image a été relancée</string>
-    <string name="capsule_mode_changed" formatted="true">L\'ordinateur est passé en %1$d × %2$d</string>
-    <string name="capsule_mode_back" formatted="true">L\'ordinateur est revenu en %1$d × %2$d</string>
-    <string name="capsule_fallback_bitrate" formatted="true">Image allégée : %1$d Mbit/s</string>
+    <string name="capsule_mode_changed" formatted="true">L\'ordinateur est passé en %1$d × %2$d</string>
+    <string name="capsule_mode_back" formatted="true">L\'ordinateur est revenu en %1$d × %2$d</string>
+    <string name="capsule_fallback_bitrate" formatted="true">Image allégée : %1$d Mbit/s</string>
     <string name="capsule_fallback_420">Image allégée : 4:2:0</string>
-    <string name="capsule_adapting" formatted="true">L\'écran virtuel passe en %1$d × %2$d…</string>
+    <string name="capsule_adapting" formatted="true">L\'écran virtuel passe en %1$d × %2$d…</string>
     <string name="capsule_adapt_failed">L\'écran virtuel n\'a pas pu changer</string>
     <string name="capsule_gamepad" formatted="true">%1$s branchée · J%2$d · %3$s</string>
     <string name="keys_print">Impr. écran</string>
     <string name="keys_task_manager">Gestionnaire des tâches</string>
     <string name="keys_escape">Échap</string>
+    <string name="keys_ctrl_alt_del">Ctrl + Alt + Suppr</string>
+    <string name="keys_ctrl_alt_del_short">Ctrl+Alt+Suppr</string>
     <string name="stats_latency">Latence</string>
     <string name="stats_capture">capture</string>
     <string name="stats_encode">encodage</string>

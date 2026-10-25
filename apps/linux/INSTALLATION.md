@@ -23,7 +23,7 @@ Ensuite, à la manette : A valide, B revient, Y ouvre les réglages de l'ordinat
 
 ## SteamOS au salon (Steam Machine, PC sous SteamOS ou Bazzite)
 
-Comme le Deck ; l'app prend d'elle-même l'interface du salon (texte plus grand, colonne « Prêt à jouer ») quand l'écran dépasse 1280 × 800 sous gamescope. Réglages de l'app › Interface force Bureau, Portable ou Salon.
+Comme le Deck ; l'app prend d'elle-même l'interface du salon (texte plus grand, manettes branchées sur l'accueil) quand l'écran dépasse 1280 × 800 sous gamescope. Réglages de l'app › Interface force Bureau, Portable ou Salon.
 
 ## Linux de bureau (GNOME, KDE…)
 

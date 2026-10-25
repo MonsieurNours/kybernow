@@ -64,15 +64,16 @@ final class SessionController: NSObject, ObservableObject {
     /// Bouton de fermeture du panneau, dans la couche de la session : seul
     /// endroit du panneau qui prend les clics.
     var statsCloseRect: CGRect = .zero
-    /// Quelques secondes après l'apparition : « Vous entrez dans… ».
-    @Published private(set) var entering = false
     /// Souris en mode jeu en ce moment.
     @Published private(set) var mouseCaptured = false
     /// Jeu en plein écran sur l'ordinateur, d'après la veille de la console.
     @Published private(set) var pcGame = false
     @Published private(set) var audioStats: AudioStats?
-    /// Rappel affiché quelques secondes après l'apparition.
-    enum Hint: Equatable { case commands, mouse, fallback(String), notice(String) }
+    /// Dernier recours de la connexion : la Station redémarre (« La Station
+    /// redémarre… » à la place des étapes, jusqu'à la phase suivante).
+    @Published private(set) var stationRestarting = false
+    /// Rappel affiché quelques secondes, sur un événement de la session (jamais à l'arrivée de l'image).
+    enum Hint: Equatable { case mouse, fallback(String), notice(String) }
     /// Profil Bureau, écran de l'ordinateur passé à un autre mode : « Remettre
     /// 3840 × 2160 » dans la barre (le cœur le propose et le retire).
     @Published private(set) var modeRestoreOffer: String?
@@ -199,7 +200,8 @@ final class SessionController: NSObject, ObservableObject {
         window.makeFirstResponder(streamView)
         scene.ignite()
         // Session fenêtrée : l'écran virtuel suivra la taille de la fenêtre.
-        if host.settings.display != .window, !window.styleMask.contains(.fullScreen) {
+        // Démonstration : la fenêtre reste telle quelle, pour la capturer.
+        if host.settings.display != .window, !window.styleMask.contains(.fullScreen), !AppModel.demo {
             enteredFullScreen = true
             window.toggleFullScreen(nil)
         }
@@ -208,11 +210,11 @@ final class SessionController: NSObject, ObservableObject {
     /// Pendant le flux, seule la couche Metal doit rester dans la composition
     /// de la fenêtre pour que l'image aille directement à l'écran : la couche
     /// SwiftUI est cachée tant qu'elle n'a rien à montrer (barre, manette,
-    /// rappel, panneau des mesures, entrée, fin), et le passage une fois
+    /// rappel, panneau des mesures, fin), et le passage une fois
     /// ouvert (son animation dure 1,1 s). Hors flux, tout revient.
     private func updateCompositing() {
         let streaming = phase == .streaming
-        let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || entering || screenOfferShown
+        let needed = !streaming || barVisible || padMode || hint != nil || statsPanel || screenOfferShown
         if chrome?.isHidden == needed { chrome?.isHidden = !needed }
         if streaming {
             guard sceneHide == nil, !scene.isHidden else { return }
@@ -452,6 +454,7 @@ final class SessionController: NSObject, ObservableObject {
     private func phaseChanged(_ p: SessionEngine.Phase) {
         if case .failed = phase { return }
         engineStreaming = p == .streaming
+        if p != .connecting { stationRestarting = false }
         switch p {
         case .preparing:
             phase = .preparing
@@ -467,16 +470,10 @@ final class SessionController: NSObject, ObservableObject {
             phase = .starting
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealDelay) { [weak self] in
                 guard let self, self.revealedAt == nil, self.engineStreaming, self.engine != nil else { return }
+                // Dès la première image, l'image seule : ni capsule, ni barre, ni chiffre.
                 self.revealedAt = Date()
                 self.phase = .streaming
                 self.scene.open()
-                withAnimation(Theme.easeOut) { self.entering = true }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { [weak self] in
-                    withAnimation(.easeIn(duration: 0.35)) { self?.entering = false }
-                }
-                self.showHint(after: 5)
-                self.host.lastSession = Date()
-                self.store.update(self.host)
                 self.window?.makeFirstResponder(self.streamView)
                 // L'écran de ce Mac a pu changer pendant la connexion.
                 self.checkScreenMode()
@@ -513,7 +510,7 @@ final class SessionController: NSObject, ObservableObject {
             if let offer = modeRestoreOffer { text += " " + String(localized: "« \(offer) » dans la barre.") }
             showHint(.notice(text), after: 0, for: 5)
         case let .fallback(level, mbps):
-            showHint(.fallback(level == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(mbps) Mb/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")), after: 0, for: 6)
+            showHint(.fallback(level == 1 ? String(localized: "L'image ne passait pas : débit ramené à \(mbps) Mbit/s pour cette session.") : String(localized: "L'image ne passait pas : 4:2:0 pour cette session.")), after: 0, for: 6)
         case let .adapting(width, height):
             showHint(.notice(String(localized: "Adaptation de l'image à \(width) × \(height)…")), after: 0, for: 3)
         case let .adapted(width, height):
@@ -528,6 +525,8 @@ final class SessionController: NSObject, ObservableObject {
             showHint(.fallback(String(localized: "L'écran de l'ordinateur n'a pas pu être adapté : \(message)")), after: 0, for: 6)
         case let .restoreOffer(mode):
             modeRestoreOffer = mode.map { String(localized: "Remettre \($0.width) × \($0.height)") }
+        case .stationRestarting:
+            stationRestarting = true
         }
     }
 
@@ -669,19 +668,13 @@ final class SessionController: NSObject, ObservableObject {
         // La dernière image : gardée pour l'accueil, et figée sous le passage qui se referme.
         let last = engine?.snapshot(maxWidth: 1600)
         if let last { store.imagery.saveLast(last, for: host) }
-        if let revealedAt { host.lastDuration = Date().timeIntervalSince(revealedAt) }
+        recordSession()
         // Les moitiés se referment, puis l'accueil revient tout de suite ; la
         // console vérifie la remise en état en arrière-plan (onReport).
         scene.close(over: revealedAt != nil ? last : nil, home: homeImage) { [weak self] in self?.finish() }
         withAnimation(.easeInOut(duration: 0.3)) { phase = .ending }
         clearScreenOffer()
         streamView.detach()
-        // Latence médiane de la session, montrée sur l'accueil (le cœur la
-        // donne aussi à la console, pour ses appareils).
-        if let latency = engine?.sessionLatency {
-            host.lastLatencyMs = latency.median
-            host.lastLatencyP95Ms = latency.p95
-        }
         store.update(host)
         engine?.stop()
         stats = nil
@@ -690,10 +683,20 @@ final class SessionController: NSObject, ObservableObject {
         statsCloseRect = .zero
     }
 
+    /// Dernière session (rubrique Statistiques) : médiane et 95e centile de
+    /// la latence (le cœur les donne aussi à la console), durée, mode, format
+    /// et débit demandés ; gardée si elle a duré au moins 3 s.
+    private func recordSession() {
+        guard let revealedAt else { return }
+        let m = streamMode
+        host.recordSession(start: revealedAt, latency: engine?.sessionLatency, width: m.width, height: m.height, refresh: m.refresh,
+                           codec: host.settings.codec, mbps: host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh))
+    }
+
     /// Résultat de la remise en état par la console, après le retour à l'accueil.
     var onReport: ((Host, Closing) -> Void)?
 
-    private func showHint(_ which: Hint = .commands, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
+    private func showHint(_ which: Hint, after delay: TimeInterval = 1.6, for duration: TimeInterval = 3.4) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             withAnimation(.easeOut(duration: 0.35)) { self?.hint = which }
         }
@@ -756,6 +759,11 @@ final class SessionController: NSObject, ObservableObject {
     /// « Fermer » ; le cœur a prévenu la console.
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
+        // Une session coupée après l'image compte aussi.
+        if revealedAt != nil {
+            recordSession()
+            store.update(host)
+        }
         clearScreenOffer()
         engine?.stop()
         stats = nil
@@ -771,4 +779,36 @@ final class SessionController: NSObject, ObservableObject {
     func dismissFailure() {
         finish()
     }
+
+    #if DEBUG
+    /// Démonstration (`-demo YES -screen connecting|failed|session`) : la
+    /// fenêtre de session sans ordinateur derrière, à l'étape demandée.
+    func demo(_ screen: String) {
+        openWindow()
+        modeLabel = "2560 × 1440 · 120 Hz"
+        switch screen {
+        case "failed":
+            phase = .connecting
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.scene.dim()
+                self?.phase = .failed(String(localized: "la Station ne répond pas"))
+            }
+        case "restarting":
+            phase = .connecting
+            stationRestarting = true
+        case "session", "bar", "stats":
+            phase = .starting
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self else { return }
+                self.revealedAt = Date()
+                self.phase = .streaming
+                self.scene.open()
+                if screen == "bar" { self.setBar(true) }
+                if screen == "stats" { self.toggleStatsPanel() }
+            }
+        default:
+            phase = .connecting
+        }
+    }
+    #endif
 }

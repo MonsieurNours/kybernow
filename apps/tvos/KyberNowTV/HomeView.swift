@@ -1,7 +1,10 @@
-// Accueil (maquette « 1 · Accueil : la scène de l'ordinateur ») : l'ordinateur
-// choisi occupe tout l'écran (sa dernière image en fond), une rangée de
-// cartes en bas pour passer de l'un à l'autre ; le focus d'une carte change
-// la scène.
+// Accueil (maquette « 1 · Accueil : la scène de l'ordinateur », docs/link-ui.md) :
+// l'ordinateur choisi occupe tout l'écran (sa dernière image en fond) avec son
+// état, son nom, son système, l'écran que la session demandera, « Se
+// connecter », les profils et l'accès à ses réglages ; rien de technique (les
+// chiffres sont dans les Statistiques). En haut, la ligne des manettes et les
+// réglages de l'app ; en bas, une rangée de cartes pour passer d'un
+// ordinateur à l'autre (le focus d'une carte change la scène).
 
 import KyberKit
 import SwiftUI
@@ -12,19 +15,20 @@ struct HomeView: View {
     @EnvironmentObject private var pads: GamepadBridge
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    enum Focus: Hashable { case connect, profile(Profile), host(UUID), found(String), add, gamepads, settings }
+    enum Focus: Hashable { case connect, profile(Profile), settings, pads, host(UUID), found(String), add, appSettings }
     @FocusState private var focus: Focus?
     @State private var pulse = false
 
     private var host: Host? { app.selected.flatMap(store.host) ?? store.ordered.first }
-    private func online(_ h: Host) -> Bool { store.status[h.id]?.online ?? false }
+    /// En ligne, hors ligne, ou nil tant qu'il n'a pas répondu (« Recherche… »).
+    private func online(_ h: Host) -> Bool? { store.status[h.id]?.online }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             // Le décor : l'image de l'ordinateur choisi.
             ZStack {
                 if let host {
-                    HostBackdrop(host: host, online: online(host))
+                    HostBackdrop(host: host, online: online(host) != false)
                         .id(host.id)
                         .transition(.opacity.combined(with: .blurReplace))
                 } else {
@@ -37,13 +41,8 @@ struct HomeView: View {
                 .padding(.leading, 96).padding(.top, 56)
                 .frame(width: 1920, alignment: .leading)
             hero
-                .frame(width: 1080, alignment: .leading)
-                .padding(.leading, 96).padding(.top, 196)
-            if host != nil {
-                readyCard
-                    .frame(width: 460)
-                    .padding(.leading, 1920 - 96 - 460).padding(.top, 300)
-            }
+                .frame(width: 1240, alignment: .leading)
+                .padding(.leading, 96).padding(.top, 176)
             shelf
                 .frame(width: 1920 - 192)
                 .padding(.leading, 96).padding(.top, 1080 - 56 - 216 - 20 - 30)
@@ -62,54 +61,44 @@ struct HomeView: View {
         }
     }
 
-    // MARK: Haut : marque, manettes, profil, réglages
+    // MARK: Haut : marque, manettes, réglages de l'app
 
     private var topBar: some View {
         HStack(spacing: 20) {
             Mark(size: 34)
             Wordmark(size: 28)
             Spacer(minLength: 0)
-            Button { app.screen = .gamepads } label: {
+            padsLine
+            Button { app.screen = .appSettings } label: {
                 HStack(spacing: 12) {
-                    Icon("game-controller", size: 28).foregroundStyle(Theme.accent)
-                    Text(padsLabel).font(Theme.sans(22, .medium))
+                    Icon("sliders-horizontal", size: 28).foregroundStyle(Theme.accent)
+                    Text("Réglages de l'app").font(Theme.sans(22, .medium))
                 }
                 .padding(.leading, 20).padding(.trailing, 24)
                 .frame(height: 60)
             }
             .buttonStyle(GlassButton(radius: 30))
-            .focused($focus, equals: .gamepads)
-            Button { if let host { app.screen = .settings(host.id) } } label: {
-                Icon("sliders-horizontal", size: 28).frame(width: 60, height: 60)
-            }
-            .buttonStyle(GlassButton(radius: 30))
-            .focused($focus, equals: .settings)
-            .disabled(host == nil)
-            .accessibilityLabel("Réglages")
+            .focused($focus, equals: .appSettings)
         }
         .frame(width: 1920 - 192, height: 60)
-        // Monter depuis n'importe où atteint la barre, jusqu'aux réglages à droite.
+        // Monter depuis n'importe où atteint la barre.
         .focusSection()
-    }
-
-    private var padsLabel: String {
-        switch pads.pads.count {
-        case 0: return String(localized: "Manettes")
-        case 1: return String(localized: "1 manette")
-        default: return String(localized: "\(pads.pads.count) manettes")
-        }
     }
 
     // MARK: L'ordinateur choisi
 
     @ViewBuilder private var hero: some View {
         if let host {
-            let isOnline = online(host)
+            let state = online(host)
+            let problem = store.status[host.id]?.problem
             VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 14) {
-                    Circle().fill(Theme.accent).frame(width: 9, height: 9)
-                    Theme.eyebrow(caption(host), color: Theme.muted).font(Theme.mono(18))
+                HStack(spacing: 12) {
+                    statusDot(state)
+                    Text(LinkText.status(state)).font(Theme.sans(21))
                 }
+                .padding(.leading, 16).padding(.trailing, 18)
+                .frame(height: 44)
+                .glass(22)
                 // Une ligne, interligne de 0,9 comme la maquette : un nom long rétrécit.
                 Text(host.name)
                     .font(Theme.display(140, 680))
@@ -118,30 +107,25 @@ struct HomeView: View {
                     .minimumScaleFactor(0.5)
                     .foregroundStyle(Theme.text)
                     .padding(.vertical, -16)
-                HStack(spacing: 20) {
+                    .frame(maxWidth: 1080, alignment: .leading)
+                if let os = store.status[host.id]?.info?.os {
+                    Text(os).font(Theme.sans(24)).foregroundStyle(Theme.muted)
+                }
+                if let problem {
                     HStack(spacing: 12) {
-                        statusDot(isOnline)
-                        Text(status(host)).font(Theme.sans(21))
-                    }
-                    .padding(.leading, 16).padding(.trailing, 18)
-                    .frame(height: 44)
-                    .glass(22)
-                    if specs(host).isEmpty == false {
-                        Text(specs(host)).font(Theme.mono(18)).foregroundStyle(Theme.muted)
+                        Icon("warning", size: 26).foregroundStyle(Theme.warn)
+                        Text(LinkText.problem(problem)).font(Theme.sans(22)).foregroundStyle(Theme.warnText)
                     }
                 }
-                .padding(.top, 4)
                 HStack(spacing: 14) {
                     Icon("monitor", size: 28).foregroundStyle(Theme.accent)
-                    Text(screenLine(host, online: isOnline)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
+                    Text(screenLine(host)).font(Theme.sans(24)).foregroundStyle(Theme.text2)
                 }
-                HStack(spacing: 28) {
-                    Button {
-                        if isOnline { app.connect(host.id) } else { Task { await store.refresh(host) } }
-                    } label: {
+                HStack(spacing: 24) {
+                    Button { primaryAction(host, state: state) } label: {
                         HStack(spacing: 16) {
-                            Text(isOnline ? "Se connecter" : "Réessayer")
-                            Icon("arrow-right", size: 28, bold: true)
+                            Text(primaryLabel(host, state: state))
+                            Icon(state != false ? "arrow-right" : store.canWake(host) ? "power" : "arrows-clockwise", size: 28, bold: true)
                         }
                     }
                     .buttonStyle(PrimaryButton(height: 80, fontSize: 28))
@@ -156,9 +140,20 @@ struct HomeView: View {
                     .padding(6)
                     .glass(16)
                     .focusSection()
+                    Button { app.showSettings(host.id) } label: {
+                        HStack(spacing: 12) {
+                            Icon("sliders-horizontal", size: 26)
+                            Text("Réglages").font(Theme.sans(22, .medium))
+                        }
+                        .padding(.leading, 20).padding(.trailing, 24)
+                        .frame(height: 64)
+                    }
+                    .buttonStyle(GlassButton(radius: 18))
+                    .focused($focus, equals: .settings)
+                    .accessibilityLabel(LinkText.settingsTitle(host.name))
                 }
-                .padding(.top, 34)
-                Text(hint(host.settings.profile))
+                .padding(.top, 26)
+                Text(Profile.hint(host.settings.profile))
                     .font(Theme.sans(22))
                     .foregroundStyle(Theme.muted)
             }
@@ -172,6 +167,7 @@ struct HomeView: View {
                     .font(Theme.display(110, 680))
                     .tracking(-110 * 0.045)
                     .foregroundStyle(Theme.text)
+                    .frame(width: 1080, alignment: .leading)
                 Text("Ajoutez un ordinateur équipé de KyberNow Station : depuis votre Mac par iCloud, sur ce réseau, ou par un code à accepter sur l'ordinateur.")
                     .font(Theme.sans(24)).foregroundStyle(Theme.text2)
                     .frame(width: 900, alignment: .leading)
@@ -179,61 +175,33 @@ struct HomeView: View {
         }
     }
 
-    private func statusDot(_ on: Bool) -> some View {
+    /// La ligne des manettes (apps de salon) : « 2 manettes » ; un clic ouvre leur test.
+    private var padsLine: some View {
+        Button { app.showGamepads(from: .home) } label: {
+            HStack(spacing: 12) {
+                Icon("game-controller", size: 28).foregroundStyle(pads.pads.isEmpty ? Theme.faint : Theme.accent)
+                Text(LinkText.controllers(pads.pads.count)).font(Theme.sans(22, .medium))
+            }
+            .padding(.leading, 20).padding(.trailing, 24)
+            .frame(height: 60)
+        }
+        .buttonStyle(GlassButton(radius: 30))
+        .focused($focus, equals: .pads)
+    }
+
+    private func statusDot(_ on: Bool?) -> some View {
         Group {
-            if on {
+            switch on {
+            case true?:
                 Circle().fill(Theme.ok).frame(width: 10, height: 10)
                     .background(Circle().fill(Theme.ok.opacity(pulse ? 0 : 0.25)).frame(width: pulse ? 26 : 18, height: pulse ? 26 : 18))
-            } else {
+            case nil:
+                Circle().fill(Theme.text2).frame(width: 10, height: 10).opacity(pulse ? 0.35 : 1)
+            case false?:
                 Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 10, height: 10)
             }
         }
         .frame(width: 10, height: 10)
-    }
-
-    // MARK: Prêt à jouer
-
-    private var readyCard: some View {
-        let route = AudioRoute.current
-        let mode = host.map { TVDisplay.mode(for: $0.settings) } ?? TVDisplay.native
-        return VStack(alignment: .leading, spacing: 22) {
-            Theme.eyebrow(String(localized: "Prêt à jouer"))
-            readyRow("game-controller", padsTitle, padsDetail)
-            readyRow(route.isLate ? "warning" : "speaker-high",
-                     String(localized: "Son \(route.channelsLabel) · \(route.name)"),
-                     route.kind == .hdmi ? String(localized: "LPCM \(route.channels) canaux · sortie \(route.latencyMs) ms") : String(localized: "Sortie \(route.latencyMs) ms"))
-            readyRow("monitor", "\(TVDisplay.label(mode.width, mode.height)) · \(mode.refresh) Hz · \(host?.settings.codec == .h264 ? "H.264" : "HEVC")",
-                     host?.lastLatencyMs.map { String(localized: "Dernière session \(Self.ms($0)) ms médiane") } ?? String(localized: "Pas encore de session ici"))
-        }
-        .padding(.horizontal, 30).padding(.vertical, 28)
-        .glass(24)
-    }
-
-    private var padsTitle: String {
-        guard !pads.pads.isEmpty else { return String(localized: "Aucune manette") }
-        return pads.pads.prefix(2).map { String(localized: "J\($0.player) \(Self.short($0.name))") }.joined(separator: " · ")
-    }
-
-    private var padsDetail: String {
-        let levels = pads.pads.prefix(2).compactMap { $0.battery }.map { b -> String in
-            let percent = Int((b * 100).rounded())
-            return String(localized: "\(percent) %")
-        }
-        if pads.pads.isEmpty { return String(localized: "Allumez-en une en mode appairage") }
-        if levels.isEmpty { return pads.pads.count > 1 ? String(localized: "Branchées") : String(localized: "Branchée") }
-        let joined = levels.joined(separator: " · ")
-        return levels.count > 1 ? String(localized: "Batteries \(joined)") : String(localized: "Batterie \(joined)")
-    }
-
-    private func readyRow(_ icon: String, _ title: String, _ detail: String) -> some View {
-        HStack(spacing: 16) {
-            Icon(icon, size: 30).foregroundStyle(Theme.text)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(Theme.sans(22, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                Text(detail).font(Theme.mono(15)).foregroundStyle(Theme.muted).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
     }
 
     // MARK: Vos ordinateurs
@@ -278,19 +246,23 @@ struct HomeView: View {
     private static let cardWidth: CGFloat = (1920 - 192 - 5 * 24) / 6
 
     private func hostCard(_ h: Host) -> some View {
-        let on = online(h)
+        let state = online(h)
         return Button {
-            if on { app.connect(h.id) } else { app.selected = h.id }
+            if state == true { app.connect(h.id) } else { app.selected = h.id }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                HostPicture(host: h, online: on)
+                HostPicture(host: h, online: state != false)
                     .frame(width: Self.cardWidth, height: 124)
                     .clipped()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(h.name).font(Theme.sans(23, .semibold)).foregroundStyle(on ? Theme.text : Theme.muted).lineLimit(1)
+                    Text(h.name).font(Theme.sans(23, .semibold)).foregroundStyle(state == false ? Theme.muted : Theme.text).lineLimit(1)
                     HStack(spacing: 9) {
-                        if on { Circle().fill(Theme.ok).frame(width: 9, height: 9) } else { Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 9, height: 9) }
-                        Text(shortStatus(h)).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
+                        if state == true {
+                            Circle().fill(Theme.ok).frame(width: 9, height: 9)
+                        } else {
+                            Circle().strokeBorder(Theme.faint, lineWidth: 1.5).frame(width: 9, height: 9)
+                        }
+                        Text(LinkText.status(state)).font(Theme.sans(17)).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 18).padding(.vertical, 14)
@@ -309,7 +281,7 @@ struct HomeView: View {
         }
         .buttonStyle(GlassButton(radius: 18))
         .focused($focus, equals: .host(h.id))
-        .accessibilityLabel("\(h.name), \(shortStatus(h))")
+        .accessibilityLabel("\(h.name), \(LinkText.status(state))")
     }
 
     private func foundCard(_ found: Discovery.Found) -> some View {
@@ -317,7 +289,7 @@ struct HomeView: View {
             VStack(alignment: .leading) {
                 HStack(spacing: 9) {
                     Icon("wifi-high", size: 20, bold: true)
-                    Text("SUR LE RÉSEAU").font(Theme.mono(14, .medium)).tracking(1.1)
+                    Text(String(localized: "Sur le réseau").uppercased()).font(Theme.mono(14, .medium)).tracking(1.1)
                 }
                 .foregroundStyle(Theme.accentLight)
                 Spacer()
@@ -355,6 +327,23 @@ struct HomeView: View {
         .focused($focus, equals: .add)
     }
 
+    // MARK: Bouton principal
+
+    /// En ligne : « Se connecter » ; hors ligne : « Réveiller l'ordinateur »
+    /// quand l'app connaît une de ses cartes réseau, sinon « Réessayer » ;
+    /// pendant le réveil : « Réveil de l'ordinateur… », sans effet (le focus reste).
+    private func primaryLabel(_ host: Host, state: Bool?) -> String {
+        guard state == false else { return String(localized: "Se connecter") }
+        if store.waking.contains(host.id) { return LinkText.waking }
+        return store.canWake(host) ? LinkText.wake : String(localized: "Réessayer")
+    }
+
+    private func primaryAction(_ host: Host, state: Bool?) {
+        guard state == false else { app.connect(host.id); return }
+        guard !store.waking.contains(host.id) else { return }
+        if store.canWake(host) { store.wake(host) } else { Task { await store.refresh(host) } }
+    }
+
     // MARK: Textes
 
     private func select(_ profile: Profile, for host: Host) {
@@ -363,64 +352,18 @@ struct HomeView: View {
         store.update(h)
     }
 
-    private func hint(_ p: Profile?) -> String {
-        switch p {
-        case .jeu?: return String(localized: "Jeu : latence minimale, 4K à 60 Hz, manettes prêtes.")
-        case .bureau?: return String(localized: "Bureau : texte net (4:4:4), aucune image perdue. La télécommande sert de souris.")
-        case .max?: return String(localized: "Max : sans compromis, 4:4:4 et gros débit. Idéal en réseau local filaire.")
-        case nil: return String(localized: "Personnalisé : vos réglages pour cet ordinateur.")
-        }
+    private func screenLine(_ h: Host) -> String {
+        Self.screenLine(h, info: store.status[h.id]?.info)
     }
 
-    private func caption(_ h: Host) -> String {
-        if let p = app.store.imagery.pictures[h.id] {
-            let kind = p.source == .lastSession ? String(localized: "Dernière image") : String(localized: "Aperçu")
-            return "\(kind) · \(Self.when(p.date))"
-        }
-        if let last = h.lastSession { return String(localized: "Dernière session · \(Self.when(last))") }
-        return String(localized: "Jamais ouvert sur cette Apple TV")
-    }
-
-    private func status(_ h: Host) -> String {
-        guard online(h) else { return String(localized: "Hors ligne") }
-        return app.isLocal(h) ? String(localized: "En ligne · réseau local") : String(localized: "En ligne · par VPN")
-    }
-
-    private func shortStatus(_ h: Host) -> String {
-        guard online(h) else {
-            if let last = h.lastSession { return String(localized: "Vu \(Self.ago(last))") }
-            return String(localized: "Hors ligne")
-        }
-        return app.isLocal(h) ? String(localized: "Réseau local") : "VPN"
-    }
-
-    private func specs(_ h: Host) -> String {
-        let info = store.status[h.id]?.info
-        var parts: [String] = []
-        if let os = info?.os { parts.append(os.replacingOccurrences(of: " Pro", with: "").components(separatedBy: " ").prefix(2).joined(separator: " ")) }
-        if let gpu = info?.gpu { parts.append(Self.gpu(gpu)) }
-        parts.append(h.address)
-        return parts.joined(separator: " · ")
-    }
-
-    private func screenLine(_ h: Host, online: Bool) -> String {
-        guard online else { return String(localized: "Allumez-le ou sortez-le de veille : il réapparaîtra tout seul.") }
-        let m = TVDisplay.mode(for: h.settings)
-        if store.status[h.id]?.info?.virtualDisplay ?? true {
-            let tv = TVDisplay.native
-            let same = m.width == tv.width && m.height == tv.height
-            return same
-                ? String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend, celui de ce téléviseur.")
-                : String(localized: "Un écran de \(m.width) × \(m.height) à \(m.refresh) Hz l'attend.")
-        }
-        return String(localized: "Son écran, jusqu'à \(m.width) × \(m.height) à \(m.refresh) Hz.")
-    }
-
-    static func gpu(_ name: String) -> String {
-        name.replacingOccurrences(of: "NVIDIA GeForce ", with: "")
-            .replacingOccurrences(of: "NVIDIA ", with: "")
-            .replacingOccurrences(of: "AMD Radeon ", with: "RX ")
-            .replacingOccurrences(of: "Intel(R) ", with: "")
+    /// L'écran que la session demandera (même calcul que la session).
+    static func screenLine(_ h: Host, info: HostInfo?) -> String {
+        let s = h.settings
+        let m = TVDisplay.mode(for: s)
+        let tv = TVDisplay.native
+        let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
+        return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual,
+                               sizedForThisScreen: m.width == tv.width && m.height == tv.height)
     }
 
     static func short(_ name: String) -> String {
@@ -429,32 +372,7 @@ struct HomeView: View {
 
     /// Virgule décimale en français, point en anglais.
     static func ms(_ v: Double) -> String {
-        let text = String(format: "%.1f", v)
-        return LanguageChoice.effective == "fr" ? text.replacingOccurrences(of: ".", with: ",") : text
-    }
-
-    /// « aujourd'hui, 10 h 12 », « hier, 21 h 40 », « lundi, 18 h 05 », « il y a 12 jours »
-    /// (en anglais : “today, 10:12 AM”, “Monday, 6:05 PM”).
-    static func when(_ date: Date) -> String {
-        let cal = Calendar.current
-        let fr = LanguageChoice.effective == "fr"
-        let locale = Locale(identifier: fr ? "fr_FR" : "en_US")
-        let hm = fr
-            ? date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute(.twoDigits).locale(locale))
-                .replacingOccurrences(of: ":", with: " h ")
-            : date.formatted(.dateTime.hour().minute(.twoDigits).locale(locale))
-        if cal.isDateInToday(date) { return String(localized: "aujourd'hui, \(hm)") }
-        if cal.isDateInYesterday(date) { return String(localized: "hier, \(hm)") }
-        let days = cal.dateComponents([.day], from: cal.startOfDay(for: date), to: cal.startOfDay(for: Date())).day ?? 0
-        if days < 7 { return "\(date.formatted(.dateTime.weekday(.wide).locale(locale))), \(hm)" }
-        return ago(date)
-    }
-
-    static func ago(_ date: Date) -> String {
-        let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
-        if days < 1 { return String(localized: "aujourd'hui") }
-        if days == 1 { return String(localized: "hier") }
-        return String(localized: "il y a \(days) jours")
+        LinkFormat.decimal(v)
     }
 }
 

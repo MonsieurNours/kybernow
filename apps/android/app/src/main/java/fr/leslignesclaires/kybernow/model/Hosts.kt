@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import fr.leslignesclaires.kybernow.core.WakeTarget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,20 +18,30 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Profils, dans le vocabulaire du cœur. */
-enum class Profile(val id: String) {
-    GAME("jeu"),
-    DESKTOP("bureau"),
-    MAX("max"),
+/**
+ * Profils, dans le vocabulaire du cœur. [reliable] : le transport du profil, comme
+ * `StreamSettings::for_profile` du cœur (Bureau fiable, Jeu et Max rapides), pour
+ * l'afficher sans la bibliothèque native.
+ */
+enum class Profile(val id: String, val reliable: Boolean) {
+    GAME("jeu", false),
+    DESKTOP("bureau", true),
+    MAX("max", false),
 }
 
-/** Réglages d'un ordinateur (comme Réglages › par ordinateur sur les autres apps). */
+/**
+ * Réglages d'un ordinateur (comme Réglages › par ordinateur sur les autres apps). Le profil
+ * règle le format, le débit et le transport ; [codec], [mbps] et [transport] s'en écartent
+ * (« Personnalisé », [custom]) jusqu'au choix d'un profil, qui les remet à zéro ([apply]).
+ */
 data class HostSettings(
     val profile: Profile = Profile.GAME,
     /** 0 : comme cet écran ; sinon hauteur (2160, 1440, 1080, 720). */
     val resolution: Int = 0,
     /** 0 : la plus haute que l'écran tient à cette définition. */
     val refresh: Int = 0,
+    /** Écran virtuel à la taille de l'appareil (si la Station en crée) ; sinon, ses écrans tels quels. */
+    val virtualDisplay: Boolean = true,
     /** `auto`, `hevc`, `h264`, `av1`. */
     val codec: String = "auto",
     /** 0 : celui du profil (Mbit/s, calé sur la 4K à 60 Hz). */
@@ -55,15 +66,31 @@ data class HostSettings(
     val directTouch: Boolean = false,
     val clipboard: Boolean = true,
     val reconnect: Boolean = true,
-    /** Transport fiable même en profil Jeu (Wi-Fi chargé). */
-    val reliable: Boolean = false,
+    /** Transport de l'image : `auto` (celui du profil), `fast`, `reliable`. */
+    val transport: String = "auto",
 ) {
+    /** Les réglages s'écartent du profil : « Personnalisé ». */
+    val custom get() = codec != "auto" || mbps != 0 || transport != "auto"
+
+    /** Le transport en vigueur : choisi, sinon celui du profil. */
+    val reliable get() = when (transport) {
+        "reliable" -> true
+        "fast" -> false
+        else -> profile.reliable
+    }
+
+    /** Choisir un profil remet le format, le débit et le transport à ceux du profil. */
+    fun apply(p: Profile) = copy(profile = p, codec = "auto", mbps = 0, transport = "auto")
+
+    /** Choisir le transport : celui du profil n'est pas un écart. */
+    fun withTransport(reliable: Boolean) = copy(transport = if (reliable == profile.reliable) "auto" else if (reliable) "reliable" else "fast")
+
     fun json(): JSONObject = JSONObject()
-        .put("profile", profile.id).put("resolution", resolution).put("refresh", refresh).put("codec", codec)
-        .put("mbps", mbps).put("audio", audio).put("xbox360", xbox360).put("combo", combo)
+        .put("profile", profile.id).put("resolution", resolution).put("refresh", refresh).put("virtualDisplay", virtualDisplay)
+        .put("codec", codec).put("mbps", mbps).put("audio", audio).put("xbox360", xbox360).put("combo", combo)
         .put("backOpensMenu", backOpensMenu).put("guide", guide).put("matchDisplay", matchDisplay)
         .put("gameMode", gameMode).put("mouse", mouse).put("directTouch", directTouch)
-        .put("clipboard", clipboard).put("reconnect", reconnect).put("reliable", reliable)
+        .put("clipboard", clipboard).put("reconnect", reconnect).put("transport", transport)
 
     companion object {
         fun parse(o: JSONObject?): HostSettings {
@@ -73,6 +100,7 @@ data class HostSettings(
                 profile = Profile.entries.firstOrNull { it.id == o.optString("profile") } ?: d.profile,
                 resolution = o.optInt("resolution", d.resolution),
                 refresh = o.optInt("refresh", d.refresh),
+                virtualDisplay = o.optBoolean("virtualDisplay", d.virtualDisplay),
                 codec = o.optString("codec", d.codec),
                 mbps = o.optInt("mbps", d.mbps),
                 audio = o.optString("audio", d.audio),
@@ -86,14 +114,41 @@ data class HostSettings(
                 directTouch = o.optBoolean("directTouch", d.directTouch),
                 clipboard = o.optBoolean("clipboard", d.clipboard),
                 reconnect = o.optBoolean("reconnect", d.reconnect),
-                reliable = o.optBoolean("reliable", d.reliable),
-            )
+                // Jusqu'à la 0.4.x : `reliable`, le transport fiable forcé.
+                transport = o.optString("transport", "").ifEmpty { if (o.optBoolean("reliable")) "reliable" else d.transport },
+            ).let { if (it.transport == "reliable" && it.profile.reliable) it.copy(transport = "auto") else it }
         }
     }
 }
 
-/** La dernière session : latence médiane et 95e centile (ms), durée (s), quand. */
-data class LastSession(val median: Double, val p95: Double, val seconds: Long, val at: Long)
+/**
+ * La dernière session (d'au moins 3 s) : latence médiane et 95e centile (ms), durée (s), quand
+ * (ms depuis 1970), et ce qui a été transmis : définition, fréquence, format (`hevc`, `h264`,
+ * `av1`), débit (Mbit/s). Les quatre derniers manquent dans ce qu'a écrit la 0.4.x.
+ */
+data class LastSession(
+    val median: Double,
+    val p95: Double,
+    val seconds: Long,
+    val at: Long,
+    val width: Int = 0,
+    val height: Int = 0,
+    val refresh: Int = 0,
+    val codec: String? = null,
+    val mbps: Int = 0,
+) {
+    fun json(): JSONObject = JSONObject().put("median", median).put("p95", p95).put("seconds", seconds).put("at", at)
+        .put("width", width).put("height", height).put("refresh", refresh).put("codec", codec ?: JSONObject.NULL).put("mbps", mbps)
+
+    companion object {
+        fun parse(o: JSONObject) = LastSession(
+            o.optDouble("median"), o.optDouble("p95"), o.optLong("seconds"), o.optLong("at"),
+            width = o.optInt("width"), height = o.optInt("height"), refresh = o.optInt("refresh"),
+            codec = if (o.isNull("codec")) null else o.optString("codec").takeIf { it.isNotEmpty() },
+            mbps = o.optInt("mbps"),
+        )
+    }
+}
 
 /** Un ordinateur équipé de KyberNow Station, vu de l'appareil. */
 data class Host(
@@ -109,18 +164,34 @@ data class Host(
     val gpu: String? = null,
     val av1: Boolean = false,
     val virtualDisplay: Boolean = true,
-    /** Adresse matérielle pour le réveil (Wake-on-LAN), si connue. */
+    /** Adresse MAC saisie à la main pour le réveil (réglage avancé : Station d'avant la 0.5.0). */
     val mac: String? = null,
+    /** Les cartes réseau de l'ordinateur pour le réveil, apprises d'Admin (`wake` de `info`), gardées hors ligne. */
+    val wake: List<WakeTarget> = emptyList(),
     val settings: HostSettings = HostSettings(),
     val last: LastSession? = null,
+    /** Ajouté par un code accepté dans Admin : un compte propre à cet appareil. */
+    val paired: Boolean = false,
 ) {
+    /**
+     * Où envoyer le paquet de réveil : les cartes apprises d'Admin, et l'adresse MAC saisie à la
+     * main si elle n'y est pas (vers la dernière adresse IPv4 connue d'Admin).
+     */
+    val wakeTargets: List<WakeTarget>
+        get() {
+            val manual = mac?.takeIf { m -> wake.none { it.mac.equals(m, ignoreCase = true) } }
+                ?.let { WakeTarget(it, ipv4 = address.takeIf { a -> a.split('.').size == 4 && a.all { c -> c.isDigit() || c == '.' } }) }
+            return wake + listOfNotNull(manual)
+        }
+
     fun json(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("address", address).put("port", port)
         .put("fingerprint", fingerprint ?: JSONObject.NULL).put("user", user)
         .put("os", os ?: JSONObject.NULL).put("gpu", gpu ?: JSONObject.NULL).put("av1", av1)
         .put("virtualDisplay", virtualDisplay).put("mac", mac ?: JSONObject.NULL)
+        .put("wake", JSONArray(WakeTarget.toJson(wake)))
         .put("settings", settings.json())
-        .put("last", last?.let { JSONObject().put("median", it.median).put("p95", it.p95).put("seconds", it.seconds).put("at", it.at) } ?: JSONObject.NULL)
+        .put("last", last?.json() ?: JSONObject.NULL).put("paired", paired)
 
     companion object {
         private fun JSONObject.str(key: String): String? = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
@@ -137,10 +208,10 @@ data class Host(
             av1 = o.optBoolean("av1"),
             virtualDisplay = o.optBoolean("virtualDisplay", true),
             mac = o.str("mac"),
+            wake = WakeTarget.parseList(o.optJSONArray("wake")),
             settings = HostSettings.parse(o.optJSONObject("settings")),
-            last = o.optJSONObject("last")?.let {
-                LastSession(it.optDouble("median"), it.optDouble("p95"), it.optLong("seconds"), it.optLong("at"))
-            },
+            last = o.optJSONObject("last")?.let(LastSession::parse),
+            paired = o.optBoolean("paired"),
         )
     }
 }

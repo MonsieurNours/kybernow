@@ -1,6 +1,6 @@
-// Réglages du client web, gardés dans ce navigateur.
+// Réglages du client web, et dernière session, gardés dans ce navigateur.
 
-export type Profile = 'bureau' | 'jeu'
+export type Profile = 'jeu' | 'bureau' | 'max'
 export type Transport = 'auto' | 'fiable' | 'rapide'
 export type Codec = 'auto' | 'h264' | 'hevc'
 export type TouchMode = 'trackpad' | 'direct'
@@ -26,6 +26,9 @@ export interface Prefs {
 
 const KEY = 'kybernow.ecran.prefs'
 const DEVICE_KEY = 'kybernow.ecran.device'
+const LAST_KEY = 'kybernow.ecran.lastSession'
+
+export const PROFILES: Profile[] = ['jeu', 'bureau', 'max']
 
 export const defaults: Prefs = {
   profile: 'bureau',
@@ -44,7 +47,11 @@ export const defaults: Prefs = {
 export function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return { ...defaults, ...JSON.parse(raw) }
+    if (raw) {
+      const p = { ...defaults, ...JSON.parse(raw) }
+      if (!PROFILES.includes(p.profile)) p.profile = defaults.profile
+      return p
+    }
   } catch {
     // Stockage indisponible (navigation privée) : réglages par défaut.
   }
@@ -59,6 +66,26 @@ export function savePrefs(p: Prefs) {
   }
 }
 
+/** Réglages qui s'écartent du profil : format, débit ou transport choisis à la main. */
+export function isCustom(p: Prefs): boolean {
+  return p.bitrate !== null || p.codec !== 'auto' || p.transport !== 'auto'
+}
+
+/** Choisir un profil reprend toutes ses valeurs (plus de « Personnalisé »). */
+export function pickProfile(p: Prefs, profile: Profile) {
+  p.profile = profile
+  p.bitrate = null
+  p.codec = 'auto'
+  p.transport = 'auto'
+}
+
+/** Nom du profil envoyé à la console (« Jeu », « Bureau », « Max »,
+ * « Personnalisé ») : il ne se traduit pas, comme dans les apps. */
+export function profileName(p: Prefs): string {
+  if (isCustom(p)) return 'Personnalisé'
+  return p.profile === 'jeu' ? 'Jeu' : p.profile === 'max' ? 'Max' : 'Bureau'
+}
+
 /** Identifiant stable de ce navigateur pour la liste des appareils de la console. */
 export function deviceId(): string {
   try {
@@ -70,5 +97,45 @@ export function deviceId(): string {
     return id
   } catch {
     return 'navigateur'
+  }
+}
+
+/** Dernière session de ce navigateur sur cet ordinateur (rubrique Statistiques). */
+export interface LastSession {
+  /** Médiane de bout en bout, en ms. */
+  median: number
+  /** 95e centile, en ms. */
+  p95: number | null
+  /** Durée de l'image, en secondes. */
+  duration: number
+  /** Fin de la session (secondes depuis 1970). */
+  endedAt: number
+  width: number
+  height: number
+  refresh: number
+  /** « HEVC », « H.264 », suivi de « 4:4:4 » s'il y était. */
+  codec: string
+  mbps: number
+}
+
+/** Session gardée à partir de 3 s d'image. */
+export const MIN_SESSION_SECONDS = 3
+
+export function loadLastSession(): LastSession | null {
+  try {
+    const raw = localStorage.getItem(LAST_KEY)
+    if (!raw) return null
+    const s = JSON.parse(raw)
+    return typeof s?.median === 'number' && Number.isFinite(s.median) ? (s as LastSession) : null
+  } catch {
+    return null
+  }
+}
+
+export function saveLastSession(s: LastSession) {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify(s))
+  } catch {
+    // Sans stockage, rien n'est gardé.
   }
 }

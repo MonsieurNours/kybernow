@@ -5,7 +5,7 @@
   import Mark from '../lib/Mark.svelte'
   import { t } from '../lib/i18n/index.svelte'
 
-  let { hostname, onDone }: { hostname: string | null; onDone: () => void } = $props()
+  let { hostname, notice = '', onDone }: { hostname: string | null; notice?: string; onDone: () => void } = $props()
 
   let password = $state('')
   let error = $state('')
@@ -33,6 +33,7 @@
 
   <main>
     <div class="head">
+      {#if notice}<p class="notice" role="status">{notice}</p>{/if}
       <span class="lbl host"><span class="dot"></span>{hostname ?? t('web.app.thisComputer')}</span>
       <h1 class="disp">{t('web.gate.title')}</h1>
       <p>{t('web.gate.lead')}</p>
@@ -107,6 +108,16 @@
 
   .head p {
     color: var(--muted);
+  }
+
+  .head .notice {
+    align-self: flex-start;
+    padding: 8px 14px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    color: var(--ok-text);
+    background: var(--ok-bg);
+    box-shadow: inset 0 0 0 1px var(--ok-line);
   }
 
   form {

@@ -73,6 +73,9 @@ pub struct HostOptions {
     /// Souris forcée (`Some(true)` : jeux) ; `None` : automatique.
     pub mouse: Option<bool>,
     pub window_size: (i32, i32),
+    /// Mesures dans le titre de la fenêtre (ligne de commande, qui n'a pas de
+    /// barre de session) ; sinon « {nom} · KyberNow Link ».
+    pub title_stats: bool,
 }
 
 pub struct SessionHost {
@@ -185,7 +188,9 @@ impl Platform for WinPlatform {
         // Surveillance de la première image, à chaque (re)démarrage du flux.
         match status {
             Status::Streaming => self.app.shared.arm_watch(),
-            Status::Reconnecting { .. } | Status::Ending | Status::Ended { .. } => self.app.shared.disarm_watch(),
+            Status::Reconnecting { .. } | Status::StationRestarting | Status::Ending | Status::Ended { .. } => {
+                self.app.shared.disarm_watch()
+            }
             _ => {}
         }
         *self.app.status.lock().unwrap() = Some(status.clone());
@@ -245,7 +250,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
 
     let shared = Arc::new(Shared::default());
     let clock: Arc<dyn Clock> = Arc::new(MonotonicClock::new());
-    let app = App::new(host_name.clone(), clock.clone(), shared.clone(), events.clone(), opts.fullscreen);
+    let app = App::new(host_name.clone(), clock.clone(), shared.clone(), events.clone(), opts.fullscreen, opts.title_stats);
     *app.mouse_mode.lock().unwrap() = match opts.mouse {
         None => MouseMode::Auto,
         Some(true) => MouseMode::Game,
@@ -259,7 +264,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         }
     });
 
-    let hwnd = match window::create(&format!("{} — {host_name}", crate::shell::DISPLAY_NAME), opts.window_size) {
+    let hwnd = match window::create(&format!("{host_name} · {}", crate::shell::DISPLAY_NAME), opts.window_size) {
         Ok(h) => h,
         Err(e) => {
             App::clear();

@@ -35,7 +35,7 @@ final class AppModel: ObservableObject {
     /// données mobiles et « Sessions en données mobiles » est coupé.
     @Published var mobileDataAsk: UUID?
 
-    let store = HostStore()
+    let store: HostStore
     let discovery = Discovery()
     let cloud = CloudSync()
     let prefs = Preferences.shared
@@ -44,39 +44,64 @@ final class AppModel: ObservableObject {
     private let path = NWPathMonitor()
 
     init() {
+        #if DEBUG && targetEnvironment(simulator)
+        let demo = UserDefaults.standard.bool(forKey: "demo")
+        #else
+        let demo = false
+        #endif
+        store = HostStore(demo: demo)
         discovery.start()
         path.start(queue: DispatchQueue(label: "fr.leslignesclaires.kybernow.path"))
         selected = store.ordered.first?.id
-        // iCloud : les ordinateurs du Mac arrivent tout seuls si la synchro est active.
-        cloud.$hosts
-            .sink { [weak self] list in self?.importCloud(list) }
-            .store(in: &bag)
-        #if DEBUG && targetEnvironment(simulator)
-        // Ordinateurs de démonstration (simulateur) : `-demo YES`.
-        if UserDefaults.standard.bool(forKey: "demo"), store.hosts.isEmpty {
-            for (name, address) in [("Tour du bureau", "192.168.1.42"), ("Atelier", "10.8.0.12"), ("Mac mini du studio", "192.168.1.20")] {
-                var h = Host(name: name, address: address, consolePort: 31877, username: "demo")
-                h.lastSession = Date().addingTimeInterval(-Double.random(in: 3600...200_000))
-                h.lastLatencyMs = 8.3
-                store.add(h, password: "demo")
-            }
-            selected = store.ordered.first?.id
+        // iCloud : les ordinateurs du Mac arrivent tout seuls si la synchro est
+        // active (pas en démonstration : ses ordinateurs restent les siens).
+        if !demo {
+            cloud.$hosts
+                .sink { [weak self] list in self?.importCloud(list) }
+                .store(in: &bag)
         }
+        #if DEBUG && targetEnvironment(simulator)
+        // Vérification des écrans sans Station (simulateur) : `-demo YES`, les
+        // ordinateurs de démonstration de LinkUI.swift (`-demoState`, `-demoStation`,
+        // `-demoProblem`…), `-hostIndex 0|1|2` (l'ordinateur choisi, dans l'ordre de
+        // l'accueil), `-demoWaking YES` (son réveil en cours), `-screen
+        // settings|app|add|connecting|restarting|session|bar`, `-section
+        // picture|sound|controls|network|statistics|station` (rubrique des réglages).
+        guard demo else { return }
+        store.loadDemo()
+        let list = store.ordered
+        let index = UserDefaults.standard.integer(forKey: "hostIndex")
+        selected = list.indices.contains(index) ? list[index].id : list.first?.id
         if UserDefaults.standard.bool(forKey: "skipLaunch") { launched = true }
+        // `-demoWaking YES` : le réveil de l'ordinateur choisi, déjà lancé.
+        if UserDefaults.standard.bool(forKey: "demoWaking"), let host = selectedHost { store.wake(host) }
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": sheet = .addHost(nil)
-        case "settings": if let id = store.ordered.first?.id { sheet = .settings(id) }
-        case "session", "bar":
-            if let host = store.ordered.first {
+        case "app": sheet = .appSettings
+        case "settings": if let id = selected { sheet = .settings(id) }
+        case "connecting", "restarting", "session", "bar":
+            if let host = selectedHost {
                 launched = true
                 let controller = SessionController(host: host, store: store) { [weak self] _ in self?.session = nil }
                 session = controller
-                controller.demo(bar: UserDefaults.standard.string(forKey: "screen") == "bar")
+                switch UserDefaults.standard.string(forKey: "screen") {
+                case "connecting": controller.demo(.connecting)
+                case "restarting": controller.demo(.restarting)
+                case "bar": controller.demo(.bar)
+                default: controller.demo(.image)
+                }
             }
         default: break
         }
         #endif
     }
+
+    #if DEBUG
+    /// Rubrique ouverte d'emblée dans les réglages d'un ordinateur (`-section`).
+    static var demoSection: ComputerSection? {
+        UserDefaults.standard.string(forKey: "section").flatMap(ComputerSection.init(rawValue:))
+    }
+    #endif
 
     var selectedHost: Host? {
         selected.flatMap { store.host($0) } ?? store.ordered.first

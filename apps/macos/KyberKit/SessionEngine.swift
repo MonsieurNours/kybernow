@@ -107,6 +107,10 @@ public final class SessionEngine: @unchecked Sendable {
         case adaptFailed(String)
         /// « Remettre W × H » à proposer dans la barre, ou plus rien (nil).
         case restoreOffer(Mode?)
+        /// Dernier recours de la connexion : l'image ne venait pas, la Station
+        /// redémarre (une fois) ; l'écran de connexion dit « La Station
+        /// redémarre… » jusqu'à la phase suivante (préparation, ou fin).
+        case stationRestarting
     }
 
     // Rappels, tous sur le fil principal.
@@ -482,6 +486,7 @@ public final class SessionEngine: @unchecked Sendable {
         case KN_NOTICE_ADAPTED: notice = .adapted(width: Int(n.width), height: Int(n.height))
         case KN_NOTICE_ADAPT_FAILED: notice = .adaptFailed(n.error.map { String(cString: $0) } ?? "")
         case KN_NOTICE_RESTORE_OFFER: notice = .restoreOffer(n.has_mode ? Mode(width: Int(n.width), height: Int(n.height), refresh: 0) : nil)
+        case KN_NOTICE_STATION_RESTARTING: notice = .stationRestarting
         default: return
         }
         DispatchQueue.main.async { [self] in onNotice?(notice) }

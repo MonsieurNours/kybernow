@@ -7,10 +7,17 @@
     "invalid": "unreadable response from Admin: {error}",
     "no_request_id": "request ID missing"
   },
+  "station": {
+    "unsupported": "this version of KyberNow Station can’t do this: update it from Admin"
+  },
+  "wake": {
+    "no_target": "the computer’s network card is unknown: the app learns it from KyberNow Station (0.5.0 or later) while the computer is on",
+    "network": "no wake-up packet could be sent ({error})"
+  },
   "session": {
     "internal": "internal session error",
     "no_image": "the computer is not sending a picture (its encoder is not responding: see its log in Admin, System › Logs)",
-    "unauthorized": "the computer's Kyber server does not recognise this device's account yet: in Admin, restart the server (System), then try again",
+    "unauthorized": "the computer's Kyber server does not recognise this device's account yet: in Admin, restart the Station (System), then try again",
     "tls": "the certificate of the computer's Kyber server does not match the one given by Admin",
     "connect_failed": "cannot connect to Kyber ({reason})",
     "stream_failed": "cannot connect to the stream",
@@ -19,7 +26,9 @@
     "not_responding": "the computer is no longer responding",
     "interrupted": "session interrupted ({reason})",
     "no_display": "no usable display on the computer",
-    "start_image": "starting the picture: {error}"
+    "start_image": "starting the picture: {error}",
+    "after_station_restart": "{reason}, even after restarting the Station",
+    "station_not_back": "the Station is taking a while to come back after restarting: open Admin to find out more"
   },
   "update": {
     "download_of": "downloading {url}: {error}",

@@ -1,12 +1,12 @@
 {
   "app": {
-    "start_failed": "L'app n'a pas pu démarrer : {error}",
-    "bar_title": "KyberNow Link — barre"
+    "start_failed": "L'app n'a pas pu démarrer : {error}",
+    "bar_title": "Barre de session · KyberNow Link"
   },
   "errors": {
-    "session_open_install_later": "une session est ouverte : installez après",
+    "session_open_install_later": "une session est ouverte : installez après",
     "no_update": "aucune mise à jour à installer",
-    "installer_launch": "lancement de l'installateur : {error}",
+    "installer_launch": "lancement de l'installateur : {error}",
     "no_certificate": "aucun certificat vu",
     "not_a_link": "ce n'est pas un lien kybernow://",
     "bad_address": "adresse invalide",
@@ -15,18 +15,19 @@
     "password_store": "le mot de passe n'a pas pu être rangé dans le gestionnaire d'identifiants",
     "unknown_computer": "ordinateur inconnu",
     "session_already_open": "une session est déjà ouverte",
-    "this_pc": "c'est ce PC : KyberNow Link s'affiche sur un autre appareil que celui de la Station",
-    "password_missing": "mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur",
+    "this_pc": "c'est ce PC : KyberNow Link s'affiche sur un autre appareil que celui de la Station",
+    "password_missing": "mot de passe introuvable : retirez puis ajoutez de nouveau cet ordinateur",
     "no_session": "aucune session",
     "unknown_profile": "profil inconnu",
     "session_not_ready": "session pas encore prête",
-    "session_window": "fenêtre de session : {error}",
-    "video_thread": "le fil de l'image s'est arrêté"
+    "session_window": "fenêtre de session : {error}",
+    "video_thread": "le fil de l'image s'est arrêté",
+    "open_admin": "Admin n'a pas pu s'ouvrir dans le navigateur (code {code})"
   },
   "notify": {
     "update_title": "KyberNow Link {version} est prête",
     "update_body": "Elle s'installe en un clic depuis l'app.",
-    "stopped_title": "La session sur {name} s'est arrêtée",
+    "stopped_title": "La session sur {name} s'est arrêtée",
     "resume": "Reprendre",
     "ended_title": "La session sur {name} est terminée",
     "ended_body": "Un autre appareil a pris la main, ou Admin y a mis fin.",

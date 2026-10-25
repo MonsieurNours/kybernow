@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
         case home
         case addHost
         case settings(UUID)
+        case appSettings
         case gamepads
         case session(UUID)
     }
@@ -21,14 +22,25 @@ final class AppModel: ObservableObject {
     /// Ordinateur mis en avant sur l'accueil.
     @Published var selected: UUID?
     @Published private(set) var session: SessionController?
+    /// Écran où revient le test des manettes (accueil ou réglages de l'app).
+    var gamepadsReturn: Screen = .home
+    /// Rubrique ouverte à l'arrivée dans les réglages d'un ordinateur.
+    var settingsSection: ComputerSection = .picture
 
-    let store = HostStore()
+    let store: HostStore
     let discovery = Discovery()
     let cloud = CloudSync()
     let prefs = Preferences.shared
     private var bag: Set<AnyCancellable> = []
 
     init() {
+        #if DEBUG
+        // Ordinateurs de démonstration : `-demo YES` (LinkUI.swift, `loadDemo`).
+        let demo = UserDefaults.standard.bool(forKey: "demo")
+        #else
+        let demo = false
+        #endif
+        store = HostStore(demo: demo)
         discovery.start()
         selected = store.ordered.first?.id
         // Le Top Shelf suit les ordinateurs, leur état et leurs images.
@@ -40,47 +52,68 @@ final class AppModel: ObservableObject {
         cloud.$hosts
             .sink { [weak self] list in self?.importCloud(list) }
             .store(in: &bag)
-        #if DEBUG && targetEnvironment(simulator)
-        // Ordinateurs de démonstration (simulateur) : `-demo YES`.
-        if UserDefaults.standard.bool(forKey: "demo"), store.hosts.isEmpty {
-            for (name, address) in [("Tour du bureau", "192.168.1.42"), ("Atelier", "10.8.0.12"), ("Mac mini du studio", "192.168.1.20")] {
-                var h = Host(name: name, address: address, consolePort: 31877, username: "demo")
-                h.lastSession = Date().addingTimeInterval(-Double.random(in: 3600...200_000))
-                h.lastLatencyMs = 8.3
-                store.add(h, password: "demo")
-            }
-            selected = store.ordered.first?.id
-        }
-        #endif
         #if DEBUG
-        // Vérification des écrans sans télécommande : `-screen add|gamepads|settings|menu|passage`.
+        if demo {
+            store.loadDemo()
+            let ordered = store.ordered
+            let i = UserDefaults.standard.integer(forKey: "hostIndex")
+            selected = ordered.indices.contains(i) ? ordered[i].id : ordered.first?.id
+        }
+        // Vérification des écrans sans télécommande :
+        // `-screen add|app|gamepads|settings|menu|passage|connecting|restarting`,
+        // `-section picture|sound|controls|network|statistics|station`,
+        // `-stationAction restart|update`.
+        if let section = UserDefaults.standard.string(forKey: "section").flatMap(ComputerSection.init(rawValue:)) {
+            settingsSection = section
+        }
         switch UserDefaults.standard.string(forKey: "screen") {
         case "add": screen = .addHost
+        case "app": screen = .appSettings
         case "gamepads": screen = .gamepads
-        case "settings": if let id = store.ordered.first?.id { screen = .settings(id) }
-        case "menu", "passage":
-            if let host = store.ordered.first {
+        case "settings": if let id = selected { screen = .settings(id) }
+        case "menu", "passage", "connecting", "restarting":
+            if let host = selected.flatMap(store.host) {
                 let controller = SessionController(host: host, store: store) { [weak self] _ in
                     self?.session = nil
                     self?.screen = .home
                 }
                 session = controller
                 screen = .session(host.id)
-                controller.demo(menu: UserDefaults.standard.string(forKey: "screen") == "menu")
+                switch UserDefaults.standard.string(forKey: "screen") {
+                case "menu": controller.demo(.menu)
+                case "connecting": controller.demo(.connecting)
+                case "restarting": controller.demo(.restarting)
+                default: controller.demo(.passage)
+                }
             }
         default: break
+        }
+        // `-wakeNow YES` : « Réveiller l'ordinateur » choisi, appuyé à l'arrivée.
+        if UserDefaults.standard.bool(forKey: "wakeNow"), let host = selected.flatMap(store.host) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [store] in store.wake(host) }
+        }
+        // `-stationAction restart|update` : l'action de la rubrique Station, lancée à l'arrivée.
+        if let action = UserDefaults.standard.string(forKey: "stationAction"), let host = selected.flatMap(store.host) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [store] in
+                if action == "update" { store.updateStation(host) } else { store.restartStation(host) }
+            }
         }
         #endif
     }
 
-    // MARK: - Réseau
-
-    /// Vu sur le réseau local (annonce Bonjour) : sinon, c'est par VPN.
-    func isLocal(_ host: Host) -> Bool {
-        discovery.found.contains { found in
-            found.name == host.name || (host.consoleFingerprint != nil && found.fingerprint == host.consoleFingerprint)
-        }
+    /// Le test des manettes, depuis l'accueil ou les réglages de l'app.
+    func showGamepads(from: Screen) {
+        gamepadsReturn = from
+        screen = .gamepads
     }
+
+    /// Réglages d'un ordinateur, sur une rubrique.
+    func showSettings(_ id: UUID, section: ComputerSection = .picture) {
+        settingsSection = section
+        screen = .settings(id)
+    }
+
+    // MARK: - Réseau
 
     /// Annoncés sur le réseau et pas encore ajoutés.
     var newOnNetwork: [Discovery.Found] {
@@ -92,7 +125,7 @@ final class AppModel: ObservableObject {
     // MARK: - iCloud
 
     private func importCloud(_ list: [CloudHost]) {
-        guard prefs.icloudSync else { return }
+        guard prefs.icloudSync, !store.demo else { return }
         for c in list where store.host(c.id) == nil {
             if let password = cloud.password(for: c.id) {
                 store.add(cloud.host(c), password: password)
@@ -134,9 +167,10 @@ final class AppModel: ObservableObject {
     }
 
     private func publishTopShelf() {
+        guard !store.demo else { return }
         let entries = store.ordered.map { h in
             TopShelfEntry(id: h.id, name: h.name, online: store.status[h.id]?.online ?? false,
-                          reach: store.status[h.id]?.online == true ? (isLocal(h) ? "réseau local" : "par VPN") : "hors ligne",
+                          reach: store.status[h.id]?.online == true ? "en ligne" : "hors ligne",
                           lastSession: h.lastSession, imageFile: store.imagery.file(h.id))
         }
         TopShelfStore.write(entries)

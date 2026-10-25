@@ -1,6 +1,8 @@
 // Ce qui se dessine par-dessus le passage et l'image (maquettes « App · Le
-// passage » et « App · En session ») : la capsule qui dit ce qui se passe
-// (préparation, entrée, échec, fin), le rappel, la barre au survol.
+// passage » et « App · En session » ; docs/link-ui.md) : la capsule de la
+// connexion (ses trois étapes, l'échec, la reconnexion, la fin), les rappels
+// d'événements, la barre au survol. Dès la première image, rien ne s'affiche
+// de lui-même : la barre et les statistiques viennent à la demande.
 
 import AppKit
 import KyberKit
@@ -94,17 +96,18 @@ struct SessionChrome: View {
 
 // MARK: - Capsule du passage
 
-/// Ce qui se passe, en une ligne : préparation, entrée, échec, fin.
+/// Ce qui se passe, en une ligne : les étapes de la connexion, l'échec, la
+/// reconnexion, la fin.
 private struct PassageCapsule: View {
     @ObservedObject var session: SessionController
 
-    private enum Mode: Equatable { case waiting, entering, reconnecting, failed, closing, hidden }
+    private enum Mode: Equatable { case waiting, reconnecting, failed, closing, hidden }
 
     private var mode: Mode {
         switch session.phase {
         case .preparing, .connecting, .starting: return session.revealedAt == nil ? .waiting : .hidden
         case .reconnecting: return .reconnecting
-        case .streaming: return session.entering ? .entering : .hidden
+        case .streaming: return .hidden
         case .failed: return .failed
         case .ending, .ended: return .closing
         }
@@ -131,31 +134,31 @@ private struct PassageCapsule: View {
             Mark(size: 34, level: mode == .failed || (mode == .closing && session.closing.done) ? .off : .lit)
             switch mode {
             case .waiting:
-                lines(title: waitingTitle, sub: String(localized: "Un écran de \(modeAt) l'attend."))
-                divider
-                VStack(alignment: .leading, spacing: 5) {
-                    check(session.phase != .preparing, String(localized: "Écran \(modeAt)"))
-                    check(false, String(localized: "Premières images"))
+                if session.stationRestarting {
+                    // Dernier recours : la Station redémarre, puis les étapes reprennent.
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text(StationText.restarting).font(Theme.sans(15, .semibold)).foregroundStyle(Theme.text)
+                    }
+                    .accessibilityElement(children: .combine)
+                } else {
+                    VStack(alignment: .leading, spacing: 7) {
+                        step(0, String(localized: "Préparation de l'écran"))
+                        step(1, String(localized: "Connexion"))
+                        step(2, String(localized: "Premières images"))
+                    }
                 }
                 divider
                 Button("Annuler") { session.end() }
                     .buttonStyle(GhostButton(height: 34))
                     .keyboardShortcut(.cancelAction)
-            case .entering:
-                lines(title: String(localized: "Vous entrez dans \(name)"), sub: String(localized: "Les commandes sont en haut de l'écran. ⌃⌥⌘F : fenêtre · ⌃⌥⌘D : quitter."))
-                divider
-                VStack(alignment: .leading, spacing: 5) {
-                    check(true, String(localized: "Écran \(modeAt)"))
-                    check(true, String(localized: "Premières images"))
-                }
-                latency
             case .reconnecting:
                 if case let .reconnecting(n) = session.phase {
                     lines(title: String(localized: "Reconnexion à \(name)…"), sub: String(localized: "Essai \(n). L'image revient d'elle-même."))
                 }
             case .failed:
                 if case let .failed(message) = session.phase {
-                    lines(title: String(localized: "Impossible d'entrer dans \(name)"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
+                    lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                 }
                 Button("Revenir à l'accueil") { session.dismissFailure() }
                     .buttonStyle(PrimaryButton(height: 40))
@@ -168,17 +171,13 @@ private struct PassageCapsule: View {
         .fixedSize()
     }
 
-    private var waitingTitle: String {
+    /// Étape en cours : 0 (préparation de l'écran), 1 (connexion), 2 (premières images).
+    private var current: Int {
         switch session.phase {
-        case .preparing: return String(localized: "On prépare \(name)")
-        case .connecting: return String(localized: "Connexion à \(name)…")
-        default: return String(localized: "Premières images…")
+        case .preparing: return 0
+        case .connecting: return 1
+        default: return 2
         }
-    }
-
-    /// « 2560 × 1440 à 120 Hz ».
-    private var modeAt: String {
-        session.modeLabel.replacingOccurrences(of: " · ", with: " " + String(localized: "à") + " ")
     }
 
     private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 38) }
@@ -193,22 +192,26 @@ private struct PassageCapsule: View {
         }
     }
 
-    private func check(_ done: Bool, _ text: String) -> some View {
-        HStack(spacing: 8) {
-            Icon(done ? "check" : "dots-three", size: 12, bold: true)
-                .foregroundStyle(done ? Theme.ok : Theme.faint)
-            Text(text).font(Theme.mono(11)).foregroundStyle(done ? Theme.text2 : Theme.faint)
-        }
-    }
-
-    @ViewBuilder private var latency: some View {
-        if let ms = session.stats?.latencyMs {
-            VStack(alignment: .trailing, spacing: 2) {
-                LitNumber(text: Moment.ms(ms), size: 24)
-                Theme.eyebrow(String(localized: "Écart"))
+    /// Une étape : faite (coche), en cours (points de suspension), à venir.
+    private func step(_ index: Int, _ title: String) -> some View {
+        let done = index < current
+        let now = index == current
+        return HStack(spacing: 9) {
+            Group {
+                if done {
+                    Icon("check", size: 12, bold: true).foregroundStyle(Theme.ok)
+                } else if now {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Circle().strokeBorder(Theme.ghost, lineWidth: 1.2).frame(width: 8, height: 8)
+                }
             }
-            .frame(minWidth: 104, alignment: .trailing)
+            .frame(width: 14, height: 14)
+            Text(now ? title + "…" : title)
+                .font(Theme.sans(14, now ? .semibold : .regular))
+                .foregroundStyle(done || now ? Theme.text : Theme.faint)
         }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -287,14 +290,10 @@ private struct HintToast: View {
     var body: some View {
         HStack(spacing: 10) {
             switch hint {
-            case .commands:
-                Text("Les commandes sont en haut de l'écran, au survol.")
-                Keycap("⌃⌥⌘F")
-                Text("fenêtre")
             case .mouse:
-                Text("Souris en mode jeu.")
+                Text("Souris des jeux.")
                 Keycap("⌃⌥⌘M")
-                Text("pour la reprendre")
+                Text("pour reprendre le pointeur")
             case let .fallback(text):
                 Icon("warning", size: 14, bold: true).foregroundStyle(Theme.warn)
                 Text(text)
@@ -340,8 +339,8 @@ private struct SessionBar: View {
 
     private var mouseLabel: String {
         let choice = session.host.settings.mouse
-        guard choice == .auto else { return choice == .game ? String(localized: "Souris jeu") : String(localized: "Souris") }
-        return session.mouseCaptured ? String(localized: "Souris jeu") : String(localized: "Souris")
+        guard choice == .auto else { return choice.label }
+        return session.mouseCaptured ? MouseChoice.game.label : MouseChoice.desktop.label
     }
 
     private var audioLabel: String {
@@ -389,8 +388,8 @@ private struct SessionBar: View {
                 .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(session.statsPanel ? "Fermer les mesures détaillées (⌃⌥⌘S)" : "Mesures détaillées (⌃⌥⌘S)")
-                .accessibilityLabel("Mesures détaillées")
+                .help(session.statsPanel ? "Fermer les statistiques (⌃⌥⌘S)" : "Statistiques (⌃⌥⌘S)")
+                .accessibilityLabel("Statistiques")
                 divider
                 GlassMenu(items: Profile.allCases.map { profile in
                     .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
@@ -405,7 +404,7 @@ private struct SessionBar: View {
                 }) {
                     chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true)
                 }
-                .help("Souris : Auto passe en mode jeu quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
                 .overlay(ring(1))
                 chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"))
                     .opacity(session.host.settings.clipboard ? 1 : 0.45)
@@ -439,13 +438,13 @@ private struct SessionBar: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Plein écran ou fenêtre (⌃⌥⌘F)")
-                .accessibilityLabel("Plein écran ou fenêtre")
+                .help("Plein écran (⌃⌥⌘F)")
+                .accessibilityLabel("Plein écran")
                 .overlay(ring(2))
                 Button { session.end() } label: {
                     HStack(spacing: 8) {
                         Icon("power", size: 15, bold: true)
-                        Text("Quitter")
+                        Text("Se déconnecter").lineLimit(1).fixedSize()
                     }
                     .font(Theme.sans(13, .semibold))
                     .foregroundStyle(Theme.dangerText)
@@ -485,7 +484,7 @@ private struct SessionBar: View {
     private func chip(icon: String, text: String, tint: Color = Theme.text2, caret: Bool = false) -> some View {
         HStack(spacing: 7) {
             Icon(icon, size: 16, bold: true).foregroundStyle(tint)
-            Text(text).font(Theme.sans(13)).foregroundStyle(Theme.text2)
+            Text(text).font(Theme.sans(13)).foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
             if caret { Icon("caret-down", size: 10, bold: true).foregroundStyle(Theme.faint) }
         }
         .padding(.horizontal, 10)
