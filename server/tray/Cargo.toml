@@ -1,6 +1,6 @@
 [package]
 name = "kybernow-tray"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 rust-version = "1.89"
 description = "Icône de KyberNow Station dans la zone de notification de Windows"

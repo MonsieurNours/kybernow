@@ -1,6 +1,6 @@
 {
   "productName": "KyberNow Link",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "identifier": "fr.leslignesclaires.kybernow",
   "build": {
     "frontendDist": "ui/dist"
