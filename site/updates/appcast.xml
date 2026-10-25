@@ -3,6 +3,21 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.5.2</title>
+            <pubDate>Sun, 25 Oct 2026 20:34:57 +0100</pubDate>
+            <sparkle:version>202610252016</sparkle:version>
+            <sparkle:shortVersionString>0.5.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **On-screen controller on iPhone, iPad and Android** (phones and tablets): the session bar's “On-screen controller” button, remembered for each computer. Two layouts, Full (a whole Xbox controller: two clickable sticks, D-pad, A, B, X, Y, progressive triggers, View, Menu, Guide) and Simple (left stick, D-pad, A, B, X, Y and Menu), with a small button on the controller to switch between them. The computer sees it as an Xbox 360 controller, in the first free player slot; while it is shown, the rest of the screen does not act as a mouse. Every press lights up and can be felt (a click for buttons, ticks for the sticks at the centre, at each change of direction and at the edge), and the game's rumble vibrates the device; the iPad, with no haptic engine, keeps the visual feedback. Settings in Controls: Layout, Size, Opacity, Haptic feedback.
+- iPhone, iPad and Android: a touch on the picture folds the keyboard away, without clicking on the computer; “Keyboard” in the session bar. Android: a two-finger tap no longer also left-clicks.
+- Apple TV: a controller whose rumble motors do not start falls back to a single motor, and the app's log details its rumble (for the DualSense that stays silent during a session, not yet checked with the controller).
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.5.2/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.5.2/KyberNow-Link-macOS.zip" length="47330566" type="application/octet-stream" sparkle:edSignature="UXOAZ8fB4MNFpUgR3oYj95mEjMq7/Y05ZYwRhfnaHwH5tILIUvZOc5DWtFd0EJvtdzni+ZBXBj68f1UZPVKQDg=="/>
+        </item>
+        <item>
             <title>0.5.1</title>
             <pubDate>Sun, 25 Oct 2026 17:19:12 +0100</pubDate>
             <sparkle:version>202610251701</sparkle:version>
