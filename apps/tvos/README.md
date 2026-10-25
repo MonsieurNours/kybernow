@@ -80,4 +80,5 @@ Pas sur l'App Store : l'app s'installe depuis un Mac avec Xcode, signée avec so
 ## Essais
 
 - Session sur une vraie Apple TV avec le cœur Rust : vérifiée (0.3.1 et après).
+- Vibrations d'une DualSense en mode « Fidèle » et d'une manette Xbox : vérifiées sur une vraie Apple TV (25/10/2026).
 - Pas encore vérifié sur une vraie Apple TV : que le Trousseau iCloud y apporte bien les mots de passe publiés par le Mac, et l'unité de la molette d'une souris Bluetooth (journal « molette Bluetooth »).

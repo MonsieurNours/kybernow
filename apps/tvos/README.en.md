@@ -80,4 +80,5 @@ Not on the App Store: the app is installed from a Mac with Xcode, signed with yo
 ## Tests
 
 - Session on a real Apple TV with the Rust core: checked (0.3.1 and later).
+- Rumble on a DualSense in “As is” mode and on an Xbox controller: checked on a real Apple TV (25/10/2026).
 - Not checked yet on a real Apple TV: that the iCloud Keychain does bring the passwords published by the Mac, and the wheel unit of a Bluetooth mouse (log “molette Bluetooth”).
