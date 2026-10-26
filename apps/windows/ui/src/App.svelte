@@ -190,9 +190,11 @@
       const started = await invoke<ConnectInfo>('connect', { id })
       if (started.windowed) {
         if (passage?.id === id && !passage.opening) passage = null
-      } else if (passage?.id === id) {
+      } else if (passage?.id === id && !passage.closing) {
         passage.many = started.screens > 1
-      } else if (!passage) {
+      } else {
+        // La première session après tout (l'accueil croyait une session ouverte, ou le passage
+        // précédent se refermait encore) : son passage.
         passage = { ...fresh(), many: started.screens > 1 }
       }
     } catch (e) {
