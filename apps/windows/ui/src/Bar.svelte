@@ -10,10 +10,11 @@
 
   Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : une seule barre, qui
   sert la session de la fenêtre où elle s'ouvre (`id`) ; ses commandes et ses
-  mesures sont celles de cette session. Le menu « Ordinateurs » liste les
-  autres ordinateurs : un clic ouvre une session de plus (dans sa fenêtre),
-  réveille un ordinateur hors ligne, ou montre la fenêtre d'un ordinateur déjà
-  en session (coché, « Afficher »).
+  mesures sont celles de cette session. Le menu « Ordinateurs », présenté comme
+  le menu « Touches » et absent sans autre ordinateur, liste les autres
+  ordinateurs : un clic ouvre une session de plus (dans sa fenêtre), réveille
+  un ordinateur hors ligne, ou montre la fenêtre d'un ordinateur déjà en
+  session (coché, « Afficher »). « Garder le son » à partir de deux sessions.
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte'
@@ -33,6 +34,8 @@
   let multi = $state(false)
   /** « Garder le son » de cette session. */
   let keepSound = $state(false)
+  /** Sessions ouvertes : le bouton « Garder le son » à partir de deux. */
+  let sessionCount = $state(1)
   /** Le menu « Ordinateurs » : tous les ordinateurs (celui de la session est écarté à l'affichage). */
   let computers = $state<BarComputer[]>([])
   /** Un refus d'ouvrir une session (menu « Ordinateurs »), montré dans le menu. */
@@ -41,9 +44,9 @@
   /**
    * `id` : la session servie. `pinned` : demandée par « Statistiques » (menu de l'icône), elle
    * reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle.
-   * `multi` : plusieurs écrans. `keep_sound` : « Garder le son ».
+   * `multi` : plusieurs écrans. `keep_sound` : « Garder le son ». `sessions` : sessions ouvertes.
    */
-  type Shown = { id: string; label: string; profile: string; pinned?: boolean; multi?: boolean; keep_sound?: boolean }
+  type Shown = { id: string; label: string; profile: string; pinned?: boolean; multi?: boolean; keep_sound?: boolean; sessions?: number }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -84,7 +87,14 @@
       listen<KeepSound>('session-keep-sound', (k) => {
         if (k.id === id) keepSound = k.on
       }),
-      listen<BarComputer[]>('bar-computers', (c) => (computers = c)),
+      listen<BarComputer[]>('bar-computers', (c) => {
+        computers = c
+        reportWidth()
+      }),
+      listen<string[]>('sessions', (s) => {
+        sessionCount = s.length
+        reportWidth()
+      }),
       listen<Shown>('bar-shown', (s) => {
         // Une autre session : ses mesures repartent de zéro.
         if (s.id !== id) {
@@ -96,6 +106,7 @@
         profile = s.profile
         multi = !!s.multi
         keepSound = !!s.keep_sound
+        sessionCount = s.sessions ?? 1
         refusal = null
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
@@ -322,12 +333,17 @@
       <Icon name="fullscreen" size={20} stroke={1.6} />
     </button>
   {/if}
-  <button class="icon" class:on={keepSound} aria-pressed={keepSound} aria-label={t('bar.keep_sound')} title={t('bar.keep_sound')} onclick={toggleKeepSound}>
-    <Icon name="speaker" size={20} stroke={1.6} />
-  </button>
+  {#if sessionCount >= 2}
+    <!-- À partir de deux sessions : la session reste audible même sans être active. -->
+    <button class="icon" class:on={keepSound} aria-pressed={keepSound} aria-label={t('bar.keep_sound')} title={t('bar.keep_sound')} onclick={toggleKeepSound}>
+      <Icon name="speaker" size={20} stroke={1.6} />
+    </button>
+  {/if}
+  {#if others.length > 0}
+  <!-- Présenté comme le menu Touches (icône seule, libellé accessible) ; absent sans autre ordinateur. -->
   <div class="anchor">
     <button class="icon" class:on={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
-      <Icon name="overview" size={20} stroke={1.6} />
+      <Icon name="monitor" size={20} stroke={1.6} />
     </button>
     {#if menu === 'computers'}
       <div class="menu computers" role="menu" aria-label={t('bar.computers')}>
@@ -350,6 +366,7 @@
       </div>
     {/if}
   </div>
+  {/if}
   <span class="sep"></span>
   <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
 </div>

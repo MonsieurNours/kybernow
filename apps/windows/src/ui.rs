@@ -111,7 +111,7 @@ struct Running {
 /// La connexion d'une session ouverte pendant qu'une autre tourne (plusieurs
 /// ordinateurs) : une fenêtre à la place de celle de la session
 /// (`connexion.html`, le même passage que l'accueil), jusqu'à la première
-/// image ; un échec y reste, avec sa raison, jusqu'à « OK ».
+/// image ; un échec y reste, avec sa raison, jusqu'à « Fermer ».
 #[derive(Default)]
 struct Connexion {
     /// Sa fenêtre Tauri quand elle est ouverte.
@@ -372,10 +372,11 @@ impl UiState {
         sessions.iter().find(|r| r.host.is_active()).or_else(|| sessions.first()).map(|r| r.id.clone())
     }
 
-    /// Quatre ordinateurs sont en session ou s'y connectent.
+    /// Quatre ordinateurs sont en session ou s'y connectent (ou le registre
+    /// du cœur en tient quatre).
     fn full(&self) -> bool {
         let sessions = self.sessions.lock().unwrap();
-        sessions.len() + self.launching.lock().unwrap().len() >= focus::MAX_SESSIONS
+        sessions.len() + self.launching.lock().unwrap().len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS
     }
 }
 
@@ -946,7 +947,7 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     c.settings = settings;
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (stream, _, _) = session_plan(&c, &pc, lighten, system::screen_mode());
+    let (stream, _, _) = session_plan(&c, &pc, lighten, None);
     let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
@@ -1390,6 +1391,9 @@ struct BarShown {
     pinned: bool,
     multi: bool,
     keep_sound: bool,
+    /// Sessions ouvertes : « Garder le son » à partir de deux (ensuite,
+    /// l'événement `sessions`).
+    sessions: usize,
 }
 
 /// `bar-label` : le profil de la session `id` a changé.
@@ -1685,7 +1689,7 @@ impl HostEvents for UiEvents {
             }
         } else {
             // Session suivante : sa fenêtre de connexion part, sauf un échec
-            // avant la première image, qu'elle montre jusqu'à « OK ».
+            // avant la première image, qu'elle montre jusqu'à « Fermer ».
             let failed = !s.shown && s.error.is_some() && !quitting;
             if failed {
                 self.connexion.view.lock().unwrap().error = s.error.clone();
@@ -1754,7 +1758,7 @@ struct ScreensEvent {
 /// de ce PC maintenant : le calcul du cœur (`session_plan_for`), comme à
 /// l'accueil et dans la session.
 fn expected_screens(spec: Spec, this_screen: Option<String>, settings: &kybernow_core::profile::StreamSettings, virtual_display: bool) -> usize {
-    let layout = Layout { monitors: displays::enumerate(), spec, this_screen };
+    let layout = Layout { monitors: displays::enumerate(), spec, this_screen, extra_session: false };
     screens::session_plan_for(&layout.screens(), settings, virtual_display).map_or(1, |p| p.len())
 }
 
@@ -1869,10 +1873,17 @@ impl UiEvents {
 
 /// Réglages de la session et mode de l'écran pour un ordinateur, d'après ses
 /// réglages, ce que ce PC sait décoder et « Sur batterie » des réglages de
-/// l'app (`lighten` : alléger, et ce PC est sur batterie). `screen` : le mode
-/// de « Cet écran » (`system::screen_mode`), ou la zone cliente de la fenêtre
-/// d'une session suivante (plusieurs ordinateurs).
-fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool, screen: kybernow_core::console::Mode) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
+/// l'app (`lighten` : alléger, et ce PC est sur batterie). `window` : le mode
+/// de la fenêtre d'une session suivante (plusieurs ordinateurs,
+/// `extra_session_window` du cœur), qui passe avant la définition des
+/// réglages, sur mesure comprise ; sinon, le mode de « Cet écran »
+/// (`system::screen_mode`).
+fn session_plan(
+    c: &Computer,
+    pc: &ThisPc,
+    lighten: bool,
+    window: Option<kybernow_core::console::Mode>,
+) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
     let s = &c.settings;
     let choices = Choices {
         profile: Profile::parse(&s.profile),
@@ -1881,10 +1892,10 @@ fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool, screen: kybernow_core:
         mbps: s.mbps,
         reliable: s.reliable,
         max_4k: s.max_4k && s.custom.is_none(),
-        size: custom_mode(s),
+        size: window.or_else(|| custom_mode(s)),
         lighten,
     };
-    let (settings, mode) = plan(&choices, capabilities(pc), screen);
+    let (settings, mode) = plan(&choices, capabilities(pc), window.unwrap_or_else(system::screen_mode));
     let label = format!(
         "{} · {}{}",
         settings.label(),
@@ -2009,7 +2020,7 @@ fn connexion_state(window: tauri::WebviewWindow, state: tauri::State<'_, UiState
     state.connexions.lock().unwrap().get(window.label()).map(|c| c.view.lock().unwrap().clone())
 }
 
-/// « OK » sous un échec, ou la fenêtre de connexion fermée : « Annuler » si
+/// « Fermer » sous un échec, ou la fenêtre de connexion fermée : « Annuler » si
 /// la connexion se fait encore, sinon elle part.
 #[tauri::command(async)]
 fn connexion_close(app: AppHandle, window: tauri::WebviewWindow) {
@@ -2051,6 +2062,16 @@ fn home_to_primary(app: &AppHandle, monitors: &[displays::Monitor]) -> Option<ta
     let y = (m.y + (m.height - size.height as i32) / 2).max(m.y);
     let _ = main.set_position(tauri::PhysicalPosition::new(x, y));
     Some(pos)
+}
+
+/// La fenêtre d'une session suivante (plusieurs ordinateurs) : le mode de
+/// l'écran de l'ordinateur, la zone cliente (pixels), le coin haut gauche du
+/// cadre et l'écran de ce PC où elle s'ouvre.
+struct Follow {
+    mode: kybernow_core::console::Mode,
+    client: (i32, i32),
+    at: (i32, i32),
+    monitor: String,
 }
 
 /// Une connexion qui se lance : sa place (une des quatre) est rendue en
@@ -2100,7 +2121,9 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         if launching.contains(&id) {
             return Err(t("errors.session_already_open", &[]));
         }
-        if sessions.len() + launching.len() >= focus::MAX_SESSIONS {
+        // Les sessions de l'app et les connexions qui se lancent, et le
+        // registre du cœur (qui refuserait la cinquième de toute façon).
+        if sessions.len() + launching.len() >= focus::MAX_SESSIONS || focus::count() >= focus::MAX_SESSIONS {
             return Err(t("errors.four_at_most", &[]));
         }
         let first = sessions.is_empty() && launching.is_empty();
@@ -2131,30 +2154,32 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     };
     let s = &c.settings;
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    // Plusieurs ordinateurs : une session ouverte pendant qu'une autre tourne
-    // prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » :
-    // l'écran de la fenêtre active, une fenêtre centrée aux deux tiers en
-    // 16:9, dont la zone cliente est la taille de l'écran de l'ordinateur.
-    let follow = (!first).then(|| system::follow_window(state.active_id().and_then(|a| state.with_session(&a, |r| r.host.bar_window())).unwrap_or(0)));
-    let screen = match &follow {
-        Some(f) => kybernow_core::console::Mode { width: f.client.0 as u32, height: f.client.1 as u32, refresh: f.refresh },
-        None => system::screen_mode(),
-    };
-    let (settings, mode, label) = session_plan(&c, &pc, lighten, screen);
     // Les écrans de ce PC et ce que la Station sait créer : le cœur en fait une
     // session à un ou plusieurs écrans (le même calcul que la ligne de
     // l'accueil). « Cet écran » est relevé ici, avant que l'accueil passe sur
-    // l'écran principal : la session le garde (comme la définition, ci-dessus).
+    // l'écran principal : la session le garde (comme la définition, ci-dessous).
     let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
-    let mut spec = displays_spec(s, info.as_ref(), lighten, &pc);
-    let layout = match &follow {
-        Some(f) => {
-            // En fenêtre, un seul écran (comme la ligne de commande avec `--window`).
-            spec.custom_resolution = true;
-            Layout { monitors: displays::enumerate(), spec, this_screen: Some(f.monitor.clone()).filter(|m| !m.is_empty()) }
-        }
-        None => Layout::now(spec),
+    let spec = displays_spec(s, info.as_ref(), lighten, &pc);
+    // Plusieurs ordinateurs : une session ouverte pendant qu'une autre tourne
+    // prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » —
+    // l'écran de la fenêtre active —, dans une fenêtre centrée aux deux tiers
+    // de cet écran en 16:9, dont la zone cliente est l'écran de l'ordinateur :
+    // les deux règles du cœur (`screens_for_extra_session`, dans
+    // `Layout::screens`, et `extra_session_window`).
+    let (layout, follow) = if first {
+        (Layout::now(spec), None)
+    } else {
+        let fallback = state.active_id().and_then(|a| state.with_session(&a, |r| r.host.bar_window())).unwrap_or(0);
+        let layout = Layout { monitors: displays::enumerate(), spec, this_screen: system::active_monitor_key(fallback), extra_session: true };
+        let screens = layout.screens();
+        let w = screens::extra_session_window(&screens.list[screens.current()]);
+        // Les écrans de ce PC sont donnés au cœur en pixels : cadre et mode aussi.
+        let client = (w.mode.width as i32, w.mode.height as i32);
+        let at = system::frame_origin((w.x.round() as i32, w.y.round() as i32), client);
+        let monitor = layout.monitors.get(screens.current()).map(|m| m.key.clone()).unwrap_or_default();
+        (layout, Some(Follow { mode: w.mode, client, at, monitor }))
     };
+    let (settings, mode, label) = session_plan(&c, &pc, lighten, follow.as_ref().map(|f| f.mode));
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
@@ -2307,7 +2332,7 @@ fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), St
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     // Les réglages du profil seulement : la taille de l'écran ne change pas.
-    let (settings, _, label) = session_plan(&c, &pc, lighten, system::screen_mode());
+    let (settings, _, label) = session_plan(&c, &pc, lighten, None);
     sent.lock().unwrap().settings = settings.clone();
     let shown = BarLabel { label, profile };
     *bar.lock().unwrap() = shown.clone();
@@ -2381,7 +2406,8 @@ fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
     let _ = bar.set_always_on_top(true);
     let _ = bar.show();
     window::set_bar_session(Some(session));
-    let _ = app.emit_to("bar", "bar-shown", BarShown { id: id.to_string(), label, pinned, multi, keep_sound });
+    let sessions = state.sessions.lock().unwrap().len();
+    let _ = app.emit_to("bar", "bar-shown", BarShown { id: id.to_string(), label, pinned, multi, keep_sound, sessions });
     let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
 
@@ -2795,7 +2821,7 @@ pub fn run(args: Vec<String>) {
                     first_close(app);
                 }
                 // Fenêtre de connexion d'une session suivante (plusieurs
-                // ordinateurs) : la fermer, c'est « Annuler » (ou « OK » sous
+                // ordinateurs) : la fermer, c'est « Annuler » (ou « Fermer » sous
                 // un échec).
                 label if label.starts_with("connexion-") => {
                     api.prevent_close();
