@@ -263,6 +263,9 @@ public final class SessionEngine: @unchecked Sendable {
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
     private var padCaptured = false
+    /// Plusieurs ordinateurs (Mac) : la session est celle de la fenêtre au
+    /// premier plan (`setFocus`) ; une app à une session la garde active.
+    private var focusActive = true
     private var occluded = false
     private var vsync = true
     private var topMarker = false
@@ -477,13 +480,35 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_restore_mode(s) }
     }
 
-    /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.
+    /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde. Une
+    /// session inactive la garde aussi (`setFocus`).
     public func setGamepadCaptured(_ captured: Bool) {
         lock.lock()
         padCaptured = captured
         let input = self.input
+        let held = captured || !focusActive
         lock.unlock()
-        input?.gamepad.setCaptured(captured)
+        input?.gamepad.setCaptured(held)
+    }
+
+    /// Plusieurs ordinateurs (Mac) : la session est-elle active (celle de la
+    /// fenêtre au premier plan), l'entend-on ? Inactive, son presse-papiers
+    /// est en pause et ses manettes sont au repos (prises comme par la barre :
+    /// boutons relâchés, axes au centre, rien ne part) ; muette, son volume
+    /// est à zéro, le son continue d'être décodé. Gardé pour les images qui
+    /// suivent (relance, reconnexion).
+    public func setFocus(active: Bool, muted: Bool) {
+        lock.lock()
+        focusActive = active
+        volume = muted ? 0 : 1
+        let players = Array(audios.values)
+        let input = self.input
+        let held = padCaptured || !active
+        let volume = self.volume
+        lock.unlock()
+        players.forEach { $0.volume = volume }
+        input?.setClipboardActive(active)
+        input?.gamepad.setCaptured(held)
     }
 
     /// Synchro verticale à chaud.
@@ -672,7 +697,8 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         let display = lastDisplay ?? KyberDisplay(id: 0, width: 0, height: 0, x: 0, y: 0)
         let clipboard = params?.clipboard ?? true
-        let captured = padCaptured
+        let captured = padCaptured || !focusActive
+        let active = focusActive
         let old = input
         let screens = primaryScreen != nil ? takenScreens : []
         let primaryView = primaryScreen.flatMap { screenViews[$0] } ?? view
@@ -686,6 +712,7 @@ public final class SessionEngine: @unchecked Sendable {
         old?.stop()
         old?.shutdown()
         input.gamepad.setCaptured(captured)
+        input.setClipboardActive(active)
         lock.lock()
         self.input = input
         lock.unlock()

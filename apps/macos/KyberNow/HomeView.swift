@@ -143,12 +143,11 @@ private struct Hero: View {
     private var status: HostStatus? { app.store.status[host.id] }
     private var online: Bool? { status?.online }
 
+    /// En session, le profil s'applique tout de suite, comme dans la barre.
     private var profile: Binding<Profile?> {
         Binding(get: { host.settings.profile }, set: { p in
             guard let p else { return }
-            var h = host
-            h.settings.apply(p)
-            app.store.update(h)
+            app.apply(p, to: host)
         })
     }
 
@@ -202,7 +201,20 @@ private struct Hero: View {
 
     @ViewBuilder private var actions: some View {
         HStack(spacing: 14) {
-            if online == false, app.store.waking.contains(host.id) {
+            if let session = app.sessions.session(for: host.id) {
+                // Déjà en session (plusieurs ordinateurs) : sa fenêtre passe devant.
+                Button { session.bringToFront() } label: {
+                    HStack(spacing: 12) {
+                        Icon("arrow-elbow-down-left", size: 14, bold: true)
+                            .padding(.horizontal, 7).padding(.vertical, 4)
+                            .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 5))
+                        Text(LinkText.showSession)
+                        Icon("arrow-right", size: 18, bold: true)
+                    }
+                }
+                .buttonStyle(PrimaryButton(height: 56, lit: true))
+                .keyboardShortcut(.defaultAction)
+            } else if online == false, app.store.waking.contains(host.id) {
                 // Réveil en cours : l'ordinateur est sondé toutes les 2 s.
                 Button {} label: {
                     HStack(spacing: 10) { ProgressView().controlSize(.small); Text(LinkText.waking) }
@@ -232,9 +244,11 @@ private struct Hero: View {
                         Icon("arrow-right", size: 18, bold: true)
                     }
                 }
-                .buttonStyle(PrimaryButton(height: 56, lit: app.session != nil))
+                .buttonStyle(PrimaryButton(height: 56))
                 .keyboardShortcut(.defaultAction)
-                .disabled(app.session != nil)
+                // Quatre ordinateurs au plus en même temps.
+                .disabled(app.sessions.isFull)
+                .help(app.sessions.isFull ? LinkText.computersLimit : "")
             }
             Segmented(options: Profile.allCases.map { ($0, $0.label) }, selection: profile,
                       icons: [.jeu: "game-controller", .bureau: "article", .max: "lightning"], height: 40)
@@ -416,7 +430,11 @@ private struct HostCard: View {
         .buttonStyle(.plain)
         .onHover { h in withAnimation(Theme.easeOut) { hovering = h } }
         .contextMenu {
-            Button("Se connecter") { app.connect(host) }.disabled(status?.online != true || app.session != nil)
+            if let session = app.sessions.session(for: host.id) {
+                Button(LinkText.showSession) { session.bringToFront() }
+            } else {
+                Button("Se connecter") { app.connect(host) }.disabled(status?.online != true || app.sessions.isFull)
+            }
             Button(LinkText.settingsTitle(host.name)) { app.openSettings(host) }
         }
     }

@@ -1,8 +1,10 @@
 // Notifications du système (docs/link-ui.md, « Notifications »), seulement
 // quand l'app n'est pas au premier plan : mise à jour de la Station prête (une
 // fois par version et par ordinateur), ordinateur en ligne après un réveil, ou
-// toujours muet au bout de 2 min, session arrêtée sans « Se déconnecter », fin
-// d'un redémarrage ou d'une mise à jour lancés hors de la fenêtre ; et, une
+// toujours muet au bout de 2 min, session arrêtée sans « Se déconnecter »
+// (aussi app au premier plan quand sa fenêtre n'était pas la fenêtre active :
+// plusieurs ordinateurs, une autre session était devant), fin d'un
+// redémarrage ou d'une mise à jour lancés hors de la fenêtre ; et, une
 // seule fois, « KyberNow Link est toujours là » à la première fermeture de la
 // fenêtre. L'autorisation est demandée à la première notification. Un clic
 // ouvre l'app sur ce qu'elle annonce ; ses boutons agissent comme le menu.
@@ -135,12 +137,15 @@ final class Notifier: NSObject {
 
     /// Une session s'est arrêtée sans « Se déconnecter » : un autre appareil
     /// ou Admin y a mis fin, ou une erreur (sa raison, en une phrase).
-    func sessionEnded(_ host: Host, error: String?) {
+    /// `evenInForeground` : sa fenêtre n'était pas la fenêtre active (une
+    /// autre session était devant), dite même app au premier plan.
+    func sessionEnded(_ host: Host, error: String?, evenInForeground: Bool = false) {
         if let error {
-            post(.sessionStopped, host: host.id, title: String(localized: "La session sur \(host.name) s'est arrêtée"), body: Self.sentence(error))
+            post(.sessionStopped, host: host.id, title: String(localized: "La session sur \(host.name) s'est arrêtée"), body: Self.sentence(error),
+                 always: evenInForeground)
         } else {
             post(.sessionEnded, host: host.id, title: String(localized: "La session sur \(host.name) est terminée"),
-                 body: String(localized: "Un autre appareil a pris la main, ou Admin y a mis fin."))
+                 body: String(localized: "Un autre appareil a pris la main, ou Admin y a mis fin."), always: evenInForeground)
         }
     }
 
@@ -162,15 +167,17 @@ final class Notifier: NSObject {
     // MARK: - Envoi
 
     /// Seulement quand l'app n'est pas au premier plan (`always` : la
-    /// première fermeture de la fenêtre). Une notification remplace la
-    /// précédente du même genre pour le même ordinateur.
+    /// première fermeture de la fenêtre, la fin d'une session qui n'était pas
+    /// active). Une notification remplace la précédente du même genre pour le
+    /// même ordinateur.
     private func post(_ kind: Kind, host: UUID?, title: String, body: String, always: Bool = false) {
         guard always || !NSApp.isActive else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.categoryIdentifier = kind.rawValue
-        content.userInfo = ["kind": kind.rawValue, "host": host?.uuidString ?? ""]
+        // Montrée aussi app au premier plan (`willPresent`).
+        content.userInfo = ["kind": kind.rawValue, "host": host?.uuidString ?? "", "foreground": always]
         let id = host.map { "\(kind.rawValue)-\($0.uuidString)" } ?? kind.rawValue
         KyberLog.app.notice("notification \(kind.rawValue, privacy: .public) : \(title, privacy: .public) — \(body, privacy: .public)")
         #if DEBUG
@@ -237,10 +244,11 @@ final class Notifier: NSObject {
 extension Notifier: UNUserNotificationCenterDelegate {
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let kind = notification.request.content.userInfo["kind"] as? String
+        let foreground = notification.request.content.userInfo["foreground"] as? Bool ?? false
         DispatchQueue.main.async {
-            // Au premier plan, l'app le montre déjà ; « toujours là » se dit en fermant la fenêtre.
-            let show = kind == Kind.stillHere.rawValue || !NSApp.isActive
+            // Au premier plan, l'app le montre déjà, sauf « toujours là » (dit en
+            // fermant la fenêtre) et la fin d'une session qui n'était pas devant.
+            let show = foreground || !NSApp.isActive
             completionHandler(show ? [.banner, .list] : [])
         }
     }

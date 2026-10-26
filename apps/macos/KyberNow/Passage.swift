@@ -250,34 +250,27 @@ final class PassageScene: NSView {
     }
 }
 
-/// Délégué de fenêtre posé le temps d'une session dans la fenêtre de
-/// l'accueil : il cache la barre des menus et le Dock en plein écran et
-/// prévient de la fermeture, et transmet tout le reste au délégué de SwiftUI.
+/// Délégué des fenêtres d'une session (la sienne, celles de ses autres
+/// écrans) : il cache la barre des menus et le Dock en plein écran, et
+/// prévient de la fermeture demandée (bouton rouge, ⌘W), que la session fait
+/// elle-même une fois finie.
 final class SessionWindowDelegate: NSObject, NSWindowDelegate {
-    weak var original: NSWindowDelegate?
     var onClose: (() -> Void)?
     var onExitFullScreen: (() -> Void)?
-
-    override func responds(to selector: Selector!) -> Bool {
-        super.responds(to: selector) || (original?.responds(to: selector) ?? false)
-    }
-
-    override func forwardingTarget(for selector: Selector!) -> Any? {
-        original?.responds(to: selector) == true ? original : nil
-    }
 
     // Plein écran sans barre des menus ni Dock : le haut de l'écran est à la barre KyberNow.
     func window(_ window: NSWindow, willUseFullScreenPresentationOptions proposedOptions: NSApplication.PresentationOptions = []) -> NSApplication.PresentationOptions {
         [.fullScreen, .hideDock, .hideMenuBar]
     }
 
-    func windowWillClose(_ notification: Notification) {
-        onClose?()
-        original?.windowWillClose?(notification)
+    /// Fermer, c'est se déconnecter : la fenêtre reste le temps de la fin.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let onClose else { return true }
+        onClose()
+        return false
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
         onExitFullScreen?()
-        original?.windowDidExitFullScreen?(notification)
     }
 }
