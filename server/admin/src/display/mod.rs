@@ -789,8 +789,11 @@ impl Manager {
                     }
                 }
                 tracing::info!(
-                    "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %, largeur lue {}), avant : base {} px",
-                    v["cursor_width"],
+                    "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %), par {}, base relue {}, pointeur affiché {} px avant, {} px après ; avant : base {} px",
+                    v["method"],
+                    v["registry_base"],
+                    v["shown_before"],
+                    v["shown_after"],
                     record.previous_base.unwrap_or(32)
                 );
             }
@@ -811,7 +814,13 @@ impl Manager {
         match self.backend.restore_pointer(record) {
             Ok(v) => {
                 let _ = std::fs::remove_file(self.pointer_path());
-                tracing::info!("taille du pointeur de Windows rendue : base {} px (largeur lue {})", v["base"], v["cursor_width"]);
+                tracing::info!(
+                    "taille du pointeur de Windows rendue : base {} px, par {}, base relue {}, pointeur affiché {} px",
+                    v["base"],
+                    v["method"],
+                    v["registry_base"],
+                    v["shown_after"]
+                );
             }
             Err(e) => tracing::warn!("taille du pointeur de Windows pas encore rendue : {e:#}"),
         }
@@ -1541,7 +1550,7 @@ impl Backend for Simulated {
             return Ok(json!({ "changed": false, "base": previous.unwrap_or(32) }));
         }
         screen.pointer_base = Some(base);
-        Ok(json!({ "changed": true, "base": base, "step": step, "previous_base": previous, "previous_size": null, "cursor_width": base }))
+        Ok(json!({ "changed": true, "base": base, "step": step, "method": "simulé", "previous_base": previous, "previous_size": null, "registry_base": base, "shown_before": 32, "shown_after": base }))
     }
     fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
@@ -1549,7 +1558,7 @@ impl Backend for Simulated {
             bail!("(simulé) aucune session Windows ouverte");
         }
         screen.pointer_base = record.previous_base;
-        Ok(json!({ "base": record.previous_base.unwrap_or(32), "cursor_width": record.previous_base.unwrap_or(32) }))
+        Ok(json!({ "base": record.previous_base.unwrap_or(32), "method": "simulé", "registry_base": record.previous_base, "shown_after": record.previous_base.unwrap_or(32) }))
     }
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
         self.screen.lock().unwrap().render_vendor = Some(vendor);
