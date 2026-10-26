@@ -353,7 +353,7 @@ impl BarLayout {
         // ordinateur, le haut-parleur « Garder le son » avec au moins deux sessions.
         let multi = app.multi_sessions();
         let computers = multi && app.store.hosts.iter().any(|h| h.id != s.host);
-        let sound = multi && app.sessions.len() >= 2;
+        let sound = multi && app.running_sessions() >= 2;
         // Ordinateurs, touches, souris, haut-parleur, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
         let buttons = if s.multi() { 2.0 } else { 3.0 } + if sound { 1.0 } else { 0.0 } + if computers { 1.0 } else { 0.0 };
         let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
@@ -586,7 +586,7 @@ fn computers_menu(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, x: f
     if app.sessions_full() {
         footer.push(tr("Quatre ordinateurs au plus en même temps.", "Four computers at most at the same time.").into());
     }
-    if app.sessions.len() >= 2 {
+    if app.running_sessions() >= 2 {
         footer.push(format!("{} · Ctrl+Alt+{}+O", tr("Ordinateur suivant", "Next computer"), tr("Maj", "Shift")));
     }
     let (label, hint) = (Text::new(Font::Regular, 13.5, FROST), Text::new(Font::Regular, 12.0, FAINT));

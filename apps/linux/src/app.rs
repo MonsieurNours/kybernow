@@ -574,6 +574,13 @@ impl SessionUi {
         }
     }
 
+    /// La session est en cours : pas finie. Une session finie sur une erreur reste dans la liste avec son
+    /// message, jusqu'à « Fermer », mais le cœur l'a désinscrite : elle ne compte plus (limite de quatre,
+    /// « Garder le son », « Afficher » du menu « Ordinateurs »).
+    pub fn running(&self) -> bool {
+        !matches!(self.phase, Phase::Ended { .. })
+    }
+
     /// La session est à plusieurs écrans (une fenêtre plein écran chacun) : pas de « Plein
     /// écran ». Comme `multiScreen` sur Mac.
     pub fn multi(&self) -> bool {
@@ -1174,9 +1181,15 @@ impl App {
         self.sessions.iter_mut().find(|s| s.id == id)
     }
 
-    /// La session de cet ordinateur, s'il est déjà en session (jamais deux fois le même).
+    /// La session de cet ordinateur, s'il est déjà en session (jamais deux fois le même) : une session
+    /// finie sur une erreur n'y est plus, on peut s'y reconnecter.
     pub fn session_of_host(&self, host: &str) -> Option<&SessionUi> {
-        self.sessions.iter().find(|s| s.host == host)
+        self.sessions.iter().find(|s| s.host == host && s.running())
+    }
+
+    /// Les sessions en cours (voir `SessionUi::running`) : celles que compte le registre du cœur.
+    pub fn running_sessions(&self) -> usize {
+        self.sessions.iter().filter(|s| s.running()).count()
     }
 
     /// L'identifiant de la session active.
@@ -1184,9 +1197,10 @@ impl App {
         self.session().map(|s| s.id)
     }
 
-    /// Quatre ordinateurs sont déjà en session : « Se connecter » est inactif.
+    /// Quatre ordinateurs sont déjà en session : « Se connecter » est inactif. Les sessions finies sur une
+    /// erreur, dont le message attend « Fermer », ne comptent pas.
     pub fn sessions_full(&self) -> bool {
-        self.sessions.len() >= MAX_SESSIONS
+        self.running_sessions() >= MAX_SESSIONS
     }
 
     /// Un identifiant pour la session qui va s'ouvrir.
@@ -3633,6 +3647,32 @@ mod tests {
         assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Computers));
         // Les sessions déjà ouvertes s'affichent toujours.
         assert_eq!(app.activate(Target::BarComputer(0)), vec![Action::ShowSession(a)]);
+    }
+
+    /// Une session finie sur une erreur garde son message dans sa fenêtre jusqu'à « Fermer », mais le cœur l'a
+    /// désinscrite : elle ne compte plus pour la limite de quatre, ni pour « Afficher » (on peut se reconnecter à
+    /// cet ordinateur), ni pour le seuil de « Garder le son » (deux sessions en cours).
+    #[test]
+    fn a_failed_session_no_longer_counts() {
+        let mut app = desk();
+        let ids: Vec<SessionId> = ["a", "b", "c", "d"].iter().map(|h| open(&mut app, h)).collect();
+        assert!(app.sessions_full() && app.running_sessions() == 4);
+        assert!(app.activate(Target::BarComputer(4)).is_empty(), "quatre en cours : « Se connecter » est inactif");
+        app.session_by_mut(ids[3]).unwrap().phase = Phase::Ended { error: Some("Un autre appareil a pris la main".into()) };
+        assert!(!app.sessions_full() && app.running_sessions() == 3 && app.sessions.len() == 4);
+        assert!(app.session_of_host("d").is_none() && app.session_of_host("c").is_some());
+        assert_eq!(app.activate(Target::BarComputer(4)), vec![Action::Connect { host: "e".into(), profile: Profile::Jeu }]);
+        // On peut se reconnecter à l'ordinateur dont la session a échoué ; le message n'est pas « Afficher ».
+        app.activate_session(ids[0]);
+        assert_eq!(app.activate(Target::BarComputer(3)), vec![Action::Connect { host: "d".into(), profile: Profile::Jeu }]);
+        // Deux sessions en cours, dont une finie : une seule compte, pas de « Garder le son ».
+        let mut app = desk();
+        let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
+        assert_eq!(app.running_sessions(), 2);
+        app.session_by_mut(a).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
+        assert_eq!((app.running_sessions(), app.active), (1, Some(b)));
+        // Un identifiant ne sert jamais deux fois : la session finie garde le sien tant qu'elle est dans la liste.
+        assert!(app.session_by(a).is_some_and(|s| !s.running()));
     }
 
     /// Le Steam Deck, le salon et KyberNow Link OS gardent une session ; le bureau en tient plusieurs.
