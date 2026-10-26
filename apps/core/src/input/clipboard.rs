@@ -14,6 +14,11 @@
 //! routeur kynput (`InputPipeline` les met en attente et les traite sur son
 //! fil des entrées) : les réponses repartent par `send` sans réentrer dans
 //! le routeur. Le presse-papiers est donc lu et écrit depuis ce fil-là.
+//!
+//! Plusieurs ordinateurs à la fois : une session qui n'est pas active met son
+//! pont en pause ([`ClipboardBridge::set_paused`]) : rien n'est lu sur
+//! l'appareil, rien n'y est écrit, et ce que l'ordinateur annonce est ignoré.
+//! Revenue active, elle annonce le contenu de l'appareil à son ordinateur.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -56,6 +61,8 @@ struct Inner {
     seen_change_count: u64,
     started: bool,
     next_poll: Option<Duration>,
+    /// Session pas active (plusieurs ordinateurs) : rien de lu ni d'écrit.
+    paused: bool,
 }
 
 pub struct ClipboardBridge {
@@ -76,6 +83,7 @@ impl ClipboardBridge {
                 seen_change_count: seen,
                 started: false,
                 next_poll: None,
+                paused: false,
             }),
             send: Mutex::new(None),
         }
@@ -90,10 +98,18 @@ impl ClipboardBridge {
         {
             let mut inner = self.inner.lock().unwrap();
             inner.started = true;
+            if inner.paused {
+                // L'annonce attend que la session redevienne active.
+                return;
+            }
             inner.next_poll = Some(self.clock.now() + POLL_INTERVAL);
         }
-        // Ce que l'appareil a déjà copié est disponible dès le début de la
-        // session (sauf là où le lire dérangerait l'utilisateur).
+        self.announce_device();
+    }
+
+    /// Ce que l'appareil a copié est disponible pour l'ordinateur (sauf là où
+    /// le lire dérangerait l'utilisateur).
+    fn announce_device(&self) {
         if !self.board.reading_asks_user() && self.board.has_text() {
             self.announce();
         }
@@ -103,6 +119,37 @@ impl ClipboardBridge {
         let mut inner = self.inner.lock().unwrap();
         inner.started = false;
         inner.next_poll = None;
+    }
+
+    /// Plusieurs ordinateurs : session pas active (`true`) ou de nouveau
+    /// active. En pause, le presse-papiers de l'appareil n'est ni regardé ni
+    /// lu ni écrit ; ce que l'ordinateur annonce ou envoie est ignoré, et sa
+    /// demande reçoit « rien ». À la reprise, le contenu de l'appareil est
+    /// annoncé à l'ordinateur (il le demandera), puis regardé comme avant.
+    pub fn set_paused(&self, paused: bool) {
+        {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.paused == paused {
+                return;
+            }
+            inner.paused = paused;
+            if paused {
+                inner.next_poll = None;
+                return;
+            }
+            if !inner.started {
+                return;
+            }
+            inner.next_poll = Some(self.clock.now() + POLL_INTERVAL);
+            if !self.board.reading_asks_user() {
+                inner.seen_change_count = self.board.change_count();
+            }
+        }
+        self.announce_device();
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.inner.lock().unwrap().paused
     }
 
     /// Quand appeler [`Self::poll`] au plus tard (`None` : arrêté).
@@ -116,6 +163,13 @@ impl ClipboardBridge {
         let mut text = false;
         let ptr = packet.borrow().to_ptr();
         if !unsafe { sys::kynput_clipboard_event_from_packet(ptr, &mut kind, &mut text) } || !text {
+            return;
+        }
+        if self.is_paused() {
+            // Rien de lu ni d'écrit sur l'appareil pour une session pas active.
+            if kind == sys::kynput_ClipboardEventKind_KYNPUT_CLIPBOARD_EVENT_KIND_DATA_REQUEST {
+                self.send(unsafe { sys::kynput_clipboard_text_unavailable_to_packet(HOST) });
+            }
             return;
         }
         match kind {
@@ -142,6 +196,9 @@ impl ClipboardBridge {
     pub fn poll(&self) {
         {
             let mut inner = self.inner.lock().unwrap();
+            if inner.paused {
+                return;
+            }
             let Some(at) = inner.next_poll else { return };
             let now = self.clock.now();
             if now < at {
@@ -361,6 +418,57 @@ mod tests {
         let request = unsafe { sys::kynput_clipboard_text_request_to_packet(sys::kynput_InputTarget_KYNPUT_INPUT_TARGET_CLIENT) };
         bridge.received(&unsafe { OwnedPacket::from_raw(request) }.unwrap());
         assert_eq!(reads(), 1, "lu quand l'ordinateur le demande");
+    }
+
+    #[test]
+    fn en_pause_rien_de_lu_ni_d_ecrit() {
+        let board = Arc::new(AskingBoard::default());
+        let clock = Arc::new(ManualClock::new());
+        let bridge = ClipboardBridge::new(board.clone(), clock.clone());
+        let sent = Arc::new(Mutex::new(Vec::<OwnedPacket>::new()));
+        let s = sent.clone();
+        bridge.set_send(move |p| s.lock().unwrap().push(p));
+        let kinds = || sent.lock().unwrap().iter().map(describe).collect::<Vec<_>>();
+        let reads = || *board.reads.lock().unwrap();
+        let client = sys::kynput_InputTarget_KYNPUT_INPUT_TARGET_CLIENT;
+        bridge.start();
+        bridge.set_paused(true);
+        assert_eq!(bridge.next_deadline(), None, "plus regardé");
+        board.inner.set_text("copié ailleurs");
+        clock.advance(POLL_INTERVAL);
+        bridge.poll();
+        bridge.received(&unsafe { OwnedPacket::from_raw(sys::kynput_clipboard_text_change_to_packet(client)) }.unwrap());
+        let text = "de l'ordinateur en arrière-plan";
+        bridge.received(&unsafe { OwnedPacket::from_raw(sys::kynput_clipboard_text_data_to_packet(client, text.as_ptr(), text.len())) }.unwrap());
+        assert_eq!(board.inner.text().as_deref(), Some("copié ailleurs"), "rien d'écrit sur l'appareil");
+        assert!(kinds().is_empty(), "ni demande ni annonce");
+        bridge.received(&unsafe { OwnedPacket::from_raw(sys::kynput_clipboard_text_request_to_packet(client)) }.unwrap());
+        assert_eq!(kinds(), ["rien"], "sa demande : rien");
+        assert_eq!(reads(), 0, "rien de lu");
+    }
+
+    #[test]
+    fn reprise_annonce_le_contenu_de_l_appareil() {
+        let b = Bench::new();
+        b.bridge.start();
+        b.bridge.set_paused(true);
+        b.board.set_text("copié pendant la pause");
+        b.clock.advance(POLL_INTERVAL);
+        b.bridge.poll();
+        assert!(b.sent().is_empty());
+        b.bridge.set_paused(false);
+        assert_eq!(b.sent(), ["annonce"], "de nouveau active : le contenu de l'appareil est annoncé");
+        b.clock.advance(POLL_INTERVAL);
+        b.bridge.poll();
+        assert_eq!(b.sent().len(), 1, "et pas une seconde fois");
+        // En pause avant le départ : l'annonce attend la reprise.
+        let b = Bench::new();
+        b.board.set_text("avant");
+        b.bridge.set_paused(true);
+        b.bridge.start();
+        assert!(b.sent().is_empty());
+        b.bridge.set_paused(false);
+        assert_eq!(b.sent(), ["annonce"]);
     }
 
     #[test]

@@ -1,12 +1,14 @@
 #!/bin/bash
 # Bibliothèques natives de l'app Windows pour ARM64 (PC Snapdragon), depuis
 # macOS : libopus, FFmpeg réduit au décodage (H.264, HEVC, AV1 par D3D11VA, et
-# par le processeur), SDL2 (manettes) et kynput.dll. Pour x64, c'est
-# server/kyber-patches/build.sh qui les produit (rootfs du serveur).
+# par le processeur) et SDL2 (manettes, lues par le cœur). Pour x64, c'est
+# server/kyber-patches/build.sh qui les produit (rootfs du serveur). kynput.dll
+# est construite par scripts/build.sh (celle du client, pour les deux
+# architectures).
 #
 # Sortie : third_party/rootfs-winarm64 (lu par scripts/build.sh --arch arm64).
 # Chaîne : llvm-mingw dans third_party/toolchains (docs/build-notes.md).
-# À relancer après un changement des correctifs *-kynput-* ou des sources.
+# À relancer après un changement des sources.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -65,20 +67,7 @@ mkdir build && cd build
 make -j"$JOBS" >/dev/null
 make install >/dev/null
 
-echo "==> kynput.dll"
-export PKG_CONFIG_ALLOW_CROSS=1
-export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
-export LIBCLANG_PATH="${LIBCLANG_PATH:-/Library/Developer/CommandLineTools/usr/lib}"
-export BINDGEN_EXTRA_CLANG_ARGS="--target=$TARGET --sysroot=$LLVM_MINGW/$TRIPLE -I$LLVM_MINGW/$TRIPLE/include"
-export CARGO_TARGET_AARCH64_PC_WINDOWS_GNULLVM_LINKER="$TRIPLE-clang"
-export CC_aarch64_pc_windows_gnullvm="$TRIPLE-clang"
-export AR_aarch64_pc_windows_gnullvm="llvm-ar"
-export CARGO_PROFILE_RELEASE_STRIP=false
-rm -f "$PREFIX/bin/kynput.dll"
-(cd "$KYSDK/kynput" && cargo cinstall -p kynput --target $TARGET --release --library-type cdylib \
-    --dlltool llvm-dlltool --prefix="$PREFIX" --features sdl2 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating) ' || true; })
-[ -f "$PREFIX/bin/kynput.dll" ] || { echo "kynput.dll n'a pas été produite" >&2; exit 1; }
-for f in libavcodec.a libswresample.a libavutil.a libopus.a; do
+for f in libavcodec.a libswresample.a libavutil.a libopus.a libSDL2.dll.a; do
     [ -f "$PREFIX/lib/$f" ] || { echo "$f n'a pas été produite" >&2; exit 1; }
 done
 ls -la "$PREFIX/bin" "$PREFIX/lib"/*.a

@@ -7,8 +7,12 @@
 //! sans verrou et des atomiques ; `fill` ne prend que des essais de verrou
 //! (le décodeur pour une trame de masquage, les mesures) et écrit du silence
 //! s'ils échouent.
+//!
+//! Son coupé ([`AudioEngine::set_muted`], plusieurs ordinateurs à la fois) :
+//! le son continue d'être décodé et tiré au même rythme, seul ce qui sort
+//! est atténué, en 20 ms pour ne pas claquer ; il revient sans décalage.
 
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +41,9 @@ pub struct AudioStats {
 /// (0,4 %, inaudible) ; deux fois plus souvent quand l'écart dépasse 6 ms.
 const STRETCH_PERIOD: usize = 256;
 const STRETCH_PERIOD_FAST: usize = 128;
+
+/// Fondu du son coupé ou rendu, en images audio (20 ms).
+pub const MUTE_FADE_FRAMES: usize = SAMPLE_RATE / 50;
 
 const fn ms(n: usize) -> usize {
     SAMPLE_RATE * n / 1000
@@ -85,6 +92,8 @@ struct Consumer {
     plc_count: usize,
     frame: Vec<f32>,
     mixed: Vec<f32>,
+    /// Gain du son coupé ou rendu (0 : coupé, 1 : plein), suivi image par image.
+    gain: f32,
 }
 
 impl Consumer {
@@ -124,6 +133,8 @@ pub struct AudioEngine {
     output_latency_ms: AtomicU64,
     order: Mutex<OutputOrder>,
     stats: Mutex<Option<AudioStats>>,
+    /// Son coupé (session pas active, plusieurs ordinateurs).
+    muted: AtomicBool,
 }
 
 impl AudioEngine {
@@ -163,6 +174,7 @@ impl AudioEngine {
                 plc_count: 0,
                 frame: Vec::new(),
                 mixed: vec![0.0; 8],
+                gain: 1.0,
             }),
             current: Mutex::new(None),
             generation: AtomicU64::new(0),
@@ -172,7 +184,19 @@ impl AudioEngine {
             output_latency_ms: AtomicU64::new(0f64.to_bits()),
             order: Mutex::new(order),
             stats: Mutex::new(None),
+            muted: AtomicBool::new(false),
         }
+    }
+
+    /// Son coupé (`true`) ou rendu, avec un fondu de 20 ms. Le son continue
+    /// d'être décodé et tiré : il revient sans décalage. Sans flux en cours,
+    /// le changement est immédiat. Indépendant du volume.
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
     }
 
     pub fn set_volume(&self, volume: f32) {
@@ -330,6 +354,8 @@ impl AudioEngine {
         }
         let Some(stream) = c.stream.clone() else {
             out.fill(0.0);
+            // Rien ne joue : le son coupé ou rendu s'applique tout de suite.
+            c.gain = if self.is_muted() { 0.0 } else { 1.0 };
             return;
         };
         let ch = stream.channels;
@@ -448,6 +474,26 @@ impl AudioEngine {
         if copied < frames {
             self.conceal_into(c, &stream, out, copied, frames, out_ch, packet_frames, volume);
         }
+        Self::apply_mute(&mut c.gain, self.is_muted(), out, frames, out_ch);
+    }
+
+    /// Son coupé ou rendu : le gain va vers 0 ou 1 en [`MUTE_FADE_FRAMES`]
+    /// images audio, appliqué image par image.
+    fn apply_mute(gain: &mut f32, muted: bool, out: &mut [f32], frames: usize, out_ch: usize) {
+        let target = if muted { 0.0 } else { 1.0 };
+        if *gain == target {
+            if muted {
+                out[..frames * out_ch].fill(0.0);
+            }
+            return;
+        }
+        let step = 1.0 / MUTE_FADE_FRAMES as f32;
+        for frame in out[..frames * out_ch].chunks_exact_mut(out_ch.max(1)) {
+            *gain = if muted { (*gain - step).max(0.0) } else { (*gain + step).min(1.0) };
+            for v in frame.iter_mut() {
+                *v *= *gain;
+            }
+        }
     }
 
     /// Tampon vide (fil de la carte son) : trame de masquage d'Opus (PLC),
@@ -505,6 +551,10 @@ impl PacketHandler for AudioEngine {
             Packet::Hole { missing_samples } => self.conceal(missing_samples as usize),
             Packet::Codec { .. } => {}
         }
+    }
+
+    fn audio_engine(self: Arc<Self>) -> Option<Arc<AudioEngine>> {
+        Some(self)
     }
 }
 
@@ -698,6 +748,52 @@ mod tests {
         assert!(first > 100.0, "sortie arrêtée 200 ms au départ : {first:.1} ms");
         assert!(last < 40.0, "coupe sèche : {last:.1} ms");
         assert_eq!(r.gaps(), 0);
+    }
+
+    #[test]
+    fn son_coupe_en_fondu_et_rendu_sans_decalage() {
+        let mut sim = Sim::new(2, 960, OutputOrder::Opus);
+        let r = sim.run(2, 2, 0.0, None, 1.0, 0);
+        assert!(r.loud as f64 > r.frames as f64 * 0.95);
+        let level = |out: &[f32]| out.chunks_exact(2).map(|f| f[0].abs()).fold(0f32, f32::max);
+        // Un paquet de plus pour que le tampon ne se vide pas pendant l'essai.
+        for _ in 0..4 {
+            let p = sim.packet();
+            sim.engine.decode(&p);
+        }
+        let mut out = vec![0f32; 240 * 2];
+        sim.engine.fill(&mut out, 240);
+        let full = level(&out);
+        assert!(full > 0.1, "le la passe : {full}");
+        sim.engine.set_muted(true);
+        assert!(sim.engine.is_muted());
+        let before = sim.engine.current.lock().unwrap().as_ref().unwrap().ring.len();
+        sim.engine.fill(&mut out, 240);
+        let gain = |e: &AudioEngine| e.consumer.lock().unwrap().gain;
+        assert!(level(&out) > 0.0 && (gain(&sim.engine) - 0.75).abs() < 0.01, "fondu : un quart en 5 ms ({})", gain(&sim.engine));
+        let after = sim.engine.current.lock().unwrap().as_ref().unwrap().ring.len();
+        assert_eq!(before - after, 240 * 2, "le son coupé est tiré au même rythme");
+        for _ in 0..4 {
+            sim.engine.fill(&mut out, 240);
+        }
+        assert_eq!(level(&out), 0.0, "coupé après 20 ms");
+        for _ in 0..4 {
+            let p = sim.packet();
+            sim.engine.decode(&p);
+        }
+        sim.engine.set_muted(false);
+        sim.engine.fill(&mut out, 240);
+        assert!(level(&out) > 0.0 && (gain(&sim.engine) - 0.25).abs() < 0.01, "rendu en fondu ({})", gain(&sim.engine));
+        for _ in 0..4 {
+            sim.engine.fill(&mut out, 240);
+        }
+        assert!(level(&out) > full * 0.8, "rendu en 20 ms : {} contre {full}", level(&out));
+        // Sans flux : immédiat.
+        let engine = AudioEngine::new(Arc::new(ManualClock::new()));
+        engine.set_muted(true);
+        let mut out = vec![1f32; 480];
+        engine.fill(&mut out, 240);
+        assert_eq!(engine.consumer.lock().unwrap().gain, 0.0);
     }
 
     #[test]

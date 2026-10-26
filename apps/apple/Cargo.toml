@@ -13,6 +13,12 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# Mac : le lecteur de manettes du cœur ouvre SDL lui-même (libkynput est
+# construite sans le sien, plusieurs ordinateurs à la fois) ; pas sur
+# l'Apple TV, l'iPhone ni l'iPad (GameController, dans l'app).
+[target.'cfg(target_os = "macos")'.dependencies]
+kybernow-core = { path = "../core", features = ["sdl"] }
+
 # cargo cinstall (cargo-c) : en-tête kybernow.h par cbindgen, libkybernow.dylib, kybernow.pc.
 # La feature `capi` est celle que cargo-c active pour construire la bibliothèque C.
 [features]

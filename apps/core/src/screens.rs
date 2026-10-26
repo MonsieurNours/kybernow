@@ -224,6 +224,52 @@ pub fn session_plan_for(screens: &Screens, settings: &StreamSettings, virtual_di
     session_plan(screens, screens_profile(settings, screens.capabilities), virtual_display, settings.codec)
 }
 
+/// Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : les
+/// écrans à donner à une session ouverte pendant qu'une autre tourne
+/// ([`crate::session::Session::start_with_screens`]). Elle prend « Cet
+/// écran » (`current`, l'écran de la fenêtre active, où s'ouvre la sienne),
+/// en fenêtre, quel que soit le réglage « Écrans » : deux sessions ne
+/// prennent jamais les mêmes écrans, seule la première peut les prendre
+/// tous. Le reste (« Au plus 4K », Station, capacités) ne change pas ; le
+/// mode de la session est celui de sa fenêtre ([`extra_session_window`]).
+pub fn screens_for_extra_session(screens: &Screens) -> Screens {
+    Screens { setting: DisplaysSetting::This, ..screens.clone() }
+}
+
+/// La fenêtre d'une session ouverte pendant qu'une autre tourne.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExtraWindow {
+    /// Cadre de la zone d'image, dans le repère logique de l'appareil
+    /// (celui de [`DeviceScreen`], y vers le bas).
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Le mode à demander pour l'écran de l'ordinateur (`SessionParams::mode`) :
+    /// la zone d'image en pixels de l'écran (arrondie au pair), à la
+    /// fréquence de l'écran.
+    pub mode: Mode,
+}
+
+/// « Centrée, aux deux tiers de cet écran, en 16:9 » (docs/link-ui.md,
+/// « Plusieurs ordinateurs ») : le plus grand cadre 16:9 qui tient dans les
+/// deux tiers de la largeur et de la hauteur de l'écran, au centre. Les trois
+/// apps l'ouvrent ainsi ; une barre de titre se prend sur la zone d'image ou
+/// s'ajoute autour, au choix de l'app, sans changer le mode.
+pub fn extra_session_window(screen: &DeviceScreen) -> ExtraWindow {
+    let (max_w, max_h) = (screen.width * 2.0 / 3.0, screen.height * 2.0 / 3.0);
+    let (width, height) = if max_w * 9.0 / 16.0 <= max_h { (max_w, max_w * 9.0 / 16.0) } else { (max_h * 16.0 / 9.0, max_h) };
+    let scale = if screen.width > 0.0 { f64::from(screen.pixel_width) / screen.width } else { 1.0 };
+    let even = |v: f64| (((v * scale) / 2.0).round() as u32 * 2).max(2);
+    ExtraWindow {
+        x: screen.x + (screen.width - width) / 2.0,
+        y: screen.y + (screen.height - height) / 2.0,
+        width,
+        height,
+        mode: Mode { width: even(width), height: even(height), refresh: screen.refresh },
+    }
+}
+
 /// Les écrans virtuels que la session demandera avec ce profil et cet écran
 /// virtuel, ou `None` pour une session à un écran (« Cet écran ») : le
 /// réglage ne prend qu'un écran, la Station n'en crée qu'un
@@ -685,6 +731,31 @@ mod tests {
         assert_eq!((s.setting, s.max(), s.current, s.limit_4k), (DisplaysSetting::All, 4, 0, false));
         let s: Screens = serde_json::from_str(r#"{"list": []}"#).unwrap();
         assert_eq!((s.setting, s.max()), (DisplaysSetting::Auto, 1));
+    }
+
+    #[test]
+    fn session_de_plus_en_fenetre_sur_cet_ecran() {
+        use crate::profile::Capabilities;
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false };
+        let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
+        // « Tous les écrans » pour la première ; une session de plus prend « Cet écran ».
+        let first = Screens { setting: DisplaysSetting::All, current: 2, capabilities: Some(caps), ..auteur() };
+        assert_eq!(session_plan_for(&first, &bureau, true).map(|p| p.len()), Some(3));
+        let extra = screens_for_extra_session(&first);
+        assert_eq!(session_plan_for(&extra, &bureau, true), None, "un seul écran, quel que soit le réglage");
+        assert_eq!((extra.current, extra.list.len(), extra.max_screens), (2, 3, MAX_SCREENS), "le reste ne change pas");
+        // Sa fenêtre : deux tiers de l'écran en 16:9, au centre, mode en pixels de l'écran.
+        let studio = auteur().list[2];
+        let w = extra_session_window(&studio);
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-6;
+        assert!(near(w.width, 2560.0 * 2.0 / 3.0) && near(w.height, 960.0), "{w:?}");
+        assert!(near(w.x, 2560.0 + (2560.0 - w.width) / 2.0) && near(w.y, 240.0), "au centre : {w:?}");
+        assert_eq!(w.mode, Mode { width: 3414, height: 1920, refresh: 60 }, "Studio Display : deux pixels par point");
+        // Écran plus large que 16:9 (21:9) : limité par la hauteur.
+        let wide = screen(0.0, 0.0, 3440.0, 1440.0, 3440, 1440, 100, true);
+        let w = extra_session_window(&wide);
+        assert!(near(w.height, 960.0) && near(w.width, 960.0 * 16.0 / 9.0), "{w:?}");
+        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1706, 960, 100));
     }
 
     #[test]

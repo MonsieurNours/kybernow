@@ -44,6 +44,8 @@ mod login;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod menu;
 #[cfg(windows)]
+mod pasteboard;
+#[cfg(windows)]
 mod pc;
 #[cfg(windows)]
 mod plan;

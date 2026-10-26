@@ -1,0 +1,28 @@
+From: KyberNow <kybernow@leslignesclaires.fr>
+Subject: [PATCH] kynput: client Windows sans presse-papiers de kynput (cfg kybernow_app_clipboard)
+
+Plusieurs ordinateurs à la fois : l'app Windows tient plusieurs chaînes
+d'entrées vivantes. Le gestionnaire de presse-papiers du client Windows
+enregistre une classe de fenêtre fixe (« Clipboard classname »), qui
+n'existe qu'une fois par processus (jamais retirée) : une deuxième chaîne
+ne peut pas l'enregistrer et reste sans presse-papiers. Avec
+`--cfg kybernow_app_clipboard` (posé par apps/windows/scripts/build.sh pour
+sa kynput.dll), la configuration de client n'a plus ce gestionnaire : le
+pont presse-papiers du cœur (apps/core/src/input/clipboard.rs) s'en charge,
+un par chaîne, en pause quand la session n'est pas active. Sans le cfg
+(serveur, Kyber installé sur l'ordinateur), rien ne change.
+
+diff --git a/kynput/src/windows/pipeline_config.rs b/kynput/src/windows/pipeline_config.rs
+--- a/kynput/src/windows/pipeline_config.rs
++++ b/kynput/src/windows/pipeline_config.rs
+@@ -86,6 +86,10 @@
+             builders: vec![
+                 #[cfg(feature = "sdl2")]
+                 Box::new(|router| Ok(Arc::new(ClientGamepadHandler::new(router)?))),
++                // KyberNow: the app runs its own clipboard bridge, one per
++                // pipeline (this handler registers a fixed window class, which
++                // can only exist once per process).
++                #[cfg(not(kybernow_app_clipboard))]
+                 Box::new(move |router| {
+                     Ok(Arc::new(ClipboardHandler::new(
+                         InputTarget::Host,
