@@ -146,6 +146,16 @@ fn apply(base: u32) -> Result<&'static str> {
     Ok("registre et SPI_SETCURSORS (0x2029 refusée)")
 }
 
+/// Taille du pointeur en ce moment (valeurs du profil, null si absentes) et
+/// SID du compte : ce qu'Admin note avant de l'agrandir.
+pub fn read() -> Result<Value> {
+    Ok(json!({
+        "sid": super::agent::own_sid()?,
+        "previous_base": read_dword(CURSORS, "CursorBaseSize"),
+        "previous_size": read_dword(ACCESSIBILITY, "CursorSize"),
+    }))
+}
+
 /// Agrandit le pointeur au cran `step` (base `base` px) s'il est plus petit ;
 /// rend la taille d'avant (`previous_base`, `previous_size` : null si la
 /// valeur n'existait pas), la méthode suivie, et ce qui se relit ensuite.
@@ -174,7 +184,14 @@ pub fn enlarge(step: u32, base: u32) -> Result<Value> {
 /// n'a pas repris ses valeurs. Une flèche dessinée encore plus grande que la
 /// base (après un second rechargement) est signalée (`shown_ok` faux) : un
 /// jeu de pointeurs personnalisé peut avoir une flèche plus grande.
-pub fn restore(previous_base: Option<u32>, previous_size: Option<u32>) -> Result<Value> {
+pub fn restore(sid: Option<&str>, previous_base: Option<u32>, previous_size: Option<u32>) -> Result<Value> {
+    // La taille notée pour un compte ne va qu'à ce compte.
+    if let Some(sid) = sid {
+        let own = super::agent::own_sid()?;
+        if own != sid {
+            bail!("taille notée pour un autre compte ({sid}), l'agent tourne avec {own}");
+        }
+    }
     let base = previous_base.unwrap_or(32);
     let method = apply(base)?;
     write_dword(CURSORS, "CursorBaseSize", previous_base)?;

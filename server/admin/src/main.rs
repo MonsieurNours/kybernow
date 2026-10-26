@@ -207,8 +207,16 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Taille du pointeur d'avant la session (valeur absente si non donnée).
+    /// Taille du pointeur en ce moment et SID du compte (avant de l'agrandir).
+    PointerRead {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Taille du pointeur d'avant la session (valeur absente si non donnée),
+    /// pour le compte `sid` seulement.
     PointerRestore {
+        #[arg(long)]
+        sid: Option<String>,
         #[arg(long)]
         base: Option<u32>,
         #[arg(long)]
@@ -229,11 +237,6 @@ enum AgentAction {
         status: PathBuf,
         #[arg(long, default_value_t = 60)]
         refresh: u32,
-    },
-    /// Cartes graphiques connues de la configuration d'affichage (LUID, chemin).
-    Adapters {
-        #[arg(long)]
-        out: PathBuf,
     },
     /// Copie le jeton des routes locales dans le profil de l'utilisateur de la session.
     LocalToken {
@@ -377,9 +380,9 @@ fn display_agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
-        AgentAction::Adapters { out } => (out, display::topology::adapters()),
         AgentAction::PointerSize { step, base, out } => (out, display::cursor::enlarge(step, base)),
-        AgentAction::PointerRestore { base, size, out } => (out, display::cursor::restore(base, size)),
+        AgentAction::PointerRead { out } => (out, display::cursor::read()),
+        AgentAction::PointerRestore { sid, base, size, out } => (out, display::cursor::restore(sid.as_deref(), base, size)),
         AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
         AgentAction::Launch { kind, target, exe, out } => {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
@@ -391,8 +394,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
         | AgentAction::IsolateMany { out, .. }
-        | AgentAction::Adapters { out }
         | AgentAction::PointerSize { out, .. }
+        | AgentAction::PointerRead { out }
         | AgentAction::PointerRestore { out, .. }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }

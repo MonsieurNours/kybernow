@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
-    DISPLAYCONFIG_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
     DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE, DISPLAYCONFIG_PATH_INFO,
     DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
     QDC_ONLY_ACTIVE_PATHS, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
@@ -676,33 +676,6 @@ fn stage_position(name: &str, (x, y): (i32, i32)) -> i32 {
         mode.dmFields = DM_POSITION;
         ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY | CDS_NORESET, null())
     }
-}
-
-/// Cartes graphiques que la configuration d'affichage connaît : LUID et
-/// chemin du périphérique (`\\?\PCI#VEN_10DE&DEV_…` pour une carte NVIDIA ;
-/// l'adaptateur de SudoVDA n'est pas sur le bus PCI).
-pub fn adapters() -> Result<Value> {
-    let paths = all_paths()?;
-    let mut seen: Vec<(u32, i32)> = Vec::new();
-    let mut list = Vec::new();
-    for id in paths.iter().flat_map(|p| [p.sourceInfo.adapterId, p.targetInfo.adapterId]) {
-        if seen.contains(&(id.LowPart, id.HighPart)) {
-            continue;
-        }
-        seen.push((id.LowPart, id.HighPart));
-        let mut name = DISPLAYCONFIG_ADAPTER_NAME::default();
-        name.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME;
-        name.header.size = size_of::<DISPLAYCONFIG_ADAPTER_NAME>() as u32;
-        name.header.adapterId = id;
-        let path = if unsafe { DisplayConfigGetDeviceInfo(&mut name.header) } == 0 {
-            let len = name.adapterDevicePath.iter().position(|c| *c == 0).unwrap_or(name.adapterDevicePath.len());
-            String::from_utf16_lossy(&name.adapterDevicePath[..len])
-        } else {
-            String::new()
-        };
-        list.push(json!({ "luid_low": id.LowPart, "luid_high": id.HighPart, "path": path }));
-    }
-    Ok(json!({ "adapters": list }))
 }
 
 /// Position actuelle de l'écran `name` (nom GDI) sur le bureau.

@@ -13,8 +13,9 @@
 //!
 //! Le pointeur est exclu de l'image (l'app le dessine elle-même ; txproto
 //! le lit à part). La bordure jaune est refusée quand Windows le permet.
-//! L'agent s'arrête quand le fichier `run` disparaît, change de jeton ou
-//! n'est plus rafraîchi par Admin depuis 15 s.
+//! L'agent s'arrête quand le fichier `run` porte un autre jeton, ou quand il
+//! est vu absent ou non rafraîchi par Admin depuis 15 s plusieurs fois de
+//! suite (une lecture manquée ne l'arrête pas).
 
 use std::path::Path;
 use std::ptr::{addr_of, addr_of_mut, null, null_mut};
@@ -50,7 +51,7 @@ use windows::core::{HRESULT, HSTRING, IInspectable, Interface};
 
 use super::wgc_shared::{
     FORMAT_BGRA8, HEADER_SIZE, Header, MAGIC, SLOTS, STATE_RUNNING, STATE_STARTING, STATE_STOPPED, VERSION, event_name,
-    header_name, screen_id, texture_name,
+    header_name, ring_id, screen_id, texture_name,
 };
 
 mod sys {
@@ -92,15 +93,16 @@ fn now_100ns() -> i64 {
     (i128::from(count) * 10_000_000 / i128::from(freq)) as i64
 }
 
-/// Accès aux objets partagés : SYSTEM (kyavserver), le propriétaire et
-/// l'utilisateur interactif.
+/// Accès aux objets partagés : SYSTEM (kyavserver) et le compte de
+/// l'utilisateur qui fait tourner l'agent, personne d'autre.
 struct Security {
     descriptor: sys::PSECURITY_DESCRIPTOR,
 }
 
 impl Security {
     fn new() -> Result<Self> {
-        let sddl = wide("D:P(A;;GA;;;SY)(A;;GA;;;OW)(A;;GA;;;IU)");
+        let sid = super::agent::own_sid().context("compte de l'agent")?;
+        let sddl = wide(&format!("D:P(A;;GA;;;SY)(A;;GA;;;{sid})"));
         let mut descriptor: sys::PSECURITY_DESCRIPTOR = null_mut();
         let ok = unsafe {
             sys::ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), sys::SDDL_REVISION_1, &mut descriptor, null_mut())
@@ -156,6 +158,11 @@ impl Shared {
         if mapping.is_null() {
             bail!("mémoire partagée {} : {}", header_name(id), std::io::Error::last_os_error());
         }
+        // Un objet de ce nom existe déjà : pas le nôtre, on n'y écrit pas.
+        if unsafe { windows_sys::Win32::Foundation::GetLastError() } == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS {
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(mapping) };
+            bail!("mémoire partagée {} : existe déjà", header_name(id));
+        }
         let view = unsafe { sys::MapViewOfFile(mapping, sys::FILE_MAP_ALL_ACCESS, 0, 0, HEADER_SIZE) };
         if view.Value.is_null() {
             unsafe { windows_sys::Win32::Foundation::CloseHandle(mapping) };
@@ -163,8 +170,17 @@ impl Shared {
         }
         let event_name = wide(&event_name(id));
         let event = unsafe { sys::CreateEventW(&attrs, 0, 0, event_name.as_ptr()) };
-        if event.is_null() {
-            bail!("événement {} : {}", self::event_name(id), std::io::Error::last_os_error());
+        let already = unsafe { windows_sys::Win32::Foundation::GetLastError() } == windows_sys::Win32::Foundation::ERROR_ALREADY_EXISTS;
+        if event.is_null() || already {
+            let error = if already { "existe déjà".to_string() } else { std::io::Error::last_os_error().to_string() };
+            unsafe {
+                if !event.is_null() {
+                    windows_sys::Win32::Foundation::CloseHandle(event);
+                }
+                sys::UnmapViewOfFile(view);
+                windows_sys::Win32::Foundation::CloseHandle(mapping);
+            }
+            bail!("événement {} : {error}", self::event_name(id));
         }
         let shared = Self { mapping, view: view.Value as *mut Header, event };
         unsafe {
@@ -189,9 +205,13 @@ impl Shared {
         self.set(|h| unsafe { addr_of_mut!((*h).heartbeat_time) }, now_100ns());
     }
 
-    /// Nouvelle image dans `slot` : les champs d'abord, le compteur en dernier.
-    fn publish(&self, slot: u32, generation: u32, frame_time: i64) {
+    /// Nouvelle image dans `slot` : les champs d'abord, le compteur en
+    /// dernier. La génération (et la taille) ne changent qu'ici : txproto
+    /// n'ouvre les textures d'un nouvel anneau qu'une fois une image dedans.
+    fn publish(&self, slot: u32, generation: u32, width: u32, height: u32, frame_time: i64) {
         self.set(|h| unsafe { addr_of_mut!((*h).latest_slot) }, slot);
+        self.set(|h| unsafe { addr_of_mut!((*h).width) }, width);
+        self.set(|h| unsafe { addr_of_mut!((*h).height) }, height);
         self.set(|h| unsafe { addr_of_mut!((*h).generation) }, generation);
         self.set(|h| unsafe { addr_of_mut!((*h).frame_time) }, frame_time);
         self.set(|h| unsafe { addr_of_mut!((*h).publish_time) }, now_100ns());
@@ -392,18 +412,16 @@ impl State {
             self.device.context.CopySubresourceRegion(&ring.textures[slot as usize], 0, 0, 0, 0, source, 0, Some(&area));
             let _ = mutex.ReleaseSync(0);
         }
-        self.shared.publish(slot, ring.generation, frame_time);
+        self.shared.publish(slot, ring.generation, ring.width, ring.height, frame_time);
         self.frames.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Nouvelle taille : nouvel anneau (génération suivante), annoncé dans l'en-tête.
+    /// Nouvelle taille : nouvel anneau (génération suivante), annoncé dans
+    /// l'en-tête avec sa première image (`publish`).
     fn resize(&self, width: u32, height: u32) -> Result<()> {
         let mut ring = self.ring.lock().unwrap();
         let generation = ring.generation + 1;
         *ring = Ring::create(&self.device.device, &self.id, generation, width, height, &self.security)?;
-        self.shared.set(|h| unsafe { addr_of_mut!((*h).width) }, width);
-        self.shared.set(|h| unsafe { addr_of_mut!((*h).height) }, height);
-        self.shared.set(|h| unsafe { addr_of_mut!((*h).generation) }, generation);
         Ok(())
     }
 }
@@ -472,16 +490,61 @@ impl Capture {
     }
 }
 
-/// Le fichier `run` porte-t-il encore notre jeton, rafraîchi récemment ?
-fn still_wanted(run_file: &Path, token: &str) -> bool {
-    let ours = std::fs::read_to_string(run_file).is_ok_and(|t| t.trim() == token);
-    let fresh = run_file
-        .metadata()
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| SystemTime::now().duration_since(t).ok())
-        .is_some_and(|age| age < STALE);
-    ours && fresh
+/// Ce que dit le fichier `run` d'Admin à un instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunFile {
+    /// Notre jeton, rafraîchi depuis moins de 15 s.
+    Wanted,
+    /// Un autre jeton : une autre session a pris la suite.
+    Replaced,
+    /// Absent, ou plus rafraîchi depuis 15 s.
+    Missing,
+    /// Illisible pour l'instant (vide, tenu par un autre programme) : ni oui ni non.
+    Unknown,
+}
+
+fn read_run_file(run_file: &Path, token: &str) -> RunFile {
+    match std::fs::read_to_string(run_file) {
+        Ok(text) if text.trim().is_empty() => RunFile::Unknown,
+        Ok(text) if text.trim() != token => RunFile::Replaced,
+        Ok(_) => {
+            let age = run_file.metadata().and_then(|m| m.modified()).map(|t| SystemTime::now().duration_since(t));
+            match age {
+                Ok(Ok(age)) if age >= STALE => RunFile::Missing,
+                // Horloge qui recule, date illisible : on ne conclut pas.
+                _ => RunFile::Wanted,
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => RunFile::Missing,
+        Err(_) => RunFile::Unknown,
+    }
+}
+
+/// Fichier `run` relu toutes les 500 ms : arrêt sur un autre jeton, ou sur
+/// trois constats de suite d'absence (1,5 s).
+struct RunWatch {
+    last_check: Instant,
+    misses: u32,
+}
+
+impl RunWatch {
+    fn new() -> Self {
+        Self { last_check: Instant::now(), misses: 0 }
+    }
+
+    fn still_wanted(&mut self, run_file: &Path, token: &str) -> bool {
+        if self.last_check.elapsed() < Duration::from_millis(500) {
+            return true;
+        }
+        self.last_check = Instant::now();
+        match read_run_file(run_file, token) {
+            RunFile::Wanted => self.misses = 0,
+            RunFile::Replaced => return false,
+            RunFile::Missing => self.misses += 1,
+            RunFile::Unknown => {}
+        }
+        self.misses < 3
+    }
 }
 
 fn write_status(path: &Path, value: serde_json::Value) {
@@ -506,7 +569,9 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
     // Tailles et positions en pixels réels, comme celles de Kyber.
     unsafe { sys::SetProcessDpiAwarenessContext(sys::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.context("WinRT")?;
-    let id = screen_id(gdi_name);
+    // Objets propres à cette session : un agent resté d'une autre session ne
+    // peut pas les confondre avec les siens.
+    let id = ring_id(token, &screen_id(gdi_name));
     let monitor = monitor_for(gdi_name).ok_or_else(|| anyhow!("écran {gdi_name} introuvable"))?;
     let device = create_device(gdi_name)?;
     let security = Security::new()?;
@@ -561,7 +626,8 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
     let mut capture_started = Instant::now();
     let mut nudged = false;
     let mut restarts = 0u32;
-    while still_wanted(run_file, token) && started.elapsed() < Duration::from_secs(86_400) {
+    let mut run_watch = RunWatch::new();
+    while run_watch.still_wanted(run_file, token) && started.elapsed() < Duration::from_secs(86_400) {
         std::thread::sleep(Duration::from_millis(100));
         state.shared.heartbeat();
         let frames = state.frames.load(Ordering::Relaxed);
