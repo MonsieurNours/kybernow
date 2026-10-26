@@ -80,6 +80,9 @@ public struct PresentStats: Sendable {
     /// `presentedTime − instant du commit` : médiane et 95e centile, en millisecondes.
     public var p50Ms: Double = 0
     public var p95Ms: Double = 0
+    /// Images redessinées en place (fenêtre redevenue visible, taille
+    /// changée, trait de repère) que l'écran confirme avoir montrées.
+    public var redrawn = 0
     public init() {}
 }
 
@@ -128,9 +131,30 @@ final class VideoRenderer {
     /// Mesures de présentation, une fois par seconde (tests).
     var onPresentStats: ((PresentStats) -> Void)?
 
-    /// Vue (fenêtre occultée ou réduite) : rien n'est rendu, les images sont
-    /// comptées comme remplacées ; le décodeur continue (références intactes).
-    var paused = false
+    /// Vue (fenêtre occultée ou réduite) : rien n'est rendu ; le décodeur
+    /// continue (références intactes) et la dernière image arrivée est gardée,
+    /// puis rendue à la reprise : un bureau immobile n'en envoie peut-être pas
+    /// d'autre (une fenêtre qui passe en plein écran est vue occultée un instant).
+    var paused: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return isPaused
+        }
+        set {
+            lock.lock()
+            let resumed = isPaused && !newValue
+            isPaused = newValue
+            lock.unlock()
+            if resumed { renderQueue.async { [weak self] in self?.resume() } }
+        }
+    }
+    private var isPaused = false
+    /// Dernière image arrivée pendant la pause.
+    private var held: DecodedFrame?
+
+    /// Nom du rendu dans le journal (multi-écrans : son écran).
+    var label = ""
 
     /// Trait de repère de la barre de session, par-dessus l'image. Coupé par
     /// défaut : l'Apple TV, l'iPhone et l'iPad ne l'ont pas. Un changement
@@ -192,6 +216,7 @@ final class VideoRenderer {
     private var current = VideoStats()
     /// Présentation (fil de rendu) : `presentedTime − commit` des images montrées, rendues, écartées, estimées.
     private var present = (lags: [Double](), rendered: 0, discarded: 0, estimated: 0)
+    private var redrawnShown = 0
 
     /// GPU, file de commandes et pipeline, compilés une fois par processus
     /// (compilé depuis la source à chaque flux, le shader coûterait 30 à
@@ -286,21 +311,52 @@ final class VideoRenderer {
     /// Taille de l'image à l'écran, en pixels réels.
     func setDrawableSize(_ size: CGSize) {
         guard size.width >= 1, size.height >= 1 else { return }
-        renderQueue.async { [layer] in
-            if layer.drawableSize != size { layer.drawableSize = size }
+        renderQueue.async { [weak self] in
+            guard let self, self.layer.drawableSize != size else { return }
+            self.layer.drawableSize = size
+            // L'image affichée l'était à l'ancienne taille (fenêtre qui passe
+            // en plein écran) : redessinée tout de suite, sans attendre la suivante.
+            self.redrawInPlace()
         }
+    }
+
+    /// Redessine l'image affichée (fenêtre redevenue visible, passage en
+    /// plein écran fini) : une image présentée pendant l'animation a pu être
+    /// écartée, et un bureau immobile n'en envoie pas d'autre.
+    func redraw() {
+        renderQueue.async { [weak self] in self?.redrawInPlace() }
+    }
+
+    /// Fin de la pause (fil de rendu) : la dernière image arrivée pendant la
+    /// pause est rendue, sinon l'image affichée est redessinée.
+    private func resume() {
+        lock.lock()
+        let frame = held
+        held = nil
+        var go = false
+        if let frame, pending == nil {
+            pending = frame
+            if !scheduled {
+                scheduled = true
+                go = true
+            }
+        }
+        lock.unlock()
+        if go { render() } else if frame == nil { redrawInPlace() }
     }
 
     /// Nouvelle image (fil du décodeur) : elle remplace celle qui attendait.
     func submit(_ frame: DecodedFrame) {
-        if paused {
-            lock.lock()
-            skipped += 1
+        lock.lock()
+        if isPaused {
+            if let replaced = held {
+                skipped += 1
+                latency?.skipped(pts: replaced.pts)
+            }
+            held = frame
             lock.unlock()
-            latency?.skipped(pts: frame.pts)
             return
         }
-        lock.lock()
         if let replaced = pending {
             skipped += 1
             latency?.skipped(pts: replaced.pts)
@@ -444,10 +500,14 @@ final class VideoRenderer {
         let last = shown
         let waiting = pending != nil || scheduled
         lock.unlock()
-        guard !paused, !waiting, let last, let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
+        guard !paused, !waiting, let last, layer.drawableSize.width >= 1, let drawable = layer.nextDrawable(), let commands = queue.makeCommandBuffer(),
               draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
                    color: conversion(last.buffer, layout: last.layout), marker: currentMarkerScale())
         else { return }
+        drawable.addPresentedHandler { [weak self] d in
+            guard d.presentedTime > 0 else { return }
+            self?.renderQueue.async { self?.redrawnShown += 1 }
+        }
         commands.present(drawable)
         commands.commit()
     }
@@ -599,6 +659,12 @@ final class VideoRenderer {
         reportPresentation()
     }
 
+    /// Relève tout de suite les mesures de présentation (tests : elles ne
+    /// partent sinon qu'avec l'image qui suit chaque seconde).
+    func reportPresentationNow() {
+        renderQueue.sync { reportPresentation() }
+    }
+
     /// Mesures de présentation de la seconde : journal (`KN_PRESENT_STATS=1`) et rappel.
     private func reportPresentation() {
         var stats = PresentStats()
@@ -612,6 +678,8 @@ final class VideoRenderer {
             stats.p95Ms = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
         }
         present = ([], 0, 0, 0)
+        stats.redrawn = redrawnShown
+        redrawnShown = 0
         if logPresentStats {
             // Metal ne dit pas publiquement si la présentation est directe ou composée : voir MTL_HUD_ENABLED=1.
             KyberLog.video.notice("présentation : \(stats.rendered) rendues, \(stats.presented) montrées (\(stats.estimated) estimées), \(stats.discarded) écartées, commit → écran p50 \(String(format: "%.1f", stats.p50Ms), privacy: .public) ms, p95 \(String(format: "%.1f", stats.p95Ms), privacy: .public) ms, synchro verticale \(self.vsync ? "oui" : "non", privacy: .public), garde une image en vol \(self.inFlightGuard ? "oui" : "non", privacy: .public), \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
@@ -630,7 +698,9 @@ final class VideoRenderer {
         if stuckSeconds >= 2, heals < 3 {
             stuckSeconds = 0
             heals += 1
-            KyberLog.video.error("rien de montré en 2 s : \(stats.rendered) images rendues, toutes écartées par l'écran")
+            KyberLog.video.error("rien de montré en 2 s\(self.label.isEmpty ? "" : " (\(self.label))", privacy: .public) : \(stats.rendered) images rendues, toutes écartées par l'écran, \(Int(self.layer.drawableSize.width))×\(Int(self.layer.drawableSize.height))")
+            // Une image écartée n'est pas reprise : la dernière est redessinée.
+            redrawInPlace()
             onStuck?()
         }
     }

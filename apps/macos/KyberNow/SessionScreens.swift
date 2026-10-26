@@ -27,7 +27,7 @@ final class ScreenSurface {
     /// Écran de cette surface (fenêtre ouverte par la session).
     let screenID: CGDirectDisplayID?
     private let delegate: SessionWindowDelegate?
-    private var occlusion: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
 
     /// La surface de la fenêtre de l'accueil.
     init(main view: StreamView, container: NSView, window: NSWindow?) {
@@ -85,12 +85,19 @@ final class ScreenSurface {
         container.addSubview(backdrop, positioned: .above, relativeTo: streamView)
     }
 
-    /// Fenêtre occultée (autre espace, recouverte, réduite).
-    func observeOcclusion(_ changed: @escaping () -> Void) {
-        guard let window, occlusion == nil else { return }
-        occlusion = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { _ in
-            MainActor.assumeIsolated { changed() }
-        }
+    /// Fenêtre occultée ou visible (autre espace, recouverte, réduite,
+    /// passage en plein écran), et passage en plein écran fini.
+    func observe(occlusion: @escaping (ScreenSurface) -> Void, fullScreen: @escaping (ScreenSurface) -> Void) {
+        guard let window, observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { if let self { occlusion(self) } }
+            },
+            center.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { if let self { fullScreen(self) } }
+            },
+        ]
     }
 
     var occluded: Bool {
@@ -100,8 +107,8 @@ final class ScreenSurface {
 
     /// Fin de session : la fenêtre ouverte par la session se ferme.
     func close() {
-        if let occlusion { NotificationCenter.default.removeObserver(occlusion) }
-        occlusion = nil
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
         backdrop.removeFromSuperview()
         guard owned, let window else { return }
         delegate?.onClose = nil
