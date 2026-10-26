@@ -30,6 +30,7 @@ const fn ctl(function: u32) -> u32 {
 }
 const IOCTL_ADD: u32 = ctl(0x800);
 const IOCTL_REMOVE: u32 = ctl(0x801);
+const IOCTL_SET_RENDER_ADAPTER: u32 = ctl(0x802);
 const IOCTL_GET_WATCHDOG: u32 = ctl(0x803);
 const IOCTL_PING: u32 = ctl(0x888);
 const IOCTL_PROTOCOL_VERSION: u32 = ctl(0x8FF);
@@ -171,6 +172,13 @@ impl Device {
         Ok((w.timeout, w.countdown))
     }
 
+    /// Carte graphique qui rend les écrans du pilote (celle qui encode) :
+    /// sans cela, Windows la choisit. Gardé par le pilote jusqu'à son redémarrage.
+    pub fn set_render_adapter(&self, luid_low: u32, luid_high: i32) -> Result<()> {
+        let luid = LUID { LowPart: luid_low, HighPart: luid_high };
+        self.ioctl::<_, ()>(IOCTL_SET_RENDER_ADAPTER, Some(&luid), None)
+    }
+
     pub fn ping(&self) -> Result<()> {
         self.ioctl::<(), ()>(IOCTL_PING, None, None)
     }
@@ -253,6 +261,7 @@ mod tests {
         assert_eq!(IOCTL_ADD, 0x0022_2000);
         assert_eq!(IOCTL_REMOVE, 0x0022_2004);
         assert_eq!(IOCTL_PING, 0x0022_2220);
+        assert_eq!(IOCTL_SET_RENDER_ADAPTER, 0x0022_2008);
         assert_eq!(IOCTL_PROTOCOL_VERSION, 0x0022_23FC);
         assert_eq!(size_of::<AddParams>(), 56);
         assert_eq!(size_of::<AddOut>(), 12);

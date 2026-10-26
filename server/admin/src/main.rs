@@ -197,6 +197,11 @@ enum AgentAction {
         #[arg(long)]
         dir: PathBuf,
     },
+    /// Cartes graphiques connues de la configuration d'affichage (LUID, chemin).
+    Adapters {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Copie le jeton des routes locales dans le profil de l'utilisateur de la session.
     LocalToken {
         #[arg(long)]
@@ -329,6 +334,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
+        AgentAction::Adapters { out } => (out, display::topology::adapters()),
         AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
         AgentAction::Launch { kind, target, exe, out } => {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
@@ -340,6 +346,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
         | AgentAction::IsolateMany { out, .. }
+        | AgentAction::Adapters { out }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }

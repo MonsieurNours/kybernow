@@ -1032,6 +1032,11 @@ async fn stream_prepare(
     // session en cours d'un autre appareil).
     if let Some(screens) = body.screens.as_deref().filter(|_| virtual_display) {
         crate::display::validate_screens(screens)?;
+        // Les écrans virtuels seront rendus par la carte de l'encodeur de Kyber.
+        let encoder = s.kyber.values().ok().and_then(|values| {
+            values.into_iter().find(|v| v.id == "video.encoder").and_then(|v| v.value.as_str().map(str::to_string))
+        });
+        s.display.set_render_vendor(encoder.as_deref().and_then(crate::display::encoder_vendor));
     }
     let _preparing = Preparing::new(&s.preparing);
     let port = s.kyber.port();

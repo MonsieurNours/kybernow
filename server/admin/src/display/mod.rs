@@ -483,6 +483,36 @@ fn mode_param(m: Mode) -> Value {
     Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value()
 }
 
+/// Fabricant (identifiant PCI) de la carte qui fait tourner l'encodeur de
+/// Kyber (`video.encoder`) ; aucun pour l'encodage par le processeur.
+pub fn encoder_vendor(encoder: &str) -> Option<u16> {
+    match encoder {
+        "nvenc" => Some(0x10DE),
+        "amf" => Some(0x1002),
+        "qsv" => Some(0x8086),
+        _ => None,
+    }
+}
+
+/// Fabricant d'une carte d'après le chemin de son périphérique
+/// (`\\?\PCI#VEN_10DE&DEV_2208…`).
+fn path_vendor(path: &str) -> Option<u16> {
+    let upper = path.to_ascii_uppercase();
+    let at = upper.find("VEN_")? + 4;
+    u16::from_str_radix(upper.get(at..at + 4)?, 16).ok()
+}
+
+/// Carte à donner au pilote pour rendre les écrans virtuels : la première
+/// du fabricant de l'encodeur parmi celles que liste l'agent (`adapters`).
+fn pick_adapter(adapters: &Value, vendor: u16) -> Option<(u32, i32, String)> {
+    adapters["adapters"].as_array()?.iter().find_map(|a| {
+        let path = a["path"].as_str()?;
+        (path_vendor(path) == Some(vendor)).then(|| {
+            (a["luid_low"].as_u64().unwrap_or(0) as u32, a["luid_high"].as_i64().unwrap_or(0) as i32, path.to_string())
+        })
+    })
+}
+
 /// Une remise du mode d'un écran (politique `restore`).
 struct Fix {
     /// Rang de l'écran dans la session.
@@ -594,6 +624,10 @@ impl Record {
 
 trait Backend: Send + Sync {
     fn driver(&self) -> Result<Value>;
+    /// Fait rendre les écrans du pilote par la carte du fabricant `vendor`
+    /// (celle de l'encodeur) ; rend le chemin de la carte choisie, `None` si
+    /// aucune ne correspond.
+    fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>>;
     /// Crée l'écran de rang `slot` (0 : le principal ; donne son numéro de série).
     fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created>;
     fn remove(&self, guid: [u8; 16]) -> Result<()>;
@@ -623,6 +657,8 @@ pub struct Manager {
     alive: AtomicBool,
     pub settings: Mutex<VdSettings>,
     events: Mutex<Option<EventSink>>,
+    /// Fabricant de la carte de l'encodeur de Kyber (`set_render_vendor`).
+    render_vendor: Mutex<Option<u16>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -648,7 +684,14 @@ impl Manager {
             alive: AtomicBool::new(false),
             settings: Mutex::new(settings),
             events: Mutex::new(None),
+            render_vendor: Mutex::new(None),
         })
+    }
+
+    /// Carte de l'encodeur de Kyber (`encoder_vendor`), qui rendra les écrans
+    /// virtuels d'une session à plusieurs écrans.
+    pub fn set_render_vendor(&self, vendor: Option<u16>) {
+        *self.render_vendor.lock().unwrap() = vendor;
     }
 
     /// Branche le fil des événements (vue d'ensemble de la console).
@@ -810,6 +853,16 @@ impl Manager {
         // Identifiants fixes : Windows retrouve la disposition de session
         // enregistrée pour ces écrans (voir topology.rs).
         let begun = Instant::now();
+        // Plusieurs écrans : tous rendus par la carte qui capture et encode,
+        // fixée avant de les créer (sinon Windows choisit pour chacun).
+        let vendor = *self.render_vendor.lock().unwrap();
+        if let Some(vendor) = vendor.filter(|_| layout.len() > 1) {
+            match self.backend.pin_render_adapter(vendor) {
+                Ok(Some(path)) => tracing::info!("écrans virtuels rendus par la carte {path}"),
+                Ok(None) => tracing::warn!("aucune carte du fabricant {vendor:04X} pour rendre les écrans virtuels : Windows choisit"),
+                Err(e) => tracing::warn!("carte de rendu des écrans virtuels : {e:#}"),
+            }
+        }
         let mut pending: Vec<(usize, [u8; 16], Created)> = Vec::new();
         for (slot, &index) in slot_order(&layout).iter().enumerate() {
             let guid = slot_guid(slot);
@@ -1286,6 +1339,8 @@ struct SimScreen {
     last_isolate: Vec<(u32, i32, i32)>,
     /// Windows refuse les remises de mode (il garde le mode en place).
     refuse_modes: bool,
+    /// Fabricant de la carte fixée pour le rendu.
+    render_vendor: Option<u16>,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1309,6 +1364,10 @@ fn sim_gdi_name(slot: u32) -> String {
 impl Backend for Simulated {
     fn driver(&self) -> Result<Value> {
         Ok(json!({ "version": "simulation", "watchdog_seconds": 3 }))
+    }
+    fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
+        self.screen.lock().unwrap().render_vendor = Some(vendor);
+        Ok(Some(format!("(simulée) VEN_{vendor:04X}")))
     }
     fn create(&self, _: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
         let mut screen = self.screen.lock().unwrap();
@@ -1427,6 +1486,12 @@ mod windows {
                 let (timeout, _) = d.watchdog().unwrap_or((0, 0));
                 Ok(json!({ "version": d.protocol_version()?, "watchdog_seconds": timeout }))
             })
+        }
+        fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
+            let adapters = agent::run_with_timeout(&self.data_dir, &["adapters".to_string()], 10_000)?;
+            let Some((low, high, path)) = pick_adapter(&adapters, vendor) else { return Ok(None) };
+            self.with_device(|d| d.set_render_adapter(low, high))?;
+            Ok(Some(path))
         }
         fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
             let c = self.with_device(|d| d.add(guid, slot, mode.width, mode.height, mode.refresh))?;
@@ -1889,6 +1954,29 @@ mod tests {
         assert_eq!(at(2560, 1440, 0, -1440).anchored(1920, 1080), (0, -1080));
         // En dessous, à gauche du bord : seul x suit.
         assert_eq!(at(1920, 1080, -1920, 2160).anchored(1280, 720), (-1280, 2160));
+    }
+
+    #[test]
+    fn carte_de_rendu_des_ecrans() {
+        assert_eq!(encoder_vendor("nvenc"), Some(0x10DE));
+        assert_eq!(encoder_vendor("x264"), None);
+        assert_eq!(path_vendor(r"\\?\PCI#VEN_10DE&DEV_2208&SUBSYS_38971462&REV_A1#4&1a2b#{5b45201d}"), Some(0x10DE));
+        assert_eq!(path_vendor(r"\\?\root#display#0000#{5b45201d}"), None);
+        let adapters = json!({ "adapters": [
+            { "luid_low": 70000, "luid_high": 0, "path": r"\\?\ROOT#DISPLAY#0000#{x}" },
+            { "luid_low": 1234, "luid_high": 0, "path": r"\\?\PCI#VEN_8086&DEV_4680#{x}" },
+            { "luid_low": 5678, "luid_high": 1, "path": r"\\?\PCI#VEN_10DE&DEV_2208#{x}" },
+        ] });
+        assert_eq!(pick_adapter(&adapters, 0x10DE).map(|(l, h, _)| (l, h)), Some((5678, 1)));
+        assert_eq!(pick_adapter(&adapters, 0x1002), None);
+
+        // Fixée seulement pour une session à plusieurs écrans.
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.set_render_vendor(Some(0x10DE));
+        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().render_vendor, None);
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().render_vendor, Some(0x10DE));
     }
 
     #[test]
