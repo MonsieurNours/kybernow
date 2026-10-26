@@ -146,14 +146,19 @@ final class AppModel: ObservableObject {
         sessions.add(session)
         if !first { Dock.comeForward() }
         #if DEBUG
-        // Démonstration : la session sans ordinateur derrière, rien sur le réseau.
-        if Self.demo {
+        // Démonstration : la session sans ordinateur derrière, rien sur le réseau
+        // (`-demoCore YES` : une vraie session du cœur vers une adresse que rien
+        // ne route, pour essayer le registre des sessions).
+        if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
             session.demo(demo ?? "session")
+            sessions.refresh()
             hideHomeForFirstSession(first)
             return
         }
         #endif
+        // Inscrite au registre des sessions du cœur à son départ : elle devient active.
         session.start()
+        sessions.refresh()
         hideHomeForFirstSession(first)
     }
 

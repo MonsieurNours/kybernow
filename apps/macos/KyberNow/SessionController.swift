@@ -12,12 +12,14 @@
 // (ou prend tous les écrans), et les moitiés se referment à la fin. Chaque
 // session suivante s'ouvre dans une fenêtre titrée du nom de l'ordinateur, par-
 // dessus, sur l'écran de la fenêtre active, avec un seul écran (« Cet écran »,
-// à la taille de la fenêtre). Avec plusieurs écrans (docs/multi-ecrans.md),
-// chaque autre écran de ce Mac a sa fenêtre plein écran (SessionScreens.swift)
-// ; la fenêtre de la session est sur l'écran principal, qui montre la
-// connexion ; une seule barre, posée sur l'écran où le geste a lieu. Le
-// gestionnaire des sessions (Sessions.swift) dit à chacune si elle est active
-// et si on l'entend (`applyFocus`).
+// à la taille de la fenêtre) ; écrans, cadre et mode viennent du cœur
+// (`SessionEngine.screensForExtraSession`, `extraSessionWindow`). Avec
+// plusieurs écrans (docs/multi-ecrans.md), chaque autre écran de ce Mac a sa
+// fenêtre plein écran (SessionScreens.swift) ; la fenêtre de la session est
+// sur l'écran principal, qui montre la connexion ; une seule barre, posée sur
+// l'écran où le geste a lieu. Chaque session s'inscrit au registre des
+// sessions du cœur, qui la dit active ou non ; le gestionnaire
+// (Sessions.swift) lui en donne l'état pour l'interface (`focusChanged`).
 
 import AppKit
 import Combine
@@ -83,8 +85,6 @@ final class SessionController: NSObject, ObservableObject {
     @Published private(set) var appActive = true
     /// Trait de repère allumé dans l'image en ce moment.
     private var markerShown = false
-    /// Son coupé par le gestionnaire des sessions (session inactive, sans « Garder le son »).
-    private var focusMuted = false
     /// Jeu en plein écran sur l'ordinateur, d'après la veille de la console.
     @Published private(set) var pcGame = false
     @Published private(set) var audioStats: AudioStats?
@@ -156,11 +156,14 @@ final class SessionController: NSObject, ObservableObject {
 
     /// Session active : sa fenêtre est (ou a été la dernière) au premier
     /// plan. Elle seule reçoit le clavier, la souris, les manettes, le
-    /// presse-papiers et le son ; dit par le gestionnaire (`applyFocus`).
+    /// presse-papiers et le son (le registre du cœur s'en charge) ; lu dans le
+    /// registre par le gestionnaire (`focusChanged`), pour l'interface.
     @Published private(set) var focusActive = true
     /// « Garder le son » : la session reste audible même quand elle n'est
-    /// pas active ; éteint au départ, pour cette session (Sessions.swift).
-    @Published var keepSound = false
+    /// pas active ; éteint au départ, pour cette session (registre du cœur).
+    @Published private(set) var keepSound = false
+    /// La fenêtre d'une session de plus, donnée par le cœur (`start`).
+    private var extraWindow: SessionEngine.ExtraWindow?
     /// La session s'est terminée par la fermeture de sa fenêtre (bouton rouge,
     /// ⌘W) : la dernière ne ramène pas l'accueil, l'app reste dans l'icône.
     private(set) var closedByWindow = false
@@ -290,11 +293,16 @@ final class SessionController: NSObject, ObservableObject {
     /// virtuel), quel que soit le réglage « Écrans ».
     private var settings: ConnectionSettings {
         var s = host.settings
-        if !isFirst {
-            if s.display != .physical { s.display = .window }
-            s.screens = .this
-        }
+        if !isFirst, s.display != .physical { s.display = .window }
         return s
+    }
+
+    /// Les écrans de ce Mac donnés au cœur ; pour une session de plus, sa
+    /// règle : « Cet écran », celui de la fenêtre active (`current`).
+    private func deviceScreens(current: NSScreen?) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
+        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, info: store.status[host.id]?.info)
+        guard !isFirst else { return devices }
+        return (devices.screens, SessionEngine.screensForExtraSession(devices.request))
     }
 
     /// La fenêtre de la session. La première prend la place de l'accueil
@@ -319,19 +327,12 @@ final class SessionController: NSObject, ObservableObject {
             window.titleVisibility = .hidden
             window.collectionBehavior = [.fullScreenPrimary, .managed]
         case let .next(anchor):
-            let screen = anchor?.screen ?? NSScreen.main ?? NSScreen.screens[0]
-            let area = screen.visibleFrame
-            // Les deux tiers de l'écran, en 16:9, sans dépasser deux tiers de sa hauteur.
-            var size = NSSize(width: area.width * 2 / 3, height: area.width * 2 / 3 * 9 / 16)
-            if size.height > area.height * 2 / 3 {
-                size = NSSize(width: area.height * 2 / 3 * 16 / 9, height: area.height * 2 / 3)
-            }
-            size = NSSize(width: size.width.rounded(), height: size.height.rounded())
-            window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                              backing: .buffered, defer: false)
-            let outer = window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
-            window.setFrame(NSRect(x: (area.midX - outer.width / 2).rounded(), y: (area.midY - outer.height / 2).rounded(),
-                                   width: outer.width, height: outer.height), display: false)
+            // La zone d'image « centrée, aux deux tiers de l'écran, en 16:9 »,
+            // règle du cœur ; la barre de titre s'ajoute autour.
+            let fallback = Self.centered(NSSize(width: 1100, height: 788), on: anchor?.screen ?? NSScreen.main ?? NSScreen.screens[0])
+            let content = extraWindow.map { DisplayInfo.cocoaRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) } ?? fallback
+            window = NSWindow(contentRect: content, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            window.setFrame(window.frameRect(forContentRect: content), display: false)
             window.appearance = NSAppearance(named: .darkAqua)
             window.collectionBehavior = [.fullScreenAuxiliary, .managed]
         }
@@ -543,20 +544,40 @@ final class SessionController: NSObject, ObservableObject {
         window.makeKeyAndOrderFront(nil)
     }
 
-    /// Le gestionnaire des sessions (Sessions.swift) : active ou non, muette
-    /// ou non. Le cœur coupe ou rend le son, le presse-papiers et les
-    /// manettes ; une session inactive ne suit plus le pointeur dans ses
-    /// fenêtres d'autres écrans, ni la manette pour sa barre.
-    func applyFocus(active: Bool, muted: Bool) {
-        if focusActive != active {
-            focusActive = active
-            KyberLog.app.notice("\(self.host.name, privacy: .public) : session \(active ? "active" : "inactive", privacy: .public)")
-            let multi = multiScreen
-            allViews.forEach { $0.tracksInActiveApp = multi && active }
-            if !active { setBar(false) }
+    /// L'identifiant de la session dans le registre du cœur (nil avant son
+    /// départ, hors registre ou une fois finie).
+    var focusID: Int64? { engine?.focusID }
+
+    /// La fenêtre de la session passe au premier plan : elle devient active
+    /// dans le registre du cœur, qui coupe les entrées et le son des autres.
+    func focusActivate() {
+        engine?.focusActivate()
+    }
+
+    /// « Garder le son », par le registre du cœur (démonstration, sans cœur :
+    /// l'interface seule).
+    func setKeepSound(_ on: Bool) {
+        guard let engine, engine.focusID != nil else {
+            keepSound = on
+            return
         }
-        focusMuted = muted
-        engine?.setFocus(active: active, muted: muted)
+        engine.keepSound = on
+        KyberLog.app.notice("\(self.host.name, privacy: .public) : garder le son \(on ? "allumé" : "éteint", privacy: .public)")
+    }
+
+    /// L'état du registre, pour l'interface (Sessions.swift) : une session
+    /// inactive n'allume pas le trait de repère, ferme sa barre, ignore la
+    /// combinaison de la manette et ne suit plus le pointeur dans ses
+    /// fenêtres d'autres écrans. Les entrées, le son, le presse-papiers et
+    /// les manettes, le cœur s'en est déjà chargé.
+    func focusChanged(active: Bool) {
+        if let engine, engine.focusID != nil, keepSound != engine.keepSound { keepSound = engine.keepSound }
+        guard focusActive != active else { return }
+        focusActive = active
+        KyberLog.app.notice("\(self.host.name, privacy: .public) : session \(active ? "active" : "inactive", privacy: .public)")
+        let multi = multiScreen
+        allViews.forEach { $0.tracksInActiveApp = multi && active }
+        if !active { setBar(false) }
     }
 
     /// Les couches SwiftUI captent-elles tout (attente, fin) ?
@@ -713,7 +734,7 @@ final class SessionController: NSObject, ObservableObject {
     /// débranchés se ferment tout de suite. Rend la nouvelle description si
     /// elle a changé.
     private func refreshDeviceScreens() -> SessionEngine.DeviceScreens? {
-        let devices = DisplayInfo.deviceScreens(current: window?.screen, settings: settings, info: store.status[host.id]?.info)
+        let devices = deviceScreens(current: window?.screen)
         let ids = Set(devices.screens.compactMap(DisplayInfo.displayID))
         for extra in extraSurfaces where !(extra.screenID.map(ids.contains) ?? false) { closeSurface(extra) }
         deviceScreens = devices.screens
@@ -941,9 +962,10 @@ final class SessionController: NSObject, ObservableObject {
         // Multi-écrans : le cœur décide du nombre d'écrans (réglage, profil,
         // Station) ; plusieurs, la fenêtre passe sur l'écran principal, et
         // chaque autre écran pris a sa fenêtre.
-        let info = store.status[host.id]?.info
-        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, info: info)
+        let devices = deviceScreens(current: current)
         var request = devices.request
+        // Une session de plus : sa fenêtre, cadre et mode, règle du cœur.
+        if !isFirst { extraWindow = SessionEngine.extraSessionWindow(request) }
         let plan = SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
                                              virtualDisplay: settings.display != .physical, codec: settings.codec)
         let primary = plan != nil ? devices.screens.first : nil
@@ -969,6 +991,10 @@ final class SessionController: NSObject, ObservableObject {
         switch settings.display {
         case .custom:
             mode = (settings.customWidth, settings.customHeight, settings.customRefresh)
+        case .window where extraWindow != nil:
+            // Session de plus : le mode de sa zone d'image, calculé par le cœur.
+            let m = extraWindow?.mode ?? SessionEngine.Mode(width: 0, height: 0, refresh: 0)
+            mode = (m.width, m.height, m.refresh)
         case .window:
             // Session fenêtrée : l'écran virtuel prend la taille de la fenêtre, en pixels.
             // Pixels de la dalle par point (moins que l'échelle de macOS en mode « plus d'espace »).
@@ -1020,13 +1046,18 @@ final class SessionController: NSObject, ObservableObject {
             KyberLog.app.notice("ordinateur : \(game ? "jeu en plein écran" : "pas de jeu en plein écran", privacy: .public)")
             self.pcGame = game
         }
-        // Active ou non, entendue ou non : ce que le gestionnaire des sessions a dit.
-        engine.setFocus(active: focusActive, muted: focusMuted)
         self.engine = engine
         syncEngineViews()
 
+        var console = host.address
+        #if DEBUG
+        // Démonstration avec `-demoCore YES` : une vraie session du cœur (pour
+        // le registre des sessions), vers une adresse de documentation que rien
+        // ne route (RFC 5737) : jamais une Station, elle échoue au bout de 5 s.
+        if AppModel.demo { console = "192.0.2.1" }
+        #endif
         var params = SessionEngine.Params(
-            host: host.address, consolePort: host.consolePort, username: host.username, password: password,
+            host: console, consolePort: host.consolePort, username: host.username, password: password,
             consoleFingerprint: host.consoleFingerprint,
             mode: SessionEngine.Mode(width: mode.width, height: mode.height, refresh: mode.refresh),
             audioChannels: settings.audio.channels, virtualDisplay: virtualDisplay, settings: engineSettings
@@ -1036,9 +1067,13 @@ final class SessionController: NSObject, ObservableObject {
         params.clipboard = settings.clipboard
         params.vsync = settings.vsync
         params.screens = request
+        // Inscrite au registre des sessions du cœur dès son départ (plusieurs ordinateurs).
+        params.focusName = host.name
         KyberLog.app.notice("session : \(mode.width)×\(mode.height) à \(mode.refresh) Hz, son \(settings.audio.channels) canaux, \(settings.consoleProfile, privacy: .public)")
         do {
             try engine.start(params)
+        } catch SessionEngine.StartError.tooManyComputers {
+            fail(LinkText.computersLimit)
         } catch {
             fail(error.localizedDescription)
         }
