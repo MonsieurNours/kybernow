@@ -65,6 +65,20 @@ pub fn same_layout(a: &[Display], b: &[Display]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.frame() == y.frame() && x.pixel_w == y.pixel_w && x.pixel_h == y.pixel_h && x.refresh == y.refresh)
 }
 
+/// L'écran `screen` des deux listes est au même endroit, avec la même taille : une fenêtre
+/// posée dessus est toujours bien placée. Un indice qui a changé de sens (écran débranché
+/// avant lui, disposition refaite) ou qui n'existe plus : non.
+pub fn same_screen(old: &[Display], new: &[Display], screen: usize) -> bool {
+    matches!((old.get(screen), new.get(screen)), (Some(a), Some(b)) if a.frame() == b.frame())
+}
+
+/// La fréquence d'un écran que SDL a décrit (`SDL_GetCurrentDisplayMode`) : celle qu'il
+/// annonce, 30 Hz au moins (certains pilotes disent 0 : comme avant le multi-écrans, qui
+/// lisait `max(30)`), 60 Hz quand SDL ne donne aucun mode.
+pub fn refresh_of(mode_known: bool, hz: i32) -> u32 {
+    if mode_known { hz.max(30) as u32 } else { 60 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +119,34 @@ mod tests {
         b[0].refresh = 144;
         assert!(!same_layout(&a, &b));
         assert!(!same_layout(&a, &a[..1]));
+    }
+
+    #[test]
+    fn a_screen_that_moved_is_not_the_same() {
+        let old = vec![d(0, 0, 0, 1920, 1080), d(1, 1920, 0, 1920, 1080), d(2, 3840, 0, 1920, 1080)];
+        // L'écran du milieu est débranché : l'indice 1 désigne maintenant l'ancien troisième, l'indice 2 n'existe plus.
+        let new = vec![d(0, 0, 0, 1920, 1080), d(1, 1920, 0, 1920, 1080)];
+        let new_shifted = vec![d(0, 0, 0, 1920, 1080), d(1, 3840, 0, 1920, 1080)];
+        assert!(same_screen(&old, &new, 0) && same_screen(&old, &new, 1));
+        assert!(!same_screen(&old, &new, 2), "plus d'écran 2");
+        assert!(same_screen(&old, &new_shifted, 0));
+        assert!(!same_screen(&old, &new_shifted, 1), "l'indice 1 désigne un autre écran");
+        // Une fréquence qui change ne déplace pas la fenêtre.
+        let mut faster = old.clone();
+        faster[1].refresh = 144;
+        assert!(same_screen(&old, &faster, 1));
+    }
+
+    /// SDL qui annonce 0 Hz : 30, comme avant le multi-écrans (cette valeur donne la fréquence
+    /// « Comme cet écran » et se relit toutes les deux secondes).
+    #[test]
+    fn refresh_of_zero_hz_is_thirty() {
+        assert_eq!(refresh_of(true, 0), 30);
+        assert_eq!(refresh_of(true, -1), 30);
+        assert_eq!(refresh_of(true, 24), 30);
+        assert_eq!(refresh_of(true, 60), 60);
+        assert_eq!(refresh_of(true, 144), 144);
+        assert_eq!(refresh_of(false, 0), 60, "aucun mode : 60 Hz");
     }
 
     #[test]

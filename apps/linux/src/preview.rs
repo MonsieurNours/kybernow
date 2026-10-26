@@ -168,6 +168,7 @@ fn session(app: &App) -> SessionUi {
         ending_since: None,
         opened_at: Some(Instant::now() - Duration::from_secs(30)),
         screens: 1,
+        expected_screens: 1,
     }
 }
 
@@ -228,8 +229,13 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     app.screens_plan = ScreensPlan { count: 1, enabled: false, shown: 1 };
     app.open_host_section(Section::Picture, Screen::Home);
     shot(app, cv, None, dir, &name("15d-reglages-ecrans-inactif"));
+    // Inactive faute d'écran virtuel (réglage coupé, Station sans pilote) : la ligne grisée sur « Cet écran », sans aide.
     if let Some(h) = app.store.host_mut("a") {
         h.settings.resolution = 0;
+    }
+    app.open_host_section(Section::Picture, Screen::Home);
+    shot(app, cv, None, dir, &name("15f-reglages-ecrans-sans-ecran-virtuel"));
+    if let Some(h) = app.store.host_mut("a") {
         h.settings.displays = "auto".into();
     }
     // Les statistiques : leur nombre d'abord, puis l'écran principal et le débit total.
@@ -249,6 +255,7 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     s.menu = false;
     s.relative = false;
     s.screens = 3;
+    s.expected_screens = 3;
     s.phase = Phase::Connecting;
     s.opened_at = None;
     app.session = Some(s);
@@ -264,6 +271,7 @@ fn multi_shots(app: &mut App, cv: &mut Canvas, video: &Pixmap, dir: &Path, prefi
     s.menu = false;
     s.relative = false;
     s.screens = 3;
+    s.expected_screens = 3;
     s.opened_at = Some(Instant::now() - Duration::from_secs(30));
     app.session = Some(s);
     let shown = ui::View { main: false, bar: false, missing: false, has_frame: true };
@@ -829,6 +837,7 @@ mod tests {
     fn windows_of_several_displays() {
         let (mut app, mut cv) = streaming(Layout::Desktop);
         app.session.as_mut().unwrap().screens = 3;
+        app.session.as_mut().unwrap().expected_screens = 3;
         let main = ui::View { main: true, bar: false, missing: false, has_frame: false };
         let other = ui::View { main: false, bar: false, missing: false, has_frame: false };
         // La connexion : l'écran principal dessine les étapes, les autres un aplat sans texte.
@@ -866,6 +875,7 @@ mod tests {
         assert!(hits.is_empty());
         // Une seule fenêtre : tout est comme avant, avec « Plein écran ».
         app.session.as_mut().unwrap().screens = 1;
+        app.session.as_mut().unwrap().expected_screens = 1;
         let hits = ui::draw(&app, &mut cv);
         assert!(hits.iter().any(|(t, _)| *t == Target::BarFullscreen));
     }

@@ -66,8 +66,7 @@ fn status(app: &App, h: &Host) -> (&'static str, Rgba, bool) {
 /// quels (réglage coupé, ou Station sans écran virtuel). Les chiffres en
 /// Martian Mono.
 fn display_parts(app: &App, h: &Host) -> Vec<(String, bool)> {
-    let vd = h.settings.virtual_display && app.live.get(&h.id).and_then(|l| l.virtual_display) != Some(false);
-    if !vd {
+    if !app.virtual_display_usable(h) {
         return vec![(tr("Les écrans de l'ordinateur, tels quels", "The computer's own displays, as they are").into(), false)];
     }
     // Plusieurs écrans (bureau) : « 3 écrans, à la taille de ceux de cet appareil », le même calcul que la session.
