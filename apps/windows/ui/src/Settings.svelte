@@ -96,8 +96,11 @@
     const off = listen<null>('displays', () => screensEpoch++)
     return () => off.then((f) => f())
   })
-  /** Inactif avec une définition sur mesure : l'aide le dit (sans écran virtuel, l'aide reste celle du réglage). */
+  /** Inactif avec une définition sur mesure : l'aide le dit. Sans écran virtuel
+   *  utilisable (réglage coupé, ou Station qui n'en a pas), pas d'aide : la
+   *  ligne grisée sur « Cet écran » se suffit (docs/link-ui.md, comme sur Mac et Linux). */
   const displaysCustom = $derived(!!s.custom)
+  const displaysNoVirtual = $derived(displaysInfo ? !displaysInfo.virtual_display : false)
 
   function pickProfile(p: Settings['profile']) {
     save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
@@ -218,7 +221,11 @@
                 onchange={(v) => save({ displays: v })}
               />
             </div>
-            <span class="help">{displaysCustom ? t('settings.displays_custom_help') : t('settings.displays_help')}</span>
+            {#if displaysCustom}
+              <span class="help">{t('settings.displays_custom_help')}</span>
+            {:else if !displaysNoVirtual}
+              <span class="help">{t('settings.displays_help')}</span>
+            {/if}
           </div>
           <div class="line stack">
             <div class="lr">
