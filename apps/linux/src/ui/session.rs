@@ -16,15 +16,25 @@ use crate::app::{App, BarMenu, Layout, MenuItem, Phase, Rect, Screen, SessionUi,
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
-pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
+pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
     let Some(s) = &app.session else {
         cv.clear(INK);
         return;
     };
     match &s.phase {
-        Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => passage(app, cv, f, s),
-        Phase::Ended { error } => ended(app, cv, f, s, error.as_deref()),
-        Phase::Ending => ending(app, cv, s),
+        // Plusieurs écrans : l'écran principal porte la connexion, les autres le même fond sans texte.
+        Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => {
+            if view.main {
+                passage(app, cv, f, s)
+            } else {
+                background(cv, unit(app.layout), view.missing)
+            }
+        }
+        Phase::Ended { error } if view.main => ended(app, cv, f, s, error.as_deref()),
+        Phase::Ending if view.main => ending(app, cv, s),
+        Phase::Ended { .. } | Phase::Ending => cv.clear(INK),
+        // Une fenêtre qui n'a pas encore son image garde le fond de la connexion.
+        _ if !view.main && !view.has_frame => background(cv, unit(app.layout), view.missing),
         _ => {
             cv.clear_transparent();
             if s.keys {
@@ -32,13 +42,16 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame) {
             } else if s.menu {
                 menu(app, cv, f, s);
             } else {
-                if s.show_stats {
+                if s.show_stats && view.main {
                     stats(app, cv, s);
                 }
-                if s.bar && app.layout == Layout::Desktop {
+                if s.bar && view.bar && app.layout == Layout::Desktop {
                     bar(app, cv, f, s);
                 } else if bar_hint(app) {
                     hint(cv);
+                }
+                if !view.main {
+                    return;
                 }
                 if let Phase::Reconnecting { attempt, max } = s.phase {
                     capsule(app, cv, &format!("{} ({attempt}/{max})", tr("Reconnexion…", "Reconnecting…")), true);
@@ -142,6 +155,19 @@ fn passage(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     capsule_steps(app, cv, f, s, t);
 }
 
+/// Le fond de la connexion sur les écrans qui ne portent pas la capsule des
+/// étapes (plusieurs écrans) : sa couleur, sans la photo de l'accueil, sans
+/// texte (docs/link-ui.md). Un écran que l'ordinateur n'a pas pu créer le garde
+/// avec une seule ligne.
+fn background(cv: &mut Canvas, u: f32, missing: bool) {
+    let (w, h) = (cv.w, cv.h);
+    cv.clear(Rgba(5, 7, 10, 255));
+    if missing {
+        let style = Text::new(Font::Regular, 15.0 * u, MUTED).align(Align::Center);
+        cv.text_fit(w / 2.0, h / 2.0 + 5.0 * u, style, tr("L'ordinateur n'a pas pu créer cet écran.", "The computer could not create this display."), w - 64.0 * u);
+    }
+}
+
 /// La capsule : l'ordinateur, les trois étapes, Annuler.
 fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f32) {
     let u = unit(app.layout);
@@ -158,7 +184,7 @@ fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f3
     // Le dernier recours : la Station redémarre à la place de l'étape « Connexion », puis les étapes reprennent.
     let restarting = s.phase == Phase::StationRestarting;
     let steps = [
-        tr("Préparation de l'écran", "Preparing the display"),
+        if s.multi() { tr("Préparation des écrans", "Preparing the displays") } else { tr("Préparation de l'écran", "Preparing the display") },
         if restarting { tr("La Station redémarre", "The Station is restarting") } else { tr("Connexion", "Connecting") },
         tr("Premières images", "First frames"),
     ];
@@ -305,7 +331,8 @@ impl BarLayout {
     fn measure(cv: &mut Canvas, s: &SessionUi) -> Self {
         let st = s.stats.clone().unwrap_or_default();
         let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
-        let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", st.mode, st.fps, tr("i/s", "fps"), st.decoder) } else { st.mode.clone() };
+        let mode = if s.multi() { format!("{} {} · {}", s.screens, tr("écrans", "displays"), st.mode) } else { st.mode.clone() };
+        let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", mode, st.fps, tr("i/s", "fps"), st.decoder) } else { mode };
         let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
         let mono12 = Text::new(Font::Mono, 12.0, MUTED);
         let lat_w = cv.text_width(mono14, &lat);
@@ -314,7 +341,9 @@ impl BarLayout {
         let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
         let quit = tr("Se déconnecter", "Disconnect");
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
-        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * 3.0 + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        // Touches, souris, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
+        let buttons = if s.multi() { 2.0 } else { 3.0 };
+        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
         Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, total }
     }
 }
@@ -324,25 +353,26 @@ fn bar_frame(w: f32, total: f32) -> Rect {
     Rect::new((w - total) / 2.0, -1.0, total, BAR_H + 1.0)
 }
 
-fn bar_rect(cv: &mut Canvas, s: &SessionUi) -> Rect {
+/// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
+fn bar_rect(cv: &mut Canvas, s: &SessionUi, w: f32) -> Rect {
     let total = BarLayout::measure(cv, s).total;
-    bar_frame(cv.w, total)
+    bar_frame(w, total)
 }
 
 /// Le pointeur est contre le bord haut, dans la zone centrée de la largeur de
 /// la barre : l'endroit où elle s'ouvre (après un quart de seconde).
-pub fn at_bar_edge(cv: &mut Canvas, s: &SessionUi, ux: f32, uy: f32) -> bool {
+pub fn at_bar_edge(cv: &mut Canvas, s: &SessionUi, w: f32, ux: f32, uy: f32) -> bool {
     if uy > BAR_EDGE {
         return false;
     }
-    let r = bar_rect(cv, s);
+    let r = bar_rect(cv, s, w);
     ux >= r.x && ux < r.x + r.w
 }
 
 /// Le pointeur est sur la barre ouverte (son rectangle avec une petite marge)
 /// ou sur un de ses éléments (`hits`, menus compris).
-pub fn over_bar(cv: &mut Canvas, s: &SessionUi, hits: &[(Target, Rect)], ux: f32, uy: f32) -> bool {
-    let r = bar_rect(cv, s);
+pub fn over_bar(cv: &mut Canvas, s: &SessionUi, w: f32, hits: &[(Target, Rect)], ux: f32, uy: f32) -> bool {
+    let r = bar_rect(cv, s, w);
     (ux >= r.x - BAR_MARGIN && ux < r.x + r.w + BAR_MARGIN && uy < r.y + r.h + BAR_MARGIN) || hits.iter().any(|(_, h)| h.contains(ux, uy))
 }
 
@@ -402,7 +432,11 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     x += prof_w + 12.0;
     // Touches, souris, plein écran.
     let keys_x = x;
-    for (t, icon, on) in [(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys)), (Target::BarMouse, Icon::Mouse, s.relative), (Target::BarFullscreen, Icon::Fullscreen, app.fullscreen)] {
+    let mut icons = vec![(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys)), (Target::BarMouse, Icon::Mouse, s.relative)];
+    if !s.multi() {
+        icons.push((Target::BarFullscreen, Icon::Fullscreen, app.fullscreen));
+    }
+    for (t, icon, on) in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
         if on {
