@@ -290,6 +290,20 @@ pub fn probe_only() -> Result<(), String> {
     println!("AV1        : {}", if p.caps.av1 { "carte graphique" } else { "non (pas de décodage AV1 par le processeur)" });
     let m = screen_mode();
     println!("Écran      : {} × {} à {} Hz", m.width, m.height, m.refresh);
+    // Les écrans de ce PC, tels que le cœur les reçoit pour le multi-écrans.
+    for (i, d) in crate::displays::enumerate().iter().enumerate() {
+        println!(
+            "Écran {}    : {} × {} à {} Hz en ({}, {}), échelle {} %{}",
+            i + 1,
+            d.width,
+            d.height,
+            d.refresh,
+            d.x,
+            d.y,
+            d.dpi * 100 / 96,
+            if d.primary { ", principal" } else { "" }
+        );
+    }
     println!("Son        : {} voies", crate::audio::default_output_channels());
     println!("Système    : {}", os_version());
     Ok(())

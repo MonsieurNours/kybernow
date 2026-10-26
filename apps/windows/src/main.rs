@@ -15,6 +15,10 @@ mod audio;
 mod cli;
 #[cfg(windows)]
 mod decoder;
+// Les écrans de ce PC : la relève est Windows, le reste (conversion pour le
+// cœur, point sous un écran) se teste sur le Mac.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod displays;
 #[cfg(windows)]
 mod discovery;
 // Règles et dessins sans rien de Windows (menu de l'icône, suivis, dessin de
@@ -23,6 +27,10 @@ mod discovery;
 mod follow;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod glyph;
+#[cfg(windows)]
+mod fonds;
+#[cfg(windows)]
+mod gpu;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
