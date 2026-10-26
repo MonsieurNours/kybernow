@@ -33,6 +33,15 @@ pub enum Packet<'a> {
 
 pub trait PacketHandler: Send + Sync {
     fn packet(&self, packet: Packet<'_>);
+
+    /// Le même paquet avec l'identifiant de sa source chez Kyber
+    /// (`MediaPacket::source_id`) : c'est ce que Kyber appelle. Par défaut,
+    /// la source est laissée de côté ([`Self::packet`]) ; un gestionnaire qui
+    /// reçoit plusieurs flux peut s'en servir pour les distinguer.
+    fn packet_from(&self, source_id: u32, packet: Packet<'_>) {
+        let _ = source_id;
+        self.packet(packet);
+    }
 }
 
 extern "C" fn trampoline(packet: *const MediaPacket, userdata: *mut c_void) {
@@ -41,12 +50,13 @@ extern "C" fn trampoline(packet: *const MediaPacket, userdata: *mut c_void) {
     }
     let p = unsafe { &*packet };
     let handler = userdata as *mut Arc<dyn PacketHandler>;
+    let source = p.source_id;
     match p.kind {
         // Dernier appel pour ce flux : on libère la référence.
         MediaPacketKind::Closed => unsafe { drop(Box::from_raw(handler)) },
-        MediaPacketKind::Codec => unsafe { (*handler).packet(Packet::Codec { codec: p.codec }) },
+        MediaPacketKind::Codec => unsafe { (*handler).packet_from(source, Packet::Codec { codec: p.codec }) },
         MediaPacketKind::Hole => unsafe {
-            (*handler).packet(Packet::Hole {
+            (*handler).packet_from(source, Packet::Hole {
                 missing_samples: p.missing_samples,
             })
         },
@@ -57,7 +67,7 @@ extern "C" fn trampoline(packet: *const MediaPacket, userdata: *mut c_void) {
                 unsafe { std::slice::from_raw_parts(p.data, p.len) }
             };
             unsafe {
-                (*handler).packet(Packet::Media {
+                (*handler).packet_from(source, Packet::Media {
                     is_config: p.is_config,
                     is_key: p.is_key,
                     pts: p.pts,

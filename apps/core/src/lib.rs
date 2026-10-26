@@ -12,6 +12,7 @@ pub mod input;
 pub mod latency;
 pub mod media;
 pub mod profile;
+pub mod screens;
 pub mod session;
 pub mod update;
 pub mod wake;

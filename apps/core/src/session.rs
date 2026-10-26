@@ -5,7 +5,9 @@
 //! de l'écran de l'ordinateur suivie, politique de mode (« Remettre »),
 //! adaptation à un nouveau mode de l'écran de l'appareil ; en dernier
 //! recours, la Station redémarrée pendant la connexion (voir
-//! [`Recovery::restart_station`]).
+//! [`Recovery::restart_station`]). Multi-écrans
+//! ([`Session::start_with_screens`], docs/multi-ecrans.md) : un écran
+//! virtuel par écran de l'appareil, une entrée vidéo par écran.
 //!
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
 //! et les demandes de l'app lui arrivent par un canal.
@@ -28,12 +30,13 @@ use log::{info, warn};
 
 use crate::console::{
     Console, ConsoleError, DeviceInfo, Heartbeat, HeartbeatReply, Mode, PrepareRequest, Prepared,
-    StationError,
+    ScreenMode, StationError,
 };
 use crate::i18n::{self, Lang};
 use crate::latency::{LatencyTracker, Second};
-use crate::media::{PacketHandler, packet_sink};
+use crate::media::{Packet, PacketHandler, packet_sink};
 use crate::profile::StreamSettings;
+use crate::screens::{self, PlannedScreen, Screens};
 
 /// Reprise de l'image par le cœur (apps Apple, Android, Linux, webOS). Par
 /// défaut (Windows), la plateforme tient elle-même ses veilles et appelle
@@ -135,6 +138,22 @@ pub enum Notice {
     RestoreOffer { mode: Option<Mode> },
 }
 
+/// Multi-écrans : un écran de l'ordinateur pris par la session, et l'écran
+/// de l'appareil auquel il va.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StreamScreen {
+    /// Index de l'écran de l'appareil dans [`Screens::list`].
+    pub screen: usize,
+    /// L'écran de l'ordinateur tel que Kyber l'annonce : `id` (le
+    /// `display_id` des positions de souris et du pointeur), taille en pixels
+    /// (repère des entrées de cet écran), position sur le bureau de Windows.
+    pub display: Display,
+    /// Fréquence de l'écran virtuel (appliquée par la Station).
+    pub refresh: u32,
+    /// L'écran principal de Windows (le premier de la liste).
+    pub primary: bool,
+}
+
 /// Ce que la plateforme fournit et reçoit (fenêtre, décodeurs, entrées).
 pub trait Platform: Send + Sync {
     fn window_handle(&self) -> WindowHandle;
@@ -164,6 +183,49 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+
+    // Multi-écrans ([`Session::start_with_screens`]) : rien à faire pour une
+    // app qui n'ouvre que des sessions à un écran.
+
+    /// Le gestionnaire des paquets d'image de l'écran `screen` de l'appareil
+    /// (index dans [`Screens::list`]) : un par flux, comme `video_handler`.
+    fn screen_video_handler(&self, _screen: usize) -> Arc<dyn PacketHandler> {
+        self.video_handler()
+    }
+    /// Les écrans pris par la session, principal en premier, chacun avec son
+    /// écran de l'appareil : à chaque démarrage de l'image (après
+    /// [`Self::on_display`], qui donne toujours l'écran principal, et avant
+    /// [`Self::input_pipeline`]), et quand la taille de l'un d'eux change.
+    /// Un seul écran si la Station n'en gère qu'un.
+    fn on_screens(&self, _screens: &[StreamScreen]) {}
+}
+
+/// Paquets d'un écran d'une session à plusieurs écrans : note les premières
+/// données du flux (une image clé ne se demande jamais avant, voir
+/// `Worker::request_keyframe`).
+struct ScreenSink {
+    inner: Arc<dyn PacketHandler>,
+    first_data: Arc<AtomicBool>,
+}
+
+impl ScreenSink {
+    fn note(&self, packet: &Packet<'_>) {
+        if matches!(packet, Packet::Media { .. }) && !self.first_data.load(Ordering::Relaxed) {
+            self.first_data.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+impl PacketHandler for ScreenSink {
+    fn packet(&self, packet: Packet<'_>) {
+        self.note(&packet);
+        self.inner.packet(packet);
+    }
+
+    fn packet_from(&self, source_id: u32, packet: Packet<'_>) {
+        self.note(&packet);
+        self.inner.packet_from(source_id, packet);
+    }
 }
 
 enum Msg {
@@ -186,10 +248,13 @@ enum Msg {
     PickDisplay(u32),
     /// Nouveau mode pour l'écran de l'ordinateur (écran de l'appareil changé).
     SetMode(Mode),
+    /// Multi-écrans : les écrans de l'appareil ont changé.
+    SetScreens(Screens),
     /// « Remettre » : le mode du départ redemandé à la console.
     RestoreMode,
-    /// Réponses de la console, depuis un fil d'appel.
-    Adapted(Mode, Result<Prepared, String>),
+    /// Réponses de la console, depuis un fil d'appel (avec les nouveaux
+    /// écrans de l'appareil et leur plan quand ce sont eux qui ont changé).
+    Adapted(Mode, Option<(Screens, Vec<PlannedScreen>)>, Result<Prepared, String>),
     ModeRestored,
 }
 
@@ -373,6 +438,51 @@ fn after_restart(f: Failure) -> Failure {
     }
 }
 
+/// Écrans en place d'après la réponse de la Station : pour chaque écran du
+/// plan créé (même ordre que la demande), l'écran de l'appareil et ce qui est
+/// appliqué. Vide sans multi-écrans, avec une Station qui ne gère qu'un écran
+/// (pas de `screens` dans la réponse), ou si l'écran principal manque.
+fn targets(plan: &[PlannedScreen], prepared: &Prepared) -> Vec<(usize, ScreenMode)> {
+    if plan.len() < 2 {
+        return Vec::new();
+    }
+    let Some(list) = &prepared.screens else { return Vec::new() };
+    let out: Vec<(usize, ScreenMode)> =
+        list.iter().zip(plan).filter_map(|(m, p)| m.map(|m| (p.device, ScreenMode { primary: p.primary, ..m }))).collect();
+    if out.iter().any(|(_, m)| m.primary) { out } else { Vec::new() }
+}
+
+/// Multi-écrans : chaque écran en place retrouvé dans la liste de Kyber par
+/// sa position et sa taille (à défaut, par sa taille seule si un seul écran
+/// libre l'a), principal en premier ; ceux qui n'y sont pas encore manquent.
+fn match_screens(targets: &[(usize, ScreenMode)], displays: &[Display]) -> Vec<StreamScreen> {
+    let list: Vec<&Display> = displays.iter().filter(|d| usable(d)).collect();
+    let mut used: Vec<u32> = Vec::new();
+    let mut found: Vec<Option<StreamScreen>> = vec![None; targets.len()];
+    let screen = |device: usize, m: &ScreenMode, d: &Display| StreamScreen { screen: device, display: d.clone(), refresh: m.refresh, primary: m.primary };
+    for (k, (device, m)) in targets.iter().enumerate() {
+        if let Some(d) =
+            list.iter().find(|d| !used.contains(&d.id) && d.x == m.x && d.y == m.y && d.width as u32 == m.width && d.height as u32 == m.height)
+        {
+            used.push(d.id);
+            found[k] = Some(screen(*device, m, d));
+        }
+    }
+    for (k, (device, m)) in targets.iter().enumerate() {
+        if found[k].is_some() {
+            continue;
+        }
+        let same: Vec<&&Display> = list.iter().filter(|d| !used.contains(&d.id) && d.width as u32 == m.width && d.height as u32 == m.height).collect();
+        if let [d] = same.as_slice() {
+            used.push(d.id);
+            found[k] = Some(screen(*device, m, d));
+        }
+    }
+    let mut out: Vec<StreamScreen> = found.into_iter().flatten().collect();
+    out.sort_by_key(|s| !s.primary);
+    out
+}
+
 pub struct Session {
     tx: Mutex<Sender<Msg>>,
     latency: Arc<LatencyTracker>,
@@ -382,12 +492,29 @@ pub struct Session {
 }
 
 impl Session {
+    /// Une session à un écran (celui de `params.mode`).
     pub fn start(params: SessionParams, platform: Arc<dyn Platform>) -> Arc<Session> {
+        Self::launch(params, None, platform)
+    }
+
+    /// Une session qui prend les écrans de l'appareil (docs/multi-ecrans.md) :
+    /// un écran virtuel par écran (quatre au plus, disposés comme sur
+    /// l'appareil, voir [`crate::screens::plan`]), une entrée vidéo par écran.
+    /// `params.mode` décrit l'écran principal, comme pour une session à un
+    /// écran (il est remplacé par celui du plan). La plateforme reçoit les
+    /// écrans pris par [`Platform::on_screens`] et les paquets de chacun par
+    /// [`Platform::screen_video_handler`] ; avec une Station qui ne gère qu'un
+    /// écran, la session se fait sur l'écran principal, de la même façon.
+    pub fn start_with_screens(params: SessionParams, screens: Screens, platform: Arc<dyn Platform>) -> Arc<Session> {
+        Self::launch(params, Some(screens), platform)
+    }
+
+    fn launch(params: SessionParams, screens: Option<Screens>, platform: Arc<dyn Platform>) -> Arc<Session> {
         let (tx, rx) = mpsc::channel();
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));
         let hidden = Arc::new(AtomicBool::new(false));
-        let worker = Worker::new(params, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone());
+        let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone());
         let guard_platform = worker.platform.clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-session".into())
@@ -484,8 +611,17 @@ impl Session {
         self.send(Msg::RestoreMode);
     }
 
+    /// Multi-écrans : les écrans de l'appareil ont changé (branché,
+    /// débranché, disposition ou recopie changée) : la session se refait
+    /// avec eux, sans revenir à l'accueil (sans effet si le plan est le
+    /// même, ni sur une session ouverte par [`Self::start`]).
+    pub fn set_screens(&self, screens: Screens) {
+        self.send(Msg::SetScreens(screens));
+    }
+
     /// Image `pts` reçue, décodée puis montrée (µs, horloge
     /// [`crate::latency::now_micros`]) : latence, et première image du flux.
+    /// Multi-écrans : seulement pour l'écran principal.
     pub fn frame_displayed(&self, pts: u64, received: i64, decoded: i64, at: i64) {
         self.has_image.store(true, Ordering::Relaxed);
         self.latency.frame_displayed(pts, received, decoded, at);
@@ -581,6 +717,20 @@ struct Worker {
     /// Fin déjà dite à Admin avant le redémarrage de la Station, quand la
     /// session s'arrête là (refus, retard, annulation).
     end_report: Option<EndReport>,
+    /// Multi-écrans : les écrans de l'appareil (`None` : session à un écran,
+    /// API d'avant) et les écrans virtuels à demander (le principal en
+    /// premier ; `screens` n'est envoyé qu'à partir de deux).
+    screens: Option<Screens>,
+    plan: Vec<PlannedScreen>,
+    /// Écrans en place d'après la Station : écran de l'appareil, mode et
+    /// position (vide : Station à un écran, ou pas de multi-écrans).
+    targets: Vec<(usize, ScreenMode)>,
+    /// Écrans du flux en cours (principal en premier) et leurs premières données.
+    streams: Vec<StreamScreen>,
+    first_data: Vec<Arc<AtomicBool>>,
+    keyframe_held_logged: bool,
+    /// Écrans de l'appareil arrivés pendant une adaptation.
+    pending_screens: Option<Screens>,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -593,8 +743,10 @@ fn usable(d: &Display) -> bool {
 }
 
 impl Worker {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         params: SessionParams,
+        screens: Option<Screens>,
         platform: Arc<dyn Platform>,
         tx: Sender<Msg>,
         rx: Receiver<Msg>,
@@ -603,9 +755,12 @@ impl Worker {
         hidden: Arc<AtomicBool>,
     ) -> Self {
         let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
+        let plan = screens.as_ref().map(|s| screens::plan(s, params.settings.codec)).unwrap_or_default();
+        // Le mode de l'écran principal, d'après le plan.
+        let mode = plan.first().map_or(params.mode, |p| p.mode);
         Worker {
-            requested: params.mode,
-            stream_mode: params.mode,
+            requested: mode,
+            stream_mode: mode,
             device_id: params.device.id.clone(),
             params,
             platform,
@@ -654,6 +809,13 @@ impl Worker {
             end_requested: false,
             station_restarted: false,
             end_report: None,
+            screens,
+            plan,
+            targets: Vec::new(),
+            streams: Vec::new(),
+            first_data: Vec::new(),
+            keyframe_held_logged: false,
+            pending_screens: None,
         }
     }
 
@@ -764,6 +926,7 @@ impl Worker {
         let rx = std::mem::replace(&mut self.rx, mpsc::channel().1);
         let mut next = Worker::new(
             self.params.clone(),
+            self.screens.clone(),
             self.platform.clone(),
             self.tx.clone(),
             rx,
@@ -787,6 +950,12 @@ impl Worker {
     }
 
     fn prepare_request(&self, mode: Mode, mode_policy: Option<&str>) -> PrepareRequest {
+        self.prepare_request_with(mode, mode_policy, &self.plan)
+    }
+
+    /// `plan` : les écrans virtuels demandés (le champ `screens` n'est envoyé
+    /// qu'à partir de deux ; `mode` est alors celui du principal).
+    fn prepare_request_with(&self, mode: Mode, mode_policy: Option<&str>, plan: &[PlannedScreen]) -> PrepareRequest {
         let p = &self.params;
         // Un seul verrou : le prendre deux fois dans la même expression bloquait le fil.
         let (label, policy) = self.profile_label.lock().unwrap().clone();
@@ -799,6 +968,7 @@ impl Worker {
             device: p.device.clone(),
             profile: Some(label),
             mode_policy: Some(mode_policy.map_or(policy, str::to_string)),
+            screens: (plan.len() > 1).then(|| plan.iter().map(PlannedScreen::request).collect()),
         }
     }
 
@@ -822,7 +992,25 @@ impl Worker {
             self.stream_mode = self.requested;
         }
         self.platform.on_mode(self.stream_mode, prepared.virtual_display);
+        self.targets = targets(&self.plan, &prepared);
+        if self.plan.len() > 1 {
+            match &prepared.screens {
+                None => info!("la Station ne gère qu'un écran : session sur l'écran principal"),
+                Some(_) if self.targets.is_empty() => warn!("la Station n'a pas créé l'écran principal : session à un écran"),
+                Some(list) => info!("écrans en place : {} sur {} ({:?})", self.targets.len(), list.len(), self.targets),
+            }
+        }
         self.prepared = Some(prepared);
+    }
+
+    /// Session ouverte par [`Session::start_with_screens`].
+    fn multi(&self) -> bool {
+        self.screens.is_some()
+    }
+
+    /// L'écran principal de l'appareil (index dans [`Screens::list`]).
+    fn primary_screen(&self) -> usize {
+        self.plan.first().map_or(0, |p| p.device)
     }
 
     /// Mode obtenu de la console au début de la session (ou après une adaptation).
@@ -967,9 +1155,23 @@ impl Worker {
         s
     }
 
-    fn effective_bitrate(&self) -> u32 {
+    /// Débit du profil pour le flux en cours : sur la somme des pixels par
+    /// seconde des écrans quand il y en a plusieurs.
+    fn profile_bitrate(&self) -> u32 {
+        if self.streams.len() > 1 {
+            let rate: f64 = self
+                .streams
+                .iter()
+                .map(|s| f64::from(s.display.width.max(0)) * f64::from(s.display.height.max(0)) * f64::from(s.refresh.max(1)))
+                .sum();
+            return self.params.settings.bitrate_for_pixel_rate(rate);
+        }
         let m = self.stream_mode;
-        let mut b = self.params.settings.bitrate(m.width, m.height, m.refresh);
+        self.params.settings.bitrate(m.width, m.height, m.refresh)
+    }
+
+    fn effective_bitrate(&self) -> u32 {
+        let mut b = self.profile_bitrate();
         if self.fallback >= 1 {
             if let Some(cap) = self.params.recovery.fallback_bitrate {
                 b = b.min(cap);
@@ -1038,7 +1240,8 @@ impl Worker {
                     }
                 }
                 Ok(Msg::SetMode(mode)) => self.adapt(mode),
-                Ok(Msg::Adapted(mode, result)) => self.adapted(mode, result),
+                Ok(Msg::SetScreens(screens)) => self.change_screens(screens),
+                Ok(Msg::Adapted(mode, screens, result)) => self.adapted(mode, screens, result),
                 Ok(Msg::RestoreMode) => self.start_restore_mode(),
                 Ok(Msg::ModeRestored) => {
                     self.mode_restoring = false;
@@ -1099,6 +1302,19 @@ impl Worker {
     }
 
     fn request_keyframe(&mut self) {
+        // Plusieurs flux : Kyber demande l'image clé à tous à la fois, et une
+        // demande avant les premières données d'un flux laisse son encodeur
+        // muet. On attend donc que chacun ait reçu quelque chose (il commence
+        // par une image clé) ; la veille redemande toutes les 300 ms.
+        if self.streams.len() > 1
+            && let Some(i) = self.first_data.iter().position(|f| !f.load(Ordering::Relaxed))
+        {
+            if !self.keyframe_held_logged {
+                self.keyframe_held_logged = true;
+                info!("image clé pas encore demandée : l'écran {} n'a encore rien reçu", self.streams[i].screen);
+            }
+            return;
+        }
         if let Some(c) = &self.client {
             self.latency.keyframe_requested();
             let _ = c.request_keyframe();
@@ -1148,10 +1364,9 @@ impl Worker {
     /// n'y a plus rien à alléger.
     fn degrade(&mut self) -> bool {
         let Some(cap) = self.params.recovery.fallback_bitrate else { return false };
-        let m = self.stream_mode;
         let mut next = self.fallback + 1;
         // Cran sans effet (débit déjà bas) : on passe au suivant.
-        if next == 1 && self.params.settings.bitrate(m.width, m.height, m.refresh) <= cap {
+        if next == 1 && self.profile_bitrate() <= cap {
             next = 2;
         }
         if next == 2 && !self.params.settings.yuv444 {
@@ -1354,6 +1569,10 @@ impl Worker {
     /// repart dessus comme après une reconnexion.
     fn adapt(&mut self, mode: Mode) {
         let Some(console) = self.console.clone() else { return };
+        if self.multi() {
+            info!("multi-écrans : un nouveau mode passe par la liste des écrans (set_screens)");
+            return;
+        }
         if self.adapting || self.streaming.is_none() || !self.virtual_display() {
             return;
         }
@@ -1371,15 +1590,67 @@ impl Worker {
             .name("kybernow-prepare".into())
             .spawn(move || {
                 let r = console.prepare(&req).map_err(|e| e.to_string());
-                let _ = tx.send(Msg::Adapted(mode, r));
+                let _ = tx.send(Msg::Adapted(mode, None, r));
             })
             .expect("fil de préparation");
     }
 
-    fn adapted(&mut self, mode: Mode, result: Result<Prepared, String>) {
+    /// Multi-écrans : les écrans de l'appareil ont changé. La console refait
+    /// les écrans virtuels d'après le nouveau plan (sur un fil d'appel), puis
+    /// l'image repart dessus, comme pour une adaptation.
+    fn change_screens(&mut self, screens: Screens) {
+        if !self.multi() {
+            info!("écrans de l'appareil donnés à une session à un écran : ignorés");
+            return;
+        }
+        if self.adapting {
+            self.pending_screens = Some(screens);
+            return;
+        }
+        let plan = screens::plan(&screens, self.params.settings.codec);
+        if plan.is_empty() || plan == self.plan {
+            self.screens = Some(screens);
+            return;
+        }
+        let mode = plan[0].mode;
+        let Some(console) = self.console.clone() else { return };
+        if !self.virtual_display() {
+            // Sans écran virtuel, seul l'écran principal compte : l'image
+            // repart vers le nouvel écran principal de l'appareil.
+            info!("écrans de l'appareil changés (sans écran virtuel) : image relancée");
+            let moved = plan[0].device != self.primary_screen();
+            self.screens = Some(screens);
+            self.plan = plan;
+            if moved && self.streaming.is_some() {
+                self.restart_streaming(Duration::from_millis(300));
+            }
+            return;
+        }
+        info!("écrans de l'appareil changés : {} écran(s), la session se refait", plan.len());
+        self.notice(Notice::Adapting { width: mode.width, height: mode.height });
+        self.stop_streaming();
+        self.start_at = None;
+        self.adapting = true;
+        self.last_restore = Some(Instant::now());
+        let req = self.prepare_request_with(mode, None, &plan);
+        let tx = self.tx.clone();
+        std::thread::Builder::new()
+            .name("kybernow-prepare".into())
+            .spawn(move || {
+                let r = console.prepare(&req).map_err(|e| e.to_string());
+                let _ = tx.send(Msg::Adapted(mode, Some((screens, plan)), r));
+            })
+            .expect("fil de préparation");
+    }
+
+    fn adapted(&mut self, mode: Mode, screens: Option<(Screens, Vec<PlannedScreen>)>, result: Result<Prepared, String>) {
         self.adapting = false;
         match result {
             Ok(p) => {
+                if let Some((s, plan)) = screens {
+                    self.screens = Some(s);
+                    self.plan = plan;
+                }
                 self.requested = mode;
                 self.apply_prepared(p);
                 let m = self.stream_mode;
@@ -1395,6 +1666,9 @@ impl Worker {
         // Kyber annonce l'écran recréé quelques instants après la console.
         self.wait_until = Some(Instant::now() + Duration::from_secs(6));
         self.choose_display(false);
+        if let Some(next) = self.pending_screens.take() {
+            self.change_screens(next);
+        }
     }
 
     /// « Remettre » : la console remet le mode demandé au début de la session.
@@ -1494,6 +1768,12 @@ impl Worker {
             d.height = height as i32;
             let d = d.clone();
             self.platform.on_display(&d);
+            if let Some(first) = self.streams.first_mut() {
+                first.display = d;
+                if self.multi() {
+                    self.platform.on_screens(&self.streams);
+                }
+            }
         }
         self.platform.on_mode(self.stream_mode, self.virtual_display());
         self.apply_bitrate();
@@ -1511,6 +1791,7 @@ impl Worker {
                 Some(d) if usable(d) => {
                     let d = d.clone();
                     self.display_resized(d.width as u32, d.height as u32);
+                    self.secondary_displays_changed();
                 }
                 _ => {
                     // Écran affiché disparu : l'image repart sur un autre.
@@ -1522,8 +1803,53 @@ impl Worker {
         }
     }
 
+    /// Multi-écrans : les autres écrans du flux dans la liste à jour de Kyber.
+    /// Un écran disparu relance l'image (sur les écrans qui restent) ; un
+    /// écran d'une autre taille est redonné à la plateforme (repère des entrées).
+    fn secondary_displays_changed(&mut self) {
+        // Un écran en place annoncé après le démarrage de l'image (Kyber en
+        // retard sur le délai) : l'image repart sur tous.
+        if !self.targets.is_empty() && self.streams.len() < self.targets.len() && self.matched_screens().len() == self.targets.len() {
+            info!("tous les écrans de la session sont annoncés : image relancée sur chacun");
+            self.restart_streaming(Duration::from_millis(300));
+            return;
+        }
+        if self.streams.len() < 2 {
+            return;
+        }
+        let mut changed = false;
+        for k in 1..self.streams.len() {
+            let id = self.streams[k].display.id;
+            match self.displays.iter().find(|d| d.id == id) {
+                Some(d) if usable(d) => {
+                    let s = &mut self.streams[k];
+                    if (s.display.width, s.display.height) != (d.width, d.height) {
+                        info!("écran {} de l'ordinateur : {}×{} → {}×{}", s.screen, s.display.width, s.display.height, d.width, d.height);
+                        s.display = d.clone();
+                        changed = true;
+                    }
+                }
+                _ => {
+                    info!("un écran de la session a disparu de la liste de Kyber : image relancée");
+                    self.restart_streaming(Duration::from_millis(300));
+                    return;
+                }
+            }
+        }
+        if changed {
+            self.platform.on_screens(&self.streams);
+            self.apply_bitrate();
+        }
+    }
+
+    fn matched_screens(&self) -> Vec<StreamScreen> {
+        match_screens(&self.targets, &self.displays)
+    }
+
     /// Avec l'écran virtuel, attend (6 s au plus) que Kyber n'annonce plus que
-    /// lui, puis démarre l'image sur le meilleur écran.
+    /// lui, puis démarre l'image sur le meilleur écran. Multi-écrans : attend
+    /// (même délai) que Kyber annonce tous les écrans en place, puis démarre
+    /// l'image sur ceux qui sont là.
     fn choose_display(&mut self, deadline_passed: bool) {
         if self.adapting {
             return;
@@ -1538,6 +1864,26 @@ impl Worker {
             } else if deadline_passed {
                 self.wait_until = None;
                 let _ = self.tx.send(Msg::Fail(Failure::no_image(t("session.no_display", &[]))));
+            }
+            return;
+        }
+        if !self.targets.is_empty() {
+            let found = self.matched_screens();
+            if found.len() < self.targets.len() && !deadline_passed {
+                if self.wait_until.is_none() {
+                    self.wait_until = Some(Instant::now() + Duration::from_secs(6));
+                }
+                return;
+            }
+            self.wait_until = None;
+            if found.first().is_some_and(|s| s.primary) {
+                if found.len() < self.targets.len() {
+                    warn!("{} écran(s) sur {} annoncé(s) par Kyber : image sur ceux-là", found.len(), self.targets.len());
+                }
+                self.start_streams(found);
+            } else if let Some(d) = self.best_display() {
+                warn!("écran principal introuvable dans la liste de Kyber : image sur un écran");
+                self.start_streaming(d);
             }
             return;
         }
@@ -1589,15 +1935,35 @@ impl Worker {
             .map(|d| (*d).clone())
     }
 
+    /// Image sur un écran de l'ordinateur (session à un écran, ou Station
+    /// qui n'en gère qu'un : l'écran principal de l'appareil).
     fn start_streaming(&mut self, display: Display) {
+        let screen = StreamScreen { screen: self.primary_screen(), display, refresh: self.stream_mode.refresh, primary: true };
+        self.start_streams(vec![screen]);
+    }
+
+    /// Image sur ces écrans de l'ordinateur, le principal en premier : une
+    /// entrée vidéo par écran dans la session de Kyber.
+    fn start_streams(&mut self, screens: Vec<StreamScreen>) {
         let Some(client) = self.client.clone() else { return };
+        let Some(display) = screens.first().map(|s| s.display.clone()) else { return };
         let s = self.effective();
         self.host_size = (display.width as u32, display.height as u32);
         self.list_size = self.host_size;
         self.frame_size = None;
         self.stream_mode.width = self.host_size.0;
         self.stream_mode.height = self.host_size.1;
+        self.streams = screens;
+        self.first_data = self.streams.iter().map(|_| Arc::new(AtomicBool::new(false))).collect();
+        self.keyframe_held_logged = false;
         let bitrate = self.effective_bitrate();
+        if self.streams.len() > 1 {
+            let others: Vec<String> = self.streams[1..]
+                .iter()
+                .map(|s| format!("écran {} ({}×{} à {} Hz, en {},{})", s.display.id, s.display.width, s.display.height, s.refresh, s.display.x, s.display.y))
+                .collect();
+            info!("image sur {} écrans : principal {}, puis {}", self.streams.len(), display.id, others.join(", "));
+        }
         info!(
             "image : écran {} ({}×{}), {} {}, {} Mbit/s, {}{}",
             display.id,
@@ -1620,7 +1986,36 @@ impl Worker {
             None
         };
         self.platform.on_display(&display);
+        let multi = self.multi();
+        if multi {
+            self.platform.on_screens(&self.streams);
+        }
         let pipeline = self.platform.input_pipeline();
+        let window_handle = self.platform.window_handle();
+        let video: Vec<VideoSessionConfig> = self
+            .streams
+            .iter()
+            .zip(&self.first_data)
+            .map(|(screen, first_data)| {
+                let handler: Arc<dyn PacketHandler> = if multi {
+                    Arc::new(ScreenSink { inner: self.platform.screen_video_handler(screen.screen), first_data: first_data.clone() })
+                } else {
+                    self.platform.video_handler()
+                };
+                VideoSessionConfig {
+                    display_id: screen.display.id,
+                    codec: s.codec.kyber(),
+                    yuv444: s.yuv444,
+                    intra_refresh: None,
+                    player: VideoPlayerConfig {
+                        window_handle,
+                        software_decode: false,
+                        video_buffer: 0,
+                        packet_sink: Some(packet_sink(handler)),
+                    },
+                }
+            })
+            .collect();
         let config = StreamingSessionConfig {
             protocol: StreamingProtocol::Kymux(KymuxConfig::KyProto(KyProtoConfig {
                 video_protocol: if s.reliable {
@@ -1631,18 +2026,7 @@ impl Worker {
                 audio_protocol: AudioProtocol::UnreliableFec,
             })),
             bitrate,
-            video: vec![VideoSessionConfig {
-                display_id: display.id,
-                codec: s.codec.kyber(),
-                yuv444: s.yuv444,
-                intra_refresh: None,
-                player: VideoPlayerConfig {
-                    window_handle: self.platform.window_handle(),
-                    software_decode: false,
-                    video_buffer: 0,
-                    packet_sink: Some(packet_sink(self.platform.video_handler())),
-                },
-            }],
+            video,
             audio,
             input: Some(InputSessionConfig {
                 pipeline: pipeline.clone(),
@@ -1674,6 +2058,8 @@ impl Worker {
         if self.streaming.take().is_some() || self.pipeline.is_some() {
             self.platform.on_stream_stopped();
         }
+        self.streams.clear();
+        self.first_data.clear();
         self.keyframe = None;
         self.image_deadline = None;
     }
@@ -1911,6 +2297,100 @@ mod tests {
         );
         assert!(i18n::tr(Lang::Fr, "session.station_not_back", &[]).starts_with("la Station tarde à revenir"));
         assert!(i18n::tr(Lang::En, "session.station_not_back", &[]).starts_with("the Station is taking a while"));
+    }
+
+    fn planned(device: usize, w: u32, h: u32, hz: u32, x: i32, y: i32, primary: bool) -> PlannedScreen {
+        PlannedScreen { device, mode: Mode { width: w, height: h, refresh: hz }, x, y, primary }
+    }
+
+    fn prepared(screens: Option<Vec<Option<ScreenMode>>>) -> Prepared {
+        Prepared {
+            virtual_display: true,
+            applied: Some(Mode { width: 3840, height: 2160, refresh: 160 }),
+            audio_channels: None,
+            kyber_port: None,
+            heartbeat_seconds: 5,
+            kyber_fingerprint: None,
+            screens,
+        }
+    }
+
+    fn display(id: u32, x: i32, y: i32, width: i32, height: i32) -> Display {
+        Display { id, x, y, width, height }
+    }
+
+    /// Le plan du Mac de l'auteur : XG32UQ principal (écran 1 de l'appareil),
+    /// MacBook Pro à gauche (0), Studio Display à droite (2).
+    fn plan_auteur() -> Vec<PlannedScreen> {
+        vec![
+            planned(1, 3840, 2160, 160, 0, 0, true),
+            planned(0, 3456, 2234, 60, -3456, 600, false),
+            planned(2, 5120, 2880, 60, 3840, 0, false),
+        ]
+    }
+
+    #[test]
+    fn ecrans_en_place_d_apres_la_station() {
+        let plan = plan_auteur();
+        let applied: Vec<Option<ScreenMode>> = plan.iter().map(|p| Some(p.request())).collect();
+        let t = targets(&plan, &prepared(Some(applied.clone())));
+        assert_eq!(t.iter().map(|(d, _)| *d).collect::<Vec<_>>(), [1, 0, 2], "ordre de la demande, écran de l'appareil");
+        assert!(t[0].1.primary);
+        // Un écran que la Station n'a pas pu créer : les autres restent.
+        let mut partial = applied.clone();
+        partial[1] = None;
+        assert_eq!(targets(&plan, &prepared(Some(partial))).iter().map(|(d, _)| *d).collect::<Vec<_>>(), [1, 2]);
+        // Station qui ne gère qu'un écran (pas de `screens`) : session à un écran.
+        assert!(targets(&plan, &prepared(None)).is_empty());
+        // Sans écran principal : session à un écran.
+        let mut no_primary = applied;
+        no_primary[0] = None;
+        assert!(targets(&plan, &prepared(Some(no_primary))).is_empty());
+        // Un seul écran demandé : pas de multi-écrans.
+        assert!(targets(&plan[..1], &prepared(Some(vec![Some(plan[0].request())]))).is_empty());
+    }
+
+    #[test]
+    fn ecrans_retrouves_chez_kyber() {
+        let plan = plan_auteur();
+        let t = targets(&plan, &prepared(Some(plan.iter().map(|p| Some(p.request())).collect())));
+        // Kyber annonce les écrans dans un autre ordre, avec un écran 0 × 0 en plus.
+        let kyber = vec![display(7, 3840, 0, 5120, 2880), display(9, 0, 0, 0, 0), display(5, -3456, 600, 3456, 2234), display(3, 0, 0, 3840, 2160)];
+        let m = match_screens(&t, &kyber);
+        assert_eq!(m.iter().map(|s| (s.screen, s.display.id, s.refresh, s.primary)).collect::<Vec<_>>(), [(1, 3, 160, true), (0, 5, 60, false), (2, 7, 60, false)]);
+        // Pas encore tous annoncés : ceux qui sont là.
+        let m = match_screens(&t, &kyber[..2]);
+        assert_eq!(m.iter().map(|s| s.display.id).collect::<Vec<_>>(), [7]);
+        // Position différente mais taille unique : retrouvé par la taille.
+        let moved = vec![display(3, 0, 0, 3840, 2160), display(5, -3456, 0, 3456, 2234), display(7, 3840, 0, 5120, 2880)];
+        assert_eq!(match_screens(&t, &moved).len(), 3);
+        // Deux écrans libres de la même taille : pas de devinette.
+        let twins = vec![
+            planned(0, 1920, 1080, 60, 0, 0, true),
+            planned(1, 1920, 1080, 60, 1920, 0, false),
+            planned(2, 1920, 1080, 60, -1920, 0, false),
+        ];
+        let t = targets(&twins, &prepared(Some(twins.iter().map(|p| Some(p.request())).collect())));
+        let kyber = vec![display(1, 0, 0, 1920, 1080), display(2, 1920, 50, 1920, 1080), display(3, -1920, 50, 1920, 1080)];
+        assert_eq!(match_screens(&t, &kyber).iter().map(|s| s.display.id).collect::<Vec<_>>(), [1]);
+    }
+
+    #[test]
+    fn premieres_donnees_notees_par_ecran() {
+        struct Count(AtomicUsize);
+        impl PacketHandler for Count {
+            fn packet(&self, _: Packet<'_>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let inner = Arc::new(Count(AtomicUsize::new(0)));
+        let flag = Arc::new(AtomicBool::new(false));
+        let sink = ScreenSink { inner: inner.clone(), first_data: flag.clone() };
+        sink.packet_from(4, Packet::Codec { codec: crate::media::FOURCC_HEVC });
+        assert!(!flag.load(Ordering::SeqCst), "le format n'est pas une donnée");
+        sink.packet_from(4, Packet::Media { is_config: true, is_key: false, pts: 0, data: &[0, 0, 1] });
+        assert!(flag.load(Ordering::SeqCst));
+        assert_eq!(inner.0.load(Ordering::SeqCst), 2, "tout passe à la plateforme");
     }
 
     #[test]

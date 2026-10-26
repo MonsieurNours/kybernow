@@ -26,7 +26,8 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
 use kybernow_core::profile::{Codec, Profile, StreamSettings};
-use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status};
+use kybernow_core::screens::{self, Screens};
+use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status, StreamScreen};
 use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
 
@@ -458,6 +459,10 @@ pub struct KnPacket {
     pub data: *const u8,
     pub len: usize,
     pub missing_samples: u32,
+    /// Multi-écrans (`screens` dans `kn_session_start`) : index de l'écran de
+    /// l'appareil auquel va ce flux d'image (dans `screens.list`) ; 0 sinon,
+    /// et pour le son.
+    pub screen: u32,
 }
 
 pub type KnPacketCb = Option<unsafe extern "C" fn(userdata: *mut c_void, packet: *const KnPacket)>;
@@ -468,6 +473,7 @@ struct Sink {
     cb: unsafe extern "C" fn(*mut c_void, *const KnPacket),
     userdata: *mut c_void,
     stream: u64,
+    screen: u32,
 }
 
 unsafe impl Send for Sink {}
@@ -485,6 +491,7 @@ impl Sink {
             data: std::ptr::null(),
             len: 0,
             missing_samples: 0,
+            screen: self.screen,
         }
     }
 }
@@ -543,6 +550,27 @@ pub struct KnMode {
 impl From<Mode> for KnMode {
     fn from(m: Mode) -> Self {
         Self { width: m.width, height: m.height, refresh: m.refresh }
+    }
+}
+
+/// Multi-écrans : un écran de l'ordinateur pris par la session (`on_screens`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KnStreamScreen {
+    /// Index de l'écran de l'appareil (dans `screens.list` de `kn_session_start`).
+    pub screen: u32,
+    /// L'écran de l'ordinateur : `id` (pour `kn_input_set_screens`), taille
+    /// en pixels (repère des positions de cet écran), position sur le bureau.
+    pub display: KnDisplay,
+    /// Fréquence de l'écran virtuel.
+    pub refresh: u32,
+    /// L'écran principal de Windows (toujours le premier).
+    pub primary: bool,
+}
+
+impl From<&StreamScreen> for KnStreamScreen {
+    fn from(s: &StreamScreen) -> Self {
+        Self { screen: s.screen as u32, display: KnDisplay::from(&s.display), refresh: s.refresh, primary: s.primary }
     }
 }
 
@@ -680,6 +708,11 @@ pub struct KnPlatform {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     pub on_game_fullscreen: Option<unsafe extern "C" fn(userdata: *mut c_void, game: bool)>,
     pub on_notice: Option<unsafe extern "C" fn(userdata: *mut c_void, notice: *const KnNotice)>,
+    /// Multi-écrans : les écrans pris par la session, principal en premier
+    /// (après `on_display`, avant `input_pipeline`, à chaque démarrage de
+    /// l'image ; et quand la taille de l'un d'eux change). Un seul si la
+    /// Station n'en gère qu'un.
+    pub on_screens: Option<unsafe extern "C" fn(userdata: *mut c_void, screens: *const KnStreamScreen, count: usize)>,
 }
 
 struct ApplePlatform {
@@ -691,10 +724,10 @@ unsafe impl Send for ApplePlatform {}
 unsafe impl Sync for ApplePlatform {}
 
 impl ApplePlatform {
-    fn sink(&self, cb: KnPacketCb) -> Option<Arc<dyn PacketHandler>> {
+    fn sink(&self, cb: KnPacketCb, screen: u32) -> Option<Arc<dyn PacketHandler>> {
         let cb = cb?;
         let stream = self.streams.fetch_add(1, Ordering::Relaxed) + 1;
-        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream }))
+        Some(Arc::new(Sink { cb, userdata: self.cb.userdata, stream, screen }))
     }
 }
 
@@ -718,14 +751,25 @@ impl Platform for ApplePlatform {
     }
 
     fn video_handler(&self) -> Arc<dyn PacketHandler> {
-        self.sink(self.cb.video_packet).unwrap_or_else(|| Arc::new(Mute))
+        self.sink(self.cb.video_packet, 0).unwrap_or_else(|| Arc::new(Mute))
+    }
+
+    fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> {
+        self.sink(self.cb.video_packet, screen as u32).unwrap_or_else(|| Arc::new(Mute))
+    }
+
+    fn on_screens(&self, screens: &[StreamScreen]) {
+        if let Some(f) = self.cb.on_screens {
+            let list: Vec<KnStreamScreen> = screens.iter().map(KnStreamScreen::from).collect();
+            unsafe { f(self.cb.userdata, list.as_ptr(), list.len()) };
+        }
     }
 
     fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
         if !self.cb.has_audio {
             return None;
         }
-        self.sink(self.cb.audio_packet)
+        self.sink(self.cb.audio_packet, 0)
     }
 
     fn input_pipeline(&self) -> Pipeline {
@@ -953,6 +997,9 @@ struct ParamsWire {
     clipboard: bool,
     #[serde(default)]
     recovery: RecoveryWire,
+    /// Multi-écrans : les écrans de l'appareil (`list`, `limit_4k`).
+    #[serde(default)]
+    screens: Option<Screens>,
 }
 
 fn yes() -> bool {
@@ -970,7 +1017,13 @@ pub struct KnSession {
 /// `audio_channels` (0 : son laissé sur l'ordinateur), `virtual_display`,
 /// `settings` (`profile`, `codec`, `yuv444`, `mbps`, `reliable`),
 /// `auto_reconnect`, `gamepad_xbox360`, `clipboard`, `recovery`
-/// (`watch_image`, `fallback_bitrate`, `restart_station` : vrai si absent).
+/// (`watch_image`, `fallback_bitrate`, `restart_station` : vrai si absent),
+/// et pour le multi-écrans `screens` : `list`, les écrans de l'appareil
+/// (`x`, `y`, `width`, `height` : cadre dans le repère logique de l'appareil,
+/// y vers le bas ; `pixel_width`, `pixel_height` : définition native ;
+/// `refresh` ; `primary`), et `limit_4k` (« Au plus 4K »). Avec `screens`,
+/// `mode` décrit l'écran principal comme sans lui, et la plateforme reçoit
+/// `on_screens` et les paquets de chaque écran (`KnPacket::screen`).
 /// Nul si les paramètres sont illisibles (`error`). La session commence tout
 /// de suite ; `on_status` suit.
 #[unsafe(no_mangle)]
@@ -1015,7 +1068,10 @@ pub unsafe extern "C" fn kn_session_start(
         },
     };
     let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0) });
-    let session = Session::start(params, platform);
+    let session = match wire.screens {
+        Some(screens) => Session::start_with_screens(params, screens, platform),
+        None => Session::start(params, platform),
+    };
     Box::into_raw(Box::new(KnSession { session }))
 }
 
@@ -1117,6 +1173,37 @@ pub unsafe extern "C" fn kn_session_set_mode(s: *const KnSession, mode: KnMode) 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_restore_mode(s: *const KnSession) {
     with(s, |s| s.restore_mode());
+}
+
+/// Multi-écrans : les écrans de l'appareil ont changé (même JSON que
+/// `screens` dans `kn_session_start`) ; la session se refait avec eux, sans
+/// effet sur une session ouverte sans `screens`. `KN_ERROR` si illisible.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_json: *const c_char) -> i32 {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return KN_ERROR };
+    with(s, |s| s.set_screens(screens));
+    KN_OK
+}
+
+/// Multi-écrans : ce que la session demandera pour ces écrans de l'appareil
+/// (même JSON que `screens`), pour un format (`h264`, `hevc`, `av1`) : une
+/// liste JSON, principal en premier, de `device` (index dans `list`),
+/// `width`, `height`, `refresh`, `x`, `y`, `primary` ; quatre écrans au plus.
+/// Nul si illisible. À libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_plan(screens_json: *const c_char, codec: *const c_char) -> *mut c_char {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+    let codec = Codec::parse(&text(codec)).unwrap_or(Codec::Hevc);
+    let list: Vec<serde_json::Value> = screens::plan(&screens, codec)
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "device": p.device, "width": p.mode.width, "height": p.mode.height,
+                "refresh": p.mode.refresh, "x": p.x, "y": p.y, "primary": p.primary,
+            })
+        })
+        .collect();
+    give(serde_json::Value::Array(list).to_string())
 }
 
 /// Image `pts` reçue, décodée puis montrée (µs, `kn_now_micros`).

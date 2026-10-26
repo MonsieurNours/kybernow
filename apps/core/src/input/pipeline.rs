@@ -20,6 +20,12 @@
 //! va à [`PointerLayer`] (qui prévient la vue), les vibrations à
 //! [`InputPlatform::rumble`] ; les paquets du presse-papiers sont copiés et
 //! traités par `poll`, hors du verrou du routeur (la réponse y réentrerait).
+//!
+//! Multi-écrans ([`InputPipeline::set_screens`]) : une position absolue est
+//! donnée avec l'index de l'écran de l'appareil ([`InputPipeline::mouse_on`])
+//! et part avec l'identifiant d'écran de Kyber correspondant ; le pointeur
+//! annoncé par l'ordinateur va à la couche de pointeur de l'écran dont il
+//! porte l'identifiant. Clavier, souris relative et manettes ne changent pas.
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -87,6 +93,21 @@ pub struct Options {
     pub gamepads_from_app: bool,
 }
 
+/// Multi-écrans : un écran de l'ordinateur pris par la session
+/// ([`crate::session::StreamScreen`]), vu des entrées.
+#[derive(Clone)]
+pub struct ScreenTarget {
+    /// Index de l'écran de l'appareil (celui de [`InputPipeline::mouse_on`]).
+    pub screen: usize,
+    /// Identifiant d'écran de Kyber (`StreamScreen::display.id`).
+    pub display_id: u32,
+    /// Taille de l'écran de l'ordinateur en pixels (repère des positions).
+    pub host_size: (u32, u32),
+    /// Couche de pointeur de la vue de cet écran ; `None` : celle donnée à
+    /// [`InputPipeline::new`] (l'écran principal).
+    pub pointer: Option<Arc<PointerLayer>>,
+}
+
 /// Dernière valeur acceptée et valeurs en attente, par manette et axe.
 #[derive(Default)]
 struct Axes {
@@ -120,6 +141,8 @@ pub struct InputPipeline {
     driver: Arc<Driver>,
     /// Manettes SDL lues par kynput (Mac) : combinaison et prise.
     gate: OnceLock<GamepadGate>,
+    /// Multi-écrans : les écrans de la session (vide : un écran, `display_id`).
+    screens: Mutex<Vec<ScreenTarget>>,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
@@ -183,6 +206,7 @@ impl InputPipeline {
                     cvar: Condvar::new(),
                 }),
                 gate: OnceLock::new(),
+                screens: Mutex::new(Vec::new()),
             }
         });
         let weak = Arc::downgrade(&this);
@@ -190,7 +214,7 @@ impl InputPipeline {
         // Pointeur de l'ordinateur.
         this.plug(kynput_rs::create_handler_consumer_instance(Arc::new(CursorHandler {
             pipeline: weak.clone(),
-            last_shape: Mutex::new(None),
+            last_shapes: Mutex::new(HashMap::new()),
         })));
 
         // Presse-papiers : reçoit les paquets de l'ordinateur, produit les nôtres.
@@ -255,6 +279,55 @@ impl InputPipeline {
 
     pub fn pointer(&self) -> &Arc<PointerLayer> {
         &self.pointer
+    }
+
+    /// Multi-écrans : les écrans de la session, reçus de
+    /// [`crate::session::Platform::on_screens`] (à chaque démarrage de
+    /// l'image, et quand la taille de l'un d'eux change). Chaque couche de
+    /// pointeur donnée est reliée à son écran (taille, envoi de la position
+    /// tenue) ; le pointeur de l'ordinateur ira à celle de l'écran qu'il
+    /// annonce. Une liste vide revient à un écran.
+    pub fn set_screens(self: &Arc<Self>, screens: Vec<ScreenTarget>) {
+        for target in &screens {
+            let Some(layer) = &target.pointer else { continue };
+            if Arc::ptr_eq(layer, &self.pointer) {
+                continue;
+            }
+            let w = Arc::downgrade(self);
+            let screen = target.screen;
+            layer.attach((f64::from(target.host_size.0), f64::from(target.host_size.1)), move |x, y| {
+                if let Some(p) = w.upgrade() {
+                    p.mouse_on(screen, x, y);
+                }
+            });
+        }
+        log::info!(
+            "entrées : {} écran(s) ({})",
+            screens.len().max(1),
+            screens.iter().map(|s| format!("{} → {}", s.screen, s.display_id)).collect::<Vec<_>>().join(", ")
+        );
+        *self.screens.lock().unwrap() = screens;
+    }
+
+    pub fn screens(&self) -> Vec<ScreenTarget> {
+        self.screens.lock().unwrap().clone()
+    }
+
+    /// Identifiant d'écran de Kyber de l'écran `screen` de l'appareil.
+    pub fn screen_display_id(&self, screen: usize) -> Option<u32> {
+        self.screens.lock().unwrap().iter().find(|s| s.screen == screen).map(|s| s.display_id)
+    }
+
+    /// La couche de pointeur qui reçoit le pointeur annoncé sur cet écran de
+    /// Kyber : celle de son écran ; sans multi-écrans, la couche principale ;
+    /// `None` pour un écran que la session n'affiche pas.
+    fn pointer_for(&self, display_id: u32) -> Option<Arc<PointerLayer>> {
+        let screens = self.screens.lock().unwrap();
+        if screens.is_empty() {
+            return Some(self.pointer.clone());
+        }
+        let target = screens.iter().find(|s| s.display_id == display_id)?;
+        Some(target.pointer.clone().unwrap_or_else(|| self.pointer.clone()))
     }
 
     /// Combinaison et touches tenues de chaque manette (l'app y passe ses
@@ -411,19 +484,22 @@ impl InputPipeline {
         self.reliably(OwnedPacket::from_packet(KeyboardKey { pressed, scancode }.to_packet(InputTarget::Host)), "touche");
     }
 
-    /// Position absolue sur l'écran de l'ordinateur affiché.
+    /// Position absolue sur l'écran de l'ordinateur affiché (multi-écrans :
+    /// l'écran principal).
     pub fn mouse(&self, x: i16, y: i16) {
-        self.once(
-            OwnedPacket::from_packet(
-                MousePosition {
-                    display_id: self.display_id,
-                    x,
-                    y,
-                }
-                .to_packet(InputTarget::Host),
-            ),
-            "position",
-        );
+        self.mouse_at(self.display_id, x, y);
+    }
+
+    /// Multi-écrans : position absolue sur l'écran `screen` de l'appareil,
+    /// en pixels de l'écran de l'ordinateur qui lui correspond. Écran
+    /// inconnu (pas de multi-écrans, Station à un écran) : l'écran principal.
+    pub fn mouse_on(&self, screen: usize, x: i16, y: i16) {
+        let display_id = self.screen_display_id(screen).unwrap_or(self.display_id);
+        self.mouse_at(display_id, x, y);
+    }
+
+    fn mouse_at(&self, display_id: u32, x: i16, y: i16) {
+        self.once(OwnedPacket::from_packet(MousePosition { display_id, x, y }.to_packet(InputTarget::Host)), "position");
     }
 
     pub fn mouse_button(&self, button: MouseButtonType, pressed: bool) {
@@ -691,9 +767,11 @@ impl HandlerInterface for Producer {
 
 struct CursorHandler {
     pipeline: Weak<InputPipeline>,
-    /// Empreinte de la dernière forme reçue : un simple déplacement renvoie
-    /// la même image (kyber-patches serveur 0006), inutile de la refaire.
-    last_shape: Mutex<Option<u64>>,
+    /// Empreinte de la dernière forme reçue, par écran de l'ordinateur : un
+    /// simple déplacement renvoie la même image (kyber-patches serveur 0006),
+    /// inutile de la refaire ; un pointeur qui passe sur un autre écran y
+    /// arrive avec sa forme, que la couche de cet écran n'a pas encore.
+    last_shapes: Mutex<HashMap<u32, Option<u64>>>,
 }
 
 impl HandlerInterface for CursorHandler {
@@ -708,8 +786,13 @@ impl ConsumerInterface for CursorHandler {
     fn consume(&self, packet: Packet) {
         let Some(cursor) = Cursor::from_packet(&packet) else { return };
         let Some(pipeline) = self.pipeline.upgrade() else { return };
-        let remote = decode_cursor(cursor, &mut self.last_shape.lock().unwrap());
-        pipeline.pointer.remote_cursor_changed(remote);
+        let display_id = cursor.display_id;
+        let Some(layer) = pipeline.pointer_for(display_id) else { return };
+        let remote = {
+            let mut shapes = self.last_shapes.lock().unwrap();
+            decode_cursor(cursor, shapes.entry(display_id).or_default())
+        };
+        layer.remote_cursor_changed(remote);
     }
 }
 
@@ -944,6 +1027,37 @@ mod tests {
         b.pipeline.stop();
         b.pipeline.key(0x1E, true);
         assert_eq!(b.host.received().len(), 3, "arrêté : plus rien ne part");
+    }
+
+    #[test]
+    fn positions_par_ecran() {
+        let b = Bench::new();
+        // Sans multi-écrans : l'écran de la session, quel que soit l'index.
+        b.pipeline.mouse_on(2, 10, 0);
+        b.pipeline.mouse(11, 0);
+        assert_eq!(b.host.received(), ["position 10", "position 11"]);
+        b.host.clear();
+        let second = Arc::new(PointerLayer::new(b.clock.clone(), true));
+        b.pipeline.set_screens(vec![
+            ScreenTarget { screen: 1, display_id: 1, host_size: (1920, 1080), pointer: None },
+            ScreenTarget { screen: 0, display_id: 7, host_size: (3456, 2234), pointer: Some(second.clone()) },
+        ]);
+        b.pipeline.mouse_on(0, 20, 0);
+        b.pipeline.mouse_on(1, 30, 0);
+        b.pipeline.mouse_on(5, 40, 0);
+        assert_eq!(b.host.received(), ["position 20 sur 7", "position 30", "position 40"], "écran inconnu : le principal");
+        assert_eq!(b.pipeline.screen_display_id(0), Some(7));
+        // La couche du second écran envoie sa position tenue sur son écran, à sa taille.
+        b.host.clear();
+        assert_eq!(second.host_size(), (3456.0, 2234.0));
+        second.move_by(5.0, 5.0);
+        assert_eq!(b.host.received(), ["position 1733 sur 7"]);
+        // Pointeur de l'ordinateur : à la couche de l'écran annoncé.
+        assert!(Arc::ptr_eq(&b.pipeline.pointer_for(7).unwrap(), &second));
+        assert!(Arc::ptr_eq(&b.pipeline.pointer_for(1).unwrap(), b.pipeline.pointer()));
+        assert!(b.pipeline.pointer_for(3).is_none(), "écran que la session n'affiche pas");
+        b.pipeline.set_screens(Vec::new());
+        assert!(Arc::ptr_eq(&b.pipeline.pointer_for(3).unwrap(), b.pipeline.pointer()), "un écran : tout à la couche principale");
     }
 
     #[test]

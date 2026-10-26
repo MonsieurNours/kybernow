@@ -137,9 +137,15 @@ impl StreamSettings {
     /// Débit en bit/s pour un mode : un profil suit les pixels par seconde
     /// (puissance 0,75, entre 0,4 et 3 fois), un débit réglé à la main reste.
     pub fn bitrate(&self, width: u32, height: u32, refresh: u32) -> u32 {
+        self.bitrate_for_pixel_rate(width as f64 * height as f64 * refresh.max(1) as f64)
+    }
+
+    /// Débit pour des écrans dont les pixels par seconde (largeur × hauteur ×
+    /// fréquence) font ensemble `pixel_rate` : la même règle, avec les mêmes
+    /// plafonds (multi-écrans : la somme des écrans de la session).
+    pub fn bitrate_for_pixel_rate(&self, pixel_rate: f64) -> u32 {
         let mbps = if self.profile.is_some() {
-            let ratio = (width as f64 * height as f64 * refresh.max(1) as f64)
-                / (3840.0 * 2160.0 * 60.0);
+            let ratio = pixel_rate.max(1.0) / (3840.0 * 2160.0 * 60.0);
             let scale = ratio.powf(0.75).clamp(0.4, 3.0);
             (self.mbps as f64 * scale).round() as u32
         } else {
@@ -167,5 +173,10 @@ mod tests {
         let h264 = StreamSettings::for_profile(Profile::Jeu, Capabilities::default());
         assert_eq!(h264.codec, Codec::H264);
         assert_eq!(h264.mbps, 90);
+        // Plusieurs écrans : la somme des pixels par seconde, mêmes plafonds.
+        let sum = 3840.0 * 2160.0 * 160.0 + 5120.0 * 2880.0 * 60.0 + 3456.0 * 2234.0 * 60.0;
+        let b = jeu.bitrate_for_pixel_rate(sum);
+        assert!(b > jeu.bitrate(3840, 2160, 160) && b <= 180_000_000, "{b}");
+        assert_eq!(jeu.bitrate_for_pixel_rate(3840.0 * 2160.0 * 60.0), jeu.bitrate(3840, 2160, 60));
     }
 }

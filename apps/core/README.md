@@ -13,8 +13,9 @@ Le cœur ne dépend d'aucun système : rien n'y appelle AppKit, UIKit, Win32 ni 
 | `src/console.rs` | Client d'Admin : session (`prepare`, `heartbeat`, `foreground`, `end`), accueil et ajout (`info`, `probe`, `preview`, `pair_request`, `pair_status`), la Station (`station_restart`, `station_update`, `admin_url`, ci-dessous), certificat épinglé, `Accept-Language` |
 | `src/i18n.rs` | Langue (détection, choix), catalogues de textes, notes de version par langue ([docs/i18n.md](../../docs/i18n.md)) |
 | `src/session.rs` | Déroulé d'une session sur un fil dédié, dernier recours de la connexion (ci-dessous) ; ce que la plateforme fournit : `Platform` |
-| `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), en-tête Opus |
+| `src/media.rs` | Paquets d'image et de son livrés par Kyber (correctif 0001), avec leur source chez Kyber (`PacketHandler::packet_from`), en-tête Opus |
 | `src/profile.rs` | Profils, format, débit selon les pixels par seconde |
+| `src/screens.rs` | Multi-écrans (ci-dessous) : écrans de l'appareil, plan des écrans virtuels (définition, fréquence, disposition sur le bureau de Windows) |
 | `src/latency.rs` | Latence de bout en bout, horloge de Kyber |
 | `src/update.rs` | Mises à jour (Windows, Android, Linux, webOS) : manifeste signé (minisign), canal, téléchargement vérifié (taille, SHA-256) ; le fichier de l'app est cherché sous son nom actuel puis sous ses anciens noms (Windows : `KyberNow-Link-Setup.exe`, puis `KyberNow-Client-Setup.exe`, seul nom des versions 0.3.1 et antérieures) |
 | `src/wake.rs` | Réveil par le réseau (Wake-on-LAN, ci-dessous) : `WakeTarget`, paquet magique, envoi en diffusion et en direct |
@@ -50,6 +51,66 @@ Les apps proposent « Réveiller l'ordinateur » quand il est hors ligne, sans r
 - `parse_mac`, `format_mac`, `magic_packet`, `broadcast(ip, prefix)` : les briques, testées (`cargo test -p kybernow-core wake`) ; `envoi_reel`, ignoré par défaut, envoie vraiment vers une carte fictive (`-- --ignored`).
 
 **Piège Apple.** Sur iPhone, iPad et Apple TV, envoyer vers une adresse de diffusion (le sous-réseau comme 255.255.255.255) demande l'autorisation `com.apple.developer.networking.multicast`, qu'Apple accorde sur demande (formulaire du compte développeur, puis l'autorisation dans les fichiers `.entitlements`). Sans elle, l'envoi en diffusion échoue, souvent avec `EHOSTUNREACH`. L'envoi direct vers la dernière adresse IPv4 passe sans elle, mais ne réveille que si le réseau sait encore joindre cette adresse (cache ARP du routeur ou du commutateur, carte en veille qui répond encore à l'ARP), ce qui n'est pas toujours le cas après un arrêt complet. C'est pourquoi `send` tente toujours l'envoi direct en plus de la diffusion et réussit dès qu'un paquet part : sans l'autorisation, le réveil marche parfois, avec elle, comme ailleurs. Sur Mac, pas de restriction (l'autorisation « Réseau local », déjà demandée pour joindre Admin, suffit).
+
+## Multi-écrans (`src/screens.rs`, `src/session.rs`, `src/input/pipeline.rs`)
+
+Une session peut prendre tous les écrans de l'appareil : un écran virtuel par écran de l'appareil, placés de la même façon, chacun affiché dans sa fenêtre (contrat commun : [docs/multi-ecrans.md](../../docs/multi-ecrans.md)). Les apps Mac, Windows et Linux s'en servent ; la session à un écran garde exactement son API, et les apps qui ne gèrent pas le multi-écrans n'ont rien à changer.
+
+**Les écrans de l'appareil.** `Screens { list: Vec<DeviceScreen>, limit_4k }`. `DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }` : le cadre de l'écran dans le repère logique de l'appareil, y vers le bas (points sur Mac, après conversion du repère de Cocoa ; bureau de Windows ; `SDL_GetDisplayBounds` sous Linux), sa définition native en pixels (avant « Au plus 4K »), sa fréquence, et s'il est principal (aucun : le premier). Des écrans en recopie comptent pour un : l'app n'en donne qu'un. `limit_4k` : le réglage « Au plus 4K ». Les deux types passent tels quels en JSON (serde) pour les ponts.
+
+**Le plan** (`screens::plan(&screens, codec)`, que la session appelle ; les apps peuvent l'appeler pour montrer ce qui sera demandé) : quatre écrans au plus, le principal en premier, chacun avec son écran de l'appareil (`device`, index dans `list`), son mode et sa position en pixels sur le bureau de Windows (`PlannedScreen`).
+
+- Définition (`screens::fit`) : « Au plus 4K » ramène chaque écran à 3840 × 2160, l'H.264 à 4096 de large (l'encodeur de NVIDIA s'y arrête), sinon 7680 × 4320 ; proportions gardées, arrondi au pair, comme `DisplayInfo.mode` de l'app Mac.
+- Fréquence (`screens::refresh`) : l'écran principal garde la sienne ; les autres sont à 60 Hz, moins si leur écran ne va pas jusque-là.
+- Position (`screens::layout`) : le principal en (0, 0) ; les autres collés de proche en proche, du même côté, au voisin déjà placé avec lequel ils partagent un bord sur l'appareil, avec le décalage de l'appareil converti à l'échelle pixels / unités logiques du voisin ; 64 pixels de bord commun au moins ; jamais de chevauchement (l'écran glisse le long du bord, et parmi ses voisins possibles, le cœur prend celui qui le fait le moins glisser) ; un écran qui ne touche rien se colle au plus proche, du côté de l'écart le plus grand. Au-delà de quatre écrans, ceux qui sont pris sont les plus proches du principal, de proche en proche.
+
+**La session** : `Session::start_with_screens(params, screens, platform)` au lieu de `Session::start(params, platform)`. `params.mode` décrit l'écran principal, comme pour une session à un écran (le plan le remplace).
+
+1. `prepare` porte `screens` à partir de deux écrans ; `width`, `height` et `refresh` y décrivent l'écran principal. La réponse dit ce qui est en place (`Prepared::screens`, dans l'ordre de la demande, `None` pour un écran que la Station n'a pas pu créer). Sans `screens` dans la réponse (Station qui ne gère qu'un écran) ou sans écran principal, la session se fait sur l'écran principal, sans erreur.
+2. Chaque écran en place est retrouvé dans la liste de Kyber par sa position et sa taille (à défaut par sa taille seule, si un seul écran libre l'a). Le cœur attend qu'ils soient tous annoncés, 6 s au plus comme pour un écran, puis démarre l'image sur ceux qui sont là ; si l'écran principal manque, sur un écran comme avant. Un écran annoncé plus tard relance l'image sur tous.
+3. Une entrée vidéo par écran dans la session de Kyber, le principal en premier. La plateforme reçoit, à chaque démarrage de l'image : `on_display` (l'écran principal, comme toujours), puis `on_screens(&[StreamScreen])`, puis `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }` : l'index de l'écran de l'appareil, l'écran de l'ordinateur tel que Kyber l'annonce (`id` pour les entrées, taille en pixels, position sur le bureau), sa fréquence, et s'il est principal. Les paquets de chaque flux vont au gestionnaire rendu par `screen_video_handler(screen)` : un décodeur par écran. Même avec une Station à un écran, une session ouverte ainsi passe par `on_screens` et `screen_video_handler` (un écran : le principal de l'appareil).
+4. Débit : celui du profil, calculé sur la somme des pixels par seconde des écrans (`StreamSettings::bitrate_for_pixel_rate`), avec les mêmes plafonds ; la Station le répartit entre les écrans.
+5. Image clé : `keyframe_lost` et `keyframe_recovered` comme pour un écran, depuis n'importe quel décodeur. Kyber demande l'image clé à tous les flux à la fois, et une demande avant les premières données d'un flux laisse son encodeur muet (piège déjà vécu) : le cœur ne la demande qu'une fois que chaque flux a reçu des données (chacun commence par une image clé) ; la veille redemande toutes les 300 ms et relance le flux à 1,5 s. Relancer le flux relance tous les écrans.
+6. Mesures : `frame_displayed` (latence, première image, veille « aucune image ») pour l'écran principal seulement ; `bytes_received` pour tous.
+7. Les écrans de l'appareil changent en session (branché, débranché, disposition ou recopie changée) : `Session::set_screens(screens)`. Si le plan change, l'image s'arrête, la Station refait les écrans (avis `Adapting`, puis `Adapted` ou `AdaptFailed`, comme une adaptation), puis l'image repart, sans revenir à l'accueil. `set_mode` est sans effet sur une session multi-écrans : c'est `set_screens` qui sert.
+8. L'ordinateur change la taille d'un écran : `on_display` pour le principal comme avant, et `on_screens` de nouveau ; un écran disparu de la liste de Kyber relance l'image.
+
+**Les entrées** : `InputPipeline::set_screens(Vec<ScreenTarget>)`, à appeler dans `input_pipeline()` après `on_screens` (et de nouveau quand `on_screens` revient). `ScreenTarget { screen, display_id, host_size, pointer }` : l'index de l'écran de l'appareil, l'`id` de son écran de l'ordinateur, sa taille en pixels, et la couche de pointeur de la vue de cet écran (`None` : celle donnée à `InputPipeline::new`, l'écran principal). Ensuite :
+
+- `mouse_on(screen, x, y)` envoie une position absolue, en pixels de l'écran de l'ordinateur de cet écran, avec son `display_id` ; `mouse(x, y)` reste celle de l'écran principal ; un écran inconnu va au principal.
+- Le pointeur annoncé par l'ordinateur (forme, position en pixels de son écran, visibilité) va à la couche de l'écran dont il porte l'identifiant : chaque vue ne dessine que le sien. Un pointeur qui quitte un écran y est annoncé caché : pour la souris Auto, il n'est caché que s'il l'est sur toutes les couches, et visible depuis le plus long des `visible_for`.
+- Clavier, souris relative, molette et manettes ne changent pas.
+
+**Pour une app Windows ou Linux**, dans l'ordre :
+
+```rust
+use kybernow_core::screens::{DeviceScreen, Screens};
+use kybernow_core::session::{Platform, Session, StreamScreen};
+use kybernow_core::input::{InputPipeline, Options, ScreenTarget};
+
+// 1. Les écrans de l'appareil (recopies regroupées), le principal marqué.
+let screens = Screens { list: vec![DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }, /* … */], limit_4k };
+let session = Session::start_with_screens(params, screens, platform);
+
+// 2. La plateforme (les autres méthodes comme pour un écran).
+impl Platform for App {
+    fn on_display(&self, d: &Display) { /* l'écran principal, comme avant */ }
+    fn on_screens(&self, s: &[StreamScreen]) { /* fenêtre de l'écran s[i].screen ↔ écran de l'ordinateur s[i].display */ }
+    fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> { /* décodeur de la fenêtre de `screen` */ }
+    fn input_pipeline(&self) -> Pipeline {
+        let p = InputPipeline::new(Options { display_id: principal.id, host_size, clipboard, gamepads_from_app }, pointeur_principal, rappels, horloge);
+        p.set_screens(ecrans.iter().map(|s| ScreenTarget {
+            screen: s.screen, display_id: s.display.id,
+            host_size: (s.display.width as u32, s.display.height as u32),
+            pointer: Some(pointeur_de_la_fenetre(s.screen)),
+        }).collect());
+        p.kynput()
+    }
+}
+
+// 3. En session : p.mouse_on(écran, x, y) en souris du bureau ; session.frame_displayed(…)
+//    pour l'écran principal ; session.set_screens(…) quand les écrans de l'appareil changent.
+```
 
 ## Module d'entrées partagé (`src/input/`)
 
@@ -134,4 +195,4 @@ Sur le Mac, avec le SDK Kyber compilé pour macOS (`third_party/kyber-desktop/ro
 cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib cargo test -p kybernow-core
 ```
 
-Les tests des entrées couvrent la table du clavier, ISO, Verr. maj. ; combinaison brève, tenue, relâchement complet, réglage coupé ; file de secours : accepté, refusé deux fois puis parti dans l'ordre, refusé sans fin, arrêt ; filtrage et regroupement des axes, remise au repos, tout relâcher, texte, pointeur dédoublonné, presse-papiers dans les deux sens ; ceux du son, un la de 440 Hz encodé en Opus, stéréo et 5.1 au rythme réel avec ± 8 ms d'à-coups et une perte sur 97, paquets de 10 ms, dérive de 0,2 % dans les deux sens, sortie arrêtée 200 ms puis coupe sèche, mixage et ordre des voies. Ils avancent une `ManualClock` à la main : ils ne durent qu'une seconde. `cargo test -p kybernow-core input` ou `… audio` pour une moitié. Ceux de la session (`… session`) couvrent le dernier recours avec une fausse console : quand il se déclenche et quand il ne se déclenche pas, une seule fois, refus d'Admin (toujours sans `force`), retour de la Station, délai dépassé, annulation pendant l'attente, et les textes.
+Les tests des entrées couvrent la table du clavier, ISO, Verr. maj. ; combinaison brève, tenue, relâchement complet, réglage coupé ; file de secours : accepté, refusé deux fois puis parti dans l'ordre, refusé sans fin, arrêt ; filtrage et regroupement des axes, remise au repos, tout relâcher, texte, pointeur dédoublonné, presse-papiers dans les deux sens ; ceux du son, un la de 440 Hz encodé en Opus, stéréo et 5.1 au rythme réel avec ± 8 ms d'à-coups et une perte sur 97, paquets de 10 ms, dérive de 0,2 % dans les deux sens, sortie arrêtée 200 ms puis coupe sèche, mixage et ordre des voies. Ils avancent une `ManualClock` à la main : ils ne durent qu'une seconde. `cargo test -p kybernow-core input` ou `… audio` pour une moitié. Ceux de la session (`… session`) couvrent le dernier recours avec une fausse console : quand il se déclenche et quand il ne se déclenche pas, une seule fois, refus d'Admin (toujours sans `force`), retour de la Station, délai dépassé, annulation pendant l'attente, et les textes. Ceux du multi-écrans (`… screens`, `… session`, `… console`, `… input`) : la disposition de l'auteur (XG32UQ 4K principal au centre, Studio Display 5K à droite, MacBook Pro à gauche et plus bas), avec « Au plus 4K » et en H.264, des écrans empilés, des échelles mélangées, un écran isolé, un écran qui glisserait sur un autre, quatre écrans au plus, et 300 dispositions tirées au hasard que Windows doit accepter (principal en (0, 0), aucun chevauchement, tous reliés) ; le JSON de `prepare` dans les deux sens ; les écrans retrouvés dans la liste de Kyber ; les premières données notées par flux ; les positions et le pointeur routés par écran.
