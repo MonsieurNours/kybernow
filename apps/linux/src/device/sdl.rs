@@ -85,6 +85,7 @@ pub const SC_A: i32 = 4;
 pub const SC_D: i32 = 7;
 pub const SC_F: i32 = 9;
 pub const SC_M: i32 = 16;
+pub const SC_O: i32 = 18;
 pub const SC_RETURN: i32 = 40;
 pub const SC_ESCAPE: i32 = 41;
 pub const SC_BACKSPACE: i32 = 42;
@@ -278,6 +279,11 @@ unsafe extern "C" {
     pub fn SDL_MaximizeWindow(w: *mut SDL_Window);
     pub fn SDL_RestoreWindow(w: *mut SDL_Window);
     pub fn SDL_RaiseWindow(w: *mut SDL_Window);
+    pub fn SDL_ShowWindow(w: *mut SDL_Window);
+    pub fn SDL_HideWindow(w: *mut SDL_Window);
+    pub fn SDL_SetWindowTitle(w: *mut SDL_Window, title: *const c_char);
+    /// Donne le clavier à cette fenêtre (X11 ; Wayland ne l'accepte pas, la fenêtre passe seulement devant).
+    pub fn SDL_SetWindowInputFocus(w: *mut SDL_Window) -> c_int;
     pub fn SDL_SetWindowHitTest(w: *mut SDL_Window, cb: Option<HitTest>, data: *mut c_void) -> c_int;
     pub fn SDL_SetWindowKeyboardGrab(w: *mut SDL_Window, grabbed: c_int);
     pub fn SDL_SetWindowMouseGrab(w: *mut SDL_Window, grabbed: c_int);
@@ -349,6 +355,24 @@ unsafe extern "C" {
 }
 
 pub const SDL_AUDIO_ALLOW_CHANNELS_CHANGE: c_int = 0x4;
+
+/// Le titre d'une fenêtre (le nom de l'ordinateur pendant sa session).
+pub fn set_title(window: *mut SDL_Window, title: &str) {
+    if let Ok(t) = CString::new(title.replace('\0', "")) {
+        unsafe { SDL_SetWindowTitle(window, t.as_ptr()) };
+    }
+}
+
+/// La fenêtre passe devant et prend le clavier (réduite, elle est d'abord restaurée).
+pub fn raise(window: *mut SDL_Window) {
+    unsafe {
+        if SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED != 0 {
+            SDL_RestoreWindow(window);
+        }
+        SDL_RaiseWindow(window);
+        SDL_SetWindowInputFocus(window);
+    }
+}
 
 /// Un bouton de la souris est tenu (état des boutons connu de SDL).
 pub fn mouse_held() -> bool {

@@ -28,7 +28,7 @@ pub use launch::{TOTAL as LAUNCH, TOTAL_REDUCED as LAUNCH_REDUCED};
 #[allow(unused_imports)]
 pub use session::{at_bar_edge, over_bar, HINT_STRIP};
 
-use crate::app::{App, Layout, Phase, Rect, Screen, Target};
+use crate::app::{App, Layout, Phase, Rect, Screen, SessionId, SessionUi, Target};
 use canvas::{Align, Canvas, Font, Rgba, Text};
 use theme::*;
 
@@ -56,9 +56,13 @@ impl Frame {
 /// une fenêtre plein écran par écran de l'appareil (docs/multi-ecrans.md) :
 /// l'écran principal porte la connexion, les capsules et la fin sur erreur,
 /// les autres le même fond sans texte ; la barre de session n'est que dans
-/// la fenêtre où le geste a lieu, le trait du haut dans toutes.
+/// la fenêtre où le geste a lieu, le trait du haut dans toutes. Avec plusieurs
+/// ordinateurs (docs/plusieurs-ordinateurs.md), chaque fenêtre est celle d'une
+/// session : elle dessine la sienne, active ou non.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct View {
+    /// La session que montre la fenêtre ; `None` : la session active (ou l'app, hors session).
+    pub session: Option<SessionId>,
     /// La fenêtre de l'interface : celle de l'écran principal.
     pub main: bool,
     /// La barre de session s'ouvre dans cette fenêtre.
@@ -73,7 +77,19 @@ pub struct View {
 
 impl View {
     /// Une seule fenêtre (accueil, session à un écran) : elle montre tout.
-    pub const SINGLE: View = View { main: true, bar: true, missing: false, has_frame: true };
+    pub const SINGLE: View = View { session: None, main: true, bar: true, missing: false, has_frame: true };
+}
+
+/// La session que montre cette fenêtre : la sienne, sinon la session active.
+pub fn view_session(app: &App, view: View) -> Option<&SessionUi> {
+    view.session.and_then(|id| app.session_by(id)).or_else(|| app.session())
+}
+
+/// La fenêtre est celle d'une session qui n'est pas l'active : elle garde son image et
+/// ses surimpressions (connexion, fin sur erreur) quel que soit l'écran que l'app montre
+/// à la session active (les manettes, par exemple).
+fn background_session(app: &App, view: View) -> bool {
+    view.session.is_some_and(|id| Some(id) != app.active)
 }
 
 /// Dessine l'écran courant ; rend les éléments choisissables.
@@ -84,7 +100,8 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
 /// Dessine l'écran courant dans une fenêtre de la session (voir [`View`]).
 pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> {
     let mut f = Frame { hits: Vec::new(), focus: app.focus, show_focus: app.keyboard_focus || app.layout.console(), pointer: app.pointer };
-    match app.screen {
+    let background = background_session(app, view);
+    match if background { Screen::Session } else { app.screen } {
         Screen::Launch => launch::draw(app, cv),
         Screen::Home => home::draw(app, cv, &mut f),
         Screen::Add => pair::draw(app, cv, &mut f),
@@ -96,6 +113,7 @@ pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> 
         Screen::Standby => cv.clear(INK),
     }
     if view.main
+        && !background
         && let Some((msg, at)) = &app.toast
         && at.elapsed().as_secs_f32() < 4.0
     {
@@ -130,12 +148,12 @@ pub fn hint_only(app: &App, view: View) -> bool {
 /// Le trait de la barre se voit dans cette fenêtre : le geste est possible
 /// (`session::bar_hint`) et la fenêtre montre son image.
 fn window_hint(app: &App, view: View) -> bool {
-    session::bar_hint(app) && (view.main || view.has_frame)
+    view_session(app, view).is_some_and(|s| session::bar_hint(app, s)) && (view.main || view.has_frame)
 }
 
 /// Autre chose que le trait : connexion, menu, barre, statistiques, capsule.
 fn session_overlay_busy(app: &App, view: View) -> bool {
-    let Some(s) = &app.session else { return false };
+    let Some(s) = view_session(app, view) else { return false };
     if !matches!(s.phase, Phase::Streaming) {
         return true;
     }
@@ -143,7 +161,8 @@ fn session_overlay_busy(app: &App, view: View) -> bool {
     if !view.main && !view.has_frame {
         return true;
     }
-    let capsule = view.main && (s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2));
+    let toast = !background_session(app, view) && app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2);
+    let capsule = view.main && (s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || toast);
     s.menu || s.keys || (view.main && s.show_stats) || (s.bar && view.bar) || capsule
 }
 

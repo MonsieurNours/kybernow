@@ -116,7 +116,7 @@ fn main_button(app: &App, cv: &mut Canvas, f: &mut Frame, h: &Host, x: f32, y: f
 }
 
 /// Ce que fait le bouton principal (et A sur l'accueil) : cible, libellé, symbole ▶.
-fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
+pub(super) fn main_action(app: &App, h: &Host) -> (Target, &'static str, bool) {
     let offline = app.live.get(&h.id).is_some_and(|l| l.online == Online::Offline);
     match (offline, h.can_wake()) {
         (true, true) if app.is_waking(&h.id) => (Target::Wake, tr("Réveil de l'ordinateur…", "Waking the computer…"), false),

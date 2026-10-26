@@ -486,11 +486,32 @@ pub const SHORTCUTS: [(&str, &str, &[u16]); 10] = [
 pub enum BarMenu {
     Profile,
     Keys,
+    /// Les autres ordinateurs (plusieurs ordinateurs à la fois, docs/plusieurs-ordinateurs.md).
+    Computers,
 }
 
-/// L'interface de la session.
+/// Identifiant d'une session de l'app : il croît à chaque session ouverte et ne se réutilise
+/// pas (un événement qui arrive après la fin d'une session ne vise jamais la suivante).
+pub type SessionId = u32;
+
+/// Ordinateurs en session en même temps, au plus (docs/plusieurs-ordinateurs.md).
+pub const MAX_SESSIONS: usize = 4;
+
+/// Ce qu'une session fait de l'entrée et du son à cet instant (`App::focus_states`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FocusState {
+    pub id: SessionId,
+    /// Elle reçoit le clavier, la souris, les manettes et le presse-papiers.
+    pub active: bool,
+    /// Son coupé : ni active ni gardée par « Garder le son », ou coupée depuis son menu.
+    pub muted: bool,
+}
+
+/// L'interface d'une session. L'app en tient une liste (`App::sessions`, dans l'ordre
+/// d'ouverture) et une session active (`App::session()`), celle de la fenêtre au premier plan.
 #[derive(Clone, Debug)]
 pub struct SessionUi {
+    pub id: SessionId,
     pub host: String,
     pub name: String,
     pub profile: Profile,
@@ -526,9 +547,43 @@ pub struct SessionUi {
     /// profil ou d'écrans de l'appareil, puis ceux que le cœur annonce (pris et
     /// non créés : une fenêtre chacun). « Préparation des écrans » en dépend.
     pub expected_screens: usize,
+    /// « Garder le son » (bouton du haut-parleur de la barre) : la session reste audible
+    /// même quand elle n'est pas active. Éteint par défaut, pour la session en cours.
+    pub keep_sound: bool,
+    /// La fenêtre de la session est en plein écran (« Plein écran » de la barre).
+    pub fullscreen: bool,
 }
 
 impl SessionUi {
+    /// Une session qui démarre : la connexion commence.
+    pub fn new(id: SessionId, host: &str, name: &str, profile: Profile, light: bool, relative: bool, expected_screens: usize) -> Self {
+        Self {
+            id,
+            host: host.into(),
+            name: name.into(),
+            profile,
+            phase: Phase::Preparing,
+            menu: false,
+            keys: false,
+            stats: None,
+            show_stats: false,
+            pad_mouse: false,
+            muted: false,
+            light,
+            relative,
+            bar: false,
+            bar_menu: None,
+            notice: None,
+            started: Instant::now(),
+            ending_since: None,
+            opened_at: None,
+            screens: 1,
+            expected_screens,
+            keep_sound: false,
+            fullscreen: false,
+        }
+    }
+
     /// La session est à plusieurs écrans (une fenêtre plein écran chacun) : pas de « Plein
     /// écran ». Comme `multiScreen` sur Mac.
     pub fn multi(&self) -> bool {
@@ -926,6 +981,11 @@ pub enum Target {
     BarMouse,
     BarFullscreen,
     BarQuit,
+    /// Plusieurs ordinateurs : le menu « Ordinateurs » de la barre, l'un des ordinateurs
+    /// (indice dans `Store::hosts`), et le bouton du haut-parleur (« Garder le son »).
+    BarComputers,
+    BarComputer(usize),
+    BarSound,
     /// Une mise à jour est publiée : sa page.
     UpdateNotice,
     /// KyberNow Link OS : premier démarrage.
@@ -940,10 +1000,17 @@ pub enum Target {
     DeviceSection(usize),
 }
 
-/// Ce que l'app demande au pilote.
+/// Ce que l'app demande au pilote. Une action de session porte l'identifiant de sa session :
+/// elle vise celle-là même si la session active a changé entre-temps (une session qui se
+/// termine au même instant ne fait pas déconnecter la suivante).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Connect { host: String, profile: Profile },
+    /// Plusieurs ordinateurs : la fenêtre de cette session passe devant et devient active
+    /// (« Afficher », « Se connecter » sur un ordinateur déjà en session).
+    ShowSession(SessionId),
+    /// « Ordinateur suivant » : la fenêtre de la session suivante, dans l'ordre d'ouverture.
+    NextSession,
     Save,
     /// Présenter le code aux Stations trouvées (et à `address`, si donnée).
     StartPairing,
@@ -957,19 +1024,24 @@ pub enum Action {
     /// même si un appareil est en session.
     Station { host: String, kind: StationKind, force: bool },
     Rumble { pad: usize, low: u16, high: u16, triggers: bool },
-    Shortcut(Vec<u16>),
-    SetProfile(Profile),
-    PadMouse(bool),
-    Mute(bool),
-    Light(bool),
+    Shortcut(SessionId, Vec<u16>),
+    SetProfile(SessionId, Profile),
+    PadMouse(SessionId, bool),
+    /// Le son coupé depuis le menu de session.
+    Mute(SessionId, bool),
+    /// « Garder le son » : la session reste audible quand elle n'est pas active.
+    KeepSound(SessionId, bool),
+    Light(SessionId, bool),
     /// Souris des jeux ou du bureau (barre, Ctrl+Alt+Maj+M).
-    ToggleMouse,
-    ToggleFullscreen,
-    /// Clavier de Steam (`steam://open/keyboard`), ou saisie de texte de SDL.
-    OpenKeyboard,
-    ReleaseAll,
-    Disconnect,
-    CancelConnect,
+    ToggleMouse(SessionId),
+    /// Plein écran de la fenêtre d'une session ; `None` : la fenêtre de l'app, hors session.
+    ToggleFullscreen(Option<SessionId>),
+    /// Clavier de Steam (`steam://open/keyboard`), ou saisie de texte de SDL ; la session
+    /// dont c'est le clavier, `None` pour l'ajout d'un ordinateur.
+    OpenKeyboard(Option<SessionId>),
+    ReleaseAll(SessionId),
+    Disconnect(SessionId),
+    CancelConnect(SessionId),
     Language,
     Interface,
     CheckUpdate,
@@ -1023,7 +1095,15 @@ pub struct App {
     /// Défilement des réglages (bureau), en points.
     pub scroll: f32,
     pub pad_selected: usize,
-    pub session: Option<SessionUi>,
+    /// Les sessions en cours, dans l'ordre d'ouverture (une seule sur le Steam Deck, au salon
+    /// et sur KyberNow Link OS : `multi_sessions`), et celle de la fenêtre au premier plan.
+    /// `App::session()` rend la session active : la barre, le menu et les raccourcis la visent.
+    pub sessions: Vec<SessionUi>,
+    pub active: Option<SessionId>,
+    /// Les sessions déjà actives, la plus récente en dernier : qui reprend la main quand
+    /// la session active se termine.
+    history: Vec<SessionId>,
+    next_session: SessionId,
     pub toast: Option<(String, Instant)>,
     pub version: &'static str,
     pub update: UpdateState,
@@ -1069,6 +1149,142 @@ impl App {
         self.layout == Layout::Desktop && !self.is_os()
     }
 
+    /// L'app tient plusieurs ordinateurs à la fois, une fenêtre chacun : interface de bureau,
+    /// hors KyberNow Link OS (le Steam Deck, le salon et l'OS gardent une session), la même
+    /// garde que `multi_screens` (docs/plusieurs-ordinateurs.md).
+    pub fn multi_sessions(&self) -> bool {
+        self.multi_screens()
+    }
+
+    // MARK: - Les sessions
+
+    /// La session active : celle de la fenêtre au premier plan.
+    pub fn session(&self) -> Option<&SessionUi> {
+        self.session_by(self.active?)
+    }
+
+    pub fn session_mut(&mut self) -> Option<&mut SessionUi> {
+        Self::active_in(&mut self.sessions, self.active)
+    }
+
+    /// La session active, en n'empruntant que la liste : le reste de l'app (`focus`, `screen`)
+    /// reste libre pendant qu'on la modifie.
+    fn active_in(sessions: &mut [SessionUi], active: Option<SessionId>) -> Option<&mut SessionUi> {
+        let id = active?;
+        sessions.iter_mut().find(|s| s.id == id)
+    }
+
+    pub fn session_by(&self, id: SessionId) -> Option<&SessionUi> {
+        self.sessions.iter().find(|s| s.id == id)
+    }
+
+    pub fn session_by_mut(&mut self, id: SessionId) -> Option<&mut SessionUi> {
+        self.sessions.iter_mut().find(|s| s.id == id)
+    }
+
+    /// La session de cet ordinateur, s'il est déjà en session (jamais deux fois le même).
+    pub fn session_of_host(&self, host: &str) -> Option<&SessionUi> {
+        self.sessions.iter().find(|s| s.host == host)
+    }
+
+    /// L'identifiant de la session active.
+    pub fn active_id(&self) -> Option<SessionId> {
+        self.session().map(|s| s.id)
+    }
+
+    /// Quatre ordinateurs sont déjà en session : « Se connecter » est inactif.
+    pub fn sessions_full(&self) -> bool {
+        self.sessions.len() >= MAX_SESSIONS
+    }
+
+    /// Un identifiant pour la session qui va s'ouvrir.
+    pub fn new_session_id(&mut self) -> SessionId {
+        let id = self.next_session;
+        self.next_session += 1;
+        id
+    }
+
+    /// Une session de plus : elle est ajoutée à la fin (ordre d'ouverture) et devient active.
+    pub fn open_session(&mut self, ui: SessionUi) {
+        let id = ui.id;
+        self.sessions.push(ui);
+        self.activate_session(id);
+    }
+
+    /// Les captures d'écran et les essais : cette session seule, et active (ou aucune).
+    pub fn set_session(&mut self, ui: Option<SessionUi>) {
+        self.sessions.clear();
+        self.history.clear();
+        self.active = None;
+        if let Some(ui) = ui {
+            self.open_session(ui);
+        }
+    }
+
+    /// La session `id` devient la session active (sa fenêtre est au premier plan). Rend vrai
+    /// si la session active a changé. La barre de celle qu'on quitte se referme ; un écran
+    /// ouvert par-dessus la session (les manettes) revient à la session.
+    pub fn activate_session(&mut self, id: SessionId) -> bool {
+        if self.session_by(id).is_none() || self.active == Some(id) {
+            return false;
+        }
+        if let Some(prev) = self.session_mut() {
+            prev.bar = false;
+            prev.bar_menu = None;
+        }
+        self.active = Some(id);
+        self.history.retain(|h| *h != id);
+        self.history.push(id);
+        if self.screen != Screen::Session {
+            self.screen = Screen::Session;
+            self.back_to = Screen::Home;
+        }
+        self.focus = Target::Menu(MenuItem::Resume);
+        true
+    }
+
+    /// La session `id` est finie et sa fenêtre fermée : elle sort de la liste. Si c'était
+    /// l'active, la dernière qui l'a été reprend la main (sinon la première). Rend vrai si la
+    /// session active a changé.
+    pub fn close_session(&mut self, id: SessionId) -> bool {
+        self.sessions.retain(|s| s.id != id);
+        self.history.retain(|h| *h != id);
+        if self.active.is_some_and(|a| self.session_by(a).is_some()) {
+            return false;
+        }
+        self.active = self.history.last().copied().or_else(|| self.sessions.first().map(|s| s.id));
+        if self.active.is_some() && self.screen != Screen::Session {
+            self.screen = Screen::Session;
+            self.back_to = Screen::Home;
+        }
+        true
+    }
+
+    /// « Ordinateur suivant » : la session qui suit l'active dans l'ordre d'ouverture, en
+    /// reprenant au début ; rien avec une seule session.
+    pub fn next_session(&self) -> Option<SessionId> {
+        if self.sessions.len() < 2 {
+            return None;
+        }
+        let i = self.sessions.iter().position(|s| Some(s.id) == self.active)?;
+        Some(self.sessions[(i + 1) % self.sessions.len()].id)
+    }
+
+    /// Ce que chaque session doit faire de l'entrée et du son, d'après la session active et
+    /// « Garder le son » : l'entrée (clavier, souris, manettes, presse-papiers) va à la seule
+    /// session active ; le son est coupé pour toute session qui n'est ni active ni gardée, et
+    /// pour celle dont le son est coupé depuis son menu. Le pilote applique cette liste d'un
+    /// seul endroit (`device::focus`).
+    pub fn focus_states(&self) -> Vec<FocusState> {
+        self.sessions
+            .iter()
+            .map(|s| {
+                let active = Some(s.id) == self.active;
+                FocusState { id: s.id, active, muted: s.muted || !(active || s.keep_sound) }
+            })
+            .collect()
+    }
+
     /// L'écran virtuel de la Station de cet ordinateur est utilisable : pilote en
     /// place, déclenchement actif (`virtual_display.available` de `GET
     /// /api/stream/info`) ; inconnu tant qu'elle n'a pas répondu : oui.
@@ -1112,7 +1328,10 @@ impl App {
             settings_global: false,
             scroll: 0.0,
             pad_selected: 0,
-            session: None,
+            sessions: Vec::new(),
+            active: None,
+            history: Vec::new(),
+            next_session: 1,
             toast: None,
             version: env!("CARGO_PKG_VERSION"),
             update: UpdateState::Unknown,
@@ -1418,7 +1637,7 @@ impl App {
             return self.activate(t);
         }
         // Un clic hors de la barre ferme son menu.
-        if let Some(s) = self.session.as_mut() {
+        if let Some(s) = self.session_mut() {
             s.bar_menu = None;
         }
         Vec::new()
@@ -1647,7 +1866,7 @@ impl App {
                 }
                 let to = self.back_to;
                 self.back_to = Screen::Home;
-                if to == Screen::Session && self.session.is_some() {
+                if to == Screen::Session && self.session().is_some() {
                     self.screen = Screen::Session;
                     self.focus = Target::Menu(MenuItem::Resume);
                 } else {
@@ -1662,7 +1881,7 @@ impl App {
                 }
                 let to = self.back_to;
                 self.back_to = Screen::Home;
-                if to == Screen::Session && self.session.is_some() {
+                if to == Screen::Session && self.session().is_some() {
                     self.screen = Screen::Session;
                     self.focus = Target::Menu(MenuItem::Gamepads);
                 } else if to == Screen::Settings && self.screen == Screen::Gamepads {
@@ -1679,12 +1898,16 @@ impl App {
 
     /// Retour en session : ouvre ou ferme le menu.
     pub fn session_back(&mut self) -> Vec<Action> {
-        let Some(s) = self.session.as_mut() else { return Vec::new() };
+        let Some(s) = Self::active_in(&mut self.sessions, self.active) else { return Vec::new() };
+        let id = s.id;
         match s.phase {
-            Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => vec![Action::CancelConnect],
+            Phase::Preparing | Phase::Connecting | Phase::StationRestarting | Phase::FirstImages => vec![Action::CancelConnect(id)],
             Phase::Ended { .. } => {
-                self.session = None;
-                self.go(Screen::Home);
+                // La session finie sur une erreur se ferme ; la dernière ramène l'accueil.
+                self.close_session(id);
+                if self.sessions.is_empty() {
+                    self.go(Screen::Home);
+                }
                 Vec::new()
             }
             _ => {
@@ -1696,7 +1919,7 @@ impl App {
                 s.menu = !s.menu;
                 if s.menu {
                     self.focus = Target::Menu(MenuItem::Resume);
-                    vec![Action::ReleaseAll]
+                    vec![Action::ReleaseAll(id)]
                 } else {
                     Vec::new()
                 }
@@ -1706,17 +1929,18 @@ impl App {
 
     /// Ouvre le menu de session (combinaison de la manette, toucher en haut).
     pub fn open_menu(&mut self) -> Vec<Action> {
-        if let Some(s) = self.session.as_mut()
+        if let Some(s) = Self::active_in(&mut self.sessions, self.active)
             && !s.menu
             && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
         {
+            let id = s.id;
             s.menu = true;
             s.keys = false;
             s.bar = false;
             s.bar_menu = None;
             self.screen = Screen::Session;
             self.focus = Target::Menu(MenuItem::Resume);
-            return vec![Action::ReleaseAll];
+            return vec![Action::ReleaseAll(id)];
         }
         Vec::new()
     }
@@ -1772,7 +1996,7 @@ impl App {
                 self.add.step = AddStep::Address;
                 self.add.message = None;
                 self.go(Screen::Add);
-                vec![Action::OpenKeyboard]
+                vec![Action::OpenKeyboard(None)]
             }
             Target::Key(c) => {
                 if self.typing_password() {
@@ -1955,41 +2179,37 @@ impl App {
             Target::Menu(item) => self.menu(item),
             Target::Shortcut(i) | Target::BarShortcut(i) => {
                 let keys = SHORTCUTS[i].2.to_vec();
-                if let Some(s) = self.session.as_mut() {
-                    s.keys = false;
-                    s.menu = false;
-                    s.bar_menu = None;
-                }
-                vec![Action::Shortcut(keys)]
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.keys = false;
+                s.menu = false;
+                s.bar_menu = None;
+                vec![Action::Shortcut(s.id, keys)]
             }
-            Target::CancelConnect => vec![Action::CancelConnect],
+            Target::CancelConnect => self.active_id().map(|id| vec![Action::CancelConnect(id)]).unwrap_or_default(),
             Target::Back => self.back(),
             Target::WinMinimize => vec![Action::Minimize],
             Target::WinMaximize => vec![Action::Maximize],
             Target::WinClose => vec![Action::Quit],
-            Target::BarProfile => {
-                if let Some(s) = self.session.as_mut() {
-                    s.bar_menu = if s.bar_menu == Some(BarMenu::Profile) { None } else { Some(BarMenu::Profile) };
-                }
-                Vec::new()
-            }
-            Target::BarKeys => {
-                if let Some(s) = self.session.as_mut() {
-                    s.bar_menu = if s.bar_menu == Some(BarMenu::Keys) { None } else { Some(BarMenu::Keys) };
-                }
-                Vec::new()
-            }
+            Target::BarProfile => self.toggle_bar_menu(BarMenu::Profile),
+            Target::BarKeys => self.toggle_bar_menu(BarMenu::Keys),
+            Target::BarComputers => self.toggle_bar_menu(BarMenu::Computers),
+            Target::BarComputer(i) => self.bar_computer(i),
             Target::BarPick(p) => {
-                if let Some(s) = self.session.as_mut() {
-                    s.profile = p;
-                    s.bar_menu = None;
-                }
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.profile = p;
+                s.bar_menu = None;
+                let id = s.id;
                 self.remember_profile(p);
-                vec![Action::SetProfile(p), Action::Save]
+                vec![Action::SetProfile(id, p), Action::Save]
             }
-            Target::BarMouse => vec![Action::ToggleMouse],
-            Target::BarFullscreen => vec![Action::ToggleFullscreen],
-            Target::BarQuit => vec![Action::Disconnect],
+            Target::BarMouse => self.active_id().map(|id| vec![Action::ToggleMouse(id)]).unwrap_or_default(),
+            Target::BarFullscreen => self.active_id().map(|id| vec![Action::ToggleFullscreen(Some(id))]).unwrap_or_default(),
+            Target::BarSound => {
+                let Some(s) = self.session_mut() else { return Vec::new() };
+                s.keep_sound = !s.keep_sound;
+                vec![Action::KeepSound(s.id, s.keep_sound)]
+            }
+            Target::BarQuit => self.active_id().map(|id| vec![Action::Disconnect(id)]).unwrap_or_default(),
             Target::UpdateNotice => match &self.update {
                 UpdateState::Available { page, .. } => vec![Action::OpenUrl(page.clone())],
                 _ => Vec::new(),
@@ -1999,9 +2219,46 @@ impl App {
 
     /// Le profil choisi en session est gardé pour cet ordinateur.
     fn remember_profile(&mut self, p: Profile) {
-        if let Some(id) = self.session.as_ref().map(|s| s.host.clone()) {
+        if let Some(id) = self.session().map(|s| s.host.clone()) {
             self.set_profile(&id, p);
         }
+    }
+
+    /// Ouvre un menu déroulant de la barre, ou le ferme s'il est déjà ouvert.
+    fn toggle_bar_menu(&mut self, menu: BarMenu) -> Vec<Action> {
+        if let Some(s) = self.session_mut() {
+            s.bar_menu = if s.bar_menu == Some(menu) { None } else { Some(menu) };
+        }
+        Vec::new()
+    }
+
+    /// Un ordinateur du menu « Ordinateurs » de la barre. Déjà en session : sa fenêtre passe
+    /// devant. Hors ligne : il se réveille (ou se sonde à nouveau) comme sur l'accueil. Sinon
+    /// une session de plus s'ouvre, dans une fenêtre, tant qu'il y a de la place.
+    fn bar_computer(&mut self, i: usize) -> Vec<Action> {
+        let Some(h) = self.store.hosts.get(i) else { return Vec::new() };
+        let (id, profile, can_wake) = (h.id.clone(), h.settings.profile, h.can_wake());
+        // Une ligne inactive (réveil en cours, quatre sessions) laisse le menu ouvert.
+        let offline = self.live.get(&id).is_some_and(|l| l.online == Online::Offline);
+        let known = self.session_of_host(&id).map(|s| s.id);
+        if known.is_none() && ((offline && can_wake && self.is_waking(&id)) || (!offline && self.sessions_full())) {
+            return Vec::new();
+        }
+        if let Some(s) = self.session_mut() {
+            s.bar_menu = None;
+        }
+        if let Some(session) = known {
+            return vec![Action::ShowSession(session)];
+        }
+        if offline {
+            if !can_wake {
+                self.live.entry(id).or_default().online = Online::Unknown;
+                return vec![Action::Poll];
+            }
+            self.waking = Some((id.clone(), Instant::now()));
+            return vec![Action::Wake(id)];
+        }
+        vec![Action::Connect { host: id, profile }]
     }
 
     // MARK: - Confirmations et Station
@@ -2153,7 +2410,8 @@ impl App {
     }
 
     fn menu(&mut self, item: MenuItem) -> Vec<Action> {
-        let Some(s) = self.session.as_mut() else { return Vec::new() };
+        let Some(s) = Self::active_in(&mut self.sessions, self.active) else { return Vec::new() };
+        let id = s.id;
         match item {
             MenuItem::Resume => {
                 s.menu = false;
@@ -2163,20 +2421,20 @@ impl App {
                 s.profile = p;
                 s.menu = false;
                 self.remember_profile(p);
-                vec![Action::SetProfile(p), Action::Save]
+                vec![Action::SetProfile(id, p), Action::Save]
             }
             MenuItem::Sound => {
                 s.muted = !s.muted;
-                vec![Action::Mute(s.muted)]
+                vec![Action::Mute(id, s.muted)]
             }
             MenuItem::PadMouse => {
                 s.pad_mouse = !s.pad_mouse;
                 s.menu = false;
-                vec![Action::PadMouse(s.pad_mouse)]
+                vec![Action::PadMouse(id, s.pad_mouse)]
             }
             MenuItem::Keyboard => {
                 s.menu = false;
-                vec![Action::OpenKeyboard]
+                vec![Action::OpenKeyboard(Some(id))]
             }
             MenuItem::Keys => {
                 s.keys = true;
@@ -2191,14 +2449,14 @@ impl App {
             MenuItem::Light => {
                 s.light = !s.light;
                 s.menu = false;
-                vec![Action::Light(s.light)]
+                vec![Action::Light(id, s.light)]
             }
             MenuItem::Gamepads => {
                 self.back_to = Screen::Session;
                 self.go(Screen::Gamepads);
                 Vec::new()
             }
-            MenuItem::Disconnect => vec![Action::Disconnect],
+            MenuItem::Disconnect => vec![Action::Disconnect(id)],
         }
     }
 
@@ -2707,7 +2965,7 @@ impl App {
             self.add.message = None;
             self.add.busy = false;
             self.go(Screen::Add);
-            return vec![Action::OpenKeyboard];
+            return vec![Action::OpenKeyboard(None)];
         }
         match s {
             Setting::Remove => {
@@ -3016,7 +3274,7 @@ mod tests {
         let mut app = App::new(Store::default(), Layout::Handheld);
         app.store.hosts.push(host());
         app.open_settings(false, Screen::Home);
-        assert_eq!(app.choose(Setting::WakeMac, usize::MAX), vec![Action::OpenKeyboard]);
+        assert_eq!(app.choose(Setting::WakeMac, usize::MAX), vec![Action::OpenKeyboard(None)]);
         assert!(app.typing_mac());
         // Minuscules, tirets, caractères hors hexadécimal : remis en forme.
         for c in "3c-7c-3fz12ab".chars() {
@@ -3173,29 +3431,11 @@ mod tests {
         assert!(app.is_waking("a"));
         assert_eq!(app.waking_host(), Some("a"));
         // Pendant la connexion, le redémarrage de la Station s'annule comme le reste.
-        app.session = Some(SessionUi {
-            host: "a".into(),
-            name: "A".into(),
-            profile: Profile::Jeu,
-            phase: Phase::StationRestarting,
-            menu: false,
-            keys: false,
-            stats: None,
-            show_stats: false,
-            pad_mouse: false,
-            muted: false,
-            light: false,
-            relative: false,
-            bar: false,
-            bar_menu: None,
-            notice: None,
-            started: Instant::now(),
-            ending_since: None,
-            opened_at: None,
-            screens: 1,
-            expected_screens: 1,
-        });
-        assert_eq!(app.session_back(), vec![Action::CancelConnect]);
+        let id = app.new_session_id();
+        let mut s = SessionUi::new(id, "a", "A", Profile::Jeu, false, false, 1);
+        s.phase = Phase::StationRestarting;
+        app.open_session(s);
+        assert_eq!(app.session_back(), vec![Action::CancelConnect(id)]);
     }
 
     /// Les lignes de la rubrique Image : « Écrans » juste sous « Définition »,
@@ -3278,5 +3518,191 @@ mod tests {
         let old: crate::model::LastSession = serde_json::from_str(r#"{"median":6.8,"p95":9.4,"seconds":4320,"mode":"1920 × 1200","hz":120,"codec":"HEVC","mbps":38.0,"at":1}"#).unwrap();
         assert_eq!(old.screens, 0);
         assert_eq!(old.transmitted(), "1920 × 1200 · 120 Hz · HEVC · 38 Mbit/s");
+    }
+
+    // MARK: - Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md)
+
+    /// Un bureau avec cinq ordinateurs (a à e) ; chacun en ligne.
+    fn desk() -> App {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        for id in ["a", "b", "c", "d", "e"] {
+            app.store.hosts.push(Host { id: id.into(), name: id.to_uppercase(), ..host() });
+            app.live.entry(id.into()).or_default().online = Online::Online;
+        }
+        app
+    }
+
+    fn open(app: &mut App, host: &str) -> SessionId {
+        let id = app.new_session_id();
+        let mut s = SessionUi::new(id, host, &host.to_uppercase(), Profile::Bureau, false, false, 1);
+        s.phase = Phase::Streaming;
+        app.open_session(s);
+        id
+    }
+
+    /// Une seule session est active, celle qu'on vient d'ouvrir ; l'entrée va à elle seule, le
+    /// son aux sessions active ou gardées ; « Garder le son » ne vaut que pour la session en cours.
+    #[test]
+    fn only_the_active_session_gets_input_and_sound() {
+        let mut app = desk();
+        assert!(app.session().is_none() && app.focus_states().is_empty() && app.next_session().is_none());
+        let a = open(&mut app, "a");
+        assert_eq!((app.active, app.focus_states()), (Some(a), vec![FocusState { id: a, active: true, muted: false }]));
+        let b = open(&mut app, "b");
+        assert_eq!(app.active, Some(b), "la session ouverte devient active");
+        let c = open(&mut app, "c");
+        let states = app.focus_states();
+        assert_eq!(states.iter().filter(|s| s.active).map(|s| s.id).collect::<Vec<_>>(), vec![c]);
+        assert_eq!(states.iter().map(|s| (s.id, s.muted)).collect::<Vec<_>>(), vec![(a, true), (b, true), (c, false)], "seule la session active s'entend");
+        // « Garder le son » sur la première : audible sans être active ; la barre le dit pour la session active seulement.
+        app.activate_session(a);
+        assert_eq!(app.activate(Target::BarSound), vec![Action::KeepSound(a, true)]);
+        app.activate_session(c);
+        let states = app.focus_states();
+        assert_eq!(states.iter().map(|s| (s.id, s.active, s.muted)).collect::<Vec<_>>(), vec![(a, false, false), (b, false, true), (c, true, false)]);
+        // Le son coupé depuis le menu de la session l'emporte, même active ou gardée.
+        app.session_mut().unwrap().muted = true;
+        app.session_by_mut(a).unwrap().muted = true;
+        let states = app.focus_states();
+        assert_eq!(states.iter().map(|s| s.muted).collect::<Vec<_>>(), vec![true, true, true]);
+        // Rallumer « Garder le son » : éteint ensuite pour cette session seule.
+        app.activate_session(a);
+        assert_eq!(app.activate(Target::BarSound), vec![Action::KeepSound(a, false)]);
+        assert!(!app.session_by(a).unwrap().keep_sound && app.session_by(b).is_some_and(|s| !s.keep_sound));
+    }
+
+    /// « Ordinateur suivant » : dans l'ordre d'ouverture, en reprenant au début ; rien avec une seule session.
+    #[test]
+    fn next_computer_follows_the_opening_order() {
+        let mut app = desk();
+        let a = open(&mut app, "a");
+        assert_eq!(app.next_session(), None);
+        let b = open(&mut app, "b");
+        let c = open(&mut app, "c");
+        assert_eq!(app.active, Some(c));
+        assert_eq!(app.next_session(), Some(a), "après la dernière : la première");
+        app.activate_session(a);
+        assert_eq!(app.next_session(), Some(b));
+        app.activate_session(b);
+        assert_eq!(app.next_session(), Some(c));
+        // Passer à une autre session ne la rouvre pas : changer d'ordre d'activation ne change pas l'ordre d'ouverture.
+        assert_eq!(app.sessions.iter().map(|s| s.id).collect::<Vec<_>>(), vec![a, b, c]);
+    }
+
+    /// Quand la session active se termine, celle qui l'a été en dernier reprend la main ;
+    /// la dernière fermée laisse l'app sans session active.
+    #[test]
+    fn the_last_active_session_takes_over() {
+        let mut app = desk();
+        let (a, b, c) = (open(&mut app, "a"), open(&mut app, "b"), open(&mut app, "c"));
+        app.activate_session(a);
+        app.activate_session(c);
+        // L'ordre des activations : b, a, c. c se termine : a reprend la main.
+        assert!(app.close_session(c));
+        assert_eq!(app.active, Some(a));
+        // Une session qui n'est pas active se termine : la session active ne change pas.
+        assert!(!app.close_session(b));
+        assert_eq!(app.active, Some(a));
+        assert!(app.close_session(a));
+        assert_eq!((app.active, app.sessions.len()), (None, 0));
+        // Un identifiant ne sert qu'une fois : le suivant n'est jamais celui d'une session finie.
+        let d = open(&mut app, "d");
+        assert!(d > c);
+        // Activer une session qui n'existe plus ne change rien.
+        assert!(!app.activate_session(a) && app.active == Some(d));
+    }
+
+    /// La barre d'une session qu'on quitte se ferme ; un écran ouvert par-dessus la session (les
+    /// manettes) revient à la session de la fenêtre qui prend la main.
+    #[test]
+    fn switching_closes_the_bar_and_brings_back_the_session() {
+        let mut app = desk();
+        let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
+        app.activate_session(a);
+        {
+            let s = app.session_mut().unwrap();
+            s.bar = true;
+            s.bar_menu = Some(BarMenu::Computers);
+        }
+        app.screen = Screen::Gamepads;
+        app.back_to = Screen::Session;
+        assert!(app.activate_session(b));
+        assert!(app.session_by(a).is_some_and(|s| !s.bar && s.bar_menu.is_none()));
+        assert_eq!((app.screen, app.back_to), (Screen::Session, Screen::Home));
+    }
+
+    /// Le menu « Ordinateurs » : un clic ouvre une session de plus (en ligne), réveille (hors ligne), ou
+    /// remet la fenêtre devant (déjà en session) ; quatre ordinateurs au plus ; le même jamais deux fois.
+    #[test]
+    fn the_computers_menu_connects_wakes_or_shows() {
+        let mut app = desk();
+        app.store.hosts[2].wake.push(crate::model::WakeCard { mac: "3C:7C:3F:12:AB:CD".into(), ..Default::default() });
+        let a = open(&mut app, "a");
+        // En ligne, pas encore en session : une session de plus, avec le profil de l'ordinateur.
+        app.session_mut().unwrap().bar_menu = Some(BarMenu::Computers);
+        assert_eq!(app.activate(Target::BarComputer(1)), vec![Action::Connect { host: "b".into(), profile: Profile::Jeu }]);
+        assert!(app.session().unwrap().bar_menu.is_none(), "le menu se referme");
+        let b = open(&mut app, "b");
+        // Déjà en session : sa fenêtre passe devant, sans nouvelle session.
+        assert_eq!(app.activate(Target::BarComputer(0)), vec![Action::ShowSession(a)]);
+        assert_eq!(app.activate(Target::BarComputer(1)), vec![Action::ShowSession(b)]);
+        // Hors ligne avec une carte apprise : le réveil, comme l'accueil ; pendant le réveil, rien de plus.
+        app.live.get_mut("c").unwrap().online = Online::Offline;
+        assert_eq!(app.activate(Target::BarComputer(2)), vec![Action::Wake("c".into())]);
+        assert!(app.is_waking("c"));
+        app.session_mut().unwrap().bar_menu = Some(BarMenu::Computers);
+        assert!(app.activate(Target::BarComputer(2)).is_empty());
+        assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Computers), "une ligne inactive laisse le menu ouvert");
+        // Hors ligne sans adresse : « Réessayer ».
+        app.live.get_mut("d").unwrap().online = Online::Offline;
+        assert_eq!(app.activate(Target::BarComputer(3)), vec![Action::Poll]);
+        // Quatre au plus : le quatrième s'ouvre, le cinquième est refusé (« Se connecter » inactif).
+        app.live.get_mut("c").unwrap().online = Online::Online;
+        app.live.get_mut("d").unwrap().online = Online::Online;
+        app.waking = None;
+        open(&mut app, "c");
+        assert_eq!(app.activate(Target::BarComputer(4)), vec![Action::Connect { host: "e".into(), profile: Profile::Jeu }]);
+        open(&mut app, "d");
+        assert!(app.sessions_full());
+        app.session_mut().unwrap().bar_menu = Some(BarMenu::Computers);
+        assert!(app.activate(Target::BarComputer(4)).is_empty());
+        assert_eq!(app.session().unwrap().bar_menu, Some(BarMenu::Computers));
+        // Les sessions déjà ouvertes s'affichent toujours.
+        assert_eq!(app.activate(Target::BarComputer(0)), vec![Action::ShowSession(a)]);
+    }
+
+    /// Le Steam Deck, le salon et KyberNow Link OS gardent une session ; le bureau en tient plusieurs.
+    #[test]
+    fn only_the_desktop_keeps_several_computers() {
+        assert!(App::new(Store::default(), Layout::Desktop).multi_sessions());
+        assert!(!App::new(Store::default(), Layout::Handheld).multi_sessions());
+        assert!(!App::new(Store::default(), Layout::Tv).multi_sessions());
+        let mut os = App::new(Store::default(), Layout::Desktop);
+        os.os = Some(OsInfo::default());
+        assert!(!os.multi_sessions(), "KyberNow Link OS en usage bureau : une session");
+    }
+
+    /// Les actions de session portent leur session : une action partie d'une session qui n'est plus
+    /// l'active (ou qui n'existe plus) ne vise jamais la suivante.
+    #[test]
+    fn session_actions_name_their_session() {
+        let mut app = desk();
+        let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
+        assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(b)]);
+        app.activate_session(a);
+        assert_eq!(app.activate(Target::BarQuit), vec![Action::Disconnect(a)]);
+        assert_eq!(app.activate(Target::BarMouse), vec![Action::ToggleMouse(a)]);
+        assert_eq!(app.activate(Target::BarFullscreen), vec![Action::ToggleFullscreen(Some(a))]);
+        assert_eq!(app.activate(Target::BarPick(Profile::Max)), vec![Action::SetProfile(a, Profile::Max), Action::Save]);
+        assert_eq!(app.activate(Target::Shortcut(0)).first(), Some(&Action::Shortcut(a, SHORTCUTS[0].2.to_vec())));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Sound)), vec![Action::Mute(a, true)]);
+        // Une session finie sur une erreur : « Retour » la ferme, la dernière ramène l'accueil.
+        app.session_by_mut(b).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
+        app.activate_session(b);
+        assert!(app.session_back().is_empty());
+        assert_eq!((app.active, app.screen), (Some(a), Screen::Session), "une autre session reste : pas d'accueil");
+        app.session_mut().unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
+        assert!(app.session_back().is_empty());
+        assert_eq!((app.active, app.screen, app.sessions.len()), (None, Screen::Home, 0));
     }
 }
