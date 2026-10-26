@@ -167,9 +167,8 @@ final class SessionController: NSObject, ObservableObject {
     /// La session s'est terminée par la fermeture de sa fenêtre (bouton rouge,
     /// ⌘W) : la dernière ne ramène pas l'accueil, l'app reste dans l'icône.
     private(set) var closedByWindow = false
-    /// La session était active quand elle s'est arrêtée : sinon, sa fin
-    /// arrêtée par l'ordinateur est notifiée même app au premier plan.
-    private(set) var activeAtEnd = true
+    /// La session du cœur a démarré : sa fin (`onEnded`) viendra.
+    var coreStarted: Bool { engine?.hasSession == true }
 
     /// La session tient encore (ni finie, ni en échec).
     var isLive: Bool {
@@ -1082,7 +1081,15 @@ final class SessionController: NSObject, ObservableObject {
     /// Les états du cœur : l'image n'apparaît qu'après `revealDelay`, les
     /// fins voulues et les fins en erreur se séparent ici.
     private func phaseChanged(_ p: SessionEngine.Phase) {
-        if case .failed = phase { return }
+        if case .failed = phase {
+            // Échec dit par l'app (registre plein…) : la session du cœur finit
+            // quand même ; plus rien à attendre d'elle (fin de l'app).
+            if case .ended = p, !coreEnded {
+                coreEnded = true
+                onEnded?(self)
+            }
+            return
+        }
         engineStreaming = p == .streaming
         if p != .connecting { stationRestarting = false }
         switch p {
@@ -1121,12 +1128,16 @@ final class SessionController: NSObject, ObservableObject {
         case let .reconnecting(attempt, _):
             phase = .reconnecting(attempt)
         case .ending:
+            guard phase != .ending, phase != .ended else { break }
+            endedByComputer = true
+            // Avant la première image, sans « Se déconnecter » demandé : la
+            // connexion a échoué (mot de passe, refus, certificat, Kyber…).
+            // La capsule de la connexion reste ; `ended` en dit la raison
+            // (« La connexion a échoué »), comme sur Windows et Linux.
+            if revealedAt == nil { break }
             // Fin demandée par la console (ou connexion perdue sans reprise) :
             // le passage se referme comme pour une fin voulue.
-            if phase != .ending, phase != .ended {
-                endedByComputer = true
-                end()
-            }
+            end()
         case let .ended(error, report):
             if phase != .ending, phase != .ended { endedByComputer = true }
             endError = error
@@ -1143,7 +1154,9 @@ final class SessionController: NSObject, ObservableObject {
             closing.audioRestored = report?.audioRestored ?? false
             closing.error = error ?? report?.error
             closing.done = true
-            onReport?(host, closing)
+            // Le bilan d'Admin seulement : sans lui (Admin injoignable, session
+            // jamais préparée), rien à dire des écrans ni du son sur l'accueil.
+            if report != nil { onReport?(host, closing) }
         }
     }
 
@@ -1319,7 +1332,6 @@ final class SessionController: NSObject, ObservableObject {
     /// l'ordinateur et rétablit son son, l'app affiche ce qui a été vérifié.
     func end() {
         guard phase != .ending && phase != .ended else { return }
-        activeAtEnd = focusActive
         setBar(false)
         // La fin ferme toutes les fenêtres : la connexion se referme sur l'écran principal.
         if let main = mainSurface { moveChrome(to: main) }
@@ -1479,7 +1491,6 @@ final class SessionController: NSObject, ObservableObject {
     /// « Fermer » ; le cœur a prévenu la console.
     private func fail(_ message: String) {
         KyberLog.app.error("session : \(message, privacy: .public)")
-        activeAtEnd = focusActive
         // Une session coupée après l'image compte aussi.
         if revealedAt != nil { recordSession() }
         clearScreenOffer()

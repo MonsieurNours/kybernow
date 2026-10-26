@@ -403,12 +403,23 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         // Fenêtre déjà cachée au départ : la veille d'image du cœur attend.
         if hidden { kn_session_set_hidden(s, true) }
-        // Plusieurs ordinateurs : inscrite, elle devient la session active.
+        hasSession = true
+        // Plusieurs ordinateurs : inscrite, elle devient la session active ;
+        // refusée (registre plein), elle s'arrête aussitôt, jamais hors registre.
         if let name = p.focusName {
             let id = kn_focus_register(s, name)
-            if id > 0 { focusID = id } else { KyberLog.app.error("registre des sessions : \(name, privacy: .public) refusé") }
+            guard id > 0 else {
+                KyberLog.app.error("registre des sessions : \(name, privacy: .public) refusé")
+                kn_session_stop(s)
+                throw StartError.tooManyComputers
+            }
+            focusID = id
         }
     }
+
+    /// La session du cœur a démarré (`kn_session_start`) : `onPhase` ira
+    /// jusqu'à `.ended`. Faux si le départ a été refusé avant.
+    public private(set) var hasSession = false
 
     // MARK: - Plusieurs ordinateurs (registre du cœur)
 
@@ -453,12 +464,6 @@ public final class SessionEngine: @unchecked Sendable {
     /// Sessions inscrites, et au plus (quatre).
     public static var focusCount: Int { Int(kn_focus_count()) }
     public static var focusMax: Int { Int(kn_focus_max()) }
-
-    /// Mac : le lecteur de manettes unique du cœur, sur son fil SDL (au
-    /// lancement de l'app ; il démarre aussi de lui-même à la première chaîne
-    /// d'entrées). Faux sur l'Apple TV, l'iPhone et l'iPad, ou si SDL n'a pas pu s'ouvrir.
-    @discardableResult
-    public static func startGamepads() -> Bool { kn_gamepads_start_sdl() }
 
     /// Plusieurs ordinateurs : les écrans d'une session ouverte pendant
     /// qu'une autre tourne (« Cet écran », quel que soit le réglage), règle du

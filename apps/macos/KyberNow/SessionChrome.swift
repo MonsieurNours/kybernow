@@ -71,7 +71,7 @@ struct SessionChrome: View {
                     .padding(.top, 14)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
-            PassageCapsule(session: session)
+            PassageCapsule(session: session, sessions: AppModel.shared.sessions)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 .padding(.bottom, 92)
             if streaming, session.statsPanel {
@@ -106,6 +106,8 @@ struct SessionChrome: View {
 /// reconnexion, la fin.
 private struct PassageCapsule: View {
     @ObservedObject var session: SessionController
+    /// Les autres sessions : le bouton de l'échec (« Fermer » ou « Revenir à l'accueil »).
+    @ObservedObject var sessions: SessionManager
 
     private enum Mode: Equatable { case waiting, reconnecting, failed, closing, hidden }
 
@@ -169,7 +171,7 @@ private struct PassageCapsule: View {
                 }
                 // Une session suivante (ou une autre encore ouverte) : « Fermer »
                 // ferme sa fenêtre, les autres sessions continuent (docs/link-ui.md).
-                if session.isFirst, AppModel.shared.sessions.all.allSatisfy({ $0 === session }) {
+                if session.isFirst, sessions.all.allSatisfy({ $0 === session }) {
                     Button("Revenir à l'accueil") { session.dismissFailure() }
                         .buttonStyle(PrimaryButton(height: 40))
                 } else {
