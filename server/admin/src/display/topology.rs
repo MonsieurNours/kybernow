@@ -22,7 +22,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
-    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
+    DISPLAYCONFIG_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
     DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo,
     GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
     QDC_ONLY_ACTIVE_PATHS, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
@@ -560,6 +561,9 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     // 7. Comme `isolate` : laisser l'énumérateur d'écrans de Kyber voir la
     //    nouvelle disposition avant de répondre.
     std::thread::sleep(Duration::from_millis(1500));
+    // Ce que Windows a mis en place pour chaque écran, échelle comprise
+    // (`facts`, écrit par Admin dans son journal pour comparer les écrans).
+    let mut facts: Vec<String> = Vec::new();
     let list: Vec<Value> = names
         .iter()
         .map(|name| {
@@ -569,6 +573,8 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
                 return Value::Null;
             }
             let (x, y) = current_position(name);
+            let scale = scale_at(x, y).map_or("inconnue".to_string(), |s| format!("{s} %"));
+            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), échelle {scale}"));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
         .collect();
@@ -581,7 +587,28 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "disabled_others": disabled_others,
         "screens": list,
         "notes": notes,
+        "facts": facts,
     }))
+}
+
+/// Échelle (en %) de l'écran dont le coin haut gauche est en (`x`, `y`),
+/// lue comme la voit une app qui gère le DPI par écran.
+fn scale_at(x: i32, y: i32) -> Option<u32> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint};
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
+    };
+    unsafe {
+        let previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let monitor = MonitorFromPoint(POINT { x: x + 1, y: y + 1 }, MONITOR_DEFAULTTONULL);
+        let (mut dx, mut dy) = (0u32, 0u32);
+        let ok = !monitor.is_null() && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) >= 0;
+        if !previous.is_null() {
+            SetThreadDpiAwarenessContext(previous);
+        }
+        (ok && dx > 0).then(|| dx * 100 / 96)
+    }
 }
 
 /// « 3456 × 2234 à 60 Hz » (notes).
@@ -646,6 +673,33 @@ fn stage_position(name: &str, (x, y): (i32, i32)) -> i32 {
         mode.dmFields = DM_POSITION;
         ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY | CDS_NORESET, null())
     }
+}
+
+/// Cartes graphiques que la configuration d'affichage connaît : LUID et
+/// chemin du périphérique (`\\?\PCI#VEN_10DE&DEV_…` pour une carte NVIDIA ;
+/// l'adaptateur de SudoVDA n'est pas sur le bus PCI).
+pub fn adapters() -> Result<Value> {
+    let paths = all_paths()?;
+    let mut seen: Vec<(u32, i32)> = Vec::new();
+    let mut list = Vec::new();
+    for id in paths.iter().flat_map(|p| [p.sourceInfo.adapterId, p.targetInfo.adapterId]) {
+        if seen.contains(&(id.LowPart, id.HighPart)) {
+            continue;
+        }
+        seen.push((id.LowPart, id.HighPart));
+        let mut name = DISPLAYCONFIG_ADAPTER_NAME::default();
+        name.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME;
+        name.header.size = size_of::<DISPLAYCONFIG_ADAPTER_NAME>() as u32;
+        name.header.adapterId = id;
+        let path = if unsafe { DisplayConfigGetDeviceInfo(&mut name.header) } == 0 {
+            let len = name.adapterDevicePath.iter().position(|c| *c == 0).unwrap_or(name.adapterDevicePath.len());
+            String::from_utf16_lossy(&name.adapterDevicePath[..len])
+        } else {
+            String::new()
+        };
+        list.push(json!({ "luid_low": id.LowPart, "luid_high": id.HighPart, "path": path }));
+    }
+    Ok(json!({ "adapters": list }))
 }
 
 /// Position actuelle de l'écran `name` (nom GDI) sur le bureau.
