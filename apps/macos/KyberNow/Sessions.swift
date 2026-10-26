@@ -38,8 +38,12 @@ final class SessionManager: ObservableObject {
     #endif
 
     init() {
-        // La fenêtre qui prend le clavier : sa session devient active dans le registre.
-        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
+        // La fenêtre qui prend le clavier : sa session devient active dans le
+        // registre, tout de suite (sans file : pendant la notification même).
+        // AppKit rend la fenêtre clé avant de lui passer le clic qui l'a
+        // activée : ce clic part ainsi vers son ordinateur, la session déjà
+        // active, comme avec une seule session (`acceptsFirstMouse` de StreamView).
+        keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: nil) { [weak self] note in
             guard let window = note.object as? NSWindow else { return }
             MainActor.assumeIsolated { self?.windowBecameKey(window) }
         }
@@ -59,6 +63,13 @@ final class SessionManager: ObservableObject {
     var live: [SessionController] { all.filter(\.isLive) }
     var active: SessionController? { activeID.flatMap(session(for:)) }
 
+    /// Les commandes du menu Session et leurs raccourcis : la session de la
+    /// fenêtre clé (même une session en échec, hors registre), sinon la
+    /// session active du registre.
+    var commandTarget: SessionController? {
+        NSApp.keyWindow.flatMap { window in all.first { $0.owns(window) } } ?? active
+    }
+
     func session(for hostID: UUID) -> SessionController? {
         all.first { $0.host.id == hostID }
     }
@@ -68,7 +79,8 @@ final class SessionManager: ObservableObject {
         NSApp.keyWindow ?? active?.windows.first ?? NSApp.mainWindow
     }
 
-    /// Une session de plus, avant son départ (sa fenêtre s'ouvre devant).
+    /// Une session de plus, sa fenêtre ouverte devant (et inscrite au registre
+    /// du cœur si elle a pu partir).
     func add(_ session: SessionController) {
         all.append(session)
         // Ses changements d'état (fin, échec : désinscrite du registre) redessinent l'icône et les menus.
@@ -117,7 +129,11 @@ final class SessionManager: ObservableObject {
     // MARK: Session active
 
     private func windowBecameKey(_ window: NSWindow) {
-        guard let session = all.first(where: { $0.owns(window) }) else { return }
+        guard let session = all.first(where: { $0.owns(window) }) else {
+            // L'accueil ou les réglages : le menu Session vise de nouveau la session active.
+            if !all.isEmpty { objectWillChange.send() }
+            return
+        }
         activate(session)
     }
 
@@ -148,9 +164,10 @@ final class SessionManager: ObservableObject {
 
     // MARK: Fins
 
-    /// Revenue avant que le cœur la dise finie : gardée 10 s au plus.
+    /// Revenue avant que le cœur la dise finie : gardée 10 s au plus. Sans
+    /// session du cœur (départ refusé, mot de passe introuvable), rien à attendre.
     private func linger(_ session: SessionController) {
-        guard !session.coreEnded else { return }
+        guard session.coreStarted, !session.coreEnded else { return }
         lingering.append(session)
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self, weak session] in
             self?.lingering.removeAll { $0 === session }

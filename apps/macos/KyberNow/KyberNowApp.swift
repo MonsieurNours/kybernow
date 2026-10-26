@@ -143,14 +143,16 @@ final class AppModel: ObservableObject {
                     : String(localized: "Le son de \(host.name) n'est pas encore rétabli : il reviendra au prochain démarrage de KyberNow Station"), warning: true)
             }
         }
-        sessions.add(session)
         if !first { Dock.comeForward() }
+        // Sa fenêtre s'ouvre (l'accueil photographié pour le passage tel qu'il
+        // était, avant « Afficher la session »), puis elle rejoint les sessions.
         #if DEBUG
         // Démonstration : la session sans ordinateur derrière, rien sur le réseau
         // (`-demoCore YES` : une vraie session du cœur vers une adresse que rien
         // ne route, pour essayer le registre des sessions).
         if Self.demo, !UserDefaults.standard.bool(forKey: "demoCore") {
             session.demo(demo ?? "session")
+            sessions.add(session)
             sessions.refresh()
             hideHomeForFirstSession(first)
             return
@@ -158,6 +160,7 @@ final class AppModel: ObservableObject {
         #endif
         // Inscrite au registre des sessions du cœur à son départ : elle devient active.
         session.start()
+        sessions.add(session)
         sessions.refresh()
         hideHomeForFirstSession(first)
     }
@@ -368,24 +371,28 @@ struct KyberNowApp: App {
             }
             // Une seule fenêtre d'accueil : « Ouvrir KyberNow Link » (barre des menus) la montre.
             CommandGroup(replacing: .newItem) {}
-            // Les commandes vont à la session active (celle de la fenêtre au premier plan).
+            // Les commandes vont à la session de la fenêtre clé (même en échec),
+            // sinon à la session active du registre ; relue au moment du clic.
             CommandMenu("Session") {
-                let active = app.sessions.active
-                Button("Se déconnecter") { active?.end() }
-                    .keyboardShortcut("d", modifiers: [.control, .option, .command])
-                    .disabled(active?.isLive != true)
-                // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
-                if active?.canToggleFullScreen ?? true {
-                    Button("Plein écran") { active?.toggleFullScreen() }
-                        .keyboardShortcut("f", modifiers: [.control, .option, .command])
-                        .disabled(active?.isLive != true)
+                let target = app.sessions.commandTarget
+                Button("Se déconnecter") {
+                    guard let s = app.sessions.commandTarget else { return }
+                    if s.isLive { s.end() } else { s.dismissFailure() }
                 }
-                Button("Souris des jeux ou du bureau") { active?.toggleMouseCapture() }
+                .keyboardShortcut("d", modifiers: [.control, .option, .command])
+                .disabled(target == nil)
+                // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
+                if target?.canToggleFullScreen ?? true {
+                    Button("Plein écran") { app.sessions.commandTarget?.toggleFullScreen() }
+                        .keyboardShortcut("f", modifiers: [.control, .option, .command])
+                        .disabled(target?.isLive != true)
+                }
+                Button("Souris des jeux ou du bureau") { app.sessions.commandTarget?.toggleMouseCapture() }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
-                    .disabled(active?.isLive != true)
-                Button("Statistiques") { active?.toggleStatsPanel() }
+                    .disabled(target?.isLive != true)
+                Button("Statistiques") { app.sessions.commandTarget?.toggleStatsPanel() }
                     .keyboardShortcut("s", modifiers: [.control, .option, .command])
-                    .disabled(active?.isLive != true)
+                    .disabled(target?.isLive != true)
                 // Plusieurs ordinateurs : la fenêtre de l'ordinateur suivant, dans l'ordre d'ouverture.
                 Button("Ordinateur suivant") { app.sessions.showNext() }
                     .keyboardShortcut("o", modifiers: [.control, .option, .command])

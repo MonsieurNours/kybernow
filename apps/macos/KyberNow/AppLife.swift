@@ -31,9 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         if hidden { app.startInBackground() }
         LoginItem.shared.applyDefault()
-        // Le lecteur de manettes unique du cœur, sur son fil SDL, pour toutes les sessions.
-        let pads = SessionEngine.startGamepads()
-        KyberLog.app.notice("lecteur de manettes du cœur : \(pads ? "démarré" : "indisponible", privacy: .public)")
+        // Le lecteur de manettes du cœur démarre de lui-même avec la première
+        // chaîne d'entrées (première image d'une session), pas au lancement.
         menuBar = MenuBarController(app: app)
         app.watchStationConfirmations()
         // Icône du Dock et sondage : à chaque fenêtre qui s'ouvre, se ferme, se réduit.
@@ -290,13 +289,17 @@ extension AppModel {
     }
 
     /// La session est finie dans le cœur : notification si elle s'est arrêtée
-    /// sans « Se déconnecter » (même app au premier plan quand sa fenêtre
-    /// n'était pas active : une autre session était devant), et la fin de
-    /// l'app si elle l'attendait.
+    /// sans « Se déconnecter » (toujours quand d'autres sessions continuent,
+    /// même app au premier plan et même si c'était la session active, sauf si
+    /// son message reste dans sa fenêtre : échec de la connexion, avec
+    /// « Fermer », pas de doublon), et la fin de l'app si elle l'attendait.
     func sessionEnded(_ session: SessionController) {
         sessions.ended(session)
         if session.endedByComputer {
-            notifier.sessionEnded(session.host, error: session.endError, evenInForeground: !session.activeAtEnd)
+            var shownInWindow = false
+            if case .failed = session.phase { shownInWindow = true }
+            let others = !shownInWindow && sessions.live.contains { $0 !== session }
+            notifier.sessionEnded(session.host, error: session.endError, evenInForeground: others)
         }
         afterSessionEnded?(session)
     }
@@ -688,7 +691,7 @@ enum DemoRemote {
                 "registre \(SessionEngine.focusCount)/\(SessionEngine.focusMax) active \(SessionEngine.focusActiveID ?? -1) : \(app.sessions.all.map { "\($0.host.name) \($0.focusID ?? -1)" }.joined(separator: ", "))",
                 "fenêtres des sessions \(app.sessions.all.flatMap(\.windows).map { "\($0.title) \(Int($0.frame.width))x\(Int($0.frame.height)) \($0.isOnActiveSpace ? "espace actif" : "autre espace") \($0.occlusionState.contains(.visible) ? "visible" : "cachée") \($0.isKeyWindow ? "clé" : "")" })",
                 "icône \(Int(frame.minX)),\(Int(top)) \(Int(frame.width))x\(Int(frame.height))",
-                "ouverture de session \(LoginItem.shared.enabled)",
+                "ouverture de session \(LoginItem.shared.enabled)", "message de l'accueil \(app.toast ?? "aucun")",
             ]
             journal("état : " + lines.joined(separator: " | "))
             if parts.count > 1 { try? (lines.joined(separator: "\n") + "\n").write(toFile: parts[1], atomically: true, encoding: .utf8) }

@@ -194,9 +194,12 @@ enum MenuContent {
         var items: [MenuEntry] = []
 
         if let session {
-            // En session : sa fenêtre devant, son son gardé, sa fin.
+            // En session : sa fenêtre devant, son son gardé (plusieurs sessions), sa fin.
             items.append(MenuEntry(title: String(localized: "Afficher"), action: .show(host.id)))
-            items.append(MenuEntry(title: String(localized: "Garder le son"), checked: session.keepSound, action: .keepSound(host.id)))
+            // « Garder le son » à partir de deux sessions ouvertes, comme dans la barre.
+            if sessions.count >= 2 {
+                items.append(MenuEntry(title: String(localized: "Garder le son"), checked: session.keepSound, action: .keepSound(host.id)))
+            }
             items.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect(host.id)))
         } else if online == false, restarting || updating {
             // La Station revient : ni réveil ni nouvel essai, la connexion attend son retour.
