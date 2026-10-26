@@ -459,9 +459,17 @@ fn placed_screens(applied: &Value, asked: &[Screen]) -> Vec<Option<Screen>> {
 /// proposé ou non par Windows…) : il n'a pas de journal, Admin l'écrit dans
 /// le sien et le retire du résultat.
 fn log_notes(applied: &mut Value) {
-    let Some(notes) = applied.as_object_mut().and_then(|o| o.remove("notes")) else { return };
-    for note in notes.as_array().into_iter().flatten().filter_map(Value::as_str) {
-        tracing::warn!("écrans virtuels : {note}");
+    let Some(o) = applied.as_object_mut() else { return };
+    // Ce que Windows a mis en place pour chaque écran (mode, place, échelle).
+    if let Some(facts) = o.remove("facts") {
+        for fact in facts.as_array().into_iter().flatten().filter_map(Value::as_str) {
+            tracing::info!("écrans virtuels : {fact}");
+        }
+    }
+    if let Some(notes) = o.remove("notes") {
+        for note in notes.as_array().into_iter().flatten().filter_map(Value::as_str) {
+            tracing::warn!("écrans virtuels : {note}");
+        }
     }
 }
 

@@ -560,6 +560,9 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     // 7. Comme `isolate` : laisser l'énumérateur d'écrans de Kyber voir la
     //    nouvelle disposition avant de répondre.
     std::thread::sleep(Duration::from_millis(1500));
+    // Ce que Windows a mis en place pour chaque écran, échelle comprise
+    // (`facts`, écrit par Admin dans son journal pour comparer les écrans).
+    let mut facts: Vec<String> = Vec::new();
     let list: Vec<Value> = names
         .iter()
         .map(|name| {
@@ -569,6 +572,8 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
                 return Value::Null;
             }
             let (x, y) = current_position(name);
+            let scale = scale_at(x, y).map_or("inconnue".to_string(), |s| format!("{s} %"));
+            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), échelle {scale}"));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
         .collect();
@@ -581,7 +586,28 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "disabled_others": disabled_others,
         "screens": list,
         "notes": notes,
+        "facts": facts,
     }))
+}
+
+/// Échelle (en %) de l'écran dont le coin haut gauche est en (`x`, `y`),
+/// lue comme la voit une app qui gère le DPI par écran.
+fn scale_at(x: i32, y: i32) -> Option<u32> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONULL, MonitorFromPoint};
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI, SetThreadDpiAwarenessContext,
+    };
+    unsafe {
+        let previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let monitor = MonitorFromPoint(POINT { x: x + 1, y: y + 1 }, MONITOR_DEFAULTTONULL);
+        let (mut dx, mut dy) = (0u32, 0u32);
+        let ok = !monitor.is_null() && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) >= 0;
+        if !previous.is_null() {
+            SetThreadDpiAwarenessContext(previous);
+        }
+        (ok && dx > 0).then(|| dx * 100 / 96)
+    }
 }
 
 /// « 3456 × 2234 à 60 Hz » (notes).
