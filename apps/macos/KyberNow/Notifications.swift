@@ -2,7 +2,8 @@
 // quand l'app n'est pas au premier plan : mise à jour de la Station prête (une
 // fois par version et par ordinateur), ordinateur en ligne après un réveil, ou
 // toujours muet au bout de 2 min, session arrêtée sans « Se déconnecter »
-// (toujours quand d'autres sessions continuent, même app au premier plan :
+// (toujours quand d'autres sessions continuent, même app au premier plan,
+// sauf un échec de la connexion dont le message reste dans sa fenêtre :
 // plusieurs ordinateurs), fin d'un
 // redémarrage ou d'une mise à jour lancés hors de la fenêtre ; et, une
 // seule fois, « KyberNow Link est toujours là » à la première fermeture de la
@@ -138,8 +139,8 @@ final class Notifier: NSObject {
     /// Une session s'est arrêtée sans « Se déconnecter » : un autre appareil
     /// ou Admin y a mis fin, ou une erreur (sa raison, en une phrase).
     /// `evenInForeground` : d'autres sessions continuent (plusieurs
-    /// ordinateurs), dite même app au premier plan, même si c'était la
-    /// session active.
+    /// ordinateurs) et sa fenêtre a disparu, dite même app au premier plan,
+    /// même si c'était la session active.
     func sessionEnded(_ host: Host, error: String?, evenInForeground: Bool = false) {
         if let error {
             post(.sessionStopped, host: host.id, title: String(localized: "La session sur \(host.name) s'est arrêtée"), body: Self.sentence(error),

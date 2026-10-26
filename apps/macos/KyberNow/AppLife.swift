@@ -290,12 +290,15 @@ extension AppModel {
 
     /// La session est finie dans le cœur : notification si elle s'est arrêtée
     /// sans « Se déconnecter » (toujours quand d'autres sessions continuent,
-    /// même app au premier plan et même si c'était la session active), et la
-    /// fin de l'app si elle l'attendait.
+    /// même app au premier plan et même si c'était la session active, sauf si
+    /// son message reste dans sa fenêtre : échec de la connexion, avec
+    /// « Fermer », pas de doublon), et la fin de l'app si elle l'attendait.
     func sessionEnded(_ session: SessionController) {
         sessions.ended(session)
         if session.endedByComputer {
-            let others = sessions.live.contains { $0 !== session }
+            var shownInWindow = false
+            if case .failed = session.phase { shownInWindow = true }
+            let others = !shownInWindow && sessions.live.contains { $0 !== session }
             notifier.sessionEnded(session.host, error: session.endError, evenInForeground: others)
         }
         afterSessionEnded?(session)
