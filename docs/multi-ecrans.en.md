@@ -4,23 +4,22 @@ English · [Français](multi-ecrans.md)
 
 A KyberNow session can take all of the device's displays: the computer creates one virtual display per display of the device, laid out the same way, and each of the device's displays shows its own in a full-screen window. This document is the shared contract between the Station, the Rust core and the Mac, Windows and Linux apps. The other Link apps (iPhone, iPad, Apple TV, Android, LG TVs, web client) stay on one display and have nothing to change.
 
+Multiple displays have no screens of their own: they reuse the home screen, connection, session bar, settings and statistics of [link-ui.en.md](link-ui.en.md), which gives the exact texts (“Several displays” in the connection section, “Displays” row in the settings). The three apps behave the same way and use the same words; a new text goes into `link-ui.md` first, then into each app's catalogue, word for word.
+
 ## What the user sees
 
-- **Per-computer setting** “Displays” (Picture section, under Resolution): Auto, This display, All displays. **Auto** (the default) takes all displays in the Desktop and Max profiles, one in Game. Changing this setting does not turn the profile into “Custom”.
+- **Per-computer setting** “Displays” (Picture section, under Resolution): Auto, This display, All displays. **Auto** (the default) takes all displays in the Desktop and Max profiles, one in Game. Changing this setting does not turn the profile into “Custom”. Inactive, on “This display”, with a custom resolution or without a virtual display.
+- **Home screen**: the display line says what the session will take (“3 displays, sized for this device's screens”), with the same calculation as the session.
+- **Connection**: the connection screen on the main display, the same background without text on the others, each display switches to its picture at its first frame.
 - **Displays taken**: all of the device's active displays, four at most; mirrored displays count as one. “This display” is the display the app's window is on, like a one-display session.
 - **The device's main display** (Mac: the one with the menu bar; Windows: the primary display; Linux: SDL display 0) becomes Windows' primary display: the taskbar and full-screen games go there.
 - **Resolution**: each virtual display has the device display's resolution in pixels, like “Match this display”; “4K at most” applies to each display; in H.264, 4096 pixels wide at most per display.
 - **Refresh rate**: the main display keeps its own; the others run at 60 Hz (less if their display does not go that high). A still display costs almost nothing: Kyber only sends a frame when the display changes.
 - **Windows**: one full-screen window per display of the device. With the desktop mouse, the pointer moves from one display to the next as on the device. With the game mouse, it stays captured in the active window.
-- **Session bar**: on the display the pointer is on. Commands (end session, full screen, mouse, Keys) apply to the whole session, from any window. Ending the session closes every window.
-- **The device's displays change during the session** (plugged in, unplugged, layout or mirroring changed): the session is set up again with the new displays, without going back to the home screen.
+- **Session bar**: a single one, on the display the pointer is on. Its commands (end session, mouse, Keys, Statistics) apply to the whole session, from any window. “Full screen” is not offered: the windows stay full screen (“This display” to work in a window). Ending the session closes every window.
+- **The device's displays change during the session** (plugged in, unplugged, layout or mirroring changed): the session is set up again with the new displays, without going back to the home screen; the connection starts again at its first step on the main display.
+- **A display the computer could not create**: its window keeps the connection background with a single line, “The computer could not create this display.”; the other displays work.
 - **A Station that handles only one display** (earlier version): the session runs on the main display, with no blocking message.
-
-### Labels
-
-| Français | English | Values (FR / EN) |
-|---|---|---|
-| Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; help: « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game. Each display gets a display on the computer, laid out the same way.” |
 
 ## Display layout
 
