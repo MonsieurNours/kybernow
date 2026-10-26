@@ -1681,6 +1681,8 @@ impl HostEvents for UiEvents {
             (before, replan)
         };
         let quitting = state.quitting.load(std::sync::atomic::Ordering::Relaxed);
+        // Le message de l'échec reste dans la fenêtre de connexion (« Fermer »).
+        let mut kept_in_window = false;
         if self.first {
             // Plusieurs écrans : les fonds de la connexion partent (un échec se
             // lit sur l'écran principal, seul), l'accueil reprend sa place s'il
@@ -1709,8 +1711,8 @@ impl HostEvents for UiEvents {
             // pendant qu'elle est ouverte (avant la première image, ou quand
             // la connexion a repris en session), qu'elle montre jusqu'à « Fermer ».
             let open = self.connexion.label.lock().unwrap().is_some();
-            let failed = open && s.error.is_some() && !quitting;
-            if failed {
+            kept_in_window = open && s.error.is_some() && !quitting;
+            if kept_in_window {
                 self.connexion.view.lock().unwrap().error = s.error.clone();
             } else {
                 close_connexion(&self.app, &self.connexion, Duration::ZERO);
@@ -1727,14 +1729,21 @@ impl HostEvents for UiEvents {
             // Sa fenêtre (ou sa barre : « Se déconnecter ») était devant.
             state.with_session(&next, |r| r.host.focus(0));
         }
-        // Une fin non demandée (pas « Se déconnecter », ni la fenêtre fermée) :
-        // une notification si personne ne regardait (autre app devant), et
-        // toujours quand d'autres sessions continuent, même app au premier
-        // plan et même si c'était la session active (docs/link-ui.md). Pas
-        // pour l'échec de la connexion d'une session suivante, que sa fenêtre
-        // de connexion montre. Un clic dessus ouvre l'accueil sur cet ordinateur.
-        let unseen = !shell::app_in_front() || remaining > 0;
-        let notify = unseen && !quitting && !s.requested && (self.first || s.shown);
+        // Une fin non demandée (pas « Se déconnecter », ni la fenêtre fermée)
+        // dont la fenêtre disparaît : une notification si personne ne
+        // regardait (autre app devant), et toujours quand d'autres sessions
+        // continuent, même app au premier plan et même si c'était la session
+        // active. Pas quand le message de l'échec reste dans sa fenêtre de
+        // connexion avec « Fermer » (docs/link-ui.md, `notice.rs`). Un clic
+        // dessus ouvre l'accueil sur cet ordinateur.
+        let notify = crate::notice::end_notification(&crate::notice::End {
+            requested: s.requested,
+            quitting,
+            app_in_front: shell::app_in_front(),
+            others_continue: remaining > 0,
+            started: self.first || s.shown,
+            kept_in_window,
+        });
         if notify {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
             let home = format!("kybernow://open?id={}", self.id);

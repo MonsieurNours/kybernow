@@ -47,6 +47,8 @@ mod link;
 mod login;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod menu;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod notice;
 #[cfg(windows)]
 mod pasteboard;
 #[cfg(windows)]
