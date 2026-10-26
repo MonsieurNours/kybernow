@@ -1236,6 +1236,48 @@ pub unsafe extern "C" fn kn_screens_session_plan(
     give(serde_json::Value::Array(list).to_string())
 }
 
+/// Plusieurs ordinateurs : les écrans d'une session ouverte pendant qu'une
+/// autre tourne, « Cet écran » quel que soit le réglage
+/// (`screens::screens_for_extra_session`) : même JSON que `screens` de
+/// `kn_session_start`, `current` étant l'écran de la fenêtre active, où
+/// s'ouvre la nouvelle. Nul si illisible. À libérer par `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_for_extra_session(screens_json: *const c_char) -> *mut c_char {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+    match serde_json::to_string(&screens::screens_for_extra_session(&screens)) {
+        Ok(json) => give(json),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// La fenêtre d'une session de plus (`kn_screens_extra_session_window`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KnExtraWindow {
+    /// Cadre de la zone d'image, dans le repère logique de l'appareil (celui
+    /// de `screens.list`, y vers le bas).
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Le mode à demander pour l'écran de l'ordinateur : la zone d'image en
+    /// pixels de l'écran (arrondie au pair), à sa fréquence.
+    pub mode: KnMode,
+}
+
+/// Plusieurs ordinateurs : la fenêtre d'une session ouverte pendant qu'une
+/// autre tourne, « centrée, aux deux tiers de cet écran, en 16:9 »
+/// (`screens::extra_session_window`), sur l'écran `current` du JSON `screens`
+/// (même JSON que `kn_session_start`). Faux si illisible ou sans cet écran.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_extra_session_window(screens_json: *const c_char, out: *mut KnExtraWindow) -> bool {
+    let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return false };
+    let (Some(screen), Some(out)) = (screens.list.get(screens.current), unsafe { out.as_mut() }) else { return false };
+    let w = screens::extra_session_window(screen);
+    *out = KnExtraWindow { x: w.x, y: w.y, width: w.width, height: w.height, mode: w.mode.into() };
+    true
+}
+
 /// Index de l'écran principal dans `list` (même JSON que `screens`) : celui
 /// où s'affiche l'écran de connexion. -1 si illisible ou vide.
 #[unsafe(no_mangle)]

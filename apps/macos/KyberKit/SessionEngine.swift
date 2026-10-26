@@ -113,6 +113,24 @@ public final class SessionEngine: @unchecked Sendable {
         var text: String {
             (try? JSONSerialization.data(withJSONObject: json)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         }
+
+        /// Le même JSON, rendu par le cœur (`kn_screens_for_extra_session`).
+        init?(text: String) {
+            guard let data = text.data(using: .utf8), let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let list = j["list"] as? [[String: Any]] else { return nil }
+            func number(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
+            self.list = list.map { s in
+                Screen(x: number(s["x"]), y: number(s["y"]), width: number(s["width"]), height: number(s["height"]),
+                       pixelWidth: Int(number(s["pixel_width"])), pixelHeight: Int(number(s["pixel_height"])),
+                       refresh: Int(number(s["refresh"])), primary: s["primary"] as? Bool ?? false)
+            }
+            current = Int(number(j["current"]))
+            limit4K = j["limit_4k"] as? Bool ?? false
+            customResolution = j["custom_resolution"] as? Bool ?? false
+            setting = j["setting"] as? String ?? "auto"
+            maxScreens = Int(number(j["max_screens"]))
+            virtualDisplayAvailable = j["virtual_display_available"] as? Bool ?? true
+        }
     }
 
     /// Un écran virtuel que la session demandera (`sessionPlan`).
@@ -175,6 +193,11 @@ public final class SessionEngine: @unchecked Sendable {
         /// Multi-écrans : les écrans de cet appareil (Mac) ; nil : une session
         /// à un écran, comme avant.
         public var screens: DeviceScreens?
+        /// Plusieurs ordinateurs (Mac) : le nom de l'ordinateur ; la session
+        /// s'inscrit au registre des sessions du cœur dès son départ
+        /// (`kn_focus_register`), qui dit ensuite si elle est active et si on
+        /// l'entend. Nil : hors registre, une session seule (Apple TV, iPhone, iPad).
+        public var focusName: String?
 
         public init(host: String, consolePort: UInt16, username: String, password: String, consoleFingerprint: String?, mode: Mode, audioChannels: Int, virtualDisplay: Bool, settings: Settings) {
             self.host = host
@@ -187,6 +210,12 @@ public final class SessionEngine: @unchecked Sendable {
             self.virtualDisplay = virtualDisplay
             self.settings = settings
         }
+    }
+
+    /// Départ refusé avant toute connexion.
+    public enum StartError: Error {
+        /// Le registre des sessions est plein (`kn_focus_max`, quatre).
+        case tooManyComputers
     }
 
     public enum Phase: Equatable, Sendable {
@@ -263,9 +292,6 @@ public final class SessionEngine: @unchecked Sendable {
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
     private var padCaptured = false
-    /// Plusieurs ordinateurs (Mac) : la session est celle de la fenêtre au
-    /// premier plan (`setFocus`) ; une app à une session la garde active.
-    private var focusActive = true
     private var occluded = false
     private var vsync = true
     private var topMarker = false
@@ -281,6 +307,8 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// Ouvre la session : `onPhase` suit, jusqu'à `.ended`.
     public func start(_ p: Params) throws {
+        // Plusieurs ordinateurs : pas de session de plus que le registre n'en tient.
+        if p.focusName != nil, Self.focusCount >= Self.focusMax { throw StartError.tooManyComputers }
         lock.lock()
         params = p
         vsync = p.vsync
@@ -375,6 +403,91 @@ public final class SessionEngine: @unchecked Sendable {
         lock.unlock()
         // Fenêtre déjà cachée au départ : la veille d'image du cœur attend.
         if hidden { kn_session_set_hidden(s, true) }
+        // Plusieurs ordinateurs : inscrite, elle devient la session active.
+        if let name = p.focusName {
+            let id = kn_focus_register(s, name)
+            if id > 0 { focusID = id } else { KyberLog.app.error("registre des sessions : \(name, privacy: .public) refusé") }
+        }
+    }
+
+    // MARK: - Plusieurs ordinateurs (registre du cœur)
+
+    /// L'identifiant de la session dans le registre des sessions du cœur
+    /// (`kn_focus_register`), nil hors registre ou une fois désinscrite.
+    /// Le registre est la seule source de « qui est active » : il coupe ou
+    /// rend lui-même les entrées, le son, le presse-papiers et les manettes
+    /// de chaque session inscrite (fil principal).
+    public private(set) var focusID: Int64?
+
+    /// La fenêtre de cette session passe au premier plan : elle devient active.
+    public func focusActivate() {
+        if let id = focusID { kn_focus_activate(id) }
+    }
+
+    /// « Garder le son » : la session reste audible sans être active.
+    public var keepSound: Bool {
+        get { focusID.map { kn_focus_keep_sound($0) } ?? false }
+        set { if let id = focusID { kn_focus_set_keep_sound(id, newValue) } }
+    }
+
+    /// Fin de la session (« Se déconnecter », fenêtre fermée, fin venue de
+    /// l'ordinateur) : hors du registre, la session d'avant reprend la main.
+    private func unregisterFocus() {
+        guard let id = focusID else { return }
+        focusID = nil
+        kn_focus_unregister(id)
+    }
+
+    /// La session active du registre (son identifiant), nil sans session inscrite.
+    public static var focusActiveID: Int64? {
+        let id = kn_focus_active()
+        return id > 0 ? id : nil
+    }
+
+    /// « Ordinateur suivant » : la session ouverte après l'active, dans l'ordre d'ouverture.
+    public static var focusNextID: Int64? {
+        let id = kn_focus_next()
+        return id > 0 ? id : nil
+    }
+
+    /// Sessions inscrites, et au plus (quatre).
+    public static var focusCount: Int { Int(kn_focus_count()) }
+    public static var focusMax: Int { Int(kn_focus_max()) }
+
+    /// Mac : le lecteur de manettes unique du cœur, sur son fil SDL (au
+    /// lancement de l'app ; il démarre aussi de lui-même à la première chaîne
+    /// d'entrées). Faux sur l'Apple TV, l'iPhone et l'iPad, ou si SDL n'a pas pu s'ouvrir.
+    @discardableResult
+    public static func startGamepads() -> Bool { kn_gamepads_start_sdl() }
+
+    /// Plusieurs ordinateurs : les écrans d'une session ouverte pendant
+    /// qu'une autre tourne (« Cet écran », quel que soit le réglage), règle du
+    /// cœur (`kn_screens_for_extra_session`) ; `current` : l'écran de la
+    /// fenêtre active, où s'ouvre la nouvelle.
+    public static func screensForExtraSession(_ screens: DeviceScreens) -> DeviceScreens {
+        guard let out = kn_screens_for_extra_session(screens.text), let text = Core.take(out),
+              let extra = DeviceScreens(text: text) else { return screens }
+        return extra
+    }
+
+    /// La fenêtre d'une session de plus (`kn_screens_extra_session_window`).
+    public struct ExtraWindow: Equatable, Sendable {
+        /// Cadre de la zone d'image, dans le repère logique de l'appareil (points, y vers le bas).
+        public let x: Double
+        public let y: Double
+        public let width: Double
+        public let height: Double
+        /// Le mode à demander à l'ordinateur : la zone d'image en pixels de l'écran.
+        public let mode: Mode
+    }
+
+    /// « Centrée, aux deux tiers de cet écran, en 16:9 », sur l'écran
+    /// `current`, règle du cœur ; nil si les écrans sont illisibles.
+    public static func extraSessionWindow(_ screens: DeviceScreens) -> ExtraWindow? {
+        var w = KnExtraWindow()
+        guard kn_screens_extra_session_window(screens.text, &w) else { return nil }
+        return ExtraWindow(x: w.x, y: w.y, width: w.width, height: w.height,
+                           mode: Mode(width: Int(w.mode.width), height: Int(w.mode.height), refresh: Int(w.mode.refresh)))
     }
 
     private static func from(_ ud: UnsafeMutableRawPointer?) -> SessionEngine {
@@ -395,6 +508,7 @@ public final class SessionEngine: @unchecked Sendable {
 
     /// Demande la fin de la session : `.ending` puis `.ended` suivent.
     public func stop() {
+        unregisterFocus()
         if let s = live { kn_session_stop(s) }
     }
 
@@ -480,35 +594,13 @@ public final class SessionEngine: @unchecked Sendable {
         if let s = live { kn_session_restore_mode(s) }
     }
 
-    /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde. Une
-    /// session inactive la garde aussi (`setFocus`).
+    /// L'app rend la manette à l'ordinateur (barre fermée) ou la garde.
     public func setGamepadCaptured(_ captured: Bool) {
         lock.lock()
         padCaptured = captured
         let input = self.input
-        let held = captured || !focusActive
         lock.unlock()
-        input?.gamepad.setCaptured(held)
-    }
-
-    /// Plusieurs ordinateurs (Mac) : la session est-elle active (celle de la
-    /// fenêtre au premier plan), l'entend-on ? Inactive, son presse-papiers
-    /// est en pause et ses manettes sont au repos (prises comme par la barre :
-    /// boutons relâchés, axes au centre, rien ne part) ; muette, son volume
-    /// est à zéro, le son continue d'être décodé. Gardé pour les images qui
-    /// suivent (relance, reconnexion).
-    public func setFocus(active: Bool, muted: Bool) {
-        lock.lock()
-        focusActive = active
-        volume = muted ? 0 : 1
-        let players = Array(audios.values)
-        let input = self.input
-        let held = padCaptured || !active
-        let volume = self.volume
-        lock.unlock()
-        players.forEach { $0.volume = volume }
-        input?.setClipboardActive(active)
-        input?.gamepad.setCaptured(held)
+        input?.gamepad.setCaptured(captured)
     }
 
     /// Synchro verticale à chaud.
@@ -627,6 +719,10 @@ public final class SessionEngine: @unchecked Sendable {
         ended = true
         let s = session
         session = nil
+        lock.unlock()
+        // Avant `kn_session_free` (fil principal, comme les autres appels au registre).
+        unregisterFocus()
+        lock.lock()
         let videos = Array(self.videos.values)
         let audios = Array(self.audios.values)
         let input = self.input
@@ -697,8 +793,7 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         let display = lastDisplay ?? KyberDisplay(id: 0, width: 0, height: 0, x: 0, y: 0)
         let clipboard = params?.clipboard ?? true
-        let captured = padCaptured || !focusActive
-        let active = focusActive
+        let captured = padCaptured
         let old = input
         let screens = primaryScreen != nil ? takenScreens : []
         let primaryView = primaryScreen.flatMap { screenViews[$0] } ?? view
@@ -712,7 +807,6 @@ public final class SessionEngine: @unchecked Sendable {
         old?.stop()
         old?.shutdown()
         input.gamepad.setCaptured(captured)
-        input.setClipboardActive(active)
         lock.lock()
         self.input = input
         lock.unlock()
@@ -884,6 +978,8 @@ public final class SessionEngine: @unchecked Sendable {
         let player = AudioPlayer()
         player.volume = volume
         player.onStats = { [weak self] stats in DispatchQueue.main.async { self?.onAudioStats?(stats) } }
+        // Son coupé ou rendu par la session (registre des sessions, plusieurs ordinateurs).
+        if let session { kn_session_attach_audio(session, player.core) }
         audios[stream] = player
         return player
     }

@@ -57,10 +57,7 @@ enum DisplayInfo {
     /// écran » (`current`), réglages de l'ordinateur et écrans que la Station
     /// sait créer.
     static func deviceScreens(current: NSScreen?, settings: ConnectionSettings, info: HostInfo?) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
-        let all = NSScreen.screens.filter { screen in
-            guard let id = displayID(screen) else { return true }
-            return CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay
-        }
+        let all = unmirroredScreens
         let top = all.first?.frame.maxY ?? 0
         let list = all.enumerated().map { i, screen in
             let native = nativePixels(screen)
@@ -77,6 +74,22 @@ enum DisplayInfo {
             // L'écran virtuel utilisable sur la Station (inconnu tant qu'elle n'a pas répondu : oui).
             virtualDisplayAvailable: info?.virtualDisplay ?? true)
         return (all, request)
+    }
+
+    /// Les écrans de ce Mac, des écrans en recopie comptant pour un, dans
+    /// l'ordre de `NSScreen.screens` (le premier : celui de la barre des menus).
+    private static var unmirroredScreens: [NSScreen] {
+        NSScreen.screens.filter { screen in
+            guard let id = displayID(screen) else { return true }
+            return CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay
+        }
+    }
+
+    /// Un cadre du repère des écrans donnés au cœur (points, y vers le bas
+    /// depuis le haut de l'écran principal) dans celui de Cocoa (y vers le haut).
+    static func cocoaRect(x: Double, y: Double, width: Double, height: Double) -> NSRect {
+        let top = unmirroredScreens.first?.frame.maxY ?? 0
+        return NSRect(x: x, y: top - y - height, width: width, height: height)
     }
 
     /// « 3008 × 1692 » si macOS agrandit l'affichage (mode « plus d'espace »), nil sinon.

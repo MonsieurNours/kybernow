@@ -67,7 +67,7 @@ struct SessionChrome: View {
                 .padding(.top, 22)
             }
             if session.barVisible {
-                SessionBar(session: session)
+                SessionBar(session: session, sessions: AppModel.shared.sessions)
                     .padding(.top, 14)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -167,8 +167,9 @@ private struct PassageCapsule: View {
                 if case let .failed(message) = session.phase {
                     lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                 }
-                // Une autre session tient encore : la fenêtre se ferme sur elle, pas sur l'accueil.
-                if AppModel.shared.sessions.all.allSatisfy({ $0 === session }) {
+                // Une session suivante (ou une autre encore ouverte) : « Fermer »
+                // ferme sa fenêtre, les autres sessions continuent (docs/link-ui.md).
+                if session.isFirst, AppModel.shared.sessions.all.allSatisfy({ $0 === session }) {
                     Button("Revenir à l'accueil") { session.dismissFailure() }
                         .buttonStyle(PrimaryButton(height: 40))
                 } else {
@@ -351,6 +352,8 @@ private struct SessionBarRectKey: PreferenceKey {
 
 private struct SessionBar: View {
     @ObservedObject var session: SessionController
+    /// Les sessions ouvertes : « Garder le son » à partir de deux.
+    @ObservedObject var sessions: SessionManager
 
     /// Anneau de focus en mode manette.
     private func ring(_ index: Int) -> some View {
@@ -516,12 +519,13 @@ private struct SessionBar: View {
         .fixedSize()
     }
 
-    /// Le haut-parleur : « Garder le son » (plusieurs ordinateurs), allumé
-    /// quand la session reste audible sans être active ; son coupé dans les
-    /// réglages, la pastille seule.
+    /// Le haut-parleur : à partir de deux sessions ouvertes, « Garder le
+    /// son » (plusieurs ordinateurs), allumé quand la session reste audible
+    /// sans être active ; avec une seule session ou le son coupé dans les
+    /// réglages, la pastille comme avant.
     @ViewBuilder private func keepSound(compact: Bool) -> some View {
-        if session.host.settings.audio == .off {
-            chip(icon: "speaker-slash", text: audioLabel, compact: compact)
+        if session.host.settings.audio == .off || sessions.count < 2 {
+            chip(icon: session.host.settings.audio == .off ? "speaker-slash" : "speaker-high", text: audioLabel, compact: compact)
         } else {
             let on = session.keepSound
             Button { AppModel.shared.sessions.setKeepSound(!on, for: session) } label: {

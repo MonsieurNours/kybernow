@@ -1,12 +1,12 @@
 // Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md ; textes et
 // comportement : docs/link-ui.md, « Plusieurs ordinateurs ») : les sessions
 // de l'app, une fenêtre chacune, dans l'ordre d'ouverture, quatre au plus,
-// jamais deux fois le même ordinateur. La session active est celle de la
-// fenêtre au premier plan (la dernière d'entre elles à l'avoir été quand
-// l'accueil, les réglages ou une autre app passent devant) : elle seule
-// reçoit le clavier, la souris, les manettes, le presse-papiers et le son ;
-// « Garder le son » laisse une autre audible. Un seul endroit le dit à chaque
-// session : `applyFocus`.
+// jamais deux fois le même ordinateur. « Qui est active » a une seule source :
+// le registre des sessions du cœur (`kn_focus_*`, par `SessionEngine`), qui
+// coupe ou rend lui-même les entrées, le son, le presse-papiers et les
+// manettes de chaque session. L'app lui dit seulement quelle fenêtre passe au
+// premier plan, « Garder le son » et « Ordinateur suivant », puis relit son
+// état pour l'interface (`refresh`).
 
 import AppKit
 import Combine
@@ -14,17 +14,11 @@ import KyberKit
 
 @MainActor
 final class SessionManager: ObservableObject {
-    /// Quatre ordinateurs au plus en même temps.
-    static let limit = 4
-
     /// Les sessions, dans l'ordre d'ouverture : de la connexion à la fin de
-    /// leur fenêtre (un échec affiché compte, jusqu'à « Revenir à l'accueil »).
+    /// leur fenêtre (un échec affiché compte, jusqu'à « Fermer »).
     @Published private(set) var all: [SessionController] = []
-    /// L'ordinateur de la session active.
+    /// L'ordinateur de la session active, lu dans le registre du cœur.
     @Published private(set) var activeID: UUID?
-    /// Ordinateurs des sessions, de la moins récemment active à la plus
-    /// récente : la session qui prend la main quand l'active se termine.
-    private var recent: [UUID] = []
     /// Sessions revenues (fenêtre fermée) que le cœur n'a pas encore dites
     /// finies (bilan d'Admin) : gardées jusque-là, 10 s au plus, pour leur fin
     /// (notification, fin de l'app).
@@ -34,9 +28,17 @@ final class SessionManager: ObservableObject {
     var homeHidden = false
     private var phaseWatchers: [ObjectIdentifier: AnyCancellable] = [:]
     private var keyObserver: NSObjectProtocol?
+    #if DEBUG
+    /// Démonstration : ses sessions n'ont pas de session du cœur, donc pas de
+    /// registre ; la dernière fenêtre de session à avoir eu le clavier est
+    /// active (et « Garder le son » reste dans l'interface).
+    private var demoRecent: [UUID] = []
+    /// `-demoCore YES` : de vraies sessions du cœur, donc le registre.
+    private let demoCore = UserDefaults.standard.bool(forKey: "demoCore")
+    #endif
 
     init() {
-        // La session active suit la fenêtre qui prend le clavier.
+        // La fenêtre qui prend le clavier : sa session devient active dans le registre.
         keyObserver = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
             guard let window = note.object as? NSWindow else { return }
             MainActor.assumeIsolated { self?.windowBecameKey(window) }
@@ -45,8 +47,14 @@ final class SessionManager: ObservableObject {
 
     var isEmpty: Bool { all.isEmpty }
     var count: Int { all.count }
-    /// Quatre sessions : « Se connecter » est inactif ailleurs.
-    var isFull: Bool { all.count >= Self.limit }
+    /// Quatre ordinateurs au plus (`kn_focus_max`) : « Se connecter » est
+    /// inactif ailleurs (« Quatre ordinateurs au plus en même temps. »).
+    var isFull: Bool {
+        #if DEBUG
+        if AppModel.demo, !demoCore { return all.count >= SessionEngine.focusMax }
+        #endif
+        return SessionEngine.focusCount >= SessionEngine.focusMax
+    }
     /// Les sessions qui tiennent encore (ni finies, ni en échec).
     var live: [SessionController] { all.filter(\.isLive) }
     var active: SessionController? { activeID.flatMap(session(for:)) }
@@ -60,67 +68,82 @@ final class SessionManager: ObservableObject {
         NSApp.keyWindow ?? active?.windows.first ?? NSApp.mainWindow
     }
 
-    /// Une session de plus : sa fenêtre s'ouvre devant, elle devient active.
+    /// Une session de plus, avant son départ (sa fenêtre s'ouvre devant).
     func add(_ session: SessionController) {
         all.append(session)
-        // Les changements d'état d'une session (icône, menus) passent par le gestionnaire.
-        phaseWatchers[ObjectIdentifier(session)] = session.$phase.dropFirst().sink { [weak self] _ in self?.objectWillChange.send() }
-        activate(session.host.id)
+        // Ses changements d'état (fin, échec : désinscrite du registre) redessinent l'icône et les menus.
+        phaseWatchers[ObjectIdentifier(session)] = session.$phase.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.refresh()
+        }
+        #if DEBUG
+        if AppModel.demo, !demoCore { demoRecent.append(session.host.id) }
+        #endif
     }
 
-    /// La session est revenue (fenêtre en train de se fermer) : retirée ; si
-    /// elle était active, la plus récente des autres prend la main.
+    /// La session est revenue (fenêtre en train de se fermer) : retirée
+    /// (le cœur l'a déjà désinscrite à sa fin).
     func remove(_ session: SessionController) {
         all.removeAll { $0 === session }
         phaseWatchers[ObjectIdentifier(session)] = nil
-        recent.removeAll { $0 == session.host.id }
-        if activeID == session.host.id {
-            activeID = recent.last ?? all.last?.host.id
-        }
-        applyFocus()
+        #if DEBUG
+        demoRecent.removeAll { $0 == session.host.id }
+        #endif
+        refresh()
         linger(session)
     }
 
     /// « Garder le son » de la barre ou du menu de l'icône, pour cette session.
     func setKeepSound(_ on: Bool, for session: SessionController) {
-        guard session.keepSound != on else { return }
-        session.keepSound = on
-        KyberLog.app.notice("\(session.host.name, privacy: .public) : garder le son \(on ? "allumé" : "éteint", privacy: .public)")
-        applyFocus()
+        session.setKeepSound(on)
+        refresh()
     }
 
-    /// ⌃⌥⌘O, « Ordinateur suivant » : la fenêtre de l'ordinateur suivant,
-    /// dans l'ordre d'ouverture, même en plein écran.
+    /// ⌃⌥⌘O, « Ordinateur suivant » : la session ouverte après l'active
+    /// (registre du cœur), sa fenêtre devant, même en plein écran.
     func showNext() {
         guard all.count > 1 else { return }
-        let i = all.firstIndex { $0.host.id == activeID } ?? -1
-        all[(i + 1) % all.count].bringToFront()
+        var next = SessionEngine.focusNextID.flatMap { id in all.first { $0.focusID == id } }
+        #if DEBUG
+        if AppModel.demo, !demoCore {
+            let i = all.firstIndex { $0.host.id == activeID } ?? -1
+            next = all[(i + 1) % all.count]
+        }
+        #endif
+        guard let next else { return }
+        next.bringToFront()
+        activate(next)
     }
 
     // MARK: Session active
 
     private func windowBecameKey(_ window: NSWindow) {
         guard let session = all.first(where: { $0.owns(window) }) else { return }
-        activate(session.host.id)
+        activate(session)
     }
 
-    private func activate(_ id: UUID) {
-        recent.removeAll { $0 == id }
-        recent.append(id)
-        guard activeID != id else { return applyFocus() }
-        activeID = id
-        applyFocus()
-    }
-
-    /// Le point d'application unique : à chaque changement de session active
-    /// ou de « Garder le son », chaque session apprend si elle est active et
-    /// si on l'entend (inactive sans « Garder le son » : muette). Une app avec
-    /// une seule session la garde active et entendue.
-    private func applyFocus() {
-        for session in all {
-            let active = session.host.id == activeID
-            session.applyFocus(active: active, muted: !active && !session.keepSound)
+    private func activate(_ session: SessionController) {
+        session.focusActivate()
+        #if DEBUG
+        if AppModel.demo, !demoCore {
+            demoRecent.removeAll { $0 == session.host.id }
+            demoRecent.append(session.host.id)
         }
+        #endif
+        refresh()
+    }
+
+    /// Relit le registre du cœur (la seule source) et donne à chaque session
+    /// son état pour l'interface : active ou non (trait de repère, barre,
+    /// manette de la barre), « Garder le son ». Après chaque inscription,
+    /// activation, « Garder le son », fin de session.
+    func refresh() {
+        var active = SessionEngine.focusActiveID.flatMap { id in all.first { $0.focusID == id } }
+        #if DEBUG
+        if AppModel.demo, !demoCore { active = demoRecent.last.flatMap(session(for:)) }
+        #endif
+        if activeID != active?.host.id { activeID = active?.host.id }
+        for session in all { session.focusChanged(active: session === active) }
+        objectWillChange.send()
     }
 
     // MARK: Fins

@@ -13,7 +13,8 @@
 # apps/macos/scripts/vendor-kyber.sh et apps/macos/scripts/build-kyclient.sh.
 # S'arrête à la première erreur sans toucher à Vendor/. Refuse de tourner
 # pendant que l'app est ouverte (une bibliothèque réécrite sous l'app la fait
-# planter, docs/build-notes.md).
+# planter, docs/build-notes.md), sauf dans un worktree git avec
+# KYBERNOW_IGNORE_RUNNING=1.
 # Versions vérifiées : scripts/kyber-toolchain.sh.
 set -euo pipefail
 
@@ -32,9 +33,17 @@ TARGET=aarch64-apple-darwin
 [ -d "$VENDOR/Frameworks" ] || { echo "Lancez d'abord apps/macos/scripts/vendor-kyber.sh" >&2; exit 1; }
 [ -f "$ROOTFS/lib/pkgconfig/kynput.pc" ] || { echo "libkynput introuvable dans $ROOTFS : lancez apps/macos/scripts/build-kyclient.sh" >&2; exit 1; }
 
-# Vendor/ d'un autre checkout (worktree) que celui de l'app ouverte : KYBERNOW_IGNORE_RUNNING=1.
-if [ "${KYBERNOW_IGNORE_RUNNING:-0}" != 1 ] && pgrep -x "KyberNow( Link)?" >/dev/null; then
-    echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/)." >&2
+# Dans un worktree git, dont le Vendor/ n'est pas celui du dépôt principal,
+# KYBERNOW_IGNORE_RUNNING=1 laisse tourner le script app ouverte ; sans effet
+# dans le dépôt principal (même règle que build-kyclient.sh).
+other_checkout() {
+    local dir common
+    dir="$(git -C "$ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+    common="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+    [ "$dir" != "$common" ]
+}
+if ! { [ "${KYBERNOW_IGNORE_RUNNING:-0}" = 1 ] && other_checkout; } && pgrep -x "KyberNow( Link)?" >/dev/null; then
+    echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/ ; dans un worktree : KYBERNOW_IGNORE_RUNNING=1)." >&2
     exit 1
 fi
 
