@@ -4,23 +4,22 @@
 
 Une session KyberNow peut prendre tous les écrans de l'appareil : l'ordinateur crée un écran virtuel par écran de l'appareil, placés de la même façon, et chaque écran de l'appareil affiche le sien dans une fenêtre plein écran. Ce document est le contrat commun de la Station, du cœur Rust et des apps Mac, Windows et Linux. Les autres apps Link (iPhone, iPad, Apple TV, Android, téléviseurs LG, client web) restent sur un écran et n'ont rien à changer.
 
+Le multi-écrans n'a pas d'écrans à lui : il reprend l'accueil, la connexion, la barre de session, les réglages et les statistiques de [link-ui.md](link-ui.md), qui donne les textes exacts (section « Plusieurs écrans » de la connexion, ligne « Écrans » des réglages). Les trois apps se comportent pareil et emploient les mêmes mots ; un texte nouveau entre d'abord dans `link-ui.md`, puis dans le catalogue de chaque app, à l'identique.
+
 ## Ce que voit l'utilisateur
 
-- **Réglage par ordinateur** « Écrans » (rubrique Image, sous Définition) : Auto, Cet écran, Tous les écrans. **Auto** (par défaut) prend tous les écrans en profil Bureau et Max, un seul en Jeu. Changer ce réglage ne fait pas passer le profil en « Personnalisé ».
+- **Réglage par ordinateur** « Écrans » (rubrique Image, sous Définition) : Auto, Cet écran, Tous les écrans. **Auto** (par défaut) prend tous les écrans en profil Bureau et Max, un seul en Jeu. Changer ce réglage ne fait pas passer le profil en « Personnalisé ». Inactif, sur « Cet écran », avec une définition sur mesure ou sans écran virtuel.
+- **Accueil** : la ligne de l'écran dit ce que la session prendra (« 3 écrans, à la taille de ceux de cet appareil »), avec le même calcul que la session.
+- **Connexion** : l'écran de connexion sur l'écran principal, le même fond sans texte sur les autres, chaque écran passe à son image dès sa première image.
 - **Les écrans pris** : tous les écrans actifs de l'appareil, quatre au plus ; des écrans en recopie comptent pour un. « Cet écran » est l'écran où se trouve la fenêtre de l'app, comme une session à un écran.
 - **L'écran principal** de l'appareil (Mac : celui de la barre des menus ; Windows : l'écran principal ; Linux : l'écran 0 de SDL) devient l'écran principal de Windows : la barre des tâches et les jeux en plein écran y vont.
 - **Définition** : chaque écran virtuel a la définition de l'écran de l'appareil en pixels, comme « Comme cet écran » ; « Au plus 4K » s'applique à chaque écran ; en H.264, 4096 pixels de large au plus par écran.
 - **Fréquence** : l'écran principal garde la sienne ; les autres sont à 60 Hz (moins si leur écran ne va pas jusque-là). Un écran immobile ne coûte presque rien : Kyber n'envoie une image que quand l'écran change.
 - **Fenêtres** : une fenêtre plein écran par écran de l'appareil. En souris du bureau, le pointeur passe d'un écran à l'autre comme sur l'appareil. En souris des jeux, il reste capturé dans la fenêtre active.
-- **Barre de session** : sur l'écran où se trouve le pointeur. Les commandes (fin de session, plein écran, souris, Touches) valent pour toute la session, depuis n'importe quelle fenêtre. La fin de session ferme toutes les fenêtres.
-- **Écrans de l'appareil qui changent en session** (branché, débranché, disposition ou recopie changée) : la session se refait avec les nouveaux écrans, sans revenir à l'accueil.
+- **Barre de session** : une seule, sur l'écran où se trouve le pointeur. Ses commandes (fin de session, souris, Touches, Statistiques) valent pour toute la session, depuis n'importe quelle fenêtre. « Plein écran » n'est pas proposé : les fenêtres restent en plein écran (« Cet écran » pour travailler dans une fenêtre). La fin de session ferme toutes les fenêtres.
+- **Écrans de l'appareil qui changent en session** (branché, débranché, disposition ou recopie changée) : la session se refait avec les nouveaux écrans, sans revenir à l'accueil ; la connexion reprend à sa première étape sur l'écran principal.
+- **Écran que l'ordinateur n'a pas pu créer** : sa fenêtre garde le fond de la connexion avec une seule ligne, « L'ordinateur n'a pas pu créer cet écran. » ; les autres écrans fonctionnent.
 - **Station qui ne gère qu'un écran** (version antérieure) : la session se fait sur l'écran principal, sans message bloquant.
-
-### Libellés
-
-| Français | English | Valeurs (FR / EN) |
-|---|---|---|
-| Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; aide : « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game. Each display gets a display on the computer, laid out the same way.” |
 
 ## Disposition des écrans
 
