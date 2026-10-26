@@ -26,20 +26,21 @@ use crate::model::{Host, Profile};
 
 /// Le presse-papiers du système, vu depuis le fil des entrées : SDL ne se
 /// touche que depuis le fil principal, qui recopie ici le texte du système
-/// et applique ce que l'ordinateur envoie. Avec plusieurs ordinateurs à la fois, seule
-/// la session active y touche (`set_active`) : le texte ne passe que par l'appareil, jamais
-/// d'un ordinateur à l'autre en arrière-plan.
+/// (`system_text`) et applique ce que l'ordinateur envoie (`write_outgoing`). Plusieurs ordinateurs à
+/// la fois : c'est le pont du cœur qui se met en pause quand la session n'est pas active (rien n'est
+/// lu ici, rien n'y est écrit, ce que l'ordinateur annonce est ignoré, `Session::set_active`) ; le
+/// texte ne passe donc que par l'appareil, jamais d'un ordinateur à l'autre en arrière-plan. Le
+/// texte recopié doit être frais quand une session reprend la main : `device::focus` le renouvelle
+/// avant chaque changement de session active.
 pub struct Clipboard {
     text: Mutex<Option<String>>,
     count: AtomicU64,
     outgoing: Mutex<Option<String>>,
-    /// La session est active : elle lit le presse-papiers de l'appareil et y écrit.
-    active: AtomicBool,
 }
 
 impl Clipboard {
     fn new() -> Self {
-        Self { text: Mutex::new(None), count: AtomicU64::new(0), outgoing: Mutex::new(None), active: AtomicBool::new(true) }
+        Self { text: Mutex::new(None), count: AtomicU64::new(0), outgoing: Mutex::new(None) }
     }
 
     /// Le texte du système (fil principal).
@@ -51,26 +52,11 @@ impl Clipboard {
         }
     }
 
-    /// Active ou en pause. En pause : rien n'est lu sur l'appareil, ce que l'ordinateur y envoie
-    /// est écarté. Réveillée, la session reprend le texte de l'appareil au prochain `pump`, qui le
-    /// renvoie à l'ordinateur s'il a changé.
-    pub fn set_active(&self, active: bool) {
-        self.active.store(active, Ordering::Relaxed);
-    }
-
-    /// À chaque tour de la boucle principale (SDL ne se touche que d'ici) : ce que l'ordinateur
-    /// envoie est posé sur le presse-papiers de l'appareil ; `read` : le texte de l'appareil est
-    /// relu pour les entrées. Une session en pause ne fait ni l'un ni l'autre.
-    pub fn pump(&self, read: bool) {
-        let out = self.outgoing.lock().unwrap().take();
-        if !self.active.load(Ordering::Relaxed) {
-            return;
-        }
-        if let Some(t) = out {
+    /// Ce que l'ordinateur a envoyé est posé sur le presse-papiers de l'appareil (fil principal).
+    /// Le pont du cœur n'envoie rien ici tant que la session n'est pas active.
+    pub fn write_outgoing(&self) {
+        if let Some(t) = self.outgoing.lock().unwrap().take() {
             sdl::set_clipboard(&t);
-        }
-        if read {
-            self.system_text(sdl::clipboard());
         }
     }
 }
@@ -119,8 +105,10 @@ pub struct Shared {
     pub hw_backend: i32,
     pub clipboard: Option<Arc<Clipboard>>,
     pub audio: Mutex<Option<Weak<AudioSink>>>,
-    /// Son coupé pour cette session (partagé avec ses sorties, que la reconnexion recrée).
-    muted: Arc<AtomicBool>,
+    /// « Couper le son » du menu de session : le choix de l'utilisateur, distinct du son que le cœur
+    /// coupe aux sessions qui ne sont ni actives ni gardées (`Session::set_muted`). Partagé avec les
+    /// sorties de la session, que la reconnexion recrée.
+    silenced: Arc<AtomicBool>,
 }
 
 /// Multi-écrans : ce que la plateforme a reçu de `Platform::on_screens`.
@@ -141,19 +129,10 @@ impl Shared {
         let _ = self.tx.lock().unwrap().send(Event::Session(self.id, e));
     }
 
-    /// Le son de la session est coupé ou rendu (fondu de 20 ms) : la session active et celles que
-    /// « Garder le son » laisse audibles s'entendent. Appelé d'un seul endroit (`device::focus`).
-    pub fn set_muted(&self, muted: bool) {
-        self.muted.store(muted, Ordering::Relaxed);
-        if let Some(a) = self.audio.lock().unwrap().as_ref().and_then(Weak::upgrade) {
-            a.set_muted(muted);
-        }
-    }
-
-    /// Le son est coupé en ce moment.
-    #[allow(dead_code)]
-    pub fn muted(&self) -> bool {
-        self.muted.load(Ordering::Relaxed)
+    /// « Couper le son » du menu de session, ou le rendre (fondu de 20 ms). Le son que le cœur coupe aux
+    /// sessions en arrière-plan est à part (`Session::set_muted`, par le registre `focus`).
+    pub fn set_silenced(&self, silenced: bool) {
+        self.silenced.store(silenced, Ordering::Relaxed);
     }
 
     pub fn host_size(&self) -> (u32, u32) {
@@ -321,7 +300,7 @@ impl Platform for LinuxPlatform {
         if self.0.audio_channels == 0 {
             return None;
         }
-        let sink = AudioSink::new(self.0.audio_channels, self.0.muted.clone());
+        let sink = AudioSink::new(self.0.audio_channels, self.0.silenced.clone());
         *self.0.audio.lock().unwrap() = Some(Arc::downgrade(&sink));
         Some(sink as Arc<dyn PacketHandler>)
     }
@@ -423,12 +402,6 @@ impl InputPlatform for InputCallbacks {
 
     fn combo_formed(&self, _pad: PadId) {
         self.0.send(SessionEvent::Combo);
-    }
-
-    /// Les entrées sont reliées à l'ordinateur : les manettes y sont annoncées,
-    /// une fois par liaison.
-    fn connected(&self) {
-        self.0.send(SessionEvent::InputReady);
     }
 
     fn navigate(&self, _key: PadKey) {}
@@ -536,7 +509,7 @@ pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u
         hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
         clipboard: host.settings.clipboard.then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
-        muted: Arc::new(AtomicBool::new(false)),
+        silenced: Arc::new(AtomicBool::new(false)),
     });
     // Le pointeur de l'ordinateur : position et forme, pour la fenêtre.
     let weak = Arc::downgrade(&shared);
@@ -622,7 +595,7 @@ mod tests {
             hw_backend: 1,
             clipboard: None,
             audio: Mutex::new(None),
-            muted: Arc::new(AtomicBool::new(false)),
+            silenced: Arc::new(AtomicBool::new(false)),
         });
         let weak = Arc::downgrade(&shared);
         pointer.set_on_changed(move |state, change| {

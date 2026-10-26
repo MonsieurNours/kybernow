@@ -5,9 +5,11 @@
 //! Windows : G, D, C, LFE, arrière, côtés).
 //!
 //! Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : une sortie SDL par
-//! session, que le système mélange ; chaque session a son drapeau « son coupé »
-//! (`AudioSink::set_muted`), que l'app fixe d'un seul endroit (`device::focus`) : la
-//! session active s'entend, les autres non, sauf « Garder le son ». Le son continue
+//! session, que le système mélange. Le cœur coupe lui-même le son des sessions qui ne sont ni
+//! actives ni gardées par « Garder le son » (`Session::set_muted`, fondu de 20 ms, par le registre
+//! `focus`) : il trouve le moteur de la sortie par `PacketHandler::audio_engine`. « Couper le son » du
+//! menu de session est un autre choix, celui de l'utilisateur : le drapeau de la sortie
+//! (`AudioSink::set_silenced`), appliqué ici, avec son propre fondu. Dans les deux cas le son continue
 //! d'être décodé et vidé : il revient sans décalage.
 
 use std::ffi::{c_int, c_void};
@@ -25,11 +27,11 @@ const RATE: i32 = 48_000;
 const FADE_MS: f32 = 20.0;
 
 /// Ce que le rappel de SDL reçoit : le moteur et les voies qu'il remplit, le drapeau
-/// « son coupé » de la session et le niveau où le fondu en est (bits d'un `f32`, 0 à 1).
+/// « Couper le son » de la session et le niveau où le fondu en est (bits d'un `f32`, 0 à 1).
 struct Output {
     engine: Arc<AudioEngine>,
     channels: usize,
-    muted: Arc<AtomicBool>,
+    silenced: Arc<AtomicBool>,
     gain: AtomicU32,
 }
 
@@ -40,26 +42,20 @@ pub struct AudioSink {
     /// Voies de la sortie (celles demandées à l'ordinateur) ; SDL convertit
     /// vers la carte son si elle en a d'autres.
     channels: u8,
-    /// Le son de la session est coupé (pas la session active, ni gardée, ou coupé depuis son menu).
-    /// Partagé avec les autres sorties de la même session (une reconnexion en recrée une).
-    muted: Arc<AtomicBool>,
+    /// « Couper le son » du menu de la session. Partagé avec les autres sorties de la même session
+    /// (une reconnexion en recrée une).
+    silenced: Arc<AtomicBool>,
 }
 
 impl AudioSink {
-    /// `muted` : le drapeau de la session ; la sortie le lit à chaque rappel.
-    pub fn new(channels: u8, muted: Arc<AtomicBool>) -> Arc<Self> {
+    /// `silenced` : le drapeau « Couper le son » de la session ; la sortie le lit à chaque rappel.
+    pub fn new(channels: u8, silenced: Arc<AtomicBool>) -> Arc<Self> {
         let engine = Arc::new(AudioEngine::with_order(Arc::new(MonotonicClock::new()), OutputOrder::Windows));
-        Arc::new(Self { engine, device: Mutex::new(0), holder: Mutex::new(None), channels: channels.max(2), muted })
+        Arc::new(Self { engine, device: Mutex::new(0), holder: Mutex::new(None), channels: channels.max(2), silenced })
     }
 
     pub fn engine(&self) -> &Arc<AudioEngine> {
         &self.engine
-    }
-
-    /// Coupe ou rend le son de cette sortie, avec un fondu de 20 ms.
-    #[allow(dead_code)]
-    pub fn set_muted(&self, muted: bool) {
-        self.muted.store(muted, Ordering::Relaxed);
     }
 
     fn open(&self) {
@@ -67,8 +63,8 @@ impl AudioSink {
         if *dev != 0 {
             return;
         }
-        let start = if self.muted.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
-        let holder = Box::new(Output { engine: self.engine.clone(), channels: self.channels as usize, muted: self.muted.clone(), gain: AtomicU32::new(start.to_bits()) });
+        let start = if self.silenced.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
+        let holder = Box::new(Output { engine: self.engine.clone(), channels: self.channels as usize, silenced: self.silenced.clone(), gain: AtomicU32::new(start.to_bits()) });
         let user = &*holder as *const Output as *mut c_void;
         // 256 images (5,3 ms) par rappel : PipeWire tient la cadence.
         let want = sdl::SDL_AudioSpec { freq: RATE, format: sdl::AUDIO_F32SYS, channels: self.channels, silence: 0, samples: 256, padding: 0, size: 0, callback: Some(fill), userdata: user };
@@ -93,7 +89,7 @@ extern "C" fn fill(user: *mut c_void, stream: *mut u8, len: c_int) {
     let out = unsafe { std::slice::from_raw_parts_mut(stream as *mut f32, n) };
     let channels = out_.channels.max(1);
     out_.engine.fill(out, n / channels);
-    let target = if out_.muted.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
+    let target = if out_.silenced.load(Ordering::Relaxed) { 0.0f32 } else { 1.0 };
     let mut gain = f32::from_bits(out_.gain.load(Ordering::Relaxed));
     apply_gain(out, channels, &mut gain, target, 1.0 / (FADE_MS / 1000.0 * RATE as f32));
     out_.gain.store(gain.to_bits(), Ordering::Relaxed);
@@ -118,6 +114,11 @@ fn apply_gain(out: &mut [f32], channels: usize, gain: &mut f32, target: f32, ste
 }
 
 impl PacketHandler for AudioSink {
+    /// Le moteur que le cœur coupe et rend pour les sessions en arrière-plan (`Session::set_muted`).
+    fn audio_engine(self: Arc<Self>) -> Option<Arc<AudioEngine>> {
+        Some(self.engine.clone())
+    }
+
     fn packet(&self, packet: Packet<'_>) {
         match packet {
             Packet::Codec { .. } => {}

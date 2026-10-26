@@ -5,6 +5,13 @@
 //! L1 / R1 : profil ou rubrique, Start : réglages de l'app) ; manette en souris.
 //! Et la conversion des touches du clavier (codes USB de SDL) en scancodes
 //! de Windows, ceux qu'attend kynput.
+//!
+//! Plusieurs ordinateurs à la fois : le routage vers les sessions (branchements sur chacune,
+//! boutons et axes à la seule session active, retour au repos, rebranchement quand une session
+//! rejoint son ordinateur) est celui du lecteur unique du cœur (`kybernow_core::gamepads`), que la
+//! boucle SDL nourrit (`plug`, `unplug`, `button`, `axis`). Ici reste ce que le lecteur n'a pas :
+//! les manettes que SDL a ouvertes (vibrations, batterie), l'état montré par l'écran de test, la
+//! navigation de l'interface et la manette en souris.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};

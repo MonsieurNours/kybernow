@@ -293,8 +293,8 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     eyebrow(cv, ix, y + 40.0 * u, 12.0 * u, BAD_TEXT, title);
     cv.text_shrink(ix - 1.0, y + 86.0 * u, Text::new(Font::Display, 34.0 * u, FROST).tracking(-0.6 * u), &s.name, cw - 64.0 * u);
     cv.paragraph(ix, y + 122.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), error.unwrap_or(""), cw - 64.0 * u, 22.0 * u);
-    // Avec d'autres ordinateurs en session, le retour ne va pas à l'accueil (inaccessible en session) : « Retour ».
-    let back = if app.sessions.len() > 1 { tr("Retour", "Back") } else { tr("Retour à l'accueil", "Back to home") };
+    // Avec d'autres sessions qui continuent, le bouton ne ramène pas à l'accueil : il ferme cette fenêtre (docs/link-ui.md).
+    let back = if app.sessions.len() > 1 { tr("Fermer", "Close") } else { tr("Retour à l'accueil", "Back to home") };
     widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, back, false);
 }
 
@@ -326,9 +326,10 @@ struct BarLayout {
     info_w: f32,
     prof_w: f32,
     quit_w: f32,
-    /// Plusieurs ordinateurs : le menu « Ordinateurs » (largeur de son bouton), quand il y a
-    /// un autre ordinateur à proposer ; le haut-parleur « Garder le son ».
-    computers: Option<f32>,
+    /// Plusieurs ordinateurs (docs/link-ui.md) : le menu « Ordinateurs », présenté comme « Touches »
+    /// (une icône), quand il y a un autre ordinateur à proposer ; le haut-parleur « Garder le son »,
+    /// à partir de deux sessions ouvertes (avec une seule, la barre reste comme avant).
+    computers: bool,
     sound: bool,
     total: f32,
 }
@@ -349,13 +350,13 @@ impl BarLayout {
         let quit = tr("Se déconnecter", "Disconnect");
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
         // Plusieurs ordinateurs (bureau, hors KyberNow Link OS) : le menu « Ordinateurs » s'il y a un autre
-        // ordinateur, et le haut-parleur « Garder le son ».
-        let sound = app.multi_sessions();
-        let computers = (sound && app.store.hosts.iter().any(|h| h.id != s.host)).then(|| cv.text_width(Text::new(Font::Regular, 13.0, FROST), tr("Ordinateurs", "Computers")) + 34.0);
-        // Touches, souris, haut-parleur, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
-        let buttons = if s.multi() { 2.0 } else { 3.0 } + if sound { 1.0 } else { 0.0 };
-        let menu = computers.map_or(0.0, |w| w + 12.0);
-        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + menu + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        // ordinateur, le haut-parleur « Garder le son » avec au moins deux sessions.
+        let multi = app.multi_sessions();
+        let computers = multi && app.store.hosts.iter().any(|h| h.id != s.host);
+        let sound = multi && app.sessions.len() >= 2;
+        // Ordinateurs, touches, souris, haut-parleur, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
+        let buttons = if s.multi() { 2.0 } else { 3.0 } + if sound { 1.0 } else { 0.0 } + if computers { 1.0 } else { 0.0 };
+        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
         Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, computers, sound, total }
     }
 }
@@ -451,24 +452,15 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.text(pr.x + pr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
     let profile_x = pr.x;
     x += prof_w + 12.0;
-    // Plusieurs ordinateurs : le menu « Ordinateurs », comme celui du profil.
-    let mut computers_x = x;
-    if let Some(cw) = computers {
-        let cr = Rect::new(x, cy - 15.0, cw, 30.0);
-        let (focused, hover) = f.state(Target::BarComputers, cr);
-        cv.rrect(cr.x, cr.y, cr.w, cr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Computers) { INK_3 } else { Rgba(20, 27, 35, 255) });
-        cv.rrect_stroke(cr.x, cr.y, cr.w, cr.h, 7.0, 1.0, LINE_2);
-        if focused {
-            widgets::ring(cv, cr, 7.0);
-        }
-        cv.text(cr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), tr("Ordinateurs", "Computers"));
-        cv.text(cr.x + cr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
-        computers_x = cr.x;
-        x += cw + 12.0;
+    // Ordinateurs et touches (deux menus du même dessin), souris, haut-parleur (« Garder le son »), plein
+    // écran ; chacun nomme son bouton au survol.
+    let (mut keys_x, mut computers_x) = (x, x);
+    let mut icons = Vec::new();
+    if computers {
+        icons.push((Target::BarComputers, Icon::Monitor, s.bar_menu == Some(BarMenu::Computers), tr("Ordinateurs", "Computers")));
     }
-    // Touches, souris, haut-parleur (« Garder le son »), plein écran ; chacun nomme son bouton au survol.
-    let keys_x = x;
-    let mut icons = vec![(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")), (Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") })];
+    icons.push((Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")));
+    icons.push((Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") }));
     if sound {
         icons.push((Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
     }
@@ -489,6 +481,11 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         }
         if hover {
             tip = Some((ir, name));
+        }
+        match t {
+            Target::BarComputers => computers_x = ir.x,
+            Target::BarKeys => keys_x = ir.x,
+            _ => {}
         }
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else { MUTED });
         x += 34.0;
