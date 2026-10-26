@@ -137,6 +137,34 @@ impl State {
     }
 }
 
+/// Le pointeur de l'ordinateur pour la souris Auto, sur tous les écrans d'une
+/// session (multi-écrans, docs/multi-ecrans.md) : une seule règle pour toutes
+/// les apps. Un pointeur qui quitte un écran y est annoncé caché : il n'est
+/// caché que s'il l'est sur tous les écrans où il est déjà passé, et visible
+/// depuis le plus long de leurs délais. Un écran où le pointeur n'est jamais
+/// passé (aucune annonce de l'ordinateur) ne compte pas : resté « visible »
+/// par défaut, il empêcherait le mode jeu de se déclencher.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PointerSummary {
+    /// L'ordinateur cache son pointeur partout.
+    pub hidden: bool,
+    /// Depuis combien de temps il le montre (zéro : caché).
+    pub visible_for: Duration,
+}
+
+impl PointerSummary {
+    /// D'après l'état de la couche de chaque écran, à l'instant `now`.
+    pub fn of(states: &[State], now: Duration) -> Self {
+        let seen: Vec<&State> = states.iter().filter(|s| s.remote_position.is_some()).collect();
+        // Aucune annonce encore : l'état par défaut (visible), comme une session à un écran.
+        let counted: Vec<&State> = if seen.is_empty() { states.iter().collect() } else { seen };
+        Self {
+            hidden: !counted.is_empty() && counted.iter().all(|s| s.remote_hidden),
+            visible_for: counted.iter().map(|s| s.visible_for(now)).max().unwrap_or(Duration::ZERO),
+        }
+    }
+}
+
 /// Ce qui a changé ; dans tous les cas, à redessiner.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Change {
@@ -214,6 +242,16 @@ impl PointerLayer {
 
     pub fn host_size(&self) -> (f64, f64) {
         self.inner.lock().unwrap().host_size
+    }
+
+    /// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto, sur
+    /// les couches de tous les écrans de la session ([`PointerSummary`]).
+    pub fn summary<'a>(layers: impl IntoIterator<Item = &'a PointerLayer>) -> PointerSummary {
+        let layers: Vec<&PointerLayer> = layers.into_iter().collect();
+        let Some(first) = layers.first() else { return PointerSummary { hidden: false, visible_for: Duration::ZERO } };
+        let now = first.clock.now();
+        let states: Vec<State> = layers.iter().map(|l| l.state()).collect();
+        PointerSummary::of(&states, now)
     }
 
     /// Nouvelle chaîne d'entrées (début ou relance de l'image) : l'écran de
@@ -470,6 +508,35 @@ mod tests {
         assert_eq!(layer.state().held, None);
         layer.resend_held();
         assert_eq!(sent.lock().unwrap().len(), 3, "rien de tenu : rien d'envoyé");
+    }
+
+    #[test]
+    fn souris_auto_sur_tous_les_ecrans() {
+        let clock = Arc::new(ManualClock::new());
+        let a = PointerLayer::new(clock.clone(), false);
+        let b = PointerLayer::new(clock.clone(), false);
+        let c = PointerLayer::new(clock.clone(), false);
+        let hidden = |l: &PointerLayer, visible: bool| l.remote_cursor_changed(RemoteCursor { visible, image: None, position: (1, 1) });
+        clock.advance(Duration::from_secs(10));
+        // Aucune annonce : visible par défaut, comme une session à un écran.
+        let s = PointerLayer::summary([&a, &b, &c]);
+        assert!(!s.hidden && s.visible_for == Duration::from_secs(10));
+        // Le jeu cache son pointeur sur l'écran principal ; les deux autres ne l'ont jamais vu : caché.
+        hidden(&a, false);
+        assert!(PointerLayer::summary([&a, &b, &c]).hidden, "un écran jamais visité ne compte pas");
+        // Le pointeur est passé sur l'écran b et y est visible : pas caché.
+        hidden(&b, true);
+        assert!(!PointerLayer::summary([&a, &b, &c]).hidden);
+        // Il quitte b (annoncé caché là-bas) : caché partout où il est passé.
+        hidden(&b, false);
+        let s = PointerLayer::summary([&a, &b, &c]);
+        assert!(s.hidden && s.visible_for == Duration::ZERO);
+        // Remontré sur a : visible depuis ce moment.
+        hidden(&a, true);
+        clock.advance(Duration::from_millis(300));
+        let s = PointerLayer::summary([&a, &b, &c]);
+        assert!(!s.hidden && s.visible_for == Duration::from_millis(300));
+        assert_eq!(PointerLayer::summary([]), PointerSummary { hidden: false, visible_for: Duration::ZERO });
     }
 
     #[test]

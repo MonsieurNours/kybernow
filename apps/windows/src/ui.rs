@@ -2129,6 +2129,12 @@ pub fn run(args: Vec<String>) {
                 .center()
                 .visible(!background)
                 .build()?;
+            // « Cet écran » : celui de la fenêtre de l'accueil (docs/multi-ecrans.md).
+            if let Some(home) = app.get_webview_window("main")
+                && let Ok(hwnd) = home.hwnd()
+            {
+                system::set_home_window(hwnd.0 as isize);
+            }
             WebviewWindowBuilder::new(app, "bar", WebviewUrl::App("bar.html".into()))
                 .initialization_script(&lang_script)
                 .title(t("app.bar_title", &[]))

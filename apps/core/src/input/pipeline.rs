@@ -309,6 +309,21 @@ impl InputPipeline {
         *self.screens.lock().unwrap() = screens;
     }
 
+    /// Le pointeur de l'ordinateur pour la souris Auto, sur tous les écrans
+    /// de cette chaîne (couche principale et celle de chaque écran ; voir
+    /// [`PointerLayer::summary`]).
+    pub fn pointer_summary(&self) -> super::pointer_layer::PointerSummary {
+        let mut layers: Vec<Arc<PointerLayer>> = vec![self.pointer.clone()];
+        for t in self.screens.lock().unwrap().iter() {
+            if let Some(p) = &t.pointer
+                && !layers.iter().any(|l| Arc::ptr_eq(l, p))
+            {
+                layers.push(p.clone());
+            }
+        }
+        PointerLayer::summary(layers.iter().map(|l| l.as_ref()))
+    }
+
     pub fn screens(&self) -> Vec<ScreenTarget> {
         self.screens.lock().unwrap().clone()
     }

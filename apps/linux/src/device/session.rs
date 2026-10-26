@@ -145,20 +145,12 @@ impl Shared {
         latest
     }
 
-    /// Le pointeur de l'ordinateur pour la souris Auto : caché seulement s'il
-    /// l'est sur tous les écrans, visible depuis le plus long des délais
-    /// (docs/multi-ecrans.md).
+    /// Le pointeur de l'ordinateur pour la souris Auto, sur tous les écrans :
+    /// la règle du cœur (`PointerLayer::summary`, docs/multi-ecrans.md).
     pub fn pointer_summary(&self) -> (bool, Duration) {
-        let now = self.clock.now();
-        let primary = self.pointer.state();
-        let mut hidden = primary.remote_hidden;
-        let mut visible_for = primary.visible_for(now);
-        for layer in self.layers.lock().unwrap().values() {
-            let st = layer.state();
-            hidden &= st.remote_hidden;
-            visible_for = visible_for.max(st.visible_for(now));
-        }
-        (hidden, visible_for)
+        let layers = self.layers.lock().unwrap();
+        let s = PointerLayer::summary(std::iter::once(self.pointer.as_ref()).chain(layers.values().map(|l| l.as_ref())));
+        (s.hidden, s.visible_for)
     }
 
     /// Les écrans de la session vus des entrées : chacun avec sa couche de
@@ -614,12 +606,20 @@ mod tests {
         platform.on_screens(&[stream(0, 1, 3840, 2160, true), stream(1, 7, 5120, 2880, false)], &[]);
         assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
         let other = sh.layers.lock().unwrap().get(&1).cloned().unwrap();
-        // Le jeu cache son pointeur sur l'écran principal ; il est encore visible sur l'autre : pas caché.
+        // Le jeu cache son pointeur sur l'écran principal ; l'autre écran ne l'a jamais vu : caché
+        // (un écran jamais visité ne compte pas, règle du cœur).
         sh.pointer.remote_cursor_changed(cursor(false));
-        assert!(sh.pointer.state().remote_hidden && !sh.pointer_summary().0);
+        assert!(sh.pointer.state().remote_hidden && sh.pointer_summary().0);
         match rx.try_recv() {
             Ok(Event::Pointer { screen, hidden, .. }) => assert_eq!((screen, hidden), (0, true)),
             _ => panic!("le pointeur de l'écran principal arrive avec son écran"),
+        }
+        // Le pointeur passe sur l'autre écran, où il est visible : pas caché.
+        other.remote_cursor_changed(cursor(true));
+        assert!(!sh.pointer_summary().0);
+        match rx.try_recv() {
+            Ok(Event::Pointer { screen, hidden, .. }) => assert_eq!((screen, hidden), (1, false)),
+            _ => panic!("le pointeur de l'autre écran arrive avec son écran"),
         }
         // Caché sur les deux : caché.
         other.remote_cursor_changed(cursor(false));
