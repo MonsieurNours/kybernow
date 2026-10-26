@@ -8,7 +8,7 @@ Multiple displays have no screens of their own: they reuse the home screen, conn
 
 ## What the user sees
 
-- **Per-computer setting** “Displays” (Picture section, under Resolution): Auto, This display, All displays. **Auto** (the default) takes all displays in the Desktop and Max profiles, one in Game. Changing this setting does not turn the profile into “Custom”. Inactive, on “This display”, with a custom resolution or without a virtual display.
+- **Per-computer setting** “Displays” (Picture section, under Resolution): Auto, This display, All displays. **Auto** (the default) takes all displays in the Desktop and Max profiles, one in Game and Custom. Changing this setting does not turn the profile into “Custom”. Inactive, on “This display”, with a custom resolution or without a virtual display.
 - **Home screen**: the display line says what the session will take (“3 displays, sized for this device's screens”), with the same calculation as the session.
 - **Connection**: the connection screen on the main display, the same background without text on the others, each display switches to its picture at its first frame.
 - **Displays taken**: all of the device's active displays, four at most; mirrored displays count as one. “This display” is the display the app's window is on, like a one-display session.
@@ -17,9 +17,11 @@ Multiple displays have no screens of their own: they reuse the home screen, conn
 - **Refresh rate**: the main display keeps its own; the others run at 60 Hz (less if their display does not go that high). A still display costs almost nothing: Kyber only sends a frame when the display changes.
 - **Windows**: one full-screen window per display of the device. With the desktop mouse, the pointer moves from one display to the next as on the device. With the game mouse, it stays captured in the active window.
 - **Session bar**: a single one, on the display the pointer is on. Its commands (end session, mouse, Keys, Statistics) apply to the whole session, from any window. “Full screen” is not offered: the windows stay full screen (“This display” to work in a window). Ending the session closes every window.
+- **Profile changed during the session** (bar, icon menu): the number of displays follows at once; if it changes, the connection starts again at its first step, as when the device's displays change.
 - **The device's displays change during the session** (plugged in, unplugged, layout or mirroring changed): the session is set up again with the new displays, without going back to the home screen; the connection starts again at its first step on the main display.
-- **A display the computer could not create**: its window keeps the connection background with a single line, “The computer could not create this display.”; the other displays work.
-- **A Station that handles only one display** (earlier version): the session runs on the main display, with no blocking message.
+- **A display the computer could not create**, or created but left without a picture (never announced by Kyber in time, or its encoder did not open): its window keeps the connection background with a single line, “The computer could not create this display.”; the other displays work.
+- **New displays refused during the session**: the session ends with the reason, like a failed connection.
+- **A Station that handles only one display** (earlier version), or only the main display accepted: the session runs on the main display; the other displays' windows do not open, with no message, as with “This display”. The home screen knows beforehand (`max_screens`, below) and only announces the displays the Station accepts.
 
 ## Display layout
 
@@ -62,6 +64,8 @@ Response: on top of the current fields (`applied` stays the main display's mode)
 ]
 ```
 
+`GET /api/stream/info` gives `virtual_display.max_screens`: the number of displays the Station can create (4); absent on an earlier Station, which creates only one. The home screen and the session plan never ask for more displays than that.
+
 Heartbeat, end of session and takeover do not change: one session, one device.
 
 ## Station
@@ -80,6 +84,8 @@ Heartbeat, end of session and takeover do not change: one session, one device.
 - **Inputs**: an absolute mouse position comes with the display index (that display's pixels) and goes out with the matching Kyber display identifier. The pointer announced by the computer arrives with its display: the app draws it only in that display's window. Keyboard, relative mouse and controllers do not change.
 - **Bitrate**: the profile's bitrate is worked out on the sum of the displays' pixels per second, with the same ceilings as today.
 - **Recovery after a loss**: one keyframe per stream, never before that stream's first data (a request too early leaves kyavserver silent); restarting the stream restarts every display.
+- **Silent display**: if a display's encoder does not open, Kyber still accepts the session and that stream stays without data. A secondary stream without data after 4 s, while the main one receives some, is dropped: the session is set up again without it and its window shows the line of a display not created. A refusal from Kyber at start (`403`, without saying which display): a new attempt with the main display alone. The main display follows the recovery rules of a one-display session.
+- **Auto mouse**: the computer's pointer only counts as hidden if it is hidden on every display.
 - **Metrics**: latency and frames per second of the main display; Statistics also gives the number of displays.
 - **App API**: the one-display session keeps exactly its API (apps that do not handle multiple displays do not change). Multiple displays are requested by the app, which gives the core the list of its displays; the C bridge (`apps/apple`) and the JNI bridge (`apps/android/jni`) still build.
 

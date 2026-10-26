@@ -8,7 +8,7 @@ Le multi-écrans n'a pas d'écrans à lui : il reprend l'accueil, la connexion, 
 
 ## Ce que voit l'utilisateur
 
-- **Réglage par ordinateur** « Écrans » (rubrique Image, sous Définition) : Auto, Cet écran, Tous les écrans. **Auto** (par défaut) prend tous les écrans en profil Bureau et Max, un seul en Jeu. Changer ce réglage ne fait pas passer le profil en « Personnalisé ». Inactif, sur « Cet écran », avec une définition sur mesure ou sans écran virtuel.
+- **Réglage par ordinateur** « Écrans » (rubrique Image, sous Définition) : Auto, Cet écran, Tous les écrans. **Auto** (par défaut) prend tous les écrans en profil Bureau et Max, un seul en Jeu et en Personnalisé. Changer ce réglage ne fait pas passer le profil en « Personnalisé ». Inactif, sur « Cet écran », avec une définition sur mesure ou sans écran virtuel.
 - **Accueil** : la ligne de l'écran dit ce que la session prendra (« 3 écrans, à la taille de ceux de cet appareil »), avec le même calcul que la session.
 - **Connexion** : l'écran de connexion sur l'écran principal, le même fond sans texte sur les autres, chaque écran passe à son image dès sa première image.
 - **Les écrans pris** : tous les écrans actifs de l'appareil, quatre au plus ; des écrans en recopie comptent pour un. « Cet écran » est l'écran où se trouve la fenêtre de l'app, comme une session à un écran.
@@ -17,9 +17,11 @@ Le multi-écrans n'a pas d'écrans à lui : il reprend l'accueil, la connexion, 
 - **Fréquence** : l'écran principal garde la sienne ; les autres sont à 60 Hz (moins si leur écran ne va pas jusque-là). Un écran immobile ne coûte presque rien : Kyber n'envoie une image que quand l'écran change.
 - **Fenêtres** : une fenêtre plein écran par écran de l'appareil. En souris du bureau, le pointeur passe d'un écran à l'autre comme sur l'appareil. En souris des jeux, il reste capturé dans la fenêtre active.
 - **Barre de session** : une seule, sur l'écran où se trouve le pointeur. Ses commandes (fin de session, souris, Touches, Statistiques) valent pour toute la session, depuis n'importe quelle fenêtre. « Plein écran » n'est pas proposé : les fenêtres restent en plein écran (« Cet écran » pour travailler dans une fenêtre). La fin de session ferme toutes les fenêtres.
+- **Profil changé en session** (barre, menu de l'icône) : le nombre d'écrans suit tout de suite ; s'il change, la connexion reprend à sa première étape, comme quand les écrans de l'appareil changent.
 - **Écrans de l'appareil qui changent en session** (branché, débranché, disposition ou recopie changée) : la session se refait avec les nouveaux écrans, sans revenir à l'accueil ; la connexion reprend à sa première étape sur l'écran principal.
-- **Écran que l'ordinateur n'a pas pu créer** : sa fenêtre garde le fond de la connexion avec une seule ligne, « L'ordinateur n'a pas pu créer cet écran. » ; les autres écrans fonctionnent.
-- **Station qui ne gère qu'un écran** (version antérieure) : la session se fait sur l'écran principal, sans message bloquant.
+- **Écran que l'ordinateur n'a pas pu créer**, ou créé mais resté sans image (jamais annoncé par Kyber dans le délai, ou son encodeur ne s'est pas ouvert) : sa fenêtre garde le fond de la connexion avec une seule ligne, « L'ordinateur n'a pas pu créer cet écran. » ; les autres écrans fonctionnent.
+- **Nouveaux écrans refusés en session** : la session se termine avec la raison, comme un échec de la connexion.
+- **Station qui ne gère qu'un écran** (version antérieure), ou écran principal seul accepté : la session se fait sur l'écran principal ; les fenêtres des autres écrans ne s'ouvrent pas, sans message, comme avec « Cet écran ». L'accueil le sait d'avance (`max_screens`, plus bas) et n'annonce que les écrans que la Station accepte.
 
 ## Disposition des écrans
 
@@ -62,6 +64,8 @@ Réponse : en plus des champs actuels (`applied` reste le mode de l'écran princ
 ]
 ```
 
+`GET /api/stream/info` donne `virtual_display.max_screens` : le nombre d'écrans que la Station sait créer (4) ; absent chez une Station antérieure, qui n'en crée qu'un. L'accueil et le plan de la session ne demandent jamais plus d'écrans que ce nombre.
+
 Signal de vie, fin de session et reprise de main ne changent pas : une session, un appareil.
 
 ## Station
@@ -80,6 +84,8 @@ Signal de vie, fin de session et reprise de main ne changent pas : une session, 
 - **Entrées** : une position de souris absolue est donnée avec l'index de l'écran (pixels de cet écran) et part avec l'identifiant d'écran de Kyber correspondant. Le pointeur annoncé par l'ordinateur arrive avec son écran : l'app ne le dessine que dans la fenêtre de cet écran. Clavier, souris relative et manettes ne changent pas.
 - **Débit** : le débit du profil se calcule sur la somme des pixels par seconde des écrans, avec les mêmes plafonds qu'aujourd'hui.
 - **Reprise après une perte** : une image clé par flux, jamais avant les premières données de ce flux (une demande trop tôt laisse kyavserver muet) ; relancer le flux relance tous les écrans.
+- **Écran muet** : si l'encodeur d'un écran ne s'ouvre pas, Kyber accepte quand même la session et ce flux reste sans données. Un flux secondaire sans données au bout de 4 s, alors que le principal en reçoit, est retiré : la session se refait sans lui et sa fenêtre affiche la ligne d'un écran non créé. Un refus de Kyber au démarrage (`403`, sans dire quel écran) : nouvel essai avec l'écran principal seul. Le principal suit les règles de reprise d'une session à un écran.
+- **Souris Auto** : le pointeur de l'ordinateur ne compte comme caché que s'il l'est sur tous les écrans.
 - **Mesures** : latence et images par seconde de l'écran principal ; Statistiques donne en plus le nombre d'écrans.
 - **API des apps** : la session à un écran garde exactement son API (les apps qui ne gèrent pas le multi-écrans ne changent pas). Le multi-écrans est demandé par l'app, qui donne au cœur la liste de ses écrans ; le pont C (`apps/apple`) et le pont JNI (`apps/android/jni`) compilent toujours.
 
