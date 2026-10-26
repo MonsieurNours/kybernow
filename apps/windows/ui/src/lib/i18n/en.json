@@ -217,6 +217,8 @@
     "language": "Language",
     "offered": "Versions offered",
     "channel": "Update channel",
+    "open_at_login": "Open at login",
+    "open_at_login_help": "KyberNow Link starts with Windows, without a window: your computers wait for you in the notification area.",
     "stable": "Stable",
     "beta": "Betas too",
     "update": "Update",

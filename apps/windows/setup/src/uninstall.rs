@@ -34,6 +34,10 @@ pub fn run_uninstall(erase_data: bool) {
     sys::reg_delete(sys::UNINSTALL_KEY);
     sys::reg_delete(r"Software\Classes\kybernow");
     sys::reg_delete(r"Software\Classes\AppUserModelId\LesLignesClaires.KyberNow");
+    // « Ouvrir à l'ouverture de session » (apps/windows/src/login.rs) : celle
+    // de KyberNow Station s'appelle `KyberNow` et reste.
+    sys::reg_delete_value(r"Software\Microsoft\Windows\CurrentVersion\Run", "KyberNow Link");
+    sys::reg_delete_value(r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run", "KyberNow Link");
     if erase_data {
         // Le journal de la désinstallation est dans l'un de ces dossiers.
         sys::close_log();

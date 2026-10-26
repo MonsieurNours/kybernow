@@ -5,6 +5,13 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.5.3
+
+- **KyberNow Link près de l'horloge, sur Mac et Windows** : une icône dans la barre des menus (Mac) ou la zone de notification (Windows) donne vos ordinateurs, chacun avec un point de couleur et son état (vert en ligne, rouge hors ligne, ambre pendant un réveil ou un redémarrage), et pour chacun : se connecter avec son profil, le réveiller, changer de profil, ses réglages, Admin, redémarrer ou mettre à jour la Station. En session, les mesures en direct, le plein écran, la souris, les statistiques et « Se déconnecter ». Fermer la fenêtre ne quitte plus l'app : elle continue dans l'icône (sur Mac, l'icône du Dock n'est là que tant qu'une fenêtre est ouverte), et « Quitter KyberNow Link » termine d'abord une session en cours. Sur Windows, un double clic sur l'icône ouvre la fenêtre.
+- Nouveau réglage de l'app, « Ouvrir à l'ouverture de session », coché : l'app démarre avec l'ordinateur, sans fenêtre, dans l'icône.
+- Notifications, sur Mac et Windows : une mise à jour de la Station est prête (avec « Mettre à jour »), un ordinateur réveillé est en ligne (avec « Se connecter ») ou ne répond toujours pas, un redémarrage ou une mise à jour lancés depuis le menu sont finis ; et, sur Mac comme déjà sur Windows, une session s'arrête sans vous (avec « Reprendre »).
+- Windows : les boutons « Reprendre » et « Reprendre la main » des notifications relancent bien la session (Windows ajoutait une barre au lien, qui ouvrait alors l'ajout d'un ordinateur).
+
 ## 0.5.2
 
 - **Manette à l'écran sur iPhone, iPad et Android** (téléphones et tablettes) : bouton « Manette à l'écran » de la barre de session, retenu pour chaque ordinateur. Deux dispositions, Complète (une manette Xbox entière : deux sticks qui s'enfoncent, croix, A, B, X, Y, gâchettes progressives, Affichage, Menu, Guide) et Simple (stick gauche, croix, A, B, X, Y et Menu), avec un petit bouton sur la manette pour passer de l'une à l'autre. L'ordinateur la voit comme une manette Xbox 360, à la première place de joueur libre ; tant qu'elle est affichée, le reste de l'écran ne sert pas de souris. Chaque appui s'allume et se sent (clic des boutons, tics des sticks au centre, aux changements de direction et en butée), et les vibrations du jeu font vibrer l'appareil ; l'iPad, sans moteur haptique, garde le retour visuel. Réglages dans Commandes : Disposition, Taille, Opacité, Retour haptique.

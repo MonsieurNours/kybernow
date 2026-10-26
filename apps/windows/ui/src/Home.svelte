@@ -21,7 +21,6 @@
     selected,
     busy,
     retrying,
-    wakingId,
     error,
     onselect,
     onconnect,
@@ -39,8 +38,6 @@
     busy: boolean
     /** « Réessayer » en cours pour cet ordinateur. */
     retrying: boolean
-    /** L'ordinateur qu'un réveil par le réseau attend. */
-    wakingId: string | null
     error: string | null
     onselect: (id: string) => void
     onconnect: (id: string) => void
@@ -54,7 +51,7 @@
   const fresh = $derived(discovered.filter((f) => !computers.some((c) => c.host === f.host && c.port === f.port)))
 
   const stateOf = (c: Computer, searching = false) =>
-    c.id === wakingId && !c.online
+    c.waking && !c.online
       ? t('home.waking')
       : searching || c.online == null
         ? t('common.searching')
@@ -62,7 +59,7 @@
           ? t('home.online')
           : t('home.offline')
 
-  const waking = $derived(!!selected && selected.id === wakingId && !selected.online)
+  const waking = $derived(!!selected?.waking && !selected.online)
   /** Hors ligne, l'app sait le réveiller : ses cartes réseau, apprises de la Station. */
   const canWake = $derived(!!selected && (selected.wake?.length ?? 0) > 0)
 

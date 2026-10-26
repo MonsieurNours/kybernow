@@ -192,6 +192,11 @@ pub fn set_session_codec(fourcc: u32) {
     }
 }
 
+/// La session est en plein écran (menu de l'icône : « Plein écran » coché).
+pub fn fullscreen_now() -> bool {
+    app().is_some_and(|a| a.fullscreen_now.load(Ordering::Relaxed))
+}
+
 /// Session en cours, pour l'accueil (changement de profil).
 pub fn current_session() -> Option<Arc<Session>> {
     app().and_then(|a| a.session.get().cloned())

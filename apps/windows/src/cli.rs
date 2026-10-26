@@ -205,7 +205,8 @@ pub fn main() -> i32 {
 
     if args.clear_shell {
         crate::shell::clear_jump_list();
-        log::info!("désinstallation : liste de la barre des tâches vidée");
+        crate::login::forget();
+        log::info!("désinstallation : liste de la barre des tâches vidée, ouverture de session retirée");
         return 0;
     }
 

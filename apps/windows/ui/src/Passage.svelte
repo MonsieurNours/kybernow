@@ -163,6 +163,11 @@
     }
   }
 
+  /* Ouvert pendant la session : l'accueil (montré depuis l'icône) reste utilisable dessous. */
+  .passage.opening {
+    pointer-events: none;
+  }
+
   .opening .top {
     transform: translate(-70vw, -70vh);
   }

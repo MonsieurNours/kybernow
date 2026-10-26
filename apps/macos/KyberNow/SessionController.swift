@@ -106,6 +106,22 @@ final class SessionController: NSObject, ObservableObject {
     /// Mode demandé avant une adaptation, à reprendre si elle est refusée.
     private var requestedBeforeAdapt: ScreenMode?
 
+    /// La session s'est arrêtée sans « Se déconnecter » : Admin ou un autre
+    /// appareil y a mis fin, ou une erreur (`endError`). Dit par une
+    /// notification quand l'app n'est pas au premier plan.
+    private(set) var endedByComputer = false
+    private(set) var endError: String?
+    /// Appelé une fois la session finie dans le cœur (`ended`) : Admin a dit la remise en état.
+    var onEnded: ((SessionController) -> Void)?
+
+    /// La session tient encore (ni finie, ni en échec).
+    var isLive: Bool {
+        switch phase {
+        case .ended, .failed: return false
+        default: return true
+        }
+    }
+
     private let store: HostStore
     private let onFinish: (SessionController) -> Void
 
@@ -115,7 +131,8 @@ final class SessionController: NSObject, ObservableObject {
     private var homeView: NSView?
     private var homeImage: CGImage?
     private let windowDelegate = SessionWindowDelegate()
-    private var enteredFullScreen = false
+    /// La session a mis la fenêtre en plein écran : `finish()` l'en fait sortir.
+    private(set) var enteredFullScreen = false
     /// Barre, rappels, panneaux (SwiftUI), par-dessus l'image. Retirée de la
     /// composition quand elle n'a rien à montrer : l'image peut aller
     /// directement à l'écran (présentation directe en plein écran).
@@ -483,8 +500,14 @@ final class SessionController: NSObject, ObservableObject {
         case .ending:
             // Fin demandée par la console (ou connexion perdue sans reprise) :
             // le passage se referme comme pour une fin voulue.
-            if phase != .ending, phase != .ended { end() }
+            if phase != .ending, phase != .ended {
+                endedByComputer = true
+                end()
+            }
         case let .ended(error, report):
+            if phase != .ending, phase != .ended { endedByComputer = true }
+            endError = error
+            defer { onEnded?(self) }
             if let error, phase != .ending, phase != .ended {
                 fail(error)
                 return
@@ -681,6 +704,16 @@ final class SessionController: NSObject, ObservableObject {
         audioStats = nil
         statsPanel = false
         statsCloseRect = .zero
+        #if DEBUG
+        // Démonstration, sans cœur derrière : le bilan d'Admin un instant après.
+        if engine == nil, AppModel.demo {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                self.closing.done = true
+                self.onEnded?(self)
+            }
+        }
+        #endif
     }
 
     /// Dernière session (rubrique Statistiques) : médiane et 95e centile de
@@ -805,10 +838,42 @@ final class SessionController: NSObject, ObservableObject {
                 self.scene.open()
                 if screen == "bar" { self.setBar(true) }
                 if screen == "stats" { self.toggleStatsPanel() }
+                self.demoStats()
             }
         default:
             phase = .connecting
         }
+    }
+
+    /// Démonstration : des mesures qui bougent, une fois par seconde (barre,
+    /// menu de la barre des menus ; mode commun, comme les mesures du cœur
+    /// qui arrivent par la file principale, aussi menu ouvert).
+    private func demoStats() {
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.phase == .streaming else { timer.invalidate(); return }
+                var s = VideoStats()
+                s.latencyMs = 11.5 + Double.random(in: 0 ... 1.6)
+                s.fps = 60 + Double.random(in: -0.4 ... 0.4)
+                s.mbps = 80 + Double.random(in: -3 ... 3)
+                s.width = 2560
+                s.height = 1440
+                s.format = "4:2:0 8 bits"
+                self.stats = s
+                self.latencyHistory.append(s.latencyMs ?? 0)
+                if self.latencyHistory.count > 40 { self.latencyHistory.removeFirst() }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Démonstration : fin venue de l'ordinateur (Admin, un autre appareil),
+    /// ou erreur (`error`), comme le cœur les dit.
+    func demoEndedByComputer(error: String?) {
+        guard isLive else { return }
+        endedByComputer = true
+        endError = error
+        end()
     }
     #endif
 }

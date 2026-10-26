@@ -1,6 +1,7 @@
 <!--
-  Réglages de l'app : version, langue, canal des mises à jour, recherche et
-  installation ; ce PC (ce que sa carte graphique décode, vérifié au
+  Réglages de l'app : version, langue, ouverture à l'ouverture de session
+  (sans fenêtre, dans l'icône près de l'horloge), canal des mises à jour,
+  recherche et installation ; ce PC (ce que sa carte graphique décode, vérifié au
   lancement, son écran, son son) et « Sur batterie », qui vaut pour toutes
   les sessions.
 -->
@@ -9,6 +10,7 @@
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import Segmented from './lib/Segmented.svelte'
+  import Switch from './lib/Switch.svelte'
   import type { AppInfo, Battery, ThisPc, Update } from './lib/api'
   import { invoke } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
@@ -18,6 +20,7 @@
     progress,
     thisPc,
     battery,
+    check: checkOnOpen = false,
     onbattery,
     onclose,
     oninstall,
@@ -26,6 +29,8 @@
     progress: number | null
     thisPc: ThisPc | null
     battery: Battery
+    /** Ouverts par « Rechercher des mises à jour » (menu de l'icône) : la recherche part tout de suite. */
+    check?: boolean
     onbattery: (b: Battery) => void
     onclose: () => void
     oninstall: () => void
@@ -49,6 +54,7 @@
 
   onMount(() => {
     invoke<AppInfo>('app_info').then((i) => (info = i))
+    if (checkOnOpen && !update) check()
   })
 
   async function run(f: () => Promise<unknown>) {
@@ -75,6 +81,17 @@
   }
 
   const check = () => run(() => invoke<Update | null>('check_update'))
+
+  /** Ouvrir à l'ouverture de session : l'état rendu est celui que Windows suivra. */
+  async function openAtLogin(on: boolean) {
+    if (info) info.open_at_login = on
+    try {
+      const now = await invoke<boolean>('set_open_at_login', { on })
+      if (info) info.open_at_login = now
+    } catch (e) {
+      error = String(e)
+    }
+  }
   const channel = (c: 'stable' | 'beta') =>
     run(async () => {
       if (info) info.channel = c
@@ -101,6 +118,12 @@
         onchange={language}
       />
     </div>
+
+    <div class="line">
+      <span>{t('appsheet.open_at_login')}</span>
+      <Switch label={t('appsheet.open_at_login')} checked={info?.open_at_login ?? false} disabled={!info} onchange={openAtLogin} />
+    </div>
+    <p class="help">{t('appsheet.open_at_login_help')}</p>
 
     <div class="line">
       <span>{t('appsheet.offered')}</span>

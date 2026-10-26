@@ -3,14 +3,16 @@
   Admin dans le navigateur, redémarrage et mise à jour de la Station (avec
   confirmation quand un appareil est en session), compte, retrait.
 
-  Après un redémarrage ou une mise à jour, l'app suit la Station par son
-  `info` : toutes les 2 s le temps de l'attente (`poll_now`), jusqu'à son
-  retour (et sa nouvelle version pour une mise à jour).
+  Après un redémarrage ou une mise à jour, l'app (côté Rust, `follow_loop`
+  de ui.rs, le même suivi que pour le menu de l'icône) interroge la Station
+  toutes les 2 s jusqu'à son retour (et sa nouvelle version pour une mise à
+  jour) : `station_pending` pendant l'attente, `station-outcome` à la fin.
 -->
 <script lang="ts">
+  import { onMount } from 'svelte'
   import Icon from './lib/Icon.svelte'
-  import type { Computer, StationRefusal } from './lib/api'
-  import { invoke } from './lib/api'
+  import type { Computer, StationOutcome, StationRefusal } from './lib/api'
+  import { invoke, listen } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let { computer, onremoved }: { computer: Computer; onremoved: () => void } = $props()
@@ -19,8 +21,8 @@
 
   /** Appel en cours (une mise à jour attend qu'Admin ait téléchargé le paquet). */
   let calling = $state<Kind | null>(null)
-  /** Attente du retour de la Station après un appel accepté. */
-  let pending = $state<{ kind: Kind; version: string | null; since: number; down: boolean } | null>(null)
+  /** Attente du retour de la Station après un appel accepté (suivie par l'app). */
+  const pending = $derived(computer.station_pending ?? null)
   let outcome = $state<{ text: string; tone: 'ok' | 'warn' } | null>(null)
   /** Un appareil est en session : confirmer avant de couper. */
   let confirm = $state<{ kind: Kind; device: string | null } | null>(null)
@@ -29,57 +31,24 @@
   const station = $derived(computer.info?.station ?? null)
   const offline = $derived(computer.online === false)
   const update = $derived(station?.update.available && station.update.version ? station.update : null)
-  const restarting = $derived(calling === 'restart' || pending?.kind === 'restart' || !!station?.restarting)
-  const installing = $derived(calling === 'update' || pending?.kind === 'update' || !!station?.update.installing)
+  const restarting = $derived(calling === 'restart' || pending === 'restart' || !!station?.restarting)
+  const installing = $derived(calling === 'update' || pending === 'update' || !!station?.update.installing)
   const busy = $derived(restarting || installing)
   /** Station connue mais trop ancienne : ni redémarrage ni mise à jour depuis l'app. */
   const tooOld = $derived(computer.online === true && computer.info != null && station == null)
   const version = $derived(station?.version || computer.info?.admin_version || null)
 
-  // Suivi rapproché pendant l'attente ; `now` fait aussi passer les délais.
-  let now = $state(Date.now())
-  const waiting = $derived(pending !== null)
-  $effect(() => {
-    if (!waiting) return
-    const id = computer.id
-    const timer = setInterval(() => {
-      now = Date.now()
-      invoke('poll_now', { id }).catch(() => {})
-    }, 2000)
-    return () => clearInterval(timer)
-  })
-
-  // Retour de la Station : vu à chaque nouvel état de l'ordinateur.
-  $effect(() => {
-    const p = pending
-    if (!p) return
-    const online = computer.online
-    const s = station
-    const waited = now - p.since
-    if (online === false && !p.down) {
-      pending = { ...p, down: true }
-      return
-    }
-    // L'état d'avant l'appel peut encore arriver juste après lui (les nouvelles
-    // de l'app et la réponse de la commande ne sont pas ordonnées) : sans
-    // l'avoir vue partir, on attend quelques secondes avant de conclure.
-    const settled = p.down || waited > 6000
-    if (p.kind === 'restart' && online && s && !s.restarting && settled) {
-      // Revenue sans être partie : le redémarrage n'a pas eu lieu, on ne prétend rien.
-      if (p.down) outcome = { text: t('station.restarted'), tone: 'ok' }
-      pending = null
-    } else if (p.kind === 'update' && online && s && p.version && s.version === p.version && !s.update.installing) {
-      outcome = { text: t('station.updated', { version: p.version }), tone: 'ok' }
-      pending = null
-    } else if (p.kind === 'update' && online && s && !s.update.installing && s.version !== p.version && settled) {
-      // Admin n'installe plus et la version n'a pas changé (l'installation a
-      // échoué, ou la Station est revenue sur l'ancienne).
-      outcome = { text: t('station.update_failed'), tone: 'warn' }
-      pending = null
-    } else if (waited > (p.kind === 'restart' ? 120_000 : 300_000)) {
-      outcome = { text: t('station.slow_back'), tone: 'warn' }
-      pending = null
-    }
+  // Fin du suivi (lancé d'ici ou du menu de l'icône) : les textes de la rubrique.
+  // Revenue sans être partie (`silent`) : le redémarrage n'a pas eu lieu, on ne prétend rien.
+  onMount(() => {
+    const off = listen<StationOutcome>('station-outcome', (o) => {
+      if (o.id !== computer.id) return
+      if (o.outcome === 'restarted') outcome = { text: t('station.restarted'), tone: 'ok' }
+      else if (o.outcome === 'updated') outcome = { text: t('station.updated', { version: o.version ?? '' }), tone: 'ok' }
+      else if (o.outcome === 'update_failed') outcome = { text: t('station.update_failed'), tone: 'warn' }
+      else if (o.outcome === 'slow_back') outcome = { text: t('station.slow_back'), tone: 'warn' }
+    })
+    return () => off.then((f) => f())
   })
 
   function refusal(e: unknown, kind: Kind): string | null {
@@ -104,15 +73,7 @@
     outcome = null
     calling = kind
     try {
-      if (kind === 'restart') {
-        await invoke('station_restart', { id: computer.id, force })
-        now = Date.now()
-        pending = { kind, version: null, since: now, down: false }
-      } else {
-        const v = await invoke<string>('station_update', { id: computer.id, force })
-        now = Date.now()
-        pending = { kind, version: v || update?.version || null, since: now, down: false }
-      }
+      await invoke(kind === 'restart' ? 'station_restart' : 'station_update', { id: computer.id, force })
     } catch (e) {
       const text = refusal(e, kind)
       if (text) outcome = { text, tone: 'warn' }

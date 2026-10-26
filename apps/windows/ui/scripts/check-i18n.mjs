@@ -1,6 +1,6 @@
 // Vérifie que fr.json et en.json ont exactement les mêmes clés (npm run check) :
 // ceux de l'interface, et ceux du côté Rust de l'app et du cœur (leurs tests
-// Rust le vérifient aussi pour le cœur ; l'app ne se teste que sous Windows).
+// Rust le vérifient aussi, sur le Mac : `catalogues` de src/menu.rs pour l'app).
 import { readFileSync } from 'node:fs'
 
 const catalogues = ['../src/lib/i18n/', '../../src/i18n/', '../../../core/src/i18n/']

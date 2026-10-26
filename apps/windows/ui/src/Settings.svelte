@@ -16,7 +16,20 @@
   import { invoke, isCustom, profileBase, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
-  let { computer, thisPc, battery, onremoved }: { computer: Computer; thisPc: ThisPc | null; battery: Battery; onremoved: () => void } = $props()
+  let {
+    computer,
+    thisPc,
+    battery,
+    start = null,
+    onremoved,
+  }: {
+    computer: Computer
+    thisPc: ThisPc | null
+    battery: Battery
+    /** Rubrique à ouvrir (notification, menu de l'icône) ; sinon Image. */
+    start?: string | null
+    onremoved: () => void
+  } = $props()
 
   // Copie de travail, enregistrée à chaque changement (l'écran est recréé
   // pour un autre ordinateur).
@@ -24,7 +37,6 @@
   let name = $state(untrack(() => computer.name))
 
   type Rubric = 'image' | 'sound' | 'controls' | 'network' | 'stats' | 'station'
-  let rubric = $state<Rubric>('image')
   const rubrics: { id: Rubric; icon: string }[] = [
     { id: 'image', icon: 'monitor' },
     { id: 'sound', icon: 'speaker' },
@@ -33,6 +45,13 @@
     { id: 'stats', icon: 'chart' },
     { id: 'station', icon: 'station' },
   ]
+  const known = (r: string | null): Rubric | null => rubrics.find((x) => x.id === r)?.id ?? null
+  let rubric = $state<Rubric>(untrack(() => known(start) ?? 'image'))
+  // Demandée de nouveau alors que l'écran est déjà ouvert.
+  $effect(() => {
+    const r = known(start)
+    if (r) untrack(() => (rubric = r))
+  })
 
   // Enregistrements à la suite : le dernier état gagne toujours.
   let saving: Promise<unknown> = Promise.resolve()

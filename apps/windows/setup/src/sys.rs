@@ -10,8 +10,8 @@ use anyhow::{Context, Result, bail};
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ,
-    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteTreeW, RegEnumKeyExW, RegGetValueW,
-    RegOpenKeyExW, RegSetValueExW,
+    RRF_RT_REG_DWORD, RRF_RT_REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegEnumKeyExW,
+    RegGetValueW, RegOpenKeyExW, RegSetValueExW,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, IsWow64Process2, OpenMutexW};
 
@@ -154,6 +154,17 @@ pub fn app_running() -> bool {
 
 /// Attend que l'app se ferme, puis la ferme si elle est encore là.
 pub fn close_app(wait: Duration) -> Result<()> {
+    // L'app vit dans l'icône près de l'horloge : on lui demande d'abord de se
+    // fermer (`kybernow.exe --quit`, une session en cours se termine
+    // proprement). Une version d'avant la 0.5.3 ne connaît pas `--quit`.
+    if app_running() {
+        let dir = install_dir();
+        use std::os::windows::process::CommandExt;
+        let asked = Command::new(dir.join(APP_EXE)).arg("--quit").current_dir(&dir).creation_flags(CREATE_NO_WINDOW).spawn();
+        if let Err(e) = asked {
+            log(&format!("fermeture demandée à l'app : {e}"));
+        }
+    }
     let started = Instant::now();
     while app_running() && started.elapsed() < wait {
         std::thread::sleep(Duration::from_millis(200));
@@ -269,6 +280,13 @@ pub fn reg_set(path: &str, name: Option<&str>, value: &str) -> Result<()> {
 
 pub fn reg_set_dword(path: &str, name: &str, value: u32) -> Result<()> {
     reg_set_raw(path, Some(name), REG_DWORD, &value.to_le_bytes())
+}
+
+/// Efface une valeur d'une clé de HKCU.
+pub fn reg_delete_value(path: &str, name: &str) {
+    unsafe {
+        RegDeleteKeyValueW(HKEY_CURRENT_USER, wide(path).as_ptr(), wide(name).as_ptr());
+    }
 }
 
 /// Efface une clé de HKCU et tout ce qu'elle contient.

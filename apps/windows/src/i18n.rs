@@ -3,8 +3,9 @@
 //! réglages de l'app (`language` de `app.json` : `auto`, `fr`, `en`).
 //!
 //! Textes montrés par le côté Rust (erreurs rendues à l'interface,
-//! notifications, liste de la barre des tâches, titre de la fenêtre de
-//! session) : `src/i18n/fr.json` et `en.json`. Les journaux restent en français.
+//! notifications, menu de l'icône près de l'horloge, liste de la barre des
+//! tâches, titre de la fenêtre de session) : `src/i18n/fr.json` et `en.json`.
+//! Les journaux restent en français.
 
 use kybernow_core::i18n::{self as core_i18n, Catalog, Lang};
 use windows::Win32::Globalization::{GetUserDefaultUILanguage, GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
@@ -12,9 +13,10 @@ use windows::core::PWSTR;
 
 static APP: Catalog = Catalog::new(include_str!("i18n/fr.json"), include_str!("i18n/en.json"));
 
-/// Texte de l'app dans `lang`.
+/// Texte de l'app dans `lang` ; en français, « de {nom} » s'élide devant une
+/// voyelle ou un h, comme dans l'interface (`text.rs`).
 pub fn tr(lang: Lang, key: &str, params: &[(&str, &str)]) -> String {
-    APP.tr(lang, key, params)
+    crate::text::fill(&APP.tr(lang, key, &[]), params, lang == Lang::Fr)
 }
 
 /// Texte de l'app dans sa langue en cours.

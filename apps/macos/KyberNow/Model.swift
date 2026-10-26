@@ -477,6 +477,11 @@ final class HostStore: ObservableObject {
     let imagery = HostImagery()
     private let key = "hosts"
     private var polling: Task<Void, Never>?
+    /// Intervalle du sondage des ordinateurs : 8 s ; l'app Mac le passe à 30 s
+    /// quand sa fenêtre est fermée (elle ne vit plus que dans la barre des menus).
+    var pollInterval: TimeInterval = 8
+    /// Fin du dernier tour de sondage.
+    private var lastPoll = Date.distantPast
     /// Ordinateurs de démonstration (`-demo YES`, en Debug) : leurs propres
     /// préférences, mots de passe en mémoire, états posés par l'app, aucun
     /// appel réseau.
@@ -572,19 +577,29 @@ final class HostStore: ObservableObject {
 
     // MARK: - En ligne ou pas
 
+    /// Un tour de sondage toutes les `pollInterval` secondes ; l'attente se
+    /// compte par seconde, pour qu'un intervalle raccourci s'applique tout de suite.
     private func startPolling() {
         polling = Task { [weak self] in
             while !Task.isCancelled {
-                if let self {
-                    await withTaskGroup(of: Void.self) { group in
-                        for host in await self.hosts {
-                            group.addTask { await self.refresh(host) }
-                        }
-                    }
+                guard let self else { return }
+                await self.refreshAll()
+                while !Task.isCancelled, Date().timeIntervalSince(self.lastPoll) < self.pollInterval {
+                    try? await Task.sleep(for: .seconds(1))
                 }
-                try? await Task.sleep(for: .seconds(8))
             }
         }
+    }
+
+    /// Tous les ordinateurs sondés en même temps (aussi à l'ouverture du menu
+    /// de la barre des menus, sur Mac).
+    func refreshAll() async {
+        await withTaskGroup(of: Void.self) { group in
+            for host in hosts {
+                group.addTask { await self.refresh(host) }
+            }
+        }
+        lastPoll = Date()
     }
 
     func console(for host: Host) -> ConsoleClient? {

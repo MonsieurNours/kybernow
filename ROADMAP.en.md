@@ -12,6 +12,7 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Android**: 1080p at 120 Hz on the Shield, end-to-end update from a published release, a tablet, a handheld console, DeX and ChromeOS; DualSense and Shield controller rumble on the Shield; sound losses on the Shield at 4K 60 (100 Mbit/s Ethernet) to check again over gigabit or at a lower bitrate.
 - **LG TVs**: latency on the G2 at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps; audio-video offset and added latency of 5.1 Dolby; Magic Remote as mouse: motion sent while the TV's pointer is hidden.
 - **Station**: the “For any connection” mode (virtual display created during the stream); on a real Windows PC, restarting and updating the Station from an app, the connection last resort, the network cards listed for waking, and a real wake from sleep and after a full shutdown.
+- **Icon next to the clock**: on the Mac, system notifications (and their permission request), registering to open at login and a real launch at login, closing the window in full screen during a session; on a real Windows PC, the top of the menu during a session and the lit icon, 100% and 200% scaling, notification banners, “still not responding” after 2 min of waking.
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
 
 ## KyberNow Station and Admin

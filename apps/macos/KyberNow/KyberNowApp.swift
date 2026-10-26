@@ -1,5 +1,6 @@
 // KyberNow Link pour macOS.
 
+import Combine
 import Sparkle
 import KyberKit
 import SwiftUI
@@ -11,6 +12,10 @@ enum Route: Equatable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    /// L'app n'a qu'un modèle : la scène SwiftUI, le délégué de l'app (icône
+    /// de la barre des menus, notifications) et les fenêtres le partagent.
+    static let shared = AppModel()
+
     let store: HostStore
     @Published var route: Route = .home
     /// Ordinateur mis en avant sur l'accueil (le plus récent par défaut).
@@ -29,6 +34,25 @@ final class AppModel: ObservableObject {
     let cloud = CloudPublisher()
     /// « Version {v} disponible » : la vérification de Sparkle, à la demande.
     var checkForUpdates: () -> Void = {}
+    /// La fenêtre de l'accueil, où se joue aussi la session. Fermée, elle
+    /// n'est que cachée : l'app continue dans la barre des menus (AppLife.swift).
+    weak var homeWindow: NSWindow?
+    /// Préférences de l'app (celles de la démonstration à part).
+    let defaults: UserDefaults
+    /// Notifications du système (Notifications.swift).
+    let notifier = Notifier()
+    /// Délégué de la fenêtre de l'accueil (fermer la cache), gardé ici : la fenêtre n'en garde qu'une référence faible.
+    let homeDelegate = HomeWindowDelegate()
+    /// Lancée à l'ouverture de session : la fenêtre reste cachée au démarrage.
+    var startHidden = false
+    /// La fenêtre a été fermée pendant une session : cachée une fois la session finie.
+    var hideAfterSession = false
+    /// Fin de l'app en attente de la fin de la session.
+    var afterSessionEnded: (() -> Void)?
+    /// La session revenue à l'accueil avant que le cœur la dise finie (bilan
+    /// d'Admin) : gardée jusque-là, 10 s au plus, pour sa fin (notification, fin de l'app).
+    var lingering: SessionController?
+    var watchers = Set<AnyCancellable>()
 
     /// Ordinateurs de démonstration (`-demo YES`, en Debug) : voir `HostStore.loadDemo`.
     static let demo: Bool = {
@@ -39,10 +63,11 @@ final class AppModel: ObservableObject {
         #endif
     }()
 
-    init() {
+    private init() {
         // Le cœur Rust : son journal dans le journal unifié, la langue de l'app.
         Core.install()
         store = HostStore(demo: Self.demo)
+        defaults = Self.demo ? (UserDefaults(suiteName: "fr.leslignesclaires.kybernow.demo") ?? .standard) : .standard
         #if DEBUG
         if Self.demo {
             // Rien vers iCloud : les ordinateurs de démonstration restent sur ce Mac.
@@ -71,6 +96,8 @@ final class AppModel: ObservableObject {
     /// kybernow://adresse:port?name=…&fp=… (QR code ou lien de la console).
     func open(_ url: URL) {
         guard session == nil, let candidate = PairingLink.parse(url.absoluteString) else { return }
+        // Fenêtre cachée (l'app vivait dans la barre des menus) : elle revient pour l'ajout.
+        showWindow()
         if known(candidate) {
             show(String(localized: "\(candidate.name) est déjà dans vos ordinateurs"))
             return
@@ -85,11 +112,14 @@ final class AppModel: ObservableObject {
 
     func connect(_ host: Host) {
         guard session == nil else { return }
-        // La session se joue dans la fenêtre de l'accueil.
-        let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
-        let session = SessionController(host: host, store: store, window: window) { [weak self] _ in
+        // La session se joue dans la fenêtre de l'accueil (jamais dans celle des réglages de l'app).
+        let window = homeWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+        let session = SessionController(host: host, store: store, window: window) { [weak self] s in
             self?.session = nil
+            self?.linger(s)
+            self?.sessionFinished(s)
         }
+        session.onEnded = { [weak self] in self?.sessionEnded($0) }
         // La console confirme la remise en état après le retour à l'accueil.
         session.onReport = { [weak self] host, closing in
             let elide = French.elides(host.name)
@@ -106,6 +136,13 @@ final class AppModel: ObservableObject {
             }
         }
         self.session = session
+        #if DEBUG
+        // Démonstration : la session sans ordinateur derrière, rien sur le réseau.
+        if Self.demo {
+            session.demo("session")
+            return
+        }
+        #endif
         session.start()
     }
 
@@ -184,8 +221,13 @@ final class AppModel: ObservableObject {
             guard let host = store.ordered.first(where: { $0.id == selectedID }) ?? store.ordered.first else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 guard let self else { return }
-                let window = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
-                let session = SessionController(host: host, store: self.store, window: window) { [weak self] _ in self?.session = nil }
+                let window = self.homeWindow ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+                let session = SessionController(host: host, store: self.store, window: window) { [weak self] s in
+                    self?.session = nil
+                    self?.linger(s)
+                    self?.sessionFinished(s)
+                }
+                session.onEnded = { [weak self] in self?.sessionEnded($0) }
                 self.session = session
                 session.demo(screen ?? "connecting")
             }
@@ -261,7 +303,9 @@ struct KyberNowApp: App {
         }
     }
 
-    @StateObject private var app = AppModel()
+    /// Icône de la barre des menus, Dock, démarrage, fin de l'app (AppLife.swift).
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @StateObject private var app = AppModel.shared
     /// Mises à jour (Sparkle) : vérification quotidienne, et à la demande.
     /// Le délégué est gardé par `UpdateChannels.shared` (Sparkle n'en garde
     /// qu'une référence faible).
@@ -269,6 +313,7 @@ struct KyberNowApp: App {
 
     init() {
         Theme.registerFonts()
+        AppModel.shared.checkForUpdates = { [updater] in updater.checkForUpdates(nil) }
         // Décodeurs sondés et pipeline Metal compilé hors du fil principal, avant le premier flux.
         DispatchQueue.global(qos: .userInitiated).async { DecoderCapabilities.prepare() }
     }
@@ -290,8 +335,11 @@ struct KyberNowApp: App {
             .environmentObject(app)
             .onOpenURL { app.open($0) }
             .onReceive(app.store.objectWillChange) { app.objectWillChange.send() }
+            // La fenêtre de l'accueil : fermée, elle se cache (AppLife.swift) ; un
+            // lien kybernow:// la reprend au lieu d'en ouvrir une autre.
+            .background(WindowReader { app.attach(window: $0) })
+            .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
             .onAppear {
-                app.checkForUpdates = { [updater] in updater.checkForUpdates(nil) }
                 #if DEBUG
                 app.demoWindow()
                 #endif
@@ -302,6 +350,8 @@ struct KyberNowApp: App {
             CommandGroup(after: .appInfo) {
                 Button("Rechercher des mises à jour…") { updater.checkForUpdates(nil) }
             }
+            // Une seule fenêtre d'accueil : « Ouvrir KyberNow Link » (barre des menus) la montre.
+            CommandGroup(replacing: .newItem) {}
             CommandMenu("Session") {
                 Button("Se déconnecter") { app.session?.end() }
                     .keyboardShortcut("d", modifiers: [.control, .option, .command])

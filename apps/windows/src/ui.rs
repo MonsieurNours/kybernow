@@ -5,9 +5,13 @@
 //! dessinée par l'interface) et `bar` (barre de session, transparente, montrée
 //! quand le pointeur touche le haut de l'écran de la session).
 //! La session elle-même est une fenêtre Win32 sur son propre fil (`host.rs`).
+//!
+//! L'app vit aussi dans l'icône près de l'horloge (`tray.rs`) : fermer
+//! l'accueil le cache, « Quitter KyberNow Link » la quitte. Ouverte à
+//! l'ouverture de session (`--background`), elle démarre sans fenêtre.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -16,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
 
-use kybernow_core::console::{Console, Info, PairStatus};
+use kybernow_core::console::{Console, Info, PairStatus, StationError};
 use kybernow_core::profile::{Codec, Profile};
 use kybernow_core::session::{SessionParams, Status};
 
@@ -27,7 +31,9 @@ use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
 use crate::pc::{self, ThisPc};
 use crate::i18n::t;
-use crate::{audio, i18n, instance, shell, snapshot, system, window};
+use crate::follow::{self, Kind};
+use crate::menu::{self, Cmd};
+use crate::{audio, i18n, instance, login, shell, snapshot, system, tray, window};
 use kybernow_core::update::{self, Available, Channel};
 
 #[derive(Debug, Clone, Default)]
@@ -54,6 +60,11 @@ pub struct ComputerView {
     preview: Option<String>,
     /// `last` : dernière image de votre session ; `preview` : aperçu de son écran.
     preview_source: Option<&'static str>,
+    /// Réveil par le réseau envoyé : l'app attend l'ordinateur (2 min au plus).
+    waking: bool,
+    /// `restart` ou `update` : la Station redémarre ou s'installe, l'app
+    /// attend son retour (`station-outcome` à la fin).
+    station_pending: Option<&'static str>,
 }
 
 /// Un ordinateur à ajouter : adresse et port de sa console, empreinte
@@ -76,6 +87,8 @@ struct Running {
     host: SessionHost,
     bar: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
+    /// Dernières mesures de la barre (menu de l'icône).
+    stats: Arc<Mutex<Option<Stats>>>,
 }
 
 /// Ce que la session transmet (rubrique Statistiques à sa fin) : réglages du
@@ -100,6 +113,13 @@ pub struct UiState {
     action: Mutex<Option<Action>>,
     prefs: Mutex<Prefs>,
     update: Mutex<Option<Available>>,
+    /// Réveils en cours (paquet envoyé à cet instant), suivis toutes les 2 s.
+    waking: Mutex<HashMap<String, Instant>>,
+    /// Redémarrages et mises à jour de la Station en attente de son retour.
+    following: Mutex<HashMap<String, (follow::Pending, Instant)>>,
+    /// Relevé demandé tout de suite (ouverture du menu de l'icône).
+    poll_asked: Mutex<bool>,
+    poll_signal: Condvar,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -111,19 +131,27 @@ pub enum Action {
     Link { link: String },
     Updated,
     Open,
+    /// L'accueil sur cet ordinateur (notification).
+    Show { id: String },
+    /// Ses réglages, sur une rubrique (`station`) ou la première.
+    Settings { id: String, rubric: Option<String> },
+    /// Les réglages de l'app ; `check` : en cherchant une mise à jour.
+    App { check: bool },
 }
 
 fn parse_action(args: &[String]) -> Option<Action> {
     let first = args.first()?;
-    if let Some(rest) = first.strip_prefix("kybernow://") {
-        // Actions des notifications : kybernow://connect?id=…, kybernow://open.
-        if let Some(q) = rest.strip_prefix("connect?id=") {
-            return Some(Action::Connect { id: q.chars().filter(|c| c.is_ascii_alphanumeric()).collect() });
-        }
-        if rest.trim_end_matches('/') == "open" {
-            return Some(Action::Open);
-        }
-        return Some(Action::Link { link: first.clone() });
+    if first.starts_with("kybernow://") {
+        // Actions des notifications (link.rs) : kybernow://connect?id=…,
+        // kybernow://open (?id=… : sur cet ordinateur), kybernow://station?id=…
+        // (sa rubrique Station) ; les autres liens viennent d'Admin.
+        return Some(match crate::link::action(first) {
+            Some(("connect", Some(id))) => Action::Connect { id },
+            Some(("open", Some(id))) => Action::Show { id },
+            Some(("station", Some(id))) => Action::Settings { id, rubric: Some("station".into()) },
+            Some(_) => Action::Open,
+            None => Action::Link { link: first.clone() },
+        });
     }
     match first.as_str() {
         "--connect" => args.get(1).map(|id| Action::Connect { id: id.clone() }),
@@ -144,6 +172,12 @@ pub struct Prefs {
     /// des réglages des ordinateurs (voir `battery_choice`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub battery: Option<String>,
+    /// « Ouvrir à l'ouverture de session » : absent avant la version qui
+    /// l'apporte (elle le coche alors une fois, voir `login.rs`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_at_login: Option<bool>,
+    /// La notification « KyberNow Link est toujours là » a été montrée.
+    pub close_hint: bool,
 }
 
 /// Sur batterie, pour toutes les sessions de ce PC : `alleger` ou `garder`.
@@ -190,6 +224,8 @@ impl UiState {
 
     fn views(&self) -> Vec<ComputerView> {
         let computers = self.with_store(|s| s.computers.clone());
+        let waking: Vec<String> = self.waking.lock().unwrap().keys().cloned().collect();
+        let pending: HashMap<String, Kind> = self.following.lock().unwrap().iter().map(|(id, (p, _))| (id.clone(), p.kind)).collect();
         let mut live = self.live.lock().unwrap();
         computers
             .into_iter()
@@ -208,7 +244,9 @@ impl UiState {
                     (None, Some(p)) => (Some(p), Some("preview")),
                     (None, None) => (None, None),
                 };
-                ComputerView { computer: c, online: l.online, info: l.info, preview, preview_source }
+                let waking = waking.contains(&c.id);
+                let station_pending = pending.get(&c.id).map(|k| k.code());
+                ComputerView { computer: c, online: l.online, info: l.info, preview, preview_source, waking, station_pending }
             })
             .collect()
     }
@@ -228,20 +266,43 @@ fn emit_computers(app: &AppHandle) {
     let views = state.views();
     shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
     let _ = app.emit_to("main", "computers", views);
+    tray::refresh();
 }
 
-/// Une autre ouverture : l'accueil revient devant et reçoit la demande
-/// (gardée aussi pour l'interface, si elle n'écoute pas encore).
+/// Une autre ouverture (raccourci, lien, barre des tâches, notification) :
+/// l'accueil revient devant et reçoit la demande.
 fn handle_args(app: &AppHandle, args: Vec<String>) {
-    let action = parse_action(&args).unwrap_or(Action::Open);
+    match args.first().map(String::as_str) {
+        // Ouverture de session alors que l'app tourne déjà : rien à montrer.
+        Some(login::BACKGROUND) => return,
+        // Installateur ou désinstalleur : l'app se ferme (une session d'abord).
+        Some("--quit") => return quit(app),
+        // Bouton « Mettre à jour » d'une notification : comme le menu de l'icône.
+        Some(link) if crate::link::action(link).is_some_and(|(a, _)| a == "station-update") => {
+            if let Some((_, Some(id))) = crate::link::action(link) {
+                tray_command(app, Cmd::Update(id));
+            }
+            return;
+        }
+        _ => {}
+    }
+    show_action(app, parse_action(&args).unwrap_or(Action::Open));
+}
+
+/// L'accueil revient devant et reçoit `action` (gardée aussi pour
+/// l'interface, si elle n'écoute pas encore). Pendant une session, il reste
+/// caché pour une connexion (une session à la fois) et se montre pour le
+/// reste (réglages, ajout, menu de l'icône).
+fn show_action(app: &AppHandle, action: Action) {
+    let connect = matches!(action, Action::Connect { .. });
     if !matches!(action, Action::Open) {
-        *app.state::<UiState>().action.lock().unwrap() = Some(action.clone());
+        *app.state::<UiState>().action.lock().unwrap() = Some(action);
     }
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(w) = a.get_webview_window("main") {
             let in_session = a.state::<UiState>().session.lock().unwrap().is_some();
-            if !in_session {
+            if !in_session || !connect {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
@@ -249,7 +310,6 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
         }
         // L'interface la reprend par take_action (une seule fois).
         let _ = a.emit_to("main", "action-ready", ());
-        let _ = action;
     });
 }
 
@@ -269,6 +329,8 @@ struct AppInfo {
     arch: &'static str,
     /// Sur batterie : `alleger` ou `garder`.
     battery: &'static str,
+    /// « Ouvrir à l'ouverture de session », tel que Windows le fera.
+    open_at_login: bool,
 }
 
 #[tauri::command(async)]
@@ -282,7 +344,22 @@ fn app_info(state: tauri::State<'_, UiState>) -> AppInfo {
         update: state.update.lock().unwrap().clone(),
         arch: if cfg!(target_arch = "aarch64") { "ARM64" } else { "x64" },
         battery: battery_choice(&state),
+        open_at_login: login::enabled(),
     }
+}
+
+/// « Ouvrir à l'ouverture de session » dans les réglages de l'app. Rend
+/// l'état tel que Windows le fera.
+#[tauri::command(async)]
+fn set_open_at_login(app: AppHandle, on: bool) -> bool {
+    let state = app.state::<UiState>();
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        p.open_at_login = Some(on);
+        p.clone()
+    };
+    save_prefs(&prefs);
+    login::set(on)
 }
 
 /// « Sur batterie » dans les réglages de l'app : `alleger` ou `garder`.
@@ -435,6 +512,9 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
             found
         });
     }
+    if let Some(i) = &info {
+        station_news(app, c, i);
+    }
     let mut preview = None;
     let wants_preview = {
         let live = state.live.lock().unwrap();
@@ -465,7 +545,38 @@ fn refresh(app: &AppHandle, c: &Computer) -> bool {
     changed
 }
 
-/// Toutes les 8 s : chaque ordinateur, sauf celui de la session.
+/// Une version de la Station prête (installable depuis l'app, ou avec
+/// l'installateur) : une notification, une fois par version et par
+/// ordinateur, quand l'app n'est pas au premier plan.
+fn station_news(app: &AppHandle, c: &Computer, info: &Info) {
+    let Some(u) = info.station.as_ref().map(|s| &s.update) else { return };
+    let ready = u.available && !u.installing && (u.installable || u.requires_setup);
+    let Some(v) = u.version.as_deref().filter(|_| ready) else { return };
+    let state = app.state::<UiState>();
+    if c.station_notified.as_deref() == Some(v) || state.following.lock().unwrap().contains_key(&c.id) || shell::app_in_front() {
+        return;
+    }
+    let title = t("notify.station_update_title", &[("name", &c.name)]);
+    let station = format!("kybernow://station?id={}", c.id);
+    if u.installable {
+        let button = t("notify.update", &[]);
+        let link = format!("kybernow://station-update?id={}", c.id);
+        shell::notify_to(&station, &title, &t("notify.station_update_body", &[("version", v)]), Some((&button, &link)));
+    } else {
+        shell::notify_to(&station, &title, &t("notify.station_update_setup", &[("version", v)]), None);
+    }
+    log::info!("notification : Station {v} prête pour {}", c.name);
+    state.with_store(|s| {
+        if let Some(m) = s.get_mut(&c.id) {
+            m.station_notified = Some(v.to_string());
+            s.save();
+        }
+    });
+}
+
+/// Chaque ordinateur, sauf celui de la session : toutes les 8 s quand
+/// l'accueil est affiché, toutes les 30 s sans lui (l'app dans l'icône), et
+/// tout de suite à l'ouverture du menu de l'icône (`poll_soon`).
 fn poll(app: AppHandle) {
     loop {
         let state = app.state::<UiState>();
@@ -481,7 +592,114 @@ fn poll(app: AppHandle) {
         if changed {
             emit_computers(&app);
         }
-        std::thread::sleep(Duration::from_secs(8));
+        let shown = app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(true);
+        let wait = Duration::from_secs(if shown { 8 } else { 30 });
+        let asked = state.poll_asked.lock().unwrap();
+        let (mut asked, _) = state.poll_signal.wait_timeout_while(asked, wait, |a| !*a).unwrap();
+        *asked = false;
+    }
+}
+
+/// Un relevé de tous les ordinateurs tout de suite (menu de l'icône ouvert).
+pub fn poll_soon(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    *state.poll_asked.lock().unwrap() = true;
+    state.poll_signal.notify_all();
+}
+
+/// Les suivis en cours (réveils, Station qui redémarre ou s'installe), toutes
+/// les 2 s : l'ordinateur est interrogé jusqu'à la fin du suivi, qui se dit à
+/// l'interface et, selon le cas, par une notification (docs/link-ui.md).
+fn follow_loop(app: AppHandle) {
+    loop {
+        std::thread::sleep(follow::POLL);
+        let state = app.state::<UiState>();
+        let in_session = state.session.lock().unwrap().as_ref().map(|r| r.id.clone());
+        let waking: Vec<(String, Instant)> = state.waking.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let following: Vec<String> = state.following.lock().unwrap().keys().cloned().collect();
+        if waking.is_empty() && following.is_empty() {
+            continue;
+        }
+        let mut changed = false;
+        let mut ids: Vec<&String> = waking.iter().map(|(id, _)| id).chain(&following).collect();
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            if in_session.as_deref() == Some(id.as_str()) {
+                continue;
+            }
+            let Some(c) = state.with_store(|s| s.get(id).cloned()) else {
+                state.waking.lock().unwrap().remove(id);
+                state.following.lock().unwrap().remove(id);
+                continue;
+            };
+            changed |= refresh(&app, &c);
+        }
+        for (id, since) in waking {
+            let Some(c) = state.with_store(|s| s.get(&id).cloned()) else { continue };
+            let online = state.live.lock().unwrap().get(&id).and_then(|l| l.online);
+            let step = follow::wake(online, since.elapsed());
+            if step == follow::Wake::Waiting {
+                continue;
+            }
+            state.waking.lock().unwrap().remove(&id);
+            changed = true;
+            log::info!("réveil de {} : {step:?}", c.name);
+            if shell::app_in_front() {
+                continue;
+            }
+            let home = format!("kybernow://open?id={id}");
+            if step == follow::Wake::Online {
+                let link = format!("kybernow://connect?id={id}");
+                let button = t("notify.connect", &[]);
+                shell::notify_to(&home, &t("notify.online_title", &[("name", &c.name)]), &t("notify.online_body", &[]), Some((&button, &link)));
+            } else {
+                shell::notify_to(&home, &t("notify.no_answer_title", &[("name", &c.name)]), &t("notify.no_answer_body", &[]), None);
+            }
+        }
+        for id in following {
+            let Some(c) = state.with_store(|s| s.get(&id).cloned()) else { continue };
+            let (online, info) = state.live.lock().unwrap().get(&id).map(|l| (l.online, l.info.clone())).unwrap_or_default();
+            let seen = info.as_ref().and_then(|i| i.station.as_ref()).map(|s| follow::Seen {
+                version: &s.version,
+                restarting: s.restarting,
+                installing: s.update.installing,
+            });
+            let outcome = {
+                let mut f = state.following.lock().unwrap();
+                let Some((p, since)) = f.get_mut(&id) else { continue };
+                let since = *since;
+                let outcome = follow::station(p, online, seen, since.elapsed());
+                outcome.map(|o| (o, f.remove(&id).map(|(p, _)| p.from_menu).unwrap_or(false)))
+            };
+            let Some((outcome, from_menu)) = outcome else { continue };
+            changed = true;
+            log::info!("Station de {} : {outcome:?}", c.name);
+            #[derive(Serialize, Clone)]
+            struct StationOutcome<'a> {
+                id: &'a str,
+                outcome: &'static str,
+                version: Option<&'a str>,
+            }
+            let version = match &outcome {
+                follow::Outcome::Updated(v) => Some(v.as_str()),
+                _ => None,
+            };
+            let _ = app.emit_to("main", "station-outcome", StationOutcome { id: &id, outcome: outcome.code(), version });
+            let text = match &outcome {
+                follow::Outcome::Restarted => t("station.restarted", &[]),
+                follow::Outcome::Updated(v) => t("station.updated", &[("version", v)]),
+                follow::Outcome::UpdateFailed => t("station.update_failed", &[]),
+                follow::Outcome::SlowBack => t("station.slow_back", &[]),
+                follow::Outcome::Silent => continue,
+            };
+            if from_menu && !shell::app_in_front() {
+                shell::notify_to(&format!("kybernow://station?id={id}"), &c.name, &text, None);
+            }
+        }
+        if changed {
+            emit_computers(&app);
+        }
     }
 }
 
@@ -605,6 +823,7 @@ fn add(app: &AppHandle, candidate: &Candidate, user: &str, password: &str, by_co
             last: None,
             by_code,
             wake: info.wake.clone(),
+            station_notified: None,
         })
     });
     if !store::set_password(&id, user, password) {
@@ -684,29 +903,109 @@ fn mark_station(app: &AppHandle, id: &str, change: impl FnOnce(&mut kybernow_cor
     emit_computers(app);
 }
 
-/// « Redémarrer la Station » dans les réglages de l'ordinateur `id` : Admin
-/// et le serveur Kyber s'arrêtent puis repartent, Kyber d'abord (environ
-/// 30 secondes, pendant lesquelles Admin ne répond pas). `force` : même si un
-/// appareil est en session (elle est coupée). Refus : voir `station_refusal`.
-#[tauri::command(async)]
-fn station_restart(app: AppHandle, id: String, force: bool) -> Result<(), serde_json::Value> {
-    let console = console_of(&app, &id).map_err(station_refusal)?;
-    console.station_restart(Some(&system::device_info().id), force).map_err(|e| e.to_json())?;
-    log::info!("redémarrage de la Station de {} demandé", console.host());
-    mark_station(&app, &id, |s| s.restarting = true);
-    Ok(())
+/// Refus d'un redémarrage ou d'une mise à jour : celui d'Admin, ou un
+/// texte (ordinateur inconnu).
+enum Refusal {
+    Station(StationError),
+    Text(String),
 }
 
-/// « Mettre à jour la Station » : la même installation qu'« Installer
-/// maintenant » dans Admin ; rend la version installée. Bloque le temps
-/// qu'Admin télécharge le paquet. Refus : voir `station_refusal`.
+impl Refusal {
+    fn to_json(&self) -> serde_json::Value {
+        match self {
+            Refusal::Station(e) => e.to_json(),
+            Refusal::Text(m) => station_refusal(m.clone()),
+        }
+    }
+}
+
+/// Redémarre la Station de `id` (Admin et le serveur Kyber s'arrêtent puis
+/// repartent, Kyber d'abord : environ 30 secondes, pendant lesquelles Admin
+/// ne répond pas) ou la met à jour (la même installation qu'« Installer
+/// maintenant » dans Admin ; bloque le temps qu'Admin télécharge le paquet).
+/// `force` : même si un appareil est en session (elle est coupée). L'app suit
+/// ensuite la Station jusqu'à son retour (`follow_loop`), que la demande
+/// vienne des réglages ou du menu de l'icône (`from_menu` : une notification
+/// à la fin). Rend la version installée.
+fn station_call(app: &AppHandle, id: &str, kind: Kind, force: bool, from_menu: bool) -> Result<Option<String>, Refusal> {
+    let console = console_of(app, id).map_err(Refusal::Text)?;
+    let device = system::device_info().id;
+    let version = match kind {
+        Kind::Restart => {
+            console.station_restart(Some(&device), force).map_err(Refusal::Station)?;
+            log::info!("redémarrage de la Station de {} demandé", console.host());
+            None
+        }
+        Kind::Update => {
+            let v = console.station_update(Some(&device), force).map_err(Refusal::Station)?;
+            log::info!("mise à jour de la Station de {} vers {v} lancée", console.host());
+            Some(v)
+        }
+    };
+    let state = app.state::<UiState>();
+    let known = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
+    let expected = version.clone().filter(|v| !v.is_empty()).or(known).filter(|_| kind == Kind::Update);
+    let pending = follow::Pending { kind, version: expected, down: false, from_menu };
+    state.following.lock().unwrap().insert(id.to_string(), (pending, Instant::now()));
+    mark_station(app, id, |s| match kind {
+        Kind::Restart => s.restarting = true,
+        Kind::Update => s.update.installing = true,
+    });
+    Ok(version)
+}
+
+/// « Redémarrer la Station » dans les réglages de l'ordinateur `id`.
+/// Refus : voir `station_refusal`.
+#[tauri::command(async)]
+fn station_restart(app: AppHandle, id: String, force: bool) -> Result<(), serde_json::Value> {
+    station_call(&app, &id, Kind::Restart, force, false).map(|_| ()).map_err(|e| e.to_json())
+}
+
+/// « Mettre à jour la Station » : rend la version installée. Refus : voir `station_refusal`.
 #[tauri::command(async)]
 fn station_update(app: AppHandle, id: String, force: bool) -> Result<String, serde_json::Value> {
-    let console = console_of(&app, &id).map_err(station_refusal)?;
-    let version = console.station_update(Some(&system::device_info().id), force).map_err(|e| e.to_json())?;
-    log::info!("mise à jour de la Station de {} vers {version} lancée", console.host());
-    mark_station(&app, &id, |s| s.update.installing = true);
-    Ok(version)
+    station_call(&app, &id, Kind::Update, force, false).map(|v| v.unwrap_or_default()).map_err(|e| e.to_json())
+}
+
+/// Redémarrer ou mettre à jour depuis le menu de l'icône (ou le bouton d'une
+/// notification), comme la rubrique Station : la même confirmation quand un
+/// appareil est en session, les mêmes refus, le même suivi.
+fn station_from_menu(app: &AppHandle, id: &str, kind: Kind) {
+    let mut force = false;
+    loop {
+        let refusal = match station_call(app, id, kind, force, true) {
+            Ok(_) => return,
+            Err(r) => r,
+        };
+        let text = match &refusal {
+            Refusal::Station(StationError::InSession { device, .. }) if !force => {
+                let title = match device {
+                    Some(d) => t("station.in_session_title", &[("device", d)]),
+                    None => t("station.in_session_anonymous", &[]),
+                };
+                let (message, yes) = match kind {
+                    Kind::Restart => (t("station.in_session_restart", &[]), t("station.restart_anyway", &[])),
+                    Kind::Update => (t("station.in_session_update", &[]), t("station.update_anyway", &[])),
+                };
+                if !tray::confirm(&title, &message, &yes) {
+                    return;
+                }
+                force = true;
+                continue;
+            }
+            Refusal::Station(StationError::TooSoon { .. }) => t("station.too_soon", &[]),
+            Refusal::Station(StationError::Unsupported) => t("station.too_old", &[]),
+            Refusal::Station(StationError::RequiresSetup { .. }) => {
+                let state = app.state::<UiState>();
+                let v = state.live.lock().unwrap().get(id).and_then(|l| l.info.as_ref()?.station.as_ref()?.update.version.clone());
+                t("station.requires_setup", &[("version", &v.unwrap_or_default())])
+            }
+            Refusal::Station(e) => e.to_string(),
+            Refusal::Text(m) => m.clone(),
+        };
+        tray::alert(&text);
+        return;
+    }
 }
 
 /// « Ouvrir Admin » : son adresse dans le navigateur par défaut.
@@ -725,6 +1024,9 @@ fn wake(app: AppHandle, id: String) -> Result<usize, String> {
     let c = app.state::<UiState>().with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     let sent = kybernow_core::wake::send(&c.wake).map_err(|e| e.to_string())?;
     log::info!("réveil de {} : {sent} paquets envoyés", c.name);
+    // L'app l'attend (2 min au plus), que la fenêtre soit ouverte ou non.
+    app.state::<UiState>().waking.lock().unwrap().insert(id, Instant::now());
+    emit_computers(&app);
     Ok(sent)
 }
 
@@ -778,6 +1080,17 @@ struct UiEvents {
     /// Profil et format montrés dans la barre (le profil peut changer en session).
     label: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
+    stats: Arc<Mutex<Option<Stats>>>,
+}
+
+/// `bar-shown` : la barre se montre ; `pinned` : demandée par « Statistiques »
+/// (menu de l'icône), elle ne repart pas d'elle-même tant que le pointeur n'y
+/// est pas passé.
+#[derive(Clone, Serialize)]
+struct BarShown {
+    #[serde(flatten)]
+    label: BarLabel,
+    pinned: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -829,6 +1142,8 @@ impl HostEvents for UiEvents {
             sent.mode.height = s.height;
         }
         let _ = self.app.emit_to("bar", "stats", s);
+        *self.stats.lock().unwrap() = Some(s.clone());
+        tray::refresh();
     }
 
     /// Première image à l'écran : l'accueil laisse la place à la session,
@@ -846,26 +1161,10 @@ impl HostEvents for UiEvents {
     }
 
     fn top_edge(&self, hwnd: isize) {
-        let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-        unsafe {
-            let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
-            let _ = GetMonitorInfoW(m, &mut mi);
-        }
-        let r = mi.rcMonitor;
         let app = self.app.clone();
         let label = self.label.lock().unwrap().clone();
         // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
-        let _ = self.app.run_on_main_thread(move || {
-            // Toujours à sa taille sans menu en se montrant.
-            bar_menu(app.clone(), false);
-            let Some(bar) = app.get_webview_window("bar") else { return };
-            let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
-            let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
-            let _ = bar.set_position(tauri::PhysicalPosition::new(x, r.top));
-            let _ = bar.set_always_on_top(true);
-            let _ = bar.show();
-            let _ = app.emit_to("bar", "bar-shown", &label);
-        });
+        let _ = self.app.run_on_main_thread(move || show_bar(&app, hwnd, label, false));
     }
 
     fn ended(&self, s: &Summary) {
@@ -910,23 +1209,25 @@ impl HostEvents for UiEvents {
         if let Some(bar) = self.app.get_webview_window("bar") {
             let _ = bar.hide();
         }
-        if let Some(w) = self.app.get_webview_window("main") {
+        tray::refresh();
+        let quitting = state.quitting.load(std::sync::atomic::Ordering::Relaxed);
+        if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
             let _ = w.show();
             let _ = w.set_focus();
         }
-        // Personne ne regardait (autre app devant) : une notification.
-        if !shell::app_in_front() {
+        // Personne ne regardait (autre app devant) : une notification. Un clic
+        // dessus ouvre l'accueil sur cet ordinateur.
+        if !shell::app_in_front() && !quitting {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
+            let home = format!("kybernow://open?id={}", self.id);
+            let again = format!("kybernow://connect?id={}", self.id);
             match &s.error {
-                Some(e) => shell::notify(
-                    &t("notify.stopped_title", &[("name", &name)]),
-                    e,
-                    Some((&t("notify.resume", &[]), &format!("kybernow://connect?id={}", self.id))),
-                ),
-                None => shell::notify(
+                Some(e) => shell::notify_to(&home, &t("notify.stopped_title", &[("name", &name)]), e, Some((&t("notify.resume", &[]), &again))),
+                None => shell::notify_to(
+                    &home,
                     &t("notify.ended_title", &[("name", &name)]),
                     &t("notify.ended_body", &[]),
-                    Some((&t("notify.take_back", &[]), &format!("kybernow://connect?id={}", self.id))),
+                    Some((&t("notify.take_back", &[]), &again)),
                 ),
             }
         }
@@ -938,7 +1239,7 @@ impl HostEvents for UiEvents {
         let _ = self.app.emit_to("main", "session-ended", Ended { id: &self.id, summary: s });
         emit_computers(&self.app);
         // L'app se fermait : la console est prévenue, on peut partir.
-        if state.quitting.load(std::sync::atomic::Ordering::Relaxed) {
+        if quitting {
             self.app.exit(0);
         }
     }
@@ -1035,6 +1336,7 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
     }
     let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
     let sent = Arc::new(Mutex::new(Sent { settings, mode }));
+    let stats = Arc::new(Mutex::new(None));
     let host = SessionHost::start(
         c.name.clone(),
         params,
@@ -1046,9 +1348,11 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
             window_size: system::initial_window_size(mode),
             title_stats: false,
         },
-        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone(), sent: sent.clone() }),
+        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone(), sent: sent.clone(), stats: stats.clone() }),
     );
-    *running = Some(Running { id, host, bar, sent });
+    *running = Some(Running { id, host, bar, sent, stats });
+    drop(running);
+    tray::refresh();
     Ok(())
 }
 
@@ -1078,17 +1382,7 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
         return Err(t("errors.no_session", &[]));
     };
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
-    let c = state.with_store(|s| {
-        let c = s.get_mut(&id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
-        c.settings.profile = profile.clone();
-        c.settings.codec = None;
-        c.settings.yuv444 = None;
-        c.settings.mbps = None;
-        c.settings.reliable = None;
-        let c = c.clone();
-        s.save();
-        Ok::<_, String>(c)
-    })?;
+    let c = save_profile(&state, &id, &profile)?;
     emit_computers(&app);
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
@@ -1100,6 +1394,76 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     window::set_session_codec(settings.codec.fourcc());
     window::current_session().ok_or_else(|| t("errors.session_not_ready", &[]))?.set_settings(settings);
     Ok(())
+}
+
+/// Le profil d'un ordinateur, retouches effacées (comme l'accueil).
+fn save_profile(state: &UiState, id: &str, profile: &str) -> Result<Computer, String> {
+    state.with_store(|s| {
+        let c = s.get_mut(id).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+        c.settings.profile = profile.into();
+        c.settings.codec = None;
+        c.settings.yuv444 = None;
+        c.settings.mbps = None;
+        c.settings.reliable = None;
+        let c = c.clone();
+        s.save();
+        Ok::<_, String>(c)
+    })
+}
+
+/// Un profil choisi sur l'accueil ou dans le menu de l'icône : enregistré
+/// pour cet ordinateur ; pendant sa session, appliqué tout de suite, comme
+/// depuis la barre.
+#[tauri::command(async)]
+fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
+    Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
+    let state = app.state::<UiState>();
+    if state.session.lock().unwrap().as_ref().is_some_and(|r| r.id == id) {
+        return session_profile(app.clone(), profile);
+    }
+    save_profile(&state, &id, &profile)?;
+    emit_computers(&app);
+    Ok(())
+}
+
+/// La barre de session sur l'écran de la session, à sa taille sans menu.
+fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
+    let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    unsafe {
+        let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
+        let _ = GetMonitorInfoW(m, &mut mi);
+    }
+    let r = mi.rcMonitor;
+    // Toujours à sa taille sans menu en se montrant.
+    bar_menu(app.clone(), false);
+    let Some(bar) = app.get_webview_window("bar") else { return };
+    let size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1040, 76));
+    let x = r.left + ((r.right - r.left) - size.width as i32) / 2;
+    let _ = bar.set_position(tauri::PhysicalPosition::new(x, r.top));
+    let _ = bar.set_always_on_top(true);
+    let _ = bar.show();
+    let _ = app.emit_to("bar", "bar-shown", BarShown { label, pinned });
+}
+
+/// « Statistiques » du menu de l'icône : la barre et ses mesures en direct,
+/// ou cachée si elle est déjà là ; le clavier reste à la session.
+fn toggle_stats(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    let Some((hwnd, label)) = state.session.lock().unwrap().as_ref().map(|r| (r.host.hwnd(), r.bar.lock().unwrap().clone())) else {
+        return;
+    };
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
+        if shown {
+            bar_hide(a.clone());
+            return;
+        }
+        show_bar(&a, hwnd, label, true);
+        if let Some(r) = a.state::<UiState>().session.lock().unwrap().as_ref() {
+            r.host.command(Command::Focus);
+        }
+    });
 }
 
 /// Un menu de la barre s'ouvre : la fenêtre grandit vers le bas le temps du
@@ -1126,7 +1490,174 @@ fn bar_hide(app: AppHandle) {
     }
 }
 
+/// Les réglages s'écartent du profil (« Personnalisé ») : `isCustom` de
+/// l'interface (ui/src/lib/api.ts).
+fn is_custom(s: &Settings, pc: Option<&ThisPc>) -> bool {
+    let base = if pc.is_none_or(|p| p.hevc) { "hevc" } else { "h264" };
+    s.codec.as_deref().is_some_and(|c| c != base) || s.yuv444.is_some() || s.mbps.is_some() || s.reliable.is_some()
+}
+
+/// Ce que le menu de l'icône montre (`menu.rs`), lu à chaque ouverture et,
+/// menu ouvert, chaque seconde.
+pub fn tray_state(app: &AppHandle) -> menu::State {
+    let state = app.state::<UiState>();
+    let pc = state.this_pc.lock().unwrap().clone();
+    let computers = state.with_store(|s| s.computers.clone());
+    let waking: Vec<String> = state.waking.lock().unwrap().keys().cloned().collect();
+    let following: HashMap<String, Kind> = state.following.lock().unwrap().iter().map(|(k, (p, _))| (k.clone(), p.kind)).collect();
+    let session = state.session.lock().unwrap().as_ref().map(|r| {
+        let stats = r.stats.lock().unwrap().clone();
+        let sent = r.sent.lock().unwrap();
+        let m = sent.mode;
+        menu::Session {
+            id: r.id.clone(),
+            name: computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
+            latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
+            fps: stats.as_ref().map(|s| s.fps),
+            mbps: Some(sent.settings.bitrate(m.width, m.height, m.refresh) / 1_000_000),
+            fullscreen: window::fullscreen_now(),
+        }
+    });
+    let live = state.live.lock().unwrap();
+    let computers = computers
+        .iter()
+        .map(|c| {
+            let l = live.get(&c.id);
+            let station = l.and_then(|l| l.info.as_ref()?.station.as_ref()).map(|s| menu::Station {
+                busy: match following.get(&c.id) {
+                    Some(Kind::Restart) => Some(menu::Busy::Restarting),
+                    Some(Kind::Update) => Some(menu::Busy::Updating),
+                    None if s.restarting => Some(menu::Busy::Restarting),
+                    None if s.update.installing => Some(menu::Busy::Updating),
+                    None => None,
+                },
+                update: s.update.version.clone().filter(|_| s.update.available && s.update.installable),
+            });
+            menu::Computer {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                online: l.and_then(|l| l.online),
+                profile: c.settings.profile.clone(),
+                custom: is_custom(&c.settings, pc.as_ref()),
+                can_wake: !c.wake.is_empty(),
+                waking: waking.contains(&c.id),
+                station,
+            }
+        })
+        .collect();
+    menu::State { session, computers, app_update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()) }
+}
+
+/// Ce qui est choisi dans le menu de l'icône, sur son propre fil (les appels
+/// à Admin et les questions ne bloquent pas l'icône). Les mêmes commandes que
+/// l'accueil, les réglages et la barre.
+pub fn tray_command(app: &AppHandle, cmd: Cmd) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let state = app.state::<UiState>();
+        let session = |c: Command| {
+            if let Some(r) = state.session.lock().unwrap().as_ref() {
+                r.host.command(c);
+            }
+        };
+        let fail = |r: Result<(), String>| {
+            if let Err(e) = r {
+                tray::alert(&e);
+            }
+        };
+        match cmd {
+            // Le clavier revient ensuite à la session (le menu l'avait pris).
+            Cmd::Fullscreen => {
+                session(Command::Fullscreen);
+                session(Command::Focus);
+            }
+            Cmd::Mouse => {
+                session(Command::MouseToggle);
+                session(Command::Focus);
+            }
+            Cmd::Statistics => toggle_stats(&app),
+            Cmd::Disconnect => session(Command::Disconnect),
+            Cmd::Connect(id) => show_action(&app, Action::Connect { id }),
+            Cmd::Wake(id) => fail(wake(app.clone(), id).map(|_| ())),
+            Cmd::Retry(id) => {
+                let _ = poll_now(app.clone(), id);
+            }
+            Cmd::Profile(id, p) => fail(set_profile(app.clone(), id, p.into())),
+            Cmd::Settings(id) => show_action(&app, Action::Settings { id, rubric: None }),
+            Cmd::Admin(id) => fail(open_admin(app.clone(), id)),
+            Cmd::Restart(id) => station_from_menu(&app, &id, Kind::Restart),
+            Cmd::Update(id) => station_from_menu(&app, &id, Kind::Update),
+            Cmd::Open => show_action(&app, Action::Open),
+            Cmd::Add => show_action(&app, Action::Add),
+            Cmd::AppSettings => show_action(&app, Action::App { check: false }),
+            Cmd::CheckUpdates => show_action(&app, Action::App { check: true }),
+            Cmd::Quit => quit(&app),
+        }
+    });
+}
+
+/// « Quitter KyberNow Link » : une session en cours se termine d'abord
+/// (Admin prévenue, écrans rendus), puis l'app se ferme.
+pub fn quit(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    let session = state.session.lock().unwrap();
+    if let Some(r) = session.as_ref() {
+        log::info!("quitter : fin de la session d'abord");
+        state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
+        r.host.command(Command::Disconnect);
+    } else {
+        drop(session);
+        log::info!("quitter");
+        app.exit(0);
+    }
+}
+
+/// La première fermeture de l'accueil : une notification dit où l'app
+/// continue, une seule fois.
+fn first_close(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    let prefs = {
+        let mut p = state.prefs.lock().unwrap();
+        if p.close_hint {
+            return;
+        }
+        p.close_hint = true;
+        p.clone()
+    };
+    save_prefs(&prefs);
+    shell::notify(&t("notify.close_title", &[]), &t("notify.close_body", &[]), None);
+}
+
+/// « Ouvrir à l'ouverture de session » : coché une fois, au premier lancement
+/// de la version qui l'apporte ; ensuite le choix de l'utilisateur (et de
+/// Windows, voir `login.rs`) est gardé.
+fn open_at_login_default(state: &UiState) {
+    let first = {
+        let mut p = state.prefs.lock().unwrap();
+        let first = p.open_at_login.is_none();
+        if first {
+            p.open_at_login = Some(true);
+        }
+        first.then(|| p.clone())
+    };
+    match first {
+        Some(prefs) => {
+            save_prefs(&prefs);
+            login::set(true);
+        }
+        None => login::refresh(),
+    }
+}
+
 pub fn run(args: Vec<String>) {
+    // Ouverte à l'ouverture de session : sans fenêtre, dans l'icône seule.
+    let background = args.iter().any(|a| a == login::BACKGROUND);
+    // Bouton « Mettre à jour » d'une notification, l'app fermée : la mise à
+    // jour de la Station suit le lancement.
+    let update_asked = match args.first().and_then(|a| crate::link::action(a)) {
+        Some(("station-update", Some(id))) => Some(id),
+        _ => None,
+    };
     let state = UiState::default();
     *state.action.lock().unwrap() = parse_action(&args);
     *state.prefs.lock().unwrap() = load_prefs();
@@ -1159,9 +1690,11 @@ pub fn run(args: Vec<String>) {
             station_restart,
             station_update,
             open_admin,
-            wake
+            wake,
+            set_profile,
+            set_open_at_login
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle().clone();
             // Langue connue de l'interface dès son premier affichage (ensuite : l'événement `lang`).
             let lang_script = format!("window.__KN_LANG = '{}';", i18n::lang().code());
@@ -1172,6 +1705,7 @@ pub fn run(args: Vec<String>) {
                 .min_inner_size(960.0, 600.0)
                 .decorations(false)
                 .center()
+                .visible(!background)
                 .build()?;
             WebviewWindowBuilder::new(app, "bar", WebviewUrl::App("bar.html".into()))
                 .initialization_script(&lang_script)
@@ -1187,8 +1721,13 @@ pub fn run(args: Vec<String>) {
                 .visible(false)
                 .build()?;
 
-            log::info!("app : fenêtres créées");
+            log::info!("app : fenêtres créées{}", if background { " (ouverture de session : accueil caché)" } else { "" });
             shell::register();
+            open_at_login_default(&handle.state::<UiState>());
+            tray::start(handle.clone());
+            if let Some(id) = update_asked.clone() {
+                tray_command(&handle, Cmd::Update(id));
+            }
             let h = handle.clone();
             instance::set_sink(move |args| handle_args(&h, args));
             let views = handle.state::<UiState>().views();
@@ -1217,6 +1756,8 @@ pub fn run(args: Vec<String>) {
             let _ = handle.state::<UiState>().discovery.set(d);
             let h = handle.clone();
             std::thread::spawn(move || poll(h));
+            let h = handle.clone();
+            std::thread::spawn(move || follow_loop(h));
             log::info!("app : prête");
             Ok(())
         })
@@ -1224,20 +1765,13 @@ pub fn run(args: Vec<String>) {
             let tauri::WindowEvent::CloseRequested { api, .. } = event else { return };
             let app = window.app_handle();
             match window.label() {
-                // Fermer l'accueil quitte l'app ; pendant une session, après
-                // sa fin propre (console prévenue, écrans rendus).
+                // Fermer l'accueil le cache : l'app continue dans l'icône près
+                // de l'horloge (« Quitter KyberNow Link » la quitte). Une
+                // session en cours continue.
                 "main" => {
-                    let state = app.state::<UiState>();
-                    let session = state.session.lock().unwrap();
-                    if let Some(r) = session.as_ref() {
-                        api.prevent_close();
-                        let _ = window.hide();
-                        state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
-                        r.host.command(Command::Disconnect);
-                    } else {
-                        drop(session);
-                        app.exit(0);
-                    }
+                    api.prevent_close();
+                    let _ = window.hide();
+                    first_close(app);
                 }
                 // La barre ne se ferme pas (Alt+F4) : elle se cache.
                 _ => {
@@ -1251,7 +1785,12 @@ pub fn run(args: Vec<String>) {
         })
         .build(tauri::generate_context!());
     match app {
-        Ok(app) => app.run(|_, _| {}),
+        Ok(app) => app.run(|_, event| {
+            // L'icône part avec l'app (sinon elle reste jusqu'au passage de la souris).
+            if let tauri::RunEvent::Exit = event {
+                tray::remove();
+            }
+        }),
         Err(e) => system::error_box(&t("app.start_failed", &[("error", &e.to_string())])),
     }
 }

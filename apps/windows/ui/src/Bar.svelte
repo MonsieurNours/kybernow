@@ -18,7 +18,8 @@
   let profile = $state('')
   let menu = $state<'profile' | 'keys' | null>(null)
 
-  type Shown = { label: string; profile: string }
+  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur. */
+  type Shown = { label: string; profile: string; pinned?: boolean }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -48,8 +49,10 @@
         profile = s.profile
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
-        // Le pointeur n'y entre pas : elle repart d'elle-même.
-        scheduleHide(1600)
+        // Le pointeur n'y entre pas : elle repart d'elle-même (sauf demandée
+        // par « Statistiques » : elle reste, le menu de l'icône la cache).
+        if (s.pinned) cancelHide()
+        else scheduleHide(1600)
       }),
       listen<string>('lang', setLang),
     ]

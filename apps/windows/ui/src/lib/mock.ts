@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { Info, LastSession, StationInfo, StationRestarting, WakeTarget } from './api'
+import type { Computer, Info, LastSession, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -100,6 +100,8 @@ let computers = [
     } as Info | null,
     preview: null,
     preview_source: null,
+    waking: false,
+    station_pending: null as Computer['station_pending'],
   },
   {
     id: 'b2',
@@ -118,6 +120,8 @@ let computers = [
     info: null as Info | null,
     preview: null,
     preview_source: null,
+    waking: false,
+    station_pending: null as Computer['station_pending'],
   },
   {
     id: 'c3',
@@ -145,6 +149,8 @@ let computers = [
     } as Info | null,
     preview: null,
     preview_source: null,
+    waking: false,
+    station_pending: null as Computer['station_pending'],
   },
   {
     id: 'd4',
@@ -172,6 +178,8 @@ let computers = [
     } as Info | null,
     preview: null,
     preview_source: null,
+    waking: false,
+    station_pending: null as Computer['station_pending'],
   },
 ]
 if (flags.has('vide')) computers = []
@@ -216,6 +224,12 @@ const notesFor = (lang: string) => {
 }
 let language: 'auto' | 'fr' | 'en' = 'auto'
 let battery: 'alleger' | 'garder' = 'alleger'
+let openAtLogin = true
+/** Fin du suivi de la Station, comme `follow_loop` de l'app. */
+const outcome = (o: StationOutcome) => {
+  change(o.id, (c) => (c.station_pending = null))
+  emit('station-outcome', o)
+}
 const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Link-Setup.exe', size: 1 })
 
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
@@ -275,7 +289,12 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   session_command: () => null,
   bar_hide: () => null,
   take_action: () => null,
-  app_info: () => ({ version: '0.5.0', channel: 'stable', language, lang: i18n.lang, update: update(), arch: 'x64', battery }),
+  app_info: () => ({ version: '0.5.0', channel: 'stable', language, lang: i18n.lang, update: update(), arch: 'x64', battery, open_at_login: openAtLogin }),
+  set_open_at_login: (a) => (openAtLogin = Boolean(a.on)),
+  set_profile: (a) => {
+    computers = computers.map((c) => (c.id === a.id ? { ...c, settings: { ...c.settings, profile: a.profile as string, codec: null, yuv444: null, mbps: null, reliable: null } } : c))
+    emitComputers()
+  },
   set_battery: (a) => {
     battery = a.battery === 'garder' ? 'garder' : 'alleger'
     return battery
@@ -303,14 +322,15 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   station_restart: async (a) => {
     await sleep(500)
     if (!a.force) throw { kind: 'in_session', message: t('mock.station_in_session'), device: 'Apple TV du salon', seconds: null }
-    change(a.id, (c) => c.info?.station && (c.info.station.restarting = true))
+    change(a.id, (c) => ((c.station_pending = 'restart'), c.info?.station && (c.info.station.restarting = true)))
     setTimeout(() => change(a.id, (c) => (c.online = false)), 1500)
     setTimeout(() => change(a.id, (c) => ((c.online = true), c.info?.station && (c.info.station.restarting = false))), 6500)
+    setTimeout(() => outcome({ id: a.id as string, outcome: 'restarted', version: null }), 7000)
     return null
   },
   station_update: async (a) => {
     await sleep(1500)
-    change(a.id, (c) => c.info?.station && (c.info.station.update.installing = true))
+    change(a.id, (c) => ((c.station_pending = 'update'), c.info?.station && (c.info.station.update.installing = true)))
     setTimeout(() => change(a.id, (c) => (c.online = false)), 3000)
     setTimeout(
       () =>
@@ -328,6 +348,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
         }),
       8000,
     )
+    setTimeout(() => outcome({ id: a.id as string, outcome: flags.has('echecmaj') ? 'update_failed' : 'updated', version: '0.5.1' }), 8500)
     return '0.5.1'
   },
   // Réveil : le paquet part vers les cartes gardées ; l'ordinateur hors ligne
@@ -340,15 +361,18 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
       throw i18n.lang === 'en'
         ? "the computer's network card is unknown: the app learns it from KyberNow Station (0.5.0 or later) while the computer is on"
         : "carte réseau de l'ordinateur inconnue : l'app l'apprend de KyberNow Station (0.5.0 ou plus récente) quand l'ordinateur est allumé"
-    if (!c.online)
+    if (!c.online) {
+      change(a.id, (x) => (x.waking = true))
       setTimeout(
         () =>
           change(a.id, (x) => {
+            x.waking = false
             x.online = true
             x.info = { hostname: x.name.toUpperCase(), os: x.os, gpu: x.gpu, av1: false, admin_version: '0.5.0', virtual_display: { available: true }, station: station('0.5.0'), wake: x.wake }
           }),
         6000,
       )
+    }
     // Diffusion, 255.255.255.255 et adresse directe, ports 9 et 7.
     return c.wake.length * 6
   },

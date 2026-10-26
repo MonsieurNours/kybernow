@@ -139,6 +139,75 @@ Le redémarrage et la mise à jour passent par Admin (`POST /api/stream/station/
 
 Le réveil par le réseau : Admin donne dans `GET /api/stream/info` les cartes réseau de l'ordinateur (adresse MAC, adresse IPv4, adresse de diffusion) ; l'app les garde pour chaque ordinateur et le cœur envoie le paquet de réveil. Sur iPhone, iPad et Apple TV, l'envoi en diffusion demande une autorisation d'Apple : l'app envoie aussi le paquet directement à la dernière adresse connue, qui ne réveille pas toujours.
 
+## Icône près de l'horloge (Mac, Windows)
+
+Les apps Mac et Windows ont une icône près de l'horloge : dans la barre des menus sur Mac, dans la zone de notification sur Windows. Elle reste tant que l'app tourne, fenêtre ouverte ou fermée, et donne accès à tout ce qu'il faut pour se connecter vite.
+
+- **Dessin** : le symbole de KyberNow Link seul (état `now` de [brand/v2](../brand/v2/README.md)), d'une seule couleur : image modèle sur Mac (le système la teinte), blanche ou noire selon le thème de la barre des tâches sur Windows. Il ne ressemble pas à l'icône de KyberNow Station (la tuile en couleur et sa pastille) : sur un PC qui a les deux, deux icônes. En session, le symbole s'allume (variante distincte, lisible en petit). Infobulle : « KyberNow Link », en session « KyberNow Link · en session sur {nom} » / “KyberNow Link · in session on {name}”.
+- **Clic** : sur Mac, un clic ouvre le menu. Sur Windows, clic droit ou gauche ouvre le même menu (au clic gauche, après le délai du double clic de Windows) ; un double clic ouvre la fenêtre.
+
+### Menu
+
+De haut en bas. Pendant une session, d'abord :
+
+| Élément | Français | English |
+|---|---|---|
+| En-tête (inactif) | « En session sur {nom} » | “In session on {name}” |
+| Mesures (inactif, mis à jour menu ouvert) | « 12,4 ms · 60 i/s · 80 Mbit/s » : la latence comme dans la barre de session, au dixième, les images par seconde et le débit ; « — » pour ce qui n'est pas encore mesuré ; avant la première image, l'étape de la connexion | “12.4 ms · 60 fps · 80 Mbit/s” |
+| Plein écran (coché en plein écran) | « Plein écran » | “Full screen” |
+| Souris | « Souris des jeux ou du bureau » | “Game or desktop mouse” |
+| Mesures en direct | « Statistiques » (Mac : le panneau des mesures ; Windows : la barre de session reste affichée jusqu'au passage du pointeur, un second clic la cache) | “Statistics” |
+| Fin | « Se déconnecter » | “Disconnect” |
+
+Puis vos ordinateurs, dans l'ordre de l'accueil : « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), chacun précédé d'un petit point de couleur : vert en ligne, rouge hors ligne, ambre pendant le réveil et pendant un redémarrage ou une mise à jour de la Station, gris pendant la recherche (couleurs d'état de [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, en version claire ou sombre selon le menu) ; le texte de l'état reste, la couleur seule ne suffit pas à tout le monde. Celui de la session est coché. Chacun ouvre un sous-menu :
+
+| Élément | Français | English |
+|---|---|---|
+| En ligne (et « Recherche… », comme le bouton de l'accueil) | « Se connecter ({profil}) », le profil de l'ordinateur ; inactif pendant une session sur un autre ordinateur (une session à la fois) ; sur l'ordinateur de la session : « Se déconnecter » | “Connect ({profile})”; “Disconnect” |
+| Hors ligne | « Réveiller l'ordinateur » quand l'app connaît son adresse MAC, sinon « Réessayer » ; pendant le réveil : « Réveil de l'ordinateur… », inactif ; pendant un redémarrage ou une mise à jour de la Station : « Se connecter ({profil}) », inactif (elle revient d'elle-même) | “Wake the computer”, “Try again”, “Waking the computer…” |
+| Profil | « Profil » ▸ « Jeu », « Bureau », « Max », celui de l'ordinateur coché ; « Personnalisé » coché et inactif quand les réglages s'en écartent. Choisir un profil l'applique comme sur l'accueil (en session, tout de suite, comme le menu de la barre) | “Profile” ▸ “Game”, “Desktop”, “Max”, “Custom” |
+| Réglages | « Réglages » (Mac : « Réglages… ») : la fenêtre s'ouvre sur les réglages de l'ordinateur | “Settings” (Mac: “Settings…”) |
+| Admin (en ligne) | « Ouvrir Admin » | “Open Admin” |
+| Redémarrer (en ligne, Station 0.5.0 et après) | « Redémarrer la Station » ; pendant : « La Station redémarre… », inactif | “Restart the Station”; “The Station is restarting…” |
+| Mettre à jour (version qui s'installe depuis un appareil) | « Mettre à jour la Station ({v}) » ; pendant : « Mise à jour de la Station… », inactif | “Update the Station ({v})”; “Updating the Station…” |
+
+Les groupes du menu sont séparés d'un trait. Pendant une session, « Réglages » et « Ajouter un ordinateur » sont inactifs sur Mac (la fenêtre est à la session) ; sur Windows, ils montrent l'accueil par-dessus la session.
+
+Redémarrer et mettre à jour suivent la rubrique **Station** : même confirmation quand un appareil est en session (« {appareil} est connecté », « Redémarrer quand même », « Annuler »), même suivi, mêmes textes à la fin.
+
+En bas :
+
+| Élément | Français | English |
+|---|---|---|
+| Fenêtre | « Ouvrir KyberNow Link » | “Open KyberNow Link” |
+| Ajout | « Ajouter un ordinateur » (Mac : « Ajouter un ordinateur… ») | “Add a computer” (Mac: “Add a computer…”) |
+| Réglages de l'app | « Réglages de l'app » (Mac : « Réglages de l'app… ») | “App settings” (Mac: “App settings…”) |
+| Mise à jour de l'app | Mac : « Rechercher des mises à jour… » ; Windows : « Version {v} disponible » quand une version attend (ouvre les réglages de l'app), sinon « Rechercher des mises à jour » (ouvre les réglages de l'app et lance la recherche) | “Check for updates…”; “Version {v} available”; “Check for updates” |
+| Quitter | « Quitter KyberNow Link » ; une session en cours se termine d'abord | “Quit KyberNow Link” |
+
+### Fenêtre et démarrage
+
+- Fermer la fenêtre de l'accueil ne quitte pas l'app : elle continue dans l'icône. On la quitte par « Quitter KyberNow Link » (Mac : aussi ⌘Q et le Dock). Fermer la fenêtre de la session, c'est toujours se déconnecter.
+- La première fois que la fenêtre se ferme, une notification le dit, une seule fois : « KyberNow Link est toujours là » / “KyberNow Link is still here”, « Vos ordinateurs vous attendent dans la barre des menus. » / “Your computers are waiting in the menu bar.” (Windows : « … dans la zone de notification, près de l'horloge (sous la flèche ^ si Windows l'a rangée). » / “… in the notification area, next to the clock (under the ^ arrow if Windows tucked it away).” : Windows 11 range d'abord une nouvelle icône sous cette flèche).
+- Mac : l'icône du Dock n'est là que tant qu'une fenêtre est ouverte (accueil, réglages, session) ; sans fenêtre, l'app ne vit que dans la barre des menus. Rouvrir l'app (Finder, Launchpad, Spotlight) ouvre l'accueil.
+- **Ouvrir à l'ouverture de session** / “Open at login”, dans les Réglages de l'app, coché par défaut (dès le premier lancement de la version qui l'apporte ; une désactivation faite dans le système, Réglages Système ou Gestionnaire des tâches, est respectée). Aide : « KyberNow Link démarre avec votre Mac, sans fenêtre : vos ordinateurs vous attendent dans la barre des menus. » / “KyberNow Link starts with your Mac, without a window: your computers wait for you in the menu bar.” (Windows : « … démarre avec Windows, … dans la zone de notification. » / “… starts with Windows, … in the notification area.”). Lancée ainsi, l'app démarre sans fenêtre, dans l'icône seule.
+- Fenêtre fermée, l'app continue de suivre vos ordinateurs (moins souvent qu'avec la fenêtre ouverte, et tout de suite à l'ouverture du menu) : le menu et les notifications sont à jour.
+
+### Notifications
+
+Des notifications du système, seulement quand l'app n'est pas au premier plan :
+
+| Quand | Titre | Texte | Bouton |
+|---|---|---|---|
+| Une version de la Station est prête (une fois par version et par ordinateur) | « Mise à jour de la Station de {nom} » / “Station update for {name}” | « La version {v} est prête. Environ une minute ; une session en cours sera coupée. » / “Version {v} is ready. About a minute; a session in progress will be cut off.” ; version qui exige l'installateur : « La version {v} s'installe sur l'ordinateur, avec KyberNow-Station-Setup.exe. » | « Mettre à jour » / “Update” (aucun pour l'installateur) |
+| L'ordinateur revient après « Réveiller l'ordinateur » | « {nom} est en ligne » / “{name} is online” | « Vous pouvez vous connecter. » / “You can connect now.” | « Se connecter » / “Connect” |
+| Toujours rien au bout de 2 min de réveil | « {nom} ne répond toujours pas » / “{name} is still not responding” | « Vérifiez qu'il est branché au réseau et que le réveil est autorisé sur l'ordinateur (Admin › Système). » / “Check that it is plugged into the network and that waking is allowed on the computer (Admin › System).” | |
+| Une session s'arrête sans « Se déconnecter » : un autre appareil ou Admin | « La session sur {nom} est terminée » / “The session on {name} has ended” | « Un autre appareil a pris la main, ou Admin y a mis fin. » / “Another device took over, or Admin ended it.” | « Reprendre la main » / “Take back control” |
+| … une erreur | « La session sur {nom} s'est arrêtée » / “The session on {name} stopped” | la raison, en une phrase | « Reprendre » / “Resume” |
+| Fin d'un redémarrage ou d'une mise à jour lancés depuis le menu, ou refus | le nom de l'ordinateur | les textes de la rubrique Station (« La Station a redémarré. », « KyberNow Station {v} est en place. », « La Station tarde à revenir… », « La mise à jour n'a pas abouti… », « La Station vient de redémarrer… », Station trop ancienne) | |
+
+Un clic sur la notification ouvre l'app sur ce qu'elle annonce (l'accueil sur l'ordinateur, ou sa rubrique Station).
+
 ## Où sont les textes
 
 Chaque app garde ses catalogues ([i18n.md](i18n.md), « Fichiers ») ; les textes ci-dessus y sont recopiés à l'identique. Un texte propre à une plateforme suit les mêmes règles.

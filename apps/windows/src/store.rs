@@ -118,6 +118,10 @@ pub struct Computer {
     /// fichiers écrits par la 0.4.x.
     #[serde(default)]
     pub wake: Vec<kybernow_core::wake::WakeTarget>,
+    /// Dernière version de la Station annoncée par une notification (une
+    /// fois par version et par ordinateur).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub station_notified: Option<String>,
 }
 
 pub struct Store {
@@ -186,6 +190,7 @@ impl Store {
             if c.wake.is_empty() {
                 c.wake = std::mem::take(&mut old.wake);
             }
+            c.station_notified = old.station_notified.take();
             *old = c;
             old.id.clone()
         } else {

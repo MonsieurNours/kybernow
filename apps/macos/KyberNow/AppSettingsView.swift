@@ -3,12 +3,15 @@
 // sait faire. Les réglages de chaque ordinateur, eux, vont par ordinateur.
 
 import KyberKit
+import ServiceManagement
 import SwiftUI
 
 struct AppSettingsView: View {
     @ObservedObject var cloud: CloudPublisher
     /// Bêtas proposées par Sparkle (voir `UpdateChannels`).
     @AppStorage(UpdateChannels.betaKey) private var betaUpdates = false
+    /// « Ouvrir à l'ouverture de session » (AppLife.swift).
+    @ObservedObject private var login = LoginItem.shared
     /// Langue de l'app (`AppleLanguages` de KyberNow), lue au lancement.
     @State private var language: LanguageChoice? = LanguageChoice.current
     /// Langue en vigueur depuis le lancement (le choix ne s'applique qu'à la relance).
@@ -17,6 +20,7 @@ struct AppSettingsView: View {
     var body: some View {
         VStack(spacing: 16) {
             iCloudCard
+            startupCard
             updatesCard
             languageCard
             macCard
@@ -25,6 +29,33 @@ struct AppSettingsView: View {
         .frame(width: 500)
         .background(Theme.background)
         .preferredColorScheme(.dark)
+        // Réglages Système a pu le changer : relu à chaque ouverture et retour dans l'app.
+        .onAppear { login.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in login.refresh() }
+    }
+
+    /// L'app démarre avec le Mac, sans fenêtre, dans la barre des menus.
+    private var startupCard: some View {
+        SettingsCard(icon: "power", title: String(localized: "Démarrage")) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Ouvrir à l'ouverture de session").font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text)
+                    Text("KyberNow Link démarre avec votre Mac, sans fenêtre : vos ordinateurs vous attendent dans la barre des menus.")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.muted).lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Switch(isOn: Binding(get: { login.enabled }, set: { login.set($0) }), label: String(localized: "Ouvrir à l'ouverture de session"))
+            }
+            if login.needsApproval {
+                Button { SMAppService.openSystemSettingsLoginItems() } label: {
+                    Text("À autoriser dans Réglages Système › Général.")
+                        .font(Theme.sans(12)).foregroundStyle(Theme.warnText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private var updatesCard: some View {

@@ -132,6 +132,10 @@ export type Computer = {
   preview: string | null
   /** last : dernière image de votre session ; preview : aperçu de son écran. */
   preview_source: 'last' | 'preview' | null
+  /** Réveil par le réseau envoyé : l'app attend l'ordinateur (2 min au plus), toutes les 2 s. */
+  waking?: boolean
+  /** La Station redémarre ou s'installe : l'app attend son retour (`station-outcome` à la fin). */
+  station_pending?: 'restart' | 'update' | null
 }
 
 export type Found = { id: string; name: string; host: string; port: number; fingerprint: string | null }
@@ -158,16 +162,42 @@ export type Update = { version: string; channel: 'stable' | 'beta'; notes: strin
 /** Sur batterie : alléger (30 Hz au plus) ou garder, pour toutes les sessions de ce PC. */
 export type Battery = 'alleger' | 'garder'
 
-/** `language` : choix des réglages ; `lang` : langue appliquée. */
-export type AppInfo = { version: string; channel: 'stable' | 'beta'; language: 'auto' | 'fr' | 'en'; lang: 'fr' | 'en'; update: Update | null; arch: string; battery: Battery }
+/**
+ * `language` : choix des réglages ; `lang` : langue appliquée. `open_at_login` : « Ouvrir à
+ * l'ouverture de session », tel que Windows le fera (décoché si on l'a désactivé dans le
+ * Gestionnaire des tâches).
+ */
+export type AppInfo = {
+  version: string
+  channel: 'stable' | 'beta'
+  language: 'auto' | 'fr' | 'en'
+  lang: 'fr' | 'en'
+  update: Update | null
+  arch: string
+  battery: Battery
+  open_at_login: boolean
+}
 
-/** Ce que l'ouverture demande (lien, barre des tâches, notification, installateur). */
+/**
+ * Ce que l'ouverture demande (lien, barre des tâches, notification, installateur, menu de
+ * l'icône près de l'horloge) : `show`, l'accueil sur cet ordinateur ; `settings`, ses réglages
+ * (sur la rubrique `rubric`) ; `app`, les réglages de l'app (`check` : en cherchant une mise à jour).
+ */
 export type Action =
   | { kind: 'connect'; id: string }
   | { kind: 'add' }
   | { kind: 'link'; link: string }
   | { kind: 'updated' }
   | { kind: 'open' }
+  | { kind: 'show'; id: string }
+  | { kind: 'settings'; id: string; rubric: string | null }
+  | { kind: 'app'; check: boolean }
+
+/**
+ * Événement `station-outcome` : fin du suivi d'un redémarrage ou d'une mise à jour de la Station,
+ * lancés depuis les réglages ou le menu de l'icône. `silent` : revenue sans être partie (rien à dire).
+ */
+export type StationOutcome = { id: string; outcome: 'restarted' | 'updated' | 'update_failed' | 'slow_back' | 'silent'; version: string | null }
 
 export type Snapshot = { computers: Computer[]; discovered: Found[]; this_pc: ThisPc | null; session: string | null; version: string }
 

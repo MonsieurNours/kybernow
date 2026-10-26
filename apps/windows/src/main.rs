@@ -17,12 +17,24 @@ mod cli;
 mod decoder;
 #[cfg(windows)]
 mod discovery;
+// Règles et dessins sans rien de Windows (menu de l'icône, suivis, dessin de
+// l'icône, textes) : compilés partout pour se tester sur le Mac.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod follow;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod glyph;
 #[cfg(windows)]
 mod host;
 #[cfg(windows)]
 mod i18n;
 #[cfg(windows)]
 mod instance;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod link;
+#[cfg(windows)]
+mod login;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod menu;
 #[cfg(windows)]
 mod pc;
 #[cfg(windows)]
@@ -37,6 +49,10 @@ mod shell;
 mod store;
 #[cfg(windows)]
 mod system;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod text;
+#[cfg(windows)]
+mod tray;
 #[cfg(windows)]
 mod ui;
 #[cfg(windows)]
@@ -51,7 +67,10 @@ fn main() {
     i18n::apply(&ui::load_prefs().language);
     // L'app : sans argument, ou ouverte par un lien, la barre des tâches, une
     // notification ou l'installateur. Le reste : la ligne de commande.
-    let app = args.first().is_none_or(|a| a.starts_with("kybernow://") || ["--connect", "--add", "--updated"].contains(&a.as_str()));
+    // `--background` : ouverture de session ; `--quit` : l'installateur la ferme.
+    let app = args
+        .first()
+        .is_none_or(|a| a.starts_with("kybernow://") || ["--connect", "--add", "--updated", "--background", "--quit"].contains(&a.as_str()));
     if !app {
         // Sonde et options de l'installateur : leur propre journal, celui de
         // l'app (dernière session) reste intact.
@@ -68,6 +87,14 @@ fn main() {
         // Lancée depuis un terminal : on écrit dans le sien.
         system::attach_console();
         std::process::exit(cli::main());
+    }
+    // L'installateur ferme l'app (`--quit`) : transmis à l'app ouverte, sans
+    // attendre la fin de l'installation (elle attendrait celle-ci).
+    if args.first().is_some_and(|a| a == "--quit") {
+        if !instance::claim() {
+            let _ = instance::forward(&args);
+        }
+        return;
     }
     // Déjà ouverte : elle reçoit la demande, celle-ci s'arrête (sans toucher
     // à son journal), même si la transmission échoue (jamais deux apps).

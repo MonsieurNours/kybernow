@@ -4,6 +4,13 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.5.3
+
+- **KyberNow Link next to the clock, on Mac and Windows**: an icon in the menu bar (Mac) or the notification area (Windows) lists your computers, each with a coloured dot and its state (green online, red offline, amber while waking or restarting), and for each one: connect with its profile, wake it, switch profile, its settings, Admin, restart or update the Station. In a session, the live measurements, full screen, the mouse, statistics and “Disconnect”. Closing the window no longer quits the app: it keeps running in the icon (on the Mac, the Dock icon is only there while a window is open), and “Quit KyberNow Link” ends a session in progress first. On Windows, a double click on the icon opens the window.
+- New app setting, “Open at login”, on by default: the app starts with the computer, without a window, in the icon.
+- Notifications, on Mac and Windows: a Station update is ready (with “Update”), a woken computer is online (with “Connect”) or is still not responding, a restart or update started from the menu has finished; and, on the Mac as already on Windows, a session stops without you (with “Resume”).
+- Windows: the “Resume” and “Take back control” buttons of notifications do restart the session (Windows added a slash to the link, which then opened adding a computer).
+
 ## 0.5.2
 
 - **On-screen controller on iPhone, iPad and Android** (phones and tablets): the session bar's “On-screen controller” button, remembered for each computer. Two layouts, Full (a whole Xbox controller: two clickable sticks, D-pad, A, B, X, Y, progressive triggers, View, Menu, Guide) and Simple (left stick, D-pad, A, B, X, Y and Menu), with a small button on the controller to switch between them. The computer sees it as an Xbox 360 controller, in the first free player slot; while it is shown, the rest of the screen does not act as a mouse. Every press lights up and can be felt (a click for buttons, ticks for the sticks at the centre, at each change of direction and at the edge), and the game's rumble vibrates the device; the iPad, with no haptic engine, keeps the visual feedback. Settings in Controls: Layout, Size, Opacity, Haptic feedback.

@@ -159,8 +159,13 @@ pub fn install(desktop: bool) -> bool {
     ok
 }
 
-/// Une fenêtre de cette app est-elle au premier plan ?
+/// Une fenêtre de cette app est-elle au premier plan ? Une fenêtre qu'on
+/// voit (accueil, session, barre, question) : pas la fenêtre cachée de
+/// l'icône près de l'horloge, à qui Windows rend parfois le premier plan
+/// après son menu ou une question.
 pub fn app_in_front() -> bool {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsWindowVisible};
     unsafe {
         let w: HWND = GetForegroundWindow();
         if w.0.is_null() {
@@ -168,7 +173,14 @@ pub fn app_in_front() -> bool {
         }
         let mut pid = 0u32;
         GetWindowThreadProcessId(w, Some(&mut pid));
-        pid == GetCurrentProcessId()
+        let mut r = RECT::default();
+        let _ = GetWindowRect(w, &mut r);
+        let seen = IsWindowVisible(w).as_bool() && r.right - r.left > 100 && r.bottom - r.top > 60;
+        let front = pid == GetCurrentProcessId() && seen;
+        if pid == GetCurrentProcessId() && !seen {
+            log::debug!("premier plan : fenêtre cachée de l'app, comptée comme absente");
+        }
+        front
     }
 }
 
@@ -271,8 +283,16 @@ fn xml_escape(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
-/// Une notification de Windows ; `action` : (libellé, lien `kybernow://…`).
+/// Une notification de Windows qui ouvre l'accueil ; `action` : (libellé, lien `kybernow://…`).
 pub fn notify(title: &str, body: &str, action: Option<(&str, &str)>) {
+    notify_to("kybernow://open", title, body, action);
+}
+
+/// Une notification de Windows ; un clic dessus ouvre `launch`
+/// (`kybernow://open?id=…` : l'accueil sur cet ordinateur ;
+/// `kybernow://station?id=…` : sa rubrique Station).
+pub fn notify_to(launch: &str, title: &str, body: &str, action: Option<(&str, &str)>) {
+    log::info!("notification : {title} ({launch})");
     let actions = action
         .map(|(label, link)| {
             format!(
@@ -283,7 +303,8 @@ pub fn notify(title: &str, body: &str, action: Option<(&str, &str)>) {
         })
         .unwrap_or_default();
     let xml = format!(
-        r#"<toast activationType="protocol" launch="kybernow://open"><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual>{actions}</toast>"#,
+        r#"<toast activationType="protocol" launch="{}"><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual>{actions}</toast>"#,
+        xml_escape(launch),
         xml_escape(title),
         xml_escape(body)
     );

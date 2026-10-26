@@ -16,11 +16,15 @@
   let thisPc = $state<ThisPc | null>(null)
   let selectedId = $state<string | null>(read('kybernow.selected'))
   let settingsId = $state<string | null>(null)
+  /** Rubrique des réglages ouverte par une notification ou le menu de l'icône (`station`). */
+  let settingsRubric = $state<string | null>(null)
   let adding = $state<{ found: Found | null } | null>(null)
   /** `restarting` : dernier recours de la connexion, la Station redémarre. */
   let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean } | null>(null)
   let error = $state<string | null>(null)
   let appSheet = $state(false)
+  /** Réglages de l'app ouverts par « Rechercher des mises à jour » (menu de l'icône). */
+  let appCheck = $state(false)
   let update = $state<Update | null>(null)
   let progress = $state<number | null>(null)
   let notice = $state<string | null>(null)
@@ -28,8 +32,6 @@
   let battery = $state<Battery>('alleger')
   /** « Réessayer » en cours (accueil). */
   let retrying = $state<string | null>(null)
-  /** Réveil par le réseau envoyé : l'ordinateur est sondé toutes les 2 s, 2 min au plus. */
-  let waking = $state<{ id: string; since: number } | null>(null)
 
   function read(k: string) {
     try {
@@ -105,10 +107,24 @@
     return () => off.forEach((p) => p.then((f) => f()))
   })
 
-  /** Demande venue de l'extérieur : lien, barre des tâches, notification. */
+  /** Demande venue de l'extérieur : lien, barre des tâches, notification, menu de l'icône. */
   async function handle(a: Action) {
     settingsId = null
-    if (a.kind === 'connect') {
+    settingsRubric = null
+    if (a.kind === 'show') {
+      if (computers.some((c) => c.id === a.id)) select(a.id)
+    } else if (a.kind === 'settings') {
+      if (!computers.some((c) => c.id === a.id)) return
+      adding = null
+      appSheet = false
+      select(a.id)
+      settingsRubric = a.rubric
+      settingsId = a.id
+    } else if (a.kind === 'app') {
+      adding = null
+      appCheck = a.check
+      appSheet = true
+    } else if (a.kind === 'connect') {
       if (passage) return
       if (!computers.some((c) => c.id === a.id)) return
       select(a.id)
@@ -161,45 +177,31 @@
     }
   }
 
-  /** Hors ligne, cartes réseau connues : le paquet de réveil, puis l'ordinateur sondé jusqu'à son retour. */
+  /**
+   * Hors ligne, cartes réseau connues : le paquet de réveil. L'app sonde ensuite l'ordinateur
+   * jusqu'à son retour (2 min au plus) et le dit par `waking`, fenêtre ouverte ou non.
+   */
   async function wake(id: string) {
     error = null
     try {
       await invoke('wake', { id })
-      waking = { id, since: Date.now() }
     } catch (e) {
       error = String(e)
     }
   }
-
-  const wakingId = $derived(waking?.id ?? null)
-  $effect(() => {
-    const id = wakingId
-    if (!id) return
-    const timer = setInterval(() => {
-      const c = computers.find((x) => x.id === id)
-      if (!c || c.online || !waking || Date.now() - waking.since > 120_000) {
-        waking = null
-        return
-      }
-      invoke('poll_now', { id }).catch(() => {})
-    }, 2000)
-    return () => clearInterval(timer)
-  })
-  // En ligne : le réveil a abouti.
-  $effect(() => {
-    if (waking && computers.find((x) => x.id === waking!.id)?.online) waking = null
-  })
 
   async function setBattery(b: Battery) {
     battery = b
     battery = await invoke<Battery>('set_battery', { battery: b })
   }
 
+  /** Comme le menu de l'icône : retouches effacées, appliqué tout de suite pendant sa session. */
   async function setProfile(id: string, profile: Computer['settings']['profile']) {
-    const c = computers.find((x) => x.id === id)
-    if (!c) return
-    await invoke('save_settings', { id, settings: { ...c.settings, profile, codec: null, yuv444: null, mbps: null, reliable: null } })
+    try {
+      await invoke('set_profile', { id, profile })
+    } catch (e) {
+      error = String(e)
+    }
   }
 
   function added(id: string) {
@@ -211,7 +213,7 @@
 <TitleBar
   title={settingsFor ? t('app.title_settings') : 'KyberNow Link'}
   onback={settingsFor ? () => (settingsId = null) : undefined}
-  onapp={() => (appSheet = true)}
+  onapp={() => ((appCheck = false), (appSheet = true))}
   badge={update !== null}
 />
 
@@ -220,7 +222,7 @@
     {#if update}
       <span>{t('app.update_ready', { version: update.version })}</span>
       {#if progress !== null}<span class="mono">{progress} %</span>{:else}<button onclick={installUpdate}>{t('app.install_relaunch')}</button>{/if}
-      <button class="more" onclick={() => (appSheet = true)}>{t('app.whats_new')}</button>
+      <button class="more" onclick={() => ((appCheck = false), (appSheet = true))}>{t('app.whats_new')}</button>
     {:else}
       <span>{notice}</span>
       <button class="more" onclick={() => (notice = null)}>{t('common.ok')}</button>
@@ -230,7 +232,7 @@
 
 {#if settingsFor}
   {#key settingsFor.id}
-    <Settings computer={settingsFor} {thisPc} {battery} onremoved={() => (settingsId = null)} />
+    <Settings computer={settingsFor} {thisPc} {battery} start={settingsRubric} onremoved={() => (settingsId = null)} />
   {/key}
 {:else}
   <Home
@@ -241,7 +243,6 @@
     {selected}
     busy={passage !== null}
     retrying={retrying !== null && retrying === selected?.id}
-    {wakingId}
     {error}
     onselect={select}
     onconnect={connect}
@@ -265,7 +266,7 @@
 {/if}
 
 {#if appSheet}
-  <AppSheet {update} {progress} {thisPc} {battery} onbattery={setBattery} onclose={() => (appSheet = false)} oninstall={installUpdate} />
+  <AppSheet {update} {progress} {thisPc} {battery} check={appCheck} onbattery={setBattery} onclose={() => (appSheet = false)} oninstall={installUpdate} />
 {/if}
 
 {#if passage && passageFor}

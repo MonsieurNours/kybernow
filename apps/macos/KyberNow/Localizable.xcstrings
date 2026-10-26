@@ -49,6 +49,38 @@
         }
       }
     },
+    "%@ est en ligne" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is online"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ est en ligne"
+          }
+        }
+      }
+    },
+    "%@ ne répond toujours pas" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is still not responding"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ne répond toujours pas"
+          }
+        }
+      }
+    },
     "%@ retrouve ses écrans et son son." : {
       "localizations" : {
         "en" : {
@@ -557,6 +589,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ajouter un ordinateur"
+          }
+        }
+      }
+    },
+    "Ajouter un ordinateur…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a computer…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ajouter un ordinateur…"
           }
         }
       }
@@ -1441,6 +1489,22 @@
         }
       }
     },
+    "Démarrage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startup"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Démarrage"
+          }
+        }
+      }
+    },
     "Déplacements bruts de la souris, sans l'accélération de macOS, pointeur caché : pour viser." : {
       "localizations" : {
         "en" : {
@@ -1565,6 +1629,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "En ligne"
+          }
+        }
+      }
+    },
+    "En session sur %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In session on %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En session sur %@"
           }
         }
       }
@@ -2033,6 +2113,54 @@
         }
       }
     },
+    "KyberNow Link démarre avec votre Mac, sans fenêtre : vos ordinateurs vous attendent dans la barre des menus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link starts with your Mac, without a window: your computers wait for you in the menu bar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link démarre avec votre Mac, sans fenêtre : vos ordinateurs vous attendent dans la barre des menus."
+          }
+        }
+      }
+    },
+    "KyberNow Link est toujours là" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link is still here"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link est toujours là"
+          }
+        }
+      }
+    },
+    "KyberNow Link · en session sur %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link · in session on %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link · en session sur %@"
+          }
+        }
+      }
+    },
     "KyberNow Station %@ est en place." : {
       "localizations" : {
         "en" : {
@@ -2493,6 +2621,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "La réactivité d'abord, pour jouer."
+          }
+        }
+      }
+    },
+    "La session sur %@ est terminée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The session on %@ has ended"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La session sur %@ est terminée"
+          }
+        }
+      }
+    },
+    "La session sur %@ s'est arrêtée" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The session on %@ stopped"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La session sur %@ s'est arrêtée"
+          }
+        }
+      }
+    },
+    "La version %@ est prête. Environ une minute ; une session en cours sera coupée." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Version %@ is ready. About a minute; a session in progress will be cut off."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La version %@ est prête. Environ une minute ; une session en cours sera coupée."
           }
         }
       }
@@ -2961,6 +3137,22 @@
         }
       }
     },
+    "Mettre à jour" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à jour"
+          }
+        }
+      }
+    },
     "Mettre à jour la Station" : {
       "localizations" : {
         "en" : {
@@ -2973,6 +3165,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mettre à jour la Station"
+          }
+        }
+      }
+    },
+    "Mettre à jour la Station (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update the Station (%@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre à jour la Station (%@)"
           }
         }
       }
@@ -3005,6 +3213,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mise en paquets et départ sur le réseau"
+          }
+        }
+      }
+    },
+    "Mise à jour de la Station d'%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Station update for %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour de la Station d'%@"
+          }
+        }
+      }
+    },
+    "Mise à jour de la Station de %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Station update for %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour de la Station de %@"
           }
         }
       }
@@ -3165,6 +3405,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ouvrir Admin"
+          }
+        }
+      }
+    },
+    "Ouvrir KyberNow Link" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open KyberNow Link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir KyberNow Link"
+          }
+        }
+      }
+    },
+    "Ouvrir à l'ouverture de session" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open at login"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir à l'ouverture de session"
           }
         }
       }
@@ -3585,6 +3857,22 @@
         }
       }
     },
+    "Quitter KyberNow Link" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit KyberNow Link"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quitter KyberNow Link"
+          }
+        }
+      }
+    },
     "Rapide" : {
       "localizations" : {
         "en" : {
@@ -3857,6 +4145,38 @@
         }
       }
     },
+    "Reprendre" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre"
+          }
+        }
+      }
+    },
+    "Reprendre la main" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Take back control"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reprendre la main"
+          }
+        }
+      }
+    },
     "Retirer" : {
       "localizations" : {
         "en" : {
@@ -4017,6 +4337,38 @@
         }
       }
     },
+    "Réglages de l'app…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App settings…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages de l'app…"
+          }
+        }
+      }
+    },
+    "Réglages…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réglages…"
+          }
+        }
+      }
+    },
     "Réseau" : {
       "localizations" : {
         "en" : {
@@ -4141,6 +4493,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Se connecter"
+          }
+        }
+      }
+    },
+    "Se connecter (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connect (%@)"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se connecter (%@)"
           }
         }
       }
@@ -4833,6 +5201,22 @@
         }
       }
     },
+    "Un autre appareil a pris la main, ou Admin y a mis fin." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Another device took over, or Admin ended it."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un autre appareil a pris la main, ou Admin y a mis fin."
+          }
+        }
+      }
+    },
     "Un texte net, pour travailler." : {
       "localizations" : {
         "en" : {
@@ -4945,6 +5329,22 @@
         }
       }
     },
+    "Vos ordinateurs vous attendent dans la barre des menus." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your computers are waiting in the menu bar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos ordinateurs vous attendent dans la barre des menus."
+          }
+        }
+      }
+    },
     "Vos propres réglages." : {
       "localizations" : {
         "en" : {
@@ -5025,6 +5425,22 @@
         }
       }
     },
+    "Vous pouvez vous connecter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can connect now."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous pouvez vous connecter."
+          }
+        }
+      }
+    },
     "Vérification…" : {
       "localizations" : {
         "en" : {
@@ -5053,6 +5469,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Vérifier l'ordinateur"
+          }
+        }
+      }
+    },
+    "Vérifiez qu'il est branché au réseau et que le réveil est autorisé sur l'ordinateur (Admin › Système)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check that it is plugged into the network and that waking is allowed on the computer (Admin › System)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérifiez qu'il est branché au réseau et que le réveil est autorisé sur l'ordinateur (Admin › Système)."
           }
         }
       }
@@ -5549,6 +5981,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "« %@ » dans la barre."
+          }
+        }
+      }
+    },
+    "À autoriser dans Réglages Système › Général." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow it in System Settings › General."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "À autoriser dans Réglages Système › Général."
           }
         }
       }
