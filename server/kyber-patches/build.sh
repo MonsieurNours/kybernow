@@ -40,6 +40,9 @@
 #         une erreur
 #   0015  moteur web (kyber-web) : position absolue tant que le pointeur n'est
 #         pas capturé
+#   0016  débit par écran (kycontroller) : le débit d'une session à plusieurs
+#         écrans se répartit selon les pixels par seconde de chaque écran
+#         (parts égales si un mode est inconnu), au démarrage et à /set_bitrate
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
