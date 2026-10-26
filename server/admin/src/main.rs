@@ -197,6 +197,25 @@ enum AgentAction {
         #[arg(long)]
         dir: PathBuf,
     },
+    /// Pointeur de Windows agrandi au cran `step` (base `base` px), avec le
+    /// compte de l'utilisateur (session à plusieurs écrans, voir display/cursor.rs).
+    PointerSize {
+        #[arg(long)]
+        step: u32,
+        #[arg(long)]
+        base: u32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Taille du pointeur d'avant la session (valeur absente si non donnée).
+    PointerRestore {
+        #[arg(long)]
+        base: Option<u32>,
+        #[arg(long)]
+        size: Option<u32>,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Cartes graphiques connues de la configuration d'affichage (LUID, chemin).
     Adapters {
         #[arg(long)]
@@ -335,6 +354,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
         AgentAction::Adapters { out } => (out, display::topology::adapters()),
+        AgentAction::PointerSize { step, base, out } => (out, display::cursor::enlarge(step, base)),
+        AgentAction::PointerRestore { base, size, out } => (out, display::cursor::restore(base, size)),
         AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
         AgentAction::Launch { kind, target, exe, out } => {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
@@ -347,6 +368,8 @@ fn display_agent(action: AgentAction) -> Result<()> {
         AgentAction::Isolate { out, .. }
         | AgentAction::IsolateMany { out, .. }
         | AgentAction::Adapters { out }
+        | AgentAction::PointerSize { out, .. }
+        | AgentAction::PointerRestore { out, .. }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }

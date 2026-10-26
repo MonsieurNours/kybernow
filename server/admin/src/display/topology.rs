@@ -564,6 +564,7 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     // Ce que Windows a mis en place pour chaque écran, échelle comprise
     // (`facts`, écrit par Admin dans son journal pour comparer les écrans).
     let mut facts: Vec<String> = Vec::new();
+    let mut scales: Vec<Option<u32>> = Vec::new();
     let list: Vec<Value> = names
         .iter()
         .map(|name| {
@@ -573,7 +574,9 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
                 return Value::Null;
             }
             let (x, y) = current_position(name);
-            let scale = scale_at(x, y).map_or("inconnue".to_string(), |s| format!("{s} %"));
+            let measured = scale_at(x, y);
+            scales.push(measured);
+            let scale = measured.map_or("inconnue".to_string(), |s| format!("{s} %"));
             facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), échelle {scale}"));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
@@ -588,6 +591,7 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "screens": list,
         "notes": notes,
         "facts": facts,
+        "scales": scales,
     }))
 }
 
