@@ -267,16 +267,18 @@ fn slot_order(screens: &[Screen]) -> Vec<usize> {
 const VIRTUAL_DISPLAY_GUID: [u8; 16] = *b"KyberNow-Display";
 
 /// Identifiant stable du moniteur de rang `slot` (0 : le principal) :
-/// `KyberNow-Display`, puis `KyberNow-Disp-02` à `-04`. Windows retrouve
+/// `KyberNow-Display`, puis `02-KyberNow-Disp` à `04-…`. Windows retrouve
 /// ainsi les réglages de chaque écran (échelle) d'une session à l'autre.
+/// SudoVDA fait des 4 premiers octets le numéro de série de l'EDID : ils
+/// diffèrent d'un écran à l'autre, pour que Windows ne les confonde pas.
 pub fn slot_guid(slot: usize) -> [u8; 16] {
     if slot == 0 {
         return VIRTUAL_DISPLAY_GUID;
     }
-    let mut guid = *b"KyberNow-Disp-00";
+    let mut guid = *b"00-KyberNow-Disp";
     let n = (slot + 1) as u8;
-    guid[14] = b'0' + n / 10;
-    guid[15] = b'0' + n % 10;
+    guid[0] = b'0' + n / 10;
+    guid[1] = b'0' + n % 10;
     guid
 }
 
@@ -336,6 +338,17 @@ impl Placement {
     /// `luid_low,luid_high,target,width,height,refresh,x,y`
     pub fn to_arg(&self) -> String {
         format!("{},{},{},{},{},{}", self.created.to_arg(), self.mode.width, self.mode.height, self.mode.refresh, self.x, self.y)
+    }
+
+    /// Place d'un écran que Windows a mis à `width` × `height` au lieu du mode
+    /// demandé : collé du même côté que demandé (un écran à gauche du
+    /// principal garde son bord droit, un écran au-dessus son bord bas).
+    pub fn anchored(&self, width: u32, height: u32) -> (i32, i32) {
+        let right = i64::from(self.x) + i64::from(self.mode.width);
+        let bottom = i64::from(self.y) + i64::from(self.mode.height);
+        let x = if right <= 0 { right - i64::from(width) } else { i64::from(self.x) };
+        let y = if bottom <= 0 { bottom - i64::from(height) } else { i64::from(self.y) };
+        (x as i32, y as i32)
     }
 
     pub fn parse(arg: &str) -> Result<Self> {
@@ -440,6 +453,16 @@ fn placed_screens(applied: &Value, asked: &[Screen]) -> Vec<Option<Screen>> {
             }
         })
         .collect()
+}
+
+/// Ce que l'agent d'affichage a noté en plaçant les écrans (mode refusé,
+/// proposé ou non par Windows…) : il n'a pas de journal, Admin l'écrit dans
+/// le sien et le retire du résultat.
+fn log_notes(applied: &mut Value) {
+    let Some(notes) = applied.as_object_mut().and_then(|o| o.remove("notes")) else { return };
+    for note in notes.as_array().into_iter().flatten().filter_map(Value::as_str) {
+        tracing::warn!("écrans virtuels : {note}");
+    }
 }
 
 /// « 1920 × 1080 à 60 Hz » (journaux).
@@ -806,6 +829,7 @@ impl Manager {
         let placed = placed_screens(&applied, &asked.iter().map(|(_, s)| *s).collect::<Vec<_>>());
         // `applied` reste le mode du principal ; les écrans vont dans `screens` de la réponse.
         let mut applied = applied;
+        log_notes(&mut applied);
         if let Some(o) = applied.as_object_mut() {
             o.remove("screens");
         }
@@ -1072,7 +1096,8 @@ impl Manager {
         }
         if let Some((asked, others)) = reisolate {
             match self.backend.isolate(&asked) {
-                Ok(applied) => {
+                Ok(mut applied) => {
+                    log_notes(&mut applied);
                     if let Some(s) = self.session.lock().unwrap().as_mut() {
                         s.applied = applied;
                         s.last_reisolate = Some(now);
@@ -1809,13 +1834,29 @@ mod tests {
     }
 
     #[test]
+    fn ecran_impose_reste_colle() {
+        let created = Created { luid_low: 0, luid_high: 0, target: 0 };
+        let at = |w, h, x, y| Placement { created, mode: Mode { width: w, height: h, refresh: 60 }, x, y };
+        // MacBook à gauche, mis en 3840 × 2160 par Windows : bord droit gardé.
+        assert_eq!(at(3456, 2234, -3456, 322).anchored(3840, 2160), (-3840, 322));
+        // À droite : bord gauche gardé, rien ne bouge.
+        assert_eq!(at(5120, 2880, 3840, 0).anchored(3840, 2160), (3840, 0));
+        // Au-dessus : bord bas gardé.
+        assert_eq!(at(2560, 1440, 0, -1440).anchored(1920, 1080), (0, -1080));
+        // En dessous, à gauche du bord : seul x suit.
+        assert_eq!(at(1920, 1080, -1920, 2160).anchored(1280, 720), (-1280, 2160));
+    }
+
+    #[test]
     fn identifiants_des_ecrans() {
         assert_eq!(&slot_guid(0), b"KyberNow-Display");
-        assert_eq!(&slot_guid(1), b"KyberNow-Disp-02");
-        assert_eq!(&slot_guid(3), b"KyberNow-Disp-04");
+        assert_eq!(&slot_guid(1), b"02-KyberNow-Disp");
+        assert_eq!(&slot_guid(3), b"04-KyberNow-Disp");
         let all: Vec<_> = (0..MAX_SCREENS).map(slot_guid).collect();
         for (i, g) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(g));
+            // Numéro de série de l'EDID (4 premiers octets) propre à chaque écran.
+            assert!(!all[i + 1..].iter().any(|o| o[..4] == g[..4]));
         }
     }
 
