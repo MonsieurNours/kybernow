@@ -109,12 +109,6 @@ pub struct VdSettings {
     /// Politique par défaut, quand l'app n'en donne pas (`mode_policy`).
     #[serde(default)]
     pub on_mode_change: ModePolicy,
-    /// Réglage d'essai (multi-écrans, à la main dans `kyber-admin.toml`) :
-    /// créer les écrans secondaires d'abord et le principal en dernier,
-    /// même disposition et même écran principal de Windows. Pour savoir si
-    /// un défaut suit le premier écran créé par le pilote ou l'écran principal.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub primary_created_last: bool,
 }
 
 fn default_width() -> u32 {
@@ -135,7 +129,6 @@ impl Default for VdSettings {
             height: default_height(),
             refresh: default_refresh(),
             on_mode_change: ModePolicy::default(),
-            primary_created_last: false,
         }
     }
 }
@@ -828,11 +821,16 @@ impl Manager {
             match result {
                 Ok(v) => {
                     tracing::info!(
-                        "écran {gdi_name} : capture par Windows Graphics Capture (compte de l'utilisateur), {} × {}, pointeur {}, bordure jaune {}",
+                        "écran {gdi_name} : capture par Windows Graphics Capture (compte de l'utilisateur), {} × {}, pointeur {}, bordure jaune {}, {}",
                         v["width"],
                         v["height"],
                         if v["cursor_excluded"].as_bool() == Some(false) { "dans l'image (Windows ne permet pas de l'exclure)" } else { "exclu de l'image" },
-                        if v["border_required"].as_bool() == Some(true) { "imposée par Windows" } else { "refusée" }
+                        if v["border_required"].as_bool() == Some(true) { "imposée par Windows" } else { "refusée" },
+                        match (v["first_frame"].as_bool() == Some(true), v["restarts"].as_u64().unwrap_or(0)) {
+                            (true, 0) => "première image reçue de Windows".to_string(),
+                            (true, n) => format!("première image reçue de Windows après {n} relance(s) de la capture"),
+                            (false, n) => format!("pas encore d'image de Windows ({n} relance(s) de la capture)"),
+                        }
                     );
                 }
                 Err(e) => tracing::warn!("écran {gdi_name} : capture WGC indisponible, la duplication reste ({e:#})"),
@@ -1026,28 +1024,10 @@ impl Manager {
                 Err(e) => tracing::warn!("carte de rendu des écrans virtuels : {e:#}"),
             }
         }
-        // Rang de chaque écran (0 : le principal), et ordre de création :
-        // le principal d'abord, sauf réglage d'essai `primary_created_last`.
+        // Rang de chaque écran (0 : le principal), créés dans cet ordre.
         let order = slot_order(&layout);
-        let mut ranks: Vec<usize> = (0..order.len()).collect();
-        if layout.len() > 1 && self.settings.lock().unwrap().primary_created_last {
-            ranks.rotate_left(1);
-        }
-        if layout.len() > 1 {
-            tracing::info!(
-                "ordre de création des écrans virtuels : {}",
-                ranks
-                    .iter()
-                    .map(|&slot| {
-                        let role = if slot == 0 { "principal" } else { "secondaire" };
-                        format!("{} ({role})", label(layout[order[slot]].mode()))
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", puis ")
-            );
-        }
         let mut created_slots: Vec<(usize, usize, [u8; 16], Created)> = Vec::new();
-        for slot in ranks {
+        for slot in 0..order.len() {
             let index = order[slot];
             let guid = slot_guid(slot);
             match self.backend.create(guid, slot, layout[index].mode()) {
@@ -1598,7 +1578,7 @@ impl Backend for Simulated {
         screen.wgc = screens.iter().map(|(g, _)| g.clone()).collect();
         screens
             .iter()
-            .map(|(g, _)| (g.clone(), Ok(json!({ "width": 1920, "height": 1080, "cursor_excluded": true, "border_required": false }))))
+            .map(|(g, _)| (g.clone(), Ok(json!({ "width": 1920, "height": 1080, "cursor_excluded": true, "border_required": false, "first_frame": true }))))
             .collect()
     }
     fn stop_wgc(&self) {
@@ -1819,6 +1799,21 @@ mod windows {
                     break;
                 }
                 std::thread::sleep(Duration::from_millis(100));
+            }
+            // Première image de Windows : attendue 2 s au plus (journal seulement ;
+            // l'agent refait la capture à 1 s sans image).
+            let first_deadline = std::time::Instant::now() + Duration::from_secs(2);
+            for (gdi_name, result) in results.iter_mut() {
+                let Ok(v) = result else { continue };
+                let status = dir.join(format!("wgc-{}.json", wgc_shared::screen_id(gdi_name)));
+                while v["first_frame"].as_bool() != Some(true) && std::time::Instant::now() < first_deadline {
+                    std::thread::sleep(Duration::from_millis(100));
+                    if let Some(next) = std::fs::read_to_string(&status).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+                        if next["state"] == "ready" {
+                            *v = next;
+                        }
+                    }
+                }
             }
             results
         }
@@ -2355,26 +2350,6 @@ mod tests {
         let (m, sim, _) = simulated(VdSettings::default());
         sim.screen.lock().unwrap().processes = vec!["explorer.exe".into(), "sunshine.exe".into()];
         assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_ok());
-    }
-
-    #[test]
-    fn reglage_d_essai_principal_cree_en_dernier() {
-        let settings = VdSettings { primary_created_last: true, ..VdSettings::default() };
-        let (m, sim, _) = simulated(settings);
-        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
-        // Même résultat qu'avec l'ordre habituel : principal en (0, 0), le
-        // principal donné en premier à l'isolement.
-        assert_eq!(started.screens, trois_ecrans().into_iter().map(Some).collect::<Vec<_>>());
-        assert_eq!(sim.screen.lock().unwrap().last_isolate, vec![(0, 0, 0), (1, 3840, 0), (2, -3456, 400)]);
-        assert_eq!(sim.screen.lock().unwrap().created, vec![1, 2, 0]);
-        // Le principal refusé en dernier : les secondaires déjà créés sont retirés.
-        m.stop("fin du test");
-        sim.screen.lock().unwrap().create_fails = vec![0];
-        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_err());
-        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
-        assert!(!m.alive.load(Ordering::SeqCst));
-        // Une session à un écran ne change pas, et le réglage n'est écrit que s'il est mis.
-        assert!(!toml::to_string(&VdSettings::default()).unwrap().contains("primary_created_last"));
     }
 
     #[test]

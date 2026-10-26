@@ -565,10 +565,8 @@ async fn display_status(State(s): State<AppState>) -> ApiResult<Json<Value>> {
     Ok(Json(blocking(move || Ok(d.status())).await?))
 }
 
-async fn display_settings(State(s): State<AppState>, Json(mut body): Json<VdSettings>) -> ApiResult<Json<Value>> {
+async fn display_settings(State(s): State<AppState>, Json(body): Json<VdSettings>) -> ApiResult<Json<Value>> {
     Mode { width: body.width, height: body.height, refresh: body.refresh }.validate()?;
-    // Le réglage d'essai ne se règle qu'à la main : la page ne l'efface pas.
-    body.primary_created_last = s.display.settings.lock().unwrap().primary_created_last;
     s.update_settings(|st| st.virtual_display = body.clone())?;
     *s.display.settings.lock().unwrap() = body.clone();
     if body.trigger == Trigger::Off {
