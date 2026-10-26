@@ -188,6 +188,8 @@ export interface LiveSession {
   user: string
   started_at: number
   mode: ModeInfo | null
+  /** Modes des écrans d'une session à plusieurs écrans (le principal en premier). */
+  screens?: ModeInfo[]
   profile: string | null
   latency_ms: number | null
   end_requested: boolean
@@ -266,6 +268,9 @@ export interface DisplayStatus {
   session: null | {
     origin: 'app' | 'auto' | 'test'
     mode: { width: number; height: number; refresh: number }
+    /** Écrans virtuels de la session, à leur mode courant et à leur place (le principal en premier). */
+    screens?: { width: number; height: number; refresh: number; x: number; y: number; primary?: boolean }[]
+    screens_requested?: number
     user: string | null
     started_at: number
     seconds_left: number | null

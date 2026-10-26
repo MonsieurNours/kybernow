@@ -50,7 +50,12 @@
   },
   "display": {
     "resolutionRange": "resolution out of range (640 × 480 to 7680 × 4320)",
-    "refreshRange": "refresh rate out of range (24 to 500 Hz)"
+    "refreshRange": "refresh rate out of range (24 to 500 Hz)",
+    "screensCount": "from 1 to {max} displays are needed",
+    "screensPrimary": "exactly one main display is needed",
+    "screensOrigin": "the main display must be at (0, 0)",
+    "screensOverlap": "some displays overlap",
+    "screensApart": "each display must share an edge with another display"
   },
   "update": {
     "sessionConflict": "A device is connected: installing will end its session",
@@ -109,6 +114,7 @@
   "events": {
     "connected": "{name} connected",
     "connectedMode": "{name} connected, {width} × {height} display at {refresh} Hz",
+    "connectedScreens": "{name} connected with {count} displays: {modes}",
     "takeover": "{newcomer} is taking over: asked {previous} to end its session",
     "disconnected": "{name} disconnected after {duration}{latency}{takeover}",
     "latencySuffix": ", median latency {ms}",
@@ -156,6 +162,8 @@
     "launchCloseFailed": "{app} could not be closed: {error}",
     "launchKept": "{app} stays open: {next} is taking over with the same app",
     "launchSet": "At the start of {name}'s sessions: {app}",
-    "launchCleared": "No app opened at the start of {name}'s sessions any more"
+    "launchCleared": "No app opened at the start of {name}'s sessions any more",
+    "screenMissing": "{count} of the {requested} requested displays could not be created on the computer: the session goes on without it",
+    "screensMissing": "{count} of the {requested} requested displays could not be created on the computer: the session goes on without them"
   }
 }

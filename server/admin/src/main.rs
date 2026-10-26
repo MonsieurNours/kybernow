@@ -142,6 +142,14 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Multi-écrans : ne garde actifs que ces écrans virtuels, le principal
+    /// en premier (`luid_low,luid_high,target,width,height,refresh,x,y`).
+    IsolateMany {
+        #[arg(long = "screen", allow_hyphen_values = true, required = true)]
+        screens: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
     Restore {
         #[arg(long)]
         out: PathBuf,
@@ -179,6 +187,10 @@ enum AgentAction {
         luid_high: i32,
         #[arg(long)]
         target: u32,
+        /// Les autres écrans d'une session multi-écrans
+        /// (`luid_low,luid_high,target`, l'un après l'autre).
+        #[arg(long = "extra", allow_hyphen_values = true)]
+        extra: Vec<String>,
     },
     /// Veille de l'app au premier plan (plein écran, jeu) pendant une session.
     Foreground {
@@ -266,12 +278,17 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
-    if let AgentAction::Watch { dir, token, luid_low, luid_high, target } = &action {
+    if let AgentAction::Watch { dir, token, luid_low, luid_high, target, extra } = &action {
+        let primary = display::Created { luid_low: *luid_low, luid_high: *luid_high, target: *target };
+        let mut targets = vec![primary];
+        for arg in extra {
+            targets.push(display::Created::parse(arg)?);
+        }
         #[cfg(windows)]
-        return display::watch::run_agent(dir, token, *luid_low, *luid_high, *target);
+        return display::watch::run_agent(dir, token, &targets);
         #[cfg(not(windows))]
         {
-            let _ = (dir, token, luid_low, luid_high, target);
+            let _ = (dir, token, targets);
             anyhow::bail!("réservé à Windows");
         }
     }
@@ -281,6 +298,15 @@ fn display_agent(action: AgentAction) -> Result<()> {
             display::pointer::begin(agent_dir(&out));
             let r = display::topology::isolate(luid_low, luid_high, target, width, height, refresh)
                 .and_then(|a| Ok(serde_json::to_value(a)?));
+            (out, r)
+        }
+        AgentAction::IsolateMany { screens, out } => {
+            display::pointer::begin(agent_dir(&out));
+            let r = screens
+                .iter()
+                .map(|s| display::Placement::parse(s))
+                .collect::<Result<Vec<_>>>()
+                .and_then(|placed| display::topology::isolate_many(&placed));
             (out, r)
         }
         AgentAction::Restore { out } => {
@@ -313,6 +339,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
+        | AgentAction::IsolateMany { out, .. }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }

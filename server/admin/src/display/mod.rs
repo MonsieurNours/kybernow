@@ -5,6 +5,13 @@
 //! s'éteignent). À la fin : l'écran virtuel est retiré et la disposition
 //! habituelle des écrans physiques est réappliquée.
 //!
+//! Multi-écrans (`screens` de `prepare`, docs/multi-ecrans.md) : un écran
+//! virtuel par écran de l'appareil, quatre au plus, placés comme demandé,
+//! le principal en (0, 0) ; seuls ces écrans restent actifs. Le principal
+//! garde l'identifiant de toujours (`KyberNow-Display`), les autres ont le
+//! leur (`slot_guid`). Veille, politique de mode et filets de sécurité
+//! valent pour chacun.
+//!
 //! Filets de sécurité :
 //! - le pilote retire ses écrans s'il ne reçoit plus de signal de vie (3 s) ;
 //! - l'état d'une session est écrit sur disque et nettoyé au démarrage suivant ;
@@ -121,6 +128,7 @@ impl Default for VdSettings {
     }
 }
 
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mode {
     pub width: u32,
@@ -140,6 +148,138 @@ impl Mode {
     }
 }
 
+/// Au plus quatre écrans par session (`screens` de `prepare`).
+pub const MAX_SCREENS: usize = 4;
+
+/// Un écran demandé par l'appareil (`screens` de `prepare`) : son mode et sa
+/// place sur le bureau de Windows, en pixels, l'écran principal en (0, 0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Screen {
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    #[serde(default)]
+    pub x: i32,
+    #[serde(default)]
+    pub y: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub primary: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl Screen {
+    /// Session à un écran : le principal, en (0, 0).
+    pub fn single(mode: Mode) -> Self {
+        Screen { width: mode.width, height: mode.height, refresh: mode.refresh, x: 0, y: 0, primary: true }
+    }
+
+    pub fn mode(&self) -> Mode {
+        Mode { width: self.width, height: self.height, refresh: self.refresh }
+    }
+
+    /// Le même écran, à un autre mode et à une autre place.
+    fn at(self, mode: Mode, x: i32, y: i32) -> Self {
+        Screen { width: mode.width, height: mode.height, refresh: mode.refresh, x, y, primary: self.primary }
+    }
+
+    fn left(&self) -> i64 {
+        i64::from(self.x)
+    }
+    fn top(&self) -> i64 {
+        i64::from(self.y)
+    }
+    fn right(&self) -> i64 {
+        self.left() + i64::from(self.width)
+    }
+    fn bottom(&self) -> i64 {
+        self.top() + i64::from(self.height)
+    }
+}
+
+/// Les intervalles [a0, a1[ et [b0, b1[ ont-ils une longueur en commun ?
+fn spans_overlap(a0: i64, a1: i64, b0: i64, b1: i64) -> bool {
+    a0.max(b0) < a1.min(b1)
+}
+
+fn overlapping(a: &Screen, b: &Screen) -> bool {
+    spans_overlap(a.left(), a.right(), b.left(), b.right()) && spans_overlap(a.top(), a.bottom(), b.top(), b.bottom())
+}
+
+/// Deux écrans partagent-ils un segment de bord (un coin ne suffit pas :
+/// Windows exige un bord commun) ?
+fn touching(a: &Screen, b: &Screen) -> bool {
+    ((a.right() == b.left() || b.right() == a.left()) && spans_overlap(a.top(), a.bottom(), b.top(), b.bottom()))
+        || ((a.bottom() == b.top() || b.bottom() == a.top()) && spans_overlap(a.left(), a.right(), b.left(), b.right()))
+}
+
+/// Disposition demandée par un appareil : de 1 à 4 écrans, exactement un
+/// principal, en (0, 0), chaque mode valide, aucun chevauchement, tous
+/// reliés au principal par des bords partagés.
+pub fn validate_screens(screens: &[Screen]) -> Result<()> {
+    if screens.is_empty() || screens.len() > MAX_SCREENS {
+        bail!(Msg::new("display.screensCount").with("max", MAX_SCREENS));
+    }
+    let primaries: Vec<&Screen> = screens.iter().filter(|s| s.primary).collect();
+    if primaries.len() != 1 {
+        bail!(Msg::new("display.screensPrimary"));
+    }
+    if (primaries[0].x, primaries[0].y) != (0, 0) {
+        bail!(Msg::new("display.screensOrigin"));
+    }
+    for s in screens {
+        s.mode().validate()?;
+    }
+    for (i, a) in screens.iter().enumerate() {
+        if screens[i + 1..].iter().any(|b| overlapping(a, b)) {
+            bail!(Msg::new("display.screensOverlap"));
+        }
+    }
+    let start = screens.iter().position(|s| s.primary).unwrap_or(0);
+    let mut reached = vec![false; screens.len()];
+    reached[start] = true;
+    let mut todo = vec![start];
+    while let Some(i) = todo.pop() {
+        for j in 0..screens.len() {
+            if !reached[j] && touching(&screens[i], &screens[j]) {
+                reached[j] = true;
+                todo.push(j);
+            }
+        }
+    }
+    if reached.contains(&false) {
+        bail!(Msg::new("display.screensApart"));
+    }
+    Ok(())
+}
+
+/// Ordre de création : le principal d'abord, puis les autres dans l'ordre de
+/// la demande. Le rang dans cet ordre donne l'identifiant de l'écran.
+fn slot_order(screens: &[Screen]) -> Vec<usize> {
+    let primary = screens.iter().position(|s| s.primary).unwrap_or(0);
+    std::iter::once(primary).chain((0..screens.len()).filter(|i| *i != primary)).collect()
+}
+
+/// « KyberNow écran virtuel », identifiant stable du moniteur SudoVDA de
+/// l'écran principal (celui de toujours, pour une session à un écran).
+const VIRTUAL_DISPLAY_GUID: [u8; 16] = *b"KyberNow-Display";
+
+/// Identifiant stable du moniteur de rang `slot` (0 : le principal) :
+/// `KyberNow-Display`, puis `KyberNow-Disp-02` à `-04`. Windows retrouve
+/// ainsi les réglages de chaque écran (échelle) d'une session à l'autre.
+pub fn slot_guid(slot: usize) -> [u8; 16] {
+    if slot == 0 {
+        return VIRTUAL_DISPLAY_GUID;
+    }
+    let mut guid = *b"KyberNow-Disp-00";
+    let n = (slot + 1) as u8;
+    guid[14] = b'0' + n / 10;
+    guid[15] = b'0' + n % 10;
+    guid
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Origin {
@@ -149,24 +289,101 @@ pub enum Origin {
 }
 
 /// Où retrouver l'écran créé dans la configuration d'affichage.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Created {
     pub luid_low: u32,
     pub luid_high: i32,
     pub target: u32,
 }
 
+/// Nombres séparés par des virgules (arguments de l'agent d'affichage).
+fn numbers<const N: usize>(arg: &str) -> Result<[i64; N]> {
+    let parts: Vec<i64> = arg.split(',').map(|p| p.trim().parse::<i64>()).collect::<std::result::Result<_, _>>()
+        .map_err(|_| anyhow::anyhow!("argument d'écran illisible : {arg}"))?;
+    <[i64; N]>::try_from(parts).map_err(|_| anyhow::anyhow!("argument d'écran : {N} nombres attendus dans {arg}"))
+}
+
+fn narrow<T: TryFrom<i64>>(n: i64, arg: &str) -> Result<T> {
+    T::try_from(n).map_err(|_| anyhow::anyhow!("argument d'écran hors limites : {arg}"))
+}
+
+impl Created {
+    /// `luid_low,luid_high,target` (veille des écrans d'une session).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub fn to_arg(&self) -> String {
+        format!("{},{},{}", self.luid_low, self.luid_high, self.target)
+    }
+
+    pub fn parse(arg: &str) -> Result<Self> {
+        let [low, high, target] = numbers::<3>(arg)?;
+        Ok(Created { luid_low: narrow(low, arg)?, luid_high: narrow(high, arg)?, target: narrow(target, arg)? })
+    }
+}
+
+/// Un écran virtuel à placer, tel que l'agent d'affichage le reçoit
+/// (`display-agent isolate-many --screen …`, le principal en premier).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub struct Placement {
+    pub created: Created,
+    pub mode: Mode,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl Placement {
+    /// `luid_low,luid_high,target,width,height,refresh,x,y`
+    pub fn to_arg(&self) -> String {
+        format!("{},{},{},{},{},{}", self.created.to_arg(), self.mode.width, self.mode.height, self.mode.refresh, self.x, self.y)
+    }
+
+    pub fn parse(arg: &str) -> Result<Self> {
+        let [low, high, target, width, height, refresh, x, y] = numbers::<8>(arg)?;
+        Ok(Placement {
+            created: Created { luid_low: narrow(low, arg)?, luid_high: narrow(high, arg)?, target: narrow(target, arg)? },
+            mode: Mode { width: narrow(width, arg)?, height: narrow(height, arg)?, refresh: narrow(refresh, arg)? },
+            x: narrow(x, arg)?,
+            y: narrow(y, arg)?,
+        })
+    }
+}
+
 /// Ce que Windows affiche pendant la session (agent de veille).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Observed {
-    /// Mode courant de l'écran virtuel (0 × 0 s'il n'est plus actif).
+    /// Mode courant de l'écran virtuel principal (0 × 0 s'il n'est plus actif).
     pub mode: Mode,
     #[serde(skip)]
     pub gdi_name: String,
-    /// Écrans actifs, écran virtuel compris.
+    /// Écrans actifs, écrans virtuels compris.
     pub displays: u32,
-    /// Écrans actifs autres que l'écran virtuel (écrans physiques rallumés).
+    /// Écrans actifs autres que les écrans virtuels (écrans physiques rallumés).
     pub others: u32,
+    /// Mode courant et nom GDI des autres écrans virtuels, dans l'ordre de
+    /// la session (vide pour une session à un écran).
+    #[serde(skip)]
+    pub extra: Vec<(Mode, String)>,
+}
+
+impl Observed {
+    /// Mode et nom GDI de l'écran de rang `i` de la session (0 : le principal).
+    fn slot(&self, i: usize) -> Option<(Mode, &str)> {
+        if i == 0 {
+            Some((self.mode, self.gdi_name.as_str()))
+        } else {
+            self.extra.get(i - 1).map(|(m, g)| (*m, g.as_str()))
+        }
+    }
+}
+
+/// Ce qu'une session a mis en place (réponse de `prepare`).
+#[derive(Debug, Clone)]
+pub struct Started {
+    /// Résultat de l'isolement pour l'écran principal (`applied`).
+    pub applied: Value,
+    /// Écrans en place, dans l'ordre de la demande ; `None` : pas créé.
+    pub screens: Vec<Option<Screen>>,
 }
 
 /// Un écran physique rallumé n'est éteint qu'après ce délai de stabilité.
@@ -199,6 +416,32 @@ fn applied_mode(applied: &Value, requested: Mode) -> Mode {
     }
 }
 
+/// Mode et place obtenus pour chaque écran donné à l'isolement (même ordre) ;
+/// `None` : Windows ne l'a pas activé. Une session à un écran n'a pas de
+/// liste `screens` : son écran est en (0, 0).
+fn placed_screens(applied: &Value, asked: &[Screen]) -> Vec<Option<Screen>> {
+    let list = applied["screens"].as_array();
+    asked
+        .iter()
+        .enumerate()
+        .map(|(i, s)| {
+            let entry = match list {
+                Some(list) => list.get(i).filter(|v| !v.is_null()),
+                None => (i == 0).then_some(applied),
+            };
+            match entry {
+                Some(v) => {
+                    let pos = |k: &str| v[k].as_i64().map(|n| n as i32);
+                    Some(s.at(applied_mode(v, s.mode()), pos("x").unwrap_or(s.x), pos("y").unwrap_or(s.y)))
+                }
+                // Le principal est toujours là quand l'isolement réussit.
+                None if i == 0 => Some(*s),
+                None => None,
+            }
+        })
+        .collect()
+}
+
 /// « 1920 × 1080 à 60 Hz » (journaux).
 fn label(m: Mode) -> String {
     format!("{} × {} à {} Hz", m.width, m.height, m.refresh)
@@ -209,10 +452,31 @@ fn mode_param(m: Mode) -> Value {
     Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value()
 }
 
+/// Un écran virtuel de la session.
+struct Slot {
+    guid: [u8; 16],
+    created: Created,
+    /// Rang de l'écran dans la demande de l'appareil.
+    index: usize,
+    /// Mode et place obtenus à la création : la référence pour dire que le
+    /// mode a changé.
+    placed: Screen,
+    /// Dernier mode inattendu annoncé dans le fil (une fois par mode).
+    announced: Option<Mode>,
+}
+
+impl Slot {
+    fn target(&self) -> Mode {
+        self.placed.mode()
+    }
+}
+
 struct Session {
     origin: Origin,
-    mode: Mode,
-    guid: [u8; 16],
+    /// Écrans demandés, dans l'ordre de la demande (un seul : session à un écran).
+    layout: Vec<Screen>,
+    /// Écrans créés, le principal en premier.
+    slots: Vec<Slot>,
     user: Option<String>,
     /// Appareil pour lequel l'écran a été créé (apps à partir de 0.2.5).
     device: Option<String>,
@@ -220,16 +484,11 @@ struct Session {
     last_seen: Instant,
     until: Option<Instant>,
     applied: Value,
-    created: Created,
-    /// Mode obtenu à la création : la référence pour dire que le mode a changé.
-    target: Mode,
     /// Dernier état lu par la veille.
     observed: Option<Observed>,
     /// Écrans physiques vus allumés depuis cet instant.
     others_since: Option<Instant>,
     last_reisolate: Option<Instant>,
-    /// Dernier mode inattendu annoncé dans le fil (une fois par mode).
-    announced: Option<Mode>,
     /// Politique donnée par l'app (sinon, celle des réglages).
     policy: Option<ModePolicy>,
     last_mode_fix: Option<Instant>,
@@ -248,6 +507,20 @@ impl Session {
     fn effective_policy(&self, default: ModePolicy) -> ModePolicy {
         if self.restore_gave_up { ModePolicy::Follow } else { self.policy.unwrap_or(default) }
     }
+
+    /// Mode demandé pour l'écran principal.
+    fn mode(&self) -> Mode {
+        self.layout[self.slots[0].index].mode()
+    }
+
+    /// Ce qui est en place, pour la réponse de `prepare`.
+    fn started(&self) -> Started {
+        let mut screens = vec![None; self.layout.len()];
+        for slot in &self.slots {
+            screens[slot.index] = Some(slot.placed);
+        }
+        Started { applied: self.applied.clone(), screens }
+    }
 }
 
 /// Fil des événements de la console (vue d'ensemble).
@@ -256,18 +529,41 @@ pub type EventSink = Arc<dyn Fn(&str, Msg) + Send + Sync>;
 /// Fichier écrit pendant une session, pour nettoyer après un plantage.
 #[derive(Serialize, Deserialize)]
 struct Record {
+    /// Écran principal (seul champ des versions à un écran).
     guid: String,
+    /// Tous les écrans créés, le principal compris.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    guids: Vec<String>,
+}
+
+impl Record {
+    fn guids(&self) -> Vec<[u8; 16]> {
+        std::iter::once(&self.guid)
+            .chain(self.guids.iter())
+            .filter_map(|g| hex::decode(g).ok())
+            .filter_map(|b| <[u8; 16]>::try_from(b.as_slice()).ok())
+            .fold(Vec::new(), |mut all, g| {
+                if !all.contains(&g) {
+                    all.push(g);
+                }
+                all
+            })
+    }
 }
 
 trait Backend: Send + Sync {
     fn driver(&self) -> Result<Value>;
-    fn create(&self, guid: [u8; 16], mode: Mode) -> Result<Created>;
+    /// Crée l'écran de rang `slot` (0 : le principal ; donne son numéro de série).
+    fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created>;
     fn remove(&self, guid: [u8; 16]) -> Result<()>;
     fn ping(&self) -> Result<()>;
-    fn isolate(&self, created: Created, mode: Mode) -> Result<Value>;
+    /// Ne garde actifs que ces écrans virtuels (le principal en premier), à
+    /// leur mode et à leur place. Avec plusieurs écrans, le résultat donne
+    /// dans `screens` ce qui est en place pour chacun (null : pas activé).
+    fn isolate(&self, screens: &[(Created, Screen)]) -> Result<Value>;
     fn restore(&self) -> Result<()>;
-    /// Début et fin de la veille de l'écran créé.
-    fn watch(&self, created: Created);
+    /// Début et fin de la veille des écrans créés (le principal en premier).
+    fn watch(&self, created: &[Created]);
     fn unwatch(&self);
     /// Dernier état vu par la veille (None : inconnu pour l'instant).
     fn observe(&self) -> Option<Observed>;
@@ -287,9 +583,6 @@ pub struct Manager {
     pub settings: Mutex<VdSettings>,
     events: Mutex<Option<EventSink>>,
 }
-
-/// « KyberNow écran virtuel », identifiant stable du moniteur SudoVDA.
-const VIRTUAL_DISPLAY_GUID: [u8; 16] = *b"KyberNow-Display";
 
 pub fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -334,20 +627,30 @@ impl Manager {
         self.data_dir.join("display-session.json")
     }
 
+    /// Note sur disque les écrans créés (le principal en premier).
+    fn write_record(&self, guids: &[[u8; 16]]) {
+        let Some(first) = guids.first() else { return };
+        let record = Record {
+            guid: hex::encode(first),
+            guids: if guids.len() > 1 { guids.iter().map(hex::encode).collect() } else { Vec::new() },
+        };
+        if let Ok(bytes) = serde_json::to_vec(&record) {
+            let _ = std::fs::write(self.record_path(), bytes);
+        }
+    }
+
     fn fail(&self, e: &anyhow::Error) {
         tracing::error!("écran virtuel : {e:#}");
         *self.last_error.lock().unwrap() = Some(format!("{e:#}"));
     }
 
-    /// Après un plantage ou une coupure : retire l'écran et restaure les écrans physiques.
+    /// Après un plantage ou une coupure : retire les écrans et restaure les écrans physiques.
     pub fn recover(&self) {
         let Ok(text) = std::fs::read_to_string(self.record_path()) else { return };
         tracing::warn!("session d'écran virtuel interrompue trouvée : restauration des écrans");
         if let Ok(record) = serde_json::from_str::<Record>(&text) {
-            if let Ok(bytes) = hex::decode(record.guid) {
-                if let Ok(guid) = <[u8; 16]>::try_from(bytes.as_slice()) {
-                    let _ = self.backend.remove(guid);
-                }
+            for guid in record.guids() {
+                let _ = self.backend.remove(guid);
             }
         }
         self.alive.store(false, Ordering::SeqCst);
@@ -362,10 +665,10 @@ impl Manager {
         }
     }
 
-    /// Démarre (ou reprend) une session à `mode`. Un autre mode remplace la
-    /// session en cours, sauf qu'une session d'app n'est jamais remplacée par
-    /// le déclenchement automatique ni par un essai depuis la console.
-    /// `policy` : ce que l'app veut quand le mode change (sinon, le réglage).
+    /// Démarre (ou reprend) une session à un écran, à `mode`. Un autre mode
+    /// remplace la session en cours, sauf qu'une session d'app n'est jamais
+    /// remplacée par le déclenchement automatique ni par un essai depuis la
+    /// console. `policy` : ce que l'app veut quand le mode change (sinon, le réglage).
     pub fn start(
         &self,
         origin: Origin,
@@ -377,24 +680,41 @@ impl Manager {
     ) -> Result<Value> {
         mode.validate()?;
         let _op = self.ops.lock().unwrap();
-        self.start_locked(origin, mode, user, device, duration, policy)
+        self.start_locked(origin, vec![Screen::single(mode)], user, device, duration, policy).map(|s| s.applied)
+    }
+
+    /// Comme `start`, avec un écran virtuel par entrée de `screens`
+    /// (`prepare` d'une app multi-écrans), placés comme demandé. L'écran
+    /// principal est toujours créé, sinon la session échoue ; un autre écran
+    /// que Windows ou le pilote refuse est laissé de côté (`None`).
+    pub fn start_screens(
+        &self,
+        origin: Origin,
+        screens: Vec<Screen>,
+        user: Option<String>,
+        device: Option<String>,
+        policy: Option<PolicyChoice>,
+    ) -> Result<Started> {
+        validate_screens(&screens)?;
+        let _op = self.ops.lock().unwrap();
+        self.start_locked(origin, screens, user, device, None, policy)
     }
 
     fn start_locked(
         &self,
         origin: Origin,
-        mode: Mode,
+        layout: Vec<Screen>,
         user: Option<String>,
         device: Option<String>,
         duration: Option<Duration>,
         policy: Option<PolicyChoice>,
-    ) -> Result<Value> {
+    ) -> Result<Started> {
         let default_policy = self.settings.lock().unwrap().on_mode_change;
-        let mut fix: Option<(String, Mode)> = None;
+        let mut fixes: Vec<(String, Mode)> = Vec::new();
         let kept = {
             let mut session = self.session.lock().unwrap();
             match session.as_mut() {
-                Some(s) if s.mode == mode => {
+                Some(s) if s.layout == layout => {
                     s.last_seen = Instant::now();
                     // Une app garde son écran : « Auto » ne la rétrograde pas.
                     if !(s.origin == Origin::App && origin == Origin::Auto) {
@@ -412,46 +732,70 @@ impl Manager {
                         s.restore_gave_up = false;
                         s.mode_fixes.clear();
                     }
-                    // Même écran redemandé alors que le mode a changé : en
+                    // Mêmes écrans redemandés alors qu'un mode a changé : en
                     // politique `restore` (« Remettre » dans l'app), on le remet.
                     if s.effective_policy(default_policy) == ModePolicy::Restore {
-                        if let Some(o) = s.observed.as_ref().filter(|o| o.mode.width > 0 && !same_mode(o.mode, s.target)) {
-                            fix = Some((o.gdi_name.clone(), s.target));
+                        if let Some(o) = s.observed.as_ref() {
+                            for (i, slot) in s.slots.iter().enumerate() {
+                                if let Some((mode, gdi)) = o.slot(i) {
+                                    if mode.width > 0 && !same_mode(mode, slot.target()) {
+                                        fixes.push((gdi.to_string(), slot.target()));
+                                    }
+                                }
+                            }
                         }
                     }
-                    Some(s.applied.clone())
+                    Some(s.started())
                 }
                 Some(s) if s.origin == Origin::App => match origin {
                     // Le fil de surveillance pendant une session d'app : rien à faire.
-                    Origin::Auto => return Ok(s.applied.clone()),
+                    Origin::Auto => return Ok(s.started()),
                     Origin::Test => bail!("un appareil utilise l'écran virtuel : essai impossible pendant sa session"),
                     Origin::App => None,
                 },
                 _ => None,
             }
         };
-        if let Some(applied) = kept {
-            if let Some((gdi_name, target)) = fix {
-                self.fix_mode(&gdi_name, target, Instant::now());
+        if let Some(started) = kept {
+            let now = Instant::now();
+            for (gdi_name, target) in fixes {
+                self.fix_mode(&gdi_name, target, now);
             }
-            return Ok(applied);
+            return Ok(started);
         }
-        // Mode différent (un autre appareil prend la main) : on repart de zéro.
+        // Autres écrans (un autre appareil prend la main) : on repart de zéro.
         self.stop_locked("remplacée par une nouvelle session");
 
-        // Identifiant fixe : Windows retrouve la disposition de session
-        // enregistrée pour cet écran (voir topology.rs).
-        let guid = VIRTUAL_DISPLAY_GUID;
+        // Identifiants fixes : Windows retrouve la disposition de session
+        // enregistrée pour ces écrans (voir topology.rs).
         let begun = Instant::now();
-        let created = self.backend.create(guid, mode).inspect_err(|e| self.fail(e))?;
-        // Pinguer dès maintenant : l'isolement peut durer plus que le chien de garde.
-        self.alive.store(true, Ordering::SeqCst);
-        let _ = std::fs::write(self.record_path(), serde_json::to_vec(&Record { guid: hex::encode(guid) })?);
-        let applied = match self.backend.isolate(created, mode) {
+        let mut pending: Vec<(usize, [u8; 16], Created)> = Vec::new();
+        for (slot, &index) in slot_order(&layout).iter().enumerate() {
+            let guid = slot_guid(slot);
+            match self.backend.create(guid, slot, layout[index].mode()) {
+                Ok(created) => {
+                    pending.push((index, guid, created));
+                    // Pinguer dès le premier écran : le chien de garde du
+                    // pilote est armé à sa création, et la suite (autres
+                    // écrans, isolement) peut durer plus que lui.
+                    self.alive.store(true, Ordering::SeqCst);
+                    self.write_record(&pending.iter().map(|p| p.1).collect::<Vec<_>>());
+                }
+                Err(e) if slot == 0 => {
+                    self.fail(&e);
+                    return Err(e);
+                }
+                Err(e) => tracing::warn!("écran virtuel {} sur {} non créé : {e:#}", slot + 1, layout.len()),
+            }
+        }
+        let asked: Vec<(Created, Screen)> = pending.iter().map(|(index, _, created)| (*created, layout[*index])).collect();
+        let applied = match self.backend.isolate(&asked) {
             Ok(v) => v,
             Err(e) => {
                 self.fail(&e);
-                let _ = self.backend.remove(guid);
+                for (_, guid, _) in &pending {
+                    let _ = self.backend.remove(*guid);
+                }
                 self.alive.store(false, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(500));
                 let _ = self.backend.restore();
@@ -459,31 +803,49 @@ impl Manager {
                 return Err(e);
             }
         };
+        let placed = placed_screens(&applied, &asked.iter().map(|(_, s)| *s).collect::<Vec<_>>());
+        // `applied` reste le mode du principal ; les écrans vont dans `screens` de la réponse.
+        let mut applied = applied;
+        if let Some(o) = applied.as_object_mut() {
+            o.remove("screens");
+        }
+        let mut slots = Vec::new();
+        for ((index, guid, created), placed) in pending.into_iter().zip(placed) {
+            match placed {
+                Some(placed) => slots.push(Slot { guid, created, index, placed, announced: None }),
+                None => {
+                    tracing::warn!("un écran virtuel n'a pas été activé par Windows : retiré");
+                    let _ = self.backend.remove(guid);
+                }
+            }
+        }
+        self.write_record(&slots.iter().map(|s| s.guid).collect::<Vec<_>>());
         tracing::info!(
-            "écran virtuel {}×{} à {} Hz actif ({origin:?}), prêt en {} ms",
-            mode.width,
-            mode.height,
-            mode.refresh,
+            "{} écran(s) virtuel(s) actif(s) ({origin:?}) : {}, prêt(s) en {} ms",
+            slots.len(),
+            slots.iter().map(|s| format!("{} en ({}, {})", label(s.target()), s.placed.x, s.placed.y)).collect::<Vec<_>>().join(", "),
             begun.elapsed().as_millis()
         );
+        let missing = layout.len() - slots.len();
+        if missing > 0 {
+            let msg = if missing > 1 { Msg::new("events.screensMissing") } else { Msg::new("events.screenMissing") };
+            self.event("warn", msg.with("count", missing).with("requested", layout.len()));
+        }
         *self.last_error.lock().unwrap() = None;
-        self.backend.watch(created);
-        *self.session.lock().unwrap() = Some(Session {
+        self.backend.watch(&slots.iter().map(|s| s.created).collect::<Vec<_>>());
+        let session = Session {
             origin,
-            mode,
-            guid,
+            layout,
+            slots,
             user,
             device,
             started_at: now_secs(),
             last_seen: Instant::now(),
             until: duration.map(|d| Instant::now() + d),
-            target: applied_mode(&applied, mode),
-            applied: applied.clone(),
-            created,
+            applied,
             observed: None,
             others_since: None,
             last_reisolate: None,
-            announced: None,
             policy: policy.and_then(PolicyChoice::policy),
             last_mode_fix: None,
             mode_fixes: Vec::new(),
@@ -491,8 +853,10 @@ impl Manager {
             reisolations: Vec::new(),
             reisolate_failures: 0,
             reisolate_gave_up: false,
-        });
-        Ok(applied)
+        };
+        let started = session.started();
+        *self.session.lock().unwrap() = Some(session);
+        Ok(started)
     }
 
     /// Signal de vie d'un appareil. Vrai si l'écran virtuel en place est le
@@ -524,7 +888,7 @@ impl Manager {
         self.session.lock().unwrap().as_ref().map(|s| s.effective_policy(default))
     }
 
-    /// Remet le mode de la session sur l'écran virtuel (politique `restore`).
+    /// Remet le mode de la session sur un écran virtuel (politique `restore`).
     fn fix_mode(&self, gdi_name: &str, target: Mode, now: Instant) {
         if let Some(s) = self.session.lock().unwrap().as_mut() {
             s.last_mode_fix = Some(now);
@@ -550,8 +914,10 @@ impl Manager {
         let Some(session) = self.session.lock().unwrap().take() else { return };
         tracing::info!("fin de l'écran virtuel : {reason}");
         self.backend.unwatch();
-        if let Err(e) = self.backend.remove(session.guid) {
-            self.fail(&e);
+        for slot in &session.slots {
+            if let Err(e) = self.backend.remove(slot.guid) {
+                self.fail(&e);
+            }
         }
         self.alive.store(false, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(500));
@@ -569,9 +935,21 @@ impl Manager {
         let observed = self.observed();
         let session = self.session.lock().unwrap();
         let session = session.as_ref().map(|s| {
+            // Chaque écran à son mode courant (un jeu a pu le changer), à sa place.
+            let screens: Vec<Screen> = s
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(i, slot)| {
+                    let now = observed.as_ref().and_then(|o| o.slot(i)).map(|(m, _)| m).filter(|m| m.width > 0);
+                    slot.placed.at(now.unwrap_or(slot.target()), slot.placed.x, slot.placed.y)
+                })
+                .collect();
             json!({
                 "origin": s.origin,
-                "mode": s.mode,
+                "mode": s.mode(),
+                "screens": screens,
+                "screens_requested": s.layout.len(),
                 "user": s.user,
                 "started_at": s.started_at,
                 "seconds_left": s.until.map(|u| u.saturating_duration_since(Instant::now()).as_secs()),
@@ -588,7 +966,7 @@ impl Manager {
             "settings": *self.settings.lock().unwrap(),
             "driver": driver,
             "session": session,
-            // Mode courant de l'écran virtuel et nombre d'écrans actifs, en session.
+            // Mode courant de l'écran virtuel principal et nombre d'écrans actifs, en session.
             "mode": observed.as_ref().map(|o| o.mode).filter(|m| m.width > 0),
             "displays": observed.as_ref().map(|o| o.displays),
             "last_error": *self.last_error.lock().unwrap(),
@@ -601,8 +979,8 @@ impl Manager {
     }
 
     /// Un tour de veille (chaque seconde pendant une session) : relit le mode
-    /// de l'écran virtuel et les écrans actifs, annonce un changement de mode,
-    /// et éteint de nouveau un écran physique rallumé depuis 2 s.
+    /// des écrans virtuels et les écrans actifs, annonce un changement de
+    /// mode, et éteint de nouveau un écran physique rallumé depuis 2 s.
     pub fn watch_tick(&self, now: Instant) {
         // Une création ou une fin en cours a la priorité : on repassera.
         let Ok(_op) = self.ops.try_lock() else { return };
@@ -611,8 +989,8 @@ impl Manager {
         }
         let observed = self.backend.observe();
         let mut notes: Vec<(&str, Msg)> = Vec::new();
-        let mut reisolate: Option<(Created, Mode, u32)> = None;
-        let mut fix: Option<(String, Mode)> = None;
+        let mut reisolate: Option<(Vec<(Created, Screen)>, u32)> = None;
+        let mut fixes: Vec<(String, Mode)> = Vec::new();
         let default_policy = self.settings.lock().unwrap().on_mode_change;
         {
             let mut guard = self.session.lock().unwrap();
@@ -636,51 +1014,65 @@ impl Manager {
                     if s.reisolations.len() >= MAX_REISOLATIONS {
                         s.reisolate_gave_up = true;
                         notes.push(("warn", Msg::new("events.displayKeepsTurningOn")));
-                    } else {
+                    } else if let [slot] = s.slots.as_slice() {
                         // En `follow`, le mode en cours est gardé (un jeu a pu le choisir).
-                        let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { s.target };
-                        reisolate = Some((s.created, keep, o.others));
+                        let keep = if policy == ModePolicy::Follow && o.mode.width > 0 { o.mode } else { slot.target() };
+                        reisolate = Some((vec![(slot.created, slot.placed.at(keep, 0, 0))], o.others));
+                    } else {
+                        // Plusieurs écrans : chacun reprend son mode et sa place
+                        // du début de session (un mode gardé pourrait faire
+                        // chevaucher un voisin).
+                        reisolate = Some((s.slots.iter().map(|sl| (sl.created, sl.placed)).collect(), o.others));
                     }
                 }
             } else {
                 s.others_since = None;
             }
 
-            // Mode changé sur l'ordinateur (jeu, réglage de Windows).
-            if reisolate.is_none() && o.mode.width > 0 && !same_mode(o.mode, s.target) {
-                if s.announced != Some(o.mode) {
-                    s.announced = Some(o.mode);
-                    let key = match policy {
-                        ModePolicy::Follow => "events.displayModeFollowed",
-                        ModePolicy::Restore => "events.displayModeRestored",
-                    };
-                    notes.push(("info", Msg::new(key).with("mode", mode_param(o.mode)).with("target", mode_param(s.target))));
-                }
-                let due = s.last_mode_fix.is_none_or(|t| now.duration_since(t) >= MODE_FIX_INTERVAL);
-                if policy == ModePolicy::Restore && due {
-                    s.mode_fixes.retain(|t| now.duration_since(*t) < MODE_FIX_WINDOW);
-                    if s.mode_fixes.len() >= MAX_MODE_FIXES {
-                        // Le jeu remet sa définition après chaque remise : on
-                        // arrête la ronde (et les relances d'image qu'elle coûte).
-                        s.restore_gave_up = true;
-                        notes.push(("warn", Msg::new("events.displayModeGaveUp").with("mode", mode_param(o.mode))));
-                    } else {
-                        s.mode_fixes.push(now);
-                        fix = Some((o.gdi_name.clone(), s.target));
+            // Mode changé sur l'ordinateur (jeu, réglage de Windows), écran par écran.
+            let mut changed: Vec<(String, Mode, Mode)> = Vec::new();
+            for (i, slot) in s.slots.iter_mut().enumerate() {
+                let Some((mode, gdi_name)) = o.slot(i) else { continue };
+                let target = slot.target();
+                if mode.width > 0 && !same_mode(mode, target) {
+                    if reisolate.is_some() {
+                        continue;
                     }
+                    if slot.announced != Some(mode) {
+                        slot.announced = Some(mode);
+                        let key = match policy {
+                            ModePolicy::Follow => "events.displayModeFollowed",
+                            ModePolicy::Restore => "events.displayModeRestored",
+                        };
+                        notes.push(("info", Msg::new(key).with("mode", mode_param(mode)).with("target", mode_param(target))));
+                    }
+                    changed.push((gdi_name.to_string(), target, mode));
+                } else if same_mode(mode, target) {
+                    slot.announced = None;
                 }
-            } else if same_mode(o.mode, s.target) {
-                s.announced = None;
+            }
+            let due = s.last_mode_fix.is_none_or(|t| now.duration_since(t) >= MODE_FIX_INTERVAL);
+            if policy == ModePolicy::Restore && due && !changed.is_empty() {
+                s.mode_fixes.retain(|t| now.duration_since(*t) < MODE_FIX_WINDOW);
+                if s.mode_fixes.len() >= MAX_MODE_FIXES {
+                    // Le jeu remet sa définition après chaque remise : on
+                    // arrête la ronde (et les relances d'image qu'elle coûte).
+                    s.restore_gave_up = true;
+                    notes.push(("warn", Msg::new("events.displayModeGaveUp").with("mode", mode_param(changed[0].2))));
+                } else {
+                    s.mode_fixes.push(now);
+                    fixes = changed.into_iter().map(|(gdi_name, target, _)| (gdi_name, target)).collect();
+                }
             }
         }
         for (kind, msg) in notes {
             self.event(kind, msg);
         }
-        if let Some((gdi_name, target)) = fix {
+        for (gdi_name, target) in fixes {
             self.fix_mode(&gdi_name, target, now);
         }
-        if let Some((created, mode, others)) = reisolate {
-            match self.backend.isolate(created, mode) {
+        if let Some((asked, others)) = reisolate {
+            match self.backend.isolate(&asked) {
                 Ok(applied) => {
                     if let Some(s) = self.session.lock().unwrap().as_mut() {
                         s.applied = applied;
@@ -716,6 +1108,7 @@ impl Manager {
             }
         }
     }
+
 
     /// Fils dédiés : signaux de vie du pilote, puis surveillance des sessions.
     pub fn supervise(self: Arc<Self>) {
@@ -784,7 +1177,7 @@ impl Manager {
                         continue;
                     }
                     let mode = Mode { width: settings.width, height: settings.height, refresh: settings.refresh };
-                    let _ = self.start_locked(Origin::Auto, mode, None, None, None, None);
+                    let _ = self.start_locked(Origin::Auto, vec![Screen::single(mode)], None, None, None, None);
                 }
             }
         });
@@ -797,8 +1190,9 @@ impl Manager {
     }
 }
 
+
 /// Hors Windows : pilote simulé, pour développer l'interface sur Mac. La
-/// veille y voit le mode demandé ; les tests changent l'écran à la main.
+/// veille y voit le mode demandé ; les tests changent les écrans à la main.
 #[cfg(not(windows))]
 #[derive(Clone, Default)]
 struct Simulated {
@@ -808,16 +1202,42 @@ struct Simulated {
 #[cfg(not(windows))]
 #[derive(Default)]
 struct SimScreen {
-    /// Mode de l'écran virtuel, s'il existe.
+    /// Mode de l'écran virtuel principal, s'il existe.
     mode: Option<Mode>,
+    /// Mode des autres écrans virtuels (rangs 1 à 3), s'ils existent.
+    extra: [Option<Mode>; MAX_SCREENS - 1],
     /// Écrans physiques allumés.
     others: u32,
     watching: bool,
+    /// Écrans surveillés par la veille (rangs, le principal en premier).
+    watched: Vec<u32>,
     isolations: u32,
     mode_fixes: u32,
     /// Les isolements échouent (écran virtuel introuvable, par exemple).
     isolate_fails: bool,
     isolate_attempts: u32,
+    /// Rangs dont la création échoue, et ceux que Windows n'active pas.
+    create_fails: Vec<usize>,
+    inactive: Vec<u32>,
+    /// Écrans (rang, place) donnés au dernier isolement.
+    last_isolate: Vec<(u32, i32, i32)>,
+    /// Pings reçus, et écrans existants à chaque ping.
+    pings: u32,
+}
+
+#[cfg(not(windows))]
+impl SimScreen {
+    fn slot_mut(&mut self, slot: usize) -> &mut Option<Mode> {
+        if slot == 0 { &mut self.mode } else { &mut self.extra[slot - 1] }
+    }
+    fn exists(&self) -> usize {
+        usize::from(self.mode.is_some()) + self.extra.iter().flatten().count()
+    }
+}
+
+#[cfg(not(windows))]
+fn sim_gdi_name(slot: u32) -> String {
+    format!("\\\\.\\DISPLAY{}", 9 + slot)
 }
 
 #[cfg(not(windows))]
@@ -825,50 +1245,82 @@ impl Backend for Simulated {
     fn driver(&self) -> Result<Value> {
         Ok(json!({ "version": "simulation", "watchdog_seconds": 3 }))
     }
-    fn create(&self, _: [u8; 16], mode: Mode) -> Result<Created> {
+    fn create(&self, _: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
+        let mut screen = self.screen.lock().unwrap();
+        if screen.create_fails.contains(&slot) {
+            bail!("(simulé) le pilote refuse l'écran {}", slot + 1);
+        }
         tracing::info!("(simulé) création d'un écran {}×{} à {} Hz", mode.width, mode.height, mode.refresh);
-        self.screen.lock().unwrap().mode = Some(mode);
-        Ok(Created { luid_low: 0, luid_high: 0, target: 0 })
+        *screen.slot_mut(slot) = Some(mode);
+        Ok(Created { luid_low: 0, luid_high: 0, target: slot as u32 })
     }
-    fn remove(&self, _: [u8; 16]) -> Result<()> {
-        self.screen.lock().unwrap().mode = None;
+    fn remove(&self, guid: [u8; 16]) -> Result<()> {
+        let slot = (0..MAX_SCREENS).find(|i| slot_guid(*i) == guid).unwrap_or(0);
+        *self.screen.lock().unwrap().slot_mut(slot) = None;
         Ok(())
     }
     fn ping(&self) -> Result<()> {
+        self.screen.lock().unwrap().pings += 1;
         Ok(())
     }
-    fn isolate(&self, _: Created, mode: Mode) -> Result<Value> {
+    fn isolate(&self, screens: &[(Created, Screen)]) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
         screen.isolate_attempts += 1;
         if screen.isolate_fails {
             bail!("(simulé) l'écran virtuel n'apparaît pas dans la configuration d'affichage");
         }
         let disabled = screen.others;
-        screen.mode = Some(mode);
         screen.others = 0;
         screen.isolations += 1;
-        Ok(json!({ "gdi_name": "\\\\.\\DISPLAY9", "width": mode.width, "height": mode.height, "refresh": mode.refresh, "disabled_others": disabled }))
+        screen.last_isolate = screens.iter().map(|(c, s)| (c.target, s.x, s.y)).collect();
+        let mut list = Vec::new();
+        for (c, s) in screens {
+            if screen.inactive.contains(&c.target) {
+                list.push(Value::Null);
+                continue;
+            }
+            *screen.slot_mut(c.target as usize) = Some(s.mode());
+            list.push(json!({ "gdi_name": sim_gdi_name(c.target), "width": s.width, "height": s.height, "refresh": s.refresh, "x": s.x, "y": s.y }));
+        }
+        let (_, primary) = screens[0];
+        let mut applied = json!({ "gdi_name": sim_gdi_name(0), "width": primary.width, "height": primary.height, "refresh": primary.refresh, "disabled_others": disabled });
+        if screens.len() > 1 {
+            applied["screens"] = Value::Array(list);
+        }
+        Ok(applied)
     }
     fn restore(&self) -> Result<()> {
         tracing::info!("(simulé) restauration des écrans");
         Ok(())
     }
-    fn watch(&self, _: Created) {
-        self.screen.lock().unwrap().watching = true;
+    fn watch(&self, created: &[Created]) {
+        let mut screen = self.screen.lock().unwrap();
+        screen.watching = true;
+        screen.watched = created.iter().map(|c| c.target).collect();
     }
     fn unwatch(&self) {
-        self.screen.lock().unwrap().watching = false;
-    }
-    fn set_mode(&self, _: &str, mode: Mode) -> Result<Mode> {
         let mut screen = self.screen.lock().unwrap();
-        screen.mode = Some(mode);
+        screen.watching = false;
+        screen.watched.clear();
+    }
+    fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
+        let mut screen = self.screen.lock().unwrap();
+        let slot = (0..MAX_SCREENS as u32).find(|i| sim_gdi_name(*i) == gdi_name).unwrap_or(0);
+        *screen.slot_mut(slot as usize) = Some(mode);
         screen.mode_fixes += 1;
         Ok(mode)
     }
     fn observe(&self) -> Option<Observed> {
-        let screen = self.screen.lock().unwrap();
+        let mut screen = self.screen.lock().unwrap();
         let mode = screen.mode.filter(|_| screen.watching)?;
-        Some(Observed { mode, gdi_name: "\\\\.\\DISPLAY9".into(), displays: 1 + screen.others, others: screen.others })
+        let watched = screen.watched.clone();
+        let extra = watched
+            .iter()
+            .skip(1)
+            .map(|slot| (screen.slot_mut(*slot as usize).unwrap_or(Mode { width: 0, height: 0, refresh: 0 }), sim_gdi_name(*slot)))
+            .collect();
+        let virtuals = screen.exists() as u32;
+        Some(Observed { mode, gdi_name: sim_gdi_name(0), displays: virtuals + screen.others, others: screen.others, extra })
     }
 }
 
@@ -908,8 +1360,8 @@ mod windows {
                 Ok(json!({ "version": d.protocol_version()?, "watchdog_seconds": timeout }))
             })
         }
-        fn create(&self, guid: [u8; 16], mode: Mode) -> Result<Created> {
-            let c = self.with_device(|d| d.add(guid, mode.width, mode.height, mode.refresh))?;
+        fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
+            let c = self.with_device(|d| d.add(guid, slot, mode.width, mode.height, mode.refresh))?;
             Ok(Created { luid_low: c.adapter_luid_low, luid_high: c.adapter_luid_high, target: c.target_id })
         }
         fn remove(&self, guid: [u8; 16]) -> Result<()> {
@@ -918,22 +1370,31 @@ mod windows {
         fn ping(&self) -> Result<()> {
             self.with_device(|d| d.ping())
         }
-        fn isolate(&self, c: Created, mode: Mode) -> Result<Value> {
-            let args = [
-                "isolate".to_string(),
-                "--luid-low".into(), c.luid_low.to_string(),
-                "--luid-high".into(), c.luid_high.to_string(),
-                "--target".into(), c.target.to_string(),
-                "--width".into(), mode.width.to_string(),
-                "--height".into(), mode.height.to_string(),
-                "--refresh".into(), mode.refresh.to_string(),
-            ];
+        fn isolate(&self, screens: &[(Created, Screen)]) -> Result<Value> {
+            // Un écran : l'isolement de toujours.
+            if let [(c, s)] = screens {
+                let args = [
+                    "isolate".to_string(),
+                    "--luid-low".into(), c.luid_low.to_string(),
+                    "--luid-high".into(), c.luid_high.to_string(),
+                    "--target".into(), c.target.to_string(),
+                    "--width".into(), s.width.to_string(),
+                    "--height".into(), s.height.to_string(),
+                    "--refresh".into(), s.refresh.to_string(),
+                ];
+                return agent::run(&self.data_dir, &args);
+            }
+            let mut args = vec!["isolate-many".to_string()];
+            for (c, s) in screens {
+                args.push("--screen".into());
+                args.push(Placement { created: *c, mode: s.mode(), x: s.x, y: s.y }.to_arg());
+            }
             agent::run(&self.data_dir, &args)
         }
         fn restore(&self) -> Result<()> {
             agent::run(&self.data_dir, &["restore".to_string()]).map(|_| ())
         }
-        fn watch(&self, created: Created) {
+        fn watch(&self, created: &[Created]) {
             self.watch.start(&self.data_dir, created);
         }
         fn unwatch(&self) {
@@ -1265,5 +1726,293 @@ mod tests {
         assert!(m.heartbeat(None, None));
         m.stop("fin du test");
         assert!(!m.heartbeat(Some("tv"), None));
+    }
+
+    // --- Multi-écrans ---
+
+    fn scr(width: u32, height: u32, refresh: u32, x: i32, y: i32, primary: bool) -> Screen {
+        Screen { width, height, refresh, x, y, primary }
+    }
+
+    /// L'ordinateur d'essai de l'auteur : XG32UQ au centre, Studio Display à
+    /// droite, MacBook Pro à gauche, plus bas.
+    fn trois_ecrans() -> Vec<Screen> {
+        vec![
+            scr(3840, 2160, 160, 0, 0, true),
+            scr(5120, 2880, 60, 3840, 0, false),
+            scr(3456, 2234, 60, -3456, 400, false),
+        ]
+    }
+
+    fn refus(screens: &[Screen]) -> String {
+        validate_screens(screens).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn dispositions_valides() {
+        validate_screens(&trois_ecrans()).unwrap();
+        validate_screens(&[scr(1920, 1080, 60, 0, 0, true)]).unwrap();
+        // Au-dessus, décalé ; quatre écrans en carré.
+        validate_screens(&[scr(1920, 1080, 60, 0, 0, true), scr(2560, 1440, 60, -300, -1440, false)]).unwrap();
+        validate_screens(&[
+            scr(1920, 1080, 60, 0, 0, true),
+            scr(1920, 1080, 60, 1920, 0, false),
+            scr(1920, 1080, 60, 0, 1080, false),
+            scr(1920, 1080, 60, 1920, 1080, false),
+        ])
+        .unwrap();
+        // Relié par un voisin, pas directement au principal.
+        validate_screens(&[
+            scr(1920, 1080, 60, 0, 0, true),
+            scr(1920, 1080, 60, 1920, 0, false),
+            scr(1920, 1080, 60, 3840, 500, false),
+        ])
+        .unwrap();
+    }
+
+    #[test]
+    fn dispositions_refusees() {
+        let p = scr(1920, 1080, 60, 0, 0, true);
+        assert!(refus(&[]).contains("1 à 4"));
+        let cinq: Vec<Screen> =
+            std::iter::once(p).chain((1..5).map(|i| scr(1920, 1080, 60, 1920 * i, 0, false))).collect();
+        assert!(refus(&cinq).contains("1 à 4"));
+        // Aucun ou deux principaux.
+        assert!(refus(&[scr(1920, 1080, 60, 0, 0, false)]).contains("principal"));
+        assert!(refus(&[p, scr(1920, 1080, 60, 1920, 0, true)]).contains("principal"));
+        // Principal ailleurs qu'en (0, 0).
+        assert!(refus(&[scr(1920, 1080, 60, 10, 0, true)]).contains("(0, 0)"));
+        // Mode hors limites.
+        assert!(refus(&[p, scr(8000, 1080, 60, 1920, 0, false)]).contains("résolution"));
+        assert!(refus(&[p, scr(1920, 1080, 10, 1920, 0, false)]).contains("fréquence"));
+        // Chevauchement.
+        assert!(refus(&[p, scr(1920, 1080, 60, 1000, 0, false)]).contains("chevauchent"));
+        // Coin contre coin, écart, chaîne coupée.
+        assert!(refus(&[p, scr(1920, 1080, 60, 1920, 1080, false)]).contains("bord"));
+        assert!(refus(&[p, scr(1920, 1080, 60, 1921, 0, false)]).contains("bord"));
+        assert!(refus(&[p, scr(1920, 1080, 60, 1920, 1080, false), scr(1920, 1080, 60, -1920, 1080, false)]).contains("bord"));
+    }
+
+    #[test]
+    fn arguments_de_l_agent() {
+        let p = Placement {
+            created: Created { luid_low: 4_000_000_000, luid_high: -2, target: 257 },
+            mode: Mode { width: 3456, height: 2234, refresh: 60 },
+            x: -3456,
+            y: 400,
+        };
+        assert_eq!(p.to_arg(), "4000000000,-2,257,3456,2234,60,-3456,400");
+        assert_eq!(Placement::parse(&p.to_arg()).unwrap(), p);
+        assert_eq!(Created::parse(&p.created.to_arg()).unwrap(), p.created);
+        assert!(Placement::parse("1,2,3").is_err());
+        assert!(Created::parse("1,x,3").is_err());
+        assert!(Created::parse("-1,0,0").is_err());
+    }
+
+    #[test]
+    fn identifiants_des_ecrans() {
+        assert_eq!(&slot_guid(0), b"KyberNow-Display");
+        assert_eq!(&slot_guid(1), b"KyberNow-Disp-02");
+        assert_eq!(&slot_guid(3), b"KyberNow-Disp-04");
+        let all: Vec<_> = (0..MAX_SCREENS).map(slot_guid).collect();
+        for (i, g) in all.iter().enumerate() {
+            assert!(!all[i + 1..].contains(g));
+        }
+    }
+
+    #[test]
+    fn session_a_trois_ecrans() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        // Dans l'ordre de la demande, à leur mode et à leur place.
+        assert_eq!(started.screens, trois_ecrans().into_iter().map(Some).collect::<Vec<_>>());
+        assert_eq!(started.applied["width"], 3840);
+        assert!(started.applied.get("screens").is_none());
+        assert!(m.alive.load(Ordering::SeqCst));
+        {
+            let screen = sim.screen.lock().unwrap();
+            assert_eq!(screen.exists(), 3);
+            assert_eq!(screen.isolations, 1);
+            assert_eq!(screen.last_isolate, vec![(0, 0, 0), (1, 3840, 0), (2, -3456, 400)]);
+            assert_eq!(screen.watched, vec![0, 1, 2]);
+        }
+        let record: Record = serde_json::from_slice(&std::fs::read(m.record_path()).unwrap()).unwrap();
+        assert_eq!(record.guids(), vec![slot_guid(0), slot_guid(1), slot_guid(2)]);
+
+        m.watch_tick(Instant::now());
+        let status = m.status();
+        assert_eq!(status["displays"], 3);
+        assert_eq!(status["session"]["mode"]["refresh"], 160);
+        assert_eq!(status["session"]["screens"].as_array().unwrap().len(), 3);
+        assert_eq!(status["session"]["screens"][1]["width"], 5120);
+        assert_eq!(status["session"]["screens"][2]["x"], -3456);
+        assert_eq!(status["session"]["screens"][0]["primary"], true);
+        assert!(status["session"]["screens"][1].get("primary").is_none());
+        assert!(events.lock().unwrap().is_empty());
+
+        // Kyber redémarré : mêmes écrans redemandés, la session continue.
+        let again = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(again.screens, started.screens);
+        assert_eq!(sim.screen.lock().unwrap().isolations, 1);
+
+        // Deux écrans seulement (Studio Display débranché) : la session se refait.
+        let deux = trois_ecrans()[..2].to_vec();
+        let started = m.start_screens(Origin::App, deux, None, Some("mac".into()), None).unwrap();
+        assert_eq!(started.screens.len(), 2);
+        assert_eq!(sim.screen.lock().unwrap().exists(), 2);
+        assert_eq!(sim.screen.lock().unwrap().isolations, 2);
+
+        // Fin de session : tous les écrans retirés.
+        m.stop("fin du test");
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(!m.alive.load(Ordering::SeqCst));
+        assert!(!m.record_path().exists());
+    }
+
+    #[test]
+    fn principal_donne_en_dernier() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        let mut screens = trois_ecrans();
+        screens.rotate_left(1);
+        let started = m.start_screens(Origin::App, screens.clone(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(started.screens, screens.iter().copied().map(Some).collect::<Vec<_>>());
+        // Le principal est créé le premier, avec l'identifiant de toujours.
+        assert_eq!(sim.screen.lock().unwrap().mode.unwrap().refresh, 160);
+        assert_eq!(sim.screen.lock().unwrap().last_isolate[0], (0, 0, 0));
+        assert_eq!(m.status()["session"]["mode"]["refresh"], 160);
+    }
+
+    #[test]
+    fn un_ecran_refuse_par_le_pilote() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().create_fails = vec![1];
+        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(started.screens[0], Some(trois_ecrans()[0]));
+        assert_eq!(started.screens[1], None);
+        assert_eq!(started.screens[2], Some(trois_ecrans()[2]));
+        assert_eq!(sim.screen.lock().unwrap().watched, vec![0, 2]);
+        let feed = events.lock().unwrap().clone();
+        assert_eq!(feed.len(), 1, "{feed:?}");
+        assert!(feed[0].contains("1 des 3"), "{feed:?}");
+
+        // La veille suit l'écran 2 au deuxième rang de la session.
+        sim.screen.lock().unwrap().extra[1] = Some(GAME);
+        m.watch_tick(Instant::now());
+        assert_eq!(m.status()["session"]["screens"][1]["width"], 1920);
+    }
+
+    #[test]
+    fn ecran_principal_refuse_par_le_pilote() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().create_fails = vec![0];
+        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_err());
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(m.status()["session"].is_null());
+        assert!(!m.alive.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn un_ecran_que_windows_n_active_pas() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().inactive = vec![1, 2];
+        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(started.screens, vec![Some(trois_ecrans()[0]), None, None]);
+        // Retirés du pilote et du fichier de session.
+        assert_eq!(sim.screen.lock().unwrap().exists(), 1);
+        let record: Record = serde_json::from_slice(&std::fs::read(m.record_path()).unwrap()).unwrap();
+        assert_eq!(record.guids(), vec![slot_guid(0)]);
+        assert!(events.lock().unwrap()[0].contains("2 des 3"));
+    }
+
+    #[test]
+    fn isolement_rate_retire_tous_les_ecrans() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().isolate_fails = true;
+        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_err());
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(!m.record_path().exists());
+    }
+
+    #[test]
+    fn politique_restore_sur_chaque_ecran() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), Some(PolicyChoice::Restore)).unwrap();
+        let t0 = Instant::now();
+        m.watch_tick(t0);
+        // Le Studio Display passe en 1080p : remis, sans toucher aux autres.
+        sim.screen.lock().unwrap().extra[0] = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(1));
+        {
+            let screen = sim.screen.lock().unwrap();
+            assert_eq!(screen.mode_fixes, 1);
+            assert_eq!(screen.extra[0], Some(trois_ecrans()[1].mode()));
+            assert_eq!(screen.mode.unwrap().refresh, 160);
+        }
+        assert!(events.lock().unwrap()[0].contains("remis en 5120 × 2880"));
+        // Deux écrans changés au même tour : une seule remise comptée.
+        sim.screen.lock().unwrap().mode = Some(GAME);
+        sim.screen.lock().unwrap().extra[1] = Some(GAME);
+        m.watch_tick(t0 + Duration::from_secs(7));
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
+        assert_eq!(m.session.lock().unwrap().as_ref().unwrap().mode_fixes.len(), 2);
+    }
+
+    #[test]
+    fn politique_follow_sur_un_ecran_secondaire() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), Some(PolicyChoice::Follow)).unwrap();
+        sim.screen.lock().unwrap().extra[1] = Some(GAME);
+        for i in 0..5 {
+            m.watch_tick(Instant::now() + Duration::from_secs(i));
+        }
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 0);
+        assert_eq!(events.lock().unwrap().len(), 1);
+        assert_eq!(m.status()["session"]["screens"][2]["width"], 1920);
+    }
+
+    #[test]
+    fn ecran_physique_revenu_en_session_a_plusieurs_ecrans() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), Some(PolicyChoice::Follow)).unwrap();
+        let t0 = Instant::now();
+        sim.screen.lock().unwrap().others = 1;
+        sim.screen.lock().unwrap().extra[0] = Some(GAME);
+        m.watch_tick(t0);
+        assert_eq!(m.status()["displays"], 4);
+        m.watch_tick(t0 + Duration::from_secs(2));
+        let screen = sim.screen.lock().unwrap();
+        assert_eq!(screen.isolations, 2);
+        assert_eq!(screen.others, 0);
+        // Tous les écrans reprennent leur mode et leur place.
+        assert_eq!(screen.last_isolate, vec![(0, 0, 0), (1, 3840, 0), (2, -3456, 400)]);
+        assert_eq!(screen.extra[0], Some(trois_ecrans()[1].mode()));
+    }
+
+    #[test]
+    fn reprise_apres_plantage_retire_tous_les_ecrans() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        // Le service redémarre sans avoir fini la session.
+        let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
+        again.recover();
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(!again.record_path().exists());
+        // Fichier d'une version à un écran.
+        let old: Record = serde_json::from_str(&format!("{{\"guid\":\"{}\"}}", hex::encode(slot_guid(0)))).unwrap();
+        assert_eq!(old.guids(), vec![slot_guid(0)]);
+    }
+
+    #[test]
+    fn session_a_un_ecran_sans_changement() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        let applied = m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert!(applied.get("screens").is_none());
+        assert_eq!(sim.screen.lock().unwrap().exists(), 1);
+        // Une liste d'un seul écran : la même session.
+        let started = m.start_screens(Origin::App, vec![Screen::single(TV)], None, Some("tv".into()), None).unwrap();
+        assert_eq!(started.screens, vec![Some(Screen::single(TV))]);
+        assert_eq!(sim.screen.lock().unwrap().isolations, 1);
+        let record: Record = serde_json::from_slice(&std::fs::read(m.record_path()).unwrap()).unwrap();
+        assert!(record.guids.is_empty());
     }
 }

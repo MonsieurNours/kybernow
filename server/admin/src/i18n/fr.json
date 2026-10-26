@@ -50,7 +50,12 @@
   },
   "display": {
     "resolutionRange": "résolution hors limites (640 × 480 à 7680 × 4320)",
-    "refreshRange": "fréquence hors limites (24 à 500 Hz)"
+    "refreshRange": "fréquence hors limites (24 à 500 Hz)",
+    "screensCount": "il faut de 1 à {max} écrans",
+    "screensPrimary": "il faut un seul écran principal",
+    "screensOrigin": "l'écran principal doit être en (0, 0)",
+    "screensOverlap": "des écrans se chevauchent",
+    "screensApart": "chaque écran doit partager un bord avec un autre écran"
   },
   "update": {
     "sessionConflict": "Un appareil est connecté : l'installation coupera sa session",
@@ -109,6 +114,7 @@
   "events": {
     "connected": "{name} s'est connecté",
     "connectedMode": "{name} s'est connecté, écran de {width} × {height} à {refresh} Hz",
+    "connectedScreens": "{name} s'est connecté avec {count} écrans : {modes}",
     "takeover": "{newcomer} prend la main : fin de la session de {previous} demandée",
     "disconnected": "{name} s'est déconnecté après {duration}{latency}{takeover}",
     "latencySuffix": ", écart médian {ms}",
@@ -156,6 +162,8 @@
     "launchCloseFailed": "{app} n'a pas pu être fermé : {error}",
     "launchKept": "{app} reste ouvert : {next} prend la main avec la même app",
     "launchSet": "Au début des sessions de {name} : {app}",
-    "launchCleared": "Plus d'app ouverte au début des sessions de {name}"
+    "launchCleared": "Plus d'app ouverte au début des sessions de {name}",
+    "screenMissing": "{count} des {requested} écrans demandés n'a pas pu être créé sur l'ordinateur : la session continue sans lui",
+    "screensMissing": "{count} des {requested} écrans demandés n'ont pas pu être créés sur l'ordinateur : la session continue sans eux"
   }
 }
