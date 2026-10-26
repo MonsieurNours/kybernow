@@ -104,6 +104,12 @@ pub struct VdSettings {
     /// Politique par défaut, quand l'app n'en donne pas (`mode_policy`).
     #[serde(default)]
     pub on_mode_change: ModePolicy,
+    /// Réglage d'essai (multi-écrans, à la main dans `kyber-admin.toml`) :
+    /// créer les écrans secondaires d'abord et le principal en dernier,
+    /// même disposition et même écran principal de Windows. Pour savoir si
+    /// un défaut suit le premier écran créé par le pilote ou l'écran principal.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub primary_created_last: bool,
 }
 
 fn default_width() -> u32 {
@@ -124,6 +130,7 @@ impl Default for VdSettings {
             height: default_height(),
             refresh: default_refresh(),
             on_mode_change: ModePolicy::default(),
+            primary_created_last: false,
         }
     }
 }
@@ -892,25 +899,58 @@ impl Manager {
                 Err(e) => tracing::warn!("carte de rendu des écrans virtuels : {e:#}"),
             }
         }
-        let mut pending: Vec<(usize, [u8; 16], Created)> = Vec::new();
-        for (slot, &index) in slot_order(&layout).iter().enumerate() {
+        // Rang de chaque écran (0 : le principal), et ordre de création :
+        // le principal d'abord, sauf réglage d'essai `primary_created_last`.
+        let order = slot_order(&layout);
+        let mut ranks: Vec<usize> = (0..order.len()).collect();
+        if layout.len() > 1 && self.settings.lock().unwrap().primary_created_last {
+            ranks.rotate_left(1);
+        }
+        if layout.len() > 1 {
+            tracing::info!(
+                "ordre de création des écrans virtuels : {}",
+                ranks
+                    .iter()
+                    .map(|&slot| {
+                        let role = if slot == 0 { "principal" } else { "secondaire" };
+                        format!("{} ({role})", label(layout[order[slot]].mode()))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", puis ")
+            );
+        }
+        let mut created_slots: Vec<(usize, usize, [u8; 16], Created)> = Vec::new();
+        for slot in ranks {
+            let index = order[slot];
             let guid = slot_guid(slot);
             match self.backend.create(guid, slot, layout[index].mode()) {
                 Ok(created) => {
-                    pending.push((index, guid, created));
+                    created_slots.push((slot, index, guid, created));
                     // Pinguer dès le premier écran : le chien de garde du
                     // pilote est armé à sa création, et la suite (autres
                     // écrans, isolement) peut durer plus que lui.
                     self.alive.store(true, Ordering::SeqCst);
-                    self.write_record(&pending.iter().map(|p| p.1).collect::<Vec<_>>());
+                    self.write_record(&created_slots.iter().map(|p| p.2).collect::<Vec<_>>());
                 }
                 Err(e) if slot == 0 => {
                     self.fail(&e);
+                    // Principal créé en dernier : les secondaires sont déjà là.
+                    if !created_slots.is_empty() {
+                        for (_, _, guid, _) in &created_slots {
+                            let _ = self.backend.remove(*guid);
+                        }
+                        self.alive.store(false, Ordering::SeqCst);
+                    }
+                    let _ = std::fs::remove_file(self.record_path());
                     return Err(e);
                 }
                 Err(e) => tracing::warn!("écran virtuel {} sur {} non créé : {e:#}", slot + 1, layout.len()),
             }
         }
+        // La suite les veut dans l'ordre des rangs, le principal en premier.
+        created_slots.sort_by_key(|p| p.0);
+        let pending: Vec<(usize, [u8; 16], Created)> =
+            created_slots.into_iter().map(|(_, index, guid, created)| (index, guid, created)).collect();
         let asked: Vec<(Created, Screen)> = pending.iter().map(|(index, _, created)| (*created, layout[*index])).collect();
         let applied = match self.backend.isolate(&asked) {
             Ok(v) => v,
@@ -1372,6 +1412,8 @@ struct SimScreen {
     render_vendor: Option<u16>,
     /// Exécutables en marche.
     processes: Vec<String>,
+    /// Rangs des écrans dans l'ordre de leur création.
+    created: Vec<usize>,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1410,6 +1452,7 @@ impl Backend for Simulated {
         }
         tracing::info!("(simulé) création d'un écran {}×{} à {} Hz", mode.width, mode.height, mode.refresh);
         *screen.slot_mut(slot) = Some(mode);
+        screen.created.push(slot);
         Ok(Created { luid_low: 0, luid_high: 0, target: slot as u32 })
     }
     fn remove(&self, guid: [u8; 16]) -> Result<()> {
@@ -2045,6 +2088,26 @@ mod tests {
         let (m, sim, _) = simulated(VdSettings::default());
         sim.screen.lock().unwrap().processes = vec!["explorer.exe".into(), "sunshine.exe".into()];
         assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_ok());
+    }
+
+    #[test]
+    fn reglage_d_essai_principal_cree_en_dernier() {
+        let settings = VdSettings { primary_created_last: true, ..VdSettings::default() };
+        let (m, sim, _) = simulated(settings);
+        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        // Même résultat qu'avec l'ordre habituel : principal en (0, 0), le
+        // principal donné en premier à l'isolement.
+        assert_eq!(started.screens, trois_ecrans().into_iter().map(Some).collect::<Vec<_>>());
+        assert_eq!(sim.screen.lock().unwrap().last_isolate, vec![(0, 0, 0), (1, 3840, 0), (2, -3456, 400)]);
+        assert_eq!(sim.screen.lock().unwrap().created, vec![1, 2, 0]);
+        // Le principal refusé en dernier : les secondaires déjà créés sont retirés.
+        m.stop("fin du test");
+        sim.screen.lock().unwrap().create_fails = vec![0];
+        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_err());
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(!m.alive.load(Ordering::SeqCst));
+        // Une session à un écran ne change pas, et le réglage n'est écrit que s'il est mis.
+        assert!(!toml::to_string(&VdSettings::default()).unwrap().contains("primary_created_last"));
     }
 
     #[test]
