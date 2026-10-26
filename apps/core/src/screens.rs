@@ -57,13 +57,48 @@ pub struct DeviceScreen {
     pub primary: bool,
 }
 
-/// Les écrans de l'appareil donnés à la session ([`crate::session::Session::start_with_screens`]).
+/// Les écrans de l'appareil et ce qui décide de leur nombre, donnés à la
+/// session ([`crate::session::Session::start_with_screens`]) : le cœur en
+/// tire seul le nombre d'écrans de la session, au départ et quand le profil
+/// change en session ([`session_plan`]). Le profil et l'écran virtuel sont
+/// ceux de la session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Screens {
     pub list: Vec<DeviceScreen>,
+    /// « Cet écran » : l'écran de la fenêtre de l'app (index dans `list`),
+    /// celui d'une session à un écran.
+    #[serde(default)]
+    pub current: usize,
     /// « Au plus 4K » : chaque écran est ramené à 3840 × 2160 au plus.
     #[serde(default)]
     pub limit_4k: bool,
+    /// Définition sur mesure : la session prend un seul écran.
+    #[serde(default)]
+    pub custom_resolution: bool,
+    /// Le réglage « Écrans » de l'ordinateur.
+    #[serde(default)]
+    pub setting: DisplaysSetting,
+    /// Écrans que la Station sait créer (`virtual_display.max_screens` de
+    /// `GET /api/stream/info`) ; 0 ou absent : 1 (Station antérieure).
+    #[serde(default)]
+    pub max_screens: usize,
+}
+
+impl Screens {
+    /// Le réglage « Écrans » pour ce profil et cet écran virtuel.
+    pub fn choice(&self, profile: Option<Profile>, virtual_display: bool) -> DisplaysChoice {
+        DisplaysChoice { setting: self.setting, profile, custom_resolution: self.custom_resolution, virtual_display }
+    }
+
+    /// Écrans au plus que la session demandera (Station, et quatre au plus).
+    pub fn max(&self) -> usize {
+        self.max_screens.clamp(1, MAX_SCREENS)
+    }
+
+    /// « Cet écran », borné à la liste.
+    pub fn current(&self) -> usize {
+        self.current.min(self.list.len().saturating_sub(1))
+    }
 }
 
 /// Réglage « Écrans » d'un ordinateur (docs/link-ui.md, rubrique Image) :
@@ -120,30 +155,42 @@ impl DisplaysChoice {
         if self.setting_enabled() { self.setting } else { DisplaysSetting::This }
     }
 
-    /// La session prend tous les écrans de l'appareil. Auto : tous, sauf en
-    /// profil Jeu (un seul) ; un profil Personnalisé suit la règle de Bureau
-    /// et Max.
+    /// La session prend tous les écrans de l'appareil. Auto : tous en Bureau
+    /// et Max, un seul en Jeu et en Personnalisé.
     pub fn all_displays(&self) -> bool {
         match self.shown_setting() {
             DisplaysSetting::This => false,
             DisplaysSetting::All => true,
-            DisplaysSetting::Auto => self.profile != Some(Profile::Jeu),
+            DisplaysSetting::Auto => matches!(self.profile, Some(Profile::Bureau | Profile::Max)),
         }
     }
 }
 
-/// Les écrans virtuels que la session demandera, ou `None` pour une session
-/// à un écran ([`crate::session::Session::start`]) : le réglage ne prend
-/// qu'un écran, ou l'appareil n'en a qu'un. `Some` : au moins deux écrans,
-/// à donner à [`crate::session::Session::start_with_screens`] ; leur nombre
-/// est celui de la ligne de l'accueil (« 3 écrans, à la taille de ceux de
-/// cet appareil »).
-pub fn session_plan(screens: &Screens, choice: &DisplaysChoice, codec: Codec) -> Option<Vec<PlannedScreen>> {
-    if !choice.all_displays() {
+/// Les écrans virtuels que la session demandera avec ce profil et cet écran
+/// virtuel, ou `None` pour une session à un écran (« Cet écran ») : le
+/// réglage ne prend qu'un écran, la Station n'en crée qu'un
+/// (`max_screens`), ou l'appareil n'en a qu'un. `Some` : au moins deux
+/// écrans ; leur nombre est celui de la ligne de l'accueil (« 3 écrans, à la
+/// taille de ceux de cet appareil »), et c'est le même calcul que la session.
+pub fn session_plan(screens: &Screens, profile: Option<Profile>, virtual_display: bool, codec: Codec) -> Option<Vec<PlannedScreen>> {
+    if !screens.choice(profile, virtual_display).all_displays() || screens.max() < 2 {
         return None;
     }
     let p = plan(screens, codec);
     (p.len() >= 2).then_some(p)
+}
+
+/// [`plan`] sans les écrans de l'appareil `excluded` (écrans retirés en
+/// session : muets, ou refusés par Kyber) ; `device` reste l'index dans
+/// `screens.list`. L'écran principal n'est jamais retiré.
+pub fn plan_excluding(screens: &Screens, codec: Codec, excluded: &[usize]) -> Vec<PlannedScreen> {
+    let primary = primary_index(&screens.list);
+    let kept: Vec<usize> = (0..screens.list.len()).filter(|i| *i == primary || !excluded.contains(i)).collect();
+    let subset = Screens {
+        list: kept.iter().map(|&i| DeviceScreen { primary: i == primary, ..screens.list[i] }).collect(),
+        ..screens.clone()
+    };
+    plan(&subset, codec).into_iter().map(|p| PlannedScreen { device: kept[p.device], ..p }).collect()
 }
 
 /// Un écran virtuel à demander : l'écran de l'appareil auquel il va
@@ -205,8 +252,10 @@ pub fn primary_index(list: &[DeviceScreen]) -> usize {
 }
 
 /// Les écrans virtuels à demander pour ces écrans de l'appareil : principal
-/// en premier, puis les autres dans l'ordre de l'appareil ; quatre au plus
-/// (les plus proches du principal, de proche en proche).
+/// en premier, puis les autres dans l'ordre de l'appareil ; quatre au plus,
+/// et pas plus que la Station n'en crée (`max_screens`) : les plus proches du
+/// principal, de proche en proche. Ne regarde pas le réglage : voir
+/// [`session_plan`].
 pub fn plan(screens: &Screens, codec: Codec) -> Vec<PlannedScreen> {
     let list = &screens.list;
     if list.is_empty() {
@@ -219,7 +268,7 @@ pub fn plan(screens: &Screens, codec: Codec) -> Vec<PlannedScreen> {
         .zip(&pixels)
         .map(|(s, &(w, h))| LayoutScreen { frame: Rect { x: s.x, y: s.y, width: s.width, height: s.height }, pixels: (w, h) })
         .collect();
-    let placed = layout_limited(&inputs, primary, MAX_SCREENS);
+    let placed = layout_limited(&inputs, primary, screens.max());
     let mut out: Vec<PlannedScreen> = placed
         .iter()
         .enumerate()
@@ -451,15 +500,16 @@ mod tests {
     /// Le Mac de l'auteur : XG32UQ 4K à 160 Hz au centre (principal, réglé
     /// « comme 2560 × 1440 »), Studio Display 5K à droite, MacBook Pro 16"
     /// à gauche, plus bas.
+    fn with(list: Vec<DeviceScreen>, limit_4k: bool) -> Screens {
+        Screens { list, limit_4k, max_screens: MAX_SCREENS, ..Screens::default() }
+    }
+
     fn auteur() -> Screens {
-        Screens {
-            list: vec![
+        with(vec![
                 screen(-1728.0, 400.0, 1728.0, 1117.0, 3456, 2234, 120, false),
                 screen(0.0, 0.0, 2560.0, 1440.0, 3840, 2160, 160, true),
                 screen(2560.0, 0.0, 2560.0, 1440.0, 5120, 2880, 60, false),
-            ],
-            limit_4k: false,
-        }
+            ], false)
     }
 
     /// Rectangles en pixels d'un plan.
@@ -537,12 +587,13 @@ mod tests {
     fn reglage_ecrans() {
         let choice = |setting, profile, custom_resolution, virtual_display| DisplaysChoice { setting, profile, custom_resolution, virtual_display };
         use DisplaysSetting::*;
-        // Auto : tous en Bureau, Max (et Personnalisé), un seul en Jeu.
+        // Auto : tous en Bureau et Max, un seul en Jeu et en Personnalisé.
         assert!(choice(Auto, Some(Profile::Bureau), false, true).all_displays());
         assert!(choice(Auto, Some(Profile::Max), false, true).all_displays());
-        assert!(choice(Auto, None, false, true).all_displays());
+        assert!(!choice(Auto, None, false, true).all_displays());
         assert!(!choice(Auto, Some(Profile::Jeu), false, true).all_displays());
         assert!(choice(All, Some(Profile::Jeu), false, true).all_displays());
+        assert!(choice(All, None, false, true).all_displays());
         assert!(!choice(This, Some(Profile::Bureau), false, true).all_displays());
         // Inactif, sur « Cet écran » : définition sur mesure, ou sans écran virtuel.
         for c in [choice(All, Some(Profile::Bureau), true, true), choice(All, Some(Profile::Bureau), false, false)] {
@@ -551,12 +602,46 @@ mod tests {
         assert_eq!(DisplaysSetting::parse("all"), Some(All));
         assert_eq!(DisplaysSetting::default().as_str(), "auto");
         assert_eq!(serde_json::to_string(&This).unwrap(), "\"this\"");
+    }
+
+    #[test]
+    fn ecrans_de_la_session() {
+        let bureau = Some(Profile::Bureau);
         // La ligne de l'accueil : le nombre d'écrans de la session, ou un écran.
-        let bureau = choice(Auto, Some(Profile::Bureau), false, true);
-        assert_eq!(session_plan(&auteur(), &bureau, Codec::Hevc).map(|p| p.len()), Some(3));
-        assert_eq!(session_plan(&auteur(), &choice(Auto, Some(Profile::Jeu), false, true), Codec::Hevc), None);
-        let one = Screens { list: vec![auteur().list[1]], limit_4k: false };
-        assert_eq!(session_plan(&one, &bureau, Codec::Hevc), None, "un seul écran : session à un écran");
+        assert_eq!(session_plan(&auteur(), bureau, true, Codec::Hevc).map(|p| p.len()), Some(3));
+        assert_eq!(session_plan(&auteur(), Some(Profile::Jeu), true, Codec::Hevc), None);
+        assert_eq!(session_plan(&auteur(), None, true, Codec::Hevc), None, "Personnalisé : un écran");
+        assert_eq!(session_plan(&auteur(), bureau, false, Codec::Hevc), None, "sans écran virtuel");
+        let custom = Screens { custom_resolution: true, ..auteur() };
+        assert_eq!(session_plan(&custom, bureau, true, Codec::Hevc), None, "définition sur mesure");
+        let one = with(vec![auteur().list[1]], false);
+        assert_eq!(session_plan(&one, bureau, true, Codec::Hevc), None, "un seul écran");
+        // La Station dit combien d'écrans elle sait créer ; absent : un.
+        let old = Screens { max_screens: 0, ..auteur() };
+        assert_eq!(session_plan(&old, bureau, true, Codec::Hevc), None, "Station antérieure");
+        let two = Screens { max_screens: 2, ..auteur() };
+        let p = session_plan(&two, bureau, true, Codec::Hevc).unwrap();
+        assert_eq!(p.iter().map(|p| p.device).collect::<Vec<_>>(), [1, 0], "le principal et le plus proche");
+        // JSON des ponts : champs facultatifs.
+        let s: Screens = serde_json::from_str(r#"{"list": [], "setting": "all", "max_screens": 4}"#).unwrap();
+        assert_eq!((s.setting, s.max(), s.current, s.limit_4k), (DisplaysSetting::All, 4, 0, false));
+        let s: Screens = serde_json::from_str(r#"{"list": []}"#).unwrap();
+        assert_eq!((s.setting, s.max()), (DisplaysSetting::Auto, 1));
+    }
+
+    #[test]
+    fn ecran_retire_en_session() {
+        // Le Studio Display (2) retiré : le MacBook garde sa place, les index restent ceux de l'appareil.
+        let p = plan_excluding(&auteur(), Codec::Hevc, &[2]);
+        assert_eq!(p.iter().map(|p| (p.device, p.x, p.y)).collect::<Vec<_>>(), [(1, 0, 0), (0, -3456, 600)]);
+        // Le principal n'est jamais retiré ; tous les autres : lui seul.
+        let p = plan_excluding(&auteur(), Codec::Hevc, &[0, 1, 2]);
+        assert_eq!(p.iter().map(|p| (p.device, p.primary)).collect::<Vec<_>>(), [(1, true)]);
+        // Retirer l'écran du milieu d'une rangée : les autres se recollent.
+        let row = with((0..3).map(|i| screen(f64::from(i) * 100.0, 0.0, 100.0, 100.0, 100, 100, 60, i == 0)).collect(), false);
+        let p = plan_excluding(&row, Codec::Hevc, &[1]);
+        assert_eq!(p.iter().map(|p| (p.device, p.x)).collect::<Vec<_>>(), [(0, 0), (2, 100)]);
+        windows_accepts(&rects(&p), 0);
     }
 
     #[test]
@@ -570,14 +655,11 @@ mod tests {
     #[test]
     fn ecrans_empiles() {
         // Un écran 1080p principal, un 4K au-dessus (Retina, échelle 2), un autre en dessous.
-        let s = Screens {
-            list: vec![
+        let s = with(vec![
                 screen(0.0, 0.0, 1920.0, 1080.0, 1920, 1080, 144, true),
                 screen(0.0, -1080.0, 1920.0, 1080.0, 3840, 2160, 60, false),
                 screen(320.0, 1080.0, 1280.0, 800.0, 2560, 1600, 60, false),
-            ],
-            limit_4k: false,
-        };
+            ], false);
         let p = plan(&s, Codec::Hevc);
         let at: Vec<(usize, i32, i32)> = p.iter().map(|p| (p.device, p.x, p.y)).collect();
         assert_eq!(at, [(0, 0, 0), (1, 0, -2160), (2, 320, 1080)]);
@@ -587,13 +669,10 @@ mod tests {
     #[test]
     fn echelles_melangees() {
         // MacBook Air (échelle 2) principal, écran 1080p (échelle 1) à droite, monté de 200 points.
-        let s = Screens {
-            list: vec![
+        let s = with(vec![
                 screen(0.0, 0.0, 1440.0, 900.0, 2880, 1800, 60, true),
                 screen(1440.0, -200.0, 1920.0, 1080.0, 1920, 1080, 75, false),
-            ],
-            limit_4k: false,
-        };
+            ], false);
         let p = plan(&s, Codec::Hevc);
         // 200 points du principal = 400 pixels.
         assert_eq!((p[1].x, p[1].y, p[1].mode.refresh), (2880, -400, 60));
@@ -603,14 +682,11 @@ mod tests {
     #[test]
     fn ecran_isole() {
         // Un écran posé à l'écart (rien ne touche) : collé au plus proche, du côté de l'écart.
-        let s = Screens {
-            list: vec![
+        let s = with(vec![
                 screen(0.0, 0.0, 1000.0, 1000.0, 1000, 1000, 60, true),
                 screen(1500.0, 200.0, 500.0, 500.0, 500, 500, 60, false),
                 screen(-300.0, 1600.0, 800.0, 400.0, 800, 400, 60, false),
-            ],
-            limit_4k: false,
-        };
+            ], false);
         let p = plan(&s, Codec::Hevc);
         let at: Vec<(usize, i32, i32)> = p.iter().map(|p| (p.device, p.x, p.y)).collect();
         // Écart horizontal de 500 : à droite, même hauteur relative ; écart vertical de 600 : dessous.
@@ -623,14 +699,11 @@ mod tests {
         // Le principal, un écran à sa droite (échelle 2, donc deux fois plus
         // grand en pixels), et une barre sous les deux : sous le principal
         // elle chevaucherait l'écran de droite ; sous celui de droite, non.
-        let s = Screens {
-            list: vec![
+        let s = with(vec![
                 screen(0.0, 0.0, 1000.0, 1000.0, 1000, 1000, 60, true),
                 screen(1000.0, 0.0, 1000.0, 1000.0, 2000, 2000, 60, false),
                 screen(0.0, 1000.0, 2000.0, 500.0, 4000, 1000, 60, false),
-            ],
-            limit_4k: false,
-        };
+            ], false);
         let p = plan(&s, Codec::Hevc);
         let at: Vec<(usize, i32, i32)> = p.iter().map(|p| (p.device, p.x, p.y)).collect();
         assert_eq!(at, [(0, 0, 0), (1, 1000, 0), (2, -1000, 2000)]);
@@ -640,13 +713,13 @@ mod tests {
     #[test]
     fn quatre_au_plus_et_principal_par_defaut() {
         let list: Vec<DeviceScreen> = (0..6).map(|i| screen(f64::from(i) * 100.0, 0.0, 100.0, 100.0, 100, 100, 60, false)).collect();
-        let p = plan(&Screens { list, limit_4k: false }, Codec::Hevc);
+        let p = plan(&with(list, false), Codec::Hevc);
         assert_eq!(p.len(), MAX_SCREENS);
         // Aucun principal marqué : le premier ; les plus proches de lui ensuite.
         assert!(p[0].primary && p[0].device == 0);
         assert_eq!(p.iter().map(|p| p.device).collect::<Vec<_>>(), [0, 1, 2, 3]);
         assert!(plan(&Screens::default(), Codec::Hevc).is_empty());
-        let one = plan(&Screens { list: vec![screen(0.0, 0.0, 1512.0, 982.0, 3024, 1964, 120, true)], limit_4k: false }, Codec::Hevc);
+        let one = plan(&with(vec![screen(0.0, 0.0, 1512.0, 982.0, 3024, 1964, 120, true)], false), Codec::Hevc);
         assert_eq!(one, [PlannedScreen { device: 0, mode: Mode { width: 3024, height: 1964, refresh: 120 }, x: 0, y: 0, primary: true }]);
     }
 
@@ -689,7 +762,7 @@ mod tests {
                 let scale = [1.0, 1.5, 2.0][next(3) as usize];
                 list.push(screen(f.x, f.y, f.width, f.height, (f.width * scale) as u32, (f.height * scale) as u32, 60, i == 0));
             }
-            let p = plan(&Screens { list, limit_4k: next(2) == 0 }, Codec::Hevc);
+            let p = plan(&with(list, next(2) == 0), Codec::Hevc);
             windows_accepts(&rects(&p), 0);
         }
     }

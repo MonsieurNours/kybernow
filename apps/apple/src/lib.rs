@@ -1027,8 +1027,12 @@ pub struct KnSession {
 /// et pour le multi-écrans `screens` : `list`, les écrans de l'appareil
 /// (`x`, `y`, `width`, `height` : cadre dans le repère logique de l'appareil,
 /// y vers le bas ; `pixel_width`, `pixel_height` : définition native ;
-/// `refresh` ; `primary`), et `limit_4k` (« Au plus 4K »). Avec `screens`,
-/// `mode` décrit l'écran principal comme sans lui, et la plateforme reçoit
+/// `refresh` ; `primary`), `current` (« Cet écran » : celui de la fenêtre),
+/// `limit_4k` (« Au plus 4K »), `custom_resolution`, `setting` (`auto`,
+/// `this`, `all`) et `max_screens` (`virtual_display.max_screens` de
+/// `kn_console_info` ; absent : 1). Le cœur en tire le nombre d'écrans, au
+/// départ et quand le profil change (`kn_session_set_settings`). `mode` :
+/// le mode de « Cet écran », comme sans `screens`. La plateforme reçoit
 /// `on_screens` et les paquets de chaque écran (`KnPacket::screen`).
 /// Nul si les paramètres sont illisibles (`error`). La session commence tout
 /// de suite ; `on_status` suit.
@@ -1191,45 +1195,33 @@ pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_jso
     KN_OK
 }
 
-fn displays_choice(setting: *const c_char, profile: *const c_char, custom_resolution: bool, virtual_display: bool) -> DisplaysChoice {
-    DisplaysChoice {
-        setting: DisplaysSetting::parse(&text(setting)).unwrap_or_default(),
-        profile: Profile::parse(&text(profile)),
-        custom_resolution,
-        virtual_display,
-    }
-}
-
-/// Réglage « Écrans » : `setting` (`auto`, `this`, `all` ; inconnu : Auto),
-/// `profile` (`jeu`, `bureau`, `max` ; vide : Personnalisé), définition sur
-/// mesure, écran virtuel. Faux : le réglage est inactif, sur « Cet écran ».
+/// Réglage « Écrans » : faux avec une définition sur mesure ou sans écran
+/// virtuel ; il est alors inactif, sur « Cet écran ».
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_screens_setting_enabled(custom_resolution: bool, virtual_display: bool) -> bool {
     DisplaysChoice { setting: DisplaysSetting::Auto, profile: None, custom_resolution, virtual_display }.setting_enabled()
 }
 
-/// Les écrans que prendra la session avec ce réglage (mêmes paramètres que
-/// `kn_screens_setting_enabled`) pour ces écrans de l'appareil (même JSON que
-/// `screens` de `kn_session_start`) et ce format (`h264`, `hevc`, `av1`) :
-/// une liste JSON d'au moins deux écrans, principal en premier, de `device`
-/// (index dans `list`), `width`, `height`, `refresh`, `x`, `y`, `primary` ;
-/// quatre au plus. Nul : une session à un écran (réglage, profil Jeu en
-/// Auto, un seul écran, JSON illisible) : `kn_session_start` sans `screens`.
-/// Son nombre d'écrans est celui de la ligne de l'accueil. À libérer par
-/// `kn_string_free`.
+/// Les écrans que prendra la session pour ces écrans de l'appareil (même JSON
+/// que `screens` de `kn_session_start`, réglage et `max_screens` compris),
+/// ce profil (`jeu`, `bureau`, `max` ; vide : Personnalisé), cet écran
+/// virtuel et ce format (`h264`, `hevc`, `av1`) : une liste JSON d'au moins
+/// deux écrans, principal en premier, de `device` (index dans `list`),
+/// `width`, `height`, `refresh`, `x`, `y`, `primary` ; quatre au plus, et
+/// pas plus que la Station n'en crée. Nul : une session à un écran (réglage,
+/// profil, Station antérieure, un seul écran, JSON illisible). Son nombre
+/// d'écrans est celui de la ligne de l'accueil, et les fenêtres à ouvrir ;
+/// c'est le même calcul que la session. À libérer par `kn_string_free`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_screens_session_plan(
     screens_json: *const c_char,
-    setting: *const c_char,
     profile: *const c_char,
-    custom_resolution: bool,
     virtual_display: bool,
     codec: *const c_char,
 ) -> *mut c_char {
     let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
-    let choice = displays_choice(setting, profile, custom_resolution, virtual_display);
     let codec = Codec::parse(&text(codec)).unwrap_or(Codec::Hevc);
-    let Some(plan) = screens::session_plan(&screens, &choice, codec) else { return std::ptr::null_mut() };
+    let Some(plan) = screens::session_plan(&screens, Profile::parse(&text(profile)), virtual_display, codec) else { return std::ptr::null_mut() };
     let list: Vec<serde_json::Value> = plan
         .iter()
         .map(|p| {
