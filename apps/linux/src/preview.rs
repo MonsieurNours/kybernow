@@ -972,24 +972,37 @@ mod tests {
         }
     }
 
-    /// Plusieurs ordinateurs : la barre a le menu « Ordinateurs » (s'il y a un autre ordinateur) et le
-    /// haut-parleur « Garder le son », au bureau seulement ; le menu liste les autres ordinateurs, jamais
-    /// celui de la session ; chaque bouton se nomme au survol.
+    /// Plusieurs ordinateurs (docs/link-ui.md) : la barre a le menu « Ordinateurs », présenté comme « Touches »
+    /// (une icône, dans le même groupe) s'il y a un autre ordinateur, et le haut-parleur « Garder le son » à
+    /// partir de deux sessions ouvertes ; au bureau seulement. Le menu liste les autres ordinateurs, jamais celui
+    /// de la session ; chaque bouton se nomme au survol.
     #[test]
     fn bar_of_several_computers() {
         let (mut app, mut cv) = streaming(Layout::Desktop);
         app.session_mut().unwrap().bar = true;
         let hits = ui::draw(&app, &mut cv);
         let has = |hits: &[(Target, crate::app::Rect)], t: Target| hits.iter().any(|(h, _)| *h == t);
-        assert!(has(&hits, Target::BarComputers) && has(&hits, Target::BarSound));
+        // Une seule session : « Ordinateurs » à côté de « Touches », pas de haut-parleur (la barre reste comme avant).
+        assert!(has(&hits, Target::BarComputers) && !has(&hits, Target::BarSound));
+        let rect = |hits: &[(Target, crate::app::Rect)], t: Target| hits.iter().find(|(h, _)| *h == t).map(|(_, r)| *r).unwrap();
+        let (computers, keys) = (rect(&hits, Target::BarComputers), rect(&hits, Target::BarKeys));
+        assert!((computers.y, computers.w, computers.h) == (keys.y, keys.w, keys.h) && computers.x + computers.w == keys.x, "même bouton, juste avant « Touches »");
         // Le menu : les deux autres ordinateurs (b et c), pas « Tour du salon » (a), celui de la session.
         app.session_mut().unwrap().bar_menu = Some(BarMenu::Computers);
         let hits = ui::draw(&app, &mut cv);
         assert!(has(&hits, Target::BarComputer(1)) && has(&hits, Target::BarComputer(2)) && !has(&hits, Target::BarComputer(0)));
-        // « Garder le son » allumé : le bouton est teinté, comme souris et plein écran allumés.
-        let (_, r) = *hits.iter().find(|(t, _)| *t == Target::BarSound).unwrap();
-        let before = cv.pix.pixel((r.x + 2.0) as u32, (r.y + 2.0) as u32).unwrap();
+        // Une seconde session ouverte : le haut-parleur apparaît.
         app.session_mut().unwrap().bar_menu = None;
+        let mut second = SessionUi::new(2, "c", "Mini du bureau", Profile::Bureau, false, false, 1);
+        second.phase = Phase::Streaming;
+        app.open_session(second);
+        app.activate_session(1);
+        app.session_mut().unwrap().bar = true;
+        let hits = ui::draw(&app, &mut cv);
+        assert!(has(&hits, Target::BarSound));
+        // « Garder le son » allumé : le bouton est teinté, comme souris et plein écran allumés.
+        let r = rect(&hits, Target::BarSound);
+        let before = cv.pix.pixel((r.x + 2.0) as u32, (r.y + 2.0) as u32).unwrap();
         app.session_mut().unwrap().keep_sound = true;
         ui::draw(&app, &mut cv);
         let on = cv.pix.pixel((r.x + 2.0) as u32, (r.y + 2.0) as u32).unwrap();
@@ -1002,7 +1015,7 @@ mod tests {
         app.pointer = Some((r.x + r.w / 2.0, r.y + r.h / 2.0));
         ui::draw(&app, &mut cv);
         assert!(below(&cv) > 0, "« Garder le son » sous le haut-parleur");
-        // Un seul ordinateur : pas de menu, le haut-parleur reste.
+        // Un seul ordinateur enregistré : pas de menu ; deux sessions : le haut-parleur reste.
         app.pointer = None;
         app.store.hosts.truncate(1);
         let hits = ui::draw(&app, &mut cv);
@@ -1046,7 +1059,7 @@ mod tests {
         assert!(ui::hint_only(&app, own(1)) && !ui::overlay_visible(&app, own(2)));
         app.activate_session(2);
         assert!(ui::hint_only(&app, own(2)) && !ui::overlay_visible(&app, own(1)));
-        // Une session finie sur une erreur : « Retour » avec d'autres sessions, « Retour à l'accueil » seule.
+        // Une session finie sur une erreur : « Fermer » avec d'autres sessions, « Retour à l'accueil » seule.
         app.session_by_mut(2).unwrap().phase = Phase::Ended { error: Some("coupée".into()) };
         app.session_by_mut(2).unwrap().opened_at = None;
         let lit = |cv: &Canvas| (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 400).unwrap().alpha() > 0).count();

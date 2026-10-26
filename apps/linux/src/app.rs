@@ -497,16 +497,6 @@ pub type SessionId = u32;
 /// Ordinateurs en session en même temps, au plus (docs/plusieurs-ordinateurs.md).
 pub const MAX_SESSIONS: usize = 4;
 
-/// Ce qu'une session fait de l'entrée et du son à cet instant (`App::focus_states`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FocusState {
-    pub id: SessionId,
-    /// Elle reçoit le clavier, la souris, les manettes et le presse-papiers.
-    pub active: bool,
-    /// Son coupé : ni active ni gardée par « Garder le son », ou coupée depuis son menu.
-    pub muted: bool,
-}
-
 /// L'interface d'une session. L'app en tient une liste (`App::sessions`, dans l'ordre
 /// d'ouverture) et une session active (`App::session()`), celle de la fenêtre au premier plan.
 #[derive(Clone, Debug)]
@@ -1098,10 +1088,12 @@ pub struct App {
     /// Les sessions en cours, dans l'ordre d'ouverture (une seule sur le Steam Deck, au salon
     /// et sur KyberNow Link OS : `multi_sessions`), et celle de la fenêtre au premier plan.
     /// `App::session()` rend la session active : la barre, le menu et les raccourcis la visent.
+    /// Qui est active, c'est le registre du cœur (`kybernow_core::focus`) qui le dit : la couche
+    /// appareil recopie ici sa réponse (`device::focus::sync`), l'interface ne la décide pas.
     pub sessions: Vec<SessionUi>,
     pub active: Option<SessionId>,
-    /// Les sessions déjà actives, la plus récente en dernier : qui reprend la main quand
-    /// la session active se termine.
+    /// Les sessions déjà actives, la plus récente en dernier : qui reprend la main quand la
+    /// session active se termine, tant que le cœur n'a pas répondu (comme lui, `focus::unregister`).
     history: Vec<SessionId>,
     next_session: SessionId,
     pub toast: Option<(String, Instant)>,
@@ -1258,31 +1250,6 @@ impl App {
             self.back_to = Screen::Home;
         }
         true
-    }
-
-    /// « Ordinateur suivant » : la session qui suit l'active dans l'ordre d'ouverture, en
-    /// reprenant au début ; rien avec une seule session.
-    pub fn next_session(&self) -> Option<SessionId> {
-        if self.sessions.len() < 2 {
-            return None;
-        }
-        let i = self.sessions.iter().position(|s| Some(s.id) == self.active)?;
-        Some(self.sessions[(i + 1) % self.sessions.len()].id)
-    }
-
-    /// Ce que chaque session doit faire de l'entrée et du son, d'après la session active et
-    /// « Garder le son » : l'entrée (clavier, souris, manettes, presse-papiers) va à la seule
-    /// session active ; le son est coupé pour toute session qui n'est ni active ni gardée, et
-    /// pour celle dont le son est coupé depuis son menu. Le pilote applique cette liste d'un
-    /// seul endroit (`device::focus`).
-    pub fn focus_states(&self) -> Vec<FocusState> {
-        self.sessions
-            .iter()
-            .map(|s| {
-                let active = Some(s.id) == self.active;
-                FocusState { id: s.id, active, muted: s.muted || !(active || s.keep_sound) }
-            })
-            .collect()
     }
 
     /// L'écran virtuel de la Station de cet ordinateur est utilisable : pilote en
@@ -3028,11 +2995,19 @@ impl App {
     /// Le mode que la session demandera : définition et fréquence (« comme
     /// cet écran », ou la hauteur choisie, à la largeur de cet écran).
     pub fn session_mode(&self, h: &Host) -> (u32, u32, u32) {
-        let (pw, ph) = self.machine.display;
+        self.mode_for(h, self.machine.display, self.machine.refresh)
+    }
+
+    /// Le mode pour une surface de `display` pixels rafraîchie à `refresh` Hz : l'écran de
+    /// l'appareil (`session_mode`), ou la fenêtre d'une session de plus (plusieurs ordinateurs :
+    /// l'écran de l'ordinateur prend la taille de sa fenêtre, `screens::extra_session_window`).
+    /// « Comme cet écran » : cette surface ; une hauteur choisie : à sa largeur.
+    pub fn mode_for(&self, h: &Host, display: (u32, u32), refresh: u32) -> (u32, u32, u32) {
+        let (pw, ph) = display;
         let (pw, ph) = (pw.max(640), ph.max(480));
         let height = if h.settings.resolution == 0 { ph } else { h.settings.resolution };
         let width = ((height as u64 * pw as u64 / ph as u64) as u32) & !1;
-        let mut fps = if h.settings.fps == 0 { self.machine.refresh.max(30) } else { h.settings.fps };
+        let mut fps = if h.settings.fps == 0 { refresh.max(30) } else { h.settings.fps };
         if h.settings.battery_light && self.machine.on_battery() {
             fps = fps.min(60);
         }
@@ -3540,57 +3515,46 @@ mod tests {
         id
     }
 
-    /// Une seule session est active, celle qu'on vient d'ouvrir ; l'entrée va à elle seule, le
-    /// son aux sessions active ou gardées ; « Garder le son » ne vaut que pour la session en cours.
+    /// « Garder le son » (bouton du haut-parleur) s'allume et s'éteint pour la session de la barre et
+    /// l'annonce avec son identifiant ; « Couper le son » du menu de session est un autre choix. Qui est
+    /// active, et qui s'entend, c'est le registre du cœur (`device::focus`).
     #[test]
-    fn only_the_active_session_gets_input_and_sound() {
+    fn keep_sound_belongs_to_the_session_of_the_bar() {
         let mut app = desk();
-        assert!(app.session().is_none() && app.focus_states().is_empty() && app.next_session().is_none());
-        let a = open(&mut app, "a");
-        assert_eq!((app.active, app.focus_states()), (Some(a), vec![FocusState { id: a, active: true, muted: false }]));
-        let b = open(&mut app, "b");
+        let (a, b) = (open(&mut app, "a"), open(&mut app, "b"));
         assert_eq!(app.active, Some(b), "la session ouverte devient active");
-        let c = open(&mut app, "c");
-        let states = app.focus_states();
-        assert_eq!(states.iter().filter(|s| s.active).map(|s| s.id).collect::<Vec<_>>(), vec![c]);
-        assert_eq!(states.iter().map(|s| (s.id, s.muted)).collect::<Vec<_>>(), vec![(a, true), (b, true), (c, false)], "seule la session active s'entend");
-        // « Garder le son » sur la première : audible sans être active ; la barre le dit pour la session active seulement.
+        assert_eq!(app.activate(Target::BarSound), vec![Action::KeepSound(b, true)]);
         app.activate_session(a);
+        assert!(app.session_by(b).unwrap().keep_sound && !app.session_by(a).unwrap().keep_sound);
         assert_eq!(app.activate(Target::BarSound), vec![Action::KeepSound(a, true)]);
-        app.activate_session(c);
-        let states = app.focus_states();
-        assert_eq!(states.iter().map(|s| (s.id, s.active, s.muted)).collect::<Vec<_>>(), vec![(a, false, false), (b, false, true), (c, true, false)]);
-        // Le son coupé depuis le menu de la session l'emporte, même active ou gardée.
-        app.session_mut().unwrap().muted = true;
-        app.session_by_mut(a).unwrap().muted = true;
-        let states = app.focus_states();
-        assert_eq!(states.iter().map(|s| s.muted).collect::<Vec<_>>(), vec![true, true, true]);
-        // Rallumer « Garder le son » : éteint ensuite pour cette session seule.
-        app.activate_session(a);
         assert_eq!(app.activate(Target::BarSound), vec![Action::KeepSound(a, false)]);
-        assert!(!app.session_by(a).unwrap().keep_sound && app.session_by(b).is_some_and(|s| !s.keep_sound));
+        assert_eq!(app.activate(Target::Menu(MenuItem::Sound)), vec![Action::Mute(a, true)]);
+        assert!(app.session_by(a).unwrap().muted && !app.session_by(a).unwrap().keep_sound);
     }
 
-    /// « Ordinateur suivant » : dans l'ordre d'ouverture, en reprenant au début ; rien avec une seule session.
+    /// Le mode d'une session de plus est la surface de sa fenêtre, à la fréquence de son écran ;
+    /// une définition choisie garde la largeur de la fenêtre ; sur batterie, « Alléger » plafonne à 60.
     #[test]
-    fn next_computer_follows_the_opening_order() {
-        let mut app = desk();
-        let a = open(&mut app, "a");
-        assert_eq!(app.next_session(), None);
-        let b = open(&mut app, "b");
-        let c = open(&mut app, "c");
-        assert_eq!(app.active, Some(c));
-        assert_eq!(app.next_session(), Some(a), "après la dernière : la première");
-        app.activate_session(a);
-        assert_eq!(app.next_session(), Some(b));
-        app.activate_session(b);
-        assert_eq!(app.next_session(), Some(c));
-        // Passer à une autre session ne la rouvre pas : changer d'ordre d'activation ne change pas l'ordre d'ouverture.
-        assert_eq!(app.sessions.iter().map(|s| s.id).collect::<Vec<_>>(), vec![a, b, c]);
+    fn an_extra_session_takes_its_window_size() {
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.machine.display = (3840, 2160);
+        app.machine.refresh = 144;
+        let mut h = host();
+        // La fenêtre : deux tiers d'un écran 4K, en pixels.
+        assert_eq!(app.mode_for(&h, (2560, 1440), 144), (2560, 1440, 144));
+        assert_eq!(app.session_mode(&h), (3840, 2160, 144), "l'écran de l'appareil n'a pas changé");
+        h.settings.resolution = 1080;
+        assert_eq!(app.mode_for(&h, (2560, 1440), 144), (1920, 1080, 144));
+        h.settings.fps = 90;
+        assert_eq!(app.mode_for(&h, (2560, 1440), 144).2, 90);
+        h.settings.fps = 0;
+        app.machine.battery = Some((50, false));
+        assert_eq!(app.mode_for(&h, (2560, 1440), 144).2, 60);
     }
 
-    /// Quand la session active se termine, celle qui l'a été en dernier reprend la main ;
-    /// la dernière fermée laisse l'app sans session active.
+    /// Quand la session active se termine, celle qui l'a été en dernier reprend la main (comme
+    /// dans le registre du cœur, qui a le dernier mot) ; la dernière fermée laisse l'app sans
+    /// session active.
     #[test]
     fn the_last_active_session_takes_over() {
         let mut app = desk();

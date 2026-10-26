@@ -9,8 +9,9 @@
 //! une liste de sessions (`App::sessions` pour l'interface, `Lives` pour ce que tient chaque
 //! session), une fenêtre par ordinateur (`Win::session`), les événements étiquetés par leur
 //! session (`Event::Session`). La session active est celle de la fenêtre au premier plan : elle
-//! seule reçoit l'entrée ; `focus::apply` est l'unique point où l'app dit à chaque session si elle
-//! est active et si son son est coupé.
+//! seule reçoit l'entrée. Qui est active, c'est le registre du cœur (`kybernow_core::focus`, voir
+//! `focus.rs`) qui le dit et qui l'applique (touches relâchées, manettes au repos, presse-papiers en
+//! pause, son coupé) ; l'app lui annonce ses fenêtres et recopie sa réponse.
 
 mod chime;
 mod focus;
@@ -33,13 +34,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kybernow_core::console::{DeviceInfo, Mode};
+use kybernow_core::focus::FocusId;
+use kybernow_core::gamepads;
 use kybernow_core::input::{GamepadRumble, MouseMode, MouseModeRules};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
 use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::session::Status;
 
-use crate::app::{Action, AddStep, App, FocusState, Found, HostLive, Layout, Nav, Online, OsAction, Phase, Rect, Screen, SessionId, SessionUi, Stats, Target};
+use crate::app::{Action, AddStep, App, Found, HostLive, Layout, Nav, Online, OsAction, Phase, Rect, Screen, SessionId, SessionUi, Stats, Target};
 use crate::displays::{self, Display};
 use crate::i18n::{self, tr};
 use crate::model::{now_secs, LastSession, Store};
@@ -102,7 +105,6 @@ pub enum SessionEvent {
     Screens,
     Rumble(GamepadRumble),
     Combo,
-    InputReady,
     GameFullscreen(bool),
     DecoderFailed(String),
 }
@@ -490,10 +492,17 @@ struct Live {
     /// La session de l'app (`App::sessions`) que cet état accompagne.
     id: SessionId,
     handle: session::Handle,
+    /// Son inscription au registre des sessions du cœur (`focus`).
+    focus: FocusId,
     /// L'ordinateur de la session (la dernière session y est enregistrée).
     host: String,
-    /// La session est l'active, telle que `focus::apply` la lui a dite (`apply_focus`).
-    active: bool,
+    /// Une session de plus : la surface de sa fenêtre (pixels) et la fréquence de son écran, dont
+    /// elle prend le mode (l'écran de l'ordinateur a la taille de la fenêtre) ; `None` : le mode de
+    /// l'écran de l'appareil.
+    surface: Option<((u32, u32), u32)>,
+    /// Une session de plus : l'écran de l'appareil que le cœur connaît comme « Cet écran » ; il suit la
+    /// fenêtre quand on la déplace sur un autre écran (`follow_window`).
+    followed: usize,
     /// Le pointeur de l'ordinateur sur chaque écran de l'appareil : position
     /// (pixels de son écran) et caché ; la fenêtre de l'écran ne dessine que le sien.
     pointers: HashMap<usize, (Option<(f64, f64)>, bool)>,
@@ -565,6 +574,11 @@ impl Lives {
 
     fn get_mut(&mut self, id: SessionId) -> Option<&mut Live> {
         self.0.iter_mut().find(|l| l.id == id)
+    }
+
+    /// La session que le registre du cœur désigne par cette inscription.
+    fn by_focus(&self, focus: FocusId) -> Option<&Live> {
+        self.0.iter().find(|l| l.focus == focus)
     }
 
     fn iter(&self) -> impl Iterator<Item = &Live> {
@@ -747,9 +761,9 @@ pub fn run(args: &[String]) {
     app.update = crate::app::UpdateState::Checking;
     jobs::check_update(app.store.app.beta, tx.clone());
     let mut pads = pads::Pads::default();
-    // Les sessions en cours (leur interface est dans `app.sessions`) et ce que `focus::apply` leur a dit.
+    // Les sessions en cours (leur interface est dans `app.sessions`) et ce que `focus::sync` a déjà appliqué à SDL.
     let mut lives = Lives::default();
-    let mut focus_applied: Vec<FocusState> = Vec::new();
+    let mut focus_applied = focus::Applied::default();
     // La session dont la fenêtre est déjà passée devant.
     let mut raised: Option<SessionId> = None;
     // Les écrans de l'appareil relus toutes les deux secondes hors session (branchement, fenêtre déplacée).
@@ -874,11 +888,9 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
 
-        // Qui est actif : le point d'application unique (son, presse-papiers, manettes, état de SDL).
-        if focus::apply(&mut app, &mut lives, &mut pads, &mut focus_applied) {
+        // Qui est actif : le registre du cœur le dit et l'applique ; l'interface le recopie, SDL suit.
+        if focus::sync(&mut app, &lives, &mut pads, &mut focus_applied) {
             dirty = true;
-            // La session qui devient active reprend tout de suite le presse-papiers de l'appareil.
-            last_clip = Instant::now() - Duration::from_secs(1);
         }
         raise_active(&app, &wins, &mut raised);
 
@@ -890,15 +902,16 @@ pub fn run(args: &[String]) {
             }
             session_tick(&mut app, l, &mut wins, &mut dirty, &mut present);
         }
-        // Presse-papiers : le texte du système, et ce que l'ordinateur envoie (la session active seulement).
-        let clip_due = last_clip.elapsed() > Duration::from_millis(500);
+        // Presse-papiers : ce que l'ordinateur envoie (le pont du cœur n'envoie rien tant que la session
+        // n'est pas active), et le texte du système, relu deux fois par seconde.
         for l in lives.iter() {
             if let Some(c) = &l.handle.shared.clipboard {
-                c.pump(clip_due);
+                c.write_outgoing();
             }
         }
-        if clip_due {
+        if last_clip.elapsed() > Duration::from_millis(500) {
             last_clip = Instant::now();
+            focus::sync_clipboards(&lives);
         }
 
         // Un réveil : l'ordinateur sondé toutes les 2 s, 2 min au plus, jusqu'à ce qu'il réponde.
@@ -1351,6 +1364,28 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
         apply_devices(app, l, wins, d);
         *dirty = true;
     }
+    follow_window(app, l, wins);
+}
+
+/// Une session de plus a un seul écran, « Cet écran » : celui de sa fenêtre. Quand on la déplace sur un autre
+/// écran de l'appareil, le cœur le sait (`Session::set_screens`) : le flux suit sa fenêtre sans relancer
+/// l'image (`SessionEvent::Screens` ramène la fenêtre à son nouvel écran). La taille de l'écran de l'ordinateur,
+/// elle, reste celle de la fenêtre à l'ouverture.
+fn follow_window(app: &App, l: &mut Live, wins: &Wins) {
+    if l.surface.is_none() || l.screens_base.is_none() {
+        return;
+    }
+    let Some(wi) = wins.main_of(l.id) else { return };
+    let current = l.devices.current(wins.list[wi].window);
+    if current == l.followed {
+        return;
+    }
+    l.followed = current;
+    let (Some(h), Some(base)) = (app.store.host(&l.host), l.screens_base.clone()) else { return };
+    log::info!("session {} : sa fenêtre est maintenant sur l'écran {current}", l.host);
+    let screens = session_screens(app, h, &l.devices, current, &base);
+    l.screens_base = Some(screens.clone());
+    l.handle.session.set_screens(screens);
 }
 
 /// La fenêtre principale d'une session (la première, à défaut).
@@ -1378,6 +1413,7 @@ fn apply_devices(app: &mut App, l: &mut Live, wins: &mut Wins, d: screens::Detec
     // Station crée) est celui du départ de la session : il ne change qu'à la session suivante.
     let screens = session_screens(app, &h, &l.devices, current, &base);
     l.screens_base = Some(screens.clone());
+    l.followed = current;
     let after = plan_of(l);
     l.handle.session.set_screens(screens);
     if before == after {
@@ -1488,7 +1524,7 @@ fn follow_screens(app: &mut App, l: &mut Live, wins: &mut Wins) {
         // La fenêtre de l'app est en plein écran sur l'écran principal du flux tant qu'il y a plusieurs
         // écrans, et s'ils redeviennent un seul (profil changé) : elle montre alors l'écran du flux, celui
         // que le cœur a pris comme « Cet écran » (sa définition, son mode).
-        if wanted.len() >= 2 || wins.prev.is_some() {
+        if (wanted.len() >= 2 || wins.prev.is_some()) && wins.list[0].session == Some(l.id) {
             take_over_main_window(app, l, wins, primary);
         }
         sync_windows(wins, l.id, &title, &wanted, primary, &l.devices, true);
@@ -1670,7 +1706,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 {
                     let (ux, uy) = to_ui(&wins.list[wi], app.layout, x, y);
                     let on_ui = wins.list[wi].hits.iter().any(|(_, r)| r.contains(ux, uy));
-                    app.activate_session(id);
+                    focus::activate(app, lives, id);
                     if on_ui {
                         app.pointer = Some((ux, uy));
                         actions.extend(in_window(app, &mut wins.list[wi], |app| app.pointer_click(ux, uy)));
@@ -1699,7 +1735,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 // La fenêtre d'une session prend le clavier : sa session devient l'active.
                 sdl::SDL_WINDOWEVENT_FOCUS_GAINED => {
                     if let Some(id) = ws {
-                        app.activate_session(id);
+                        focus::activate(app, lives, id);
                     }
                 }
                 sdl::SDL_WINDOWEVENT_FOCUS_LOST => {
@@ -1992,13 +2028,10 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
         sdl::SDL_CONTROLLERDEVICEADDED => {
             let (index, _, _) = ev.pad();
             if let Some(slot) = pads.add(index) {
-                // Branchée sur chaque session : l'ordinateur ne perd pas la manette quand on change de fenêtre.
+                // Le lecteur du cœur la branche sur chaque session (l'ordinateur ne perd pas la manette
+                // quand on change de fenêtre) et la rebranche quand une session rejoint son ordinateur.
                 let (v, pr) = pads.ids(slot);
-                for l in lives.iter() {
-                    if let Some(p) = l.handle.shared.current_input() {
-                        p.gamepad_plug(slot as u32, Some(v), Some(pr));
-                    }
-                }
+                gamepads::plug(slot as u32, Some(v), Some(pr));
                 if let Some(s) = app.session_mut() {
                     s.notice = Some((format!("{} {}{} : {}", tr("Manette", "Controller"), tr("J", "P"), slot + 1, pads.name(slot)), Instant::now()));
                 }
@@ -2008,11 +2041,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
         sdl::SDL_CONTROLLERDEVICEREMOVED => {
             let (instance, _, _) = ev.pad();
             if let Some(slot) = pads.remove(instance) {
-                for l in lives.iter() {
-                    if let Some(p) = l.handle.shared.current_input() {
-                        p.gamepad_unplug(slot as u32);
-                    }
-                }
+                gamepads::unplug(slot as u32);
                 *dirty = true;
             }
         }
@@ -2064,25 +2093,24 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 *dirty = true;
                 return;
             }
-            // Boutons et axes ne vont qu'à la session active (`input` : la sienne).
+            // Boutons et axes : au lecteur du cœur, qui ne les envoie qu'à la session active (en jeu, ni
+            // menu ni touches ouverts) ; en manette-souris, les clics partent par la chaîne de la session active.
             if in_game && app.session().is_some_and(|s| s.pad_mouse) {
                 if let Some(p) = &input {
                     pads.mouse_input(p, is_button, which, down, value);
                     if is_button {
-                        p.gamepad_button(slot as u32, pads::button(which), down);
+                        gamepads::button(slot as u32, pads::button(which), down);
                     }
                 }
                 return;
             }
             if in_game {
-                if let Some(p) = &input {
-                    if is_button {
-                        if let Some(b) = pads::core_button(which) {
-                            p.gamepad_button(slot as u32, b, down);
-                        }
-                    } else if let Some(a) = pads::core_axis(which) {
-                        p.gamepad_axis(slot as u32, a, value);
+                if is_button {
+                    if let Some(b) = pads::core_button(which) {
+                        gamepads::button(slot as u32, b, down);
                     }
+                } else if let Some(a) = pads::core_axis(which) {
+                    gamepads::axis(slot as u32, a, value);
                 }
                 return;
             }
@@ -2395,29 +2423,12 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             let Some(l) = lives.get_mut(id) else { return };
             follow_screens(app, l, wins);
         }
-        // Les vibrations ne reviennent à la manette que depuis la session active.
-        SessionEvent::Rumble(r) => {
-            if app.active == Some(id) {
-                pads.rumble(r.id as usize, r.large_motor, r.small_motor, r.duration_ms);
-            }
-        }
+        // Les vibrations : le cœur ignore celles d'une session qui n'est pas active.
+        SessionEvent::Rumble(r) => pads.rumble(r.id as usize, r.large_motor, r.small_motor, r.duration_ms),
         // La combinaison de la manette n'arrive que de la session qui reçoit ses boutons : l'active.
         SessionEvent::Combo => {
             if app.active == Some(id) {
                 actions.extend(app.open_menu());
-            }
-        }
-        SessionEvent::InputReady => {
-            if let Some(l) = lives.get(id)
-                && let Some(p) = l.handle.shared.current_input()
-            {
-                if !pads.slots().is_empty() {
-                    log::info!("manettes : {} annoncée(s) à l'ordinateur {}", pads.slots().len(), l.host);
-                }
-                for slot in pads.slots() {
-                    let (v, pr) = pads.ids(slot);
-                    p.gamepad_plug(slot as u32, Some(v), Some(pr));
-                }
             }
         }
         SessionEvent::GameFullscreen(g) => {
@@ -2489,10 +2500,22 @@ fn wants_vsync(app: &App, host: &crate::model::Host) -> bool {
     }
 }
 
+/// Le mode de cette session : la surface de sa fenêtre pour une session de plus ; sinon celui de l'écran
+/// de sa fenêtre (la machine garde l'écran de la dernière session ouverte).
+fn session_mode_of(app: &mut App, wins: &Wins, l: &Live, h: &crate::model::Host) -> (u32, u32, u32) {
+    if let Some((display, refresh)) = l.surface {
+        return app.mode_for(h, display, refresh);
+    }
+    if let Some(wi) = wins.main_of(l.id) {
+        set_machine_screen(app, &l.devices, wins.list[wi].screen);
+    }
+    app.session_mode(h)
+}
+
 /// La fenêtre de cette session passe devant et la session devient l'active (« Afficher », « Se connecter »
 /// sur un ordinateur déjà en session, « Ordinateur suivant »).
-fn show_session(app: &mut App, wins: &Wins, id: SessionId) {
-    app.activate_session(id);
+fn show_session(app: &mut App, lives: &Lives, wins: &Wins, id: SessionId) {
+    focus::activate(app, lives, id);
     if let Some(i) = wins.main_of(id) {
         sdl::raise(wins.list[i].window);
     }
@@ -2626,10 +2649,10 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             }
         }
         Action::Connect { host, profile } => connect(app, lives, wins, tx, &host, profile),
-        Action::ShowSession(id) => show_session(app, wins, id),
+        Action::ShowSession(id) => show_session(app, lives, wins, id),
         Action::NextSession => {
-            if let Some(id) = app.next_session() {
-                show_session(app, wins, id);
+            if let Some(id) = focus::next(lives) {
+                show_session(app, lives, wins, id);
             }
         }
         Action::CancelConnect(id) | Action::Disconnect(id) => disconnect(app, lives, wins, id),
@@ -2640,31 +2663,35 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
             let Some((host, light)) = app.session_by(id).map(|s| (s.host.clone(), s.light)) else { return };
             let Some(h) = app.store.host(&host).cloned() else { return };
             if let Some(l) = lives.get_mut(id) {
-                // Le mode que les réglages du flux comptent est celui de l'écran de cette session (la machine garde celui de la dernière ouverte).
-                if let Some(wi) = wins.main_of(id) {
-                    set_machine_screen(app, &l.devices, wins.list[wi].screen);
-                }
-                let settings = stream_settings(app, &h, p, light);
-                push_settings(l, settings, session::capabilities(&h, app.codec_for(&h), &app.machine));
+                let mode = session_mode_of(app, wins, l, &h);
+                let codec = app.codec_for(&h);
+                push_settings(l, session::settings(&h, p, codec, mode, &app.machine, light), session::capabilities(&h, codec, &app.machine));
             }
         }
         Action::Light(id, on) => {
             let Some((host, profile)) = app.session_by(id).map(|s| (s.host.clone(), s.profile)) else { return };
             let Some(h) = app.store.host(&host).cloned() else { return };
             if let Some(l) = lives.get_mut(id) {
-                // « Cet écran » : celui de la fenêtre de cette session (la machine garde celui de la dernière ouverte).
-                if let Some(wi) = wins.main_of(id) {
-                    set_machine_screen(app, &l.devices, wins.list[wi].screen);
-                }
-                let (w, hh, fps) = app.session_mode(&h);
+                let (w, hh, fps) = session_mode_of(app, wins, l, &h);
                 let fps = if on { fps.min(60) } else { fps };
                 let codec = app.codec_for(&h);
                 push_settings(l, session::settings(&h, profile, codec, (w, hh, fps), &app.machine, on), session::capabilities(&h, codec, &app.machine));
                 l.handle.session.set_mode(Mode { width: w, height: hh, refresh: fps });
             }
         }
-        // Le son coupé et « Garder le son » sont dans l'état de la session : `focus::apply` les donne aux sorties.
-        Action::Mute(..) | Action::KeepSound(..) => {}
+        // « Couper le son » du menu : le choix de l'utilisateur, distinct du son que le cœur coupe aux
+        // sessions en arrière-plan.
+        Action::Mute(id, on) => {
+            if let Some(l) = lives.get(id) {
+                l.handle.shared.set_silenced(on);
+            }
+        }
+        // « Garder le son » : le registre du cœur laisse la session audible sans être active.
+        Action::KeepSound(id, on) => {
+            if let Some(l) = lives.get(id) {
+                focus::set_keep_sound(l, on);
+            }
+        }
         Action::PadMouse(id, on) => {
             if app.active == Some(id) {
                 pads.set_mouse(on);
@@ -2747,12 +2774,14 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, lives: &mut Lives, w
 
 /// Ouvre une session sur cet ordinateur. La première prend la fenêtre de l'app (plein écran, ou tous les
 /// écrans de l'appareil avec le multi-écrans) ; chaque session suivante (interface de bureau seulement,
-/// quatre au plus) s'ouvre dans sa propre fenêtre, par-dessus, centrée aux deux tiers de l'écran de la
-/// fenêtre active en 16:9, avec un seul écran (« Cet écran » : deux sessions ne prennent jamais les mêmes
-/// écrans) ; elle devient la session active. Le même ordinateur deux fois : sa fenêtre passe devant.
+/// quatre au plus, le registre du cœur refuse la cinquième) s'ouvre dans sa propre fenêtre, par-dessus,
+/// centrée aux deux tiers de l'écran de la fenêtre active en 16:9, avec un seul écran (« Cet écran » :
+/// deux sessions ne prennent jamais les mêmes écrans) à la taille de la fenêtre ; ces écrans et cette
+/// fenêtre sont ceux des deux aides du cœur (`screens_for_extra_session`, `extra_session_window`). Elle est
+/// inscrite au registre et devient la session active. Le même ordinateur deux fois : sa fenêtre passe devant.
 fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>, host: &str, profile: crate::model::Profile) {
     if let Some(id) = app.session_of_host(host).map(|s| s.id) {
-        show_session(app, wins, id);
+        show_session(app, lives, wins, id);
         return;
     }
     let first = app.sessions.is_empty();
@@ -2768,51 +2797,77 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
     let devices = screens::detect();
     let anchor = if first { 0 } else { app.active_id().and_then(|a| wins.main_of(a)).unwrap_or(0) };
     let window_screen = devices.current(wins.list[anchor].window);
-    set_machine_screen(app, &devices, window_screen);
+    if first {
+        set_machine_screen(app, &devices, window_screen);
+    }
     let codec = app.codec_for(&h);
     let device = device_info(app);
     let light = h.settings.battery_light && app.machine.on_battery();
     let relative = h.settings.mouse == "game";
     let virtual_display = h.settings.virtual_display;
-    // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
-    let settings = stream_settings(app, &h, profile, light);
-    // Multi-écrans (interface de bureau, première session) : le cœur reçoit les écrans de l'appareil et
-    // décide du nombre d'écrans (son calcul, sur ces réglages) ; sans (Steam Deck, salon, KyberNow Link
-    // OS, sessions suivantes), une session à un écran.
-    let mut base = (first && app.multi_screens()).then(|| {
+    // Multi-écrans (interface de bureau) : le cœur reçoit les écrans de l'appareil et décide du nombre
+    // d'écrans (son calcul, sur les réglages du flux) ; sans (Steam Deck, salon, KyberNow Link OS), une
+    // session à un écran. Une session de plus : les mêmes écrans réduits à « Cet écran » par le cœur, et sa
+    // fenêtre.
+    let all = (first && app.multi_screens() || !first).then(|| {
         let capabilities = session::capabilities(&h, codec, &app.machine);
         screens::core_screens(&devices, window_screen, &h, station_screens(app, &h), capabilities, app.machine.on_battery())
     });
+    let mut base = if first { all } else { all.map(|a| kybernow_core::screens::screens_for_extra_session(&a)) };
+    let extra_window = if first { None } else { base.as_ref().and_then(|b| b.list.get(b.current)).map(kybernow_core::screens::extra_session_window) };
+    // Le mode : celui de l'écran de la fenêtre, ou, pour une session de plus, la surface de sa fenêtre.
+    let surface = extra_window.map(|w| ((w.mode.width, w.mode.height), w.mode.refresh));
+    let first_mode = match surface {
+        Some((display, refresh)) => app.mode_for(&h, display, refresh),
+        None => app.session_mode(&h),
+    };
+    // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
+    let settings = session::settings(&h, profile, codec, first_mode, &app.machine, light);
     let plan = base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display));
     // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
     // elle passe en plein écran sur l'écran principal, et c'est là que le cœur la met (l'écran de
     // la session à un écran où le profil changé la ramènerait, et son mode), comme sur Mac, qui
     // relit l'écran de la fenêtre après l'avoir posée. Une session à un écran : celui de la fenêtre.
     let current = plan.as_ref().map_or(window_screen, |p| p[0].device);
-    if current != window_screen {
+    let mode = if current != window_screen {
         set_machine_screen(app, &devices, current);
         if let Some(b) = base.as_mut() {
             b.current = current;
         }
-    }
-    let mode = app.session_mode(&h);
+        app.session_mode(&h)
+    } else {
+        first_mode
+    };
     let primary_mode = plan.as_deref().and_then(screens::primary_mode).map_or(mode, |m| (m.width, m.height, m.refresh));
     let title = session_title(&h.name);
     // La fenêtre d'une session de plus d'abord : sans elle, la session ne démarre pas.
-    let own_window = if first {
-        None
-    } else {
-        let frame = devices.grouped.get(window_screen).map(displays::windowed_frame).unwrap_or((0, 0, 1280, 720));
-        let premul = wins.list[0].premul;
-        match create_session_window(&title, frame, window_screen, premul) {
-            Some(mut w) => {
-                w.session = Some(id);
-                Some(w)
+    let own_window = match extra_window {
+        None => None,
+        Some(w) => {
+            let frame = (w.x.round() as i32, w.y.round() as i32, w.width.round() as i32, w.height.round() as i32);
+            let premul = wins.list[0].premul;
+            match create_session_window(&title, frame, window_screen, premul) {
+                Some(mut win) => {
+                    win.session = Some(id);
+                    Some(win)
+                }
+                None => return,
             }
-            None => return,
         }
     };
     let handle = session::start(id, &h, settings.clone(), mode, &app.machine, relative, device, base.clone(), current, tx.clone());
+    // Le registre du cœur : quatre au plus, et la session devient active. Refusée (il n'en reste pas de
+    // place : l'interface l'aurait déjà grisé), elle s'arrête et sa fenêtre se ferme.
+    let focus_id = match focus::register(&handle.session, &h.name) {
+        Ok(f) => f,
+        Err(_) => {
+            handle.session.stop();
+            if let Some(w) = own_window {
+                w.destroy();
+            }
+            return;
+        }
+    };
     let codec_label = match codec {
         "h264" => "H.264",
         "av1" => "AV1",
@@ -2823,8 +2878,10 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
     let mut l = Live {
         id,
         handle,
+        focus: focus_id,
         host: h.id.clone(),
-        active: false,
+        surface,
+        followed: current,
         pointers: HashMap::new(),
         started: Instant::now(),
         latencies: Vec::new(),
@@ -2897,9 +2954,11 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
         if vsync { "synchronisé" } else { "immédiat" },
         plan.as_ref().map_or(1, Vec::len),
         if plan.as_ref().is_some_and(|p| p.len() > 1) { "s" } else { "" },
-        if first { String::new() } else { format!(", fenêtre, session {} sur {}", lives.0.len() + 1, app.sessions.len()) }
+        if first { String::new() } else { format!(", dans sa fenêtre ({} sessions)", app.sessions.len()) }
     );
     lives.0.push(l);
+    // Le presse-papiers de l'appareil est déjà dans la nouvelle session : elle l'annoncera à son ordinateur.
+    focus::sync_clipboards(lives);
 }
 
 /// « Se déconnecter » ou « Annuler » sur la session `id` : elle se termine, ses fenêtres de plus se
@@ -2918,6 +2977,8 @@ fn disconnect(app: &mut App, lives: &mut Lives, wins: &mut Wins, id: SessionId) 
             p.release_all();
         }
         l.handle.session.stop();
+        // Elle sort du registre : celle qui avait la main juste avant la reprend, son et entrées compris.
+        focus::unregister(lives, l);
     }
     if let Some(s) = app.session_by_mut(id) {
         s.menu = false;
@@ -2967,6 +3028,8 @@ fn reap(app: &mut App, lives: &mut Lives, wins: &mut Wins) -> bool {
     let ended: Vec<SessionId> = lives.iter().map(|l| l.id).filter(|id| app.session_by(*id).is_none_or(|s| matches!(s.phase, Phase::Ended { .. }))).collect();
     for id in ended {
         if let Some(l) = lives.remove(id) {
+            // Fin sur une erreur, ou décidée ailleurs (un autre appareil, Admin) : elle sort du registre si elle y est encore.
+            focus::unregister(lives, &l);
             finish(app, l);
             end_windows(wins, id);
             changed = true;
@@ -3035,7 +3098,7 @@ fn release_app_window(wins: &mut Wins) {
 /// Fin de session : la dernière session (latence médiane et 95e centile, durée,
 /// définition, fréquence, format, débit) pour Réglages › Statistiques. L'état global de SDL
 /// (souris, curseur, économiseur d'écran, saisie de texte) et la session active suivante sont réglés
-/// par `focus::apply`, les fenêtres par `reap`.
+/// par `focus::sync` d'après le registre du cœur, les fenêtres par `reap`.
 fn finish(app: &mut App, l: Live) {
     let id = l.host.clone();
     let mut lat = l.latencies.clone();
@@ -3156,7 +3219,8 @@ mod tests {
         }
 
         // Plusieurs ordinateurs : la session suivante a sa fenêtre, décorée, à son nom, centrée aux deux tiers de l'écran.
-        let frame = displays::windowed_frame(&Display { sdl: 0, name: "principal".into(), x: 0, y: 0, w: 1920, h: 1080, pixel_w: 1920, pixel_h: 1080, refresh: 60 });
+        let extra = kybernow_core::screens::extra_session_window(&kybernow_core::screens::DeviceScreen { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary: true });
+        let frame = (extra.x.round() as i32, extra.y.round() as i32, extra.width.round() as i32, extra.height.round() as i32);
         assert_eq!(frame, (320, 180, 1280, 720));
         let mut b = create_session_window(&session_title("B"), frame, 0, premul).expect("la fenêtre d'une session de plus");
         b.session = Some(2);
@@ -3224,12 +3288,13 @@ mod tests {
         }
     }
 
-    /// Plusieurs ordinateurs, de bout en bout côté appareil, sur deux Stations qui n'existent pas (rien
-    /// n'écoute sur 127.0.0.1) : la première session prend la fenêtre de l'app, la seconde la sienne,
-    /// par-dessus, et devient active ; l'application unique de l'active (son, entrées) ; le même
-    /// ordinateur deux fois remet sa fenêtre devant ; la fin de la première cache la fenêtre de l'app, la
-    /// fin de la dernière la rend avec l'accueil. Il faut un affichage ; SDL ne s'initialise qu'une fois à la
-    /// fois par processus, donc un test à la fois :
+    /// Plusieurs ordinateurs, de bout en bout côté appareil, sur des Stations qui n'existent pas (rien
+    /// n'écoute sur 127.0.0.1) : la première session prend la fenêtre de l'app, la suivante la sienne,
+    /// par-dessus, à la taille que donne le cœur ; toutes sont inscrites au registre du cœur, qui dit
+    /// laquelle est active et laquelle garde son son ; le même ordinateur deux fois remet sa fenêtre
+    /// devant ; la fin de la première cache la fenêtre de l'app, la fin de la dernière la rend avec
+    /// l'accueil et vide le registre. Il faut un affichage ; SDL ne s'initialise qu'une fois à la fois par
+    /// processus (et le registre du cœur est celui du processus), donc un test à la fois :
     /// `DISPLAY=:0 cargo test -p kybernow-linux -- --ignored --test-threads=1`.
     #[test]
     #[ignore]
@@ -3248,61 +3313,86 @@ mod tests {
         let premul = unsafe { sdl::SDL_ComposeCustomBlendMode(2, 6, 1, 2, 6, 1) };
         let mut wins = Wins { prev: None, list: vec![Win::new(window, renderer, premul, 0, (800, 500))], hover: None };
         let mut app = App::new(Store::default(), Layout::Desktop);
-        app.store.hosts.push(absent_station("a", 1));
-        app.store.hosts.push(absent_station("b", 2));
+        for (id, port) in [("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)] {
+            app.store.hosts.push(absent_station(id, port));
+        }
         app.go(Screen::Home);
         let (tx, _rx) = channel::<Event>();
-        let (mut lives, mut pads, mut applied) = (Lives::default(), pads::Pads::default(), Vec::new());
+        let (mut lives, mut pads, mut applied) = (Lives::default(), pads::Pads::default(), focus::Applied::default());
         let jeu = crate::model::Profile::Jeu;
+        let core = kybernow_core::focus::global();
+        let active_of = |lives: &Lives| core.active().and_then(|f| lives.by_focus(f)).map(|l| l.id);
+        assert_eq!(core.count(), 0);
 
-        // La première session : la fenêtre de l'app, à son nom.
+        // La première session : la fenêtre de l'app, à son nom, inscrite au registre.
         connect(&mut app, &mut lives, &mut wins, &tx, "a", jeu);
-        assert_eq!((app.active_id(), app.sessions.len(), lives.0.len(), wins.list.len()), (Some(1), 1, 1, 1));
+        assert_eq!((app.active_id(), app.sessions.len(), lives.0.len(), wins.list.len(), core.count()), (Some(1), 1, 1, 1, 1));
         assert_eq!((wins.list[0].session, wins.list[0].extra, wins.main_of(1)), (Some(1), false, Some(0)));
-        assert!(focus::apply(&mut app, &mut lives, &mut pads, &mut applied));
-        assert!(lives.get(1).unwrap().active && !lives.get(1).unwrap().handle.shared.muted());
+        assert_eq!(active_of(&lives), Some(1));
+        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied));
 
-        // La seconde : sa fenêtre, par-dessus ; elle est active, la première se tait et ne reçoit plus rien.
+        // La seconde : sa fenêtre, par-dessus, à la taille des deux tiers de l'écran ; elle est active pour
+        // le cœur et pour l'interface. Son écran est « Cet écran » et son mode, la taille de sa fenêtre.
         connect(&mut app, &mut lives, &mut wins, &tx, "b", jeu);
-        assert_eq!((app.active_id(), app.sessions.len(), wins.list.len()), (Some(2), 2, 2));
+        assert_eq!((app.active_id(), app.sessions.len(), wins.list.len(), core.count()), (Some(2), 2, 2, 2));
         assert_eq!((wins.list[1].session, wins.list[1].extra, wins.main_of(2), wins.list[1].vsync), (Some(2), false, Some(1), false));
         assert!(wins.list[1].window != window);
-        assert!(focus::apply(&mut app, &mut lives, &mut pads, &mut applied));
-        assert!(!lives.get(1).unwrap().active && lives.get(2).unwrap().active);
-        assert!(lives.get(1).unwrap().handle.shared.muted() && !lives.get(2).unwrap().handle.shared.muted(), "seule la session active s'entend");
-        assert!(!focus::apply(&mut app, &mut lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
-        // « Garder le son » sur la première : audible sans être active.
-        app.session_by_mut(1).unwrap().keep_sound = true;
-        assert!(focus::apply(&mut app, &mut lives, &mut pads, &mut applied));
-        assert!(!lives.get(1).unwrap().handle.shared.muted() && !lives.get(1).unwrap().active);
+        assert_eq!(active_of(&lives), Some(2), "le registre du cœur dit laquelle est active");
+        let second = lives.get(2).unwrap();
+        assert!(second.multi && second.surface.is_some(), "écrans réduits à « Cet écran » par le cœur, mode de sa fenêtre");
+        let (win_w, win_h) = (wins.list[1].out_size.0 as f64, wins.list[1].out_size.1 as f64);
+        let (sw, sh) = second.surface.map(|((w, h), _)| (w as f64, h as f64)).unwrap();
+        assert!((sw - win_w).abs() <= 2.0 && (sh - win_h).abs() <= 2.0, "la surface du mode est celle de la fenêtre : {sw}×{sh} contre {win_w}×{win_h}");
+        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied));
+        assert!(!focus::sync(&mut app, &lives, &mut pads, &mut applied), "rien n'a changé : rien à refaire");
+        // « Garder le son » sur la première : le cœur la laisse audible ; l'interface le recopie.
+        focus::set_keep_sound(lives.get(1).unwrap(), true);
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
+        assert!(core.keep_sound(lives.get(1).unwrap().focus) && app.session_by(1).unwrap().keep_sound && !app.session_by(2).unwrap().keep_sound);
 
-        // Le même ordinateur deux fois : sa fenêtre passe devant, aucune session de plus.
+        // Le même ordinateur deux fois : sa fenêtre passe devant et devient active, aucune session de plus.
         connect(&mut app, &mut lives, &mut wins, &tx, "a", jeu);
-        assert_eq!((app.active_id(), app.sessions.len(), lives.0.len(), wins.list.len()), (Some(1), 2, 2, 2));
-        // Un autre ordinateur au-delà de quatre : refusé (ici le troisième n'existe pas : rien ne s'ouvre).
+        assert_eq!((app.active_id(), app.sessions.len(), lives.0.len(), wins.list.len(), active_of(&lives)), (Some(1), 2, 2, 2, Some(1)));
+        // « Ordinateur suivant » : celle qui s'est ouverte après l'active ; un ordinateur inconnu ne s'ouvre pas.
+        assert_eq!(focus::next(&lives), Some(2));
+        focus::activate(&mut app, &lives, 2);
+        assert_eq!((app.active_id(), active_of(&lives), focus::next(&lives)), (Some(2), Some(2), Some(1)));
         connect(&mut app, &mut lives, &mut wins, &tx, "inconnu", jeu);
         assert_eq!(app.sessions.len(), 2);
+        // Quatre au plus : les deux suivantes s'ouvrent, la cinquième est refusée (interface et cœur).
+        connect(&mut app, &mut lives, &mut wins, &tx, "c", jeu);
+        connect(&mut app, &mut lives, &mut wins, &tx, "d", jeu);
+        assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (4, 4, 4));
+        connect(&mut app, &mut lives, &mut wins, &tx, "e", jeu);
+        assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (4, 4, 4));
+        for id in [4, 3] {
+            app.close_session(id);
+            reap(&mut app, &mut lives, &mut wins);
+        }
+        assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (2, 2, 2));
 
-        // La première se termine pendant que la seconde tourne : la fenêtre de l'app se cache, celle de la seconde reste.
+        // La session active se termine : celle qui l'était juste avant reprend la main, pour le cœur aussi.
+        focus::activate(&mut app, &lives, 1);
+        focus::activate(&mut app, &lives, 2);
+        app.close_session(2);
+        assert!(reap(&mut app, &mut lives, &mut wins));
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
+        assert_eq!((app.active_id(), active_of(&lives), core.count(), lives.0.len(), wins.list.len()), (Some(1), Some(1), 1, 1, 1));
+        // La première se termine alors que la seconde (rouverte) tourne : la fenêtre de l'app se cache.
+        connect(&mut app, &mut lives, &mut wins, &tx, "b", jeu);
+        let reopened = app.active_id().unwrap();
         app.close_session(1);
         assert!(reap(&mut app, &mut lives, &mut wins));
-        assert_eq!((app.active_id(), lives.0.len(), wins.list.len()), (Some(2), 1, 2));
-        assert!(wins.list[0].hidden && wins.list[0].session.is_none() && wins.list[1].session == Some(2));
-        // Une troisième session s'ouvre dans sa fenêtre (celle de l'app reste cachée), puis se ferme avec elle.
-        app.store.hosts.push(absent_station("c", 3));
-        connect(&mut app, &mut lives, &mut wins, &tx, "c", jeu);
-        assert_eq!((app.active_id(), wins.list.len(), wins.main_of(3)), (Some(3), 3, Some(2)));
-        assert!(wins.list[0].hidden);
-        app.close_session(3);
-        reap(&mut app, &mut lives, &mut wins);
-        assert_eq!((app.active_id(), wins.list.len()), (Some(2), 2));
-        // La dernière se termine : l'accueil revient, la fenêtre de l'app est rendue.
-        app.close_session(2);
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
+        assert_eq!((app.active_id(), active_of(&lives), core.count(), lives.0.len(), wins.list.len()), (Some(reopened), Some(reopened), 1, 1, 2));
+        assert!(wins.list[0].hidden && wins.list[0].session.is_none() && wins.list[1].session == Some(reopened));
+        // La dernière se termine : l'accueil revient, la fenêtre de l'app est rendue, le registre est vide.
+        app.close_session(reopened);
         app.go(Screen::Home);
         assert!(reap(&mut app, &mut lives, &mut wins));
-        assert_eq!((app.active_id(), lives.0.len(), wins.list.len()), (None, 0, 1));
+        assert_eq!((app.active_id(), lives.0.len(), wins.list.len(), core.count()), (None, 0, 1, 0));
         assert!(!wins.list[0].hidden && wins.list[0].session.is_none());
-        assert!(focus::apply(&mut app, &mut lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
+        assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
         let main = wins.list.pop().unwrap();
         main.destroy();
         unsafe { sdl::SDL_Quit() };
