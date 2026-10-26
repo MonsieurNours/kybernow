@@ -68,10 +68,6 @@ pub struct Summary {
     /// Ctrl+Alt+Maj+D) : pas de notification de fin.
     #[serde(skip)]
     pub requested: bool,
-    /// C'était la session active quand elle s'est arrêtée (plusieurs
-    /// ordinateurs : sinon, la notification de fin vient même app au premier plan).
-    #[serde(skip)]
-    pub was_active: bool,
     /// Sa fenêtre s'était montrée (première image).
     #[serde(skip)]
     pub shown: bool,
@@ -131,6 +127,9 @@ pub trait HostEvents: Send + Sync {
     /// session, dans la zone de la barre (app au premier plan, souris du
     /// bureau) : la barre de session s'ouvre sur cet écran.
     fn top_edge(&self, _hwnd: isize) {}
+    /// « Afficher » (ou Ctrl+Alt+Maj+O) alors que sa fenêtre n'est pas encore
+    /// montrée : la session se connecte, sa fenêtre de connexion passe devant.
+    fn connexion_front(&self) {}
     /// Tout est arrêté, fenêtres fermées, console prévenue.
     fn ended(&self, _summary: &Summary) {}
 }
@@ -259,6 +258,14 @@ impl SessionHost {
     /// C'est la session active (registre du cœur).
     pub fn is_active(&self) -> bool {
         self.focus_id().is_some_and(|id| focus::active() == Some(id))
+    }
+
+    /// Sa fenêtre de connexion passe au premier plan : elle devient la session
+    /// active du registre, comme quand une de ses fenêtres passe devant.
+    pub fn activate(&self) {
+        if let Some(id) = self.focus_id() {
+            focus::activate(id);
+        }
     }
 }
 
@@ -504,7 +511,17 @@ fn run(
     // (l'app le refuse avant ; ici, deux connexions au même instant), elle
     // s'arrête avec la raison.
     match focus::register(&session, &host_name) {
-        Ok(fid) => app.set_focus_id(fid),
+        Ok(fid) => {
+            app.set_focus_id(fid);
+            // Sa fenêtre de connexion n'a pas eu le premier plan (`--connect`
+            // ou notification relayés par une autre instance, que Windows ne
+            // laisse pas passer devant) : la fenêtre restée devant est celle
+            // d'une autre session, qui reste active (le registre suit le
+            // premier plan, sinon ses entrées seraient jetées).
+            if let Some(other) = window::foreground_focus_id().filter(|o| *o != fid) {
+                focus::activate(other);
+            }
+        }
         Err(_) => {
             *app.error.lock().unwrap() = Some(crate::i18n::t("errors.four_at_most", &[]));
             session.stop();
@@ -537,7 +554,7 @@ fn run(
     let error = app.error.lock().unwrap().clone();
     *platform.session.lock().unwrap() = None;
     let last_image = app.take_last_image();
-    let (requested, was_active, shown, was_front) = (app.user_ended(), app.was_active(), app.ever_shown(), app.was_front());
+    let (requested, shown, was_front) = (app.user_ended(), app.ever_shown(), app.was_front());
     if let Some(fid) = app.focus_id() {
         focus::unregister(fid);
     }
@@ -550,7 +567,6 @@ fn run(
         seconds: started.elapsed().as_secs(),
         last_image,
         requested,
-        was_active,
         shown,
         was_front,
     });
