@@ -237,10 +237,12 @@ export type Stats = {
 
 /**
  * Réponse de `displays_info` : le réglage « Écrans » tel que le cœur le décide (`enabled` : il se
- * change, sinon il est inactif sur « Cet écran » ; `shown` : sa valeur montrée) et le nombre
- * d'écrans que la session prendra (1 : un seul). Le même calcul que la session.
+ * change, sinon il est inactif sur « Cet écran » ; `shown` : sa valeur montrée), le nombre
+ * d'écrans que la session prendra (1 : un seul) et si l'écran virtuel servira (`virtual_display` :
+ * demandé et utilisable sur la Station ; sinon « Les écrans de l'ordinateur, tels quels »). Le
+ * même calcul que la session.
  */
-export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number }
+export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean }
 
 /** Réponse de `connect` : les écrans que la session prend (« Préparation des écrans »). */
 export type ConnectInfo = { screens: number }

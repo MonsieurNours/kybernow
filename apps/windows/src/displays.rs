@@ -10,6 +10,7 @@
 //! session ; « Cet écran » (session à un écran) est celui de la fenêtre de
 //! l'accueil, comme sur Mac et Linux.
 
+use kybernow_core::profile::Capabilities;
 use kybernow_core::screens::{DeviceScreen, DisplaysSetting, Screens};
 
 /// Un écran de ce PC.
@@ -59,6 +60,14 @@ pub struct Spec {
     /// Sur batterie, alléger : 30 Hz au plus pour tous les écrans (comme la
     /// session à un écran).
     pub lighten: bool,
+    /// L'écran virtuel de la Station est utilisable (`virtual_display.
+    /// available` de `GET /api/stream/info` ; inconnu tant qu'elle n'a pas
+    /// répondu : oui, comme sur Mac). Sans lui, un seul écran, et le réglage
+    /// « Écrans » est inactif.
+    pub virtual_display_available: bool,
+    /// Ce que ce PC décode : la règle « Personnalisé » du nombre d'écrans
+    /// (`screens::screens_profile`) compare les réglages au profil avec elles.
+    pub capabilities: Option<Capabilities>,
 }
 
 /// Les écrans de ce PC et ce qui, avec eux, décide du nombre d'écrans : de
@@ -67,11 +76,30 @@ pub struct Spec {
 pub struct Layout {
     pub monitors: Vec<Monitor>,
     pub spec: Spec,
+    /// « Cet écran » relevé au lancement de la session (nom du périphérique),
+    /// avant que l'accueil passe sur l'écran principal pour la connexion : la
+    /// session le garde jusqu'à sa fin (profil changé en session, écrans de
+    /// ce PC changés). `None`, ou écran débranché : l'écran de la fenêtre de
+    /// l'accueil en ce moment.
+    pub this_screen: Option<String>,
 }
 
 impl Layout {
     pub fn screens(&self) -> Screens {
-        screens(&self.monitors, self.spec)
+        let mut s = screens(&self.monitors, self.spec);
+        if let Some(i) = self.this_screen.as_ref().and_then(|k| self.monitors.iter().position(|m| m.key.eq_ignore_ascii_case(k))) {
+            s.current = i;
+        }
+        s
+    }
+
+    /// Les écrans de ce PC maintenant, et « Cet écran » : celui de la fenêtre
+    /// de l'accueil à cet instant (gardé ensuite, voir `this_screen`).
+    #[cfg(windows)]
+    pub fn now(spec: Spec) -> Self {
+        let monitors = enumerate();
+        let this_screen = monitors.get(current(&monitors)).map(|m| m.key.clone());
+        Self { monitors, spec, this_screen }
     }
 
     /// L'écran de ce nom.
@@ -104,7 +132,8 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
         custom_resolution: spec.custom_resolution,
         setting: spec.setting,
         max_screens: spec.max_screens,
-        ..Screens::default()
+        virtual_display_available: spec.virtual_display_available,
+        capabilities: spec.capabilities,
     }
 }
 
@@ -221,7 +250,15 @@ mod tests {
     }
 
     fn spec() -> Spec {
-        Spec { setting: DisplaysSetting::Auto, limit_4k: false, custom_resolution: false, max_screens: 4, lighten: false }
+        Spec {
+            setting: DisplaysSetting::Auto,
+            limit_4k: false,
+            custom_resolution: false,
+            max_screens: 4,
+            lighten: false,
+            virtual_display_available: true,
+            capabilities: Some(Capabilities { hevc: true, hevc444: true, av1: false }),
+        }
     }
 
     #[test]
@@ -240,10 +277,52 @@ mod tests {
 
     #[test]
     fn les_reglages_passent_au_coeur() {
-        let s = screens(&auteur(), Spec { setting: DisplaysSetting::All, limit_4k: true, custom_resolution: true, max_screens: 2, lighten: false });
+        let s = screens(
+            &auteur(),
+            Spec { setting: DisplaysSetting::All, limit_4k: true, custom_resolution: true, max_screens: 2, virtual_display_available: false, ..spec() },
+        );
         assert_eq!(s.setting, DisplaysSetting::All);
         assert!(s.limit_4k && s.custom_resolution);
         assert_eq!(s.max(), 2);
+        assert!(!s.virtual_display_available);
+        assert_eq!(s.capabilities, spec().capabilities);
+    }
+
+    #[test]
+    fn cet_ecran_garde_au_lancement_de_la_session() {
+        // L'accueil était sur l'écran de gauche au lancement, puis il est passé
+        // sur l'écran principal pour la connexion : la session garde celui de gauche.
+        let layout = Layout { monitors: auteur(), spec: spec(), this_screen: Some("\\\\.\\display2".into()) };
+        assert_eq!(layout.screens().current, 0);
+        // Écran débranché depuis : l'écran de l'accueil, à défaut le principal.
+        let gone = Layout { this_screen: Some("\\\\.\\DISPLAY9".into()), ..layout.clone() };
+        assert_eq!(gone.screens().current, 1);
+        let none = Layout { this_screen: None, ..layout };
+        assert_eq!(none.screens().current, 1);
+    }
+
+    #[test]
+    fn regles_du_coeur_pour_l_accueil_le_reglage_et_la_session() {
+        use kybernow_core::profile::{Profile, StreamSettings};
+        use kybernow_core::screens::{screens_profile, session_plan_for};
+        let caps = spec().capabilities.unwrap();
+        let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
+        let s = screens(&auteur(), spec());
+        assert_eq!(session_plan_for(&s, &bureau, true).map(|p| p.len()), Some(3));
+        assert!(s.choice(screens_profile(&bureau, s.capabilities), true).setting_enabled());
+        // Écran virtuel demandé mais pas utilisable sur la Station : un écran,
+        // réglage inactif sur « Cet écran ».
+        let off = screens(&auteur(), Spec { virtual_display_available: false, ..spec() });
+        assert!(session_plan_for(&off, &bureau, true).is_none());
+        let choice = off.choice(screens_profile(&bureau, off.capabilities), true);
+        assert!(!choice.setting_enabled() && !choice.virtual_display);
+        assert_eq!(choice.shown_setting(), DisplaysSetting::This);
+        // Profil Bureau retouché (débit) : « Personnalisé », un seul écran en Auto.
+        let retouched = StreamSettings { mbps: 50, ..bureau.clone() };
+        assert_eq!(screens_profile(&retouched, s.capabilities), None);
+        assert!(session_plan_for(&s, &retouched, true).is_none());
+        // Réglages calculés par l'app pour un profil non retouché : le profil reste.
+        assert_eq!(screens_profile(&bureau, s.capabilities), Some(Profile::Bureau));
     }
 
     #[test]

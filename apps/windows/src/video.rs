@@ -31,6 +31,9 @@ pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
     Frame { data: Vec<u8>, pts: u64, key: bool },
+    /// La fenêtre a changé de taille : le fil se réveille pour redessiner
+    /// l'image en place tout de suite (bureau immobile, aucune image ne vient).
+    Resized,
     Stop,
 }
 
@@ -180,6 +183,13 @@ impl PacketHandler for VideoHandler {
 }
 
 impl VideoHandler {
+    /// La fenêtre a changé de taille (sa nouvelle taille est déjà dans
+    /// `Shared`) : le fil de l'image redessine sans attendre une image neuve.
+    /// Perdu sans dommage si la file est pleine (des images arrivent).
+    pub fn resized(&self) {
+        let _ = self.tx.try_send(VideoMsg::Resized);
+    }
+
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::Relaxed);
         let _ = self.tx.try_send(VideoMsg::Stop);
@@ -199,12 +209,63 @@ impl VideoHandler {
     }
 }
 
-/// Paquets d'un écran dont la fenêtre n'existe pas (le cœur en demande un
-/// gestionnaire avant qu'elle soit prête) : jetés.
+/// Paquets d'un écran qui n'est plus un écran de ce PC, ou dont la fenêtre
+/// n'a pas pu se créer : jetés.
 pub struct Discard;
 
 impl PacketHandler for Discard {
     fn packet(&self, _p: Packet<'_>) {}
+}
+
+/// Paquets d'un écran dont la fenêtre n'existe pas encore quand le cœur en
+/// demande le gestionnaire (fil des fenêtres en retard, voir
+/// `window::screens_changed`) : jetés jusqu'à ce qu'elle arrive, puis passés
+/// à son fil de l'image. Le début du flux et ses paramètres, vus avant, lui
+/// sont redonnés ; le fil de l'image redemande une image clé à la première
+/// donnée qui n'en est pas une, comme après une perte.
+#[derive(Default)]
+pub struct LateFeed {
+    state: Mutex<LateState>,
+}
+
+#[derive(Default)]
+struct LateState {
+    target: Option<Arc<VideoHandler>>,
+    codec: Option<u32>,
+    config: Option<Vec<u8>>,
+}
+
+impl PacketHandler for LateFeed {
+    fn packet(&self, p: Packet<'_>) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(target) = st.target.clone() {
+            drop(st);
+            target.packet(p);
+            return;
+        }
+        match p {
+            Packet::Codec { codec } => {
+                st.codec = Some(codec);
+                st.config = None;
+            }
+            Packet::Media { is_config: true, data, .. } => st.config = Some(data.to_vec()),
+            _ => {}
+        }
+    }
+}
+
+impl LateFeed {
+    /// La fenêtre de l'écran est là : ses paquets vont désormais à son fil de l'image.
+    pub fn attach(&self, target: Arc<VideoHandler>) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(codec) = st.codec.take() {
+            target.packet(Packet::Codec { codec });
+        }
+        if let Some(data) = st.config.take() {
+            target.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &data });
+        }
+        st.target = Some(target);
+    }
 }
 
 pub struct VideoOptions {
@@ -244,8 +305,10 @@ fn run(
     handler: Arc<VideoHandler>,
     rx: Receiver<VideoMsg>,
 ) {
-    renderer.clear();
-
+    // Rien n'est présenté avant la première image (la fenêtre reste cachée
+    // jusque-là) : une présentation sans attendre l'objet d'attente de la
+    // chaîne fausserait son compte (première image retardée, ou une image de
+    // plus en file pour toute la session).
     let mut decoder: Option<Decoder> = None;
     let mut fourcc = 0u32;
     let mut config: Vec<u8> = Vec::new();
@@ -289,7 +352,11 @@ fn run(
         if handler.stopped.load(Ordering::Relaxed) {
             break;
         }
-        renderer.resize(shared.client_size());
+        if renderer.resize(shared.client_size()) {
+            // Plein écran ↔ fenêtre sur un bureau immobile : l'image en place
+            // reprend la nouvelle taille tout de suite, sans attendre la suivante.
+            renderer.redraw(shared.edge_hint.load(Ordering::Relaxed));
+        }
         shared.check_watch();
         let msg = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(m) => m,
@@ -309,6 +376,8 @@ fn run(
         };
         match msg {
             VideoMsg::Stop => break,
+            // Le redessin se fait en haut de la boucle, au tour suivant.
+            VideoMsg::Resized => {}
             VideoMsg::Codec(c) => {
                 codec_announced = true;
                 if !seen_codec {
