@@ -23,10 +23,11 @@
 //! Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : une
 //! `App` par session, chacune sur son fil, toutes dans un registre (`APPS`,
 //! dans l'ordre d'ouverture) où chaque fenêtre retrouve la sienne. La session
-//! active est celle de la fenêtre au premier plan (`focus.rs`) : le crochet
-//! clavier (un seul pour l'app, sur son propre fil) et les déplacements bruts
-//! de la souris (Raw Input, réenregistré à chaque activation) la suivent ; la
-//! souris ne part que vers elle.
+//! active est tenue par le registre du cœur (`kybernow_core::focus`, par
+//! `focus.rs`) : une fenêtre de session qui passe au premier plan l'y active,
+//! et le cœur coupe les entrées et le son des autres. Le crochet clavier (un
+//! seul pour l'app, sur son propre fil) et les déplacements bruts de la souris
+//! (Raw Input, réenregistré à chaque activation) suivent la fenêtre active.
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -42,7 +43,7 @@ use windows::Win32::UI::Input::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{PCWSTR, w};
 
-use kybernow_core::audio::AudioEngine;
+use kybernow_core::focus::FocusId;
 use kybernow_core::i18n::Lang;
 use kybernow_core::input::{Clock, InputPipeline, MouseMode, MouseModeRules, PointerLayer, ScreenTarget, Shape};
 use kybernow_core::kynput_rs::MouseButtonType;
@@ -50,7 +51,7 @@ use kybernow_core::media::PacketHandler;
 use kybernow_core::session::{Session, Status, StreamScreen};
 
 use crate::displays::{Layout, Monitor};
-use crate::focus::{self, Focusable};
+use crate::focus;
 use crate::gpu::Gpu;
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
@@ -445,8 +446,10 @@ pub struct VideoSettings {
 }
 
 pub struct App {
-    /// Identifiant de la session (registre `focus.rs`).
+    /// Identifiant de la session dans l'app (`APPS`, barre de session).
     pub id: u64,
+    /// Son inscription au registre des sessions du cœur.
+    focus: OnceLock<FocusId>,
     /// Fenêtre de contrôle (invisible).
     control: AtomicIsize,
     pub host_name: String,
@@ -483,12 +486,6 @@ pub struct App {
     /// Touches dont l'enfoncement a été pris par le crochet pour cette
     /// session (leur relâchement suit, même si elle n'est plus active).
     grabbed: Mutex<Vec<u32>>,
-    /// La session active (`focus.rs`) : la souris ne part que vers elle.
-    focus_active: AtomicBool,
-    /// On ne l'entend pas (inactive sans « Garder le son »).
-    muted: AtomicBool,
-    /// Le moteur de son de la session, une fois créé.
-    audio: OnceLock<Arc<AudioEngine>>,
     /// Fin demandée par l'utilisateur (« Se déconnecter », fermeture d'une
     /// fenêtre, Ctrl+Alt+Maj+D) : pas de notification de fin.
     user_ended: AtomicBool,
@@ -569,6 +566,7 @@ impl App {
     ) -> Arc<Self> {
         let app = Arc::new(Self {
             id,
+            focus: OnceLock::new(),
             control: AtomicIsize::new(0),
             host_name,
             input: Mutex::new(None),
@@ -590,9 +588,6 @@ impl App {
             bar_visible: AtomicBool::new(false),
             last_active: AtomicIsize::new(0),
             grabbed: Mutex::new(Vec::new()),
-            focus_active: AtomicBool::new(false),
-            muted: AtomicBool::new(false),
-            audio: OnceLock::new(),
             user_ended: AtomicBool::new(false),
             was_active: AtomicBool::new(false),
             ever_shown: AtomicBool::new(false),
@@ -626,16 +621,14 @@ impl App {
         }
     }
 
-    /// Le moteur de son de la session : il prend tout de suite l'état du
-    /// registre (muet ou non).
-    pub fn set_audio(&self, engine: Arc<AudioEngine>) {
-        let _ = self.audio.set(engine.clone());
-        engine.set_volume(if self.muted.load(Ordering::Relaxed) { 0.0 } else { 1.0 });
+    /// Son inscription au registre des sessions du cœur (une fois la session
+    /// du cœur démarrée).
+    pub fn set_focus_id(&self, id: FocusId) {
+        let _ = self.focus.set(id);
     }
 
-    /// C'est la session active (`focus.rs`).
-    pub fn is_active(&self) -> bool {
-        self.focus_active.load(Ordering::Relaxed)
+    pub fn focus_id(&self) -> Option<FocusId> {
+        self.focus.get().copied()
     }
 
     /// Fin demandée par l'utilisateur.
@@ -1010,38 +1003,10 @@ impl App {
     }
 }
 
-/// Plusieurs ordinateurs : la seule méthode que le point d'application
-/// unique (`focus::apply`) appelle pour une session, à chaque changement de la
-/// session active ou de « Garder le son ».
-impl Focusable for App {
-    fn apply_focus(&self, active: bool, muted: bool) {
-        let was = self.focus_active.swap(active, Ordering::Relaxed);
-        let was_muted = self.muted.swap(muted, Ordering::Relaxed);
-        if was != active || was_muted != muted {
-            log::info!("session {} : {}{}", self.host_name, if active { "active" } else { "inactive" }, if muted { ", son coupé" } else { "" });
-        }
-        // Le son : coupé sans fondu pour l'instant (second temps :
-        // `AudioEngine::set_muted` du cœur, avec un fondu court). Il continue
-        // d'être décodé et vidé : il revient sans décalage.
-        if let Some(engine) = self.audio.get() {
-            engine.set_volume(if muted { 0.0 } else { 1.0 });
-        }
-        // Inactive : rien ne reste enfoncé sur son ordinateur (la fenêtre a
-        // perdu le clavier, `WM_KILLFOCUS` l'a déjà fait ; ici aussi quand la
-        // session change sans passer par elle). La souris ne part plus (voir
-        // `is_active`).
-        if was && !active {
-            if let Some(input) = self.input() {
-                input.release_all();
-            }
-        }
-        // Presse-papiers : sous Windows, celui de kynput (le cœur ne le gère
-        // pas : `clipboard: None`, voir host.rs) n'a aucun levier pour se
-        // mettre en pause (le type Clipboard n'est pas filtrable par le routeur
-        // de kynput). Manettes : lues par kynput dans chaque chaîne. Les deux
-        // passent par `InputPipeline::set_active` et le lecteur de manettes du
-        // cœur au second temps (registre `focus` du cœur).
-    }
+/// Identifiant d'une nouvelle session dans l'app.
+pub fn new_app_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 fn to_wide(s: &str) -> Vec<u16> {
@@ -1120,7 +1085,7 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
             // cliente a la taille demandée (celle de l'écran de l'ordinateur
             // d'une session en fenêtre).
             Some(p) => {
-                let (w, h) = crate::system::session_frame(size, p);
+                let (_, _, w, h) = crate::system::session_frame(size, p);
                 rect = RECT { left: 0, top: 0, right: w, bottom: h };
             }
             None => {
@@ -1591,14 +1556,13 @@ fn user_close(app: &Arc<App>) {
     request_close(app);
 }
 
-/// La session suivante dans l'ordre d'ouverture (Ctrl+Alt+Maj+O,
-/// « Ordinateur suivant ») : sa fenêtre passe devant, même en plein écran.
+/// Ctrl+Alt+Maj+O, « Ordinateur suivant » : la session ouverte après
+/// l'active (le registre du cœur le dit) ; sa fenêtre passe devant, même en
+/// plein écran, et l'y active en passant au premier plan.
 fn next_computer(app: &Arc<App>) {
-    let all = apps();
-    let Some(i) = all.iter().position(|a| a.id == app.id) else { return };
-    let next = &all[(i + 1) % all.len()];
-    if next.id != app.id {
-        next.post_command(Command::Focus, 0);
+    let Some(next) = focus::next().filter(|n| Some(*n) != app.focus_id()) else { return };
+    if let Some(target) = apps().into_iter().find(|a| a.focus_id() == Some(next)) {
+        target.post_command(Command::Focus, 0);
     }
 }
 
@@ -1616,7 +1580,7 @@ fn request_close(app: &Arc<App>) {
 /// Toutes les fenêtres ferment, la boucle de messages s'arrête.
 fn quit(app: &Arc<App>) {
     // Avant que ses fenêtres partent (une autre session prendrait la place).
-    app.was_active.store(focus::active() == Some(app.id), Ordering::Relaxed);
+    app.was_active.store(app.focus_id().is_some() && focus::active() == app.focus_id(), Ordering::Relaxed);
     app.was_front.store(app.in_front(), Ordering::Relaxed);
     app.forget_raw_target();
     if app.relative() && app.foreground().is_some() {
@@ -1714,9 +1678,9 @@ fn edge_fired(app: &App, win: &ScreenWin) {
 /// la fenêtre du clic même au-dessus d'une autre : l'écran qui est vraiment
 /// sous le pointeur compte.
 fn mouse_position(app: &App, win: &Arc<ScreenWin>, lparam: LPARAM) {
-    // Plusieurs ordinateurs : le pointeur qui passe sur la fenêtre d'une
-    // session inactive ne bouge pas celui de son ordinateur.
-    if app.relative() || !app.is_active() {
+    // Plusieurs ordinateurs : sur la fenêtre d'une session inactive, rien ne
+    // part (la chaîne d'entrées du cœur l'arrête, `Session::set_active`).
+    if app.relative() {
         return;
     }
     let Some(input) = app.input() else { return };
@@ -1757,14 +1721,11 @@ fn mouse_button(app: &App, hwnd: HWND, button: MouseButtonType, pressed: bool) {
     if !pressed && !input.held().lock().unwrap().mouse_buttons().contains(&button) {
         return;
     }
-    if pressed && !app.is_active() {
-        return;
-    }
     input.mouse_button(button, pressed);
 }
 
 fn raw_input(app: &App, lparam: LPARAM) {
-    if !app.relative() || !app.is_active() {
+    if !app.relative() {
         return;
     }
     let Some(input) = app.input() else { return };
@@ -2158,9 +2119,12 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                 if active {
                     app.last_active.store(win.hwnd, Ordering::Relaxed);
                     // Plusieurs ordinateurs : cette session devient la session
-                    // active (clavier, souris, son…) ; les déplacements bruts
-                    // de la souris viennent à ses fenêtres.
-                    focus::activate(app.id);
+                    // active du registre du cœur (clavier, souris, manettes,
+                    // presse-papiers, son) ; les déplacements bruts de la
+                    // souris viennent à ses fenêtres.
+                    if let Some(id) = app.focus_id() {
+                        focus::activate(id);
+                    }
                     if app.window(RAW_TARGET.load(Ordering::Relaxed)).is_none() {
                         register_raw_input(hwnd);
                     }
@@ -2193,8 +2157,8 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
             }
             WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
                 // Windows envoie la molette à la fenêtre sous le pointeur, même
-                // inactive : seulement vers la session active.
-                if let Some(input) = app.input().filter(|_| app.is_active()) {
+                // inactive : la chaîne d'une session inactive ne la laisse pas partir.
+                if let Some(input) = app.input() {
                     let delta = ((wparam.0 >> 16) & 0xFFFF) as i16 as f32 / 120.0;
                     if msg == WM_MOUSEWHEEL {
                         input.wheel(0.0, -delta);

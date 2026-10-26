@@ -355,17 +355,19 @@ pub fn computer(s: &State, c: &Computer, tr: Tr) -> Vec<Item> {
     };
     match pick(s, c) {
         Pick::Show => {
-            // En session : « Afficher », « Garder le son », « Se déconnecter »,
-            // puis le reste.
+            // En session : « Afficher », « Garder le son » (à partir de deux
+            // sessions, comme dans la barre), « Se déconnecter », puis le reste.
             let keep = s.session(&c.id).is_some_and(|x| x.keep_sound);
             out.push(Item::line(tr("tray.show", &[]), Some(Cmd::Show(c.id.clone()))));
-            out.push(Item::Line {
-                text: tr("tray.keep_sound", &[]),
-                cmd: Some(Cmd::KeepSound(c.id.clone())),
-                enabled: true,
-                mark: if keep { Mark::Check } else { Mark::None },
-                default: false,
-            });
+            if s.sessions.len() >= 2 {
+                out.push(Item::Line {
+                    text: tr("tray.keep_sound", &[]),
+                    cmd: Some(Cmd::KeepSound(c.id.clone())),
+                    enabled: true,
+                    mark: if keep { Mark::Check } else { Mark::None },
+                    default: false,
+                });
+            }
             out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect(c.id.clone()))));
             out.push(Item::Separator);
         }
@@ -594,9 +596,10 @@ mod tests {
             ]
         );
         // L'ordinateur de la session est coché, son sous-menu commence par
-        // Afficher, Garder le son et Se déconnecter ; l'autre se connecte
-        // (plusieurs ordinateurs à la fois).
-        assert_eq!(l[10..15], ["[x] {vert} Atelier — En ligne >", "  Afficher", "  Garder le son", "  Se déconnecter", "  ---"]);
+        // Afficher et Se déconnecter (« Garder le son » à partir de deux
+        // sessions) ; l'autre se connecte (plusieurs ordinateurs à la fois).
+        assert_eq!(l[10..14], ["[x] {vert} Atelier — En ligne >", "  Afficher", "  Se déconnecter", "  ---"]);
+        assert!(!l.iter().any(|x| x.contains("Garder le son")));
         let other = l.iter().position(|x| x == "{vert} Bureau-Salon — En ligne >").unwrap();
         assert_eq!(l[other + 1], "  Se connecter (Bureau)");
         let en = lines(&s, Lang::En);

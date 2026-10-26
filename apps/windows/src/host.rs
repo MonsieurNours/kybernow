@@ -9,7 +9,8 @@
 //! tous les écrans (`gpu.rs`).
 //!
 //! Plusieurs ordinateurs à la fois : une `SessionHost` par session, chacune
-//! sur son fil, inscrite au registre de la session active (`focus.rs`).
+//! sur son fil, inscrite au registre des sessions du cœur (`focus.rs`), qui
+//! coupe les entrées et le son de celles qui ne sont pas actives.
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -158,7 +159,7 @@ pub struct HostOptions {
 }
 
 pub struct SessionHost {
-    /// Identifiant de la session (registre `focus.rs`).
+    /// Identifiant de la session dans l'app (fenêtres, barre).
     id: u64,
     control: Arc<AtomicIsize>,
     /// Ses fenêtres, une fois créées sur son fil.
@@ -167,7 +168,7 @@ pub struct SessionHost {
 
 impl SessionHost {
     pub fn start(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<dyn HostEvents>) -> Self {
-        let id = focus::new_id();
+        let id = window::new_app_id();
         let control = Arc::new(AtomicIsize::new(0));
         let app = Arc::new(OnceLock::new());
         let (c, a) = (control.clone(), app.clone());
@@ -239,18 +240,25 @@ impl SessionHost {
         }
     }
 
+    /// Son inscription au registre des sessions du cœur.
+    fn focus_id(&self) -> Option<kybernow_core::focus::FocusId> {
+        self.app().and_then(|a| a.focus_id())
+    }
+
     /// « Garder le son » (plusieurs ordinateurs).
     pub fn keep_sound(&self) -> bool {
-        focus::keep_sound(self.id)
+        self.focus_id().is_some_and(focus::keep_sound)
     }
 
     pub fn set_keep_sound(&self, on: bool) {
-        focus::set_keep_sound(self.id, on);
+        if let Some(id) = self.focus_id() {
+            focus::set_keep_sound(id, on);
+        }
     }
 
-    /// C'est la session active.
+    /// C'est la session active (registre du cœur).
     pub fn is_active(&self) -> bool {
-        focus::active() == Some(self.id)
+        self.focus_id().is_some_and(|id| focus::active() == Some(id))
     }
 }
 
@@ -262,7 +270,7 @@ struct WinInputs;
 impl InputPlatform for WinInputs {}
 
 /// Une chaîne d'entrées remplacée ou finie : plus rien n'en part (FlushKeys,
-/// pertes au journal) et kynput arrête ses gestionnaires (manettes SDL).
+/// pertes au journal) et kynput arrête ses gestionnaires.
 fn retire(input: Option<Arc<InputPipeline>>) {
     if let Some(old) = input {
         old.stop();
@@ -303,8 +311,8 @@ impl Platform for WinPlatform {
         self.app.screens_changed(screens, not_created);
     }
     /// Chaîne d'entrées neuve pour les écrans pris (donnés juste avant par
-    /// `on_display` et `on_screens`) ; celle d'avant s'arrête (deux chaînes se
-    /// disputeraient les manettes SDL).
+    /// `on_display` et `on_screens`) ; celle d'avant s'arrête. Le cœur la
+    /// retrouve lui-même (état actif de la session, manettes de son lecteur).
     fn input_pipeline(&self) -> Pipeline {
         let (display_id, host_size) = self.app.primary_display();
         // Le pointeur de l'écran principal ; chaque autre écran a le sien
@@ -478,14 +486,7 @@ fn run(
         app.unregister();
         return fail(&events, crate::i18n::t("errors.session_window", &[("error", &e)]));
     }
-    // La session active et « Garder le son » (plusieurs ordinateurs) : la
-    // première est active, les suivantes le deviennent à la première image
-    // (leur fenêtre passe devant).
-    focus::register(id, &app);
     let audio = (params.audio_channels > 0).then(|| Arc::new(audio::spawn(clock.clone())));
-    if let Some(a) = &audio {
-        app.set_audio(a.engine().clone());
-    }
 
     let platform = Arc::new(WinPlatform {
         app: app.clone(),
@@ -497,6 +498,18 @@ fn run(
         clipboard: params.clipboard,
     });
     let session = Session::start_with_screens(params, screens, platform.clone());
+    // Plusieurs ordinateurs : inscrite au registre des sessions du cœur, elle
+    // devient active, comme sa fenêtre qui s'ouvre par-dessus (le cœur trouve
+    // lui-même sa chaîne d'entrées et son moteur de son). Au-delà de quatre
+    // (l'app le refuse avant ; ici, deux connexions au même instant), elle
+    // s'arrête avec la raison.
+    match focus::register(&session, &host_name) {
+        Ok(fid) => app.set_focus_id(fid),
+        Err(_) => {
+            *app.error.lock().unwrap() = Some(crate::i18n::t("errors.four_at_most", &[]));
+            session.stop();
+        }
+    }
     *platform.session.lock().unwrap() = Some(session.clone());
     let _ = app.link.session.set(Arc::downgrade(&session));
     let _ = app.link.latency.set(session.latency());
@@ -525,7 +538,9 @@ fn run(
     *platform.session.lock().unwrap() = None;
     let last_image = app.take_last_image();
     let (requested, was_active, shown, was_front) = (app.user_ended(), app.was_active(), app.ever_shown(), app.was_front());
-    focus::unregister(id);
+    if let Some(fid) = app.focus_id() {
+        focus::unregister(fid);
+    }
     app.unregister();
     control_out.store(0, Ordering::Relaxed);
     events.ended(&Summary {

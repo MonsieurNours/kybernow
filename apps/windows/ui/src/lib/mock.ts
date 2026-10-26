@@ -21,7 +21,7 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // l'accueil, « Afficher la session » ; à 4, « Se connecter » inactif avec la raison ; dans
 // `/bar.html`, la barre sert le premier, le menu « Ordinateurs » coche les autres en session, et
 // « Garder le son »), `/connexion.html?id=c3` (la fenêtre de connexion d'une session suivante,
-// jusqu'à la première image) avec `?echec` (la connexion échoue : la raison et « OK »).
+// jusqu'à la première image) avec `?echec` (la connexion échoue : la raison et « Fermer »).
 const flags = new URLSearchParams(location.search)
 /** Écrans de ce PC imité. */
 const deviceScreens = Math.max(1, Number(flags.get('ecrans') ?? 1) || 1)
@@ -434,7 +434,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     return { id, phase: 'preparing', restarting: false, error: null } satisfies ConnexionView
   },
   connexion_close: () => {
-    console.info('connexion_close : Annuler, ou OK sous un échec')
+    console.info('connexion_close : Annuler, ou Fermer sous un échec')
     return null
   },
   // Le cœur décide (`Screens::choice`) : inactif, sur « Cet écran », avec une définition sur mesure ou sans
@@ -570,7 +570,9 @@ export function mockTauri() {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
         // La barre sert la première session (`a1` sans `?ordinateurs`).
         const served = sessions[0] ?? 'a1'
-        if (name === 'bar-shown') setTimeout(() => cb({ payload: { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served) } }), 300)
+        // « Garder le son » à partir de deux sessions (`?ordinateurs=2`) ; sans session imitée, celle de la barre.
+        if (name === 'bar-shown') setTimeout(() => cb({ payload: { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served), sessions: Math.max(1, sessions.length) } }), 300)
+        if (name === 'bar-computers') setTimeout(() => cb({ payload: barComputers() }), 300)
         if (name === 'stats') {
           const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens } }), 1000)
           return () => clearInterval(timer)

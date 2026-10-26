@@ -82,6 +82,11 @@ pub struct Layout {
     /// ce PC changés). `None`, ou écran débranché : l'écran de la fenêtre de
     /// l'accueil en ce moment.
     pub this_screen: Option<String>,
+    /// Plusieurs ordinateurs : une session ouverte pendant qu'une autre
+    /// tourne, qui prend « Cet écran » (celui de la fenêtre active, dans
+    /// `this_screen`) quel que soit le réglage (`screens_for_extra_session`
+    /// du cœur), au lancement comme quand les écrans de ce PC changent.
+    pub extra_session: bool,
 }
 
 impl Layout {
@@ -90,7 +95,7 @@ impl Layout {
         if let Some(i) = self.this_screen.as_ref().and_then(|k| self.monitors.iter().position(|m| m.key.eq_ignore_ascii_case(k))) {
             s.current = i;
         }
-        s
+        if self.extra_session { kybernow_core::screens::screens_for_extra_session(&s) } else { s }
     }
 
     /// Les écrans de ce PC maintenant, et « Cet écran » : celui de la fenêtre
@@ -99,7 +104,7 @@ impl Layout {
     pub fn now(spec: Spec) -> Self {
         let monitors = enumerate();
         let this_screen = monitors.get(current(&monitors)).map(|m| m.key.clone());
-        Self { monitors, spec, this_screen }
+        Self { monitors, spec, this_screen, extra_session: false }
     }
 
     /// L'écran de ce nom.
@@ -159,26 +164,6 @@ pub fn current(monitors: &[Monitor]) -> usize {
 /// Index de l'écran principal de Windows (le premier à défaut).
 pub fn primary(monitors: &[Monitor]) -> usize {
     monitors.iter().position(|m| m.primary).unwrap_or(0)
-}
-
-/// La fenêtre d'une session ouverte pendant qu'une autre tourne
-/// (docs/plusieurs-ordinateurs.md) : aux deux tiers de l'espace de travail de
-/// son écran, en 16:9 (dans 2/3 × 2/3), dimensions paires. C'est aussi la
-/// taille de l'écran de l'ordinateur pour cette session : celle de la zone
-/// cliente de la fenêtre, comme toute session en fenêtre.
-pub fn follow_size(work_width: i32, work_height: i32) -> (i32, i32) {
-    let (w, h) = (work_width.max(0) as i64 * 2 / 3, work_height.max(0) as i64 * 2 / 3);
-    let width = w.min(h * 16 / 9).max(640);
-    let width = (width & !1) as i32;
-    let height = ((width as i64 * 9 / 16) as i32) & !1;
-    (width, height)
-}
-
-/// Où poser une fenêtre de `outer` (taille extérieure) au centre de l'espace
-/// de travail (x, y, largeur, hauteur) : jamais au-dessus ni à gauche de lui.
-pub fn centered(work: (i32, i32, i32, i32), outer: (i32, i32)) -> (i32, i32) {
-    let (x, y, w, h) = work;
-    (x + ((w - outer.0) / 2).max(0), y + ((h - outer.1) / 2).max(0))
 }
 
 /// L'écran qui contient le point (bureau de Windows), sinon le plus proche.
@@ -312,7 +297,7 @@ mod tests {
     fn cet_ecran_garde_au_lancement_de_la_session() {
         // L'accueil était sur l'écran de gauche au lancement, puis il est passé
         // sur l'écran principal pour la connexion : la session garde celui de gauche.
-        let layout = Layout { monitors: auteur(), spec: spec(), this_screen: Some("\\\\.\\display2".into()) };
+        let layout = Layout { monitors: auteur(), spec: spec(), this_screen: Some("\\\\.\\display2".into()), extra_session: false };
         assert_eq!(layout.screens().current, 0);
         // Écran débranché depuis : l'écran de l'accueil, à défaut le principal.
         let gone = Layout { this_screen: Some("\\\\.\\DISPLAY9".into()), ..layout.clone() };
@@ -379,18 +364,23 @@ mod tests {
     }
 
     #[test]
-    fn fenetre_des_sessions_suivantes() {
-        // 4K moins la barre des tâches : la largeur limitée par la hauteur (16:9).
-        assert_eq!(follow_size(3840, 2088), (2474, 1390));
-        // 1920 × 1200 (16:10) : la largeur limitée par la largeur.
-        assert_eq!(follow_size(1920, 1152), (1280, 720));
-        // Ultra-large : la hauteur décide.
-        assert_eq!(follow_size(3440, 1392), (1648, 926));
-        // Tout petit écran : 640 de large au moins.
-        assert_eq!(follow_size(800, 560), (640, 360));
-        // Centrée dans l'espace de travail, jamais au-dessus ni à gauche.
-        assert_eq!(centered((0, 0, 1920, 1152), (1296, 759)), (312, 196));
-        assert_eq!(centered((-2560, 400, 2560, 1552), (3000, 2000)), (-2560, 400));
+    fn session_de_plus_sur_cet_ecran() {
+        // Plusieurs ordinateurs : une session de plus prend « Cet écran »,
+        // celui de la fenêtre active, quel que soit le réglage (la règle du
+        // cœur), et sa fenêtre est celle du cœur, en pixels de ce PC.
+        let layout = Layout { monitors: auteur(), spec: Spec { setting: DisplaysSetting::All, ..spec() }, this_screen: Some("\\\\.\\DISPLAY3".into()), extra_session: true };
+        let s = layout.screens();
+        assert_eq!(s.current, 2);
+        assert_eq!(s.setting, DisplaysSetting::This);
+        let caps = spec().capabilities.unwrap();
+        let bureau = kybernow_core::profile::StreamSettings::for_profile(kybernow_core::profile::Profile::Bureau, caps);
+        assert!(kybernow_core::screens::session_plan_for(&s, &bureau, true).is_none(), "un seul écran");
+        let w = kybernow_core::screens::extra_session_window(&s.list[s.current]);
+        assert_eq!((w.mode.width, w.mode.height, w.mode.refresh), (1706, 960, 60));
+        assert_eq!((w.x.round() as i32, w.y.round() as i32), (3840 + 427, 240));
+        // La première session : le réglage tel quel.
+        let first = Layout { extra_session: false, ..layout };
+        assert_eq!(first.screens().setting, DisplaysSetting::All);
     }
 
     #[test]

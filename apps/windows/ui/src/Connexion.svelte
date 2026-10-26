@@ -6,7 +6,8 @@
   la première image, la fenêtre de la session se montre par-dessus et le
   passage s'ouvre ; l'app ferme ensuite cette fenêtre (src/ui.rs,
   `open_connexion`). Si la connexion échoue, le passage se referme et la
-  raison reste, jusqu'à « OK ». Fermer la fenêtre, c'est « Annuler ».
+  raison reste, avec un seul bouton « Fermer », qui ferme la fenêtre. Fermer
+  la fenêtre pendant la connexion, c'est « Annuler ».
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
@@ -67,7 +68,7 @@
     return () => off.forEach((p) => p.then((f) => f()))
   })
 
-  /** « Annuler », ou « OK » sous un échec : l'app arrête la connexion ou ferme la fenêtre. */
+  /** « Annuler », ou « Fermer » sous un échec : l'app arrête la connexion ou ferme la fenêtre. */
   const close = () => invoke('connexion_close')
 </script>
 
@@ -78,7 +79,7 @@
 {#if error}
   <div class="failed" role="alert">
     <p>{t('app.connect_failed', { error })}</p>
-    <button onclick={close}>{t('common.ok')}</button>
+    <button onclick={close}>{t('common.close')}</button>
   </div>
 {/if}
 
