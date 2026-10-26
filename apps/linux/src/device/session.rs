@@ -145,6 +145,14 @@ impl Shared {
         latest
     }
 
+    /// Le flux de l'écran `from` va maintenant à l'écran `to` (il continue, avec sa file d'images).
+    fn move_latest(&self, from: usize, to: usize) {
+        let mut latests = self.latests.lock().unwrap();
+        if let Some(latest) = latests.remove(&from) {
+            latests.insert(to, latest);
+        }
+    }
+
     /// Le pointeur de l'ordinateur pour la souris Auto, sur tous les écrans :
     /// la règle du cœur (`PointerLayer::summary`, docs/multi-ecrans.md).
     pub fn pointer_summary(&self) -> (bool, Duration) {
@@ -236,7 +244,15 @@ impl Platform for LinuxPlatform {
         let sh = &self.0;
         let primary = screens.first().map_or(sh.primary(), |s| s.screen);
         sh.primary.store(primary, Ordering::Relaxed);
-        *sh.screens.lock().unwrap() = ScreensState { streams: screens.to_vec(), not_created: not_created.to_vec() };
+        let before = std::mem::replace(&mut *sh.screens.lock().unwrap(), ScreensState { streams: screens.to_vec(), not_created: not_created.to_vec() });
+        // Une session à un écran qui suit la fenêtre sur un autre écran de l'appareil (« Cet écran »
+        // a changé, `Session::set_screens`) : le flux continue sans repartir, son image est
+        // retrouvée sous le nouvel écran (sinon la fenêtre resterait noire).
+        if let ([old], [new]) = (before.streams.as_slice(), screens)
+            && old.screen != new.screen
+        {
+            sh.move_latest(old.screen, new.screen);
+        }
         {
             let mut layers = sh.layers.lock().unwrap();
             // Une couche par écran qui n'est pas le principal ; celles des écrans disparus s'en vont.
@@ -378,13 +394,25 @@ pub fn core_profile(p: Profile) -> CoreProfile {
     CoreProfile::parse(p.id()).unwrap_or(CoreProfile::Jeu)
 }
 
+/// Ce que cette machine décode pour ce format (`StreamSettings::for_profile`) :
+/// HEVC par la carte ou le processeur, le 4:4:4 seulement s'il est demandé
+/// (HEVC), AV1 si c'est le format. C'est aussi ce que le cœur compare aux
+/// réglages pour dire « Personnalisé » au nombre d'écrans
+/// (`Screens::capabilities`, docs/multi-ecrans.md).
+pub fn capabilities(host: &Host, codec: &str, m: &Machine) -> Capabilities {
+    let yuv444 = host.settings.yuv444 && codec == "hevc";
+    Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1" }
+}
+
 /// Les réglages du flux : le profil ramené à ce que décode cette machine, le
 /// format choisi, le 4:4:4 s'il est demandé (HEVC seulement), le débit choisi
-/// ou allégé.
+/// ou allégé. Le profil reste celui de base, même quand un réglage s'en
+/// écarte : la Station reçoit le profil (libellé, politique de mode `follow` /
+/// `restore`) et son débit suit la définition. « Personnalisé » ne sert qu'au
+/// nombre d'écrans, et c'est le cœur qui le décide (`screens::screens_profile`).
 pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), m: &Machine, light: bool) -> StreamSettings {
     let yuv444 = host.settings.yuv444 && codec == "hevc";
-    let caps = Capabilities { hevc: m.decodes("hevc"), hevc444: yuv444, av1: codec == "av1" };
-    let mut s = StreamSettings::for_profile(core_profile(profile), caps);
+    let mut s = StreamSettings::for_profile(core_profile(profile), capabilities(host, codec, m));
     s.codec = match codec {
         "h264" => Codec::H264,
         "av1" => Codec::Av1,
@@ -395,21 +423,12 @@ pub fn settings(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32
         s.reliable = true;
     }
     let (w, h, fps) = mode;
-    // Des réglages qui s'écartent du profil : « Personnalisé », comme sur les
-    // autres apps (le cœur ne prend alors qu'un écran en Auto, multi-écrans). Son
-    // débit ne suit plus un profil : c'est celui que le profil donnait pour ce
-    // mode, ou celui qu'on a choisi, allégé sur batterie.
-    if host.settings.custom() {
-        let mut mbps = if host.settings.mbps > 0 { host.settings.mbps } else { s.bitrate(w, h, fps) / 1_000_000 };
-        if light {
-            mbps = mbps.min(20);
-        }
-        s.profile = None;
-        s.mbps = mbps.max(5);
-        return s;
-    }
     let ratio = (w as f64 * h as f64 * fps.max(1) as f64) / (3840.0 * 2160.0 * 60.0);
     let scale = ratio.powf(0.75).clamp(0.4, 3.0);
+    // Débit choisi : la base du profil ramenée pour l'atteindre à ce mode.
+    if host.settings.mbps > 0 {
+        s.mbps = ((host.settings.mbps as f64 / scale).floor() as u32).max(5);
+    }
     // Alléger (batterie) : 20 Mbit/s au plus.
     if light {
         let actual = s.bitrate(w, h, fps) / 1_000_000;
@@ -435,12 +454,14 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
     }
 }
 
-/// Démarre une session. `screens` : les écrans de l'appareil, pour l'interface
-/// de bureau (multi-écrans : le cœur décide du nombre d'écrans) ; `None` : une
-/// session à un écran, comme avant (Steam Deck, salon, KyberNow Link OS). `current` :
-/// l'écran de la fenêtre, celui d'une session à un écran.
+/// Démarre une session. `settings` : les réglages du flux (`settings`), que
+/// l'app garde aussi pour le nombre d'écrans : ce sont ceux que le cœur lit. `screens` :
+/// les écrans de l'appareil, pour l'interface de bureau (multi-écrans : le cœur
+/// décide du nombre d'écrans) ; `None` : une session à un écran, comme avant
+/// (Steam Deck, salon, KyberNow Link OS). `current` : l'écran de la fenêtre,
+/// celui d'une session à un écran ; `mode` est celui de cet écran.
 #[allow(clippy::too_many_arguments)]
-pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), m: &Machine, light: bool, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, tx: Sender<Event>) -> Handle {
+pub fn start(host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
@@ -483,7 +504,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
         mode: Mode { width: w, height: h, refresh: fps },
         audio_channels,
         virtual_display: host.settings.virtual_display,
-        settings: settings(host, profile, codec, mode, m, light),
+        settings,
         auto_reconnect: host.settings.reconnect,
         gamepad_xbox360: host.settings.xbox360,
         clipboard: host.settings.clipboard,
@@ -502,6 +523,7 @@ pub fn start(host: &Host, profile: Profile, codec: &str, mode: (u32, u32, u32), 
 mod tests {
     use super::*;
     use crate::model::HostSettings;
+    use kybernow_core::screens;
 
     fn host(settings: HostSettings) -> Host {
         Host {
@@ -649,22 +671,66 @@ mod tests {
         assert!(light.bitrate(3840, 2160, 60) <= 21_000_000);
     }
 
-    /// Des réglages retouchés : « Personnalisé » (le cœur ne prend alors qu'un écran en Auto), au débit choisi.
+    /// Des réglages retouchés : la Station reçoit toujours le profil de base (libellé, politique de
+    /// mode, débit qui suit la définition) ; « Personnalisé » ne sert qu'au nombre d'écrans, et c'est
+    /// le cœur qui le décide (`screens_profile`, avec ce que cette machine décode).
     #[test]
-    fn a_custom_profile_is_custom_for_the_core() {
+    fn a_retouched_profile_is_sent_as_its_profile() {
         let m = Machine::default();
+        let retouched = [
+            (HostSettings { mbps: 80, ..HostSettings::default() }, "hevc"),
+            (HostSettings { codec: "h264".into(), ..HostSettings::default() }, "h264"),
+            (HostSettings { reliable: true, ..HostSettings::default() }, "hevc"),
+            (HostSettings { yuv444: true, ..HostSettings::default() }, "hevc"),
+        ];
+        for (st, codec) in retouched {
+            let h = host(st);
+            let s = settings(&h, Profile::Jeu, codec, MODE, &m, false);
+            assert_eq!(s.profile, Some(CoreProfile::Jeu), "{:?}", h.settings);
+            assert_eq!((s.label(), s.mode_policy()), ("Jeu", "follow"));
+            assert_eq!(screens::screens_profile(&s, Some(capabilities(&h, codec, &m))), None, "{:?} : « Personnalisé » pour le nombre d'écrans", h.settings);
+        }
+        // Débit choisi : la base du profil ramenée pour l'atteindre à ce mode.
         let h = host(HostSettings { mbps: 80, ..HostSettings::default() });
-        let s = settings(&h, Profile::Jeu, "hevc", MODE, &m, false);
-        assert_eq!(s.profile, None);
-        assert_eq!(s.label(), "Personnalisé");
-        assert_eq!(s.bitrate(1920, 1080, 60), 80_000_000);
-        // Allégé : 20 Mbit/s au plus, même au débit choisi.
-        let light = settings(&h, Profile::Jeu, "hevc", MODE, &m, true);
-        assert_eq!(light.bitrate(1920, 1080, 60), 20_000_000);
-        // Un format choisi seul : le débit que le profil donnait pour ce mode.
-        let h = host(HostSettings { codec: "h264".into(), ..HostSettings::default() });
-        let by_profile = settings(&host(HostSettings::default()), Profile::Jeu, "h264", MODE, &m, false).bitrate(1920, 1080, 60);
-        let s = settings(&h, Profile::Jeu, "h264", MODE, &m, false);
-        assert_eq!((s.profile, s.bitrate(1920, 1080, 60)), (None, by_profile));
+        assert_eq!(settings(&h, Profile::Jeu, "hevc", MODE, &m, false).bitrate(1920, 1080, 60), 80_000_000);
+        // Format choisi seul : le débit du profil, qui suit la définition.
+        let h264 = settings(&host(HostSettings { codec: "h264".into(), ..HostSettings::default() }), Profile::Jeu, "h264", MODE, &m, false);
+        assert_eq!(h264.bitrate(1920, 1080, 60), 24_000_000);
+        assert_eq!(h264.bitrate(3840, 2160, 60), 60_000_000);
+        // Sans réglage retouché : le profil, pour le cœur aussi.
+        let h = host(HostSettings::default());
+        for p in [Profile::Jeu, Profile::Bureau, Profile::Max] {
+            let s = settings(&h, p, "hevc", MODE, &m, false);
+            assert_eq!(screens::screens_profile(&s, Some(capabilities(&h, "hevc", &m))), s.profile, "{p:?}");
+        }
+        // 4:4:4 demandé en Bureau, que le profil prend de lui-même quand il est permis : pas un écart.
+        let h = host(HostSettings { profile: Profile::Bureau, yuv444: true, ..HostSettings::default() });
+        let s = settings(&h, Profile::Bureau, "hevc", MODE, &m, false);
+        assert!(s.yuv444);
+        assert_eq!(screens::screens_profile(&s, Some(capabilities(&h, "hevc", &m))), Some(CoreProfile::Bureau));
+        // Alléger sur batterie ramène le débit à 20 Mbit/s : un écart, un seul écran en Auto.
+        let h = host(HostSettings::default());
+        let light = settings(&h, Profile::Bureau, "hevc", (3840, 2160, 60), &m, true);
+        assert_eq!(light.profile, Some(CoreProfile::Bureau));
+        assert_eq!(screens::screens_profile(&light, Some(capabilities(&h, "hevc", &m))), None);
+    }
+
+    /// Une session à un écran qui suit la fenêtre sur un autre écran de l'appareil (le cœur annonce
+    /// le même flux sous un autre écran) : son image se retrouve sous le nouvel écran, la fenêtre
+    /// n'en reste pas à une file vide.
+    #[test]
+    fn a_single_stream_keeps_its_picture_when_its_screen_changes() {
+        let (sh, rx) = shared(1);
+        let platform = LinuxPlatform(sh.clone());
+        platform.on_screens(&[stream(1, 5, 1920, 1080, true)], &[]);
+        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        let decoder_side = sh.fresh_latest(1);
+        platform.on_screens(&[stream(0, 5, 1920, 1080, true)], &[]);
+        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert_eq!(sh.primary(), 0);
+        assert!(Arc::ptr_eq(&decoder_side, &sh.latest_for(0)), "la file du flux suit son écran");
+        // Plusieurs écrans : rien ne bouge d'un écran à l'autre.
+        platform.on_screens(&[stream(0, 5, 1920, 1080, true), stream(1, 7, 1920, 1080, false)], &[]);
+        assert!(Arc::ptr_eq(&decoder_side, &sh.latest_for(0)));
     }
 }

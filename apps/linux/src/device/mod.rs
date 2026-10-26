@@ -28,6 +28,7 @@ use kybernow_core::console::{DeviceInfo, Mode};
 use kybernow_core::input::{GamepadRumble, MouseMode, MouseModeRules};
 use kybernow_core::kynput_rs::MouseButtonType;
 use kybernow_core::latency;
+use kybernow_core::profile::{Capabilities, StreamSettings};
 use kybernow_core::session::Status;
 
 use crate::app::{Action, AddStep, App, Found, HostLive, Layout, Nav, Online, OsAction, Phase, Screen, SessionUi, Stats, Target};
@@ -301,6 +302,18 @@ impl Wins {
         }
     }
 
+    /// Ferme celles des fenêtres de plus que `stale` désigne (leur écran n'est plus au même endroit).
+    fn close_extras_where(&mut self, stale: impl Fn(&Win) -> bool) {
+        let mut i = 1;
+        while i < self.list.len() {
+            if stale(&self.list[i]) {
+                self.list.remove(i).destroy();
+            } else {
+                i += 1;
+            }
+        }
+    }
+
     /// Les images reçues sont oubliées (la connexion reprend à sa première étape).
     fn forget_frames(&mut self) {
         for w in &mut self.list {
@@ -436,7 +449,14 @@ struct Live {
     /// « Écrans », définition sur mesure, ce que la Station crée) ; le réglage changé pendant la
     /// session vaut pour la suivante.
     screens_base: Option<kybernow_core::screens::Screens>,
-    /// Écrans pris par la session, pour la dernière session (1 hors multi-écrans).
+    /// Les réglages du flux tels que le cœur les a (départ, profil changé, « Alléger ») : le
+    /// nombre d'écrans que le cœur en tire (`screens::session_plan`) est refait ici à
+    /// l'identique, pour ce que la session attend avant son annonce (`Event::Screens`).
+    settings: StreamSettings,
+    /// L'écran virtuel demandé au départ de la session (réglage de l'ordinateur).
+    virtual_display: bool,
+    /// Écrans pris par la session, pour la dernière session (1 hors multi-écrans) : ceux que
+    /// le cœur a annoncés, ceux qu'il n'a pas pu créer n'y sont pas (comme sur Mac).
     screens: usize,
     /// Les écrans de l'appareil que l'ordinateur n'a pas pu créer (leur fenêtre le dit).
     not_created: Vec<usize>,
@@ -1130,67 +1150,95 @@ fn session_tick(app: &mut App, l: &mut Live, wins: &mut Wins, dirty: &mut bool, 
 }
 
 /// Les écrans de l'appareil ont changé en session : le cœur les reçoit
-/// (`Session::set_screens`) et refait la session, la connexion reprend à sa
-/// première étape sur l'écran principal ; les fenêtres suivent le nouveau plan.
+/// (`Session::set_screens`) et, si son plan change, refait la session : la
+/// connexion reprend à sa première étape sur l'écran principal. Le cœur est la
+/// seule source du plan : les fenêtres de plus s'ouvrent et se ferment à ce qu'il
+/// annonce (`follow_screens`). Un plan qui ne change pas (écran branché que la
+/// session ne prend pas, fréquence changée, portable posé sur un dock en Jeu…) ne
+/// touche ni aux fenêtres, ni aux images, ni au pointeur : le cœur ne refait rien et
+/// aucune image clé n'arriverait pour remplacer ce qu'on aurait oublié.
 fn apply_devices(app: &mut App, l: &mut Live, wins: &mut Wins, d: screens::Detected) {
     log::info!("écrans de l'appareil changés : {} écran(s)", d.grouped.len());
     log_devices(&d);
-    l.devices = d;
+    let old = std::mem::replace(&mut l.devices, d);
     let Some(h) = app.store.host(&l.host).cloned() else { return };
     let Some(base) = l.screens_base.clone() else { return };
+    let before = plan_of(l);
     let current = l.devices.current(wins.list[0].window);
     // Ce qui décide du nombre d'écrans (le réglage « Écrans », une définition sur mesure, ce que la
     // Station crée) est celui du départ de la session : il ne change qu'à la session suivante.
     let screens = session_screens(app, &h, &l.devices, current, &base);
     l.screens_base = Some(screens.clone());
+    let after = plan_of(l);
     l.handle.session.set_screens(screens);
-    // Les indices des écrans ont pu changer : les fenêtres de plus sont refaites.
-    wins.close_extras();
+    if before == after {
+        log::info!("écrans de l'appareil changés : le plan de la session ne change pas");
+        return;
+    }
+    // Plan différent : le cœur refait la session (« Préparation » efface les images, puis ses écrans
+    // arrivent). Les fenêtres de plus dont l'écran n'est plus au même endroit se ferment tout de suite
+    // (leur indice a pu changer de sens) ; celles qui manquent s'ouvrent à l'annonce du cœur.
+    wins.close_extras_where(|w| !displays::same_screen(&old.grouped, &l.devices.grouped, w.screen));
     l.placed = None;
     l.not_created.clear();
-    let plan = session_plan_of(app, &h, l);
-    apply_plan_windows(app, l, wins, plan.as_deref());
-    wins.forget_frames();
 }
 
 /// Les écrans de l'appareil au format du cœur, avec ce qui décide de leur nombre tel que la session
 /// l'a reçu au départ (`base`) : le réglage « Écrans » changé dans les réglages pendant la session
 /// vaut pour la suivante.
 fn session_screens(app: &App, h: &crate::model::Host, devices: &screens::Detected, current: usize, base: &kybernow_core::screens::Screens) -> kybernow_core::screens::Screens {
-    let mut s = screens::core_screens(devices, current, h, base.max_screens, app.machine.on_battery());
-    s.setting = base.setting;
-    s.custom_resolution = base.custom_resolution;
-    s.limit_4k = base.limit_4k;
-    s
+    kybernow_core::screens::Screens { list: screens::device_screens(devices, h, app.machine.on_battery()), current, ..base.clone() }
 }
 
-/// L'écran virtuel que la Station peut créer : celui du réglage de l'ordinateur, si elle l'a.
-fn virtual_display_of(app: &App, h: &crate::model::Host) -> bool {
-    h.settings.virtual_display && app.live.get(&h.id).and_then(|l| l.virtual_display) != Some(false)
-}
-
-/// Les écrans virtuels que la session demande avec le profil d'à présent (le profil choisi dans la
-/// barre s'applique tout de suite), ou `None` : une session à un écran.
-fn session_plan_of(app: &App, h: &crate::model::Host, l: &Live) -> Option<Vec<kybernow_core::screens::PlannedScreen>> {
-    let base = l.screens_base.as_ref()?;
-    screens::session_plan(base, h, virtual_display_of(app, h), app.codec_for(h))
-}
-
-/// Les fenêtres d'une session à plusieurs écrans pour ce plan : celle de l'app passe en plein
-/// écran sur l'écran principal de l'appareil, une fenêtre plein écran de plus par autre écran
-/// (le fond de la connexion). Pas de plan : une session à un écran, les fenêtres de plus se
-/// ferment (la fenêtre de l'app reste comme elle est).
-fn apply_plan_windows(app: &mut App, l: &mut Live, wins: &mut Wins, plan: Option<&[kybernow_core::screens::PlannedScreen]>) {
-    if let Some(s) = app.session.as_mut() {
-        s.screens = plan.map_or(1, <[_]>::len);
+/// « Cet écran » de la machine (définition, fréquence, nom) : celui de l'appareil qui porte la fenêtre.
+fn set_machine_screen(app: &mut App, devices: &screens::Detected, screen: usize) {
+    if let Some(d) = devices.grouped.get(screen) {
+        app.machine.display = (d.pixel_w, d.pixel_h);
+        app.machine.refresh = d.refresh;
+        app.machine.display_name = d.name.clone();
     }
-    let Some(plan) = plan else {
-        wins.close_extras();
-        return;
-    };
-    let primary = plan[0].device;
+}
+
+/// Ce que la Station dit de ses écrans pour cet ordinateur : ce qu'elle sait créer, et son écran
+/// virtuel (inconnu tant qu'elle n'a pas répondu : une Station antérieure, un seul écran).
+fn station_screens(app: &App, h: &crate::model::Host) -> screens::StationScreens {
+    screens::StationScreens { max_screens: app.live.get(&h.id).and_then(|l| l.max_screens).unwrap_or(1), virtual_display_available: app.virtual_display_available(h) }
+}
+
+/// Les réglages du flux que la session enverra pour ce profil, avec l'écran et la batterie
+/// d'à présent : le même objet va à `session::start` et au calcul du nombre d'écrans, qui est celui
+/// du cœur (accueil, réglages et session).
+fn stream_settings(app: &App, h: &crate::model::Host, profile: crate::model::Profile, light: bool) -> StreamSettings {
+    session::settings(h, profile, app.codec_for(h), app.session_mode(h), &app.machine, light)
+}
+
+/// Les écrans virtuels que le cœur demande en ce moment, ou `None` : une session à un écran. Son
+/// calcul (`screens::session_plan_for`) sur ce qu'il a reçu : écrans, réglages du flux, écran virtuel.
+fn plan_of(l: &Live) -> Option<Vec<kybernow_core::screens::PlannedScreen>> {
+    screens::session_plan(l.screens_base.as_ref()?, &l.settings, l.virtual_display)
+}
+
+/// Le cœur reçoit de nouveaux réglages du flux (profil choisi dans la barre ou le menu, « Alléger ») :
+/// il en tire tout de suite le nombre d'écrans et refait la session s'il change. Ce que la machine
+/// décode (4:4:4 remis à zéro en choisissant Jeu) décide aussi du « Personnalisé » du nombre d'écrans :
+/// s'il a changé, le cœur le reçoit avec les écrans. Une session à un écran n'envoie que les réglages.
+fn push_settings(l: &mut Live, settings: StreamSettings, capabilities: Capabilities) {
+    if let Some(base) = l.screens_base.as_mut()
+        && base.capabilities != Some(capabilities)
+    {
+        base.capabilities = Some(capabilities);
+        l.handle.session.set_screens(base.clone());
+    }
+    l.settings = settings.clone();
+    l.handle.session.set_settings(settings);
+}
+
+/// La fenêtre de l'app passe en plein écran sur l'écran `primary` de l'appareil : une session à
+/// plusieurs écrans l'y met (l'écran principal porte la connexion), et une session qui redevient à
+/// un écran l'y laisse ou la met sur l'écran du flux (« Cet écran » du cœur). La fin de session la
+/// remet comme elle était.
+fn take_over_main_window(app: &mut App, l: &mut Live, wins: &mut Wins, primary: usize) {
     let window = wins.list[0].window;
-    // La fenêtre de l'app en plein écran sur l'écran principal ; la fin de session la remet comme elle était.
     if wins.prev.is_none() {
         let (mut x, mut y, mut w, mut h) = (0, 0, 0, 0);
         unsafe {
@@ -1206,7 +1254,35 @@ fn apply_plan_windows(app: &mut App, l: &mut Live, wins: &mut Wins, plan: Option
     }
     app.fullscreen = true;
     unsafe { sdl::SDL_SetWindowKeyboardGrab(window, 1) };
-    sync_windows(wins, &plan_screens(plan), primary, &l.devices, true);
+}
+
+/// Le cœur annonce les écrans de la session (au démarrage de l'image, ou l'un d'eux a changé de
+/// taille) : il est la seule source du plan, les fenêtres le suivent. Une fenêtre par écran pris ou
+/// raté (leur fenêtre le dit) ; une session à un écran (un seul flux et aucun écran raté : une Station
+/// qui n'en crée qu'un, l'écran principal seul accepté, un profil à un écran) n'a que la fenêtre de
+/// l'app, qui montre ce flux : jamais de fenêtre de plus, sans message, comme sur Mac.
+fn follow_screens(app: &mut App, l: &mut Live, wins: &mut Wins) {
+    let st = l.handle.shared.screens();
+    let Some(primary) = st.streams.first().map(|s| s.screen) else { return };
+    // Les écrans pris : le même compte partout (barre, dernière session), sans ceux qu'il n'a pas pu créer.
+    l.screens = st.streams.len().max(1);
+    l.not_created = st.not_created.clone();
+    let mut wanted: Vec<usize> = st.streams.iter().map(|s| s.screen).collect();
+    wanted.extend(st.not_created.iter().copied());
+    if let Some(s) = app.session.as_mut() {
+        s.screens = l.screens;
+        s.expected_screens = wanted.len().max(1);
+    }
+    if l.multi {
+        // La fenêtre de l'app est en plein écran sur l'écran principal du flux tant qu'il y a plusieurs
+        // écrans, et s'ils redeviennent un seul (profil changé) : elle montre alors l'écran du flux, celui
+        // que le cœur a pris comme « Cet écran » (sa définition, son mode).
+        if wanted.len() >= 2 || wins.prev.is_some() {
+            take_over_main_window(app, l, wins, primary);
+        }
+        sync_windows(wins, &wanted, primary, &l.devices, true);
+    }
+    log::info!("écrans de la session : {} pris, {} non créé(s)", st.streams.len(), st.not_created.len());
 }
 
 /// Les écrans de l'appareil au journal (une ligne par écran).
@@ -1260,9 +1336,11 @@ fn refresh_devices(app: &mut App, devices: &mut screens::Detected, wins: &mut Wi
 fn selected_plan(app: &App, devices: &screens::Detected, window: *mut sdl::SDL_Window) -> crate::app::ScreensPlan {
     let Some(h) = app.selected() else { return crate::app::ScreensPlan::default() };
     let current = devices.current(window);
-    let max = app.live.get(&h.id).and_then(|l| l.max_screens).unwrap_or(1);
-    let cs = screens::core_screens(devices, current, h, max, app.machine.on_battery());
-    screens::summary(&cs, h, virtual_display_of(app, h), app.codec_for(h))
+    // Les mêmes réglages du flux que la session enverra (`Action::Connect`), le même calcul du cœur.
+    let light = h.settings.battery_light && app.machine.on_battery();
+    let settings = stream_settings(app, h, h.settings.profile, light);
+    let cs = screens::core_screens(devices, current, h, station_screens(app, h), session::capabilities(h, app.codec_for(h), &app.machine), app.machine.on_battery());
+    screens::summary(&cs, &settings, h.settings.virtual_display)
 }
 
 /// Ce que montre une fenêtre (voir `ui::View`) : celle d'une session à plusieurs écrans a son rôle ;
@@ -1826,6 +1904,13 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
             if was_streaming && s.phase == Phase::Preparing {
                 s.opened_at = None;
                 wins.forget_frames();
+                // Les écrans attendus : ceux du plan que le cœur refait (profil ou écrans de l'appareil
+                // changés) ; ses fenêtres suivent son annonce, une fois la session prête.
+                if let Some(l) = live.as_ref()
+                    && l.multi
+                {
+                    s.expected_screens = plan_of(l).map_or(1, |p| p.len());
+                }
             }
             if let Phase::Ended { error: None } = s.phase {
                 app.session = None;
@@ -1901,22 +1986,7 @@ fn handle_event(e: Event, app: &mut App, pads: &mut pads::Pads, live: &mut Optio
         // Multi-écrans : les écrans que l'ordinateur a pris, et ceux qu'il n'a pas pu créer.
         Event::Screens => {
             let Some(l) = live.as_mut() else { return };
-            let st = l.handle.shared.screens();
-            let Some(primary) = st.streams.first().map(|s| s.screen) else { return };
-            l.screens = st.streams.len().max(1);
-            l.not_created = st.not_created.clone();
-            // Une fenêtre par écran pris ou raté (leur fenêtre le dit) ; la session est à plusieurs
-            // écrans tant qu'il y en a au moins deux. Une Station qui n'en crée qu'un, ou l'écran
-            // principal seul accepté : les fenêtres de plus se ferment, sans message.
-            let mut wanted: Vec<usize> = st.streams.iter().map(|s| s.screen).collect();
-            wanted.extend(st.not_created.iter().copied());
-            if l.multi {
-                if let Some(s) = app.session.as_mut() {
-                    s.screens = wanted.len().max(1);
-                }
-                sync_windows(wins, &wanted, primary, &l.devices, true);
-            }
-            log::info!("écrans de la session : {} pris, {} non créé(s)", st.streams.len(), st.not_created.len());
+            follow_screens(app, l, wins);
         }
         Event::Rumble(r) => pads.rumble(r.id as usize, r.large_motor, r.small_motor, r.duration_ms),
         Event::Combo => actions.extend(app.open_menu()),
@@ -2200,27 +2270,38 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             // Les écrans de l'appareil à cet instant : « Cet écran » est celui de la fenêtre, dont la
             // définition et la fréquence donnent le mode d'une session à un écran.
             let devices = screens::detect();
-            let current = devices.current(wins.main().window);
-            if let Some(d) = devices.grouped.get(current) {
-                app.machine.display = (d.pixel_w, d.pixel_h);
-                app.machine.refresh = d.refresh;
-                app.machine.display_name = d.name.clone();
-            }
-            wins.main().screen = current;
-            let mode = app.session_mode(&h);
+            let window_screen = devices.current(wins.main().window);
+            set_machine_screen(app, &devices, window_screen);
             let codec = app.codec_for(&h);
             let device = device_info(app);
             let light = h.settings.battery_light && app.machine.on_battery();
             let relative = h.settings.mouse == "game";
+            let virtual_display = h.settings.virtual_display;
+            // Les réglages du flux : ceux que reçoivent la Station et le calcul du nombre d'écrans.
+            let settings = stream_settings(app, &h, profile, light);
             // Multi-écrans (interface de bureau) : le cœur reçoit les écrans de l'appareil et décide du
-            // nombre d'écrans ; sans (Steam Deck, salon, KyberNow Link OS), une session à un écran.
-            let base = app.multi_screens().then(|| {
-                let max = app.live.get(&h.id).and_then(|l| l.max_screens).unwrap_or(1);
-                screens::core_screens(&devices, current, &h, max, app.machine.on_battery())
+            // nombre d'écrans (son calcul, sur ces réglages) ; sans (Steam Deck, salon, KyberNow Link
+            // OS), une session à un écran.
+            let mut base = app.multi_screens().then(|| {
+                let capabilities = session::capabilities(&h, codec, &app.machine);
+                screens::core_screens(&devices, window_screen, &h, station_screens(app, &h), capabilities, app.machine.on_battery())
             });
-            let plan = base.as_ref().and_then(|b| screens::session_plan(b, &h, virtual_display_of(app, &h), codec));
+            let plan = base.as_ref().and_then(|b| screens::session_plan(b, &settings, virtual_display));
+            // « Cet écran » est celui où se trouve la fenêtre pendant la session : avec plusieurs écrans,
+            // elle passe en plein écran sur l'écran principal, et c'est là que le cœur la met (l'écran de
+            // la session à un écran où le profil changé la ramènerait, et son mode), comme sur Mac, qui
+            // relit l'écran de la fenêtre après l'avoir posée. Une session à un écran : celui de la fenêtre.
+            let current = plan.as_ref().map_or(window_screen, |p| p[0].device);
+            if current != window_screen {
+                set_machine_screen(app, &devices, current);
+                if let Some(b) = base.as_mut() {
+                    b.current = current;
+                }
+            }
+            wins.main().screen = current;
+            let mode = app.session_mode(&h);
             let primary_mode = plan.as_deref().and_then(screens::primary_mode).map_or(mode, |m| (m.width, m.height, m.refresh));
-            let handle = session::start(&h, profile, codec, mode, &app.machine, light, relative, device, base.clone(), current, tx.clone());
+            let handle = session::start(&h, settings.clone(), mode, &app.machine, relative, device, base.clone(), current, tx.clone());
             let codec_label = match codec {
                 "h264" => "H.264",
                 "av1" => "AV1",
@@ -2246,6 +2327,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 ending_since: None,
                 opened_at: None,
                 screens: 1,
+                expected_screens: plan.as_ref().map_or(1, Vec::len),
             });
             app.screen = Screen::Session;
             app.focus = Target::CancelConnect;
@@ -2282,16 +2364,22 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 multi: base.is_some(),
                 devices,
                 screens_base: base,
-                screens: plan.as_ref().map_or(1, Vec::len),
+                settings,
+                virtual_display,
+                screens: 1,
                 not_created: Vec::new(),
                 placed: None,
                 rescan_at: Instant::now(),
                 changed: None,
             };
             // Plusieurs écrans : la fenêtre de l'app en plein écran sur l'écran principal, une fenêtre
-            // plein écran de plus par autre écran (le fond de la connexion).
+            // plein écran de plus par autre écran (le fond de la connexion, dès le départ comme sur Mac) ;
+            // ensuite le cœur annonce ce qu'il a pris et les fenêtres le suivent (`follow_screens`).
             wins.close_extras();
-            apply_plan_windows(app, &mut l, wins, plan.as_deref());
+            if let Some(plan) = plan.as_deref() {
+                take_over_main_window(app, &mut l, wins, plan[0].device);
+                sync_windows(wins, &plan_screens(plan), plan[0].device, &l.devices, true);
+            }
             unsafe {
                 sdl::SDL_DisableScreenSaver();
                 if app.fullscreen || app.layout.console() {
@@ -2306,8 +2394,8 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 primary_mode.1,
                 primary_mode.2,
                 if vsync { "synchronisé" } else { "immédiat" },
-                l.screens,
-                if l.screens > 1 { "s" } else { "" }
+                plan.as_ref().map_or(1, Vec::len),
+                if plan.as_ref().is_some_and(|p| p.len() > 1) { "s" } else { "" }
             );
             *live = Some(l);
         }
@@ -2343,31 +2431,24 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
             }
         }
         Action::SetProfile(p) => {
-            if let (Some(l), Some(s)) = (live.as_ref(), app.session.as_ref())
+            // Le profil choisi dans la barre s'applique tout de suite : le cœur en tire le nombre
+            // d'écrans (son calcul sur ces réglages) et refait la session s'il change ; ses fenêtres
+            // suivent son annonce (`follow_screens`), sans que l'app ouvre ni ferme rien d'elle-même.
+            if let (Some(l), Some(s)) = (live.as_mut(), app.session.as_ref())
                 && let Some(h) = app.store.host(&s.host)
             {
-                let mode = app.session_mode(h);
-                let codec = app.codec_for(h);
-                l.handle.session.set_settings(session::settings(h, p, codec, mode, &app.machine, s.light));
-            }
-            // Le profil choisi dans la barre s'applique tout de suite : le cœur refait la session avec le
-            // nombre d'écrans de ce profil, les fenêtres suivent (la connexion reprend à sa première étape).
-            if let Some(l) = live.as_mut()
-                && l.multi
-                && let Some(h) = app.store.host(&l.host).cloned()
-            {
-                let plan = session_plan_of(app, &h, l);
-                apply_plan_windows(app, l, wins, plan.as_deref());
+                let settings = stream_settings(app, h, p, s.light);
+                push_settings(l, settings, session::capabilities(h, app.codec_for(h), &app.machine));
             }
         }
         Action::Light(on) => {
-            if let (Some(l), Some(s)) = (live.as_ref(), app.session.as_ref())
+            if let (Some(l), Some(s)) = (live.as_mut(), app.session.as_ref())
                 && let Some(h) = app.store.host(&s.host)
             {
                 let (w, hh, fps) = app.session_mode(h);
                 let fps = if on { fps.min(60) } else { fps };
                 let codec = app.codec_for(h);
-                l.handle.session.set_settings(session::settings(h, s.profile, codec, (w, hh, fps), &app.machine, on));
+                push_settings(l, session::settings(h, s.profile, codec, (w, hh, fps), &app.machine, on), session::capabilities(h, codec, &app.machine));
                 l.handle.session.set_mode(Mode { width: w, height: hh, refresh: fps });
             }
         }
@@ -2571,6 +2652,7 @@ mod tests {
             ending_since: None,
             opened_at: Some(Instant::now()),
             screens: 3,
+            expected_screens: 3,
         });
         for (i, w) in wins.list.iter_mut().enumerate() {
             w.sizes();
@@ -2605,6 +2687,12 @@ mod tests {
             draw_frame(w, true, None, None, &app);
         }
 
+        // Des écrans de l'appareil dont la place a changé : leur fenêtre se ferme, les autres restent.
+        wins.close_extras_where(|w| w.screen == 2);
+        assert_eq!(wins.list.iter().map(|w| w.screen).collect::<Vec<_>>(), vec![0, 1]);
+        let kept = wins.list[1].id;
+        sync_windows(&mut wins, &[0, 1, 2], 0, &devices, false);
+        assert_eq!((wins.list.len(), wins.list[1].id), (3, kept), "la fenêtre qui reste n'est pas refaite");
         // Moins d'écrans (Station qui n'en crée plus que deux, profil Jeu) : les fenêtres de plus se ferment.
         sync_windows(&mut wins, &[0, 2], 0, &devices, false);
         assert_eq!(wins.list.iter().map(|w| w.screen).collect::<Vec<_>>(), vec![0, 2]);

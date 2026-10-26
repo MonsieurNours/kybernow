@@ -184,7 +184,7 @@ fn capsule_steps(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, t: f3
     // Le dernier recours : la Station redémarre à la place de l'étape « Connexion », puis les étapes reprennent.
     let restarting = s.phase == Phase::StationRestarting;
     let steps = [
-        if s.multi() { tr("Préparation des écrans", "Preparing the displays") } else { tr("Préparation de l'écran", "Preparing the display") },
+        if s.expected_screens >= 2 { tr("Préparation des écrans", "Preparing the displays") } else { tr("Préparation de l'écran", "Preparing the display") },
         if restarting { tr("La Station redémarre", "The Station is restarting") } else { tr("Connexion", "Connecting") },
         tr("Premières images", "First frames"),
     ];
@@ -331,7 +331,8 @@ impl BarLayout {
     fn measure(cv: &mut Canvas, s: &SessionUi) -> Self {
         let st = s.stats.clone().unwrap_or_default();
         let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
-        let mode = if s.multi() { format!("{} {} · {}", s.screens, tr("écrans", "displays"), st.mode) } else { st.mode.clone() };
+        // Avec plusieurs écrans pris, leur nombre d'abord (le même compte que les statistiques de la dernière session).
+        let mode = if s.screens >= 2 { format!("{} {} · {}", s.screens, tr("écrans", "displays"), st.mode) } else { st.mode.clone() };
         let info = if st.fps > 0.0 { format!("{} · {:.0} {} · {}", mode, st.fps, tr("i/s", "fps"), st.decoder) } else { mode };
         let mono14 = Text::new(Font::MonoMedium, 14.0, FROST);
         let mono12 = Text::new(Font::Mono, 12.0, MUTED);
