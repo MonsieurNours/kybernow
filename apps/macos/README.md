@@ -106,6 +106,21 @@ Kyber dessine normalement l'image et joue le son avec VLC. KyberNow Link les dé
 
 Mesures en direct (barre de session) : latence de bout en bout et sa courbe, définition et format. Un clic dessus (ou ⌃⌥⌘S) ouvre les **mesures détaillées** en bas à droite (`SessionStats.swift`) : le trajet d'une image en cascade sur une échelle commune, avec la durée d'une image en pointillé ; la latence (pertes repérées sous la courbe) et le débit sur 30 s ; les pertes sur 30 s et depuis le début ; l'aller-retour réseau, l'image, le son et l'écart son-image. Le panneau reste ouvert et laisse passer clics et mouvements vers l'ordinateur, sauf son bouton de fermeture. En Debug, `KN_STATS_PREVIEW=1` l'affiche rempli de mesures plausibles, sans session.
 
+## Plusieurs écrans
+
+Une session peut prendre tous les écrans de ce Mac (contrat : [docs/multi-ecrans.md](../../docs/multi-ecrans.md) ; textes et comportement : [docs/link-ui.md](../../docs/link-ui.md), « Plusieurs écrans »). Le cœur décide du nombre d'écrans avec les mêmes règles que Windows et Linux ; l'app lui donne ce qui en décide et montre ce qu'il rend.
+
+- **Réglage** « Écrans » (rubrique Image, sous Définition) : Auto, Cet écran, Tous les écrans (`ConnectionSettings.screens`), inactif sur « Cet écran » avec une définition sur mesure, une session fenêtrée ou sans écran virtuel (`SessionEngine.screensSettingEnabled`). Il ne fait pas passer le profil en « Personnalisé ».
+- **Les écrans de ce Mac** (`DisplayInfo.deviceScreens`) : `NSScreen.screens` sans les écrans en recopie, le premier (celui de la barre des menus) comme écran principal, cadres convertis du repère de Cocoa (y vers le haut) vers celui du contrat (y vers le bas), pixels natifs, fréquence ; « Cet écran » est celui de la fenêtre ; avec le réglage, « Au plus 4K », la définition sur mesure et le nombre d'écrans que la Station sait créer (`HostInfo.maxScreens`, `virtual_display.max_screens` d'`info`, 1 avec une Station antérieure). Toujours donnés au cœur (`SessionEngine.Params.screens`) : c'est lui qui en fait une session à un ou plusieurs écrans, y compris quand le profil change en session.
+- **Accueil** : « 3 écrans, à la taille de ceux de cet appareil » quand le plan du cœur (`SessionEngine.sessionPlan`, le même calcul que la session) prend plusieurs écrans.
+- **Fenêtres** (`SessionScreens.swift`) : la fenêtre de l'accueil passe sur l'écran principal (elle reprend sa place à la fin) et y montre la connexion ; chaque autre écran pris a sa fenêtre plein écran (`ScreenSurface`), avec sa vue de session, son rendu Metal, son décodeur VideoToolbox (un flux par écran, `KnPacket.screen`), son trait de repère et sa zone d'ouverture de la barre ; leur couche SwiftUI est cachée tant qu'elle n'a rien à montrer (présentation directe). Plein écran natif sur chaque écran quand les écrans ont des espaces séparés (réglage par défaut de macOS), barre des menus et Dock masqués ; sinon une fenêtre sans bordure à la taille de l'écran. Toutes portent le même titre.
+- **Connexion** : les étapes sur l'écran principal (« Préparation des écrans »), le fond de la connexion sans texte sur les autres (`ScreenBackdrop`), chaque écran passe à son image dès sa première image (`SessionEngine.onScreenImage`). Un écran que l'ordinateur n'a pas pu créer, ou resté sans image, garde ce fond avec « L'ordinateur n'a pas pu créer cet écran. ». Station à un écran, principal seul accepté, session repassée à un écran : les fenêtres des autres écrans se ferment, sans message (`SessionEngine.onScreens`).
+- **Barre** : une seule, sur l'écran où le geste a lieu (la couche SwiftUI passe d'une fenêtre à l'autre) ; ses commandes valent pour toute la session. « Plein écran » n'est pas proposé avec plusieurs écrans (barre, menu Session, ⌃⌥⌘F, menu de l'icône, manette).
+- **Souris** : en souris du bureau, chaque fenêtre reçoit les mouvements même sans être la fenêtre clé, et envoie ses positions vers son écran de l'ordinateur (`kn_input_mouse_on`) ; le pointeur de l'ordinateur est dessiné dans la fenêtre de son écran (une couche de pointeur par vue, `kn_input_set_screens`). En souris des jeux, il reste capturé dans la fenêtre active. Souris Auto : le pointeur de l'ordinateur ne compte comme caché que s'il l'est sur tous les écrans (`StreamViewGroup`).
+- **Écrans de ce Mac changés en session** (branché, débranché, disposition, recopie) : la description à jour part au cœur (`SessionEngine.setScreens`), qui refait la session si le plan change (la connexion reprend à sa première étape sur l'écran principal) ; la fenêtre d'un écran débranché se ferme tout de suite.
+- **Mesures** : latence et images par seconde de l'écran principal ; le panneau des mesures et la dernière session donnent le nombre d'écrans d'abord (« 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s », débit total) ; `Host.lastScreens`.
+- **Essai** sans Station multi-écrans : `KN_MAX_SCREENS=4 "/chemin/KyberNow Link.app/Contents/MacOS/KyberNow Link"` fait comme si la Station savait créer quatre écrans : l'accueil annonce les écrans du Mac, les fenêtres s'ouvrent, puis, la Station actuelle n'en créant qu'un, elles se ferment et la session se fait sur l'écran principal, sans erreur.
+
 ## Organisation du code
 
 ```
@@ -135,6 +150,7 @@ apps/macos/
 │   ├── Discovery          # découverte Bonjour des Stations
 │   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
 │   ├── SessionController, SessionChrome, SessionStats, Passage
+│   ├── SessionScreens     # multi-écrans : une surface (vue, rendu, fond de la connexion) et une fenêtre par écran
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # correctifs KyberNow sur libkyclient et libkynput
 ├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs

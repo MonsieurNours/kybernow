@@ -18,6 +18,30 @@
 import AppKit
 @_implementationOnly import CKyber
 
+/// Multi-écrans : les vues de session d'une même session, une par écran de
+/// ce Mac. La règle Auto de la souris les regarde ensemble : le pointeur de
+/// l'ordinateur ne compte comme caché que s'il l'est sur tous les écrans
+/// (il est annoncé caché sur l'écran qu'il quitte).
+public final class StreamViewGroup {
+    private var members: [WeakView] = []
+    private struct WeakView { weak var view: StreamView? }
+
+    public init() {}
+
+    public func add(_ view: StreamView) {
+        members.removeAll { $0.view == nil || $0.view === view }
+        members.append(WeakView(view: view))
+        view.group = self
+    }
+
+    public func remove(_ view: StreamView) {
+        members.removeAll { $0.view == nil || $0.view === view }
+        if view.group === self { view.group = nil }
+    }
+
+    var views: [StreamView] { members.compactMap(\.view) }
+}
+
 public final class StreamView: NSView {
     /// Vue confiée à Kyber comme fenêtre (sa configuration l'exige) ; l'image
     /// n'y est pas dessinée : elle passe par Metal, dans `surface`.
@@ -36,6 +60,15 @@ public final class StreamView: NSView {
     public var onPointerMoved: ((CGPoint?) -> Void)?
     /// Bande du haut réservée à l'app (barre ouverte) : rien n'y part vers l'ordinateur.
     public var reservedTopBand: CGFloat = 0
+    /// Multi-écrans : l'écran de ce Mac que montre cette vue (index de la
+    /// liste donnée au cœur) ; ses positions partent vers l'écran de
+    /// l'ordinateur qui lui correspond. Nil : session à un écran.
+    public internal(set) var screenIndex: Int?
+    /// Multi-écrans : les mouvements arrivent aussi quand la fenêtre de cette
+    /// vue n'est pas la fenêtre clé (le pointeur passe d'un écran à l'autre).
+    public var tracksInActiveApp = false { didSet { updateTrackingAreas() } }
+    /// Les vues de la même session (multi-écrans).
+    public internal(set) weak var group: StreamViewGroup?
 
     /// Bureau : souris absolue, pointeur du Mac toujours là. Jeu : souris
     /// relative (déplacements bruts). Auto : jeu quand un jeu est en plein
@@ -117,7 +150,7 @@ public final class StreamView: NSView {
         relative.onMove = { [weak input] dx, dy in input?.mouseMove(dx: dx, dy: dy) }
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
-            guard let self, event.modifierFlags.contains(.command), self.window?.firstResponder === self else { return event }
+            guard let self, event.modifierFlags.contains(.command), self.window?.isKeyWindow == true, self.window?.firstResponder === self else { return event }
             self.keyUp(with: event)
             return nil
         }
@@ -130,7 +163,9 @@ public final class StreamView: NSView {
     /// et les boutons ne sont pas renvoyés (un jeu y verrait un nouvel appui).
     func inputConnected() {
         guard let input else { return }
-        input.setRelative(relative.active)
+        // Plusieurs vues sur la même chaîne : seule celle qui a la souris (ou
+        // la fenêtre clé) dit son mode.
+        if group == nil || relative.active || window?.isKeyWindow == true { input.setRelative(relative.active) }
         input.forgetModifiers()
         resyncModifiers()
     }
@@ -178,7 +213,8 @@ public final class StreamView: NSView {
     public override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect, .cursorUpdate], owner: self)
+        let activation: NSTrackingArea.Options = tracksInActiveApp ? .activeInActiveApp : .activeInKeyWindow
+        let area = NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, activation, .inVisibleRect, .cursorUpdate], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -191,11 +227,15 @@ public final class StreamView: NSView {
     /// La couche de pointeur a changé (fil principal).
     private func pointerChanged(_ state: PointerLayer.State, _ change: PointerLayer.Change) {
         if change.visibility {
-            evaluateRelative()
+            // Plusieurs écrans : la règle regarde toutes les vues de la session.
+            let views = group?.views ?? [self]
+            views.forEach { $0.evaluateRelative() }
             if !state.remoteHidden {
                 // Un pointeur remontré un instant (menus, clignotement de
                 // Windows) ne fait pas quitter le mode jeu : on revérifie après.
-                DispatchQueue.main.asyncAfter(deadline: .now() + MouseModeRules.recheckDelay) { [weak self] in self?.evaluateRelative() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + MouseModeRules.recheckDelay) {
+                    views.forEach { $0.evaluateRelative() }
+                }
             }
         }
         if change.shape { applyCursorShape() }
@@ -299,9 +339,16 @@ public final class StreamView: NSView {
         }
     }
 
+    /// Le pointeur de l'ordinateur pour la règle Auto : caché seulement s'il
+    /// l'est sur tous les écrans de la session, visible depuis le plus long.
+    private var ruleState: (hidden: Bool, visibleFor: TimeInterval) {
+        let states = (group?.views ?? [self]).map(\.pointer.state)
+        return (states.allSatisfy(\.remoteHidden), states.map(\.visibleFor).max() ?? 0)
+    }
+
     private func evaluateRelative() {
-        let state = pointer.state
-        let wanted = Self.rules.wantsRelative(mode: mouseMode, gameFullscreen: pcGameFullscreen, remoteHidden: state.remoteHidden,
+        let state = ruleState
+        let wanted = Self.rules.wantsRelative(mode: mouseMode, gameFullscreen: pcGameFullscreen, remoteHidden: state.hidden,
                                               visibleFor: state.visibleFor, relativeActive: relative.active)
         let want = wanted && !relativeSuspended && input != nil && window?.isKeyWindow == true
         if want, !relative.active {
@@ -371,7 +418,8 @@ public final class StreamView: NSView {
         var local = kynput_Position(x: p.x, y: bounds.height - p.y)
         var host = kynput_Position(x: 0, y: 0)
         guard kynput_video_layout_local_to_host(layout, &local, false, &host) else { return }
-        input.mouse(x: Int16(clamping: Int(host.x.rounded())), y: Int16(clamping: Int(host.y.rounded())))
+        let x = Int16(clamping: Int(host.x.rounded())), y = Int16(clamping: Int(host.y.rounded()))
+        if let screenIndex { input.mouse(on: screenIndex, x: x, y: y) } else { input.mouse(x: x, y: y) }
     }
 
     public override func mouseMoved(with event: NSEvent) { sendPosition(event) }
