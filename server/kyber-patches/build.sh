@@ -43,15 +43,15 @@
 #   0016  débit par écran (kycontroller) : le débit d'une session à plusieurs
 #         écrans se répartit selon les pixels par seconde de chaque écran
 #         (parts égales si un mode est inconnu), au démarrage et à /set_bitrate
-#   0017  diagnostic de la capture (txproto) : à la première image des trois
-#         premières captures d'un écran, taille et format de la texture DXGI,
-#         mode et position de l'écran, premières et dernières colonnes non
-#         noires de la ligne du milieu (image décalée dans la texture ?)
+#   (0017, diagnostic de la capture des écrans secondaires : retiré, son
+#         rôle est fini)
 #   0018  capture des écrans secondaires (txproto) : pour un écran dont
 #         KyberNow Admin a lancé la capture Windows Graphics Capture, les
 #         images viennent de ses textures D3D11 partagées au lieu de la
-#         duplication DXGI (repli sur elle sinon) ; pointeur lu par
-#         GetCursorInfo ; latence de capture au journal
+#         duplication DXGI (agent attendu 1,5 s, dernière image reprise dès
+#         l'ouverture et renvoyée chaque seconde, repli sur la duplication
+#         sans image en 2,5 s) ; pointeur lu par GetCursorInfo ; méthode,
+#         première image et latence de capture au journal
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

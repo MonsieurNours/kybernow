@@ -55,7 +55,9 @@ use super::wgc_shared::{
 
 mod sys {
     pub use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, LPARAM, LocalFree, RECT};
-    pub use windows_sys::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW};
+    pub use windows_sys::Win32::Graphics::Gdi::{
+        EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFOEXW, RDW_ALLCHILDREN, RDW_INVALIDATE, RedrawWindow,
+    };
     pub use windows_sys::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
@@ -538,14 +540,59 @@ fn run(gdi_name: &str, run_file: &Path, token: &str, status: &Path, refresh: u32
             "cursor_excluded": capture.options.cursor_excluded,
             "border_required": capture.options.border_required,
             "luid": [state.device.luid.0, state.device.luid.1],
+            "first_frame": state.frames.load(Ordering::Relaxed) > 0,
+            "restarts": 0,
         }),
     );
 
+    let ready = json!({
+        "state": "ready",
+        "width": size.Width, "height": size.Height,
+        "cursor_excluded": capture.options.cursor_excluded,
+        "border_required": capture.options.border_required,
+        "luid": [state.device.luid.0, state.device.luid.1],
+    });
     let started = Instant::now();
     let mut last_retry = Instant::now();
+    let mut first_frame_noted = false;
+    // Sans image de Windows : écran redessiné à 300 ms, capture refaite à 1 s
+    // (trois fois au plus). Un écran tout juste créé et immobile peut ne
+    // donner aucune image à WGC.
+    let mut capture_started = Instant::now();
+    let mut nudged = false;
+    let mut restarts = 0u32;
     while still_wanted(run_file, token) && started.elapsed() < Duration::from_secs(86_400) {
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(100));
         state.shared.heartbeat();
+        let frames = state.frames.load(Ordering::Relaxed);
+        if frames == 0 {
+            if !nudged && capture_started.elapsed() >= Duration::from_millis(300) {
+                nudged = true;
+                // Toutes les fenêtres redessinées : Windows recompose l'écran.
+                unsafe { sys::RedrawWindow(null_mut(), null(), null_mut(), sys::RDW_INVALIDATE | sys::RDW_ALLCHILDREN) };
+            }
+            if restarts < 3 && capture_started.elapsed() >= Duration::from_secs(1) {
+                restarts += 1;
+                capture.stop();
+                if let Some(next) = monitor_for(gdi_name).and_then(|m| Capture::start(&state, m, refresh).ok()) {
+                    capture = next;
+                }
+                capture_started = Instant::now();
+                nudged = false;
+                let mut status_value = ready.clone();
+                status_value["first_frame"] = json!(false);
+                status_value["restarts"] = json!(restarts);
+                write_status(status, status_value);
+            }
+        }
+        // Première image de Windows : Admin l'écrit au journal.
+        if !first_frame_noted && frames > 0 {
+            first_frame_noted = true;
+            let mut status_value = ready.clone();
+            status_value["first_frame"] = json!(true);
+            status_value["restarts"] = json!(restarts);
+            write_status(status, status_value);
+        }
         if state.resized.swap(false, Ordering::SeqCst) {
             if let Ok(size) = capture.item.Size() {
                 if state.resize(size.Width as u32, size.Height as u32).is_ok() {

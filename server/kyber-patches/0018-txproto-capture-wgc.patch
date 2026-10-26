@@ -68,31 +68,25 @@
 +}
 --- a/subprojects/txproto/src/iosys_dxgi.c
 +++ b/subprojects/txproto/src/iosys_dxgi.c
-@@ -134,6 +134,9 @@
+@@ -131,6 +131,9 @@
  
-     /* KyberNow: captures described in the log so far (see log_capture_diag). */
-     int diag_count;
+     int got_first_frame;
+     int dropped_frames;
 +
 +    /* KyberNow (0018): Windows Graphics Capture ring of this output, if any. */
 +    struct KnWgc *wgc;
  } DxgiCapture;
  
  static uint32_t gen_identifier(const char *s)
-@@ -914,7 +917,9 @@
-         return;
-     ID3D11Texture2D_GetDesc(tex, &td);
-     ID3D11Texture2D_Release(tex);
--    IDXGIOutputDuplication_GetDesc(priv->output_duplication, &od);
-+    memset(&od, 0, sizeof(od));
-+    if (priv->output_duplication)
-+        IDXGIOutputDuplication_GetDesc(priv->output_duplication, &od);
- 
-     int bpp = diag_bytes_per_pixel(td.Format);
-     if (bpp && td.Width && td.Height) {
-@@ -961,7 +966,570 @@
-            entry->x, entry->y, entry->width, entry->height,
-            (int)od.DesktopImageInSystemMemory, first, last);
- }
+@@ -870,7 +873,628 @@
+         if (err < 0) {
+             sp_log(ctx, SP_LOG_ERROR, "allocate_texture_pool() failed: %d\n", err);
+             return err;
++        }
++    }
++
++    return 0;
++}
 +
 +/* ------------------------------------------------------------------------
 + * KyberNow (0018): secondary displays captured through Windows Graphics
@@ -143,7 +137,7 @@
 +    uint32_t producer_pid;
 +    uint32_t border_required;
 +} KnWgcHeader;
- 
++
 +_Static_assert(offsetof(KnWgcHeader, frame_counter) == 48, "KnWgcHeader layout");
 +_Static_assert(sizeof(KnWgcHeader) == 88, "KnWgcHeader size");
 +
@@ -175,7 +169,7 @@
 +    ID3D11Texture2D *textures[KN_WGC_SLOTS];
 +    IDXGIKeyedMutex *mutexes[KN_WGC_SLOTS];
 +    uint64_t last_counter;
-+    int diag_count;
++    int open_failures; /* texture opening failures, logged once */
 +
 +    /* Pointer read with GetCursorInfo() */
 +    HCURSOR cursor;
@@ -305,7 +299,8 @@
 +            hr = ID3D11Texture2D_QueryInterface(w->textures[i], &kn_iid_dxgi_keyed_mutex,
 +                                                (void **)&w->mutexes[i]);
 +        if (FAILED(hr)) {
-+            sp_log(entry, SP_LOG_WARN, "WGC: cannot open shared texture %s: 0x%lX\n", name, hr);
++            if (!w->open_failures++)
++                sp_log(entry, SP_LOG_WARN, "WGC: cannot open shared texture %s: 0x%lX\n", name, hr);
 +            ID3D11Device1_Release(device1);
 +            kn_wgc_release_textures(w);
 +            return AVERROR_EXTERNAL;
@@ -326,9 +321,24 @@
 +    kn_screen_id(sp_class_get_name(entry), id, sizeof(id));
 +    snprintf(name, sizeof(name), "KyberNowWGC_%s", id);
 +
-+    HANDLE mapping = OpenFileMappingA(FILE_MAP_READ, FALSE, name);
-+    if (!mapping)
-+        return AVERROR(ENOENT); /* no WGC for this output */
++    /* A secondary display (not at (0, 0)) may have a capture agent still
++     * starting: it is looked for during 1.5 s. The main display, never
++     * captured through WGC, is not kept waiting. */
++    const int secondary = entry->x || entry->y;
++    const int64_t looked_at = av_gettime_relative();
++    const int64_t deadline = looked_at + (secondary ? 1500000 : 0);
++    if (secondary)
++        sp_log(entry, SP_LOG_INFO, "WGC: looking for the capture agent of %s\n", id);
++    HANDLE mapping;
++    while (!(mapping = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) &&
++           av_gettime_relative() < deadline && !atomic_load(&priv->quit))
++        av_usleep(100000);
++    if (!mapping) {
++        /* No WGC for this output. Worth a line for a secondary display. */
++        if (secondary)
++            sp_log(entry, SP_LOG_INFO, "WGC: no capture agent for %s (%lu): desktop duplication\n", id, GetLastError());
++        return AVERROR(ENOENT);
++    }
 +
 +    w = av_mallocz(sizeof(*w));
 +    if (!w) {
@@ -348,9 +358,14 @@
 +        sp_log(entry, SP_LOG_WARN, "WGC: unexpected shared header in %s\n", name);
 +        goto fail;
 +    }
++    while ((w->header->state != KN_WGC_STATE_RUNNING ||
++            kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) &&
++           av_gettime_relative() < deadline && !atomic_load(&priv->quit))
++        av_usleep(50000);
 +    if (w->header->state != KN_WGC_STATE_RUNNING ||
 +        kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
-+        sp_log(entry, SP_LOG_WARN, "WGC: capture agent for %s is not running\n", id);
++        sp_log(entry, SP_LOG_WARN, "WGC: capture agent for %s is not running (state %u): desktop duplication\n",
++               id, w->header->state);
 +        goto fail;
 +    }
 +    if (FAILED(IDXGIAdapter1_GetDesc1(ctx->dxgi_adapter, &adapter_desc)) ||
@@ -366,8 +381,10 @@
 +        goto fail;
 +    }
 +
-+    sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu, %ux%u, yellow border %s)\n",
-+           (unsigned long)w->header->producer_pid, w->header->width, w->header->height,
++    sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu found after %d ms, "
++           "%ux%u, frames published so far %llu, yellow border %s)\n",
++           (unsigned long)w->header->producer_pid, (int)((av_gettime_relative() - looked_at) / 1000),
++           w->header->width, w->header->height, (unsigned long long)w->header->frame_counter,
 +           w->header->border_required ? "required by Windows" : "off");
 +    return 0;
 +
@@ -544,6 +561,9 @@
 +{
 +    KnWgc *w = priv->wgc;
 +    KnLatency latency = { 0 };
++    const int64_t opened_at = av_gettime_relative();
++    int64_t last_push = 0;
++    int copied = 0, lock_timeouts = 0, waiting_noted = 0;
 +    DWORD wait_ms = priv->cursor_move_rate > 0 ? (DWORD)(1000 / priv->cursor_move_rate) : 16;
 +    if (wait_ms < 4)
 +        wait_ms = 4;
@@ -564,35 +584,63 @@
 +            kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
 +            sp_log(entry, SP_LOG_WARN, "WGC: capture agent stopped\n");
 +            return AVERROR_EXTERNAL;
-+        }
+         }
 +
 +        kn_wgc_poll_cursor(entry, priv, w);
 +
 +        const uint64_t counter = w->header->frame_counter;
 +        MemoryBarrier();
-+        if (counter == w->last_counter)
++        const int64_t now_us = av_gettime_relative();
++
++        /* Nothing copied 1 s after opening: a line with what is known.
++         * After 2.5 s: back to desktop duplication, so that the app gets
++         * a picture before it gives up on the display (4 s). */
++        if (!copied && !waiting_noted && now_us - opened_at > 1000000) {
++            waiting_noted = 1;
++            sp_log(entry, SP_LOG_WARN, "WGC: no frame yet after 1 s (frames published by the agent: %llu, "
++                   "generation %u, %ux%u, texture open failures %d, lock timeouts %d)\n",
++                   (unsigned long long)counter, w->header->generation, w->header->width,
++                   w->header->height, w->open_failures, lock_timeouts);
++        }
++        if (!copied && now_us - opened_at > 2500000) {
++            sp_log(entry, SP_LOG_WARN, "WGC: no frame after 2.5 s (frames published by the agent: %llu, "
++                   "generation %u, %ux%u, texture open failures %d, lock timeouts %d)\n",
++                   (unsigned long long)counter, w->header->generation, w->header->width,
++                   w->header->height, w->open_failures, lock_timeouts);
++            return AVERROR_EXTERNAL;
++        }
++        if (!counter)
++            continue; /* the agent has no frame yet */
++
++        /* A frame is only marked as seen once copied: a failed attempt is
++         * retried, since a still desktop sends no other frame. On a still
++         * desktop, the latest frame is sent again once a second. */
++        const int fresh = counter != w->last_counter;
++        const int repeat = !fresh && copied && now_us - last_push >= 1000000;
++        if (!fresh && !repeat)
 +            continue;
-+        w->last_counter = counter;
++
 +        const uint32_t slot = w->header->latest_slot % KN_WGC_SLOTS;
 +        const uint32_t generation = w->header->generation;
 +        const int64_t frame_time = w->header->frame_time;
 +
-+        if (generation != w->generation &&
-+            kn_wgc_open_textures(entry, w, ctx, generation) < 0)
-+            continue;
++        if (generation != w->generation) {
++            if (kn_wgc_open_textures(entry, w, ctx, generation) < 0)
++                continue;
++            sp_log(entry, SP_LOG_INFO, "WGC: shared textures opened (generation %u, %ux%u)\n",
++                   generation, w->header->width, w->header->height);
++        }
 +
-+        if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK)
++        if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK) {
++            lock_timeouts++;
 +            continue;
++        }
 +
 +        ID3D11Resource *source = (ID3D11Resource *)w->textures[slot];
 +        if (!priv->got_first_frame) {
-+            sp_log(entry, SP_LOG_INFO, "First frame acquired (WGC)\n");
++            sp_log(entry, SP_LOG_INFO, "First frame acquired (WGC, %ux%u at (%d,%d), frame %llu)\n",
++                   w->header->width, w->header->height, entry->x, entry->y, (unsigned long long)counter);
 +            priv->got_first_frame = 1;
-+        }
-+        if (priv->got_first_frame == 1 && w->diag_count < 3) {
-+            w->diag_count++;
-+            priv->got_first_frame = 2;
-+            log_capture_diag(entry, priv, ctx, source);
 +        }
 +
 +        err = check_resolution_change(priv, ctx, source);
@@ -617,7 +665,11 @@
 +                                                  0, 0, 0, source, 0, NULL);
 +        IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
 +
-+        kn_latency_add(entry, &latency, "WGC", (double)(kn_now_100ns() - frame_time) / 10000.0);
++        w->last_counter = counter;
++        copied++;
++        last_push = now_us;
++        if (fresh)
++            kn_latency_add(entry, &latency, "WGC", (double)(kn_now_100ns() - frame_time) / 10000.0);
 +
 +        int64_t ts = av_gettime_relative();
 +        frame->pts        = ts - priv->epoch;
@@ -652,15 +704,10 @@
 +            *fatal = err; /* same as desktop duplication: stop */
 +            return 0;
 +        }
-+    }
-+
-+    return 0;
-+}
-+
- static void *dxgi_capture_thread(void *s)
- {
-     IOSysEntry *entry = s;
-@@ -971,6 +1539,7 @@
+     }
+ 
+     return 0;
+@@ -885,6 +1509,7 @@
      AVFrame* frame = NULL;
      HRESULT hr;
      int err = 0;
@@ -668,7 +715,7 @@
  
      sp_set_thread_name_self(sp_class_get_name(entry));
      sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
-@@ -987,6 +1556,24 @@
+@@ -901,6 +1526,24 @@
      if (err < 0) {
          sp_log(ctx, SP_LOG_ERROR, "sp_dxgi_cursor_handler_init() failed: %d\n", err);
          goto fail;
@@ -693,7 +740,13 @@
      }
  
      while (!atomic_load(&priv->quit)) {
-@@ -1033,6 +1620,16 @@
+@@ -943,10 +1586,21 @@
+         }
+ 
+         if (!priv->got_first_frame) {
+-            sp_log(entry, SP_LOG_INFO, "First frame acquired\n");
++            sp_log(entry, SP_LOG_INFO, "First frame acquired (desktop duplication, %dx%d at (%d,%d))\n",
++                   entry->width, entry->height, entry->x, entry->y);
              priv->got_first_frame = 1;
          }
  

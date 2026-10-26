@@ -23,11 +23,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
     DISPLAYCONFIG_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
-    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
-    DISPLAYCONFIG_MODE_INFO_TYPE_TARGET,
-    DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo,
-    GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
-    QDC_ONLY_ACTIVE_PATHS, QDC_VIRTUAL_MODE_AWARE, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE, DISPLAYCONFIG_PATH_INFO,
+    DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
+    QDC_ONLY_ACTIVE_PATHS, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
     SDC_ALLOW_PATH_ORDER_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE, SDC_TOPOLOGY_EXTEND, SDC_TOPOLOGY_SUPPLIED,
     SDC_USE_DATABASE_CURRENT, SDC_USE_SUPPLIED_DISPLAY_CONFIG, SetDisplayConfig,
 };
@@ -578,12 +576,7 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
             let measured = scale_at(x, y);
             scales.push(measured);
             let scale = measured.map_or("inconnue".to_string(), |s| format!("{s} %"));
-            // La même place vue par la configuration CCD (source) et par le
-            // moniteur (rectangle) : elles doivent coïncider avec celle de GDI.
-            let ccd = ccd_position(name).map_or("?".to_string(), |(cx, cy)| format!("({cx}, {cy})"));
-            let rect = monitor_rect(x, y).map_or("?".to_string(), |(l, t, r, b)| format!("({l}, {t})-({r}, {b})"));
-            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), source CCD {ccd}, moniteur {rect}, échelle {scale}"));
-            facts.push(format!("{name} : {}", desktop_image(name)));
+            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), échelle {scale}"));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
         .collect();
@@ -599,79 +592,6 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "facts": facts,
         "scales": scales,
     }))
-}
-
-/// Ce que la configuration active, lue avec les modes virtuels
-/// (`QDC_VIRTUAL_MODE_AWARE`), donne pour l'écran `name` : source, cible et
-/// image du bureau (taille de la source, région, découpe). Une région qui ne
-/// part pas de (0, 0) décalerait l'image de l'écran dans sa propre surface.
-fn desktop_image(name: &str) -> String {
-    let Ok((paths, modes)) = query(QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE) else {
-        return "configuration avec modes virtuels illisible".to_string();
-    };
-    let Some(path) = paths.iter().find(|p| gdi_name(p).as_deref() == Some(name)) else {
-        return "chemin introuvable dans la configuration avec modes virtuels".to_string();
-    };
-    // DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE : index découpés en deux moitiés.
-    let virtual_mode = path.flags & 0x8 != 0;
-    let (source_raw, target_raw) = unsafe { (path.sourceInfo.Anonymous.modeInfoIdx, path.targetInfo.Anonymous.modeInfoIdx) };
-    let (source_idx, target_idx, desktop_idx) = if virtual_mode {
-        (source_raw >> 16, target_raw >> 16, Some(target_raw & 0xFFFF))
-    } else {
-        (source_raw, target_raw, None)
-    };
-    let mode = |idx: u32| modes.get(idx as usize).filter(|_| idx != 0xFFFF && idx != u32::MAX);
-    let mut out = format!("chemin {} mode virtuel", if virtual_mode { "avec" } else { "sans" });
-    if let Some(m) = mode(source_idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE) {
-        let sm = unsafe { m.Anonymous.sourceMode };
-        out += &format!(", source {} × {} en ({}, {})", sm.width, sm.height, sm.position.x, sm.position.y);
-    }
-    if let Some(m) = mode(target_idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET) {
-        let tm = unsafe { m.Anonymous.targetMode.targetVideoSignalInfo };
-        out += &format!(", cible {} × {}", tm.activeSize.cx, tm.activeSize.cy);
-    }
-    match desktop_idx.and_then(mode).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE) {
-        Some(m) => {
-            let d = unsafe { m.Anonymous.desktopImageInfo };
-            let (r, c) = (d.DesktopImageRegion, d.DesktopImageClip);
-            out += &format!(
-                ", image du bureau : taille de la source {} × {}, région ({}, {})-({}, {}), découpe ({}, {})-({}, {})",
-                d.PathSourceSize.x, d.PathSourceSize.y, r.left, r.top, r.right, r.bottom, c.left, c.top, c.right, c.bottom
-            );
-        }
-        None => out += ", pas d'image du bureau",
-    }
-    out
-}
-
-/// Position de la source de l'écran `name` (nom GDI) dans la configuration CCD active.
-fn ccd_position(name: &str) -> Option<(i32, i32)> {
-    let (paths, modes) = active_config().ok()?;
-    let path = paths.iter().find(|p| gdi_name(p).as_deref() == Some(name))?;
-    let idx = unsafe { path.sourceInfo.Anonymous.modeInfoIdx } as usize;
-    let mode = modes.get(idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)?;
-    let position = unsafe { mode.Anonymous.sourceMode.position };
-    Some((position.x, position.y))
-}
-
-/// Rectangle du moniteur dont le coin haut gauche est en (`x`, `y`), en
-/// pixels réels (contexte DPI par écran le temps de l'appel).
-fn monitor_rect(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint};
-    use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext};
-    unsafe {
-        let previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-        let monitor = MonitorFromPoint(POINT { x: x + 1, y: y + 1 }, MONITOR_DEFAULTTONULL);
-        let mut info: MONITORINFO = std::mem::zeroed();
-        info.cbSize = size_of::<MONITORINFO>() as u32;
-        let ok = !monitor.is_null() && GetMonitorInfoW(monitor, &mut info) != 0;
-        if !previous.is_null() {
-            SetThreadDpiAwarenessContext(previous);
-        }
-        let r = info.rcMonitor;
-        ok.then_some((r.left, r.top, r.right, r.bottom))
-    }
 }
 
 /// Échelle (en %) de l'écran dont le coin haut gauche est en (`x`, `y`),
