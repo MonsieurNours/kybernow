@@ -543,6 +543,14 @@ pub fn pointer_step(min_scale: u32) -> (u32, u32) {
     (1..=15).map(|n| (n, 32 + (n - 1) * 16)).find(|(_, base)| base * scale / 100 > 64).unwrap_or((15, 256))
 }
 
+/// « 72 px réels à 150 %, soit 48 px logiques » (journal), d'après la mesure de l'agent.
+fn shown_label(v: &Value) -> String {
+    match (v["px"].as_u64(), v["scale"].as_u64(), v["logical"].as_u64()) {
+        (Some(px), Some(scale), Some(logical)) => format!("{px} px réels à {scale} %, soit {logical} px logiques"),
+        _ => "illisible".to_string(),
+    }
+}
+
 /// Taille du pointeur d'avant la session (valeurs du profil ; `None` : absente).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 struct PointerRecord {
@@ -789,11 +797,11 @@ impl Manager {
                     }
                 }
                 tracing::info!(
-                    "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %), par {}, base relue {}, pointeur affiché {} px avant, {} px après ; avant : base {} px",
+                    "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %), par {}, base relue {} ; flèche dessinée avant : {}, après : {} ; avant : base {} px",
                     v["method"],
                     v["registry_base"],
-                    v["shown_before"],
-                    v["shown_after"],
+                    shown_label(&v["shown_before"]),
+                    shown_label(&v["shown_after"]),
                     record.previous_base.unwrap_or(32)
                 );
             }
@@ -815,12 +823,15 @@ impl Manager {
             Ok(v) => {
                 let _ = std::fs::remove_file(self.pointer_path());
                 tracing::info!(
-                    "taille du pointeur de Windows rendue : base {} px, par {}, base relue {}, pointeur affiché {} px",
+                    "taille du pointeur de Windows rendue : base {} px, par {}, base relue {}, flèche dessinée : {}",
                     v["base"],
                     v["method"],
                     v["registry_base"],
-                    v["shown_after"]
+                    shown_label(&v["shown_after"])
                 );
+                if v["shown_ok"].as_bool() == Some(false) {
+                    tracing::warn!("la flèche reste dessinée plus grande que la base rendue (jeu de pointeurs personnalisé, ou taille pas encore rechargée par Windows)");
+                }
             }
             Err(e) => tracing::warn!("taille du pointeur de Windows pas encore rendue : {e:#}"),
         }
@@ -1550,7 +1561,8 @@ impl Backend for Simulated {
             return Ok(json!({ "changed": false, "base": previous.unwrap_or(32) }));
         }
         screen.pointer_base = Some(base);
-        Ok(json!({ "changed": true, "base": base, "step": step, "method": "simulé", "previous_base": previous, "previous_size": null, "registry_base": base, "shown_before": 32, "shown_after": base }))
+        let shown = |logical: u32| json!({ "px": logical * 3 / 2, "scale": 150, "logical": logical });
+        Ok(json!({ "changed": true, "base": base, "step": step, "method": "simulé", "previous_base": previous, "previous_size": null, "registry_base": base, "shown_before": shown(previous.unwrap_or(32)), "shown_after": shown(base) }))
     }
     fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
@@ -1558,7 +1570,8 @@ impl Backend for Simulated {
             bail!("(simulé) aucune session Windows ouverte");
         }
         screen.pointer_base = record.previous_base;
-        Ok(json!({ "base": record.previous_base.unwrap_or(32), "method": "simulé", "registry_base": record.previous_base, "shown_after": record.previous_base.unwrap_or(32) }))
+        let base = record.previous_base.unwrap_or(32);
+        Ok(json!({ "base": base, "method": "simulé", "registry_base": record.previous_base, "shown_after": { "px": base * 3 / 2, "scale": 150, "logical": base } }))
     }
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
         self.screen.lock().unwrap().render_vendor = Some(vendor);
@@ -2242,6 +2255,12 @@ mod tests {
         assert!(!m.alive.load(Ordering::SeqCst));
         // Une session à un écran ne change pas, et le réglage n'est écrit que s'il est mis.
         assert!(!toml::to_string(&VdSettings::default()).unwrap().contains("primary_created_last"));
+    }
+
+    #[test]
+    fn mesure_du_pointeur_au_journal() {
+        assert_eq!(shown_label(&json!({ "px": 72, "scale": 150, "logical": 48 })), "72 px réels à 150 %, soit 48 px logiques");
+        assert_eq!(shown_label(&Value::Null), "illisible");
     }
 
     #[test]
