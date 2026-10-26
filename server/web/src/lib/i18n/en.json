@@ -426,6 +426,7 @@
     "liveTitle": "{name} is on this screen",
     "since": "For {duration}",
     "profile": "{profile} profile",
+    "screens": "{count} displays",
     "medianLatency": "Median latency",
     "endRequested": "End requested…",
     "endSession": "End session",

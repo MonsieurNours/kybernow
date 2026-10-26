@@ -50,8 +50,9 @@ Example (the author's test setup): XG32UQ 4K at 160 Hz in the middle (main), Stu
 
 - From 1 to 4 displays; exactly one `primary`, at (0, 0); each mode valid as today (7680 × 4320 at most); rectangles that do not overlap, all connected by shared edges. Otherwise: `400`, with the displays left untouched.
 - `screens` only has an effect with the virtual display (`virtual_display` true and the trigger on); without a virtual display, the session stays on the computer's displays, as today.
+- The `400` error has the API's usual shape (`{"error": "some displays overlap"}`, in the request's language). A `screens` with a single entry makes a one-display session (the answer then has a one-entry `screens`). The same `screens` asked again during the session (Kyber restarted) keep it, as the same mode does today; other displays redo it.
 
-Response: on top of the current fields (`applied` stays the main display's mode), `screens` gives, **in the order of the request**, what is in place: the applied mode and position, or `null` for a display the Station could not create. The main display is always created, otherwise preparation fails as today.
+Response: on top of the current fields (`applied` stays the main display's mode), `screens` gives, **in the order of the request**, what is in place: the applied mode and position, or `null` for a display the Station could not create. The main display is always created, otherwise preparation fails as today. Mode and position are read back on the computer afterwards: usually those of the request, but Windows may adjust them (a mode refused, a layout it corrects); the answer is what counts to find the displays in Kyber's list. `primary` is only present on the main display.
 
 ```json
 "screens": [
@@ -65,9 +66,9 @@ Heartbeat, end of session and takeover do not change: one session, one device.
 
 ## Station
 
-- **Virtual displays**: one SudoVDA display per entry in `screens`. The first keeps the current identifier (`KyberNow-Display`), the next ones a derived identifier, with serial numbers `KYBERNOW-0001` to `KYBERNOW-0004`: Windows finds each display's settings (scale) again from one session to the next.
+- **Virtual displays**: one SudoVDA display per entry in `screens`. The main one, created first wherever it sits in the request, keeps the current identifier (`KyberNow-Display`), the next ones a derived identifier (`KyberNow-Disp-02` to `-04`, in the order of the request), with serial numbers `KYBERNOW-0001` to `KYBERNOW-0004`: Windows finds each display's settings (scale) again from one session to the next. A secondary display that the driver refuses or that Windows does not activate (8 s) is removed: `null` in the answer, and a warning in the event feed.
 - **Layout**: only the virtual displays are active, at the requested positions, the main one at (0, 0); the physical displays switch off and come back at the end, as today. The driver's heartbeat and the safety nets cover every display.
-- **Mode changed during the session** (`follow` / `restore`): applies to each display.
+- **Mode changed during the session** (`follow` / `restore`): applies to each display. A physical display turned back on during the session is turned off again by putting each virtual display back at its mode and position from the start of the session.
 - **Admin**: the Overview shows the number of displays and their modes; the event feed says how many displays the session took.
 - **Kyber patch**: the bitrate of a multi-display session is shared out by each display's pixels per second (width × height × refresh rate) instead of in equal parts; equal parts if a mode is unknown.
 

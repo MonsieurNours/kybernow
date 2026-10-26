@@ -96,6 +96,10 @@ pub struct Live {
     pub user: String,
     pub started_at: u64,
     pub mode: Option<ModeInfo>,
+    /// Modes des écrans de la session quand elle en a plusieurs (le
+    /// principal en premier) ; vide pour une session à un écran.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screens: Vec<ModeInfo>,
     pub profile: Option<String>,
     /// Dernière latence médiane annoncée par l'app.
     pub latency_ms: Option<f64>,
@@ -245,6 +249,20 @@ impl Activity {
 
     /// Une app ouvre une session.
     pub fn begin(&self, info: Option<DeviceInfo>, user: &str, mode: Option<ModeInfo>, profile: Option<String>) {
+        self.begin_screens(info, user, mode, Vec::new(), profile);
+    }
+
+    /// Comme `begin`, avec les modes des écrans pris par la session (le
+    /// principal en premier) : le fil dit combien elle en a pris.
+    pub fn begin_screens(
+        &self,
+        info: Option<DeviceInfo>,
+        user: &str,
+        mode: Option<ModeInfo>,
+        screens: Vec<ModeInfo>,
+        profile: Option<String>,
+    ) {
+        let screens = if screens.len() > 1 { screens } else { Vec::new() };
         let mut s = self.state.lock().unwrap();
         let now = now_secs();
         let (id, name) = identity(info.as_ref(), user);
@@ -256,6 +274,7 @@ impl Activity {
             live.last_beat = now;
             if mode.is_some() {
                 live.mode = mode;
+                live.screens = screens;
             }
             live.profile = profile.or(live.profile.take());
             return;
@@ -303,6 +322,7 @@ impl Activity {
             user: user.to_string(),
             started_at: now,
             mode,
+            screens: screens.clone(),
             profile,
             latency_ms: None,
             end_requested: false,
@@ -311,6 +331,16 @@ impl Activity {
         });
         self.save_devices(&s);
         let msg = match mode {
+            Some(_) if screens.len() > 1 => {
+                let modes: Vec<Value> = screens
+                    .iter()
+                    .map(|m| Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value())
+                    .collect();
+                Msg::new("events.connectedScreens")
+                    .with("name", info.name.as_str())
+                    .with("count", screens.len())
+                    .with("modes", json!({ "list": modes }))
+            }
             Some(m) => Msg::new("events.connectedMode")
                 .with("name", info.name.as_str())
                 .with("width", m.width)
@@ -526,6 +556,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("kn-activity-{}", rand::random::<u64>()));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn session_a_plusieurs_ecrans() {
+        let a = Activity::new(&temp());
+        let mac = DeviceInfo { id: "abc".into(), name: "Mac Studio".into(), kind: Some("mac".into()), os: None, app: None };
+        let m = |width, height, refresh| ModeInfo { width, height, refresh };
+        let screens = vec![m(3840, 2160, 160), m(5120, 2880, 60), m(3456, 2234, 60)];
+        a.begin_screens(Some(mac.clone()), "matthieu", Some(screens[0]), screens, None);
+        assert_eq!(a.live().unwrap().screens.len(), 3);
+        let fr = a.events(1, Lang::Fr)[0].text.clone();
+        assert_eq!(fr, "Mac Studio s'est connecté, 3 écrans : 3840 × 2160 à 160 Hz, 5120 × 2880 à 60 Hz et 3456 × 2234 à 60 Hz");
+        let en = a.events(1, Lang::En)[0].text.clone();
+        assert_eq!(en, "Mac Studio connected, 3 displays: 3840 × 2160 at 160 Hz, 5120 × 2880 at 60 Hz and 3456 × 2234 at 60 Hz");
+        assert!(a.end("matthieu", Some("abc"), None));
+        // Un seul écran : le message de toujours, pas de liste.
+        a.begin_screens(Some(mac), "matthieu", Some(m(3840, 2160, 160)), vec![m(3840, 2160, 160)], None);
+        assert!(a.live().unwrap().screens.is_empty());
+        assert!(a.events(1, Lang::Fr)[0].text.contains("écran de 3840 × 2160 à 160 Hz"));
     }
 
     #[test]

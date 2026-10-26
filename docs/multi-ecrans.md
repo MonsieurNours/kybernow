@@ -50,8 +50,9 @@ Exemple (l'ordinateur d'essai de l'auteur) : XG32UQ 4K à 160 Hz au centre (prin
 
 - De 1 à 4 écrans ; exactement un `primary`, en (0, 0) ; chaque mode valide comme aujourd'hui (7680 × 4320 au plus) ; rectangles sans chevauchement, tous reliés par des bords partagés. Sinon : `400`, sans rien toucher aux écrans.
 - `screens` n'a d'effet qu'avec l'écran virtuel (`virtual_display` vrai et déclenchement actif) ; sans écran virtuel, la session reste sur les écrans de l'ordinateur, comme aujourd'hui.
+- L'erreur `400` a la forme habituelle de l'API (`{"error": "des écrans se chevauchent"}`, dans la langue de la requête). Un `screens` d'une seule entrée fait une session à un écran (la réponse a alors `screens` à une entrée). Les mêmes `screens` redemandés pendant la session (Kyber redémarré) la gardent, comme le même mode aujourd'hui ; d'autres écrans la refont.
 
-Réponse : en plus des champs actuels (`applied` reste le mode de l'écran principal), `screens` donne, **dans l'ordre de la demande**, ce qui est en place : le mode et la position appliqués, ou `null` pour un écran que la Station n'a pas pu créer. L'écran principal est toujours créé, sinon la préparation échoue comme aujourd'hui.
+Réponse : en plus des champs actuels (`applied` reste le mode de l'écran principal), `screens` donne, **dans l'ordre de la demande**, ce qui est en place : le mode et la position appliqués, ou `null` pour un écran que la Station n'a pas pu créer. L'écran principal est toujours créé, sinon la préparation échoue comme aujourd'hui. Mode et position sont relus sur l'ordinateur après coup : d'ordinaire ceux de la demande, mais Windows peut les ajuster (un mode refusé, une disposition qu'il corrige) ; c'est la réponse qui fait foi pour retrouver les écrans dans la liste de Kyber. `primary` n'est présent que sur l'écran principal.
 
 ```json
 "screens": [
@@ -65,9 +66,9 @@ Signal de vie, fin de session et reprise de main ne changent pas : une session, 
 
 ## Station
 
-- **Écrans virtuels** : un écran SudoVDA par entrée de `screens`. Le premier garde l'identifiant actuel (`KyberNow-Display`), les suivants un identifiant dérivé, avec des numéros de série `KYBERNOW-0001` à `KYBERNOW-0004` : Windows retrouve les réglages de chaque écran (échelle) d'une session à l'autre.
+- **Écrans virtuels** : un écran SudoVDA par entrée de `screens`. Le principal, créé le premier quelle que soit sa place dans la demande, garde l'identifiant actuel (`KyberNow-Display`), les suivants un identifiant dérivé (`KyberNow-Disp-02` à `-04`, dans l'ordre de la demande), avec des numéros de série `KYBERNOW-0001` à `KYBERNOW-0004` : Windows retrouve les réglages de chaque écran (échelle) d'une session à l'autre. Un écran secondaire que le pilote refuse ou que Windows n'active pas (8 s) est retiré : `null` dans la réponse, et un avertissement dans le fil d'événements.
 - **Disposition** : seuls les écrans virtuels sont actifs, aux positions demandées, le principal en (0, 0) ; les écrans physiques s'éteignent et reviennent à la fin, comme aujourd'hui. Le signal de vie du pilote et les filets de sécurité couvrent tous les écrans.
-- **Mode changé en session** (`follow` / `restore`) : s'applique à chaque écran.
+- **Mode changé en session** (`follow` / `restore`) : s'applique à chaque écran. Un écran physique rallumé en session est éteint de nouveau en remettant chaque écran virtuel à son mode et à sa place du début de session.
 - **Admin** : la Vue d'ensemble montre le nombre d'écrans et leurs modes ; le fil d'événements dit combien d'écrans la session a pris.
 - **Correctif Kyber** : le débit d'une session à plusieurs écrans se répartit selon les pixels par seconde de chaque écran (largeur × hauteur × fréquence), au lieu de parts égales ; parts égales si un mode est inconnu.
 

@@ -113,6 +113,12 @@ fn fixed<const N: usize>(s: &str) -> [u8; N] {
     out
 }
 
+/// Nom et numéro de série de l'écran de rang `slot`.
+fn slot_names(slot: usize) -> (String, String) {
+    let name = if slot == 0 { "KyberNow".to_string() } else { format!("KyberNow {}", slot + 1) };
+    (name, format!("KYBERNOW-{:04}", slot + 1))
+}
+
 impl Device {
     /// Ouvre le pilote. Échoue s'il n'est pas installé.
     pub fn open() -> Result<Self> {
@@ -169,14 +175,18 @@ impl Device {
         self.ioctl::<(), ()>(IOCTL_PING, None, None)
     }
 
-    pub fn add(&self, guid: [u8; 16], width: u32, height: u32, refresh: u32) -> Result<Created> {
+    /// Crée l'écran de rang `slot` (0 : le principal). Nom et numéro de série
+    /// suivent le rang (« KyberNow », « KyberNow 2 »… ; `KYBERNOW-0001` à
+    /// `-0004`) : Windows garde les réglages de chacun d'une session à l'autre.
+    pub fn add(&self, guid: [u8; 16], slot: usize, width: u32, height: u32, refresh: u32) -> Result<Created> {
+        let (name, serial) = slot_names(slot);
         let params = AddParams {
             width,
             height,
             refresh_rate: refresh,
             monitor_guid: guid_from_bytes(guid),
-            device_name: fixed("KyberNow"),
-            serial_number: fixed("KYBERNOW-0001"),
+            device_name: fixed(&name),
+            serial_number: fixed(&serial),
         };
         let mut out = AddOut::default();
         self.ioctl(IOCTL_ADD, Some(&params), Some(&mut out))?;
@@ -246,5 +256,14 @@ mod tests {
         assert_eq!(IOCTL_PROTOCOL_VERSION, 0x0022_23FC);
         assert_eq!(size_of::<AddParams>(), 56);
         assert_eq!(size_of::<AddOut>(), 12);
+    }
+
+    #[test]
+    fn noms_et_numeros_de_serie() {
+        // L'écran principal garde ceux de toujours.
+        assert_eq!(slot_names(0), ("KyberNow".into(), "KYBERNOW-0001".into()));
+        assert_eq!(slot_names(3), ("KyberNow 4".into(), "KYBERNOW-0004".into()));
+        // 13 caractères au plus (14 octets avec le zéro final).
+        assert_eq!(fixed::<14>(&slot_names(3).1)[..13], *b"KYBERNOW-0004");
     }
 }

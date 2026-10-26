@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::audio::AudioSettings;
-use crate::display::{Mode, Origin, PolicyChoice, Trigger, VdSettings};
+use crate::display::{Mode, Origin, PolicyChoice, Screen, Trigger, VdSettings};
 use crate::access::PendingAccess;
 use crate::activity::{self, DeviceInfo, ModeInfo};
 use crate::i18n::{self, Msg};
@@ -712,6 +712,12 @@ struct PrepareBody {
     /// `default` ou absent : réglage `on_mode_change` de la console.
     #[serde(default)]
     mode_policy: Option<PolicyChoice>,
+    /// Multi-écrans (docs/multi-ecrans.md) : un écran virtuel par entrée, de
+    /// 1 à 4, placés comme demandé, le principal en (0, 0). `width`,
+    /// `height` et `refresh` décrivent alors l'écran principal. Sans effet
+    /// sans écran virtuel.
+    #[serde(default)]
+    screens: Option<Vec<Screen>>,
 }
 
 /// Lien d'appairage pour les apps (`kybernow://…`), que la console affiche en
@@ -1018,8 +1024,14 @@ async fn stream_prepare(
     Json(body): Json<PrepareBody>,
 ) -> ApiResult<Json<Value>> {
     let user = stream_user(&s, &headers)?;
-    let _preparing = Preparing::new(&s.preparing);
     let trigger = s.display.settings.lock().unwrap().trigger;
+    let virtual_display = trigger != Trigger::Off && body.virtual_display != Some(false);
+    // Disposition refusée avant de toucher à quoi que ce soit (son, écrans,
+    // session en cours d'un autre appareil).
+    if let Some(screens) = body.screens.as_deref().filter(|_| virtual_display) {
+        crate::display::validate_screens(screens)?;
+    }
+    let _preparing = Preparing::new(&s.preparing);
     let port = s.kyber.port();
     let (device_id, device_name) = activity::identity(body.device.as_ref(), &user);
 
@@ -1064,7 +1076,7 @@ async fn stream_prepare(
     s.foreground.start(&s.data_dir);
     let mode_info = ModeInfo { width: body.width, height: body.height, refresh: body.refresh };
     let launch_name = launch.as_ref().map(|l| l.name.clone());
-    if trigger == Trigger::Off || body.virtual_display == Some(false) {
+    if !virtual_display {
         s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
         if let Some(l) = launch {
             s.launcher.session_started(device_id, device_name, l, body.profile.clone());
@@ -1075,23 +1087,47 @@ async fn stream_prepare(
             "launch": launch_name,
         })));
     }
-    let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
     let d = s.display.clone();
     let (u, id, policy) = (user.clone(), device_id.clone(), body.mode_policy);
-    let applied = blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None, policy)).await?;
+    let (applied, screens) = match body.screens.clone() {
+        // Multi-écrans : la réponse donne les écrans en place, dans l'ordre de la demande.
+        Some(screens) => {
+            let started = blocking(move || d.start_screens(Origin::App, screens, Some(u), Some(id), policy)).await?;
+            (started.applied, Some(started.screens))
+        }
+        None => {
+            let mode = Mode { width: body.width, height: body.height, refresh: body.refresh };
+            (blocking(move || d.start(Origin::App, mode, Some(u), Some(id), None, policy)).await?, None)
+        }
+    };
+    // Modes des écrans pris, le principal en premier (fil d'événements).
+    let taken: Vec<ModeInfo> = screens
+        .iter()
+        .flatten()
+        .flatten()
+        .map(|s| (s.primary, ModeInfo { width: s.width, height: s.height, refresh: s.refresh }))
+        .fold(Vec::new(), |mut all, (primary, m)| {
+            if primary { all.insert(0, m) } else { all.push(m) }
+            all
+        });
+    let mode_info = taken.first().copied().unwrap_or(mode_info);
     // La session n'est ouverte qu'une fois l'écran en place : un échec ne
     // laisse pas un appareil « connecté » dans la vue d'ensemble.
-    s.activity.begin(body.device.clone(), &user, Some(mode_info), body.profile.clone());
+    s.activity.begin_screens(body.device.clone(), &user, Some(mode_info), taken, body.profile.clone());
     // L'app de l'appareil s'ouvre sur l'écran virtuel, en fond (elle attend
     // le déverrouillage de Windows s'il le faut).
     if let Some(l) = launch {
         s.launcher.session_started(device_id, device_name, l, body.profile.clone());
     }
-    Ok(Json(json!({
+    let mut answer = json!({
         "virtual_display": true, "applied": applied, "audio": audio, "kyber_port": port, "heartbeat_seconds": 5,
         "kyber_fingerprint": crate::kyber_proxy::kyber_fingerprint(&s),
         "launch": launch_name,
-    })))
+    });
+    if let Some(screens) = screens {
+        answer["screens"] = json!(screens);
+    }
+    Ok(Json(answer))
 }
 
 /// Temps laissé à l'appareil en session pour rendre la main (signal de vie
@@ -1825,6 +1861,54 @@ mod tests {
 
     async fn restart_from(s: &AppState, headers: HeaderMap, body: &str) -> Result<Response, Refusal> {
         stream_station_restart(State(s.clone()), peer(), headers, Bytes::from(body.to_string())).await
+    }
+
+    fn prepare_body(screens: Value) -> Json<PrepareBody> {
+        let body = json!({ "width": 3840, "height": 2160, "refresh": 160, "screens": screens, "device": { "id": "mac-1", "name": "Mac" } });
+        Json(serde_json::from_value(body).unwrap())
+    }
+
+    #[tokio::test]
+    async fn prepare_refuses_a_bad_layout_without_touching_anything() {
+        let c = console_with_account();
+        let bad = [
+            // Deux écrans qui se chevauchent.
+            json!([{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
+                   { "width": 5120, "height": 2880, "refresh": 60, "x": 1000, "y": 0 }]),
+            // Pas d'écran principal.
+            json!([{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0 }]),
+            // Écran séparé des autres.
+            json!([{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
+                   { "width": 1920, "height": 1080, "refresh": 60, "x": 5000, "y": 0 }]),
+            json!([]),
+        ];
+        for screens in bad {
+            let err = stream_prepare(State(c.s.clone()), basic("mac", "mot-de-passe-mac"), prepare_body(screens.clone())).await.unwrap_err();
+            assert_eq!(err.0, StatusCode::BAD_REQUEST, "{screens}");
+            assert!(!err.1.is_empty());
+        }
+        // Rien n'a bougé : ni écran virtuel, ni son, ni session.
+        assert!(c.s.display.status()["session"].is_null());
+        assert!(c.s.audio.status()["session"].is_null());
+        assert!(c.s.activity.live().is_none());
+        // Erreur dans le format de l'API, dans la langue de la requête.
+        let err = i18n::with_lang(i18n::Lang::En, || crate::display::validate_screens(&[]).unwrap_err());
+        assert_eq!(ApiError::from(err).into_response().status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn prepare_screens_field_is_optional() {
+        // Les apps qui ne gèrent pas le multi-écrans n'envoient pas `screens`.
+        let body: PrepareBody = serde_json::from_value(json!({ "width": 1920, "height": 1080, "refresh": 60 })).unwrap();
+        assert!(body.screens.is_none());
+        let body: PrepareBody = serde_json::from_value(json!({ "width": 3840, "height": 2160, "refresh": 160,
+            "screens": [{ "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
+                        { "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }] })).unwrap();
+        let screens = body.screens.unwrap();
+        assert!(screens[0].primary && !screens[1].primary);
+        assert_eq!((screens[1].x, screens[1].y), (-3456, 400));
+        // Réponse : le principal porte `primary`, les autres non.
+        assert_eq!(json!(screens[1]), json!({ "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }));
     }
 
     #[tokio::test]

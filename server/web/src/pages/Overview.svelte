@@ -123,6 +123,9 @@
   const displayCard = $derived.by(() => {
     if (!display) return { ok: true, title: '…', sub: '' }
     if (display.settings.trigger === 'off') return { ok: true, off: true, title: t('overview.display.off'), sub: t('overview.display.offSub') }
+    const screens = display.session?.screens ?? []
+    if (display.session && screens.length > 1)
+      return { ok: true, title: t('overview.display.active'), sub: '', lines: screens.map(mode) }
     if (display.session) return { ok: true, title: t('overview.display.active'), sub: mode(display.session.mode) }
     if (!display.driver.available) return { ok: false, title: t('overview.display.noDriver'), sub: t('overview.display.seeImageSound') }
     return { ok: true, title: t('overview.display.ready'), sub: t('overview.display.readySub') }
@@ -168,7 +171,7 @@
     {#if live}
       <div class="title">
         <h1 class="disp">{t('overview.liveTitle', { name: live.name })}</h1>
-        <span>{t('overview.since', { duration: duration(now - live.started_at) })}{live.profile ? ` · ${t('overview.profile', { profile: live.profile })}` : ''}{live.mode ? ` · ${mode(live.mode)}` : ''}</span>
+        <span>{t('overview.since', { duration: duration(now - live.started_at) })}{live.profile ? ` · ${t('overview.profile', { profile: live.profile })}` : ''}{(live.screens?.length ?? 0) > 1 ? ` · ${t('overview.screens', { count: live.screens!.length })}` : live.mode ? ` · ${mode(live.mode)}` : ''}</span>
       </div>
       <div class="actions">
         {#if live.latency_ms}
@@ -184,7 +187,7 @@
     {:else if other}
       <div class="title">
         <h1 class="disp">{t('overview.otherTitle')}</h1>
-        <span>{display?.session ? `${display.session.user ? `${t('overview.account', { user: display.session.user })} · ` : ''}${mode(display.session.mode)}` : t('overview.soundSent')}</span>
+        <span>{display?.session ? `${display.session.user ? `${t('overview.account', { user: display.session.user })} · ` : ''}${(display.session.screens?.length ?? 0) > 1 ? t('overview.screens', { count: display.session.screens!.length }) : mode(display.session.mode)}` : t('overview.soundSent')}</span>
       </div>
       <button type="button" class="danger" disabled={ending} onclick={endSession}>{t('overview.cutConnection')}</button>
     {:else}
@@ -216,7 +219,11 @@
     <a href="#/image-son/ecran" class="tile">
       <span class="lbl">{t('overview.displayTile')}</span>
       <span class="state" class:warn={!displayCard.ok} class:off={displayCard.off}><Icon name={displayCard.ok ? 'check' : 'warning'} size={16} stroke={2.4} />{displayCard.title}</span>
-      <span class="sub">{displayCard.sub}</span>
+      {#if displayCard.lines}
+        <span class="sub lines">{#each displayCard.lines as line}<span>{line}</span>{/each}</span>
+      {:else}
+        <span class="sub">{displayCard.sub}</span>
+      {/if}
     </a>
     <a href="#/image-son/son" class="tile">
       <span class="lbl">{t('overview.soundTile')}</span>
@@ -476,6 +483,13 @@
   .tile .sub {
     font-size: 12.5px;
     color: var(--faint);
+  }
+
+  /* Un mode par ligne (session à plusieurs écrans). */
+  .tile .sub.lines {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .tile.update {
