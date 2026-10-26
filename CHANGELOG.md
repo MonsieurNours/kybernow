@@ -12,6 +12,7 @@ console de l'ordinateur et l'app Mac les affichent avant d'installer.
 - Sur Windows et Linux, le multi-écrans n'a pas encore été essayé sur un vrai ordinateur à plusieurs écrans : vos retours sont les bienvenus sur le Discord.
 - **Barre de session au pointeur, sur Mac, Windows, Linux et dans le client web** : elle s'ouvre quand le pointeur reste un quart de seconde contre le haut de l'image, au milieu, sur la largeur de la barre, et seulement quand l'app est au premier plan et la souris en mode bureau. Elle ne s'ouvre plus en passant, ni quand le pointeur est sur un autre écran que celui de la session (Mac), ni pendant qu'une fenêtre de l'ordinateur est glissée vers le haut. Elle se referme 0,4 s après que le pointeur l'a quittée, jamais pendant qu'un de ses menus est ouvert. Un petit trait en haut de l'image montre l'endroit quand le geste est possible, maintenant aussi sur Windows et Linux.
 - Windows : en fenêtre, la barre se place en haut de l'image de la session.
+- Windows : quand vous passez du plein écran à la fenêtre, ou l'inverse, l'image prend tout de suite sa nouvelle taille, même si rien ne bouge à l'écran (elle restait petite, en haut à gauche, jusqu'à l'image suivante). L'accueil annonce la définition de l'écran où il se trouve, celle que la session demandera, même quand vous le glissez sur un autre écran.
 - Mac : en fenêtre, le bouton de fermeture des statistiques, la proposition d'adapter l'écran et le bas de la barre prennent les clics au bon endroit.
 
 ## 0.5.3

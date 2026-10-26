@@ -11,6 +11,7 @@ English translation of `CHANGELOG.md`. The release notes published on GitHub, an
 - On Windows and Linux, multiple displays have not been tried yet on a real computer with several displays: your feedback is welcome on the Discord.
 - **Session bar from the pointer, on Mac, Windows, Linux and in the web client**: it opens when the pointer stays a quarter of a second against the top of the picture, in the middle, across the bar's width, and only when the app is in the foreground and the mouse in desktop mode. It no longer opens in passing, nor when the pointer is on a display other than the session's (Mac), nor while a window on the computer is being dragged to the top. It closes 0.4 s after the pointer has left it, never while one of its menus is open. A short line at the top of the picture marks the spot when the gesture is possible, now on Windows and Linux too.
 - Windows: in a window, the bar sits at the top of the session's picture.
+- Windows: when you switch from full screen to a window, or back, the picture takes its new size at once, even if nothing moves on screen (it stayed small, in the top left corner, until the next frame). The home screen announces the resolution of the display it is on, the one the session will ask for, even when you drag it to another display.
 - Mac: in a window, the statistics close button, the offer to adapt the display and the bottom of the bar take clicks in the right place.
 
 ## 0.5.3

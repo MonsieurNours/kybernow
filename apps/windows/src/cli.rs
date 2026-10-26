@@ -300,16 +300,15 @@ pub fn main() -> i32 {
     );
     // Les écrans de ce PC. Une session dans une fenêtre, ou une définition sur
     // mesure, ne prend qu'un écran.
-    let layout = Layout {
-        monitors: displays::enumerate(),
-        spec: Spec {
-            setting: args.screens,
-            limit_4k: false,
-            custom_resolution: args.size.is_some() || args.window,
-            max_screens: displays::max_screens(info.virtual_display.max_screens()),
-            lighten: false,
-        },
-    };
+    let layout = Layout::now(Spec {
+        setting: args.screens,
+        limit_4k: false,
+        custom_resolution: args.size.is_some() || args.window,
+        max_screens: displays::max_screens(info.virtual_display.max_screens()),
+        lighten: false,
+        virtual_display_available: info.virtual_display.available,
+        capabilities: Some(caps),
+    });
     let audio_channels = if args.audio { audio::default_output_channels() } else { 0 };
     let params = SessionParams {
         console_host: args.host.clone(),

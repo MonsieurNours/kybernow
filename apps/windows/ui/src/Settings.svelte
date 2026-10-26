@@ -83,6 +83,8 @@
   $effect(() => {
     const settings = $state.snapshot(s)
     void screensEpoch
+    // Ce que ce PC décode compte pour « Personnalisé » (règle du cœur).
+    void thisPc
     const n = ++asked
     invoke<DisplaysInfo>('displays_info', { id: computer.id, settings })
       .then((i) => {

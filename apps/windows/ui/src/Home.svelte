@@ -74,11 +74,14 @@
   // Les écrans que la session prendra : le calcul du cœur, le même que la session (réglage « Écrans »,
   // profil, Station, écrans de ce PC). Revu quand l'ordinateur, ses réglages ou les écrans de ce PC changent.
   let screens = $state(1)
+  // L'écran virtuel servira (demandé et utilisable sur la Station), d'après le cœur.
+  let virtualDisplay = $state(true)
   let screensEpoch = $state(0)
   let asked = 0
   $effect(() => {
     void screensEpoch
     void battery
+    void thisPc
     if (!selected) {
       screens = 1
       return
@@ -86,10 +89,13 @@
     const id = selected.id
     const settings = $state.snapshot(selected.settings)
     void selected.info?.virtual_display?.max_screens
+    void selected.info?.virtual_display?.available
     const n = ++asked
     invoke<DisplaysInfo>('displays_info', { id, settings })
       .then((i) => {
-        if (n === asked) screens = i.count
+        if (n !== asked) return
+        screens = i.count
+        virtualDisplay = i.virtual_display
       })
       .catch(() => {})
   })
@@ -102,7 +108,7 @@
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
-    if (!s.virtual_display || selected.info?.virtual_display.available === false) return t('home.screens_as_is')
+    if (!virtualDisplay) return t('home.screens_as_is')
     if (screens > 1) return t('home.screens_many', { count: screens })
     const p = sessionPlan(s, thisPc, battery)
     if (!p) return null

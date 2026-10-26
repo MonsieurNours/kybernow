@@ -20,7 +20,7 @@ use kybernow_core::audio::AudioStats;
 use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
-use kybernow_core::screens::session_plan;
+use kybernow_core::screens::session_plan_for;
 use kybernow_core::session::{Platform, Session, SessionParams, Status, StreamScreen};
 use kybernow_core::{Display, WindowHandle};
 
@@ -128,7 +128,9 @@ pub struct HostOptions {
     pub title_stats: bool,
     /// Les écrans de ce PC et ce qui décide de leur nombre : ce que le cœur
     /// reçoit (`Session::start_with_screens`), et de nouveau quand les écrans
-    /// changent en session.
+    /// changent en session. Son « Cet écran » (`Layout::this_screen`) est
+    /// celui du lancement, relevé avant que l'accueil passe sur l'écran
+    /// principal : la session le garde (profil Jeu choisi en session).
     pub layout: Layout,
 }
 
@@ -252,6 +254,7 @@ impl Platform for WinPlatform {
     }
     fn on_stream_stopped(&self) {
         retire(self.app.detach_input());
+        self.app.stream_stopped();
     }
     fn on_input_connected(&self) {
         if let Some(input) = self.app.input() {
@@ -361,8 +364,9 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
 
     // La fenêtre de l'écran principal, avant le cœur (cachée jusqu'à sa
     // première image). Plusieurs écrans : posée sur l'écran principal ; un
-    // seul : sur « Cet écran », celui de la fenêtre de l'accueil.
-    let plan = session_plan(&screens, params.settings.profile, params.virtual_display, params.settings.codec);
+    // seul : sur « Cet écran », celui de la fenêtre de l'accueil au lancement.
+    // Le même calcul que le cœur et l'accueil (`session_plan_for`).
+    let plan = session_plan_for(&screens, &params.settings, params.virtual_display);
     let index = plan.as_ref().and_then(|p| p.first()).map_or(screens.current, |p| p.device);
     let (key, at, size) = match layout.monitors.get(index) {
         Some(m) if plan.is_some() => (m.key.clone(), Some((m.x + 60, m.y + 60)), (((m.width as f32) * 0.8) as i32, ((m.height as f32) * 0.8) as i32)),

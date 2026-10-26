@@ -254,7 +254,7 @@ const screensFor = (id: string) => {
   const c = computers.find((x) => x.id === id)
   if (!c) return 1
   const s = c.settings as typeof settings
-  const enabled = s.virtual_display && !s.custom
+  const enabled = s.virtual_display && c.info?.virtual_display.available !== false && !s.custom
   const perso = s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
   const all = enabled && (s.displays === 'all' || (s.displays === 'auto' && !perso && (s.profile === 'bureau' || s.profile === 'max')))
   return all ? Math.max(1, Math.min(deviceScreens, c.info?.virtual_display.max_screens ?? 1, 4)) : 1
@@ -330,17 +330,19 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
     })()
     return { screens } satisfies ConnectInfo
   },
-  // Le cœur décide (`DisplaysChoice`) : inactif, sur « Cet écran », avec une définition sur mesure ou sans
-  // écran virtuel ; Auto prend tous les écrans en Bureau et Max, un seul en Jeu et en Personnalisé.
+  // Le cœur décide (`Screens::choice`) : inactif, sur « Cet écran », avec une définition sur mesure ou sans
+  // écran virtuel (pas demandé, ou pas utilisable sur la Station) ; Auto prend tous les écrans en Bureau
+  // et Max, un seul en Jeu et en Personnalisé.
   displays_info: (a) => {
     const s = a.settings as typeof settings
-    const enabled = s.virtual_display && !s.custom
-    const shown: Settings['displays'] = enabled ? (s.displays as Settings['displays']) : 'this'
     const c = computers.find((x) => x.id === a.id)
+    const virtual_display = s.virtual_display && c?.info?.virtual_display.available !== false
+    const enabled = virtual_display && !s.custom
+    const shown: Settings['displays'] = enabled ? (s.displays as Settings['displays']) : 'this'
     const max = c?.info?.virtual_display.max_screens ?? 1
     const perso = s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
     const all = shown === 'all' || (shown === 'auto' && !perso && (s.profile === 'bureau' || s.profile === 'max'))
-    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1 } satisfies DisplaysInfo
+    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1, virtual_display } satisfies DisplaysInfo
   },
   fond_state: () => ({ not_created: flags.has('sanscreation') }) satisfies FondState,
   session_command: () => null,

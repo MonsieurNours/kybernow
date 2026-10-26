@@ -15,7 +15,7 @@
 use std::ffi::c_void;
 use std::sync::Arc;
 
-use windows::Win32::Foundation::{HANDLE, HMODULE, HWND, RECT};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_10_0,
@@ -233,10 +233,19 @@ fn matrix(colorspace: i32, full_range: bool) -> [[f32; 4]; 3] {
 }
 
 /// L'objet d'attente d'une chaîne d'échange (un handle de Windows, valable
-/// de tout fil tant que la chaîne vit).
+/// de tout fil tant que la chaîne vit), fermé avec le rendu : sans quoi
+/// chaque fenêtre de chaque session en laissait un ouvert.
 struct WaitHandle(HANDLE);
 
 unsafe impl Send for WaitHandle {}
+
+impl Drop for WaitHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
 
 pub struct Renderer {
     device: ID3D11Device,
@@ -398,28 +407,39 @@ impl Renderer {
         Ok(())
     }
 
-    /// Nouvelle taille de la fenêtre (pixels).
-    pub fn resize(&mut self, size: (u32, u32)) {
+    /// Nouvelle taille de la fenêtre (pixels). Vrai quand la chaîne
+    /// d'échange a changé de taille : l'image en place est alors à redessiner
+    /// (`redraw`), sinon Windows la montre à l'ancienne taille, collée en
+    /// haut à gauche, jusqu'à l'image suivante (bureau immobile).
+    pub fn resize(&mut self, size: (u32, u32)) -> bool {
         if size == self.size || size.0 == 0 || size.1 == 0 {
-            return;
+            return false;
         }
         // Toutes les vues de la chaîne d'échange relâchées avant
         // ResizeBuffers ; la taille n'est retenue qu'en cas de réussite (sinon
-        // on réessaie à l'image suivante).
+        // on réessaie au prochain tour du fil de l'image).
         self.rtv = None;
         let lock = self.lock.clone();
         let _held = lock.lock();
-        unsafe {
+        let resized = unsafe {
             self.ctx.ClearState();
             self.ctx.Flush();
             match self.swapchain.ResizeBuffers(0, size.0, size.1, DXGI_FORMAT_UNKNOWN, self.swap_flags) {
-                Ok(()) => self.size = size,
-                Err(e) => log::warn!("ResizeBuffers : {e}"),
+                Ok(()) => {
+                    self.size = size;
+                    true
+                }
+                Err(e) => {
+                    log::warn!("ResizeBuffers : {e}");
+                    false
+                }
             }
-        }
+        };
         if let Err(e) = self.create_rtv() {
             log::warn!("vue de la chaîne d'échange : {e}");
+            return false;
         }
+        resized
     }
 
     fn texture(&self, w: u32, h: u32, format: DXGI_FORMAT) -> windows::core::Result<ID3D11Texture2D> {
@@ -563,16 +583,26 @@ impl Renderer {
     /// Le trait du bord haut a changé alors qu'aucune image ne vient (écran
     /// fixe) : l'image en place est redessinée, avec ou sans le trait.
     pub fn repaint(&mut self, hint: u32) {
-        if hint != self.hint && self.planes.is_some() {
-            self.wait_ready();
-            let lock = self.lock.clone();
-            let painted = {
-                let _held = lock.lock();
-                self.encode(hint)
-            };
-            if painted {
-                self.present();
-            }
+        if hint != self.hint {
+            self.redraw(hint);
+        }
+    }
+
+    /// Redessine l'image en place (textures de la dernière image) à la
+    /// taille de la fenêtre et la présente, sans attendre une image neuve :
+    /// après un changement de taille ou du trait. Rien avant la première image.
+    pub fn redraw(&mut self, hint: u32) {
+        if self.planes.is_none() {
+            return;
+        }
+        self.wait_ready();
+        let lock = self.lock.clone();
+        let painted = {
+            let _held = lock.lock();
+            self.encode(hint)
+        };
+        if painted {
+            self.present();
         }
     }
 
@@ -729,24 +759,6 @@ impl Renderer {
             }
             self.ctx.Unmap(&staging, 0);
             Some((out, w, h))
-        }
-    }
-
-    /// Fond noir (avant la première image).
-    pub fn clear(&mut self) {
-        let cleared = {
-            let lock = self.lock.clone();
-            let _held = lock.lock();
-            match &self.rtv {
-                Some(rtv) => {
-                    unsafe { self.ctx.ClearRenderTargetView(rtv, &[0.0, 0.0, 0.0, 1.0]) };
-                    true
-                }
-                None => false,
-            }
-        };
-        if cleared {
-            let _ = unsafe { self.swapchain.Present(0, DXGI_PRESENT(0)) };
         }
     }
 }

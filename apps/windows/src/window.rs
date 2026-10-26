@@ -43,7 +43,7 @@ use crate::gpu::Gpu;
 use crate::host::{HostEvents, Role, ScreenSet, ScreenState};
 use crate::i18n::t;
 use crate::render::{Renderer, video_rect};
-use crate::video::{self, Discard, Link, Shared, VideoHandler, VideoOptions};
+use crate::video::{self, Discard, LateFeed, Link, Shared, VideoHandler, VideoOptions};
 
 /// Fenêtre de contrôle : l'état de la session a changé (titre, fin).
 pub const WM_APP_STATUS: u32 = WM_APP + 1;
@@ -428,6 +428,12 @@ pub struct App {
     streams: AtomicUsize,
     /// Les écrans dits par le cœur, pas encore pris par le fil des fenêtres.
     pending: Mutex<Option<ScreenUpdate>>,
+    /// Écrans dont le cœur a demandé le gestionnaire avant que leur fenêtre
+    /// existe (fil des fenêtres en retard) : leur fenêtre les prend en arrivant.
+    late: Mutex<Vec<(String, Arc<LateFeed>)>>,
+    /// Écrans dont la fenêtre n'a pas pu se créer (dernier `apply_screens`) :
+    /// traités comme des écrans que l'ordinateur n'a pas pu créer.
+    failed: Mutex<Vec<String>>,
     /// Dernière image de l'écran principal, gardée à la fermeture de sa fenêtre.
     last_image: Mutex<Option<Vec<u8>>>,
 }
@@ -480,6 +486,8 @@ impl App {
             video,
             streams: AtomicUsize::new(0),
             pending: Mutex::new(None),
+            late: Mutex::new(Vec::new()),
+            failed: Mutex::new(Vec::new()),
             last_image: Mutex::new(None),
         });
         *APP.lock().unwrap() = Some(app.clone());
@@ -652,16 +660,50 @@ impl App {
     }
 
     /// Le gestionnaire des paquets d'image de l'écran `screen` du cœur : celui
-    /// de sa fenêtre (qui existe : le cœur a attendu `on_screens`).
+    /// de sa fenêtre (d'ordinaire déjà là : le cœur a attendu `on_screens`).
+    /// Fenêtre pas encore créée (fil des fenêtres en retard) : un gestionnaire
+    /// d'attente, que la fenêtre prend en arrivant (`attach_late`) ; fenêtre
+    /// qui n'a pas pu se créer : ses images sont jetées.
     pub fn video_for(&self, screen: usize) -> Arc<dyn PacketHandler> {
         let key = self.layout.lock().unwrap().monitors.get(screen).map(|m| m.key.clone());
-        match key.and_then(|k| self.window_by_key(&k)) {
-            Some(w) => w.video.clone(),
-            None => {
-                log::warn!("image : pas de fenêtre pour l'écran {screen}, ses images sont jetées");
-                Arc::new(Discard)
-            }
+        let Some(key) = key else {
+            log::warn!("image : l'écran {screen} n'est plus un écran de ce PC, ses images sont jetées");
+            return Arc::new(Discard);
+        };
+        // Sous ce verrou : une fenêtre créée au même moment trouve le
+        // gestionnaire d'attente (`attach_late` le prend après l'avoir créée).
+        let mut late = self.late.lock().unwrap();
+        if let Some(w) = self.window_by_key(&key) {
+            return w.video.clone();
         }
+        if self.failed.lock().unwrap().contains(&key) {
+            log::warn!("image : la fenêtre de l'écran {key} n'a pas pu se créer, ses images sont jetées");
+            return Arc::new(Discard);
+        }
+        log::warn!("image : pas encore de fenêtre pour l'écran {key}, ses images attendent qu'elle arrive");
+        let feed = Arc::new(LateFeed::default());
+        late.push((key, feed.clone()));
+        feed
+    }
+
+    /// L'image s'est arrêtée : ses gestionnaires d'attente ne servent plus (le
+    /// cœur redemande ceux de chaque écran au prochain démarrage).
+    pub fn stream_stopped(&self) {
+        self.late.lock().unwrap().clear();
+    }
+
+    /// Les fenêtres créées après que le cœur a demandé leur gestionnaire
+    /// prennent leurs paquets (le fil de l'image repart d'une image clé).
+    fn attach_late(&self) {
+        let mut late = self.late.lock().unwrap();
+        late.retain(|(key, feed)| match self.window_by_key(key) {
+            Some(w) => {
+                log::info!("image : la fenêtre de l'écran {key} est arrivée en retard, elle reçoit maintenant son image");
+                feed.attach(w.video.clone());
+                false
+            }
+            None => true,
+        });
     }
 
     pub fn primary_video(&self) -> Arc<dyn PacketHandler> {
@@ -689,7 +731,15 @@ impl App {
             SendMessageTimeoutW(control, WM_APP_SCREENS, WPARAM(0), LPARAM(0), SMTO_ABORTIFHUNG, 5000, Some(&mut result))
         };
         if sent.0 == 0 {
-            log::warn!("écrans : le fil des fenêtres n'a pas répondu en 5 s");
+            log::warn!(
+                "écrans : le fil des fenêtres n'a pas répondu en 5 s ; la session continue, les écrans sans fenêtre la prendront à son arrivée (et repartiront d'une image clé)"
+            );
+            // Windows peut ne pas remettre le message à un fil qu'il juge
+            // bloqué : posé de nouveau, il passera dès que le fil répond (sans
+            // effet si les écrans ont déjà été pris).
+            unsafe {
+                let _ = PostMessageW(Some(control), WM_APP_SCREENS, WPARAM(0), LPARAM(0));
+            }
         }
     }
 
@@ -849,11 +899,6 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
         )
         .map_err(|e| e.to_string())?
     };
-    // Déplacements bruts de la souris (mode jeu) : à une seule fenêtre, la
-    // première ; elle est reprise par une autre si elle disparaît.
-    if app.raw_target.load(Ordering::Relaxed) == 0 {
-        register_raw_input(app, hwnd);
-    }
     let shared = Shared::new(app.link.clone(), primary);
     update_size(&shared, hwnd);
     let renderer = match Renderer::new(&app.gpu, hwnd, shared.client_size(), app.video.vsync) {
@@ -880,6 +925,14 @@ pub fn create_screen(app: &Arc<App>, key: &str, primary: bool, at: Option<(i32, 
             return Err(e);
         }
     };
+    // Déplacements bruts de la souris (mode jeu) : à une seule fenêtre, la
+    // première ; elle est reprise par une autre si elle disparaît. Seulement
+    // une fois la fenêtre sûre de rester (rendu et fil de l'image en place) :
+    // une fenêtre détruite ne les recevrait pas, et la souris des jeux ne
+    // marcherait plus.
+    if app.raw_target.load(Ordering::Relaxed) == 0 {
+        register_raw_input(app, hwnd);
+    }
     let pointer = Arc::new(PointerLayer::new(app.clock.clone(), false));
     let weak_hwnd = hwnd.0 as isize;
     pointer.set_on_changed(move |_, _| unsafe {
@@ -939,6 +992,8 @@ fn update_size(shared: &Shared, hwnd: HWND) {
 
 fn update_client_size(app: &App, win: &ScreenWin) {
     update_size(&win.shared, win.hwnd());
+    // Le fil de l'image redessine l'image en place à la nouvelle taille.
+    win.video.resized();
     if app.relative() && app.foreground().is_some_and(|f| f.hwnd == win.hwnd) {
         clip_cursor(win.hwnd(), true);
     }
@@ -1494,8 +1549,6 @@ fn apply_screens(app: &Arc<App>) {
     if streams.len() != update.streams.len() {
         log::warn!("écrans : la liste du cœur ne correspond plus aux écrans de ce PC, flux ignorés");
     }
-    let multi = streams.len() > 1;
-    app.streams.store(streams.len(), Ordering::Relaxed);
     // Les fenêtres des écrans qui n'ont plus de flux ferment.
     for w in app.windows() {
         if !streams.iter().any(|(m, _)| m.key == w.key) {
@@ -1503,6 +1556,7 @@ fn apply_screens(app: &Arc<App>) {
         }
     }
     // Les fenêtres des nouveaux écrans, cachées jusqu'à leur première image.
+    let mut failed: Vec<String> = Vec::new();
     for (m, s) in &streams {
         if app.window_by_key(&m.key).is_some() {
             continue;
@@ -1510,8 +1564,24 @@ fn apply_screens(app: &Arc<App>) {
         let size = (((m.width as f32) * 0.8) as i32, ((m.height as f32) * 0.8) as i32);
         if let Err(e) = create_screen(app, &m.key, s.primary, Some((m.x + 60, m.y + 60)), size) {
             log::error!("fenêtre de l'écran {} : {e}", m.key);
+            if s.primary {
+                // Sans la fenêtre de l'écran principal, ni image ni fin de la
+                // connexion : la session s'arrête avec la raison.
+                *app.error.lock().unwrap() = Some(t("errors.session_window", &[("error", &e)]));
+                request_close(app);
+                return;
+            }
+            failed.push(m.key.clone());
         }
     }
+    // Une fenêtre qui n'a pas pu se créer : l'écran est traité comme un écran
+    // que l'ordinateur n'a pas pu créer (le fond de la connexion avec sa
+    // ligne, docs/link-ui.md), ses images sont jetées.
+    *app.failed.lock().unwrap() = failed.clone();
+    app.attach_late();
+    let taken = streams.len() - failed.len();
+    let multi = taken > 1;
+    app.streams.store(taken, Ordering::Relaxed);
     for (m, s) in &streams {
         let Some(w) = app.window_by_key(&m.key) else { continue };
         w.index.store(s.screen, Ordering::Relaxed);
@@ -1552,6 +1622,7 @@ fn apply_screens(app: &Arc<App>) {
                 width: m.width.max(0) as u32,
                 height: m.height.max(0) as u32,
                 role: match streams.iter().find(|(sm, _)| sm.key == m.key) {
+                    Some(_) if failed.contains(&m.key) => Role::NotCreated,
                     Some((_, s)) => Role::Stream {
                         session_primary: s.primary,
                         width: s.display.width.max(0) as u32,
