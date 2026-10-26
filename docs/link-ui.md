@@ -27,6 +27,7 @@ Pour l'ordinateur choisi, dans cet ordre et rien d'autre :
 | Écran, sur mesure | « Écran de 1920 × 1080 à 60 Hz » | “1920 × 1080 display at 60 Hz” |
 | Écran, sans écran virtuel | « Les écrans de l'ordinateur, tels quels » | “The computer's own displays, as they are” |
 | Bouton principal, en ligne | « Se connecter » | “Connect” |
+| Bouton principal, ordinateur déjà en session (Mac, Windows) | « Afficher la session » : sa fenêtre passe devant | “Show session” |
 | Bouton principal, hors ligne | « Réveiller l'ordinateur » quand l'app connaît son adresse MAC, sinon « Réessayer » ; pendant le réveil : « Réveil de l'ordinateur… » | “Wake the computer” when the app knows its MAC address, otherwise “Try again”; while waking: “Waking the computer…” |
 | Profils | « Jeu », « Bureau », « Max », et « Personnalisé » quand les réglages s'en écartent | “Game”, “Desktop”, “Max”, “Custom” |
 | Phrase du profil | Jeu : « La réactivité d'abord, pour jouer. » Bureau : « Un texte net, pour travailler. » Max : « La meilleure image que cet appareil affiche. » Personnalisé : « Vos propres réglages. » | Game: “Responsiveness first, for gaming.” Desktop: “Sharp text, for work.” Max: “The best picture this device can show.” Custom: “Your own settings.” |
@@ -59,7 +60,9 @@ Dès la première image, l'image seule. Pas de capsule d'arrivée, pas de barre 
 
 **Plusieurs écrans** (apps Mac, Windows et Linux, voir [multi-ecrans.md](multi-ecrans.md)) : l'écran de connexion s'affiche sur l'écran principal de l'appareil ; les autres montrent son fond (sa couleur, sans la photo de l'accueil), sans texte ; chaque écran passe à son image dès sa première image. Si la connexion échoue, le message est sur l'écran principal et les autres fenêtres se ferment. Un écran que l'ordinateur n'a pas pu créer garde ce fond, avec une seule ligne : « L'ordinateur n'a pas pu créer cet écran. » / “The computer could not create this display.” Quand les écrans de l'appareil changent en session, ou qu'un profil choisi en session change leur nombre, la connexion reprend à sa première étape sur l'écran principal ; si l'ordinateur refuse alors les nouveaux écrans, la session se termine avec la raison, comme un échec de la connexion. Un écran créé mais resté sans image (jamais annoncé, ou son encodeur ne s'est pas ouvert) affiche la même ligne qu'un écran non créé. Avec une Station qui ne gère qu'un écran, les fenêtres des autres écrans ne s'ouvrent pas, sans message. Une seule barre de session, sur l'écran où se trouve le pointeur ; la fenêtre où elle s'ouvre devient la fenêtre active ; ses commandes valent pour toute la session. Le réglage « Écrans » changé dans les Réglages pendant une session vaut pour la session suivante ; le profil choisi dans la barre ou le menu de l'icône s'applique tout de suite. « Plein écran » n'est pas proposé (barre, menu, raccourci) : les fenêtres restent en plein écran ; pour travailler dans une fenêtre, on choisit « Cet écran ». Toutes les fenêtres portent le même titre.
 
-En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), « Statistiques » / “Statistics” pour les mesures en direct, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
+**Plusieurs ordinateurs** (apps Mac, Windows et Linux en mode Bureau, voir [plusieurs-ordinateurs.md](plusieurs-ordinateurs.md)) : pendant une session, la barre a un menu « Ordinateurs » / “Computers” : vos autres ordinateurs, dans l'ordre de l'accueil, avec leur point de couleur et leur état comme dans le menu de l'icône (« {nom} — En ligne »…) ; un clic sur un ordinateur en ligne ouvre sa session, sur un ordinateur hors ligne le réveille (« Réveiller l'ordinateur », comme l'accueil) ; ceux qui sont déjà en session sont cochés et proposent « Afficher » / “Show”. La première session s'ouvre comme d'habitude ; chaque session suivante s'ouvre dans une fenêtre par-dessus, sur l'écran de la fenêtre active, centrée, aux deux tiers de cet écran, avec un seul écran, et sa connexion s'affiche dans cette fenêtre. Chaque fenêtre porte le nom de son ordinateur. La session de la fenêtre au premier plan reçoit le clavier, la souris, les manettes, le presse-papiers et le son ; les autres gardent leur image, sans son. Bouton du haut-parleur de la barre, libellé accessible « Garder le son » / “Keep sound” : allumé, la session reste audible même quand elle n'est pas active (éteint par défaut, pour la session en cours). Raccourci « Ordinateur suivant » / “Next computer” : ⌃⌥⌘O sur Mac, Ctrl+Alt+Maj+O sur Windows et Linux, vers la fenêtre de l'ordinateur suivant dans l'ordre d'ouverture. « Se connecter » sur un ordinateur déjà en session fait passer sa fenêtre devant. Quatre ordinateurs au plus : au-delà, « Se connecter » est inactif, aide « Quatre ordinateurs au plus en même temps. » / “Four computers at most at the same time.” Fermer une fenêtre ou « Se déconnecter » ne termine que sa session ; quitter l'app les termine toutes.
+
+En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), « Statistiques » / “Statistics” pour les mesures en direct, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”, « Ordinateurs » / “Computers” et « Garder le son » / “Keep sound” (plusieurs ordinateurs, ci-dessous).
 
 **Barre de session au pointeur** (apps Mac et Windows, app Linux en mode Bureau, client web) : elle s'ouvre quand le pointeur reste un quart de seconde contre le bord haut de l'image (à 2 points au plus), dans une zone centrée de la largeur de la barre, et seulement si l'app est au premier plan, le pointeur sur la fenêtre de la session et la souris en mode bureau. Un passage rapide ne l'ouvre pas ; un pointeur sur un autre écran ou sur une autre app non plus, ni un bouton de la souris tenu (une fenêtre de l'ordinateur glissée vers le haut). En souris des jeux, le pointeur est capturé : la barre vient par les autres moyens de l'app (menu de l'icône, manette). Un trait court (220 points), centré en haut de l'image, signale l'endroit, seulement quand le geste est possible (app au premier plan, souris du bureau, barre fermée) ; le client web le rend aussi touchable. La barre se referme 0,4 s après que le pointeur l'a quittée, jamais pendant qu'un de ses menus est ouvert. Avec plusieurs écrans, elle s'ouvre sur l'écran où le geste a lieu.
 
@@ -149,12 +152,12 @@ Le réveil par le réseau : Admin donne dans `GET /api/stream/info` les cartes r
 
 Les apps Mac et Windows ont une icône près de l'horloge : dans la barre des menus sur Mac, dans la zone de notification sur Windows. Elle reste tant que l'app tourne, fenêtre ouverte ou fermée, et donne accès à tout ce qu'il faut pour se connecter vite.
 
-- **Dessin** : le symbole de KyberNow Link seul (état `now` de [brand/v2](../brand/v2/README.md)), d'une seule couleur : image modèle sur Mac (le système la teinte), blanche ou noire selon le thème de la barre des tâches sur Windows. Il ne ressemble pas à l'icône de KyberNow Station (la tuile en couleur et sa pastille) : sur un PC qui a les deux, deux icônes. En session, le symbole s'allume (variante distincte, lisible en petit). Infobulle : « KyberNow Link », en session « KyberNow Link · en session sur {nom} » / “KyberNow Link · in session on {name}”.
+- **Dessin** : le symbole de KyberNow Link seul (état `now` de [brand/v2](../brand/v2/README.md)), d'une seule couleur : image modèle sur Mac (le système la teinte), blanche ou noire selon le thème de la barre des tâches sur Windows. Il ne ressemble pas à l'icône de KyberNow Station (la tuile en couleur et sa pastille) : sur un PC qui a les deux, deux icônes. En session, le symbole s'allume (variante distincte, lisible en petit). Infobulle : « KyberNow Link », en session « KyberNow Link · en session sur {nom} » / “KyberNow Link · in session on {name}”, sur plusieurs ordinateurs « KyberNow Link · en session sur {n} ordinateurs » / “KyberNow Link · in session on {n} computers”.
 - **Clic** : sur Mac, un clic ouvre le menu. Sur Windows, clic droit ou gauche ouvre le même menu (au clic gauche, après le délai du double clic de Windows) ; un double clic ouvre la fenêtre.
 
 ### Menu
 
-De haut en bas. Pendant une session, d'abord :
+De haut en bas. Pendant une session, d'abord (avec plusieurs ordinateurs, pour la session de la fenêtre active) :
 
 | Élément | Français | English |
 |---|---|---|
@@ -165,11 +168,11 @@ De haut en bas. Pendant une session, d'abord :
 | Mesures en direct | « Statistiques » (Mac : le panneau des mesures ; Windows : la barre de session reste affichée jusqu'au passage du pointeur, un second clic la cache) | “Statistics” |
 | Fin | « Se déconnecter » | “Disconnect” |
 
-Puis vos ordinateurs, dans l'ordre de l'accueil : « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), chacun précédé d'un petit point de couleur : vert en ligne, rouge hors ligne, ambre pendant le réveil et pendant un redémarrage ou une mise à jour de la Station, gris pendant la recherche (couleurs d'état de [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, en version claire ou sombre selon le menu) ; le texte de l'état reste, la couleur seule ne suffit pas à tout le monde. Celui de la session est coché. Chacun ouvre un sous-menu :
+Puis vos ordinateurs, dans l'ordre de l'accueil : « {nom} — En ligne », « {nom} — Hors ligne », « {nom} — Recherche… » (“{name} — Online”, “Offline”, “Searching…”), chacun précédé d'un petit point de couleur : vert en ligne, rouge hors ligne, ambre pendant le réveil et pendant un redémarrage ou une mise à jour de la Station, gris pendant la recherche (couleurs d'état de [brand/v2](../brand/v2/tokens/kybernow.css), `--kn-ok`, `--kn-bad`, `--kn-warn`, `--kn-faint`, en version claire ou sombre selon le menu) ; le texte de l'état reste, la couleur seule ne suffit pas à tout le monde. Ceux qui sont en session sont cochés ; leur sous-menu commence par « Afficher » / “Show”, « Garder le son » / “Keep sound” (coché quand il est allumé) et « Se déconnecter » / “Disconnect”. Chacun ouvre un sous-menu :
 
 | Élément | Français | English |
 |---|---|---|
-| En ligne (et « Recherche… », comme le bouton de l'accueil) | « Se connecter ({profil}) », le profil de l'ordinateur ; inactif pendant une session sur un autre ordinateur (une session à la fois) ; sur l'ordinateur de la session : « Se déconnecter » | “Connect ({profile})”; “Disconnect” |
+| En ligne (et « Recherche… », comme le bouton de l'accueil) | « Se connecter ({profil}) », le profil de l'ordinateur ; inactif quand quatre ordinateurs sont déjà en session ; sur un ordinateur en session : voir ci-dessus | “Connect ({profile})”; “Disconnect” |
 | Hors ligne | « Réveiller l'ordinateur » quand l'app connaît son adresse MAC, sinon « Réessayer » ; pendant le réveil : « Réveil de l'ordinateur… », inactif ; pendant un redémarrage ou une mise à jour de la Station : « Se connecter ({profil}) », inactif (elle revient d'elle-même) | “Wake the computer”, “Try again”, “Waking the computer…” |
 | Profil | « Profil » ▸ « Jeu », « Bureau », « Max », celui de l'ordinateur coché ; « Personnalisé » coché et inactif quand les réglages s'en écartent. Choisir un profil l'applique comme sur l'accueil (en session, tout de suite, comme le menu de la barre) | “Profile” ▸ “Game”, “Desktop”, “Max”, “Custom” |
 | Réglages | « Réglages » (Mac : « Réglages… ») : la fenêtre s'ouvre sur les réglages de l'ordinateur | “Settings” (Mac: “Settings…”) |
@@ -177,7 +180,7 @@ Puis vos ordinateurs, dans l'ordre de l'accueil : « {nom} — En ligne », « {
 | Redémarrer (en ligne, Station 0.5.0 et après) | « Redémarrer la Station » ; pendant : « La Station redémarre… », inactif | “Restart the Station”; “The Station is restarting…” |
 | Mettre à jour (version qui s'installe depuis un appareil) | « Mettre à jour la Station ({v}) » ; pendant : « Mise à jour de la Station… », inactif | “Update the Station ({v})”; “Updating the Station…” |
 
-Les groupes du menu sont séparés d'un trait. Pendant une session, « Réglages » et « Ajouter un ordinateur » sont inactifs sur Mac (la fenêtre est à la session) ; sur Windows, ils montrent l'accueil par-dessus la session.
+Les groupes du menu sont séparés d'un trait. Pendant une session, « Réglages » et « Ajouter un ordinateur » montrent l'accueil par-dessus la session (Mac et Windows : l'accueil ne sert plus de fenêtre de session).
 
 Redémarrer et mettre à jour suivent la rubrique **Station** : même confirmation quand un appareil est en session (« {appareil} est connecté », « Redémarrer quand même », « Annuler »), même suivi, mêmes textes à la fin.
 
@@ -189,7 +192,7 @@ En bas :
 | Ajout | « Ajouter un ordinateur » (Mac : « Ajouter un ordinateur… ») | “Add a computer” (Mac: “Add a computer…”) |
 | Réglages de l'app | « Réglages de l'app » (Mac : « Réglages de l'app… ») | “App settings” (Mac: “App settings…”) |
 | Mise à jour de l'app | Mac : « Rechercher des mises à jour… » ; Windows : « Version {v} disponible » quand une version attend (ouvre les réglages de l'app), sinon « Rechercher des mises à jour » (ouvre les réglages de l'app et lance la recherche) | “Check for updates…”; “Version {v} available”; “Check for updates” |
-| Quitter | « Quitter KyberNow Link » ; une session en cours se termine d'abord | “Quit KyberNow Link” |
+| Quitter | « Quitter KyberNow Link » ; les sessions en cours se terminent d'abord | “Quit KyberNow Link” |
 
 ### Fenêtre et démarrage
 
@@ -201,7 +204,7 @@ En bas :
 
 ### Notifications
 
-Des notifications du système, seulement quand l'app n'est pas au premier plan :
+Des notifications du système, seulement quand l'app n'est pas au premier plan (pour la fin d'une session, aussi quand sa fenêtre n'était pas la fenêtre active : avec plusieurs ordinateurs, une autre session était devant) :
 
 | Quand | Titre | Texte | Bouton |
 |---|---|---|---|

@@ -29,7 +29,7 @@ What is planned or still to try, and only here: the other documents describe wha
 
 ## KyberNow Link
 
-- **Several computers at once**: one session window per computer in the Mac and Windows apps; controllers read by the app and sent to the active window (kynput's SDL opens only once per app); the sessions' sound mixed.
+- **Several computers at once** (in progress): one session window per computer in the Mac, Windows and Linux (desktop interface) apps; keyboard, mouse, controllers, clipboard and sound follow the active window (“Keep sound” to hear another one); a single controller reader per app, in the core. Contract: [docs/plusieurs-ordinateurs.en.md](docs/plusieurs-ordinateurs.en.md).
 - **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
 - **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.

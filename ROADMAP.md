@@ -29,7 +29,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 
 ## KyberNow Link
 
-- **Plusieurs ordinateurs à la fois** : une fenêtre de session par ordinateur dans les apps Mac et Windows ; les manettes lues par l'app et envoyées à la fenêtre active (la SDL de kynput ne s'ouvre qu'une fois par app) ; le son des sessions mélangé.
+- **Plusieurs ordinateurs à la fois** (en cours) : une fenêtre de session par ordinateur dans les apps Mac, Windows et Linux (interface de bureau) ; clavier, souris, manettes, presse-papiers et son suivent la fenêtre active (« Garder le son » pour en entendre une autre) ; un seul lecteur de manettes par app, dans le cœur. Contrat : [docs/plusieurs-ordinateurs.md](docs/plusieurs-ordinateurs.md).
 - **Android** : mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
 - **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.
