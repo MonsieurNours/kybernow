@@ -577,6 +577,38 @@
         }
       }
     },
+    "Afficher" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher"
+          }
+        }
+      }
+    },
+    "Afficher la session" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show session"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher la session"
+          }
+        }
+      }
+    },
     "Ajouter" : {
       "localizations" : {
         "en" : {
@@ -1969,6 +2001,22 @@
         }
       }
     },
+    "Garder le son" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep sound"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder le son"
+          }
+        }
+      }
+    },
     "Gardé dans le Trousseau" : {
       "localizations" : {
         "en" : {
@@ -2237,6 +2285,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "KyberNow Link · en session sur %@"
+          }
+        }
+      }
+    },
+    "KyberNow Link · en session sur %lld ordinateurs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link · in session on %lld computers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "KyberNow Link · en session sur %lld ordinateurs"
           }
         }
       }
@@ -3473,6 +3537,38 @@
         }
       }
     },
+    "Ordinateur suivant" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next computer"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateur suivant"
+          }
+        }
+      }
+    },
+    "Ordinateurs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Computers"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordinateurs"
+          }
+        }
+      }
+    },
     "Ouvrez votre ordinateur sur ce Mac" : {
       "localizations" : {
         "en" : {
@@ -3965,6 +4061,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "QR code ou lien"
+          }
+        }
+      }
+    },
+    "Quatre ordinateurs au plus en même temps." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Four computers at most at the same time."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quatre ordinateurs au plus en même temps."
           }
         }
       }

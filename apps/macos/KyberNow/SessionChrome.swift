@@ -1,7 +1,8 @@
 // Ce qui se dessine par-dessus le passage et l'image (maquettes « App · Le
 // passage » et « App · En session » ; docs/link-ui.md) : la capsule de la
 // connexion (ses trois étapes, l'échec, la reconnexion, la fin), les rappels
-// d'événements, la barre au survol. Dès la première image, rien ne s'affiche
+// d'événements, la barre au survol (avec le menu « Ordinateurs » et « Garder
+// le son », plusieurs ordinateurs). Dès la première image, rien ne s'affiche
 // de lui-même : la barre et les statistiques viennent à la demande.
 
 import AppKit
@@ -166,8 +167,14 @@ private struct PassageCapsule: View {
                 if case let .failed(message) = session.phase {
                     lines(title: String(localized: "La connexion a échoué"), sub: message.prefix(1).uppercased() + message.dropFirst(), warn: true)
                 }
-                Button("Revenir à l'accueil") { session.dismissFailure() }
-                    .buttonStyle(PrimaryButton(height: 40))
+                // Une autre session tient encore : la fenêtre se ferme sur elle, pas sur l'accueil.
+                if AppModel.shared.sessions.all.allSatisfy({ $0 === session }) {
+                    Button("Revenir à l'accueil") { session.dismissFailure() }
+                        .buttonStyle(PrimaryButton(height: 40))
+                } else {
+                    Button("Fermer") { session.dismissFailure() }
+                        .buttonStyle(PrimaryButton(height: 40))
+                }
             case .closing:
                 lines(title: String(localized: "À bientôt"), sub: String(localized: "\(name) retrouve ses écrans et son son."))
             case .hidden:
@@ -381,105 +388,13 @@ private struct SessionBar: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            HStack(spacing: 6) {
-                Mark(size: 22, level: .lit)
-                Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
-                    .padding(.leading, 6).padding(.trailing, 8)
-                divider
-                Button { session.toggleStatsPanel() } label: {
-                HStack(spacing: 10) {
-                    if let ms = session.stats?.latencyMs {
-                        LitNumber(text: Moment.ms(ms))
-                            .frame(minWidth: 58, alignment: .trailing)
-                        Sparkline(values: session.latencyHistory)
-                            .frame(width: 64, height: 22)
-                    } else if let fps = session.stats?.fps {
-                        Text(String(localized: "\(Int(fps.rounded())) i/s")).font(Theme.mono(13)).foregroundStyle(Theme.text2)
-                    }
-                    Text(formatLabel).font(Theme.mono(11)).foregroundStyle(Theme.muted)
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 36)
-                .background(session.statsPanel ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(session.statsPanel ? 1 : 0)))
-                .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(session.statsPanel ? "Fermer les statistiques (⌃⌥⌘S)" : "Statistiques (⌃⌥⌘S)")
-                .accessibilityLabel("Statistiques")
-                divider
-                GlassMenu(items: Profile.allCases.map { profile in
-                    .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
-                }) {
-                    chip(icon: profileIcon, text: session.host.settings.profileLabel, tint: Theme.accent, caret: true)
-                }
-                .help("Profil : Jeu, Bureau ou Max")
-                .overlay(ring(0))
-                chip(icon: session.host.settings.audio == .off ? "speaker-slash" : "speaker-high", text: audioLabel)
-                GlassMenu(items: MouseChoice.allCases.map { choice in
-                    .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
-                }) {
-                    chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true)
-                }
-                .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
-                .overlay(ring(1))
-                chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"))
-                    .opacity(session.host.settings.clipboard ? 1 : 0.45)
-                    .help(session.host.settings.clipboard ? "Presse-papiers partagé avec l'ordinateur (texte)" : "Presse-papiers non partagé (Réglages)")
-                if session.canPickScreen {
-                    GlassMenu(items: session.screens.enumerated().map { i, screen in
-                        .init(id: "\(screen.id)", title: String(localized: "Écran \(i + 1) · \(screen.width) × \(screen.height)"), checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
-                    }) {
-                        chip(icon: "monitor", text: String(localized: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)"), caret: true)
-                    }
-                }
-                if let offer = session.screenOffer {
-                    Button { session.adaptToScreen() } label: {
-                        chip(icon: "monitor", text: String(localized: "Adapter à \(offer.width) × \(offer.height)"), tint: Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .help("L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image")
-                }
-                if let offer = session.modeRestoreOffer {
-                    Button { session.restoreMode() } label: {
-                        chip(icon: "arrow-counter-clockwise", text: offer, tint: Theme.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .help("L'ordinateur a changé de définition : remettre celle de ce Mac")
-                }
-                divider
-                // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
-                if session.canToggleFullScreen {
-                    Button { session.toggleFullScreen() } label: {
-                        Icon("corners-out", size: 16, bold: true)
-                            .foregroundStyle(Theme.text2)
-                            .frame(width: 38, height: 34)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Plein écran (⌃⌥⌘F)")
-                    .accessibilityLabel("Plein écran")
-                    .overlay(ring(2))
-                }
-                Button { session.end() } label: {
-                    HStack(spacing: 8) {
-                        Icon("power", size: 15, bold: true)
-                        Text("Se déconnecter").lineLimit(1).fixedSize()
-                    }
-                    .font(Theme.sans(13, .semibold))
-                    .foregroundStyle(Theme.dangerText)
-                    .padding(.horizontal, 14)
-                    .frame(height: 36)
-                    .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Se déconnecter (⌃⌥⌘D)")
-                .overlay(ring(session.padItems - 1))
+            // Une fenêtre étroite (une session de plus, aux deux tiers de
+            // l'écran) : la barre compacte, sans le format ni le texte des
+            // pastilles secondaires.
+            ViewThatFits(in: .horizontal) {
+                row(compact: false)
+                row(compact: true)
             }
-            .padding(.leading, 14)
-            .padding(.trailing, 8)
             .frame(height: 52)
             .glass(14, tint: 0.62)
             .background(GeometryReader { g in
@@ -490,6 +405,134 @@ private struct SessionBar: View {
             if session.padMode {
                 PadBanner().transition(.opacity.combined(with: .offset(y: -6)))
             }
+        }
+    }
+
+    private func row(compact: Bool) -> some View {
+        HStack(spacing: 6) {
+            Mark(size: 22, level: .lit)
+            Text(session.host.name).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                .padding(.leading, 6).padding(.trailing, 8)
+            ComputersMenu(session: session, store: AppModel.shared.store, sessions: AppModel.shared.sessions, compact: compact)
+            divider
+            Button { session.toggleStatsPanel() } label: {
+            HStack(spacing: 10) {
+                if let ms = session.stats?.latencyMs {
+                    LitNumber(text: Moment.ms(ms))
+                        .fixedSize()
+                        .frame(minWidth: 58, alignment: .trailing)
+                    Sparkline(values: session.latencyHistory)
+                        .frame(width: 64, height: 22)
+                } else if let fps = session.stats?.fps {
+                    Text(String(localized: "\(Int(fps.rounded())) i/s")).font(Theme.mono(13)).foregroundStyle(Theme.text2)
+                }
+                if !compact {
+                    Text(formatLabel).font(Theme.mono(11)).foregroundStyle(Theme.muted)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(session.statsPanel ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(session.statsPanel ? 1 : 0)))
+            .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(session.statsPanel ? "Fermer les statistiques (⌃⌥⌘S)" : "Statistiques (⌃⌥⌘S)")
+            .accessibilityLabel("Statistiques")
+            divider
+            GlassMenu(items: Profile.allCases.map { profile in
+                .init(id: profile.rawValue, title: profile.label, checked: profile == session.host.settings.profile) { session.select(profile) }
+            }) {
+                chip(icon: profileIcon, text: session.host.settings.profileLabel, tint: Theme.accent, caret: true)
+            }
+            .help("Profil : Jeu, Bureau ou Max")
+            .overlay(ring(0))
+            keepSound(compact: compact)
+            GlassMenu(items: MouseChoice.allCases.map { choice in
+                .init(id: "\(choice)", title: choice.label, checked: choice == session.host.settings.mouse) { session.setMouse(choice) }
+            }) {
+                chip(icon: session.mouseCaptured ? "crosshair" : "cursor", text: mouseLabel, caret: true, compact: compact)
+            }
+            .help("Souris : Auto passe en souris des jeux quand un jeu est en plein écran sur l'ordinateur (⌃⌥⌘M bascule)")
+            .overlay(ring(1))
+            chip(icon: "clipboard-text", text: String(localized: "Presse-papiers"), compact: compact)
+                .opacity(session.host.settings.clipboard ? 1 : 0.45)
+                .help(session.host.settings.clipboard ? "Presse-papiers partagé avec l'ordinateur (texte)" : "Presse-papiers non partagé (Réglages)")
+            if session.canPickScreen {
+                GlassMenu(items: session.screens.enumerated().map { i, screen in
+                    .init(id: "\(screen.id)", title: String(localized: "Écran \(i + 1) · \(screen.width) × \(screen.height)"), checked: screen.id == session.shownDisplay) { session.showScreen(screen.id) }
+                }) {
+                    chip(icon: "monitor", text: String(localized: "Écran \((session.screens.firstIndex { $0.id == session.shownDisplay } ?? 0) + 1)"), caret: true)
+                }
+            }
+            if let offer = session.screenOffer {
+                Button { session.adaptToScreen() } label: {
+                    chip(icon: "monitor", text: String(localized: "Adapter à \(offer.width) × \(offer.height)"), tint: Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("L'écran de ce Mac a changé : refaire l'écran de l'ordinateur à sa définition et relancer l'image")
+            }
+            if let offer = session.modeRestoreOffer {
+                Button { session.restoreMode() } label: {
+                    chip(icon: "arrow-counter-clockwise", text: offer, tint: Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .help("L'ordinateur a changé de définition : remettre celle de ce Mac")
+            }
+            divider
+            // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
+            if session.canToggleFullScreen {
+                Button { session.toggleFullScreen() } label: {
+                    Icon("corners-out", size: 16, bold: true)
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 38, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Plein écran (⌃⌥⌘F)")
+                .accessibilityLabel("Plein écran")
+                .overlay(ring(2))
+            }
+            Button { session.end() } label: {
+                HStack(spacing: 8) {
+                    Icon("power", size: 15, bold: true)
+                    Text("Se déconnecter").lineLimit(1).fixedSize()
+                }
+                .font(Theme.sans(13, .semibold))
+                .foregroundStyle(Theme.dangerText)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .background(Theme.danger.opacity(0.14), in: RoundedRectangle(cornerRadius: 9))
+                .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.danger.opacity(0.4)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Se déconnecter (⌃⌥⌘D)")
+            .overlay(ring(session.padItems - 1))
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        // À sa taille, jamais tassée : la barre compacte prend le relais.
+        .fixedSize()
+    }
+
+    /// Le haut-parleur : « Garder le son » (plusieurs ordinateurs), allumé
+    /// quand la session reste audible sans être active ; son coupé dans les
+    /// réglages, la pastille seule.
+    @ViewBuilder private func keepSound(compact: Bool) -> some View {
+        if session.host.settings.audio == .off {
+            chip(icon: "speaker-slash", text: audioLabel, compact: compact)
+        } else {
+            let on = session.keepSound
+            Button { AppModel.shared.sessions.setKeepSound(!on, for: session) } label: {
+                chip(icon: "speaker-high", text: audioLabel, tint: on ? Theme.accent : Theme.text2, compact: compact)
+                    .background(on ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.accentLine.opacity(on ? 1 : 0)))
+            }
+            .buttonStyle(.plain)
+            .help("Garder le son")
+            .accessibilityLabel("Garder le son")
+            .accessibilityAddTraits(on ? .isSelected : [])
         }
     }
 
@@ -504,15 +547,86 @@ private struct SessionBar: View {
 
     private var divider: some View { Rectangle().fill(Color.white.opacity(0.12)).frame(width: 1, height: 26) }
 
-    private func chip(icon: String, text: String, tint: Color = Theme.text2, caret: Bool = false) -> some View {
+    /// `compact` : l'icône seule (barre étroite), le texte reste pour VoiceOver.
+    private func chip(icon: String, text: String, tint: Color = Theme.text2, caret: Bool = false, compact: Bool = false) -> some View {
         HStack(spacing: 7) {
             Icon(icon, size: 16, bold: true).foregroundStyle(tint)
-            Text(text).font(Theme.sans(13)).foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
+            if !compact {
+                Text(text).font(Theme.sans(13)).foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
+            }
             if caret { Icon("caret-down", size: 10, bold: true).foregroundStyle(Theme.faint) }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, compact ? 8 : 10)
         .frame(height: 34)
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(text))
+    }
+}
+
+/// Plusieurs ordinateurs (docs/link-ui.md) : vos autres ordinateurs, dans
+/// l'ordre de l'accueil, avec leur point et leur état comme dans le menu de
+/// l'icône. Un ordinateur en ligne ouvre sa session (une fenêtre de plus), un
+/// ordinateur hors ligne se réveille comme depuis l'accueil ; ceux déjà en
+/// session sont cochés et passent devant (« Afficher »). Sans autre
+/// ordinateur, pas de menu.
+struct ComputersMenu: View {
+    @ObservedObject var session: SessionController
+    @ObservedObject var store: HostStore
+    @ObservedObject var sessions: SessionManager
+    /// Barre étroite : l'icône seule.
+    var compact = false
+
+    var body: some View {
+        let items = Self.items(for: session, store: store, sessions: sessions)
+        if !items.isEmpty {
+            GlassMenu(items: items, onOpen: { Task { await store.refreshAll() } }) {
+                HStack(spacing: 7) {
+                    Icon("desktop-tower", size: 16, bold: true).foregroundStyle(Theme.text2)
+                    if !compact {
+                        Text("Ordinateurs").font(Theme.sans(13)).foregroundStyle(Theme.text2).lineLimit(1).fixedSize()
+                    }
+                    Icon("caret-down", size: 10, bold: true).foregroundStyle(Theme.faint)
+                }
+                .padding(.horizontal, compact ? 8 : 10)
+                .frame(height: 34)
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Ordinateurs")
+            }
+        }
+    }
+
+    /// Les lignes du menu : les autres ordinateurs, dans l'ordre de l'accueil
+    /// (aussi lues par la démonstration, `bar-dump`).
+    static func items(for session: SessionController, store: HostStore, sessions: SessionManager) -> [GlassMenuItem] {
+        store.ordered.filter { $0.id != session.host.id }.map { item($0, store: store, sessions: sessions) }
+    }
+
+    private static func item(_ host: Host, store: HostStore, sessions: SessionManager) -> GlassMenuItem {
+        let state = ComputerState(host, store: store)
+        let id = host.id.uuidString
+        if let other = sessions.session(for: host.id) {
+            return .init(id: id, title: state.title, checked: true, dot: state.dot, detail: String(localized: "Afficher")) { other.bringToFront() }
+        }
+        if state.online == false {
+            // La Station revient d'elle-même : rien à faire.
+            if state.restarting || state.updating {
+                return .init(id: id, title: state.title, dot: state.dot, enabled: false) {}
+            }
+            if state.waking {
+                return .init(id: id, title: state.title, dot: state.dot, detail: LinkText.waking, enabled: false) {}
+            }
+            if store.canWake(host) {
+                return .init(id: id, title: state.title, dot: state.dot, detail: LinkText.wake) { store.wake(host) }
+            }
+            return .init(id: id, title: state.title, dot: state.dot, detail: String(localized: "Réessayer")) {
+                Task { await store.refresh(host) }
+            }
+        }
+        // En ligne (et « Recherche… », comme l'accueil) : une session de plus, quatre au plus.
+        return .init(id: id, title: state.title, dot: state.dot, enabled: !sessions.isFull,
+                     help: sessions.isFull ? LinkText.computersLimit : nil) { AppModel.shared.connect(host) }
     }
 }
 

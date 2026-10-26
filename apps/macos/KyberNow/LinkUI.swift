@@ -110,6 +110,13 @@ enum LinkText {
     static var wake: String { String(localized: "Réveiller l'ordinateur") }
     static var waking: String { String(localized: "Réveil de l'ordinateur…") }
 
+    /// Plusieurs ordinateurs : bouton principal d'un ordinateur déjà en
+    /// session (sa fenêtre passe devant).
+    static var showSession: String { String(localized: "Afficher la session") }
+    /// Plusieurs ordinateurs : l'aide de « Se connecter », inactif quand
+    /// quatre ordinateurs sont déjà en session.
+    static var computersLimit: String { String(localized: "Quatre ordinateurs au plus en même temps.") }
+
     /// Apps de salon : « 2 manettes », « 1 manette », « Aucune manette ».
     static func controllers(_ n: Int) -> String {
         switch n {
