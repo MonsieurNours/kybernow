@@ -72,6 +72,17 @@ pub fn same_screen(old: &[Display], new: &[Display], screen: usize) -> bool {
     matches!((old.get(screen), new.get(screen)), (Some(a), Some(b)) if a.frame() == b.frame())
 }
 
+/// Le cadre de la fenêtre d'une session de plus (plusieurs ordinateurs,
+/// docs/plusieurs-ordinateurs.md) : centrée sur l'écran de la fenêtre active, aux deux tiers
+/// de cet écran, en 16:9 (la largeur ou la hauteur des deux tiers, selon ce qui tient).
+/// Rend (x, y, largeur, hauteur), dans le repère logique du bureau.
+pub fn windowed_frame(d: &Display) -> (i32, i32, i32, i32) {
+    let (sw, sh) = (d.w.max(2) as f32, d.h.max(2) as f32);
+    let w = ((sw * 2.0 / 3.0).min(sh * 2.0 / 3.0 * 16.0 / 9.0) as i32 & !1).max(2);
+    let h = ((w as f32 * 9.0 / 16.0).round() as i32).max(1);
+    (d.x + (d.w - w) / 2, d.y + (d.h - h) / 2, w, h)
+}
+
 /// La fréquence d'un écran que SDL a décrit (`SDL_GetCurrentDisplayMode`) : celle qu'il
 /// annonce, 30 Hz au moins (certains pilotes disent 0 : comme avant le multi-écrans, qui
 /// lisait `max(30)`), 60 Hz quand SDL ne donne aucun mode.
@@ -147,6 +158,26 @@ mod tests {
         assert_eq!(refresh_of(true, 60), 60);
         assert_eq!(refresh_of(true, 144), 144);
         assert_eq!(refresh_of(false, 0), 60, "aucun mode : 60 Hz");
+    }
+
+    /// La fenêtre d'une session de plus : deux tiers de l'écran, 16:9, centrée sur cet écran.
+    #[test]
+    fn windowed_frame_is_two_thirds_in_sixteen_by_nine() {
+        // 16:9 : deux tiers de la largeur et de la hauteur.
+        assert_eq!(windowed_frame(&d(0, 0, 0, 1920, 1080)), (320, 180, 1280, 720));
+        // 16:10 : la largeur fait les deux tiers, la hauteur suit le 16:9.
+        let (x, y, w, h) = windowed_frame(&d(0, 0, 0, 2560, 1600));
+        assert_eq!((w, h), (1706, 960));
+        assert_eq!((x, y), ((2560 - w) / 2, (1600 - h) / 2));
+        // Un écran large : la hauteur fait les deux tiers.
+        let (_, _, w, h) = windowed_frame(&d(0, 0, 0, 3440, 1440));
+        assert_eq!((w, h), (1706, 960));
+        // Centrée sur l'écran de la fenêtre active, où qu'il soit dans le bureau.
+        let (x, y, w, h) = windowed_frame(&d(1, 3840, -200, 1920, 1080));
+        assert_eq!((x, y, w, h), (3840 + 320, -200 + 180, 1280, 720));
+        // Jamais plus grande que l'écran, même minuscule.
+        let (_, _, w, h) = windowed_frame(&d(0, 0, 0, 1, 1));
+        assert!(w >= 2 && h >= 1);
     }
 
     #[test]

@@ -12,12 +12,12 @@ use super::icons::Icon;
 use super::theme::*;
 use super::widgets::{self, eyebrow, legend};
 use super::{unit, Frame};
-use crate::app::{App, BarMenu, Layout, MenuItem, Phase, Rect, Screen, SessionUi, Target, SHORTCUTS};
+use crate::app::{App, BarMenu, Layout, MenuItem, Online, Phase, Rect, Screen, SessionUi, Target, SHORTCUTS};
 use crate::i18n::{decimal, tr};
 use crate::model::Profile;
 
 pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
-    let Some(s) = &app.session else {
+    let Some(s) = super::view_session(app, view) else {
         cv.clear(INK);
         return;
     };
@@ -47,7 +47,7 @@ pub fn draw(app: &App, cv: &mut Canvas, f: &mut Frame, view: super::View) {
                 }
                 if s.bar && view.bar && app.layout == Layout::Desktop {
                     bar(app, cv, f, s);
-                } else if bar_hint(app) {
+                } else if bar_hint(app, s) {
                     hint(cv);
                 }
                 if !view.main {
@@ -293,7 +293,9 @@ fn ended(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi, error: Option
     eyebrow(cv, ix, y + 40.0 * u, 12.0 * u, BAD_TEXT, title);
     cv.text_shrink(ix - 1.0, y + 86.0 * u, Text::new(Font::Display, 34.0 * u, FROST).tracking(-0.6 * u), &s.name, cw - 64.0 * u);
     cv.paragraph(ix, y + 122.0 * u, Text::new(Font::Regular, 15.0 * u, MUTED), error.unwrap_or(""), cw - 64.0 * u, 22.0 * u);
-    widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, tr("Retour à l'accueil", "Back to home"), false);
+    // Avec d'autres ordinateurs en session, le retour ne va pas à l'accueil (inaccessible en session) : « Retour ».
+    let back = if app.sessions.len() > 1 { tr("Retour", "Back") } else { tr("Retour à l'accueil", "Back to home") };
+    widgets::primary(cv, f, Target::Back, ix, y + ch - 82.0 * u, 52.0 * u, back, false);
 }
 
 // MARK: - Barre du bureau
@@ -324,11 +326,15 @@ struct BarLayout {
     info_w: f32,
     prof_w: f32,
     quit_w: f32,
+    /// Plusieurs ordinateurs : le menu « Ordinateurs » (largeur de son bouton), quand il y a
+    /// un autre ordinateur à proposer ; le haut-parleur « Garder le son ».
+    computers: Option<f32>,
+    sound: bool,
     total: f32,
 }
 
 impl BarLayout {
-    fn measure(cv: &mut Canvas, s: &SessionUi) -> Self {
+    fn measure(cv: &mut Canvas, app: &App, s: &SessionUi) -> Self {
         let st = s.stats.clone().unwrap_or_default();
         let lat = st.latency_ms.map(|v| format!("{} ms", decimal(v, 1))).unwrap_or_else(|| "— ms".into());
         // Avec plusieurs écrans pris, leur nombre d'abord (le même compte que les statistiques de la dernière session).
@@ -342,10 +348,15 @@ impl BarLayout {
         let prof_w = cv.text_width(Text::new(Font::Regular, 13.0, FROST), profile) + 34.0;
         let quit = tr("Se déconnecter", "Disconnect");
         let quit_w = cv.text_width(Text::new(Font::Semibold, 13.0, BAD_TEXT), quit) + 24.0;
-        // Touches, souris, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
-        let buttons = if s.multi() { 2.0 } else { 3.0 };
-        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
-        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, total }
+        // Plusieurs ordinateurs (bureau, hors KyberNow Link OS) : le menu « Ordinateurs » s'il y a un autre
+        // ordinateur, et le haut-parleur « Garder le son ».
+        let sound = app.multi_sessions();
+        let computers = (sound && app.store.hosts.iter().any(|h| h.id != s.host)).then(|| cv.text_width(Text::new(Font::Regular, 13.0, FROST), tr("Ordinateurs", "Computers")) + 34.0);
+        // Touches, souris, haut-parleur, plein écran ; avec plusieurs écrans les fenêtres restent en plein écran : pas de bouton.
+        let buttons = if s.multi() { 2.0 } else { 3.0 } + if sound { 1.0 } else { 0.0 };
+        let menu = computers.map_or(0.0, |w| w + 12.0);
+        let total = 16.0 + 16.0 + 12.0 + lat_w + 8.0 + 64.0 + 12.0 + 1.0 + 12.0 + info_w + 12.0 + 1.0 + 12.0 + prof_w + 12.0 + menu + 34.0 * buttons + 24.0 + 1.0 + 12.0 + quit_w + 10.0;
+        Self { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, computers, sound, total }
     }
 }
 
@@ -355,32 +366,41 @@ fn bar_frame(w: f32, total: f32) -> Rect {
 }
 
 /// `w` : la largeur de la fenêtre, en points (chaque écran a la sienne).
-fn bar_rect(cv: &mut Canvas, s: &SessionUi, w: f32) -> Rect {
-    let total = BarLayout::measure(cv, s).total;
+fn bar_rect(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32) -> Rect {
+    let total = BarLayout::measure(cv, app, s).total;
     bar_frame(w, total)
 }
 
 /// Le pointeur est contre le bord haut, dans la zone centrée de la largeur de
 /// la barre : l'endroit où elle s'ouvre (après un quart de seconde).
-pub fn at_bar_edge(cv: &mut Canvas, s: &SessionUi, w: f32, ux: f32, uy: f32) -> bool {
+pub fn at_bar_edge(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, ux: f32, uy: f32) -> bool {
     if uy > BAR_EDGE {
         return false;
     }
-    let r = bar_rect(cv, s, w);
+    let r = bar_rect(cv, app, s, w);
     ux >= r.x && ux < r.x + r.w
 }
 
 /// Le pointeur est sur la barre ouverte (son rectangle avec une petite marge)
 /// ou sur un de ses éléments (`hits`, menus compris).
-pub fn over_bar(cv: &mut Canvas, s: &SessionUi, w: f32, hits: &[(Target, Rect)], ux: f32, uy: f32) -> bool {
-    let r = bar_rect(cv, s, w);
+pub fn over_bar(cv: &mut Canvas, app: &App, s: &SessionUi, w: f32, hits: &[(Target, Rect)], ux: f32, uy: f32) -> bool {
+    let r = bar_rect(cv, app, s, w);
     (ux >= r.x - BAR_MARGIN && ux < r.x + r.w + BAR_MARGIN && uy < r.y + r.h + BAR_MARGIN) || hits.iter().any(|(_, h)| h.contains(ux, uy))
 }
 
 /// Le trait se voit : bureau, image en cours, barre fermée, souris du bureau
 /// (en souris des jeux le pointeur est capturé, la barre ne vient pas ainsi).
-pub fn bar_hint(app: &App) -> bool {
-    app.layout == Layout::Desktop && app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }) && !s.menu && !s.keys && !s.bar && !s.relative)
+/// `s` : la session de la fenêtre ; seule la session active a une barre (le geste est une
+/// entrée : une session qui n'est pas active ne reçoit rien, pas même le pointeur).
+pub fn bar_hint(app: &App, s: &SessionUi) -> bool {
+    app.layout == Layout::Desktop
+        && Some(s.id) == app.active
+        && app.screen == Screen::Session
+        && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. })
+        && !s.menu
+        && !s.keys
+        && !s.bar
+        && !s.relative
 }
 
 /// Le trait qui signale la barre, centré contre le bord haut.
@@ -392,7 +412,7 @@ fn hint(cv: &mut Canvas) {
 fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     let h = BAR_H;
     let st = s.stats.clone().unwrap_or_default();
-    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, total } = BarLayout::measure(cv, s);
+    let BarLayout { lat, info, profile, quit, mono14, mono12, lat_w, info_w, prof_w, quit_w, computers, sound, total } = BarLayout::measure(cv, app, s);
     let r = bar_frame(cv.w, total);
     let x0 = r.x;
     cv.rrect(r.x, r.y - 12.0, r.w, r.h + 12.0, 12.0, Rgba(9, 13, 18, 235));
@@ -431,13 +451,32 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
     cv.text(pr.x + pr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
     let profile_x = pr.x;
     x += prof_w + 12.0;
-    // Touches, souris, plein écran.
-    let keys_x = x;
-    let mut icons = vec![(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys)), (Target::BarMouse, Icon::Mouse, s.relative)];
-    if !s.multi() {
-        icons.push((Target::BarFullscreen, Icon::Fullscreen, app.fullscreen));
+    // Plusieurs ordinateurs : le menu « Ordinateurs », comme celui du profil.
+    let mut computers_x = x;
+    if let Some(cw) = computers {
+        let cr = Rect::new(x, cy - 15.0, cw, 30.0);
+        let (focused, hover) = f.state(Target::BarComputers, cr);
+        cv.rrect(cr.x, cr.y, cr.w, cr.h, 7.0, if hover || s.bar_menu == Some(BarMenu::Computers) { INK_3 } else { Rgba(20, 27, 35, 255) });
+        cv.rrect_stroke(cr.x, cr.y, cr.w, cr.h, 7.0, 1.0, LINE_2);
+        if focused {
+            widgets::ring(cv, cr, 7.0);
+        }
+        cv.text(cr.x + 12.0, cy + 5.0, Text::new(Font::Regular, 13.0, FROST), tr("Ordinateurs", "Computers"));
+        cv.text(cr.x + cr.w - 12.0, cy + 4.0, Text::new(Font::Regular, 11.0, FAINT).align(Align::Right), "▾");
+        computers_x = cr.x;
+        x += cw + 12.0;
     }
-    for (t, icon, on) in icons {
+    // Touches, souris, haut-parleur (« Garder le son »), plein écran ; chacun nomme son bouton au survol.
+    let keys_x = x;
+    let mut icons = vec![(Target::BarKeys, Icon::Keys, s.bar_menu == Some(BarMenu::Keys), tr("Touches", "Keys")), (Target::BarMouse, Icon::Mouse, s.relative, if s.relative { tr("Souris des jeux", "Game mouse") } else { tr("Souris du bureau", "Desktop mouse") })];
+    if sound {
+        icons.push((Target::BarSound, Icon::Speaker, s.keep_sound, tr("Garder le son", "Keep sound")));
+    }
+    if !s.multi() {
+        icons.push((Target::BarFullscreen, Icon::Fullscreen, s.fullscreen, tr("Plein écran", "Full screen")));
+    }
+    let mut tip: Option<(Rect, &str)> = None;
+    for (t, icon, on, name) in icons {
         let ir = Rect::new(x, cy - 17.0, 34.0, 34.0);
         let (focused, hover) = f.state(t, ir);
         if on {
@@ -447,6 +486,9 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
         }
         if focused {
             widgets::ring(cv, ir, 7.0);
+        }
+        if hover {
+            tip = Some((ir, name));
         }
         cv.icon(&icon, x + 8.0, cy - 9.0, 18.0, 1.8, if on { FROST } else { MUTED });
         x += 34.0;
@@ -477,7 +519,114 @@ fn bar(app: &App, cv: &mut Canvas, f: &mut Frame, s: &SessionUi) {
             let items: Vec<(Target, String, String, bool)> = SHORTCUTS.iter().enumerate().map(|(i, k)| (Target::BarShortcut(i), tr(k.0, k.1).to_string(), String::new(), false)).collect();
             dropdown(cv, f, keys_x, h + 6.0, 280.0, &items);
         }
-        None => {}
+        Some(BarMenu::Computers) => computers_menu(cv, f, app, s, computers_x, h + 6.0),
+        None => {
+            // Le nom du bouton survolé, sous la barre (jamais par-dessus un menu).
+            if let Some((r, name)) = tip {
+                tooltip(cv, r, h + 4.0, name);
+            }
+        }
+    }
+}
+
+/// Le nom d'un bouton de la barre, en petite capsule sous lui.
+fn tooltip(cv: &mut Canvas, r: Rect, y: f32, name: &str) {
+    let style = Text::new(Font::Regular, 12.5, FROST);
+    let w = cv.text_width(style, name) + 24.0;
+    let x = (r.x + r.w / 2.0 - w / 2.0).clamp(8.0, (cv.w - w - 8.0).max(8.0));
+    cv.rrect(x, y, w, 26.0, 8.0, Rgba(9, 13, 18, 240));
+    cv.rrect_stroke(x, y, w, 26.0, 8.0, 1.0, LINE_2);
+    cv.text(x + 12.0, y + 17.5, style, name);
+}
+
+/// Une ligne du menu « Ordinateurs » : l'ordinateur, son état, ce que fait un clic.
+struct ComputerRow {
+    index: usize,
+    label: String,
+    hint: &'static str,
+    dot: Rgba,
+    in_session: bool,
+    enabled: bool,
+}
+
+/// Vos autres ordinateurs, dans l'ordre de l'accueil (docs/link-ui.md, « Plusieurs ordinateurs ») :
+/// « {nom} — En ligne », avec le point de couleur de l'état (vert en ligne, rouge hors ligne,
+/// ambre pendant le réveil et pendant un redémarrage ou une mise à jour de la Station, gris
+/// pendant la recherche). Ceux qui sont déjà en session sont cochés et proposent « Afficher » ;
+/// les autres, ce que fait le bouton de l'accueil (se connecter, réveiller, réessayer) ; « Se
+/// connecter » est inactif quand quatre ordinateurs sont déjà en session.
+fn computer_rows(app: &App, s: &SessionUi) -> Vec<ComputerRow> {
+    app.store
+        .hosts
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| h.id != s.host)
+        .map(|(index, h)| {
+            let online = app.live.get(&h.id).map(|l| l.online).unwrap_or_default();
+            let (state, color) = match online {
+                Online::Online => (tr("En ligne", "Online"), OK),
+                Online::Offline => (tr("Hors ligne", "Offline"), BAD),
+                Online::Unknown => (tr("Recherche…", "Searching…"), FAINT),
+            };
+            let busy = app.is_waking(&h.id) || app.station(&h.id).is_some_and(|st| st.restarting || st.installing);
+            let in_session = app.session_of_host(&h.id).is_some();
+            let (target, action, _) = home::main_action(app, h);
+            let enabled = in_session || match target {
+                Target::Connect => !app.sessions_full(),
+                Target::Wake => !app.is_waking(&h.id),
+                _ => true,
+            };
+            ComputerRow { index, label: format!("{} — {state}", h.name), hint: if in_session { tr("Afficher", "Show") } else { action }, dot: if busy { WARN } else { color }, in_session, enabled }
+        })
+        .collect()
+}
+
+/// Le menu « Ordinateurs » : une ligne par autre ordinateur ; en pied, l'aide de la limite de
+/// quatre et le raccourci « Ordinateur suivant » (avec plusieurs sessions).
+fn computers_menu(cv: &mut Canvas, f: &mut Frame, app: &App, s: &SessionUi, x: f32, y: f32) {
+    let rows = computer_rows(app, s);
+    let mut footer: Vec<String> = Vec::new();
+    if app.sessions_full() {
+        footer.push(tr("Quatre ordinateurs au plus en même temps.", "Four computers at most at the same time.").into());
+    }
+    if app.sessions.len() >= 2 {
+        footer.push(format!("{} · Ctrl+Alt+{}+O", tr("Ordinateur suivant", "Next computer"), tr("Maj", "Shift")));
+    }
+    let (label, hint) = (Text::new(Font::Regular, 13.5, FROST), Text::new(Font::Regular, 12.0, FAINT));
+    let note = Text::new(Font::Regular, 12.0, FAINT);
+    let mut w = 320.0f32;
+    for r in &rows {
+        w = w.max(88.0 + cv.text_width(label, &r.label) + cv.text_width(hint, r.hint));
+    }
+    for l in &footer {
+        w = w.max(cv.text_width(note, l) + 36.0);
+    }
+    let w = w.min(cv.w - 16.0);
+    let x = x.min(cv.w - w - 8.0).max(8.0);
+    let ih = 36.0;
+    let foot_h = if footer.is_empty() { 0.0 } else { footer.len() as f32 * 22.0 + 8.0 };
+    let h = rows.len() as f32 * ih + 12.0 + foot_h;
+    cv.rrect(x, y, w, h, 10.0, Rgba(9, 13, 18, 245));
+    cv.rrect_stroke(x, y, w, h, 10.0, 1.0, LINE_2);
+    let mut yy = y + 6.0;
+    for r in &rows {
+        let rr = Rect::new(x + 6.0, yy, w - 12.0, ih);
+        let (focused, hover) = f.state(Target::BarComputer(r.index), rr);
+        if (hover || focused) && r.enabled {
+            cv.rrect(rr.x, rr.y, rr.w, rr.h, 7.0, Rgba(227, 237, 240, 16));
+        }
+        if r.in_session {
+            cv.icon(&Icon::Check, rr.x + 8.0, rr.y + 10.0, 16.0, 2.0, SPECTRE);
+        }
+        widgets::dot(cv, rr.x + 36.0, rr.y + ih / 2.0, 3.5, r.dot, false);
+        let fade = if r.enabled { 1.0 } else { 0.45 };
+        let lw = cv.text_fit(rr.x + 48.0, rr.y + 23.0, label.color(FROST.alpha(fade)), &r.label, rr.w - 60.0);
+        cv.text_fit(rr.x + 48.0 + lw + 14.0, rr.y + 23.0, hint.color(FAINT.alpha(fade)), r.hint, (rr.w - 60.0 - lw - 14.0).max(0.0));
+        yy += ih;
+    }
+    for l in &footer {
+        cv.text_fit(x + 18.0, yy + 16.0, note, l, w - 36.0);
+        yy += 22.0;
     }
 }
 

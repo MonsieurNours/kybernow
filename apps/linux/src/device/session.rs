@@ -20,27 +20,57 @@ use kybernow_core::{Display, WindowHandle};
 
 use super::media::AudioSink;
 use super::video::{Latest, VideoSink};
-use super::Event;
-use crate::app::Machine;
+use super::{sdl, Event, SessionEvent};
+use crate::app::{Machine, SessionId};
 use crate::model::{Host, Profile};
 
 /// Le presse-papiers du système, vu depuis le fil des entrées : SDL ne se
 /// touche que depuis le fil principal, qui recopie ici le texte du système
-/// et applique ce que l'ordinateur envoie.
-#[derive(Default)]
+/// et applique ce que l'ordinateur envoie. Avec plusieurs ordinateurs à la fois, seule
+/// la session active y touche (`set_active`) : le texte ne passe que par l'appareil, jamais
+/// d'un ordinateur à l'autre en arrière-plan.
 pub struct Clipboard {
     text: Mutex<Option<String>>,
     count: AtomicU64,
-    pub outgoing: Mutex<Option<String>>,
+    outgoing: Mutex<Option<String>>,
+    /// La session est active : elle lit le presse-papiers de l'appareil et y écrit.
+    active: AtomicBool,
 }
 
 impl Clipboard {
+    fn new() -> Self {
+        Self { text: Mutex::new(None), count: AtomicU64::new(0), outgoing: Mutex::new(None), active: AtomicBool::new(true) }
+    }
+
     /// Le texte du système (fil principal).
     pub fn system_text(&self, t: Option<String>) {
         let mut cur = self.text.lock().unwrap();
         if *cur != t {
             *cur = t;
             self.count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Active ou en pause. En pause : rien n'est lu sur l'appareil, ce que l'ordinateur y envoie
+    /// est écarté. Réveillée, la session reprend le texte de l'appareil au prochain `pump`, qui le
+    /// renvoie à l'ordinateur s'il a changé.
+    pub fn set_active(&self, active: bool) {
+        self.active.store(active, Ordering::Relaxed);
+    }
+
+    /// À chaque tour de la boucle principale (SDL ne se touche que d'ici) : ce que l'ordinateur
+    /// envoie est posé sur le presse-papiers de l'appareil ; `read` : le texte de l'appareil est
+    /// relu pour les entrées. Une session en pause ne fait ni l'un ni l'autre.
+    pub fn pump(&self, read: bool) {
+        let out = self.outgoing.lock().unwrap().take();
+        if !self.active.load(Ordering::Relaxed) {
+            return;
+        }
+        if let Some(t) = out {
+            sdl::set_clipboard(&t);
+        }
+        if read {
+            self.system_text(sdl::clipboard());
         }
     }
 }
@@ -61,6 +91,8 @@ impl Pasteboard for Clipboard {
 
 /// Ce que partagent la session, ses flux et la boucle principale.
 pub struct Shared {
+    /// L'identifiant de la session de l'app : tout ce qu'elle envoie à la boucle en est étiqueté.
+    pub id: SessionId,
     tx: Mutex<Sender<Event>>,
     session: OnceLock<Weak<Session>>,
     pub pointer: Arc<PointerLayer>,
@@ -87,6 +119,8 @@ pub struct Shared {
     pub hw_backend: i32,
     pub clipboard: Option<Arc<Clipboard>>,
     pub audio: Mutex<Option<Weak<AudioSink>>>,
+    /// Son coupé pour cette session (partagé avec ses sorties, que la reconnexion recrée).
+    muted: Arc<AtomicBool>,
 }
 
 /// Multi-écrans : ce que la plateforme a reçu de `Platform::on_screens`.
@@ -103,8 +137,23 @@ impl Shared {
         self.session.get().and_then(Weak::upgrade)
     }
 
-    fn send(&self, e: Event) {
-        let _ = self.tx.lock().unwrap().send(e);
+    fn send(&self, e: SessionEvent) {
+        let _ = self.tx.lock().unwrap().send(Event::Session(self.id, e));
+    }
+
+    /// Le son de la session est coupé ou rendu (fondu de 20 ms) : la session active et celles que
+    /// « Garder le son » laisse audibles s'entendent. Appelé d'un seul endroit (`device::focus`).
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.store(muted, Ordering::Relaxed);
+        if let Some(a) = self.audio.lock().unwrap().as_ref().and_then(Weak::upgrade) {
+            a.set_muted(muted);
+        }
+    }
+
+    /// Le son est coupé en ce moment.
+    #[allow(dead_code)]
+    pub fn muted(&self) -> bool {
+        self.muted.load(Ordering::Relaxed)
     }
 
     pub fn host_size(&self) -> (u32, u32) {
@@ -186,7 +235,7 @@ impl Shared {
         layer.set_on_changed(move |state, change| {
             let Some(sh) = weak.upgrade() else { return };
             let shape = if change.shape { state.shape.as_ref().map(|s| (s.width, s.height, s.hot_x, s.hot_y, s.premultiplied())) } else { None };
-            sh.send(Event::Pointer { screen, position: state.position(), hidden: state.remote_hidden, shape });
+            sh.send(SessionEvent::Pointer { screen, position: state.position(), hidden: state.remote_hidden, shape });
         });
         layer
     }
@@ -204,7 +253,7 @@ impl Shared {
     }
 
     pub fn decoder_failed(&self, e: &str) {
-        self.send(Event::DecoderFailed(e.to_string()));
+        self.send(SessionEvent::DecoderFailed(e.to_string()));
     }
 
     /// Un décodeur matériel pour ce format (0 H.264, 1 HEVC, 2 AV1).
@@ -265,14 +314,14 @@ impl Platform for LinuxPlatform {
         if let Some(p) = sh.current_input() {
             p.set_screens(sh.targets());
         }
-        sh.send(Event::Screens);
+        sh.send(SessionEvent::Screens);
     }
 
     fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
         if self.0.audio_channels == 0 {
             return None;
         }
-        let sink = AudioSink::new(self.0.audio_channels);
+        let sink = AudioSink::new(self.0.audio_channels, self.0.muted.clone());
         *self.0.audio.lock().unwrap() = Some(Arc::downgrade(&sink));
         Some(sink as Arc<dyn PacketHandler>)
     }
@@ -305,7 +354,7 @@ impl Platform for LinuxPlatform {
         if matches!(status, Status::Ended { .. }) {
             self.0.pointer.reset();
         }
-        self.0.send(Event::Status(status.clone()));
+        self.0.send(SessionEvent::Status(status.clone()));
     }
 
     fn on_display(&self, d: &Display) {
@@ -315,7 +364,7 @@ impl Platform for LinuxPlatform {
 
     fn on_mode(&self, mode: Mode, _virtual_display: bool) {
         *self.0.mode.lock().unwrap() = mode;
-        self.0.send(Event::Mode(mode));
+        self.0.send(SessionEvent::Mode(mode));
     }
 
     fn on_stream_stopped(&self) {
@@ -336,7 +385,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn on_second(&self, s: &Second) {
-        self.0.send(Event::Second {
+        self.0.send(SessionEvent::Second {
             latency_ms: s.latency_ms,
             fps: s.displayed as f64,
             mbps: s.bytes as f64 * 8.0 / 1e6,
@@ -347,7 +396,7 @@ impl Platform for LinuxPlatform {
     }
 
     fn on_game_fullscreen(&self, game: bool) {
-        self.0.send(Event::GameFullscreen(game));
+        self.0.send(SessionEvent::GameFullscreen(game));
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -361,7 +410,7 @@ impl Platform for LinuxPlatform {
             Notice::AdaptFailed { error } => error.clone(),
             Notice::RestoreOffer { .. } => return,
         };
-        self.0.send(Event::Notice(msg));
+        self.0.send(SessionEvent::Notice(msg));
     }
 }
 
@@ -369,17 +418,17 @@ struct InputCallbacks(Arc<Shared>);
 
 impl InputPlatform for InputCallbacks {
     fn rumble(&self, r: GamepadRumble) {
-        self.0.send(Event::Rumble(r));
+        self.0.send(SessionEvent::Rumble(r));
     }
 
     fn combo_formed(&self, _pad: PadId) {
-        self.0.send(Event::Combo);
+        self.0.send(SessionEvent::Combo);
     }
 
     /// Les entrées sont reliées à l'ordinateur : les manettes y sont annoncées,
     /// une fois par liaison.
     fn connected(&self) {
-        self.0.send(Event::InputReady);
+        self.0.send(SessionEvent::InputReady);
     }
 
     fn navigate(&self, _key: PadKey) {}
@@ -461,12 +510,13 @@ pub fn audio_channels(host: &Host, m: &Machine) -> u16 {
 /// (Steam Deck, salon, KyberNow Link OS). `current` : l'écran de la fenêtre,
 /// celui d'une session à un écran ; `mode` est celui de cet écran.
 #[allow(clippy::too_many_arguments)]
-pub fn start(host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, tx: Sender<Event>) -> Handle {
+pub fn start(id: SessionId, host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &Machine, relative: bool, device: DeviceInfo, screens: Option<Screens>, current: usize, tx: Sender<Event>) -> Handle {
     let (w, h, fps) = mode;
     let clock = Arc::new(MonotonicClock::new());
     let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
     let audio_channels = audio_channels(host, m);
     let shared = Arc::new(Shared {
+        id,
         tx: Mutex::new(tx),
         session: OnceLock::new(),
         pointer: pointer.clone(),
@@ -484,15 +534,16 @@ pub fn start(host: &Host, settings: StreamSettings, mode: (u32, u32, u32), m: &M
         primary: AtomicUsize::new(current),
         hw: [m.hw_h264 && (m.vaapi || m.pi.is_some()), m.hw_hevc && (m.vaapi || m.pi.is_some()), m.hw_av1 && m.vaapi],
         hw_backend: if m.pi.is_some() && !m.vaapi { 2 } else { 1 },
-        clipboard: host.settings.clipboard.then(|| Arc::new(Clipboard::default())),
+        clipboard: host.settings.clipboard.then(|| Arc::new(Clipboard::new())),
         audio: Mutex::new(None),
+        muted: Arc::new(AtomicBool::new(false)),
     });
     // Le pointeur de l'ordinateur : position et forme, pour la fenêtre.
     let weak = Arc::downgrade(&shared);
     pointer.set_on_changed(move |state, change| {
         let Some(sh) = weak.upgrade() else { return };
         let shape = if change.shape { state.shape.as_ref().map(|s| (s.width, s.height, s.hot_x, s.hot_y, s.premultiplied())) } else { None };
-        sh.send(Event::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
+        sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
     });
     let params = SessionParams {
         console_host: host.address.clone(),
@@ -551,6 +602,7 @@ mod tests {
         let clock = Arc::new(MonotonicClock::new());
         let pointer = Arc::new(PointerLayer::new(clock.clone(), true));
         let shared = Arc::new(Shared {
+            id: 7,
             tx: Mutex::new(tx),
             session: OnceLock::new(),
             pointer: pointer.clone(),
@@ -570,12 +622,13 @@ mod tests {
             hw_backend: 1,
             clipboard: None,
             audio: Mutex::new(None),
+            muted: Arc::new(AtomicBool::new(false)),
         });
         let weak = Arc::downgrade(&shared);
         pointer.set_on_changed(move |state, change| {
             let Some(sh) = weak.upgrade() else { return };
             let shape = if change.shape { state.shape.as_ref().map(|s| (s.width, s.height, s.hot_x, s.hot_y, s.premultiplied())) } else { None };
-            sh.send(Event::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
+            sh.send(SessionEvent::Pointer { screen: sh.primary(), position: state.position(), hidden: state.remote_hidden, shape });
         });
         (shared, rx)
     }
@@ -596,12 +649,12 @@ mod tests {
         let platform = LinuxPlatform(sh.clone());
         // L'écran 2 de l'appareil est l'écran principal de la session (un seul écran : « Cet écran »).
         platform.on_screens(&[stream(2, 5, 1920, 1080, true)], &[]);
-        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Screens))));
         assert_eq!((sh.primary(), sh.screens().streams.len(), sh.layers.lock().unwrap().len()), (2, 1, 0));
         assert_eq!(sh.host_size_of(2), (1920, 1080));
         // Trois écrans, dont un que l'ordinateur n'a pas pu créer.
         platform.on_screens(&[stream(0, 1, 3840, 2160, true), stream(1, 7, 5120, 2880, false)], &[2]);
-        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Screens))));
         let st = sh.screens();
         assert_eq!((sh.primary(), st.streams.len(), st.not_created.clone()), (0, 2, vec![2]));
         assert_eq!((sh.host_size_of(0), sh.host_size_of(1)), ((3840, 2160), (5120, 2880)));
@@ -626,27 +679,27 @@ mod tests {
         let (sh, rx) = shared(0);
         let platform = LinuxPlatform(sh.clone());
         platform.on_screens(&[stream(0, 1, 3840, 2160, true), stream(1, 7, 5120, 2880, false)], &[]);
-        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Screens))));
         let other = sh.layers.lock().unwrap().get(&1).cloned().unwrap();
         // Le jeu cache son pointeur sur l'écran principal ; l'autre écran ne l'a jamais vu : caché
         // (un écran jamais visité ne compte pas, règle du cœur).
         sh.pointer.remote_cursor_changed(cursor(false));
         assert!(sh.pointer.state().remote_hidden && sh.pointer_summary().0);
         match rx.try_recv() {
-            Ok(Event::Pointer { screen, hidden, .. }) => assert_eq!((screen, hidden), (0, true)),
+            Ok(Event::Session(7, SessionEvent::Pointer { screen, hidden, .. })) => assert_eq!((screen, hidden), (0, true)),
             _ => panic!("le pointeur de l'écran principal arrive avec son écran"),
         }
         // Le pointeur passe sur l'autre écran, où il est visible : pas caché.
         other.remote_cursor_changed(cursor(true));
         assert!(!sh.pointer_summary().0);
         match rx.try_recv() {
-            Ok(Event::Pointer { screen, hidden, .. }) => assert_eq!((screen, hidden), (1, false)),
+            Ok(Event::Session(7, SessionEvent::Pointer { screen, hidden, .. })) => assert_eq!((screen, hidden), (1, false)),
             _ => panic!("le pointeur de l'autre écran arrive avec son écran"),
         }
         // Caché sur les deux : caché.
         other.remote_cursor_changed(cursor(false));
         match rx.try_recv() {
-            Ok(Event::Pointer { screen, hidden, .. }) => assert_eq!((screen, hidden), (1, true)),
+            Ok(Event::Session(7, SessionEvent::Pointer { screen, hidden, .. })) => assert_eq!((screen, hidden), (1, true)),
             _ => panic!("le pointeur de l'autre écran arrive avec son écran"),
         }
         assert!(sh.pointer_summary().0);
@@ -723,10 +776,10 @@ mod tests {
         let (sh, rx) = shared(1);
         let platform = LinuxPlatform(sh.clone());
         platform.on_screens(&[stream(1, 5, 1920, 1080, true)], &[]);
-        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Screens))));
         let decoder_side = sh.fresh_latest(1);
         platform.on_screens(&[stream(0, 5, 1920, 1080, true)], &[]);
-        assert!(matches!(rx.try_recv(), Ok(Event::Screens)));
+        assert!(matches!(rx.try_recv(), Ok(Event::Session(7, SessionEvent::Screens))));
         assert_eq!(sh.primary(), 0);
         assert!(Arc::ptr_eq(&decoder_side, &sh.latest_for(0)), "la file du flux suit son écran");
         // Plusieurs écrans : rien ne bouge d'un écran à l'autre.
