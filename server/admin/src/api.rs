@@ -753,17 +753,19 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
     let av1 = gpu_name.as_deref().is_some_and(|n| ["RTX 40", "RTX 50", "RTX 2000 Ada", "RTX 4000 Ada", "RTX 5000 Ada", "RTX 6000 Ada", "L4", "L40"].iter().any(|m| n.contains(m)));
     let (d, a) = (s.display.clone(), s.audio.clone());
     let (display, audio) = blocking(move || Ok((d.status(), a.status()))).await?;
+    let available = display["driver"]["available"].as_bool().unwrap_or(false);
+    let trigger = s.display.settings.lock().unwrap().trigger;
     Ok(Json(json!({
         "hostname": hostname::get().ok().map(|h| h.to_string_lossy().into_owned()),
         "os": crate::system::os_name(),
         "gpu": gpu_name,
         "av1": av1,
         "virtual_display": {
-            "available": display["driver"]["available"].as_bool().unwrap_or(false),
+            "available": available,
             "trigger": display["settings"]["trigger"],
             "active": !display["session"].is_null(),
             // Écrans que cette Station sait créer pour une session (multi-écrans).
-            "max_screens": crate::display::MAX_SCREENS,
+            "max_screens": max_screens(available, trigger),
         },
         "audio": {
             "speakers": !audio["devices"]["speakers"].is_null(),
@@ -776,6 +778,12 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
         // lues en mémoire ; les apps les gardent pour réveiller l'ordinateur.
         "wake": crate::wake::cards(),
     })))
+}
+
+/// Écrans qu'une session peut avoir : 1 sans écran virtuel utilisable
+/// (pilote absent, déclenchement coupé), comme une Station antérieure.
+fn max_screens(available: bool, trigger: Trigger) -> usize {
+    if available && trigger != Trigger::Off { crate::display::MAX_SCREENS } else { 1 }
 }
 
 /// La Station pour la rubrique « Station » des réglages des apps : sa
@@ -1927,6 +1935,13 @@ mod tests {
         let c = console_with_account();
         let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
         assert_eq!(info["virtual_display"]["max_screens"], 4);
+        // Écran virtuel inutilisable : un seul écran annoncé.
+        assert_eq!(max_screens(false, Trigger::Apps), 1);
+        assert_eq!(max_screens(true, Trigger::Off), 1);
+        assert_eq!(max_screens(true, Trigger::All), 4);
+        c.s.display.settings.lock().unwrap().trigger = Trigger::Off;
+        let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+        assert_eq!(info["virtual_display"]["max_screens"], 1);
     }
 
     #[tokio::test]

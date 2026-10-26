@@ -64,7 +64,7 @@ Response: on top of the current fields (`applied` stays the main display's mode)
 ]
 ```
 
-`GET /api/stream/info` gives `virtual_display.max_screens`: the number of displays the Station can create (4); absent on an earlier Station, which creates only one. The home screen and the session plan never ask for more displays than that.
+`GET /api/stream/info` gives `virtual_display.max_screens`: the number of displays the Station can create (4), or 1 when the virtual display cannot be used (no driver, trigger off); absent on an earlier Station, which creates only one. The home screen and the session plan never ask for more displays than that.
 
 Heartbeat, end of session and takeover do not change: one session, one device.
 

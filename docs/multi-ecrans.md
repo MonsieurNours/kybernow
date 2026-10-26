@@ -64,7 +64,7 @@ Réponse : en plus des champs actuels (`applied` reste le mode de l'écran princ
 ]
 ```
 
-`GET /api/stream/info` donne `virtual_display.max_screens` : le nombre d'écrans que la Station sait créer (4) ; absent chez une Station antérieure, qui n'en crée qu'un. L'accueil et le plan de la session ne demandent jamais plus d'écrans que ce nombre.
+`GET /api/stream/info` donne `virtual_display.max_screens` : le nombre d'écrans que la Station sait créer (4), ou 1 quand l'écran virtuel n'est pas utilisable (pilote absent, déclenchement coupé) ; absent chez une Station antérieure, qui n'en crée qu'un. L'accueil et le plan de la session ne demandent jamais plus d'écrans que ce nombre.
 
 Signal de vie, fin de session et reprise de main ne changent pas : une session, un appareil.
 
