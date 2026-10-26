@@ -28,6 +28,8 @@
 #[cfg(windows)]
 pub mod agent;
 #[cfg(windows)]
+pub mod cursor;
+#[cfg(windows)]
 pub mod pointer;
 #[cfg(windows)]
 mod sudovda;
@@ -104,6 +106,12 @@ pub struct VdSettings {
     /// Politique par défaut, quand l'app n'en donne pas (`mode_policy`).
     #[serde(default)]
     pub on_mode_change: ModePolicy,
+    /// Réglage d'essai (multi-écrans, à la main dans `kyber-admin.toml`) :
+    /// créer les écrans secondaires d'abord et le principal en dernier,
+    /// même disposition et même écran principal de Windows. Pour savoir si
+    /// un défaut suit le premier écran créé par le pilote ou l'écran principal.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub primary_created_last: bool,
 }
 
 fn default_width() -> u32 {
@@ -124,6 +132,7 @@ impl Default for VdSettings {
             height: default_height(),
             refresh: default_refresh(),
             on_mode_change: ModePolicy::default(),
+            primary_created_last: false,
         }
     }
 }
@@ -525,6 +534,22 @@ fn other_streamer(exe: &str) -> Option<&'static str> {
     }
 }
 
+/// Cran de la taille du pointeur de Windows (1 à 15, base de 32 px plus 16
+/// par cran, comme la page Accessibilité › Pointeur de la souris) qui dépasse
+/// 64 pixels réels à l'échelle `min_scale` (en %) : au-delà de 64 × 64,
+/// SudoVDA ne peut plus en faire un curseur matériel. Rend (cran, base).
+pub fn pointer_step(min_scale: u32) -> (u32, u32) {
+    let scale = min_scale.max(100);
+    (1..=15).map(|n| (n, 32 + (n - 1) * 16)).find(|(_, base)| base * scale / 100 > 64).unwrap_or((15, 256))
+}
+
+/// Taille du pointeur d'avant la session (valeurs du profil ; `None` : absente).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+struct PointerRecord {
+    previous_base: Option<u32>,
+    previous_size: Option<u32>,
+}
+
 /// Une remise du mode d'un écran (politique `restore`).
 struct Fix {
     /// Rang de l'écran dans la session.
@@ -642,6 +667,11 @@ trait Backend: Send + Sync {
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>>;
     /// Exécutables en marche sur l'ordinateur (pour repérer un autre serveur de streaming).
     fn process_names(&self) -> Vec<String>;
+    /// Agrandit le pointeur de Windows au cran `step` s'il est plus petit
+    /// (profil de l'utilisateur de la session) ; voir `cursor::enlarge`.
+    fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value>;
+    /// Remet la taille du pointeur d'avant la session.
+    fn restore_pointer(&self, record: PointerRecord) -> Result<Value>;
     /// Crée l'écran de rang `slot` (0 : le principal ; donne son numéro de série).
     fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created>;
     fn remove(&self, guid: [u8; 16]) -> Result<()>;
@@ -737,6 +767,56 @@ impl Manager {
         }
     }
 
+    fn pointer_path(&self) -> PathBuf {
+        self.data_dir.join("pointer-size-session.json")
+    }
+
+    /// Session à plusieurs écrans : pointeur agrandi juste assez pour que
+    /// Windows le dessine lui-même sur chaque écran virtuel (voir
+    /// `cursor.rs`). La taille d'origine est notée avant, une seule fois.
+    fn enlarge_pointer(&self, min_scale: u32) {
+        let (step, base) = pointer_step(min_scale);
+        match self.backend.enlarge_pointer(step, base) {
+            Ok(v) if v["changed"].as_bool() == Some(true) => {
+                let record = PointerRecord {
+                    previous_base: v["previous_base"].as_u64().map(|n| n as u32),
+                    previous_size: v["previous_size"].as_u64().map(|n| n as u32),
+                };
+                // Un fichier resté d'une session interrompue garde la vraie taille d'origine.
+                if !self.pointer_path().exists() {
+                    if let Ok(bytes) = serde_json::to_vec(&record) {
+                        let _ = std::fs::write(self.pointer_path(), bytes);
+                    }
+                }
+                tracing::info!(
+                    "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %, largeur lue {}), avant : base {} px",
+                    v["cursor_width"],
+                    record.previous_base.unwrap_or(32)
+                );
+            }
+            Ok(v) => tracing::info!("pointeur de Windows déjà assez grand pour les écrans virtuels (base {} px)", v["base"]),
+            Err(e) => tracing::warn!("pointeur de Windows non agrandi : {e:#}"),
+        }
+    }
+
+    /// Remet la taille du pointeur notée par `enlarge_pointer`, s'il y en a
+    /// une : fin de session, reprise après plantage, début de la session
+    /// suivante. Le fichier reste tant que ce n'est pas fait.
+    fn restore_pointer(&self) {
+        let Ok(text) = std::fs::read_to_string(self.pointer_path()) else { return };
+        let Ok(record) = serde_json::from_str::<PointerRecord>(&text) else {
+            let _ = std::fs::remove_file(self.pointer_path());
+            return;
+        };
+        match self.backend.restore_pointer(record) {
+            Ok(v) => {
+                let _ = std::fs::remove_file(self.pointer_path());
+                tracing::info!("taille du pointeur de Windows rendue : base {} px (largeur lue {})", v["base"], v["cursor_width"]);
+            }
+            Err(e) => tracing::warn!("taille du pointeur de Windows pas encore rendue : {e:#}"),
+        }
+    }
+
     fn fail(&self, e: &anyhow::Error) {
         tracing::error!("écran virtuel : {e:#}");
         *self.last_error.lock().unwrap() = Some(format!("{e:#}"));
@@ -744,6 +824,7 @@ impl Manager {
 
     /// Après un plantage ou une coupure : retire les écrans et restaure les écrans physiques.
     pub fn recover(&self) {
+        self.restore_pointer();
         let Ok(text) = std::fs::read_to_string(self.record_path()) else { return };
         tracing::warn!("session d'écran virtuel interrompue trouvée : restauration des écrans");
         if let Ok(record) = serde_json::from_str::<Record>(&text) {
@@ -863,6 +944,9 @@ impl Manager {
         }
         // Autres écrans (un autre appareil prend la main) : on repart de zéro.
         self.stop_locked("remplacée par une nouvelle session");
+        // Taille du pointeur restée d'une session interrompue (personne n'était
+        // connecté à Windows quand Admin a redémarré) : rendue maintenant.
+        self.restore_pointer();
 
         // Identifiants fixes : Windows retrouve la disposition de session
         // enregistrée pour ces écrans (voir topology.rs).
@@ -892,25 +976,58 @@ impl Manager {
                 Err(e) => tracing::warn!("carte de rendu des écrans virtuels : {e:#}"),
             }
         }
-        let mut pending: Vec<(usize, [u8; 16], Created)> = Vec::new();
-        for (slot, &index) in slot_order(&layout).iter().enumerate() {
+        // Rang de chaque écran (0 : le principal), et ordre de création :
+        // le principal d'abord, sauf réglage d'essai `primary_created_last`.
+        let order = slot_order(&layout);
+        let mut ranks: Vec<usize> = (0..order.len()).collect();
+        if layout.len() > 1 && self.settings.lock().unwrap().primary_created_last {
+            ranks.rotate_left(1);
+        }
+        if layout.len() > 1 {
+            tracing::info!(
+                "ordre de création des écrans virtuels : {}",
+                ranks
+                    .iter()
+                    .map(|&slot| {
+                        let role = if slot == 0 { "principal" } else { "secondaire" };
+                        format!("{} ({role})", label(layout[order[slot]].mode()))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", puis ")
+            );
+        }
+        let mut created_slots: Vec<(usize, usize, [u8; 16], Created)> = Vec::new();
+        for slot in ranks {
+            let index = order[slot];
             let guid = slot_guid(slot);
             match self.backend.create(guid, slot, layout[index].mode()) {
                 Ok(created) => {
-                    pending.push((index, guid, created));
+                    created_slots.push((slot, index, guid, created));
                     // Pinguer dès le premier écran : le chien de garde du
                     // pilote est armé à sa création, et la suite (autres
                     // écrans, isolement) peut durer plus que lui.
                     self.alive.store(true, Ordering::SeqCst);
-                    self.write_record(&pending.iter().map(|p| p.1).collect::<Vec<_>>());
+                    self.write_record(&created_slots.iter().map(|p| p.2).collect::<Vec<_>>());
                 }
                 Err(e) if slot == 0 => {
                     self.fail(&e);
+                    // Principal créé en dernier : les secondaires sont déjà là.
+                    if !created_slots.is_empty() {
+                        for (_, _, guid, _) in &created_slots {
+                            let _ = self.backend.remove(*guid);
+                        }
+                        self.alive.store(false, Ordering::SeqCst);
+                    }
+                    let _ = std::fs::remove_file(self.record_path());
                     return Err(e);
                 }
                 Err(e) => tracing::warn!("écran virtuel {} sur {} non créé : {e:#}", slot + 1, layout.len()),
             }
         }
+        // La suite les veut dans l'ordre des rangs, le principal en premier.
+        created_slots.sort_by_key(|p| p.0);
+        let pending: Vec<(usize, [u8; 16], Created)> =
+            created_slots.into_iter().map(|(_, index, guid, created)| (index, guid, created)).collect();
         let asked: Vec<(Created, Screen)> = pending.iter().map(|(index, _, created)| (*created, layout[*index])).collect();
         let applied = match self.backend.isolate(&asked) {
             Ok(v) => v,
@@ -930,6 +1047,11 @@ impl Manager {
         // `applied` reste le mode du principal ; les écrans vont dans `screens` de la réponse.
         let mut applied = applied;
         log_notes(&mut applied);
+        let min_scale = applied
+            .as_object_mut()
+            .and_then(|o| o.remove("scales"))
+            .and_then(|v| v.as_array().map(|a| a.iter().filter_map(Value::as_u64).min()))
+            .flatten();
         if let Some(o) = applied.as_object_mut() {
             o.remove("screens");
         }
@@ -944,6 +1066,9 @@ impl Manager {
             }
         }
         self.write_record(&slots.iter().map(|s| s.guid).collect::<Vec<_>>());
+        if slots.len() > 1 {
+            self.enlarge_pointer(min_scale.map_or(100, |s| s as u32));
+        }
         tracing::info!(
             "{} écran(s) virtuel(s) actif(s) ({origin:?}) : {}, prêt(s) en {} ms",
             slots.len(),
@@ -1060,6 +1185,7 @@ impl Manager {
             }
         }
         self.alive.store(false, Ordering::SeqCst);
+        self.restore_pointer();
         std::thread::sleep(Duration::from_millis(500));
         match self.backend.restore() {
             // Le fichier de session reste tant que les écrans ne sont pas
@@ -1372,6 +1498,12 @@ struct SimScreen {
     render_vendor: Option<u16>,
     /// Exécutables en marche.
     processes: Vec<String>,
+    /// Rangs des écrans dans l'ordre de leur création.
+    created: Vec<usize>,
+    /// Base du pointeur (`None` : valeur absente du profil) ; Windows refuse
+    /// d'y toucher (pas de session ouverte).
+    pointer_base: Option<u32>,
+    pointer_fails: bool,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1399,6 +1531,26 @@ impl Backend for Simulated {
     fn process_names(&self) -> Vec<String> {
         self.screen.lock().unwrap().processes.clone()
     }
+    fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value> {
+        let mut screen = self.screen.lock().unwrap();
+        if screen.pointer_fails {
+            bail!("(simulé) aucune session Windows ouverte");
+        }
+        let previous = screen.pointer_base;
+        if previous.unwrap_or(32) >= base {
+            return Ok(json!({ "changed": false, "base": previous.unwrap_or(32) }));
+        }
+        screen.pointer_base = Some(base);
+        Ok(json!({ "changed": true, "base": base, "step": step, "previous_base": previous, "previous_size": null, "cursor_width": base }))
+    }
+    fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
+        let mut screen = self.screen.lock().unwrap();
+        if screen.pointer_fails {
+            bail!("(simulé) aucune session Windows ouverte");
+        }
+        screen.pointer_base = record.previous_base;
+        Ok(json!({ "base": record.previous_base.unwrap_or(32), "cursor_width": record.previous_base.unwrap_or(32) }))
+    }
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
         self.screen.lock().unwrap().render_vendor = Some(vendor);
         Ok(Some(format!("(simulée) VEN_{vendor:04X}")))
@@ -1410,6 +1562,7 @@ impl Backend for Simulated {
         }
         tracing::info!("(simulé) création d'un écran {}×{} à {} Hz", mode.width, mode.height, mode.refresh);
         *screen.slot_mut(slot) = Some(mode);
+        screen.created.push(slot);
         Ok(Created { luid_low: 0, luid_high: 0, target: slot as u32 })
     }
     fn remove(&self, guid: [u8; 16]) -> Result<()> {
@@ -1444,6 +1597,7 @@ impl Backend for Simulated {
         let mut applied = json!({ "gdi_name": sim_gdi_name(0), "width": primary.width, "height": primary.height, "refresh": primary.refresh, "disabled_others": disabled });
         if screens.len() > 1 {
             applied["screens"] = Value::Array(list);
+            applied["scales"] = json!(vec![150; screens.len()]);
         }
         Ok(applied)
     }
@@ -1520,6 +1674,20 @@ mod windows {
                 let (timeout, _) = d.watchdog().unwrap_or((0, 0));
                 Ok(json!({ "version": d.protocol_version()?, "watchdog_seconds": timeout }))
             })
+        }
+        fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value> {
+            let args = ["pointer-size".to_string(), "--step".into(), step.to_string(), "--base".into(), base.to_string()];
+            agent::run_as_user(&args, 15_000)
+        }
+        fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
+            let mut args = vec!["pointer-restore".to_string()];
+            if let Some(base) = record.previous_base {
+                args.extend(["--base".to_string(), base.to_string()]);
+            }
+            if let Some(size) = record.previous_size {
+                args.extend(["--size".to_string(), size.to_string()]);
+            }
+            agent::run_as_user(&args, 15_000)
         }
         fn process_names(&self) -> Vec<String> {
             use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -2045,6 +2213,89 @@ mod tests {
         let (m, sim, _) = simulated(VdSettings::default());
         sim.screen.lock().unwrap().processes = vec!["explorer.exe".into(), "sunshine.exe".into()];
         assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_ok());
+    }
+
+    #[test]
+    fn reglage_d_essai_principal_cree_en_dernier() {
+        let settings = VdSettings { primary_created_last: true, ..VdSettings::default() };
+        let (m, sim, _) = simulated(settings);
+        let started = m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        // Même résultat qu'avec l'ordre habituel : principal en (0, 0), le
+        // principal donné en premier à l'isolement.
+        assert_eq!(started.screens, trois_ecrans().into_iter().map(Some).collect::<Vec<_>>());
+        assert_eq!(sim.screen.lock().unwrap().last_isolate, vec![(0, 0, 0), (1, 3840, 0), (2, -3456, 400)]);
+        assert_eq!(sim.screen.lock().unwrap().created, vec![1, 2, 0]);
+        // Le principal refusé en dernier : les secondaires déjà créés sont retirés.
+        m.stop("fin du test");
+        sim.screen.lock().unwrap().create_fails = vec![0];
+        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_err());
+        assert_eq!(sim.screen.lock().unwrap().exists(), 0);
+        assert!(!m.alive.load(Ordering::SeqCst));
+        // Une session à un écran ne change pas, et le réglage n'est écrit que s'il est mis.
+        assert!(!toml::to_string(&VdSettings::default()).unwrap().contains("primary_created_last"));
+    }
+
+    #[test]
+    fn cran_du_pointeur_selon_l_echelle() {
+        // Le premier cran qui dépasse 64 pixels réels.
+        assert_eq!(pointer_step(150), (2, 48)); // 72 px
+        assert_eq!(pointer_step(100), (4, 80));
+        assert_eq!(pointer_step(125), (3, 64)); // 80 px
+        assert_eq!(pointer_step(175), (2, 48)); // 84 px
+        assert_eq!(pointer_step(200), (2, 48)); // 96 px (32 × 2 = 64 : pas assez)
+        assert_eq!(pointer_step(300), (1, 32)); // 96 px : la taille de base suffit
+        assert_eq!(pointer_step(0), (4, 80)); // échelle inconnue : 100 %
+    }
+
+    #[test]
+    fn pointeur_agrandi_le_temps_d_une_session_a_plusieurs_ecrans() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        // Un écran : rien ne change.
+        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, None);
+        m.stop("fin du test");
+        // Trois écrans à 150 % : cran 2, taille d'origine notée.
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        assert!(m.pointer_path().exists());
+        // Mêmes écrans redemandés : rien ne bouge.
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        // Fin de session : taille rendue (valeur absente à l'origine), fichier retiré.
+        m.stop("fin du test");
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, None);
+        assert!(!m.pointer_path().exists());
+
+        // Pointeur déjà grand (cran 3) : laissé tel quel, rien à rendre.
+        sim.screen.lock().unwrap().pointer_base = Some(64);
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(64));
+        assert!(!m.pointer_path().exists());
+        m.stop("fin du test");
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(64));
+    }
+
+    #[test]
+    fn taille_du_pointeur_rendue_apres_un_plantage() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().pointer_base = Some(32);
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        // Admin s'arrête net ; au redémarrage, personne n'est encore connecté à Windows.
+        sim.screen.lock().unwrap().pointer_fails = true;
+        let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
+        again.recover();
+        assert!(again.pointer_path().exists());
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        // La session suivante (même à un écran) la rend d'abord.
+        sim.screen.lock().unwrap().pointer_fails = false;
+        again.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(32));
+        assert!(!again.pointer_path().exists());
+        // La taille notée est celle d'avant l'agrandissement.
+        again.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        let record: PointerRecord = serde_json::from_slice(&std::fs::read(again.pointer_path()).unwrap()).unwrap();
+        assert_eq!(record.previous_base, Some(32));
     }
 
     #[test]

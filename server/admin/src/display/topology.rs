@@ -564,6 +564,7 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     // Ce que Windows a mis en place pour chaque écran, échelle comprise
     // (`facts`, écrit par Admin dans son journal pour comparer les écrans).
     let mut facts: Vec<String> = Vec::new();
+    let mut scales: Vec<Option<u32>> = Vec::new();
     let list: Vec<Value> = names
         .iter()
         .map(|name| {
@@ -573,8 +574,14 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
                 return Value::Null;
             }
             let (x, y) = current_position(name);
-            let scale = scale_at(x, y).map_or("inconnue".to_string(), |s| format!("{s} %"));
-            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), échelle {scale}"));
+            let measured = scale_at(x, y);
+            scales.push(measured);
+            let scale = measured.map_or("inconnue".to_string(), |s| format!("{s} %"));
+            // La même place vue par la configuration CCD (source) et par le
+            // moniteur (rectangle) : elles doivent coïncider avec celle de GDI.
+            let ccd = ccd_position(name).map_or("?".to_string(), |(cx, cy)| format!("({cx}, {cy})"));
+            let rect = monitor_rect(x, y).map_or("?".to_string(), |(l, t, r, b)| format!("({l}, {t})-({r}, {b})"));
+            facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), source CCD {ccd}, moniteur {rect}, échelle {scale}"));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
         .collect();
@@ -588,7 +595,38 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "screens": list,
         "notes": notes,
         "facts": facts,
+        "scales": scales,
     }))
+}
+
+/// Position de la source de l'écran `name` (nom GDI) dans la configuration CCD active.
+fn ccd_position(name: &str) -> Option<(i32, i32)> {
+    let (paths, modes) = active_config().ok()?;
+    let path = paths.iter().find(|p| gdi_name(p).as_deref() == Some(name))?;
+    let idx = unsafe { path.sourceInfo.Anonymous.modeInfoIdx } as usize;
+    let mode = modes.get(idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE)?;
+    let position = unsafe { mode.Anonymous.sourceMode.position };
+    Some((position.x, position.y))
+}
+
+/// Rectangle du moniteur dont le coin haut gauche est en (`x`, `y`), en
+/// pixels réels (contexte DPI par écran le temps de l'appel).
+fn monitor_rect(x: i32, y: i32) -> Option<(i32, i32, i32, i32)> {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromPoint};
+    use windows_sys::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetThreadDpiAwarenessContext};
+    unsafe {
+        let previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let monitor = MonitorFromPoint(POINT { x: x + 1, y: y + 1 }, MONITOR_DEFAULTTONULL);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = size_of::<MONITORINFO>() as u32;
+        let ok = !monitor.is_null() && GetMonitorInfoW(monitor, &mut info) != 0;
+        if !previous.is_null() {
+            SetThreadDpiAwarenessContext(previous);
+        }
+        let r = info.rcMonitor;
+        ok.then_some((r.left, r.top, r.right, r.bottom))
+    }
 }
 
 /// Échelle (en %) de l'écran dont le coin haut gauche est en (`x`, `y`),
