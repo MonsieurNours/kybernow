@@ -47,10 +47,6 @@
 #         premières captures d'un écran, taille et format de la texture DXGI,
 #         mode et position de l'écran, premières et dernières colonnes non
 #         noires de la ligne du milieu (image décalée dans la texture ?)
-#   0018  duplication (txproto, libavgrab) : processus par moniteur v2 pour
-#         le DPI, IDXGIOutput5::DuplicateOutput1 en BGRA 8 bits, repli sur
-#         DuplicateOutput ; essai contre l'image décalée des écrans SudoVDA
-#         secondaires
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
