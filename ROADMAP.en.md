@@ -13,10 +13,12 @@ What is planned or still to try, and only here: the other documents describe wha
 - **LG TVs**: latency on the G2 at 4K 120 Hz, 1440p and 1080p, at 30, 60 and 120 fps; audio-video offset and added latency of 5.1 Dolby; Magic Remote as mouse: motion sent while the TV's pointer is hidden.
 - **Station**: the “For any connection” mode (virtual display created during the stream); on a real Windows PC, restarting and updating the Station from an app, the connection last resort, the network cards listed for waking, and a real wake from sleep and after a full shutdown.
 - **Icon next to the clock**: on the Mac, system notifications (and their permission request), registering to open at login and a real launch at login, closing the window in full screen during a session; on a real Windows PC, the top of the menu during a session and the lit icon, 100% and 200% scaling, notification banners, “still not responding” after 2 min of waking.
+- **Multiple displays**: on a Windows PC and a Linux machine with several displays (validated on Mac on 26/10/2026); a session on several displays right after the Station is installed or restarted.
 - **Audit measurements** described in [docs/archives/mesures.en.md](docs/archives/mesures.en.md): Mac app display latency, Windows permissions, saturated Wi-Fi, SudoVDA virtual display modes.
 
 ## KyberNow Station and Admin
 
+- **Virtual display without workarounds**: a driver that truly handles several displays (SudoVDA fixed and rebuilt, or Kidd), to remove the pointer enlargement and the Windows Graphics Capture of secondary displays (see `server/README.en.md`).
 - **HDR**: FP16 capture and HDR10 conversion in Kyber (costed study, in French: [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Kidd virtual display** once Kyber ships it, behind the interface already in place.
 - **KyberNow-signed audio driver** (EV certificate + Partner Center), should Steam's speakers no longer be enough.
@@ -27,8 +29,7 @@ What is planned or still to try, and only here: the other documents describe wha
 
 ## KyberNow Link
 
-- **Multiple displays** (in progress): one virtual display on the computer per display of the device, laid out like them, each in a full-screen window, in the Mac, Windows and Linux apps. The main display keeps its refresh rate, the others run at 60 Hz. Per-computer “Displays” setting: Auto (all displays in Desktop and Max, one in Game), This display, All displays. Kyber patch: bitrate shared out by each display's pixels per second instead of in equal parts.
-- **Several computers at once** (after multiple displays): one session window per computer in the Mac and Windows apps; controllers read by the app and sent to the active window (kynput's SDL opens only once per app); the sessions' sound mixed.
+- **Several computers at once**: one session window per computer in the Mac and Windows apps; controllers read by the app and sent to the active window (kynput's SDL opens only once per app); the sessions' sound mixed.
 - **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
 - **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.

@@ -5,8 +5,11 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
-## 0.5.4
+## 0.6.0
 
+- **Plusieurs écrans, sur Mac, Windows et Linux** : une session peut prendre tous les écrans de votre appareil. L'ordinateur crée un écran pour chacun, placé de la même façon, et chaque écran de l'appareil affiche le sien en plein écran ; le pointeur passe de l'un à l'autre, une fenêtre glissée suit. Nouveau réglage « Écrans » dans les réglages de l'ordinateur (rubrique Image) : Auto (tous les écrans en profil Bureau et Max, un seul en Jeu et en Personnalisé), Cet écran, Tous les écrans. L'écran principal garde sa fréquence, les autres passent à 60 Hz ; jusqu'à quatre écrans. Un écran branché ou débranché en cours de session : la session se refait toute seule. Il faut une Station en 0.6.0 : avec une Station plus ancienne, la session reste sur un écran.
+- Station : le débit se partage selon la taille et la fréquence de chaque écran. Pendant une session à plusieurs écrans, la Station agrandit le pointeur de Windows (les apps le dessinent toujours à leur taille, vous ne voyez rien) et capture les écrans secondaires par une autre méthode de Windows, pour contourner deux défauts du pilote d'écran virtuel ; la taille du pointeur est rendue à la fin.
+- Sur Windows et Linux, le multi-écrans n'a pas encore été essayé sur un vrai ordinateur à plusieurs écrans : vos retours sont les bienvenus sur le Discord.
 - **Barre de session au pointeur, sur Mac, Windows, Linux et dans le client web** : elle s'ouvre quand le pointeur reste un quart de seconde contre le haut de l'image, au milieu, sur la largeur de la barre, et seulement quand l'app est au premier plan et la souris en mode bureau. Elle ne s'ouvre plus en passant, ni quand le pointeur est sur un autre écran que celui de la session (Mac), ni pendant qu'une fenêtre de l'ordinateur est glissée vers le haut. Elle se referme 0,4 s après que le pointeur l'a quittée, jamais pendant qu'un de ses menus est ouvert. Un petit trait en haut de l'image montre l'endroit quand le geste est possible, maintenant aussi sur Windows et Linux.
 - Windows : en fenêtre, la barre se place en haut de l'image de la session.
 - Mac : en fenêtre, le bouton de fermeture des statistiques, la proposition d'adapter l'écran et le bas de la barre prennent les clics au bon endroit.
