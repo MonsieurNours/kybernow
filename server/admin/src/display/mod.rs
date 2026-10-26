@@ -513,6 +513,18 @@ fn pick_adapter(adapters: &Value, vendor: u16) -> Option<(u32, i32, String)> {
     })
 }
 
+/// Autres serveurs de streaming, d'après le nom de leur exécutable : ils
+/// pilotent eux aussi les écrans (disposition, écrans virtuels ; Apollo parle
+/// au même pilote SudoVDA que la Station).
+fn other_streamer(exe: &str) -> Option<&'static str> {
+    match exe.to_ascii_lowercase().as_str() {
+        // Apollo garde le nom d'exécutable de Sunshine.
+        "sunshine.exe" | "sunshinesvc.exe" => Some("Sunshine ou Apollo"),
+        "parsecd.exe" => Some("Parsec"),
+        _ => None,
+    }
+}
+
 /// Une remise du mode d'un écran (politique `restore`).
 struct Fix {
     /// Rang de l'écran dans la session.
@@ -628,6 +640,8 @@ trait Backend: Send + Sync {
     /// (celle de l'encodeur) ; rend le chemin de la carte choisie, `None` si
     /// aucune ne correspond.
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>>;
+    /// Exécutables en marche sur l'ordinateur (pour repérer un autre serveur de streaming).
+    fn process_names(&self) -> Vec<String>;
     /// Crée l'écran de rang `slot` (0 : le principal ; donne son numéro de série).
     fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created>;
     fn remove(&self, guid: [u8; 16]) -> Result<()>;
@@ -855,6 +869,21 @@ impl Manager {
         let begun = Instant::now();
         // Plusieurs écrans : tous rendus par la carte qui capture et encode,
         // fixée avant de les créer (sinon Windows choisit pour chacun).
+        if layout.len() > 1 {
+            let mut others: Vec<String> = self
+                .backend
+                .process_names()
+                .iter()
+                .filter_map(|exe| other_streamer(exe).map(|name| format!("{name} ({exe})")))
+                .collect();
+            others.dedup();
+            if !others.is_empty() {
+                tracing::warn!(
+                    "autre serveur de streaming en marche : {} ; il pilote lui aussi les écrans de l'ordinateur",
+                    others.join(", ")
+                );
+            }
+        }
         let vendor = *self.render_vendor.lock().unwrap();
         if let Some(vendor) = vendor.filter(|_| layout.len() > 1) {
             match self.backend.pin_render_adapter(vendor) {
@@ -1341,6 +1370,8 @@ struct SimScreen {
     refuse_modes: bool,
     /// Fabricant de la carte fixée pour le rendu.
     render_vendor: Option<u16>,
+    /// Exécutables en marche.
+    processes: Vec<String>,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1364,6 +1395,9 @@ fn sim_gdi_name(slot: u32) -> String {
 impl Backend for Simulated {
     fn driver(&self) -> Result<Value> {
         Ok(json!({ "version": "simulation", "watchdog_seconds": 3 }))
+    }
+    fn process_names(&self) -> Vec<String> {
+        self.screen.lock().unwrap().processes.clone()
     }
     fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
         self.screen.lock().unwrap().render_vendor = Some(vendor);
@@ -1486,6 +1520,28 @@ mod windows {
                 let (timeout, _) = d.watchdog().unwrap_or((0, 0));
                 Ok(json!({ "version": d.protocol_version()?, "watchdog_seconds": timeout }))
             })
+        }
+        fn process_names(&self) -> Vec<String> {
+            use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+            use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+                CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+            };
+            let mut names = Vec::new();
+            unsafe {
+                let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if snap == INVALID_HANDLE_VALUE {
+                    return names;
+                }
+                let mut entry = PROCESSENTRY32W { dwSize: size_of::<PROCESSENTRY32W>() as u32, ..std::mem::zeroed() };
+                let mut ok = Process32FirstW(snap, &mut entry) != 0;
+                while ok {
+                    let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
+                    names.push(String::from_utf16_lossy(&entry.szExeFile[..len]));
+                    ok = Process32NextW(snap, &mut entry) != 0;
+                }
+                CloseHandle(snap);
+            }
+            names
         }
         fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
             let adapters = agent::run_with_timeout(&self.data_dir, &["adapters".to_string()], 10_000)?;
@@ -1977,6 +2033,18 @@ mod tests {
         assert_eq!(sim.screen.lock().unwrap().render_vendor, None);
         m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
         assert_eq!(sim.screen.lock().unwrap().render_vendor, Some(0x10DE));
+    }
+
+    #[test]
+    fn autre_serveur_de_streaming() {
+        assert_eq!(other_streamer("sunshine.exe"), Some("Sunshine ou Apollo"));
+        assert_eq!(other_streamer("SunshineSvc.exe"), Some("Sunshine ou Apollo"));
+        assert_eq!(other_streamer("parsecd.exe"), Some("Parsec"));
+        assert_eq!(other_streamer("kyber-admin.exe"), None);
+        // Repéré au début d'une session à plusieurs écrans, sans rien bloquer.
+        let (m, sim, _) = simulated(VdSettings::default());
+        sim.screen.lock().unwrap().processes = vec!["explorer.exe".into(), "sunshine.exe".into()];
+        assert!(m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).is_ok());
     }
 
     #[test]
