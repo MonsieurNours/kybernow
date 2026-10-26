@@ -279,9 +279,8 @@ final class SessionController: NSObject, ObservableObject {
         configure(main)
         // Après chaque changement d'état : ce qui n'a rien à montrer sort de la composition.
         compositing = objectWillChange.receive(on: RunLoop.main).sink { [weak self] _ in self?.updateCompositing() }
-        occlusionObserver = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.occlusionChanged() }
-        }
+        main.observe(occlusion: { [weak self] in self?.occlusionChanged($0) },
+                     fullScreen: { [weak self] in self?.fullScreenEntered($0) })
         // Écran branché, débranché, définition changée ; fenêtre passée sur un autre écran.
         screenObservers = [
             NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -357,15 +356,39 @@ final class SessionController: NSObject, ObservableObject {
     /// Fenêtre plus visible (autre espace, réduite dans le Dock, recouverte) :
     /// plus de rendu (`nextDrawable` y attendrait jusqu'à 1 s par image) et débit plafonné
     /// à 20 Mb/s ; au retour, rendu et débit du profil reviennent.
-    private func occlusionChanged() {
+    private func occlusionChanged(_ surface: ScreenSurface) {
         guard window != nil else { return }
-        // Plusieurs écrans : occultée quand aucune fenêtre de la session ne se voit.
+        // Plusieurs écrans : chaque fenêtre arrête et reprend son propre rendu
+        // (une fenêtre qui passe en plein écran est vue occultée un instant) ;
+        // à la reprise, son image est redessinée et une image clé demandée.
+        if multiScreen, let index = deviceIndex(of: surface) {
+            let hidden = surface.occluded
+            engine?.setScreenOccluded(hidden, screen: index)
+            KyberLog.app.notice("fenêtre de l'écran \(index) \(hidden ? "occultée : son rendu attend" : "visible : son rendu reprend", privacy: .public)")
+            if !hidden { engine?.refreshScreen(index) }
+        }
+        // Débit réduit et veille d'image en attente seulement quand aucune fenêtre ne se voit.
         let hidden = surfaces.allSatisfy(\.occluded)
         guard hidden != occluded else { return }
         occluded = hidden
         engine?.setOccluded(hidden)
         engine?.setBitrateCap(hidden ? Self.occludedBitrate : nil)
-        KyberLog.app.notice("fenêtre \(hidden ? "occultée : rendu arrêté, débit réduit" : "visible : rendu et débit repris", privacy: .public)")
+        let which = multiScreen ? "toutes les fenêtres" : "fenêtre"
+        KyberLog.app.notice("\(which, privacy: .public) \(hidden ? "occultée(s) : rendu arrêté, débit réduit" : "visible(s) : rendu et débit repris", privacy: .public)")
+    }
+
+    /// Multi-écrans : une fenêtre a fini de passer en plein écran : son image
+    /// est redessinée à sa taille et une image clé est demandée (une image
+    /// présentée pendant l'animation a pu être écartée par l'écran).
+    private func fullScreenEntered(_ surface: ScreenSurface) {
+        guard multiScreen, let index = deviceIndex(of: surface) else { return }
+        KyberLog.app.notice("fenêtre de l'écran \(index) en plein écran")
+        engine?.refreshScreen(index)
+    }
+
+    /// L'écran de ce Mac (index du cœur) que montre cette surface.
+    private func deviceIndex(of surface: ScreenSurface) -> Int? {
+        deviceScreens.indices.first { self.surface(forDevice: $0) === surface }
     }
 
     /// Photographie de l'accueil, pour les deux moitiés du passage.
@@ -423,7 +446,8 @@ final class SessionController: NSObject, ObservableObject {
             guard let self, self.phase != .ended else { return }
             self.end()
         }
-        surface.observeOcclusion { [weak self] in self?.occlusionChanged() }
+        surface.observe(occlusion: { [weak self] in self?.occlusionChanged($0) },
+                        fullScreen: { [weak self] in self?.fullScreenEntered($0) })
         extraSurfaces.append(surface)
         // La fenêtre de l'accueil suit aussi les mouvements d'un écran à l'autre.
         allViews.forEach { $0.tracksInActiveApp = true }

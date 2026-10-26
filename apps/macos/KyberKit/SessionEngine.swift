@@ -254,6 +254,8 @@ public final class SessionEngine: @unchecked Sendable {
     private var streamScreens: [UInt64: Int] = [:]
     private var primaryScreen: Int?
     private var takenScreens: [StreamScreen] = []
+    /// Multi-écrans : écrans dont la fenêtre est occultée (leur rendu attend).
+    private var occludedScreens: Set<Int> = []
     private var input: InputPipeline?
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
@@ -504,12 +506,38 @@ public final class SessionEngine: @unchecked Sendable {
     public func setOccluded(_ occluded: Bool) {
         lock.lock()
         self.occluded = occluded
-        let renderers = videos.values.map(\.renderer)
+        let renderers = videos.map { ($0.value.renderer, streamScreens[$0.key]) }
+        let screens = occludedScreens
         let s = session
         lock.unlock()
-        renderers.forEach { $0.paused = occluded }
+        for (renderer, screen) in renderers { renderer.paused = occluded || screen.map(screens.contains) == true }
         // Image figée exprès : pas une panne pour le cœur.
         if let s { kn_session_set_hidden(s, occluded) }
+    }
+
+    /// Multi-écrans : la fenêtre d'un écran est occultée (autre espace,
+    /// recouverte, passage en plein écran) ou visible : seul son rendu
+    /// attend ; la dernière image arrivée est rendue à la reprise.
+    public func setScreenOccluded(_ occluded: Bool, screen: Int) {
+        lock.lock()
+        if occluded { occludedScreens.insert(screen) } else { occludedScreens.remove(screen) }
+        let all = self.occluded
+        let renderers = videos.filter { streamScreens[$0.key] == screen }.map(\.value.renderer)
+        lock.unlock()
+        renderers.forEach { $0.paused = all || occluded }
+    }
+
+    /// Multi-écrans : la fenêtre d'un écran vient de devenir visible ou de
+    /// finir son passage en plein écran : son image est redessinée en place,
+    /// et une image clé est demandée (le cœur attend les premières données de
+    /// chaque flux avant de la demander).
+    public func refreshScreen(_ screen: Int) {
+        lock.lock()
+        let renderers = videos.filter { streamScreens[$0.key] == screen }.map(\.value.renderer)
+        let s = session
+        lock.unlock()
+        renderers.forEach { $0.redraw() }
+        if let s, !renderers.isEmpty { kn_session_request_keyframe(s) }
     }
 
     public func setVolume(_ volume: Float) {
@@ -746,7 +774,8 @@ public final class SessionEngine: @unchecked Sendable {
             return nil
         }
         pipeline.renderer.vsync = vsync
-        pipeline.renderer.paused = occluded
+        pipeline.renderer.paused = occluded || (primaryScreen != nil && occludedScreens.contains(screen))
+        if primaryScreen != nil { pipeline.renderer.label = "écran \(screen)" }
         pipeline.renderer.topMarker = topMarker
         if primary {
             pipeline.renderer.latency = self
