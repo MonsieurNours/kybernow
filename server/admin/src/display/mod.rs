@@ -37,6 +37,9 @@ mod sudovda;
 pub mod topology;
 #[cfg(windows)]
 pub mod watch;
+#[cfg(windows)]
+pub mod wgc;
+pub mod wgc_shared;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -577,6 +580,8 @@ struct Slot {
     /// Mode et place obtenus à la création : la référence pour dire que le
     /// mode a changé.
     placed: Screen,
+    /// Nom GDI (`\\.\DISPLAY6`), s'il est connu (capture WGC des secondaires).
+    gdi_name: Option<String>,
     /// Dernier mode inattendu annoncé dans le fil (une fois par mode).
     announced: Option<Mode>,
 }
@@ -680,6 +685,12 @@ trait Backend: Send + Sync {
     fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value>;
     /// Remet la taille du pointeur d'avant la session.
     fn restore_pointer(&self, record: PointerRecord) -> Result<Value>;
+    /// Capture WGC des écrans secondaires (nom GDI, fréquence) : un agent par
+    /// écran, avec le compte de l'utilisateur, attendu jusqu'à ce qu'il soit
+    /// prêt (`wgc.rs`). Rend, pour chaque écran, ce qu'il a annoncé ou l'échec.
+    fn start_wgc(&self, screens: &[(String, u32)]) -> Vec<(String, Result<Value>)>;
+    /// Arrête les captures WGC (elles s'arrêtent d'elles-mêmes en 15 s sans Admin).
+    fn stop_wgc(&self);
     /// Crée l'écran de rang `slot` (0 : le principal ; donne son numéro de série).
     fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created>;
     fn remove(&self, guid: [u8; 16]) -> Result<()>;
@@ -807,6 +818,25 @@ impl Manager {
             }
             Ok(v) => tracing::info!("pointeur de Windows déjà assez grand pour les écrans virtuels (base {} px)", v["base"]),
             Err(e) => tracing::warn!("pointeur de Windows non agrandi : {e:#}"),
+        }
+    }
+
+    /// Lance la capture WGC des écrans secondaires et écrit au journal ce
+    /// qu'elle donne pour chacun ; un écran sans elle garde la duplication.
+    fn start_wgc(&self, screens: &[(String, u32)]) {
+        for (gdi_name, result) in self.backend.start_wgc(screens) {
+            match result {
+                Ok(v) => {
+                    tracing::info!(
+                        "écran {gdi_name} : capture par Windows Graphics Capture (compte de l'utilisateur), {} × {}, pointeur {}, bordure jaune {}",
+                        v["width"],
+                        v["height"],
+                        if v["cursor_excluded"].as_bool() == Some(false) { "dans l'image (Windows ne permet pas de l'exclure)" } else { "exclu de l'image" },
+                        if v["border_required"].as_bool() == Some(true) { "imposée par Windows" } else { "refusée" }
+                    );
+                }
+                Err(e) => tracing::warn!("écran {gdi_name} : capture WGC indisponible, la duplication reste ({e:#})"),
+            }
         }
     }
 
@@ -1072,13 +1102,18 @@ impl Manager {
             .and_then(|o| o.remove("scales"))
             .and_then(|v| v.as_array().map(|a| a.iter().filter_map(Value::as_u64).min()))
             .flatten();
+        let gdi_names: Vec<Option<String>> = match applied["screens"].as_array() {
+            Some(list) => list.iter().map(|v| v["gdi_name"].as_str().map(str::to_string)).collect(),
+            None => vec![applied["gdi_name"].as_str().map(str::to_string)],
+        };
         if let Some(o) = applied.as_object_mut() {
             o.remove("screens");
         }
         let mut slots = Vec::new();
-        for ((index, guid, created), placed) in pending.into_iter().zip(placed) {
+        for (i, ((index, guid, created), placed)) in pending.into_iter().zip(placed).enumerate() {
+            let gdi_name = gdi_names.get(i).cloned().flatten();
             match placed {
-                Some(placed) => slots.push(Slot { guid, created, index, placed, announced: None }),
+                Some(placed) => slots.push(Slot { guid, created, index, placed, gdi_name, announced: None }),
                 None => {
                     tracing::warn!("un écran virtuel n'a pas été activé par Windows : retiré");
                     let _ = self.backend.remove(guid);
@@ -1088,6 +1123,10 @@ impl Manager {
         self.write_record(&slots.iter().map(|s| s.guid).collect::<Vec<_>>());
         if slots.len() > 1 {
             self.enlarge_pointer(min_scale.map_or(100, |s| s as u32));
+            // Écrans secondaires : capture par Windows Graphics Capture (voir wgc.rs).
+            let secondaries: Vec<(String, u32)> =
+                slots[1..].iter().filter_map(|s| s.gdi_name.clone().map(|g| (g, s.placed.refresh))).collect();
+            self.start_wgc(&secondaries);
         }
         tracing::info!(
             "{} écran(s) virtuel(s) actif(s) ({origin:?}) : {}, prêt(s) en {} ms",
@@ -1199,6 +1238,7 @@ impl Manager {
         let Some(session) = self.session.lock().unwrap().take() else { return };
         tracing::info!("fin de l'écran virtuel : {reason}");
         self.backend.unwatch();
+        self.backend.stop_wgc();
         for slot in &session.slots {
             if let Err(e) = self.backend.remove(slot.guid) {
                 self.fail(&e);
@@ -1520,6 +1560,8 @@ struct SimScreen {
     processes: Vec<String>,
     /// Rangs des écrans dans l'ordre de leur création.
     created: Vec<usize>,
+    /// Écrans capturés par WGC.
+    wgc: Vec<String>,
     /// Base du pointeur (`None` : valeur absente du profil) ; Windows refuse
     /// d'y toucher (pas de session ouverte).
     pointer_base: Option<u32>,
@@ -1550,6 +1592,17 @@ impl Backend for Simulated {
     }
     fn process_names(&self) -> Vec<String> {
         self.screen.lock().unwrap().processes.clone()
+    }
+    fn start_wgc(&self, screens: &[(String, u32)]) -> Vec<(String, Result<Value>)> {
+        let mut screen = self.screen.lock().unwrap();
+        screen.wgc = screens.iter().map(|(g, _)| g.clone()).collect();
+        screens
+            .iter()
+            .map(|(g, _)| (g.clone(), Ok(json!({ "width": 1920, "height": 1080, "cursor_excluded": true, "border_required": false }))))
+            .collect()
+    }
+    fn stop_wgc(&self) {
+        self.screen.lock().unwrap().wgc.clear();
     }
     fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
@@ -1669,11 +1722,14 @@ mod windows {
         data_dir: PathBuf,
         device: Mutex<Option<sudovda::Device>>,
         watch: watch::Watch,
+        /// Captures WGC en cours : fichier `run` (dossier de l'agent de
+        /// l'utilisateur) et son jeton, rafraîchi à chaque tour de veille.
+        wgc: Mutex<Option<(PathBuf, String)>>,
     }
 
     impl WinBackend {
         pub fn new(data_dir: PathBuf) -> Self {
-            Self { watch: watch::Watch::new(&data_dir), data_dir, device: Mutex::new(None) }
+            Self { watch: watch::Watch::new(&data_dir), data_dir, device: Mutex::new(None), wgc: Mutex::new(None) }
         }
 
         fn with_device<T>(&self, f: impl FnOnce(&sudovda::Device) -> Result<T>) -> Result<T> {
@@ -1710,6 +1766,66 @@ mod windows {
                 args.extend(["--size".to_string(), size.to_string()]);
             }
             agent::run_as_user(&args, 15_000)
+        }
+        fn start_wgc(&self, screens: &[(String, u32)]) -> Vec<(String, Result<Value>)> {
+            self.stop_wgc();
+            let all_failed = |e: &anyhow::Error| screens.iter().map(|(g, _)| (g.clone(), Err(anyhow::anyhow!("{e:#}")))).collect();
+            let dir = match agent::user_agent_dir() {
+                Ok(dir) => dir,
+                // Personne n'est connecté à Windows : la duplication reste.
+                Err(e) => return all_failed(&e),
+            };
+            let token = format!("{:016x}", rand::random::<u64>());
+            let run_file = dir.join("wgc-run");
+            if let Err(e) = std::fs::write(&run_file, &token) {
+                return all_failed(&e.into());
+            }
+            *self.wgc.lock().unwrap() = Some((run_file.clone(), token.clone()));
+            let mut results = Vec::new();
+            let mut waiting = Vec::new();
+            for (gdi_name, refresh) in screens {
+                let status = dir.join(format!("wgc-{}.json", wgc_shared::screen_id(gdi_name)));
+                let _ = std::fs::remove_file(&status);
+                let args = [
+                    "wgc-capture".to_string(),
+                    "--gdi-name".into(), gdi_name.clone(),
+                    "--run-file".into(), run_file.display().to_string(),
+                    "--token".into(), token.clone(),
+                    "--status".into(), status.display().to_string(),
+                    "--refresh".into(), refresh.to_string(),
+                ];
+                match agent::spawn_as_user(&args) {
+                    Ok(()) => waiting.push((gdi_name.clone(), status)),
+                    Err(e) => results.push((gdi_name.clone(), Err(e))),
+                }
+            }
+            // Chaque agent dit « ready » dès que sa capture tourne.
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !waiting.is_empty() {
+                waiting.retain(|(gdi_name, status)| {
+                    let Ok(text) = std::fs::read_to_string(status) else { return true };
+                    let Ok(v) = serde_json::from_str::<Value>(&text) else { return true };
+                    match v["state"].as_str() {
+                        Some("ready") => results.push((gdi_name.clone(), Ok(v))),
+                        Some("failed") => results.push((gdi_name.clone(), Err(anyhow::anyhow!("{}", v["error"].as_str().unwrap_or("échec"))))),
+                        _ => return true,
+                    }
+                    false
+                });
+                if std::time::Instant::now() > deadline {
+                    for (gdi_name, _) in waiting.drain(..) {
+                        results.push((gdi_name, Err(anyhow::anyhow!("pas prête en 5 s"))));
+                    }
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            results
+        }
+        fn stop_wgc(&self) {
+            if let Some((run_file, _)) = self.wgc.lock().unwrap().take() {
+                let _ = std::fs::remove_file(run_file);
+            }
         }
         fn process_names(&self) -> Vec<String> {
             use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -1780,6 +1896,10 @@ mod windows {
             self.watch.stop();
         }
         fn observe(&self) -> Option<Observed> {
+            // Les captures WGC continuent tant que leur fichier `run` est rafraîchi.
+            if let Some((run_file, token)) = self.wgc.lock().unwrap().as_ref() {
+                let _ = std::fs::write(run_file, token);
+            }
             self.watch.observe(&self.data_dir)
         }
         fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
@@ -2324,6 +2444,21 @@ mod tests {
         again.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
         let record: PointerRecord = serde_json::from_slice(&std::fs::read(again.pointer_path()).unwrap()).unwrap();
         assert_eq!(record.previous_base, Some(32));
+    }
+
+    #[test]
+    fn capture_wgc_des_ecrans_secondaires() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        // Un écran : pas de WGC.
+        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert!(sim.screen.lock().unwrap().wgc.is_empty());
+        m.stop("fin du test");
+        // Trois écrans : les deux secondaires, pas le principal.
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().wgc, vec![sim_gdi_name(1), sim_gdi_name(2)]);
+        // Fin de session : captures arrêtées.
+        m.stop("fin du test");
+        assert!(sim.screen.lock().unwrap().wgc.is_empty());
     }
 
     #[test]

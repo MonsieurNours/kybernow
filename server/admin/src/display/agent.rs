@@ -163,6 +163,38 @@ pub fn run_as_user(args: &[String], timeout_ms: u32) -> Result<Value> {
     Ok(value)
 }
 
+/// Dossier de travail de l'agent lancé avec le compte de l'utilisateur
+/// (`AppData\Local\KyberNow\agent` de son profil), créé au besoin.
+pub fn user_agent_dir() -> Result<PathBuf> {
+    let token = user_token()?;
+    let dir = profile_dir(token);
+    unsafe { CloseHandle(token) };
+    let dir = dir?.join("AppData").join("Local").join("KyberNow").join("agent");
+    std::fs::create_dir_all(&dir).with_context(|| format!("création de {}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Lance `display-agent args` avec le compte de l'utilisateur de la session
+/// console, sans l'attendre (capture WGC, qui tourne le temps de la session).
+pub fn spawn_as_user(args: &[String]) -> Result<()> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    let exe = std::env::current_exe()?;
+    let token = user_token()?;
+    let mut full: Vec<String> = vec!["display-agent".into()];
+    full.extend(args.iter().cloned());
+    let cmdline = command_line(&exe, &full);
+    unsafe {
+        let mut env: *mut std::ffi::c_void = null_mut();
+        CreateEnvironmentBlock(&mut env, token, 0);
+        let result = spawn_with_token(token, env, &cmdline, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, None, "la capture WGC");
+        if !env.is_null() {
+            DestroyEnvironmentBlock(env);
+        }
+        CloseHandle(token);
+        result.map(|_| ())
+    }
+}
+
 /// `"exe" arg1 "arg 2" …`
 fn command_line(exe: &Path, args: &[String]) -> String {
     std::iter::once(quote(&exe.display().to_string())).chain(args.iter().map(|a| quote(a))).collect::<Vec<_>>().join(" ")

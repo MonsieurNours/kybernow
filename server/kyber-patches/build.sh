@@ -47,6 +47,11 @@
 #         premières captures d'un écran, taille et format de la texture DXGI,
 #         mode et position de l'écran, premières et dernières colonnes non
 #         noires de la ligne du milieu (image décalée dans la texture ?)
+#   0018  capture des écrans secondaires (txproto) : pour un écran dont
+#         KyberNow Admin a lancé la capture Windows Graphics Capture, les
+#         images viennent de ses textures D3D11 partagées au lieu de la
+#         duplication DXGI (repli sur elle sinon) ; pointeur lu par
+#         GetCursorInfo ; latence de capture au journal
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target

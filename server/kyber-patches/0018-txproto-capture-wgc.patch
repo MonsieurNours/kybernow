@@ -1,0 +1,712 @@
+--- a/subprojects/txproto/src/dxgi_cursor.h
++++ b/subprojects/txproto/src/dxgi_cursor.h
+@@ -31,3 +31,15 @@
+ int sp_dxgi_cursor_handler_send(DxgiCursorHandler *ctx,
+                                 IDXGIOutputDuplication *output_duplication,
+                                 const DXGI_OUTDUPL_FRAME_INFO *frame_info);
++
++/**
++ * KyberNow: same as sp_dxgi_cursor_handler_send(), for a cursor read without
++ * desktop duplication (displays captured through Windows Graphics Capture).
++ * `position` is the top-left corner of the shape, relative to the output, as
++ * in DXGI_OUTDUPL_POINTER_POSITION. `shape_info` and `data` (DXGI pointer
++ * shape layout) may be NULL when only the position or visibility changed.
++ */
++int sp_dxgi_cursor_handler_send_shape(DxgiCursorHandler *ctx, int visible,
++                                      POINT position,
++                                      const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
++                                      const uint8_t *data, uint32_t size);
+--- a/subprojects/txproto/src/dxgi_cursor.c
++++ b/subprojects/txproto/src/dxgi_cursor.c
+@@ -19,6 +19,7 @@
+ #define COBJMACROS
+ 
+ #include <stdio.h>
++#include <string.h>
+ #include <stdatomic.h>
+ #include <pthread.h>
+ 
+@@ -779,4 +780,37 @@
+     ctx->first_frame = 0;
+ 
+     return 0;
+-}
+\ No newline at end of file
++}
++
++int sp_dxgi_cursor_handler_send_shape(DxgiCursorHandler *ctx, int visible,
++                                      POINT position,
++                                      const DXGI_OUTDUPL_POINTER_SHAPE_INFO *shape_info,
++                                      const uint8_t *data, uint32_t size)
++{
++    AVBufferRef *ref = dxgi_cursor_alloc();
++    if (!ref)
++        return AVERROR(ENOMEM);
++
++    DxgiCursor *dxgi_cursor = (DxgiCursor *)ref->data;
++    dxgi_cursor->visible = visible;
++    dxgi_cursor->position = position;
++
++    if (visible && shape_info && data && size) {
++        dxgi_cursor->data = av_malloc(size);
++        if (dxgi_cursor->data) {
++            memcpy(dxgi_cursor->data, data, size);
++            dxgi_cursor->size = size;
++            dxgi_cursor->shape_info = *shape_info;
++        }
++    }
++
++    if (sp_bufferref_fifo_push(ctx->fifo, ref) < 0)
++        sp_log(ctx, SP_LOG_WARN, "Cursor queue full, update dropped\n");
++    SetEvent(ctx->fifo_event);
++
++    av_buffer_unref(&ref);
++
++    ctx->first_frame = 0;
++
++    return 0;
++}
+--- a/subprojects/txproto/src/iosys_dxgi.c
++++ b/subprojects/txproto/src/iosys_dxgi.c
+@@ -134,6 +134,9 @@
+ 
+     /* KyberNow: captures described in the log so far (see log_capture_diag). */
+     int diag_count;
++
++    /* KyberNow (0018): Windows Graphics Capture ring of this output, if any. */
++    struct KnWgc *wgc;
+ } DxgiCapture;
+ 
+ static uint32_t gen_identifier(const char *s)
+@@ -914,7 +917,9 @@
+         return;
+     ID3D11Texture2D_GetDesc(tex, &td);
+     ID3D11Texture2D_Release(tex);
+-    IDXGIOutputDuplication_GetDesc(priv->output_duplication, &od);
++    memset(&od, 0, sizeof(od));
++    if (priv->output_duplication)
++        IDXGIOutputDuplication_GetDesc(priv->output_duplication, &od);
+ 
+     int bpp = diag_bytes_per_pixel(td.Format);
+     if (bpp && td.Width && td.Height) {
+@@ -961,7 +966,570 @@
+            entry->x, entry->y, entry->width, entry->height,
+            (int)od.DesktopImageInSystemMemory, first, last);
+ }
++
++/* ------------------------------------------------------------------------
++ * KyberNow (0018): secondary displays captured through Windows Graphics
++ * Capture.
++ *
++ * Desktop duplication of the SudoVDA (IddCx) displays created after the
++ * first one returns a texture where the picture sits at the display's
++ * desktop position (the rest is black), while DWM composes them correctly.
++ * Windows Graphics Capture (WGC) captures what DWM composes, but refuses a
++ * SYSTEM process such as kyavserver. KyberNow Admin therefore runs one
++ * capture agent per secondary display of a multi-display session, with the
++ * signed-in user's account (`kyber-admin display-agent wgc-capture`). Each
++ * agent copies the frames into a ring of shared D3D11 textures on the
++ * display's adapter; this code opens that ring and copies the newest frame
++ * into the usual texture pool, on the GPU. No ring (single-display session,
++ * nobody signed in, agent failure): desktop duplication as before.
++ *
++ * Shared objects for output "\\.\DISPLAY6" (id "DISPLAY6"), in the session
++ * namespace:
++ *   KyberNowWGC_DISPLAY6               file mapping, KnWgcHeader
++ *   KyberNowWGC_DISPLAY6_frame         auto-reset event, set on each frame
++ *   KyberNowWGC_DISPLAY6_<gen>_<slot>  shared texture (NT handle, keyed
++ *                                       mutex, key 0), BGRA 8 bits
++ * Same layout as server/admin/src/display/wgc_shared.rs.
++ *
++ * The pointer is left out of the WGC picture; it is read with
++ * GetCursorInfo() and sent through the same cursor sink as with desktop
++ * duplication.
++ * ------------------------------------------------------------------------ */
++
++typedef struct KnWgcHeader {
++    uint32_t magic;
++    uint32_t version;
++    uint32_t state;
++    uint32_t generation;
++    uint32_t width;
++    uint32_t height;
++    uint32_t format;
++    uint32_t slots;
++    uint32_t luid_low;
++    int32_t luid_high;
++    uint32_t refresh;
++    uint32_t latest_slot;
++    uint64_t frame_counter;
++    int64_t frame_time;
++    int64_t publish_time;
++    int64_t heartbeat_time;
++    uint32_t producer_pid;
++    uint32_t border_required;
++} KnWgcHeader;
+ 
++_Static_assert(offsetof(KnWgcHeader, frame_counter) == 48, "KnWgcHeader layout");
++_Static_assert(sizeof(KnWgcHeader) == 88, "KnWgcHeader size");
++
++#define KN_WGC_MAGIC 0x47574E4Bu /* "KNWG" */
++#define KN_WGC_VERSION 1
++#define KN_WGC_SLOTS 3
++#define KN_WGC_STATE_RUNNING 1
++/* No heartbeat from the agent for this long: back to desktop duplication. */
++#define KN_WGC_STALE_100NS (3LL * 10000000LL)
++/* Capture latency is logged over this period. */
++#define KN_LATENCY_PERIOD_US (5LL * 1000000LL)
++
++/* {a04bfb29-08ef-43d6-a49c-a9bdbdcbe686} */
++static const GUID kn_iid_d3d11_device1 = {
++    0xa04bfb29, 0x08ef, 0x43d6, { 0xa4, 0x9c, 0xa9, 0xbd, 0xbd, 0xcb, 0xe6, 0x86 }
++};
++/* {9d8e1289-d7b3-465f-8126-250e349af85d} */
++static const GUID kn_iid_dxgi_keyed_mutex = {
++    0x9d8e1289, 0xd7b3, 0x465f, { 0x81, 0x26, 0x25, 0x0e, 0x34, 0x9a, 0xf8, 0x5d }
++};
++
++typedef struct KnWgc {
++    char id[64];
++    HANDLE mapping;
++    volatile KnWgcHeader *header;
++    HANDLE event;
++
++    uint32_t generation; /* of the opened textures, 0 = none */
++    ID3D11Texture2D *textures[KN_WGC_SLOTS];
++    IDXGIKeyedMutex *mutexes[KN_WGC_SLOTS];
++    uint64_t last_counter;
++    int diag_count;
++
++    /* Pointer read with GetCursorInfo() */
++    HCURSOR cursor;
++    int cursor_visible;
++    POINT cursor_position;
++    POINT cursor_hotspot;
++} KnWgc;
++
++/* QueryPerformanceCounter clock in 100 ns units (WGC SystemRelativeTime). */
++static int64_t kn_now_100ns(void)
++{
++    LARGE_INTEGER count, freq;
++    QueryPerformanceCounter(&count);
++    QueryPerformanceFrequency(&freq);
++    if (freq.QuadPart <= 0)
++        return 0;
++    return (int64_t)((double)count.QuadPart * 10000000.0 / (double)freq.QuadPart);
++}
++
++/* Capture latency (frame time to copy), logged every KN_LATENCY_PERIOD_US. */
++typedef struct KnLatency {
++    int64_t start;
++    int count;
++    double sum_ms;
++    double max_ms;
++} KnLatency;
++
++static void kn_latency_add(IOSysEntry *entry, KnLatency *l, const char *method, double ms)
++{
++    int64_t now = av_gettime_relative();
++    if (!l->start)
++        l->start = now;
++    if (ms >= 0 && ms < 10000) {
++        l->count++;
++        l->sum_ms += ms;
++        if (ms > l->max_ms)
++            l->max_ms = ms;
++    }
++    if (now - l->start >= KN_LATENCY_PERIOD_US) {
++        if (l->count)
++            sp_log(entry, SP_LOG_INFO, "Capture latency (%s): %d frame(s), average %.2f ms, max %.2f ms\n",
++                   method, l->count, l->sum_ms / l->count, l->max_ms);
++        l->start = now;
++        l->count = 0;
++        l->sum_ms = 0;
++        l->max_ms = 0;
++    }
++}
++
++static FARPROC kn_user32_proc(const char *name)
++{
++    HMODULE user32 = GetModuleHandleW(L"user32.dll");
++    return user32 ? GetProcAddress(user32, name) : NULL;
++}
++
++/* Pointer coordinates in physical pixels, like the desktop coordinates of
++ * the outputs: this thread becomes per-monitor-v2 DPI aware. */
++static void kn_thread_dpi_aware(void)
++{
++    typedef HANDLE (WINAPI *set_thread_t)(HANDLE);
++    set_thread_t set_thread = (set_thread_t)(void *)kn_user32_proc("SetThreadDpiAwarenessContext");
++    if (set_thread)
++        set_thread((HANDLE)(intptr_t)-4 /* DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 */);
++}
++
++/* "\\.\DISPLAY6" -> "DISPLAY6" */
++static void kn_screen_id(const char *name, char *out, size_t size)
++{
++    size_t n = 0;
++    while (*name == '\\' || *name == '.')
++        name++;
++    for (; *name && n + 1 < size; name++)
++        if ((*name >= 'A' && *name <= 'Z') || (*name >= 'a' && *name <= 'z') || (*name >= '0' && *name <= '9'))
++            out[n++] = *name;
++    out[n] = 0;
++}
++
++static void kn_wgc_release_textures(KnWgc *w)
++{
++    for (int i = 0; i < KN_WGC_SLOTS; i++) {
++        if (w->mutexes[i])
++            IDXGIKeyedMutex_Release(w->mutexes[i]);
++        if (w->textures[i])
++            ID3D11Texture2D_Release(w->textures[i]);
++        w->mutexes[i] = NULL;
++        w->textures[i] = NULL;
++    }
++    w->generation = 0;
++}
++
++static void kn_wgc_close(DxgiCapture *priv)
++{
++    KnWgc *w = priv->wgc;
++    if (!w)
++        return;
++    kn_wgc_release_textures(w);
++    if (w->header)
++        UnmapViewOfFile((LPCVOID)w->header);
++    if (w->mapping)
++        CloseHandle(w->mapping);
++    if (w->event)
++        CloseHandle(w->event);
++    av_freep(&priv->wgc);
++}
++
++static int kn_wgc_open_textures(IOSysEntry *entry, KnWgc *w, DxgiCtx *ctx, uint32_t generation)
++{
++    ID3D11Device1 *device1 = NULL;
++    HRESULT hr;
++
++    kn_wgc_release_textures(w);
++    hr = ID3D11Device_QueryInterface(ctx->d3d11_device, &kn_iid_d3d11_device1, (void **)&device1);
++    if (FAILED(hr)) {
++        sp_log(entry, SP_LOG_WARN, "WGC: ID3D11Device1 unavailable: 0x%lX\n", hr);
++        return AVERROR_EXTERNAL;
++    }
++    for (int i = 0; i < KN_WGC_SLOTS; i++) {
++        char name[128];
++        WCHAR wname[128];
++        snprintf(name, sizeof(name), "KyberNowWGC_%s_%u_%d", w->id, generation, i);
++        MultiByteToWideChar(CP_ACP, 0, name, -1, wname, 128);
++        hr = ID3D11Device1_OpenSharedResourceByName(device1, wname,
++                                                    DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
++                                                    &IID_ID3D11Texture2D,
++                                                    (void **)&w->textures[i]);
++        if (SUCCEEDED(hr))
++            hr = ID3D11Texture2D_QueryInterface(w->textures[i], &kn_iid_dxgi_keyed_mutex,
++                                                (void **)&w->mutexes[i]);
++        if (FAILED(hr)) {
++            sp_log(entry, SP_LOG_WARN, "WGC: cannot open shared texture %s: 0x%lX\n", name, hr);
++            ID3D11Device1_Release(device1);
++            kn_wgc_release_textures(w);
++            return AVERROR_EXTERNAL;
++        }
++    }
++    ID3D11Device1_Release(device1);
++    w->generation = generation;
++    return 0;
++}
++
++/* Opens the WGC ring of this output, if KyberNow Admin started one. */
++static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
++{
++    char id[64], name[128];
++    DXGI_ADAPTER_DESC1 adapter_desc;
++    KnWgc *w;
++
++    kn_screen_id(sp_class_get_name(entry), id, sizeof(id));
++    snprintf(name, sizeof(name), "KyberNowWGC_%s", id);
++
++    HANDLE mapping = OpenFileMappingA(FILE_MAP_READ, FALSE, name);
++    if (!mapping)
++        return AVERROR(ENOENT); /* no WGC for this output */
++
++    w = av_mallocz(sizeof(*w));
++    if (!w) {
++        CloseHandle(mapping);
++        return AVERROR(ENOMEM);
++    }
++    priv->wgc = w;
++    snprintf(w->id, sizeof(w->id), "%s", id);
++    w->mapping = mapping;
++    w->header = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, sizeof(KnWgcHeader));
++    if (!w->header) {
++        sp_log(entry, SP_LOG_WARN, "WGC: cannot map %s: %lu\n", name, GetLastError());
++        goto fail;
++    }
++    if (w->header->magic != KN_WGC_MAGIC || w->header->version != KN_WGC_VERSION ||
++        w->header->slots != KN_WGC_SLOTS) {
++        sp_log(entry, SP_LOG_WARN, "WGC: unexpected shared header in %s\n", name);
++        goto fail;
++    }
++    if (w->header->state != KN_WGC_STATE_RUNNING ||
++        kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
++        sp_log(entry, SP_LOG_WARN, "WGC: capture agent for %s is not running\n", id);
++        goto fail;
++    }
++    if (FAILED(IDXGIAdapter1_GetDesc1(ctx->dxgi_adapter, &adapter_desc)) ||
++        adapter_desc.AdapterLuid.LowPart != w->header->luid_low ||
++        adapter_desc.AdapterLuid.HighPart != w->header->luid_high) {
++        sp_log(entry, SP_LOG_WARN, "WGC: capture of %s runs on another adapter\n", id);
++        goto fail;
++    }
++    snprintf(name, sizeof(name), "KyberNowWGC_%s_frame", id);
++    w->event = OpenEventA(SYNCHRONIZE, FALSE, name);
++    if (!w->event) {
++        sp_log(entry, SP_LOG_WARN, "WGC: cannot open %s: %lu\n", name, GetLastError());
++        goto fail;
++    }
++
++    sp_log(entry, SP_LOG_INFO, "WGC: capture through Windows Graphics Capture (agent %lu, %ux%u, yellow border %s)\n",
++           (unsigned long)w->header->producer_pid, w->header->width, w->header->height,
++           w->header->border_required ? "required by Windows" : "off");
++    return 0;
++
++fail:
++    kn_wgc_close(priv);
++    return AVERROR_EXTERNAL;
++}
++
++/* Pointer shape of `cursor` in the DXGI layout (COLOR, MASKED_COLOR or
++ * MONOCHROME with tightly packed rows, as dxgi_cursor.c expects). */
++static int kn_cursor_shape(HCURSOR cursor, DXGI_OUTDUPL_POINTER_SHAPE_INFO *info,
++                           uint8_t **data, uint32_t *size)
++{
++    ICONINFO icon;
++    BITMAP bm;
++    HDC dc;
++    int ret = AVERROR_EXTERNAL;
++
++    *data = NULL;
++    *size = 0;
++    if (!GetIconInfo(cursor, &icon))
++        return AVERROR_EXTERNAL;
++    dc = CreateCompatibleDC(NULL);
++    if (!dc)
++        goto end;
++
++    memset(info, 0, sizeof(*info));
++    info->HotSpot.x = icon.xHotspot;
++    info->HotSpot.y = icon.yHotspot;
++
++    if (icon.hbmColor && GetObjectW(icon.hbmColor, sizeof(bm), &bm)) {
++        const int w = bm.bmWidth, h = bm.bmHeight;
++        struct { BITMAPINFOHEADER h; RGBQUAD c[2]; } bi;
++        uint32_t *pixels = av_malloc((size_t)w * h * 4);
++        if (!pixels)
++            goto end;
++
++        memset(&bi, 0, sizeof(bi));
++        bi.h.biSize = sizeof(bi.h);
++        bi.h.biWidth = w;
++        bi.h.biHeight = -h;
++        bi.h.biPlanes = 1;
++        bi.h.biBitCount = 32;
++        bi.h.biCompression = BI_RGB;
++        if (GetDIBits(dc, icon.hbmColor, 0, h, pixels, (BITMAPINFO *)&bi, DIB_RGB_COLORS) != h) {
++            av_free(pixels);
++            goto end;
++        }
++
++        int has_alpha = 0;
++        for (int i = 0; i < w * h; i++)
++            has_alpha |= (pixels[i] >> 24) != 0;
++
++        if (has_alpha) {
++            info->Type = DXGI_OUTDUPL_POINTER_SHAPE_TYPE_COLOR;
++        } else {
++            /* Old-style colour cursor: alpha from the AND mask (0 = opaque, 0xFF = XOR). */
++            const int pitch = ((w + 31) / 32) * 4;
++            uint8_t *mask = av_mallocz((size_t)pitch * h);
++            memset(&bi, 0, sizeof(bi));
++            bi.h.biSize = sizeof(bi.h);
++            bi.h.biWidth = w;
++            bi.h.biHeight = -h;
++            bi.h.biPlanes = 1;
++            bi.h.biBitCount = 1;
++            bi.h.biCompression = BI_RGB;
++            if (mask && icon.hbmMask && GetDIBits(dc, icon.hbmMask, 0, h, mask, (BITMAPINFO *)&bi, DIB_RGB_COLORS) == h) {
++                for (int y = 0; y < h; y++)
++                    for (int x = 0; x < w; x++) {
++                        const int bit = (mask[y * pitch + x / 8] >> (7 - x % 8)) & 1;
++                        pixels[y * w + x] = (pixels[y * w + x] & 0x00FFFFFF) | (bit ? 0xFF000000u : 0);
++                    }
++            }
++            av_free(mask);
++            info->Type = DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MASKED_COLOR;
++        }
++        info->Width = w;
++        info->Height = h;
++        info->Pitch = w * 4;
++        *data = (uint8_t *)pixels;
++        *size = (uint32_t)w * h * 4;
++        ret = 0;
++    } else if (icon.hbmMask && GetObjectW(icon.hbmMask, sizeof(bm), &bm)) {
++        /* Monochrome: AND mask then XOR mask, one bit per pixel. */
++        const int w = bm.bmWidth, h2 = bm.bmHeight;
++        const int pitch = ((w + 31) / 32) * 4, packed = (w + 7) / 8;
++        struct { BITMAPINFOHEADER h; RGBQUAD c[2]; } bi;
++        uint8_t *dib = av_mallocz((size_t)pitch * h2);
++        uint8_t *bits = av_mallocz((size_t)packed * h2);
++        if (!dib || !bits) {
++            av_free(dib);
++            av_free(bits);
++            goto end;
++        }
++        memset(&bi, 0, sizeof(bi));
++        bi.h.biSize = sizeof(bi.h);
++        bi.h.biWidth = w;
++        bi.h.biHeight = -h2;
++        bi.h.biPlanes = 1;
++        bi.h.biBitCount = 1;
++        bi.h.biCompression = BI_RGB;
++        if (GetDIBits(dc, icon.hbmMask, 0, h2, dib, (BITMAPINFO *)&bi, DIB_RGB_COLORS) != h2) {
++            av_free(dib);
++            av_free(bits);
++            goto end;
++        }
++        for (int y = 0; y < h2; y++)
++            memcpy(bits + (size_t)y * packed, dib + (size_t)y * pitch, packed);
++        av_free(dib);
++        info->Type = DXGI_OUTDUPL_POINTER_SHAPE_TYPE_MONOCHROME;
++        info->Width = w;
++        info->Height = h2;
++        info->Pitch = packed;
++        *data = bits;
++        *size = (uint32_t)packed * h2;
++        ret = 0;
++    }
++
++end:
++    if (dc)
++        DeleteDC(dc);
++    if (icon.hbmColor)
++        DeleteObject(icon.hbmColor);
++    if (icon.hbmMask)
++        DeleteObject(icon.hbmMask);
++    return ret;
++}
++
++/* Reads the Windows pointer and forwards it when it is on this output. */
++static void kn_wgc_poll_cursor(IOSysEntry *entry, DxgiCapture *priv, KnWgc *w)
++{
++    CURSORINFO ci = { .cbSize = sizeof(ci) };
++    if (!priv->cursor_sink || !GetCursorInfo(&ci))
++        return;
++
++    const int inside = ci.ptScreenPos.x >= entry->x && ci.ptScreenPos.x < entry->x + entry->width &&
++                       ci.ptScreenPos.y >= entry->y && ci.ptScreenPos.y < entry->y + entry->height;
++    const int visible = (ci.flags & CURSOR_SHOWING) && inside;
++    POINT none = { 0, 0 };
++
++    if (!visible) {
++        if (w->cursor_visible)
++            sp_dxgi_cursor_handler_send_shape(priv->cursor_sink, 0, none, NULL, NULL, 0);
++        w->cursor_visible = 0;
++        return;
++    }
++
++    DXGI_OUTDUPL_POINTER_SHAPE_INFO info;
++    uint8_t *data = NULL;
++    uint32_t size = 0;
++    const int new_shape = ci.hCursor != w->cursor;
++    if (new_shape && kn_cursor_shape(ci.hCursor, &info, &data, &size) == 0) {
++        w->cursor_hotspot = info.HotSpot;
++        w->cursor = ci.hCursor;
++    }
++
++    POINT position = {
++        ci.ptScreenPos.x - entry->x - w->cursor_hotspot.x,
++        ci.ptScreenPos.y - entry->y - w->cursor_hotspot.y,
++    };
++    if (data || !w->cursor_visible || position.x != w->cursor_position.x ||
++        position.y != w->cursor_position.y)
++        sp_dxgi_cursor_handler_send_shape(priv->cursor_sink, 1, position, data ? &info : NULL, data, size);
++
++    av_free(data);
++    w->cursor_visible = 1;
++    w->cursor_position = position;
++}
++
++/* Capture loop for an output with a WGC ring. Returns 0 on stop, an error
++ * when the ring stops working (the caller falls back to duplication);
++ * `*fatal` gets the errors that stop desktop duplication too. */
++static int kn_wgc_loop(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx, int *fatal)
++{
++    KnWgc *w = priv->wgc;
++    KnLatency latency = { 0 };
++    DWORD wait_ms = priv->cursor_move_rate > 0 ? (DWORD)(1000 / priv->cursor_move_rate) : 16;
++    if (wait_ms < 4)
++        wait_ms = 4;
++    int err = 0;
++
++    kn_thread_dpi_aware();
++    /* GetCursorInfo() reads the input desktop, as desktop duplication does. */
++    priv->current_desk = OpenInputDesktop(0, FALSE, GENERIC_ALL);
++    if (priv->current_desk)
++        SetThreadDesktop(priv->current_desk);
++    priv->framerate = av_make_q(w->header->refresh ? w->header->refresh : 60, 1);
++    priv->rotation = ROTATION_IDENTITY;
++
++    while (!atomic_load(&priv->quit)) {
++        WaitForSingleObject(w->event, wait_ms);
++
++        if (w->header->state != KN_WGC_STATE_RUNNING ||
++            kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
++            sp_log(entry, SP_LOG_WARN, "WGC: capture agent stopped\n");
++            return AVERROR_EXTERNAL;
++        }
++
++        kn_wgc_poll_cursor(entry, priv, w);
++
++        const uint64_t counter = w->header->frame_counter;
++        MemoryBarrier();
++        if (counter == w->last_counter)
++            continue;
++        w->last_counter = counter;
++        const uint32_t slot = w->header->latest_slot % KN_WGC_SLOTS;
++        const uint32_t generation = w->header->generation;
++        const int64_t frame_time = w->header->frame_time;
++
++        if (generation != w->generation &&
++            kn_wgc_open_textures(entry, w, ctx, generation) < 0)
++            continue;
++
++        if (IDXGIKeyedMutex_AcquireSync(w->mutexes[slot], 0, 10) != S_OK)
++            continue;
++
++        ID3D11Resource *source = (ID3D11Resource *)w->textures[slot];
++        if (!priv->got_first_frame) {
++            sp_log(entry, SP_LOG_INFO, "First frame acquired (WGC)\n");
++            priv->got_first_frame = 1;
++        }
++        if (priv->got_first_frame == 1 && w->diag_count < 3) {
++            w->diag_count++;
++            priv->got_first_frame = 2;
++            log_capture_diag(entry, priv, ctx, source);
++        }
++
++        err = check_resolution_change(priv, ctx, source);
++        if (err < 0) {
++            IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
++            sp_log(ctx, SP_LOG_ERROR, "check_resolution_change() failed: %d\n", err);
++            *fatal = err;
++            return 0;
++        }
++
++        AVFrame *frame = av_frame_alloc();
++        if (!frame || av_hwframe_get_buffer(priv->hw_frames_ctx, frame, 0) < 0) {
++            IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
++            av_frame_free(&frame);
++            continue;
++        }
++
++        ID3D11Texture2D *target_tex = (ID3D11Texture2D *)frame->data[0];
++        intptr_t target_tex_idx = (intptr_t)frame->data[1];
++        ID3D11DeviceContext_CopySubresourceRegion(ctx->d3d11_device_ctx,
++                                                  (ID3D11Resource *)target_tex, target_tex_idx,
++                                                  0, 0, 0, source, 0, NULL);
++        IDXGIKeyedMutex_ReleaseSync(w->mutexes[slot], 0);
++
++        kn_latency_add(entry, &latency, "WGC", (double)(kn_now_100ns() - frame_time) / 10000.0);
++
++        int64_t ts = av_gettime_relative();
++        frame->pts        = ts - priv->epoch;
++        frame->opaque_ref = av_buffer_allocz(sizeof(FormatExtraData));
++
++        FormatExtraData *fe = (FormatExtraData *)frame->opaque_ref->data;
++        fe->time_base       = AV_TIME_BASE_Q;
++        fe->avg_frame_rate  = priv->framerate;
++        fe->rotation        = priv->rotation;
++
++        if (ctx->metrics) {
++            const tx_metrics_entry metrics[] = {
++                { .key = "pts", .value = frame->pts },
++                { .key = "acquired", .value = ts },
++            };
++            tx_metrics_push(ctx->metrics, metrics, SP_ARRAY_ELEMS(metrics));
++        }
++
++        err = sp_frame_fifo_push(entry->frames, frame);
++        av_frame_free(&frame);
++        if (err == AVERROR(ENOBUFS)) {
++            priv->dropped_frames++;
++            sp_log(entry, SP_LOG_WARN, "Dropping frame (%i dropped so far)!\n", priv->dropped_frames);
++            SPGenericData entries[] = {
++                { "dropped_frames", NULL, &priv->dropped_frames, SP_DATA_TYPE_INT},
++                { 0 },
++            };
++            sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_STATS, entries);
++            err = 0;
++        } else if (err) {
++            sp_log(entry, SP_LOG_ERROR, "Unable to push frame to FIFO: %s!\n", av_err2str(err));
++            *fatal = err; /* same as desktop duplication: stop */
++            return 0;
++        }
++    }
++
++    return 0;
++}
++
+ static void *dxgi_capture_thread(void *s)
+ {
+     IOSysEntry *entry = s;
+@@ -971,6 +1539,7 @@
+     AVFrame* frame = NULL;
+     HRESULT hr;
+     int err = 0;
++    KnLatency dda_latency = { 0 };
+ 
+     sp_set_thread_name_self(sp_class_get_name(entry));
+     sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
+@@ -987,6 +1556,24 @@
+     if (err < 0) {
+         sp_log(ctx, SP_LOG_ERROR, "sp_dxgi_cursor_handler_init() failed: %d\n", err);
+         goto fail;
++    }
++
++    /* KyberNow (0018): secondary displays of a multi-display session are
++     * captured through Windows Graphics Capture when KyberNow Admin started
++     * a capture agent for them; desktop duplication otherwise, or if it stops. */
++    if (kn_wgc_open(entry, priv, ctx) == 0) {
++        int fatal = 0;
++        kn_wgc_loop(entry, priv, ctx, &fatal);
++        kn_wgc_close(priv);
++        if (fatal) {
++            err = fatal;
++            goto fail;
++        }
++        if (atomic_load(&priv->quit))
++            goto fail;
++        sp_log(entry, SP_LOG_WARN, "WGC: back to desktop duplication\n");
++        stop_capture(priv);
++        priv->got_first_frame = 0;
+     }
+ 
+     while (!atomic_load(&priv->quit)) {
+@@ -1033,6 +1620,16 @@
+             priv->got_first_frame = 1;
+         }
+ 
++        /* KyberNow (0018): capture latency, to compare with WGC. */
++        if (frame_info.LastPresentTime.QuadPart) {
++            LARGE_INTEGER now, freq;
++            QueryPerformanceCounter(&now);
++            QueryPerformanceFrequency(&freq);
++            if (freq.QuadPart > 0)
++                kn_latency_add(entry, &dda_latency, "DXGI",
++                               (double)(now.QuadPart - frame_info.LastPresentTime.QuadPart) * 1000.0 / (double)freq.QuadPart);
++        }
++
+         /* Copy cursor */
+         if (priv->cursor_sink) {
+             sp_dxgi_cursor_handler_send(priv->cursor_sink,

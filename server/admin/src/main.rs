@@ -216,6 +216,20 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Capture WGC d'un écran secondaire (session à plusieurs écrans), avec
+    /// le compte de l'utilisateur ; voir display/wgc.rs.
+    WgcCapture {
+        #[arg(long)]
+        gdi_name: String,
+        #[arg(long)]
+        run_file: PathBuf,
+        #[arg(long)]
+        token: String,
+        #[arg(long)]
+        status: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        refresh: u32,
+    },
     /// Cartes graphiques connues de la configuration d'affichage (LUID, chemin).
     Adapters {
         #[arg(long)]
@@ -302,6 +316,16 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
+    // Capture WGC : tourne jusqu'à ce qu'Admin n'en veuille plus.
+    if let AgentAction::WgcCapture { gdi_name, run_file, token, status, refresh } = &action {
+        #[cfg(windows)]
+        return display::wgc::run_agent(gdi_name, run_file, token, status, *refresh);
+        #[cfg(not(windows))]
+        {
+            let _ = (gdi_name, run_file, token, status, refresh);
+            anyhow::bail!("réservé à Windows");
+        }
+    }
     if let AgentAction::Watch { dir, token, luid_low, luid_high, target, extra } = &action {
         let primary = display::Created { luid_low: *luid_low, luid_high: *luid_high, target: *target };
         let mut targets = vec![primary];
@@ -361,7 +385,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
         }
         AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
-        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } | AgentAction::WgcCapture { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
@@ -381,7 +405,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
         }
         AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
-        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } | AgentAction::WgcCapture { .. } => unreachable!(),
     };
     let value = match result {
         Ok(v) => v,
