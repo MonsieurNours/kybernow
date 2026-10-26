@@ -283,10 +283,10 @@ extension HomeScreen {
     /// du cœur, le même que celui de la session (docs/multi-ecrans.md).
     static func screenCount(for host: Host, info: HostInfo?) -> Int? {
         let s = host.settings
-        let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
         let current = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
-        let request = DisplayInfo.deviceScreens(current: current, settings: s, maxScreens: DisplayInfo.maxScreens(info)).request
-        return SessionEngine.sessionPlan(request, profile: s.profile?.rawValue, virtualDisplay: virtual, codec: s.codec)?.count
+        // L'écran virtuel utilisable sur la Station est dans `request` : le cœur décide.
+        let request = DisplayInfo.deviceScreens(current: current, settings: s, info: info).request
+        return SessionEngine.sessionPlan(request, profile: s.profile?.rawValue, virtualDisplay: s.display != .physical, codec: s.codec)?.count
     }
 }
 

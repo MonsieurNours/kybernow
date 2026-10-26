@@ -293,7 +293,8 @@ private struct SettingsContent: View {
     /// « Personnalisé ».
     private var screensRow: some View {
         let custom = s.display == .custom || s.display == .window
-        let enabled = SessionEngine.screensSettingEnabled(customResolution: custom, virtualDisplay: s.display != .physical)
+        // Écran virtuel demandé et utilisable sur la Station : la même règle que le cœur.
+        let enabled = SessionEngine.screensSettingEnabled(customResolution: custom, virtualDisplay: s.display != .physical && info?.virtualDisplay != false)
         let shown: ScreensChoice = enabled ? s.screens : .this
         return VStack(alignment: .leading, spacing: 8) {
             Text(SettingsText.screensTitle).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)

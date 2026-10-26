@@ -338,8 +338,11 @@ impl InputPipeline {
     /// `None` pour un écran que la session n'affiche pas.
     fn pointer_for(&self, display_id: u32) -> Option<Arc<PointerLayer>> {
         let screens = self.screens.lock().unwrap();
-        if screens.is_empty() {
-            return Some(self.pointer.clone());
+        // Un écran (session à un écran, avec ou sans écran virtuel) : tout va
+        // à la couche principale, comme avant le multi-écrans, même un
+        // pointeur annoncé sur un autre écran de l'ordinateur.
+        if screens.len() <= 1 {
+            return Some(screens.first().and_then(|t| t.pointer.clone()).unwrap_or_else(|| self.pointer.clone()));
         }
         let target = screens.iter().find(|s| s.display_id == display_id)?;
         Some(target.pointer.clone().unwrap_or_else(|| self.pointer.clone()))
@@ -1073,6 +1076,10 @@ mod tests {
         assert!(b.pipeline.pointer_for(3).is_none(), "écran que la session n'affiche pas");
         b.pipeline.set_screens(Vec::new());
         assert!(Arc::ptr_eq(&b.pipeline.pointer_for(3).unwrap(), b.pipeline.pointer()), "un écran : tout à la couche principale");
+        // Session à un écran (une seule cible) : un pointeur annoncé sur un autre écran de
+        // l'ordinateur (sans écran virtuel) va à la couche principale, comme avant.
+        b.pipeline.set_screens(vec![ScreenTarget { screen: 0, display_id: 1, host_size: (1920, 1080), pointer: None }]);
+        assert!(Arc::ptr_eq(&b.pipeline.pointer_for(5).unwrap(), b.pipeline.pointer()));
     }
 
     #[test]

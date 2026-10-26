@@ -110,6 +110,7 @@ pub fn core_screens(d: &Detected, current: usize, h: &Host, max_screens: usize, 
         custom_resolution: h.settings.resolution != 0,
         setting: DisplaysSetting::parse(&h.settings.displays).unwrap_or_default(),
         max_screens,
+        ..Screens::default()
     }
 }
 

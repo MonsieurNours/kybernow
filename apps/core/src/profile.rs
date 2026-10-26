@@ -81,7 +81,8 @@ impl Profile {
 }
 
 /// Ce que l'appareil sait décoder par sa carte graphique.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Capabilities {
     pub hevc: bool,
     pub hevc444: bool,
