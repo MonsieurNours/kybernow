@@ -13,8 +13,9 @@ The core depends on no system: nothing in it calls AppKit, UIKit, Win32 or Core 
 | `src/console.rs` | Admin client: session (`prepare`, `heartbeat`, `foreground`, `end`), home and adding (`info`, `probe`, `preview`, `pair_request`, `pair_status`), the Station (`station_restart`, `station_update`, `admin_url`, below), pinned certificate, `Accept-Language` |
 | `src/i18n.rs` | Language (detection, choice), text catalogues, release notes per language ([docs/i18n.en.md](../../docs/i18n.en.md)) |
 | `src/session.rs` | A session's flow on a dedicated thread, the connection's last resort (below); what the platform provides: `Platform` |
-| `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), Opus header |
+| `src/media.rs` | Image and sound packets delivered by Kyber (patch 0001), with their source in Kyber (`PacketHandler::packet_from`), Opus header |
 | `src/profile.rs` | Profiles, format, bitrate following pixels per second |
+| `src/screens.rs` | Multiple displays (below): the device's displays, plan of the virtual displays (resolution, refresh rate, layout on the Windows desktop) |
 | `src/latency.rs` | End-to-end latency, Kyber's clock |
 | `src/update.rs` | Updates (Windows, Android, Linux, webOS): signed manifest (minisign), channel, verified download (size, SHA-256); the app's file is looked up under its current name, then its former names (Windows: `KyberNow-Link-Setup.exe`, then `KyberNow-Client-Setup.exe`, the only name in releases 0.3.1 and earlier) |
 | `src/wake.rs` | Wake on LAN (below): `WakeTarget`, magic packet, broadcast and direct sending |
@@ -50,6 +51,72 @@ The apps offer “Wake the computer” when it is offline, with nothing to type:
 - `parse_mac`, `format_mac`, `magic_packet`, `broadcast(ip, prefix)`: the building blocks, tested (`cargo test -p kybernow-core wake`); `envoi_reel`, ignored by default, really sends to a dummy card (`-- --ignored`).
 
 **Apple pitfall.** On iPhone, iPad and Apple TV, sending to a broadcast address (the subnet's as well as 255.255.255.255) requires the `com.apple.developer.networking.multicast` entitlement, which Apple grants on request (a form in the developer account, then the entitlement in the `.entitlements` files). Without it, broadcast sending fails, often with `EHOSTUNREACH`. Sending directly to the last IPv4 address works without it, but only wakes the computer if the network can still reach that address (ARP cache of the router or switch, a sleeping card that still answers ARP), which is not always the case after a full shutdown. That is why `send` always tries direct sending as well as broadcast and succeeds as soon as one packet goes out: without the entitlement, waking sometimes works; with it, as everywhere else. On the Mac there is no restriction (the “Local Network” permission, already asked for to reach Admin, is enough).
+
+## Multiple displays (`src/screens.rs`, `src/session.rs`, `src/input/pipeline.rs`)
+
+A session can take all of the device's displays: one virtual display per device display, laid out the same way, each shown in its own window (shared contract: [docs/multi-ecrans.en.md](../../docs/multi-ecrans.en.md)). The Mac, Windows and Linux apps use it; the single-display session keeps exactly its API, and apps that do not handle multiple displays have nothing to change.
+
+**The device's displays.** `Screens { list: Vec<DeviceScreen>, limit_4k }`. `DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }`: the display's frame in the device's logical coordinates, y pointing down (points on the Mac, after converting Cocoa's coordinates; the Windows desktop; `SDL_GetDisplayBounds` on Linux), its native resolution in pixels (before “Up to 4K”), its refresh rate, and whether it is the primary one (none: the first). Mirrored displays count as one: the app passes only one. `limit_4k`: the “Up to 4K” setting. Both types go through JSON as they are (serde) for the bridges.
+
+**The plan** (`screens::plan(&screens, codec)`, called by the session; apps may call it to show what will be requested): four displays at most, the primary first, each with its device display (`device`, index in `list`), its mode and its position in pixels on the Windows desktop (`PlannedScreen`).
+
+- Resolution (`screens::fit`): “Up to 4K” brings each display down to 3840 × 2160, H.264 to 4096 pixels wide (NVIDIA's encoder stops there), otherwise 7680 × 4320; aspect ratio kept, rounded to even, like the Mac app's `DisplayInfo.mode`.
+- Refresh rate (`screens::refresh`): the primary display keeps its own; the others run at 60 Hz, less if their display does not go that high.
+- Position (`screens::layout`): the primary at (0, 0); the others attached one by one, on the same side, to an already placed neighbour they share an edge with on the device, with the device's offset converted at the neighbour's pixels / logical units scale; at least 64 pixels of shared edge; never any overlap (the display slides along the edge, and among its possible neighbours the core picks the one that makes it slide the least); a display touching nothing attaches to the nearest one, on the side of the largest gap. Beyond four displays, the ones taken are the closest to the primary, step by step.
+
+**The “Displays” setting and the home line** ([docs/link-ui.en.md](../../docs/link-ui.en.md)): `DisplaysChoice { setting, profile, custom_resolution, virtual_display }`, with `DisplaysSetting` (`Auto`, `This`, `All`, stored as `auto`, `this`, `all`). `setting_enabled()`: false with a custom resolution or without a virtual display (the setting is then inactive and shows “This display”, `shown_setting()`). `all_displays()`: All displays; Auto takes every display except in the Game profile (a Custom profile follows Desktop and Max). `screens::session_plan(&screens, &choice, codec)` returns the plan when the session will take at least two displays, otherwise `None`: the same decision for the home screen (“3 displays, sized for this device's screens”: the plan's length), the choice between `Session::start` and `Session::start_with_screens`, and the session itself. The device's primary display (the one showing the connection screen): `screens::primary_index(&list)`.
+
+**The session**: `Session::start_with_screens(params, screens, platform)` instead of `Session::start(params, platform)`, when `session_plan` returns a plan. `params.mode` describes the primary display, as for a single-display session (the plan replaces it).
+
+1. `prepare` carries `screens` from two displays on; `width`, `height` and `refresh` then describe the primary display. The answer says what is in place (`Prepared::screens`, in the request's order, `None` for a display the Station could not create). Without `screens` in the answer (a Station that handles one display only) or without the primary display, the session runs on the primary display, without an error.
+2. Each display in place is found in Kyber's list by its position and size (failing that, by its size alone, if only one free display has it). The core waits for all of them to be announced, 6 s at most as for one display, then starts the image on those that are there; if the primary is missing, on one display as before. A display announced later restarts the image on all of them.
+3. One video entry per display in Kyber's session, the primary first. At each image start, the platform receives `on_display` (the primary display, as always), then `on_screens(&[StreamScreen], not_created)`, then `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }`: the device display's index, the computer's display as Kyber announces it (`id` for inputs, size in pixels, position on the desktop), its refresh rate, and whether it is the primary. `not_created`: the plan's device displays the computer could not create (`None` in the Station's answer, or never announced by Kyber); their window keeps the connection background with “The computer could not create this display.”. Each stream's packets go to the handler returned by `screen_video_handler(screen)`: one decoder per display. Even with a single-display Station, a session opened this way goes through `on_screens` and `screen_video_handler`: a single display (the device's primary) and an empty `not_created`; a plan display in neither list therefore means the session runs on the primary display alone. The number of displays in the statistics is the list's length.
+4. Bitrate: the profile's, computed on the sum of the displays' pixels per second (`StreamSettings::bitrate_for_pixel_rate`), with the same caps; the Station splits it between the displays.
+5. Keyframe: `keyframe_lost` and `keyframe_recovered` as for one display, from any decoder. Kyber asks every stream for a keyframe at once, and a request before a stream's first data leaves its encoder silent (a trap already met): the core only asks once every stream has received data (each starts with a keyframe); the watch asks again every 300 ms and restarts the stream at 1.5 s. Restarting the stream restarts every display.
+6. Measurements: `frame_displayed` (latency, first image, “no image” watch) for the primary display only; `bytes_received` for all.
+7. The device's displays change during the session (plugged, unplugged, layout or mirroring changed): `Session::set_screens(screens)`. If the plan changes, the connection resumes at its first step (`Status::Preparing`, then `Connecting` and `FirstImages`, without an adaptation capsule): the image stops, the Station redoes the displays, then the image starts again, without going back home. A refusal from Admin ends the session with its reason, as at the start. `set_mode` has no effect on a multi-display session: `set_screens` is the one to use.
+8. The computer changes a display's size: `on_display` for the primary as before, and `on_screens` again; a display gone from Kyber's list restarts the image.
+
+**Inputs**: `InputPipeline::set_screens(Vec<ScreenTarget>)`, to call in `input_pipeline()` after `on_screens` (and again when `on_screens` comes back). `ScreenTarget { screen, display_id, host_size, pointer }`: the device display's index, its computer display's `id`, its size in pixels, and the pointer layer of that display's view (`None`: the one given to `InputPipeline::new`, the primary display). Then:
+
+- `mouse_on(screen, x, y)` sends an absolute position, in pixels of that display's computer display, with its `display_id`; `mouse(x, y)` stays the primary display's; an unknown display goes to the primary.
+- The pointer announced by the computer (shape, position in pixels of its display, visibility) goes to the layer of the display whose identifier it carries: each view draws only its own. A pointer leaving a display is announced hidden there: for Auto mouse mode, it is hidden only if it is on every layer, and visible for the longest of the `visible_for`.
+- Keyboard, relative mouse, wheel and gamepads do not change.
+
+**For a Windows or Linux app**, in order:
+
+```rust
+use kybernow_core::screens::{self, DeviceScreen, DisplaysChoice, Screens};
+use kybernow_core::session::{Platform, Session, StreamScreen};
+use kybernow_core::input::{InputPipeline, Options, ScreenTarget};
+
+// 1. The device's displays (mirrors grouped), the primary marked; the setting.
+let screens = Screens { list: vec![DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }, /* … */], limit_4k };
+let choice = DisplaysChoice { setting, profile: params.settings.profile, custom_resolution, virtual_display };
+let session = match screens::session_plan(&screens, &choice, params.settings.codec) {
+    Some(_) => Session::start_with_screens(params, screens, platform),  // home: “{n} displays, …”
+    None => Session::start(params, platform),
+};
+
+// 2. The platform (the other methods as for one display).
+impl Platform for App {
+    fn on_display(&self, d: &Display) { /* the primary display, as before */ }
+    fn on_screens(&self, s: &[StreamScreen], not_created: &[usize]) { /* window of display s[i].screen ↔ computer display s[i].display */ }
+    fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> { /* decoder of `screen`'s window */ }
+    fn input_pipeline(&self) -> Pipeline {
+        let p = InputPipeline::new(Options { display_id: primary.id, host_size, clipboard, gamepads_from_app }, primary_pointer, callbacks, clock);
+        p.set_screens(screens.iter().map(|s| ScreenTarget {
+            screen: s.screen, display_id: s.display.id,
+            host_size: (s.display.width as u32, s.display.height as u32),
+            pointer: Some(window_pointer(s.screen)),
+        }).collect());
+        p.kynput()
+    }
+}
+
+// 3. During the session: p.mouse_on(display, x, y) with the desktop mouse; session.frame_displayed(…)
+//    for the primary display; session.set_screens(…) when the device's displays change.
+```
 
 ## Shared input module (`src/input/`)
 
@@ -134,4 +201,4 @@ On the Mac, with the Kyber SDK built for macOS (`third_party/kyber-desktop/rootf
 cd apps && PKG_CONFIG_PATH=$PWD/../third_party/kyber-desktop/rootfs-arm64-macos/lib/pkgconfig LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib cargo test -p kybernow-core
 ```
 
-The input tests cover the keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways; the sound tests, a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order. They advance a `ManualClock` by hand: they last a second. `cargo test -p kybernow-core input` or `… audio` for one half. The session tests (`… session`) cover the last resort with a fake console: when it triggers and when it does not, only once, Admin's refusals (always without `force`), the Station coming back, the deadline passing, cancelling while waiting, and the texts.
+The input tests cover the keyboard table, ISO, Caps Lock; short, held and fully released combo, setting off; fallback queue: accepted, refused twice then sent in order, refused endlessly, stop; axis filtering and grouping, reset to rest, release everything, text, deduplicated pointer, clipboard both ways; the sound tests, a 440 Hz A encoded in Opus, stereo and 5.1 at real pace with ± 8 ms of jitter and one loss in 97, 10 ms packets, 0.2% drift both ways, output stalled 200 ms then hard cut, downmix and channel order. They advance a `ManualClock` by hand: they last a second. `cargo test -p kybernow-core input` or `… audio` for one half. The session tests (`… session`) cover the last resort with a fake console: when it triggers and when it does not, only once, Admin's refusals (always without `force`), the Station coming back, the deadline passing, cancelling while waiting, and the texts. The multi-display tests (`… screens`, `… session`, `… console`, `… input`): the author's layout (XG32UQ 4K primary in the middle, Studio Display 5K on the right, MacBook Pro on the left and lower), with “Up to 4K” and in H.264, stacked displays, mixed scales, an isolated display, a display that would slide over another, four displays at most, and 300 random layouts that Windows must accept (primary at (0, 0), no overlap, all connected); `prepare`'s JSON both ways; displays found in Kyber's list; first data noted per stream; positions and pointer routed per display.

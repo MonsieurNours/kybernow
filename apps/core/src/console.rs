@@ -341,6 +341,12 @@ pub struct PrepareRequest {
     pub profile: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mode_policy: Option<String>,
+    /// Multi-écrans (docs/multi-ecrans.md) : un écran virtuel par entrée, de
+    /// 1 à 4, exactement un `primary` en (0, 0) ; `width`, `height` et
+    /// `refresh` décrivent alors l'écran principal (une Station qui ignore ce
+    /// champ fait une session à un écran). Absent : une session à un écran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub screens: Option<Vec<ScreenMode>>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -348,6 +354,26 @@ pub struct Mode {
     pub width: u32,
     pub height: u32,
     pub refresh: u32,
+}
+
+/// Un écran virtuel d'une session à plusieurs écrans : son mode et sa
+/// position en pixels sur le bureau de Windows (demandés, ou appliqués par
+/// la Station).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ScreenMode {
+    pub width: u32,
+    pub height: u32,
+    pub refresh: u32,
+    pub x: i32,
+    pub y: i32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub primary: bool,
+}
+
+impl ScreenMode {
+    pub fn mode(&self) -> Mode {
+        Mode { width: self.width, height: self.height, refresh: self.refresh }
+    }
 }
 
 /// Réponse de `POST /api/stream/prepare`.
@@ -362,6 +388,11 @@ pub struct Prepared {
     pub heartbeat_seconds: u64,
     /// Empreinte du certificat de Kyber (console 0.2.8 et suivantes).
     pub kyber_fingerprint: Option<String>,
+    /// Multi-écrans : ce qui est en place, dans l'ordre de la demande
+    /// (`None` : écran que la Station n'a pas pu créer). Absent : Station qui
+    /// ne gère qu'un écran (ou demande sans `screens`) : la session repart
+    /// sur un écran.
+    pub screens: Option<Vec<Option<ScreenMode>>>,
 }
 
 #[derive(Deserialize)]
@@ -373,6 +404,8 @@ struct PreparedWire {
     kyber_port: Option<u16>,
     heartbeat_seconds: Option<u64>,
     kyber_fingerprint: Option<String>,
+    #[serde(default)]
+    screens: Option<Vec<Option<ScreenMode>>>,
 }
 
 #[derive(Deserialize)]
@@ -380,6 +413,21 @@ struct AudioWire {
     #[serde(default)]
     routed: bool,
     channels: Option<u16>,
+}
+
+impl PreparedWire {
+    fn prepared(self) -> Prepared {
+        let usable = |m: &ScreenMode| m.width > 0 && m.height > 0;
+        Prepared {
+            virtual_display: self.virtual_display,
+            applied: self.applied.filter(|m| m.width > 0 && m.height > 0),
+            audio_channels: self.audio.filter(|a| a.routed).and_then(|a| a.channels),
+            kyber_port: self.kyber_port,
+            heartbeat_seconds: self.heartbeat_seconds.unwrap_or(5).max(1),
+            kyber_fingerprint: self.kyber_fingerprint.filter(|s| !s.is_empty()),
+            screens: self.screens.map(|list| list.into_iter().map(|m| m.filter(usable)).collect()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -539,14 +587,7 @@ impl Console {
             .request("POST", "api/stream/prepare", Duration::from_secs(40))
             .send_json(req);
         let w: PreparedWire = self.read(r)?;
-        Ok(Prepared {
-            virtual_display: w.virtual_display,
-            applied: w.applied.filter(|m| m.width > 0 && m.height > 0),
-            audio_channels: w.audio.filter(|a| a.routed).and_then(|a| a.channels),
-            kyber_port: w.kyber_port,
-            heartbeat_seconds: w.heartbeat_seconds.unwrap_or(5).max(1),
-            kyber_fingerprint: w.kyber_fingerprint.filter(|s| !s.is_empty()),
-        })
+        Ok(w.prepared())
     }
 
     pub fn heartbeat(&self, hb: &Heartbeat) -> Result<HeartbeatReply> {
@@ -707,6 +748,72 @@ mod tests {
 
     fn console(host: &str) -> Console {
         Console::new(host, 9443, "mac", "secret", None)
+    }
+
+    fn device() -> DeviceInfo {
+        DeviceInfo { id: "mac-1".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "KyberNow Link".into() }
+    }
+
+    fn request(screens: Option<Vec<ScreenMode>>) -> PrepareRequest {
+        PrepareRequest {
+            width: 3840,
+            height: 2160,
+            refresh: 160,
+            audio_channels: 2,
+            virtual_display: true,
+            device: device(),
+            profile: Some("Bureau".into()),
+            mode_policy: None,
+            screens,
+        }
+    }
+
+    #[test]
+    fn demande_a_un_ecran_inchangee() {
+        let v = serde_json::to_value(request(None)).unwrap();
+        assert!(v.get("screens").is_none(), "pas de champ screens pour un écran");
+        assert_eq!(v["width"], 3840);
+    }
+
+    #[test]
+    fn demande_multi_ecrans() {
+        let screens = vec![
+            ScreenMode { width: 3840, height: 2160, refresh: 160, x: 0, y: 0, primary: true },
+            ScreenMode { width: 5120, height: 2880, refresh: 60, x: 3840, y: 0, primary: false },
+            ScreenMode { width: 3456, height: 2234, refresh: 60, x: -3456, y: 400, primary: false },
+        ];
+        let v = serde_json::to_value(request(Some(screens))).unwrap();
+        assert_eq!(
+            v["screens"],
+            serde_json::json!([
+                { "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
+                { "width": 5120, "height": 2880, "refresh": 60, "x": 3840, "y": 0 },
+                { "width": 3456, "height": 2234, "refresh": 60, "x": -3456, "y": 400 }
+            ])
+        );
+        assert_eq!((v["width"].clone(), v["refresh"].clone()), (serde_json::json!(3840), serde_json::json!(160)));
+    }
+
+    #[test]
+    fn reponse_multi_ecrans() {
+        let body = r#"{"virtual_display": true, "applied": {"width": 3840, "height": 2160, "refresh": 160},
+            "kyber_port": 8080, "screens": [
+              { "width": 3840, "height": 2160, "refresh": 160, "x": 0, "y": 0, "primary": true },
+              { "width": 5120, "height": 2880, "refresh": 60, "x": 3840, "y": 0 },
+              null ]}"#;
+        let p = serde_json::from_str::<PreparedWire>(body).unwrap().prepared();
+        let screens = p.screens.expect("écrans");
+        assert_eq!(screens.len(), 3, "dans l'ordre de la demande");
+        assert!(screens[0].unwrap().primary);
+        assert_eq!(screens[1].unwrap().mode(), Mode { width: 5120, height: 2880, refresh: 60 });
+        assert_eq!((screens[1].unwrap().x, screens[1].unwrap().y), (3840, 0));
+        assert!(screens[2].is_none(), "écran non créé");
+        // Station qui ne gère qu'un écran : pas de champ, session à un écran.
+        let old = serde_json::from_str::<PreparedWire>(r#"{"virtual_display": true, "applied": {"width": 3840, "height": 2160, "refresh": 160}}"#)
+            .unwrap()
+            .prepared();
+        assert!(old.screens.is_none());
+        assert_eq!(old.heartbeat_seconds, 5);
     }
 
     #[test]
