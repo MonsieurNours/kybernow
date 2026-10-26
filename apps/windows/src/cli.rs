@@ -5,8 +5,10 @@ use std::sync::{Arc, mpsc};
 
 use kybernow_core::console::{Console, Mode};
 use kybernow_core::profile::{Codec, Profile};
+use kybernow_core::screens::DisplaysSetting;
 use kybernow_core::session::SessionParams;
 
+use crate::displays::{self, Layout, Spec};
 use crate::host::{HostEvents, HostOptions, SessionHost, Summary};
 use crate::plan::{Choices, plan};
 use crate::{audio, decoder, render, system};
@@ -31,7 +33,12 @@ Options :
   --444 / --420             couleurs complètes ou non
   --mbps <débit>            débit fixe en Mbit/s (sinon celui du profil)
   --size <L>x<H>@<Hz>       mode de l'écran de l'ordinateur (sinon cet écran)
-  --window                  en fenêtre plutôt qu'en plein écran
+  --window                  en fenêtre plutôt qu'en plein écran (un seul écran)
+  --screens auto|this|all   écrans de ce PC pris par la session : auto (tous en
+                            Bureau et Max, un seul en Jeu), this (un seul, par
+                            défaut) ou all (tous) ; la variable
+                            KYBERNOW_MAX_SCREENS=4 fait comme si la Station
+                            savait créer quatre écrans
   --no-vsync                présente chaque image sans attendre l'écran
   --no-hw                   décodage par le processeur
   --no-audio                son laissé sur l'ordinateur
@@ -55,6 +62,7 @@ struct Args {
     mbps: Option<u32>,
     size: Option<Mode>,
     window: bool,
+    screens: DisplaysSetting,
     vsync: bool,
     hardware: bool,
     audio: bool,
@@ -82,6 +90,7 @@ fn parse_args() -> Result<Args, String> {
         mbps: None,
         size: None,
         window: false,
+        screens: DisplaysSetting::This,
         vsync: true,
         hardware: true,
         audio: true,
@@ -123,6 +132,10 @@ fn parse_args() -> Result<Args, String> {
                 a.size = Some(parse_mode(&v).ok_or(format!("mode invalide : {v} (exemple : 1920x1080@60)"))?);
             }
             "--window" => a.window = true,
+            "--screens" => {
+                let v = value("--screens", &mut it)?;
+                a.screens = DisplaysSetting::parse(&v).ok_or(format!("réglage d'écrans inconnu : {v} (auto, this ou all)"))?;
+            }
             "--no-vsync" => a.vsync = false,
             "--no-hw" => a.hardware = false,
             "--no-audio" => a.audio = false,
@@ -285,6 +298,18 @@ pub fn main() -> i32 {
         mode.height,
         mode.refresh
     );
+    // Les écrans de ce PC. Une session dans une fenêtre, ou une définition sur
+    // mesure, ne prend qu'un écran.
+    let layout = Layout {
+        monitors: displays::enumerate(),
+        spec: Spec {
+            setting: args.screens,
+            limit_4k: false,
+            custom_resolution: args.size.is_some() || args.window,
+            max_screens: displays::max_screens(info.virtual_display.max_screens()),
+            lighten: false,
+        },
+    };
     let audio_channels = if args.audio { audio::default_output_channels() } else { 0 };
     let params = SessionParams {
         console_host: args.host.clone(),
@@ -313,6 +338,7 @@ pub fn main() -> i32 {
             mouse: None,
             window_size: system::initial_window_size(mode),
             title_stats: true,
+            layout,
         },
         Arc::new(CliEvents(std::sync::Mutex::new(tx))),
     );

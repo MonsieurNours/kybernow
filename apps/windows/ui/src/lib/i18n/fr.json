@@ -46,6 +46,7 @@
     "screens_as_is": "Les écrans de l'ordinateur, tels quels",
     "screen_match": "Écran de {width} × {height} à {refresh} Hz, à la taille de cet écran",
     "screen": "Écran de {width} × {height} à {refresh} Hz",
+    "screens_many": "{count} écrans, à la taille de ceux de cet appareil",
     "connect": "Se connecter",
     "retry": "Réessayer",
     "wake": "Réveiller l'ordinateur",
@@ -126,6 +127,11 @@
     "height": "Hauteur",
     "refresh": "Fréquence",
     "refresh_help": "Comme cet écran : la définition et la fréquence de cet écran. Au plus 4K : ramenée à 3840 × 2160 si cet écran est plus grand.",
+    "displays": "Écrans",
+    "displays_this": "Cet écran",
+    "displays_all": "Tous les écrans",
+    "displays_help": "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon.",
+    "displays_custom_help": "Avec une définition sur mesure, la session prend un seul écran.",
     "custom_help": "L'écran virtuel de l'ordinateur prend cette taille, que l'image soit plus grande ou plus petite que cet écran (elle est mise à l'échelle). Jusqu'à 7680 × 4320 (4096 de large en H.264, réduite au besoin).",
     "virtual": "Écran virtuel",
     "virtual_help": "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.",
@@ -170,6 +176,7 @@
     "last_session": "Dernière session",
     "median": "médiane",
     "p95": "95 % des images sous {ms} ms",
+    "screens": "{count} écrans",
     "help": "Le délai entre l'ordinateur et cet écran. Sous un repère, l'image arrive avant l'image suivante à cette fréquence.",
     "none": "Pas encore de session sur cet ordinateur.",
     "this_computer": "Cet ordinateur",
@@ -244,6 +251,7 @@
   },
   "passage": {
     "preparing": "Préparation de l'écran",
+    "preparing_many": "Préparation des écrans",
     "connecting": "Connexion",
     "first_images": "Premières images",
     "slow": "{name} est connecté mais n'envoie pas d'image. Son journal dit souvent pourquoi : dans Admin, Système › Journaux."
@@ -271,6 +279,9 @@
     "fullscreen_shortcut": " (Ctrl+Alt+Maj+F)",
     "disconnect": "Se déconnecter",
     "disconnect_shortcut": " (Ctrl+Alt+Maj+D)"
+  },
+  "fond": {
+    "not_created": "L'ordinateur n'a pas pu créer cet écran."
   },
   "mock": {
     "not_a_link": "ce n'est pas un lien kybernow://",

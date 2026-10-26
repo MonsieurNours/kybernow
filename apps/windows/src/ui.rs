@@ -2,9 +2,12 @@
 //! ordinateur, réglages, passage vers la session et barre de session.
 //!
 //! Fenêtres : `main` (accueil, sans cadre de Windows : la barre de titre est
-//! dessinée par l'interface) et `bar` (barre de session, transparente, montrée
-//! quand le pointeur touche le haut de l'écran de la session).
-//! La session elle-même est une fenêtre Win32 sur son propre fil (`host.rs`).
+//! dessinée par l'interface), `bar` (barre de session, transparente, montrée
+//! quand le pointeur touche le haut de l'écran de la session) et `fond-N` (le
+//! fond de la connexion sur les écrans de la session autres que l'écran
+//! principal, `fonds.rs`).
+//! La session elle-même est faite de fenêtres Win32 (une par écran) sur son
+//! propre fil (`host.rs`).
 //!
 //! L'app vit aussi dans l'icône près de l'horloge (`tray.rs`) : fermer
 //! l'accueil le cache, « Quitter KyberNow Link » la quitte. Ouverte à
@@ -22,10 +25,13 @@ use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, M
 
 use kybernow_core::console::{Console, Info, PairStatus, StationError};
 use kybernow_core::profile::{Codec, Profile};
+use kybernow_core::screens::{self, DisplaysSetting};
 use kybernow_core::session::{SessionParams, Status};
 
 use crate::discovery::{self, Discovery, Found};
-use crate::host::{HostEvents, HostOptions, SessionHost, Stats, Summary};
+use crate::displays::{self, Layout, Spec};
+use crate::fonds::{self, Fonds};
+use crate::host::{HostEvents, HostOptions, Role, ScreenSet, SessionHost, Stats, Summary};
 use crate::plan::{Choices, plan};
 use crate::store::{self, Computer, LastSession, Settings, Store};
 use crate::window::Command;
@@ -96,7 +102,54 @@ struct Running {
 /// à la taille que l'ordinateur envoie vraiment.
 struct Sent {
     settings: kybernow_core::profile::StreamSettings,
+    /// Définition et fréquence de l'écran principal.
     mode: kybernow_core::console::Mode,
+    /// Écrans de la session, et leurs pixels par seconde ensemble (débit total).
+    screens: u32,
+    pixel_rate: f64,
+    /// L'écran virtuel est demandé (sans lui, une session à un écran).
+    virtual_display: bool,
+}
+
+impl Sent {
+    /// Débit demandé à l'ordinateur, en Mbit/s : celui du profil pour
+    /// l'écran, ou pour la somme des écrans.
+    fn mbps(&self) -> u32 {
+        let bits = if self.screens > 1 && self.pixel_rate > 0.0 {
+            self.settings.bitrate_for_pixel_rate(self.pixel_rate)
+        } else {
+            self.settings.bitrate(self.mode.width, self.mode.height, self.mode.refresh)
+        };
+        bits / 1_000_000
+    }
+}
+
+/// L'accueil et la connexion de la session sur les écrans (multi-écrans,
+/// docs/link-ui.md « Plusieurs écrans »). La connexion se lit sur l'écran
+/// principal de ce PC : l'accueil y passe, et reprend sa place à la fin.
+#[derive(Default)]
+struct Spot {
+    /// L'écran principal de la session : son nom et son cadre.
+    primary: Option<fonds::Target>,
+    /// Les autres écrans pris par la session (le fond de la connexion y est).
+    others: Vec<fonds::Target>,
+    /// Où était l'accueil avant de passer sur l'écran principal.
+    before: Option<tauri::PhysicalPosition<i32>>,
+    /// Une image a été montrée : la session est établie, la connexion qui
+    /// reprend ensuite (écrans de ce PC ou profil changés) est une reprise.
+    shown: bool,
+    /// Les écrans qui ont montré leur image depuis le début de la connexion
+    /// (ou de sa reprise) : leur fond est parti, il ne revient pas.
+    visible: Vec<String>,
+    /// Reprise de la connexion en session : l'accueil couvre l'écran principal.
+    replanning: Option<Replan>,
+}
+
+/// L'accueil avant qu'il couvre l'écran principal pour une reprise de la connexion.
+struct Replan {
+    visible: bool,
+    position: Option<tauri::PhysicalPosition<i32>>,
+    size: Option<tauri::PhysicalSize<u32>>,
 }
 
 #[derive(Default)]
@@ -120,6 +173,8 @@ pub struct UiState {
     /// Relevé demandé tout de suite (ouverture du menu de l'icône).
     poll_asked: Mutex<bool>,
     poll_signal: Condvar,
+    /// Fond de la connexion sur les écrans autres que l'écran principal.
+    fonds: OnceLock<Arc<Fonds>>,
 }
 
 /// Ce que l'ouverture demande à l'app.
@@ -718,6 +773,50 @@ fn poll_now(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Les écrans, vus par l'accueil et les réglages d'un ordinateur : ce que le
+/// cœur en dit (`DisplaysChoice`, `session_plan`), le même calcul que la
+/// session.
+#[derive(Serialize)]
+struct DisplaysInfo {
+    /// Le réglage « Écrans » se change ; sinon il est inactif, sur « Cet
+    /// écran » (définition sur mesure, ou sans écran virtuel).
+    enabled: bool,
+    /// Le réglage tel que les réglages le montrent : `auto`, `this` ou `all`.
+    shown: &'static str,
+    /// Écrans que la session prendra (1 : un seul).
+    count: usize,
+}
+
+/// `settings` : ceux de l'ordinateur `id`, enregistrés ou en cours de
+/// réglage (la ligne de l'accueil et le réglage se mettent à jour à chaque
+/// changement). Les écrans de ce PC sont relevés à chaque appel.
+#[tauri::command(async)]
+fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<DisplaysInfo, String> {
+    let state = app.state::<UiState>();
+    let mut c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
+    c.settings = settings;
+    let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
+    let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
+    let (stream, _, _) = session_plan(&c, &pc, lighten);
+    let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
+    let screens = Layout { monitors: displays::enumerate(), spec: displays_spec(&c.settings, info.as_ref(), lighten) }.screens();
+    let choice = screens.choice(stream.profile, c.settings.virtual_display);
+    let count = screens::session_plan(&screens, stream.profile, c.settings.virtual_display, stream.codec).map_or(1, |p| p.len());
+    Ok(DisplaysInfo { enabled: choice.setting_enabled(), shown: choice.shown_setting().as_str(), count })
+}
+
+/// Les écrans de ce PC ont changé (branché, débranché, disposition) : l'accueil
+/// revoit ce que la session prendra (événement `displays`).
+pub fn displays_changed(app: &AppHandle) {
+    let _ = app.emit_to("main", "displays", ());
+}
+
+/// Ce que montre le fond de la connexion d'un écran (`fond.html`).
+#[tauri::command]
+fn fond_state(window: tauri::WebviewWindow, state: tauri::State<'_, UiState>) -> fonds::FondState {
+    state.fonds.get().map_or(fonds::FondState { not_created: false }, |f| f.state_of(window.label()))
+}
+
 #[tauri::command(async)]
 fn snapshot(state: tauri::State<'_, UiState>) -> Snapshot {
     Snapshot {
@@ -1081,16 +1180,27 @@ struct UiEvents {
     label: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
     stats: Arc<Mutex<Option<Stats>>>,
+    spec: Spec,
+    spot: Arc<Mutex<Spot>>,
 }
 
 /// `bar-shown` : la barre se montre ; `pinned` : demandée par « Statistiques »
 /// (menu de l'icône), elle ne repart pas d'elle-même tant que le pointeur n'y
-/// est pas passé.
+/// est pas passé ; `multi` : plusieurs écrans (pas de « Plein écran »).
 #[derive(Clone, Serialize)]
 struct BarShown {
     #[serde(flatten)]
     label: BarLabel,
     pinned: bool,
+    multi: bool,
+}
+
+/// `session-replan` : la connexion reprend en session (écrans de ce PC ou
+/// profil changés) ; `screens` : le nombre d'écrans qu'elle prendra.
+#[derive(Clone, Serialize)]
+struct ReplanEvent {
+    id: String,
+    screens: usize,
 }
 
 #[derive(Clone, Serialize)]
@@ -1131,6 +1241,12 @@ impl HostEvents for UiEvents {
             // jusqu'au prochain `session-status` (voir ui/src/lib/api.ts).
             let _ = self.app.emit("session-station-restarting", StationRestarting { id: self.id.clone() });
         }
+        // La connexion reprend en session (écrans de ce PC ou profil changés) :
+        // ses étapes reviennent sur l'écran principal, le fond de la connexion
+        // sur les autres écrans, jusqu'à la première image de chacun.
+        if matches!(s, Status::Preparing) && self.spot.lock().unwrap().shown {
+            self.begin_replan();
+        }
     }
 
     fn stats(&self, s: &Stats) {
@@ -1153,10 +1269,84 @@ impl HostEvents for UiEvents {
         if !foreground {
             log::info!("session hors du premier plan : accueil caché quand même");
         }
+        self.spot.lock().unwrap().shown = true;
         // Le passage s'ouvre à la première image montrée, pas à la connexion.
         let _ = self.app.emit_to("main", "session-shown", &self.id);
         if let Some(w) = self.app.get_webview_window("main") {
             let _ = w.hide();
+        }
+    }
+
+    /// Les écrans de la session : le fond de la connexion sur ceux qui n'ont
+    /// pas encore leur image, la ligne d'un écran que l'ordinateur n'a pas pu
+    /// créer, rien pour ceux que la session ne prend pas (une Station qui ne
+    /// gère qu'un écran, le principal seul accepté).
+    fn screens(&self, set: &ScreenSet) {
+        let target = |s: &crate::host::ScreenState| fonds::Target { key: s.key.clone(), x: s.x, y: s.y, width: s.width, height: s.height };
+        let mut primary = None;
+        let mut others = Vec::new();
+        let mut not_created = Vec::new();
+        let (mut count, mut pixel_rate) = (0u32, 0.0f64);
+        for s in &set.screens {
+            match &s.role {
+                Role::Stream { session_primary, width, height, refresh } => {
+                    count += 1;
+                    pixel_rate += f64::from(*width) * f64::from(*height) * f64::from((*refresh).max(1));
+                    if *session_primary {
+                        primary = Some(target(s));
+                        // Mesures de l'écran principal.
+                        let mut sent = self.sent.lock().unwrap();
+                        sent.mode = kybernow_core::console::Mode { width: *width, height: *height, refresh: *refresh };
+                    } else {
+                        others.push(target(s));
+                    }
+                }
+                Role::NotCreated => not_created.push(target(s)),
+                Role::Unused => {}
+            }
+        }
+        {
+            let mut sent = self.sent.lock().unwrap();
+            sent.screens = count.max(1);
+            sent.pixel_rate = pixel_rate;
+        }
+        let waiting: Vec<fonds::Target> = {
+            let mut spot = self.spot.lock().unwrap();
+            spot.primary = primary;
+            spot.others = others.clone();
+            // Un écran qui n'est plus pris oublie qu'il a montré son image.
+            let keys: Vec<String> = others.iter().map(|t| t.key.clone()).chain(spot.primary.iter().map(|t| t.key.clone())).collect();
+            spot.visible.retain(|k| keys.contains(k));
+            // Sans image encore (connexion, ou reprise), un fond sans texte.
+            others.into_iter().filter(|t| !spot.visible.contains(&t.key)).collect()
+        };
+        let Some(fonds) = self.app.state::<UiState>().fonds.get().cloned() else { return };
+        let keep: Vec<String> = waiting.iter().chain(&not_created).map(|t| t.key.clone()).collect();
+        fonds.keep_only(&keep);
+        fonds.show(&waiting);
+        for t in &not_created {
+            fonds.not_created(t);
+        }
+        let _ = self.app.emit("session-screens", ScreensEvent { id: self.id.clone(), screens: count.max(1) as usize });
+        tray::refresh();
+    }
+
+    /// Un écran montre son image : son fond de connexion s'efface ; pour
+    /// l'écran principal après une reprise, les étapes se referment et
+    /// l'accueil rend la place à la session.
+    fn screen_visible(&self, key: &str) {
+        let (replanning, primary) = {
+            let mut spot = self.spot.lock().unwrap();
+            if !spot.visible.iter().any(|k| k == key) {
+                spot.visible.push(key.to_string());
+            }
+            (spot.replanning.is_some(), spot.primary.as_ref().is_some_and(|p| p.key == key))
+        };
+        if let Some(fonds) = self.app.state::<UiState>().fonds.get() {
+            fonds.hide(key);
+        }
+        if replanning && primary {
+            self.end_replan();
         }
     }
 
@@ -1194,8 +1384,9 @@ impl HostEvents for UiEvents {
                     width: Some(m.width),
                     height: Some(m.height),
                     refresh: Some(m.refresh),
+                    screens: Some(sent.screens.max(1)),
                     codec: Some(sent.settings.codec.label().into()),
-                    mbps: Some(sent.settings.bitrate(m.width, m.height, m.refresh) / 1_000_000),
+                    mbps: Some(sent.mbps()),
                     label: String::new(),
                 }
             };
@@ -1209,9 +1400,36 @@ impl HostEvents for UiEvents {
         if let Some(bar) = self.app.get_webview_window("bar") {
             let _ = bar.hide();
         }
+        // Plusieurs écrans : les fonds de la connexion partent (un échec se lit
+        // sur l'écran principal, seul), l'accueil reprend sa place s'il avait
+        // changé d'écran.
+        if let Some(fonds) = state.fonds.get() {
+            fonds.close_all();
+        }
+        let (before, replan) = {
+            let mut spot = self.spot.lock().unwrap();
+            let before = spot.before.take();
+            let replan = spot.replanning.take();
+            *spot = Spot::default();
+            (before, replan)
+        };
         tray::refresh();
         let quitting = state.quitting.load(std::sync::atomic::Ordering::Relaxed);
         if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
+            // Reprise de la connexion interrompue : l'accueil quitte l'écran principal.
+            if let Some(r) = replan {
+                let _ = w.set_always_on_top(false);
+                if let Some(size) = r.size {
+                    let _ = w.set_size(size);
+                }
+                if let Some(at) = r.position {
+                    let _ = w.set_position(at);
+                }
+            }
+            // Revenu où il était, sauf après une erreur : elle se lit sur l'écran principal.
+            if let (None, Some(at)) = (&s.error, before) {
+                let _ = w.set_position(at);
+            }
             let _ = w.show();
             let _ = w.set_focus();
         }
@@ -1245,6 +1463,88 @@ impl HostEvents for UiEvents {
     }
 }
 
+/// `session-screens` : le nombre d'écrans de la session (l'étape « Préparation
+/// des écrans » de la connexion, la barre).
+#[derive(Clone, Serialize)]
+struct ScreensEvent {
+    id: String,
+    screens: usize,
+}
+
+/// Le nombre d'écrans que la session prendra avec ces réglages et les écrans
+/// de ce PC maintenant : le calcul du cœur, comme à l'accueil.
+fn expected_screens(spec: Spec, settings: &kybernow_core::profile::StreamSettings, virtual_display: bool) -> usize {
+    let layout = Layout { monitors: displays::enumerate(), spec };
+    screens::session_plan(&layout.screens(), settings.profile, virtual_display, settings.codec).map_or(1, |p| p.len())
+}
+
+impl UiEvents {
+    /// La connexion reprend en session : l'accueil couvre l'écran principal
+    /// avec ses étapes (le passage), les autres écrans reprennent le fond de
+    /// la connexion, chacun jusqu'à sa première image.
+    fn begin_replan(&self) {
+        let (primary, others) = {
+            let mut spot = self.spot.lock().unwrap();
+            if spot.replanning.is_some() {
+                return;
+            }
+            spot.replanning = Some(Replan { visible: false, position: None, size: None });
+            spot.visible.clear();
+            (spot.primary.clone(), spot.others.clone())
+        };
+        let screens = {
+            let sent = self.sent.lock().unwrap();
+            expected_screens(self.spec, &sent.settings, sent.virtual_display)
+        };
+        log::info!("la connexion reprend en session : {screens} écran(s)");
+        let _ = self.app.emit("session-replan", ReplanEvent { id: self.id.clone(), screens });
+        let app = self.app.clone();
+        let spot = self.spot.clone();
+        let _ = self.app.run_on_main_thread(move || {
+            // La barre se referme.
+            window::set_bar_visible(false);
+            if let Some(bar) = app.get_webview_window("bar") {
+                let _ = bar.hide();
+            }
+            let Some(main) = app.get_webview_window("main") else { return };
+            let before = Replan { visible: main.is_visible().unwrap_or(false), position: main.outer_position().ok(), size: main.outer_size().ok() };
+            if let Some(r) = spot.lock().unwrap().replanning.as_mut() {
+                *r = before;
+            }
+            if let Some(p) = primary {
+                let _ = main.set_always_on_top(true);
+                let _ = main.set_position(tauri::PhysicalPosition::new(p.x, p.y));
+                let _ = main.set_size(tauri::PhysicalSize::new(p.width, p.height));
+                let _ = main.show();
+            }
+            if let Some(fonds) = app.state::<UiState>().fonds.get() {
+                fonds.show(&others);
+            }
+        });
+    }
+
+    /// L'écran principal a repris son image : les étapes se referment et
+    /// l'accueil rend la place à la session.
+    fn end_replan(&self) {
+        let Some(r) = self.spot.lock().unwrap().replanning.take() else { return };
+        let _ = self.app.emit_to("main", "session-shown", &self.id);
+        let app = self.app.clone();
+        let _ = self.app.run_on_main_thread(move || {
+            let Some(main) = app.get_webview_window("main") else { return };
+            let _ = main.set_always_on_top(false);
+            if let Some(size) = r.size {
+                let _ = main.set_size(size);
+            }
+            if let Some(at) = r.position {
+                let _ = main.set_position(at);
+            }
+            if !r.visible {
+                let _ = main.hide();
+            }
+        });
+    }
+}
+
 /// Réglages de la session et mode de l'écran pour un ordinateur, d'après ses
 /// réglages, ce que ce PC sait décoder et « Sur batterie » des réglages de
 /// l'app (`lighten` : alléger, et ce PC est sur batterie).
@@ -1257,7 +1557,7 @@ fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool) -> (kybernow_core::pro
         mbps: s.mbps,
         reliable: s.reliable,
         max_4k: s.max_4k && s.custom.is_none(),
-        size: s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24),
+        size: custom_mode(s),
         lighten,
     };
     let caps = kybernow_core::profile::Capabilities { hevc: pc.hevc, hevc444: pc.hevc444, av1: pc.av1 };
@@ -1271,9 +1571,54 @@ fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool) -> (kybernow_core::pro
     (settings, mode, label)
 }
 
+/// La définition sur mesure choisie, si elle est utilisable.
+fn custom_mode(s: &Settings) -> Option<kybernow_core::console::Mode> {
+    s.custom.filter(|m| m.width >= 640 && m.height >= 360 && m.refresh >= 24)
+}
+
+/// Ce qui décide du nombre d'écrans d'une session, d'après les réglages de
+/// l'ordinateur et ce que sa Station sait créer (`info` ; sans elle, un écran).
+fn displays_spec(s: &Settings, info: Option<&Info>, lighten: bool) -> Spec {
+    Spec {
+        setting: DisplaysSetting::parse(&s.displays).unwrap_or_default(),
+        limit_4k: s.max_4k && s.custom.is_none(),
+        custom_resolution: custom_mode(s).is_some(),
+        max_screens: displays::max_screens(info.map_or(1, |i| i.virtual_display.max_screens())),
+        lighten,
+    }
+}
+
+/// Réponse de `connect` : les écrans que la session prend (l'étape « Préparation
+/// des écrans » de la connexion).
+#[derive(Serialize)]
+struct ConnectInfo {
+    screens: usize,
+}
+
+/// L'accueil passe sur l'écran principal de ce PC, où la connexion se lit
+/// (docs/link-ui.md, « Plusieurs écrans ») ; rend où il était, pour qu'il y
+/// revienne à la fin. Rien s'il y est déjà.
+fn home_to_primary(app: &AppHandle, monitors: &[displays::Monitor]) -> Option<tauri::PhysicalPosition<i32>> {
+    let main = app.get_webview_window("main")?;
+    if main.is_minimized().unwrap_or(false) {
+        return None;
+    }
+    let pos = main.outer_position().ok()?;
+    let size = main.outer_size().ok()?;
+    let on = displays::at(monitors, pos.x + size.width as i32 / 2, pos.y + size.height as i32 / 2)?;
+    if monitors[on].primary {
+        return None;
+    }
+    let m = &monitors[displays::primary(monitors)];
+    let x = (m.x + (m.width - size.width as i32) / 2).max(m.x);
+    let y = (m.y + (m.height - size.height as i32) / 2).max(m.y);
+    let _ = main.set_position(tauri::PhysicalPosition::new(x, y));
+    Some(pos)
+}
+
 /// Lance la session vers un ordinateur avec ses réglages.
 #[tauri::command(async)]
-fn connect(app: AppHandle, id: String) -> Result<(), String> {
+fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let state = app.state::<UiState>();
     if state.session.lock().unwrap().is_some() {
         return Err(t("errors.session_already_open", &[]));
@@ -1302,6 +1647,11 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
     let s = &c.settings;
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
     let (settings, mode, label) = session_plan(&c, &pc, lighten);
+    // Les écrans de ce PC et ce que la Station sait créer : le cœur en fait une
+    // session à un ou plusieurs écrans (le même calcul que la ligne de l'accueil).
+    let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
+    let layout = Layout { monitors: displays::enumerate(), spec: displays_spec(s, info.as_ref(), lighten) };
+    let plan = screens::session_plan(&layout.screens(), settings.profile, s.virtual_display, settings.codec);
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
         other => other.parse().unwrap_or(2),
@@ -1328,15 +1678,44 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
         _ => None,
     };
     log::info!("session vers {} ({}) : {label}, {}×{} à {} Hz", c.name, c.host, mode.width, mode.height, mode.refresh);
+    if let Some(p) = &plan {
+        log::info!("session sur {} écrans de ce PC (la Station en crée {} au plus)", p.len(), layout.spec.max_screens);
+    }
+    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
+    let sent = Arc::new(Mutex::new(Sent {
+        settings,
+        mode,
+        screens: plan.as_ref().map_or(1, |p| p.len() as u32),
+        pixel_rate: 0.0,
+        virtual_display: s.virtual_display,
+    }));
+    let stats = Arc::new(Mutex::new(None));
+    // Plusieurs écrans : la connexion se lit sur l'écran principal (l'accueil
+    // y passe), les autres montrent le fond de la connexion sans texte.
+    let spot = Arc::new(Mutex::new(Spot::default()));
+    if let Some(p) = &plan {
+        let target = |i: usize| {
+            let m = &layout.monitors[i];
+            fonds::Target { key: m.key.clone(), x: m.x, y: m.y, width: m.width.max(0) as u32, height: m.height.max(0) as u32 }
+        };
+        let others: Vec<fonds::Target> = p.iter().filter(|x| !x.primary).map(|x| target(x.device)).collect();
+        {
+            let mut sp = spot.lock().unwrap();
+            sp.primary = p.iter().find(|x| x.primary).map(|x| target(x.device));
+            sp.others = others.clone();
+            sp.before = home_to_primary(&app, &layout.monitors);
+        }
+        if let Some(f) = state.fonds.get() {
+            f.show(&others);
+        }
+    }
+    let spec = layout.spec;
     // Tenu jusqu'à l'inscription de la session : une fin très rapide (dans
     // `ended`) ne peut pas passer avant.
     let mut running = state.session.lock().unwrap();
     if running.is_some() {
         return Err(t("errors.session_already_open", &[]));
     }
-    let bar = Arc::new(Mutex::new(BarLabel { label: label.clone(), profile: s.profile.clone() }));
-    let sent = Arc::new(Mutex::new(Sent { settings, mode }));
-    let stats = Arc::new(Mutex::new(None));
     let host = SessionHost::start(
         c.name.clone(),
         params,
@@ -1347,13 +1726,15 @@ fn connect(app: AppHandle, id: String) -> Result<(), String> {
             mouse,
             window_size: system::initial_window_size(mode),
             title_stats: false,
+            layout,
         },
-        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone(), sent: sent.clone(), stats: stats.clone() }),
+        Arc::new(UiEvents { app: app.clone(), id: id.clone(), label: bar.clone(), sent: sent.clone(), stats: stats.clone(), spec, spot: spot.clone() }),
     );
+    let screens = plan.as_ref().map_or(1, |p| p.len());
     *running = Some(Running { id, host, bar, sent, stats });
     drop(running);
     tray::refresh();
-    Ok(())
+    Ok(ConnectInfo { screens })
 }
 
 #[tauri::command(async)]
@@ -1453,14 +1834,15 @@ fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
     let _ = bar.set_always_on_top(true);
     let _ = bar.show();
     window::set_bar_visible(true);
-    let _ = app.emit_to("bar", "bar-shown", BarShown { label, pinned });
+    let _ = app.emit_to("bar", "bar-shown", BarShown { label, pinned, multi: window::stream_count() > 1 });
 }
 
 /// « Statistiques » du menu de l'icône : la barre et ses mesures en direct,
 /// ou cachée si elle est déjà là ; le clavier reste à la session.
 fn toggle_stats(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let Some((hwnd, label)) = state.session.lock().unwrap().as_ref().map(|r| (r.host.hwnd(), r.bar.lock().unwrap().clone())) else {
+    // Sur la fenêtre de la session où est le pointeur (une seule barre).
+    let Some((hwnd, label)) = state.session.lock().unwrap().as_ref().map(|r| (r.host.bar_window(), r.bar.lock().unwrap().clone())) else {
         return;
     };
     let a = app.clone();
@@ -1471,8 +1853,9 @@ fn toggle_stats(app: &AppHandle) {
             return;
         }
         show_bar(&a, hwnd, label, true);
+        // La fenêtre où la barre s'ouvre devient la fenêtre active.
         if let Some(r) = a.state::<UiState>().session.lock().unwrap().as_ref() {
-            r.host.command(Command::Focus);
+            r.host.focus(hwnd);
         }
     });
 }
@@ -1528,14 +1911,14 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
     let session = state.session.lock().unwrap().as_ref().map(|r| {
         let stats = r.stats.lock().unwrap().clone();
         let sent = r.sent.lock().unwrap();
-        let m = sent.mode;
         menu::Session {
             id: r.id.clone(),
             name: computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
             latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
             fps: stats.as_ref().map(|s| s.fps),
-            mbps: Some(sent.settings.bitrate(m.width, m.height, m.refresh) / 1_000_000),
+            mbps: Some(sent.mbps()),
             fullscreen: window::fullscreen_now(),
+            multi: window::stream_count() > 1,
             mouse: computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
         }
     });
@@ -1729,7 +2112,9 @@ pub fn run(args: Vec<String>) {
             open_admin,
             wake,
             set_profile,
-            set_open_at_login
+            set_open_at_login,
+            displays_info,
+            fond_state
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1759,6 +2144,7 @@ pub fn run(args: Vec<String>) {
                 .build()?;
 
             log::info!("app : fenêtres créées{}", if background { " (ouverture de session : accueil caché)" } else { "" });
+            let _ = handle.state::<UiState>().fonds.set(Fonds::new(handle.clone()));
             shell::register();
             open_at_login_default(&handle.state::<UiState>());
             tray::start(handle.clone());

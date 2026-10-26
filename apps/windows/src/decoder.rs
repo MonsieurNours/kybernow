@@ -7,12 +7,15 @@
 
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
 
 use windows::Win32::Graphics::Direct3D11::{ID3D11Device, ID3D11VideoContext, ID3D11VideoDevice};
 use windows::core::Interface;
 
 use kybernow_core::media::{FOURCC_AV1, FOURCC_H264, FOURCC_HEVC};
 use kybernow_core::profile::Capabilities;
+
+use crate::gpu::{ContextLock, ffmpeg_lock, ffmpeg_unlock};
 
 pub mod ff {
     #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code, unnecessary_transmutes, clippy::all)]
@@ -76,13 +79,19 @@ pub struct Decoder {
     frame: *mut AVFrame,
     pub fourcc: u32,
     pub hardware: bool,
+    /// Le verrou du contexte Direct3D que FFmpeg a reçu : il doit vivre autant
+    /// que le décodeur.
+    _lock: Option<Arc<ContextLock>>,
 }
 
 unsafe impl Send for Decoder {}
 
 impl Decoder {
-    /// `device` : la carte graphique du rendu, pour un décodage sans copie.
-    pub fn new(fourcc: u32, device: Option<&ID3D11Device>) -> Result<Self, String> {
+    /// `device` : la carte graphique du rendu, pour un décodage sans copie ;
+    /// `lock` : le verrou de son contexte (plusieurs écrans sur le même
+    /// appareil : FFmpeg le prend autour de chaque image décodée, voir
+    /// `gpu.rs`), `None` quand le décodeur est seul sur son appareil (sonde).
+    pub fn new(fourcc: u32, device: Option<&ID3D11Device>, lock: Option<&Arc<ContextLock>>) -> Result<Self, String> {
         let id = match fourcc {
             FOURCC_H264 => AV_CODEC_ID_H264,
             FOURCC_HEVC => AV_CODEC_ID_HEVC,
@@ -122,6 +131,13 @@ impl Decoder {
                     (*d3d).device = dev.clone().into_raw();
                     (*d3d).video_device = vdev.into_raw();
                     (*d3d).video_context = vctx.into_raw();
+                    // Le verrou de l'appareil partagé, avant `av_hwdevice_ctx_init`
+                    // (qui n'en crée un à lui que s'il n'y en a pas).
+                    if let Some(l) = lock {
+                        (*d3d).lock = Some(ffmpeg_lock);
+                        (*d3d).unlock = Some(ffmpeg_unlock);
+                        (*d3d).lock_ctx = l.raw();
+                    }
                     let mut hw = hw;
                     if av_hwdevice_ctx_init(hw) == 0 {
                         (*ctx).hw_device_ctx = hw;
@@ -151,6 +167,7 @@ impl Decoder {
                 frame: av_frame_alloc(),
                 fourcc,
                 hardware,
+                _lock: if hardware { lock.cloned() } else { None },
             })
         }
     }
@@ -221,7 +238,7 @@ const PROBE_AV1: &[u8] = include_bytes!("probe/av1.bin");
 /// Décode pour de bon une image de chaque format et dit lesquels la carte
 /// graphique prend en charge (comme l'app Mac au lancement).
 fn probe_one(fourcc: u32, data: &[u8], device: &ID3D11Device) -> bool {
-    let Ok(mut dec) = Decoder::new(fourcc, Some(device)) else { return false };
+    let Ok(mut dec) = Decoder::new(fourcc, Some(device), None) else { return false };
     if !dec.hardware || dec.send(data, 0, true).is_err() {
         return false;
     }

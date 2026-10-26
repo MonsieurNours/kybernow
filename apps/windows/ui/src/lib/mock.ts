@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { Computer, Info, LastSession, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { Computer, ConnectInfo, DisplaysInfo, FondState, Info, LastSession, ScreensEvent, Settings, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -13,8 +13,13 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // Station passe par l'installateur), `?sansimage` (l'ordinateur n'envoie pas d'image),
 // `?redemarrage` (l'image ne vient pas : la Station redémarre, puis la connexion reprend),
 // `?sansreveil` (l'ordinateur hors ligne n'a pas de carte réseau connue : « Réessayer »),
-// `?echecmaj` (la mise à jour de la Station n'aboutit pas).
+// `?echecmaj` (la mise à jour de la Station n'aboutit pas), `?ecrans=3` (ce PC a trois écrans : la
+// ligne de l'accueil, la connexion et la barre au pluriel ; la Station de Bureau-Salon en crée quatre),
+// `?reprise` (en session, la connexion reprend : écrans changés), `/fond.html` (le fond de la connexion
+// d'un autre écran) avec `?sanscreation` (l'ordinateur n'a pas pu créer l'écran : sa ligne).
 const flags = new URLSearchParams(location.search)
+/** Écrans de ce PC imité. */
+const deviceScreens = Math.max(1, Number(flags.get('ecrans') ?? 1) || 1)
 
 const settings = {
   profile: 'bureau',
@@ -24,6 +29,7 @@ const settings = {
   reliable: null,
   max_4k: false,
   custom: null,
+  displays: 'auto',
   vsync: true,
   mouse: 'auto',
   gamepad: 'xbox360',
@@ -85,7 +91,18 @@ let computers = [
     os: 'Windows 11 Pro 24H2',
     gpu: 'NVIDIA GeForce RTX 3080 Ti',
     settings: { ...settings },
-    last: { median_ms: 8.9, p95_ms: 14.2, seconds: 2520, at: now - 86400 - 3600, width: 1920, height: 1200, refresh: 60, codec: 'HEVC', mbps: 36 } as LastSession | null,
+    last: {
+      median_ms: 8.9,
+      p95_ms: 14.2,
+      seconds: 2520,
+      at: now - 86400 - 3600,
+      width: 1920,
+      height: 1200,
+      refresh: 60,
+      // Avec plusieurs écrans : leur nombre, et le débit total.
+      ...(deviceScreens > 1 ? { screens: deviceScreens, mbps: 36 * deviceScreens } : { mbps: 36 }),
+      codec: 'HEVC',
+    } as LastSession | null,
     online: true as boolean | null,
     info: {
       hostname: 'BUREAU-SALON',
@@ -93,7 +110,7 @@ let computers = [
       gpu: 'NVIDIA GeForce RTX 3080 Ti',
       av1: false,
       admin_version: '0.5.0',
-      virtual_display: { available: true },
+      virtual_display: { available: true, max_screens: 4 },
       station: station('0.5.0', { available: true, version: '0.5.1', installable: !flags.has('installateur'), requires_setup: flags.has('installateur') }),
       wake: wakeOf.a1,
       account: { own_device: true },
@@ -232,6 +249,17 @@ const outcome = (o: StationOutcome) => {
 }
 const update = () => ({ version: '0.5.1', channel: 'stable', notes: notesFor(i18n.lang), page: '', file: 'KyberNow-Link-Setup.exe', size: 1 })
 
+/** Écrans que la session d'un ordinateur imité prend (le calcul du cœur, comme `displays_info`). */
+const screensFor = (id: string) => {
+  const c = computers.find((x) => x.id === id)
+  if (!c) return 1
+  const s = c.settings as typeof settings
+  const enabled = s.virtual_display && !s.custom
+  const perso = s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
+  const all = enabled && (s.displays === 'all' || (s.displays === 'auto' && !perso && (s.profile === 'bureau' || s.profile === 'max')))
+  return all ? Math.max(1, Math.min(deviceScreens, c.info?.virtual_display.max_screens ?? 1, 4)) : 1
+}
+
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   snapshot: () => ({ computers: structuredClone(computers), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, session: null, version: 'dev' }),
   poll_now: async () => {
@@ -263,29 +291,58 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   rename_computer: () => null,
   remove_computer: () => null,
-  connect: async (a) => {
-    for (const phase of ['preparing', 'connecting', 'first_images']) {
-      emit('session-status', { id: a.id, phase, detail: null })
-      await sleep(1200)
-    }
-    // Dernier recours, comme le cœur : l'étape « Connexion », puis l'avis, puis tout reprend.
-    if (flags.has('redemarrage')) {
-      emit('session-status', { id: a.id, phase: 'connecting', detail: null })
-      emit('session-station-restarting', { id: a.id as string } satisfies StationRestarting)
-      await sleep(4000)
+  // Rend tout de suite, comme l'app : la session se déroule ensuite (événements).
+  connect: (a) => {
+    const screens = screensFor(a.id as string)
+    void (async () => {
       for (const phase of ['preparing', 'connecting', 'first_images']) {
         emit('session-status', { id: a.id, phase, detail: null })
         await sleep(1200)
       }
-    }
-    emit('session-status', { id: a.id, phase: 'streaming', detail: null })
-    // ?sansimage : l'ordinateur n'envoie jamais d'image.
-    if (flags.has('sansimage')) return
-    await sleep(600)
-    emit('session-shown', a.id)
-    await sleep(1500)
-    emit('session-ended', { id: a.id, summary: { error: null, median_ms: 9.1, p95_ms: 13, seconds: 60 } })
+      // Dernier recours, comme le cœur : l'étape « Connexion », puis l'avis, puis tout reprend.
+      if (flags.has('redemarrage')) {
+        emit('session-status', { id: a.id, phase: 'connecting', detail: null })
+        emit('session-station-restarting', { id: a.id as string } satisfies StationRestarting)
+        await sleep(4000)
+        for (const phase of ['preparing', 'connecting', 'first_images']) {
+          emit('session-status', { id: a.id, phase, detail: null })
+          await sleep(1200)
+        }
+      }
+      emit('session-screens', { id: a.id as string, screens } satisfies ScreensEvent)
+      emit('session-status', { id: a.id, phase: 'streaming', detail: null })
+      // ?sansimage : l'ordinateur n'envoie jamais d'image.
+      if (flags.has('sansimage')) return
+      await sleep(600)
+      emit('session-shown', a.id)
+      // ?reprise : la connexion reprend en session (écrans changés), les étapes reviennent, puis l'image.
+      if (flags.has('reprise')) {
+        await sleep(2000)
+        emit('session-replan', { id: a.id as string, screens } satisfies ScreensEvent)
+        for (const phase of ['preparing', 'connecting', 'first_images', 'streaming']) {
+          emit('session-status', { id: a.id, phase, detail: null })
+          await sleep(1200)
+        }
+        emit('session-shown', a.id)
+      }
+      await sleep(1500)
+      emit('session-ended', { id: a.id, summary: { error: null, median_ms: 9.1, p95_ms: 13, seconds: 60 } })
+    })()
+    return { screens } satisfies ConnectInfo
   },
+  // Le cœur décide (`DisplaysChoice`) : inactif, sur « Cet écran », avec une définition sur mesure ou sans
+  // écran virtuel ; Auto prend tous les écrans en Bureau et Max, un seul en Jeu et en Personnalisé.
+  displays_info: (a) => {
+    const s = a.settings as typeof settings
+    const enabled = s.virtual_display && !s.custom
+    const shown: Settings['displays'] = enabled ? (s.displays as Settings['displays']) : 'this'
+    const c = computers.find((x) => x.id === a.id)
+    const max = c?.info?.virtual_display.max_screens ?? 1
+    const perso = s.codec != null || s.yuv444 != null || s.mbps != null || s.reliable != null
+    const all = shown === 'all' || (shown === 'auto' && !perso && (s.profile === 'bureau' || s.profile === 'max'))
+    return { enabled, shown, count: all ? Math.max(1, Math.min(deviceScreens, max, 4)) : 1 } satisfies DisplaysInfo
+  },
+  fond_state: () => ({ not_created: flags.has('sanscreation') }) satisfies FondState,
   session_command: () => null,
   bar_hide: () => null,
   take_action: () => null,
@@ -402,9 +459,9 @@ export function mockTauri() {
     event: {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
-        if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu' } }), 300)
+        if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1 } }), 300)
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0 } }), 1000)
+          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

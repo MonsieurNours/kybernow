@@ -44,6 +44,10 @@
     color: var(--text);
   }
 
+  button:disabled {
+    opacity: 0.5;
+  }
+
   button[aria-pressed='true'] {
     background: rgb(109 91 255 / 0.2);
     box-shadow: inset 0 0 0 1px rgb(154 140 255 / 0.55);

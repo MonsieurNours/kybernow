@@ -25,6 +25,10 @@ pub struct Settings {
     pub max_4k: bool,
     /// Écran virtuel sur mesure (définition et fréquence) ; sinon comme cet écran.
     pub custom: Option<kybernow_core::console::Mode>,
+    /// Multi-écrans, réglage « Écrans » : `auto`, `this` (Cet écran) ou `all`
+    /// (Tous les écrans), comme `kybernow_core::screens::DisplaysSetting`.
+    /// Absent des fichiers d'avant le multi-écrans : `auto`.
+    pub displays: String,
     pub vsync: bool,
     /// `auto`, `bureau` ou `jeu`.
     pub mouse: String,
@@ -54,6 +58,7 @@ impl Default for Settings {
             reliable: None,
             max_4k: false,
             custom: None,
+            displays: "auto".into(),
             vsync: true,
             mouse: "auto".into(),
             gamepad: "xbox360".into(),
@@ -78,13 +83,17 @@ pub struct LastSession {
     pub seconds: u64,
     /// Fin, en secondes depuis 1970.
     pub at: u64,
-    /// Définition et fréquence de l'image transmise.
+    /// Définition et fréquence de l'image transmise (multi-écrans : celles de
+    /// l'écran principal).
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub refresh: Option<u32>,
+    /// Nombre d'écrans de la session (absent : un seul, comme avant le
+    /// multi-écrans).
+    pub screens: Option<u32>,
     /// Format vidéo (« HEVC », « H.264 », « AV1 »).
     pub codec: Option<String>,
-    /// Débit demandé à l'ordinateur, en Mbit/s.
+    /// Débit demandé à l'ordinateur, en Mbit/s (multi-écrans : le total).
     pub mbps: Option<u32>,
     /// Profil et format en français (« Bureau · HEVC 4:4:4 ») : seulement
     /// dans les fichiers de la 0.4.x, montré tant qu'une session ne l'a pas

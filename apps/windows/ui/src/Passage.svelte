@@ -18,6 +18,7 @@
     opening,
     closing,
     restarting = false,
+    many = false,
     oncancel,
   }: {
     computer: Computer
@@ -26,6 +27,8 @@
     closing: boolean
     /** Dernier recours : la Station redémarre, les étapes reprennent ensuite. */
     restarting?: boolean
+    /** Plusieurs écrans : « Préparation des écrans ». */
+    many?: boolean
     oncancel: () => void
   } = $props()
 
@@ -41,7 +44,7 @@
   const order: Phase['phase'][] = ['preparing', 'connecting', 'first_images', 'streaming']
   const at = $derived(order.indexOf(phase))
   const steps = $derived([
-    { label: t('passage.preparing'), from: 0 },
+    { label: many ? t('passage.preparing_many') : t('passage.preparing'), from: 0 },
     { label: t('passage.connecting'), from: 1 },
     { label: t('passage.first_images'), from: 2 },
   ])

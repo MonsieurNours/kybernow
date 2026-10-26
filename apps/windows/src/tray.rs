@@ -639,6 +639,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             // Thème de Windows changé (barre claire ou sombre), échelle ou écran changés.
             WM_SETTINGCHANGE | WM_DPICHANGED | WM_DISPLAYCHANGE => {
                 update(hwnd);
+                // Les écrans de ce PC ont changé : l'accueil revoit ce que la session prendra.
+                if msg == WM_DISPLAYCHANGE {
+                    if let Some(app) = APP.get() {
+                        crate::ui::displays_changed(app);
+                    }
+                }
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
             m if m != 0 && m == TASKBAR_CREATED.load(Ordering::Relaxed) => {
