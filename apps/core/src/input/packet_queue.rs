@@ -271,7 +271,10 @@ pub(crate) mod tests {
                 let key = KeyboardKey::from_packet(&p).unwrap();
                 format!("touche {:#x} {}", key.scancode, state(key.pressed, "e", "e"))
             }
-            InputType::MousePosition => format!("position {}", MousePosition::from_packet(p).unwrap().x),
+            InputType::MousePosition => {
+                let m = MousePosition::from_packet(p).unwrap();
+                if m.display_id == 1 { format!("position {}", m.x) } else { format!("position {} sur {}", m.x, m.display_id) }
+            }
             InputType::MouseButton => {
                 let b = MouseButton::from_packet(&p).unwrap();
                 format!("clic {:?} {}", b.button, state(b.pressed, "", ""))

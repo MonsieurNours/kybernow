@@ -356,9 +356,12 @@ struct KyberNowApp: App {
                 Button("Se déconnecter") { app.session?.end() }
                     .keyboardShortcut("d", modifiers: [.control, .option, .command])
                     .disabled(app.session == nil)
-                Button("Plein écran") { app.session?.toggleFullScreen() }
-                    .keyboardShortcut("f", modifiers: [.control, .option, .command])
-                    .disabled(app.session == nil)
+                // Plusieurs écrans : pas de « Plein écran » (docs/link-ui.md).
+                if app.session?.canToggleFullScreen ?? true {
+                    Button("Plein écran") { app.session?.toggleFullScreen() }
+                        .keyboardShortcut("f", modifiers: [.control, .option, .command])
+                        .disabled(app.session == nil)
+                }
                 Button("Souris des jeux ou du bureau") { app.session?.toggleMouseCapture() }
                     .keyboardShortcut("m", modifiers: [.control, .option, .command])
                     .disabled(app.session == nil)

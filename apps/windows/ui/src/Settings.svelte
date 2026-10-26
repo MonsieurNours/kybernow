@@ -11,9 +11,9 @@
   import Icon from './lib/Icon.svelte'
   import Statistics from './Statistics.svelte'
   import Station from './Station.svelte'
-  import { untrack } from 'svelte'
-  import type { Battery, Computer, Settings, ThisPc } from './lib/api'
-  import { invoke, isCustom, profileBase, sessionPlan } from './lib/api'
+  import { onMount, untrack } from 'svelte'
+  import type { Battery, Computer, DisplaysInfo, Settings, ThisPc } from './lib/api'
+  import { invoke, isCustom, listen, profileBase, sessionPlan } from './lib/api'
   import { beforeName, t } from './lib/i18n/index.svelte'
 
   let {
@@ -73,6 +73,34 @@
 
   /** Débit réel d'une session : celui que plan.rs demandera. */
   const realMbps = $derived(sessionPlan(s, thisPc, battery)?.mbps ?? s.mbps ?? base.mbps)
+
+  // Le réglage « Écrans » : actif ou non, et ce qu'il montre, comme le cœur le
+  // décide (la session fait le même calcul). Revu à chaque réglage changé, et
+  // quand les écrans de ce PC changent.
+  let displaysInfo = $state<DisplaysInfo | null>(null)
+  let screensEpoch = $state(0)
+  let asked = 0
+  $effect(() => {
+    const settings = $state.snapshot(s)
+    void screensEpoch
+    // Ce que ce PC décode compte pour « Personnalisé » (règle du cœur).
+    void thisPc
+    const n = ++asked
+    invoke<DisplaysInfo>('displays_info', { id: computer.id, settings })
+      .then((i) => {
+        if (n === asked) displaysInfo = i
+      })
+      .catch(() => {})
+  })
+  onMount(() => {
+    const off = listen<null>('displays', () => screensEpoch++)
+    return () => off.then((f) => f())
+  })
+  /** Inactif avec une définition sur mesure : l'aide le dit. Sans écran virtuel
+   *  utilisable (réglage coupé, ou Station qui n'en a pas), pas d'aide : la
+   *  ligne grisée sur « Cet écran » se suffit (docs/link-ui.md, comme sur Mac et Linux). */
+  const displaysCustom = $derived(!!s.custom)
+  const displaysNoVirtual = $derived(displaysInfo ? !displaysInfo.virtual_display : false)
 
   function pickProfile(p: Settings['profile']) {
     save({ profile: p, codec: null, yuv444: null, mbps: null, reliable: null })
@@ -176,6 +204,27 @@
               <span class="help">{t('settings.custom_help')}</span>
             {:else}
               <span class="help">{t('settings.refresh_help')}</span>
+            {/if}
+          </div>
+          <div class="line stack">
+            <div class="lr">
+              <span>{t('settings.displays')}</span>
+              <Segmented
+                label={t('settings.displays')}
+                value={displaysInfo?.shown ?? s.displays}
+                disabled={displaysInfo ? !displaysInfo.enabled : false}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: 'this', label: t('settings.displays_this') },
+                  { value: 'all', label: t('settings.displays_all') },
+                ]}
+                onchange={(v) => save({ displays: v })}
+              />
+            </div>
+            {#if displaysCustom}
+              <span class="help">{t('settings.displays_custom_help')}</span>
+            {:else if !displaysNoVirtual}
+              <span class="help">{t('settings.displays_help')}</span>
             {/if}
           </div>
           <div class="line stack">

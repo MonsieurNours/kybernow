@@ -14,11 +14,16 @@
 
   const last = $derived(computer.last?.median_ms != null ? computer.last : null)
 
-  /** « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; une session de la 0.4.x n'a que son profil et son format. */
+  /**
+   * « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec plusieurs écrans, leur nombre d'abord, puis l'écran
+   * principal et le débit total (« 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s ») ; une session de la
+   * 0.4.x n'a que son profil et son format.
+   */
   const sent = $derived.by(() => {
     if (!last) return null
     if (last.width && last.height) {
       return [
+        last.screens && last.screens > 1 ? t('stats.screens', { count: last.screens }) : null,
         `${last.width} × ${last.height}`,
         last.refresh ? `${last.refresh} Hz` : null,
         last.codec,

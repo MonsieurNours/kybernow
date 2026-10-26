@@ -4,10 +4,18 @@
 //! d'échange « flip », déchirure permise sans synchro verticale). Le trait
 //! du bord haut, qui signale où s'ouvre la barre de session, est tracé dans
 //! la même passe, par-dessus l'image.
+//!
+//! Un `Renderer` par écran (fenêtre), tous sur l'appareil de la session
+//! (`gpu.rs`) : le tracé d'une image est une suite d'appels sur le contexte
+//! partagé, tenue sous son verrou ; la présentation se fait dehors, et
+//! n'attend jamais la synchro verticale à l'intérieur de Direct3D (la chaîne
+//! d'échange a son objet d'attente, attendu avant le tracé) : un écran à 60 Hz
+//! ne retient pas celui à 160 Hz.
 
 use std::ffi::c_void;
+use std::sync::Arc;
 
-use windows::Win32::Foundation::{HMODULE, HWND, RECT};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE, HWND, RECT};
 use windows::Win32::Graphics::Direct3D::Fxc::D3DCompile;
 use windows::Win32::Graphics::Direct3D::{
     D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP, D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_10_0,
@@ -17,10 +25,12 @@ use windows::Win32::Graphics::Direct3D::{
 use windows::Win32::Graphics::Direct3D11::*;
 use windows::Win32::Graphics::Dxgi::Common::*;
 use windows::Win32::Graphics::Dxgi::*;
+use windows::Win32::System::Threading::WaitForSingleObjectEx;
 use windows::core::{BOOL, Interface, PCSTR, s};
 
 use crate::decoder::ff::*;
 use crate::decoder::is_hw_frame;
+use crate::gpu::{ContextLock, Gpu};
 
 const SHADER: &str = r#"
 struct VSOut { float4 pos : SV_Position; float2 uv : TEXCOORD0; };
@@ -222,10 +232,32 @@ fn matrix(colorspace: i32, full_range: bool) -> [[f32; 4]; 3] {
     [row(1.0, 0.0, r_cr), row(1.0, g_cb, g_cr), row(1.0, b_cb, 0.0)]
 }
 
+/// L'objet d'attente d'une chaîne d'échange (un handle de Windows, valable
+/// de tout fil tant que la chaîne vit), fermé avec le rendu : sans quoi
+/// chaque fenêtre de chaque session en laissait un ouvert.
+struct WaitHandle(HANDLE);
+
+unsafe impl Send for WaitHandle {}
+
+impl Drop for WaitHandle {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = CloseHandle(self.0);
+        }
+    }
+}
+
 pub struct Renderer {
     device: ID3D11Device,
     ctx: ID3D11DeviceContext,
+    /// Verrou du contexte partagé (`gpu.rs`) : tenu pendant une suite d'appels.
+    lock: Arc<ContextLock>,
     swapchain: IDXGISwapChain1,
+    /// Drapeaux de la chaîne d'échange, repris à chaque `ResizeBuffers`.
+    swap_flags: DXGI_SWAP_CHAIN_FLAG,
+    /// Objet d'attente de la chaîne : signalé quand une image de plus peut
+    /// partir sans attendre (`None` : la chaîne n'en a pas).
+    latency_wait: Option<WaitHandle>,
     rtv: Option<ID3D11RenderTargetView>,
     vs: ID3D11VertexShader,
     ps: ID3D11PixelShader,
@@ -256,13 +288,8 @@ const SNAP_WIDTH: u32 = 1280;
 pub struct Unsupported(pub String);
 
 impl Renderer {
-    pub fn new(
-        device: ID3D11Device,
-        ctx: ID3D11DeviceContext,
-        hwnd: HWND,
-        size: (u32, u32),
-        vsync: bool,
-    ) -> windows::core::Result<Self> {
+    pub fn new(gpu: &Gpu, hwnd: HWND, size: (u32, u32), vsync: bool) -> windows::core::Result<Self> {
+        let (device, ctx) = (gpu.device.clone(), gpu.ctx.clone());
         unsafe {
             let dxgi_device: IDXGIDevice1 = device.cast()?;
             let _ = dxgi_device.SetMaximumFrameLatency(1);
@@ -277,6 +304,7 @@ impl Renderer {
                 );
             }
             let tearing = tearing.as_bool();
+            let base_flags = if tearing { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.0 } else { 0 };
             let desc = DXGI_SWAP_CHAIN_DESC1 {
                 Width: size.0.max(1),
                 Height: size.1.max(1),
@@ -287,10 +315,26 @@ impl Renderer {
                 Scaling: DXGI_SCALING_NONE,
                 SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
                 AlphaMode: DXGI_ALPHA_MODE_IGNORE,
-                Flags: if tearing { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.0 as u32 } else { 0 },
+                Flags: base_flags as u32,
                 ..Default::default()
             };
-            let swapchain = factory.CreateSwapChainForHwnd(&device, hwnd, &desc, None, None)?;
+            // Avec son objet d'attente d'abord ; sans lui si la carte le refuse.
+            let waitable = base_flags | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT.0;
+            let (swapchain, swap_flags, latency_wait) =
+                match factory.CreateSwapChainForHwnd(&device, hwnd, &DXGI_SWAP_CHAIN_DESC1 { Flags: waitable as u32, ..desc }, None, None) {
+                    Ok(sc) => {
+                        let wait = sc.cast::<IDXGISwapChain2>().ok().and_then(|sc2| {
+                            sc2.SetMaximumFrameLatency(1).ok()?;
+                            let h = sc2.GetFrameLatencyWaitableObject();
+                            (!h.is_invalid()).then_some(WaitHandle(h))
+                        });
+                        (sc, waitable, wait)
+                    }
+                    Err(e) => {
+                        log::warn!("chaîne d'échange sans objet d'attente : {e}");
+                        (factory.CreateSwapChainForHwnd(&device, hwnd, &desc, None, None)?, base_flags, None)
+                    }
+                };
             let _ = factory.MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
 
             let vsb = compile(s!("vs"), s!("vs_4_0"))?;
@@ -320,11 +364,18 @@ impl Renderer {
             };
             let mut cbuf = None;
             device.CreateBuffer(&bdesc, None, Some(&mut cbuf))?;
-            log::info!("chaîne d'échange : déchirure {}", if tearing { "permise" } else { "non prise en charge" });
+            log::info!(
+                "chaîne d'échange : déchirure {}, objet d'attente {}",
+                if tearing { "permise" } else { "non prise en charge" },
+                if latency_wait.is_some() { "oui" } else { "non" }
+            );
             let mut r = Self {
                 device,
                 ctx,
+                lock: gpu.lock.clone(),
                 swapchain,
+                swap_flags: DXGI_SWAP_CHAIN_FLAG(swap_flags),
+                latency_wait,
                 rtv: None,
                 vs: vs.unwrap(),
                 ps: ps.unwrap(),
@@ -356,27 +407,39 @@ impl Renderer {
         Ok(())
     }
 
-    /// Nouvelle taille de la fenêtre (pixels).
-    pub fn resize(&mut self, size: (u32, u32)) {
+    /// Nouvelle taille de la fenêtre (pixels). Vrai quand la chaîne
+    /// d'échange a changé de taille : l'image en place est alors à redessiner
+    /// (`redraw`), sinon Windows la montre à l'ancienne taille, collée en
+    /// haut à gauche, jusqu'à l'image suivante (bureau immobile).
+    pub fn resize(&mut self, size: (u32, u32)) -> bool {
         if size == self.size || size.0 == 0 || size.1 == 0 {
-            return;
+            return false;
         }
         // Toutes les vues de la chaîne d'échange relâchées avant
         // ResizeBuffers ; la taille n'est retenue qu'en cas de réussite (sinon
-        // on réessaie à l'image suivante).
+        // on réessaie au prochain tour du fil de l'image).
         self.rtv = None;
-        unsafe {
+        let lock = self.lock.clone();
+        let _held = lock.lock();
+        let resized = unsafe {
             self.ctx.ClearState();
             self.ctx.Flush();
-            let flags = if self.tearing { DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING } else { DXGI_SWAP_CHAIN_FLAG(0) };
-            match self.swapchain.ResizeBuffers(0, size.0, size.1, DXGI_FORMAT_UNKNOWN, flags) {
-                Ok(()) => self.size = size,
-                Err(e) => log::warn!("ResizeBuffers : {e}"),
+            match self.swapchain.ResizeBuffers(0, size.0, size.1, DXGI_FORMAT_UNKNOWN, self.swap_flags) {
+                Ok(()) => {
+                    self.size = size;
+                    true
+                }
+                Err(e) => {
+                    log::warn!("ResizeBuffers : {e}");
+                    false
+                }
             }
-        }
+        };
         if let Err(e) = self.create_rtv() {
             log::warn!("vue de la chaîne d'échange : {e}");
+            return false;
         }
+        resized
     }
 
     fn texture(&self, w: u32, h: u32, format: DXGI_FORMAT) -> windows::core::Result<ID3D11Texture2D> {
@@ -491,17 +554,27 @@ impl Renderer {
     /// Montre une image décodée et la présente aussitôt. `hint` : échelle (en
     /// centièmes) du trait du bord haut posé par-dessus ; 0 : aucun.
     pub fn draw(&mut self, f: &AVFrame, hint: u32) -> Result<(), Unsupported> {
-        self.upload(f)?;
-        let planes = self.planes.as_ref().unwrap();
-        self.params.mode = match planes.layout {
-            Layout::Nv12 => 0,
-            Layout::Planar { .. } => 1,
-            Layout::Ayuv => 2,
+        // L'attente de la chaîne avant de prendre le verrou : un autre écran
+        // continue de tracer pendant qu'on attend la synchro de celui-ci.
+        self.wait_ready();
+        let lock = self.lock.clone();
+        let (fw, fh, painted) = {
+            let _held = lock.lock();
+            self.upload(f)?;
+            let planes = self.planes.as_ref().unwrap();
+            self.params.mode = match planes.layout {
+                Layout::Nv12 => 0,
+                Layout::Planar { .. } => 1,
+                Layout::Ayuv => 2,
+            };
+            self.params.m = matrix(f.colorspace as i32, f.color_range as i32 == 2);
+            let (fw, fh) = (planes.width, planes.height);
+            (fw, fh, self.encode(hint))
         };
-        self.params.m = matrix(f.colorspace as i32, f.color_range as i32 == 2);
-        let (fw, fh) = (planes.width, planes.height);
-        if self.paint(hint) {
+        if painted {
+            self.present();
             // Après la présentation : rien ne retarde l'image à l'écran.
+            let _held = lock.lock();
             self.snapshot(fw, fh);
         }
         Ok(())
@@ -510,15 +583,43 @@ impl Renderer {
     /// Le trait du bord haut a changé alors qu'aucune image ne vient (écran
     /// fixe) : l'image en place est redessinée, avec ou sans le trait.
     pub fn repaint(&mut self, hint: u32) {
-        if hint != self.hint && self.planes.is_some() {
-            self.paint(hint);
+        if hint != self.hint {
+            self.redraw(hint);
+        }
+    }
+
+    /// Redessine l'image en place (textures de la dernière image) à la
+    /// taille de la fenêtre et la présente, sans attendre une image neuve :
+    /// après un changement de taille ou du trait. Rien avant la première image.
+    pub fn redraw(&mut self, hint: u32) {
+        if self.planes.is_none() {
+            return;
+        }
+        self.wait_ready();
+        let lock = self.lock.clone();
+        let painted = {
+            let _held = lock.lock();
+            self.encode(hint)
+        };
+        if painted {
+            self.present();
+        }
+    }
+
+    /// Synchro verticale : une image de plus peut partir sans que `Present`
+    /// attende (jusqu'à 100 ms, sinon on présente quand même : fenêtre
+    /// cachée ou couverte, qui ne consomme plus).
+    fn wait_ready(&self) {
+        if let (true, Some(h)) = (self.vsync, self.latency_wait.as_ref()) {
+            unsafe { WaitForSingleObjectEx(h.0, 100, false) };
         }
     }
 
     /// Dessine l'image en place (textures de la dernière image) à la taille de
-    /// la fenêtre, le trait du bord haut par-dessus, et présente (faux : rien
-    /// à dessiner ou sur quoi dessiner).
-    fn paint(&mut self, hint: u32) -> bool {
+    /// la fenêtre, le trait du bord haut par-dessus (faux : rien à dessiner ou
+    /// sur quoi dessiner). Appelé sous le verrou du contexte ; `present` suit,
+    /// dehors.
+    fn encode(&mut self, hint: u32) -> bool {
         let Some(planes) = self.planes.as_ref() else { return false };
         let (fw, fh) = (planes.width as f32, planes.height as f32);
         let (sw, sh) = (self.size.0 as f32, self.size.1 as f32);
@@ -550,21 +651,25 @@ impl Renderer {
                 self.draw_hint(hint_ps, hint_blend, hint, sw);
             }
             self.hint = hint;
-            let (interval, flags) = if self.vsync {
-                (1, DXGI_PRESENT(0))
-            } else if self.tearing {
-                (0, DXGI_PRESENT_ALLOW_TEARING)
-            } else {
-                (0, DXGI_PRESENT(0))
-            };
-            let hr = self.swapchain.Present(interval, flags);
-            if hr.is_err() && !self.present_failed {
-                // Carte graphique perdue (pilote mis à jour, mise en veille…).
-                log::error!("Present : {hr:?}");
-                self.present_failed = true;
-            }
         }
         true
+    }
+
+    /// Présente l'image tracée par `encode` (hors du verrou du contexte).
+    fn present(&mut self) {
+        let (interval, flags) = if self.vsync {
+            (1, DXGI_PRESENT(0))
+        } else if self.tearing {
+            (0, DXGI_PRESENT_ALLOW_TEARING)
+        } else {
+            (0, DXGI_PRESENT(0))
+        };
+        let hr = unsafe { self.swapchain.Present(interval, flags) };
+        if hr.is_err() && !self.present_failed {
+            // Carte graphique perdue (pilote mis à jour, mise en veille…).
+            log::error!("Present : {hr:?}");
+            self.present_failed = true;
+        }
     }
 
     /// Le trait du bord haut : capsule de 220 × 3 points (`hint` : échelle de
@@ -627,6 +732,8 @@ impl Renderer {
     /// Dernière image gardée, en BGRA (lue une fois, à la fin de la session).
     pub fn take_snapshot(&mut self) -> Option<(Vec<u8>, u32, u32)> {
         let (tex, _, w, h) = self.snap.take()?;
+        let lock = self.lock.clone();
+        let _held = lock.lock();
         unsafe {
             let desc = D3D11_TEXTURE2D_DESC {
                 Width: w,
@@ -652,16 +759,6 @@ impl Renderer {
             }
             self.ctx.Unmap(&staging, 0);
             Some((out, w, h))
-        }
-    }
-
-    /// Fond noir (avant la première image).
-    pub fn clear(&mut self) {
-        unsafe {
-            if let Some(rtv) = &self.rtv {
-                self.ctx.ClearRenderTargetView(rtv, &[0.0, 0.0, 0.0, 1.0]);
-                let _ = self.swapchain.Present(0, DXGI_PRESENT(0));
-            }
         }
     }
 }

@@ -4,10 +4,14 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
-## 0.5.4
+## 0.6.0
 
+- **Several displays, on Mac, Windows and Linux**: a session can take every display of your device. The computer creates a display for each one, laid out the same way, and each of the device's displays shows its own in full screen; the pointer moves from one to the next, a dragged window follows. New “Displays” setting in the computer's settings (Picture section): Auto (all displays in the Desktop and Max profiles, one in Game and Custom), This display, All displays. The main display keeps its refresh rate, the others run at 60 Hz; up to four displays. A display plugged in or unplugged during the session: the session sets itself up again. It needs a Station on 0.6.0: with an older Station, the session stays on one display.
+- Station: the bitrate is shared according to each display's size and refresh rate. During a session on several displays, the Station enlarges the Windows pointer (the apps still draw it at their own size, you see nothing) and captures the secondary displays with another Windows method, to work around two defects of the virtual display driver; the pointer's size is given back at the end.
+- On Windows and Linux, multiple displays have not been tried yet on a real computer with several displays: your feedback is welcome on the Discord.
 - **Session bar from the pointer, on Mac, Windows, Linux and in the web client**: it opens when the pointer stays a quarter of a second against the top of the picture, in the middle, across the bar's width, and only when the app is in the foreground and the mouse in desktop mode. It no longer opens in passing, nor when the pointer is on a display other than the session's (Mac), nor while a window on the computer is being dragged to the top. It closes 0.4 s after the pointer has left it, never while one of its menus is open. A short line at the top of the picture marks the spot when the gesture is possible, now on Windows and Linux too.
 - Windows: in a window, the bar sits at the top of the session's picture.
+- Windows: when you switch from full screen to a window, or back, the picture takes its new size at once, even if nothing moves on screen (it stayed small, in the top left corner, until the next frame). The home screen announces the resolution of the display it is on, the one the session will ask for, even when you drag it to another display.
 - Mac: in a window, the statistics close button, the offer to adapt the display and the bottom of the bar take clicks in the right place.
 
 ## 0.5.3

@@ -284,6 +284,16 @@ final class PointerLayer: @unchecked Sendable {
         )
     }
 
+    /// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto sur
+    /// toutes ces couches (règle du cœur : caché seulement s'il l'est sur
+    /// tous les écrans où il est déjà passé, visible depuis le plus long).
+    static func summary(_ layers: [PointerLayer]) -> (hidden: Bool, visibleFor: TimeInterval) {
+        let cores: [OpaquePointer?] = layers.map(\.core)
+        var hidden = false, ms = 0.0
+        cores.withUnsafeBufferPointer { kn_pointer_summary($0.baseAddress, UInt($0.count), &hidden, &ms) }
+        return (hidden, ms / 1000)
+    }
+
     /// L'écran de l'ordinateur a changé de taille en cours de session.
     func setHostSize(_ size: CGSize) {
         kn_pointer_set_host_size(core, size.width, size.height)
@@ -540,6 +550,41 @@ final class InputPipeline: @unchecked Sendable {
     var isRelative: Bool { kn_input_is_relative(core) }
 
     func mouse(x: Int16, y: Int16) { kn_input_mouse(core, x, y) }
+
+    /// Multi-écrans : un écran de la session vu des entrées (`on_screens` du cœur).
+    struct Screen {
+        /// Index de l'écran de l'appareil.
+        let index: Int
+        /// Identifiant d'écran de Kyber et sa taille en pixels.
+        let displayID: UInt32
+        let hostSize: CGSize
+        /// Couche de pointeur de la vue de cet écran (nil : celle de la chaîne).
+        let pointer: PointerLayer?
+    }
+
+    /// Couches de pointeur données au cœur : gardées tant que la chaîne vit
+    /// (le cœur rappelle chacune depuis le fil de kynput).
+    private var screenPointers: [PointerLayer] = []
+    private let screensLock = NSLock()
+
+    /// Multi-écrans : les écrans de la session ; le pointeur de l'ordinateur
+    /// va à la couche de l'écran qu'il annonce, les positions de
+    /// `mouse(on:x:y:)` à l'écran de Kyber de leur écran.
+    func setScreens(_ screens: [Screen]) {
+        let pointers = screens.compactMap(\.pointer)
+        screensLock.lock()
+        screenPointers = pointers
+        screensLock.unlock()
+        var list = screens.map { s in
+            KnInputScreen(screen: UInt32(s.index), display_id: s.displayID, host_width: UInt32(max(0, s.hostSize.width)),
+                          host_height: UInt32(max(0, s.hostSize.height)), pointer: s.pointer?.core)
+        }
+        list.withUnsafeMutableBufferPointer { kn_input_set_screens(core, $0.baseAddress, UInt($0.count)) }
+    }
+
+    /// Multi-écrans : position absolue sur l'écran `index` de l'appareil, en
+    /// pixels de son écran de l'ordinateur.
+    func mouse(on index: Int, x: Int16, y: Int16) { kn_input_mouse_on(core, UInt32(index), x, y) }
     func mouseMove(dx: Int16, dy: Int16) { kn_input_mouse_move(core, dx, dy) }
     func mouseButton(_ button: MouseButton, pressed: Bool) { kn_input_mouse_button(core, button.core, pressed) }
     func wheel(dx: Float, dy: Float) { kn_input_wheel(core, dx, dy) }

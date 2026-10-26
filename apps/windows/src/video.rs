@@ -6,8 +6,9 @@
 //! l'ordinateur), celle-ci est sautée, sans quoi le retard s'accumulerait
 //! derrière la synchro verticale. Comme sur Mac.
 //!
-//! Un seul fil possède l'appareil Direct3D, le décodeur et la chaîne
-//! d'échange : rien n'attend ailleurs.
+//! Un fil par écran (fenêtre) : il possède le décodeur et la chaîne d'échange
+//! de son flux, et partage l'appareil Direct3D de la session (`gpu.rs`) avec
+//! ceux des autres écrans ; rien n'attend ailleurs.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
@@ -23,22 +24,39 @@ use kybernow_core::media::{FOURCC_AV1, Packet, PacketHandler};
 use kybernow_core::session::Session;
 
 use crate::decoder::{self, Decoder, codec_name, is_corrupt};
-use crate::render::{self, Renderer};
+use crate::gpu::Gpu;
+use crate::render::Renderer;
 
 pub enum VideoMsg {
     Codec(u32),
     Config(Vec<u8>),
     Frame { data: Vec<u8>, pts: u64, key: bool },
+    /// La fenêtre a changé de taille : le fil se réveille pour redessiner
+    /// l'image en place tout de suite (bureau immobile, aucune image ne vient).
+    Resized,
     Stop,
 }
 
-/// État partagé entre la fenêtre, le fil de l'image et la session.
+/// Ce que tous les écrans d'une session ont en commun : la session du cœur, le
+/// suivi de la latence et le format demandé.
 #[derive(Default)]
-pub struct Shared {
-    /// Taille de la zone cliente en pixels (largeur << 32 | hauteur).
-    pub client_size: AtomicU64,
+pub struct Link {
     pub session: OnceLock<Weak<Session>>,
     pub latency: OnceLock<Arc<LatencyTracker>>,
+    /// Format demandé pour la session (`media::FOURCC_*`), suivi en cas de
+    /// changement de profil : il sert si le paquet de format se perd.
+    pub codec: AtomicU32,
+}
+
+/// État partagé entre la fenêtre d'un écran, son fil de l'image et la session.
+pub struct Shared {
+    pub link: Arc<Link>,
+    /// L'écran principal de la session : il fait les mesures (latence, images
+    /// par seconde) et la veille « aucune image » ; un autre écran muet est
+    /// retiré par le cœur lui-même.
+    pub primary: AtomicBool,
+    /// Taille de la zone cliente en pixels (largeur << 32 | hauteur).
+    pub client_size: AtomicU64,
     pub frames: AtomicU64,
     pub first_image: AtomicBool,
     pub decoder: Mutex<String>,
@@ -47,9 +65,6 @@ pub struct Shared {
     pub watch: Mutex<Option<(Instant, u64)>>,
     /// Dernière image de la session (JPEG), écrite à la fin du fil de l'image.
     pub last_image: Mutex<Option<Vec<u8>>>,
-    /// Format demandé pour la session (`media::FOURCC_*`), suivi en cas de
-    /// changement de profil : il sert si le paquet de format se perd.
-    pub codec: std::sync::atomic::AtomicU32,
     /// Trait du bord haut (qui signale la barre de session) : l'échelle de
     /// l'écran en centièmes (100 : 100 %), 0 quand il n'a pas lieu d'être.
     /// Posé par la fenêtre, lu à chaque image.
@@ -57,6 +72,24 @@ pub struct Shared {
 }
 
 impl Shared {
+    pub fn new(link: Arc<Link>, primary: bool) -> Arc<Self> {
+        Arc::new(Self {
+            link,
+            primary: AtomicBool::new(primary),
+            client_size: AtomicU64::new(0),
+            frames: AtomicU64::new(0),
+            first_image: AtomicBool::new(false),
+            decoder: Mutex::new(String::new()),
+            watch: Mutex::new(None),
+            last_image: Mutex::new(None),
+            edge_hint: AtomicU32::new(0),
+        })
+    }
+
+    pub fn is_primary(&self) -> bool {
+        self.primary.load(Ordering::Relaxed)
+    }
+
     pub fn set_client_size(&self, w: u32, h: u32) {
         self.client_size.store(((w as u64) << 32) | h as u64, Ordering::Relaxed);
     }
@@ -75,7 +108,9 @@ impl Shared {
         *self.watch.lock().unwrap() = None;
     }
 
-    /// Le flux tourne depuis 4 s sans une image : on le relance (une fois par démarrage).
+    /// Le flux tourne depuis 4 s sans une image : on le relance (une fois par
+    /// démarrage). Seul l'écran principal le demande au cœur ; un autre écran
+    /// muet est retiré par le cœur lui-même.
     fn check_watch(&self) {
         let fire = {
             let mut w = self.watch.lock().unwrap();
@@ -87,16 +122,21 @@ impl Shared {
                 _ => false,
             }
         };
-        if fire {
+        if !fire {
+            return;
+        }
+        if self.is_primary() {
             log::warn!("image : rien en 4 s depuis le démarrage du flux");
-            if let Some(s) = self.session.get().and_then(Weak::upgrade) {
+            if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
                 s.no_image();
             }
+        } else {
+            log::warn!("image : rien en 4 s sur un écran secondaire (le cœur le retire s'il reste muet)");
         }
     }
 
     fn request_keyframe(&self) {
-        if let Some(s) = self.session.get().and_then(Weak::upgrade) {
+        if let Some(s) = self.link.session.get().and_then(Weak::upgrade) {
             s.request_keyframe();
         }
     }
@@ -108,6 +148,8 @@ pub struct VideoHandler {
     overflow: AtomicBool,
     /// Images en attente de décodage.
     pending: AtomicUsize,
+    /// Arrêt demandé (le message d'arrêt peut être refusé par une file pleine).
+    stopped: AtomicBool,
 }
 
 impl PacketHandler for VideoHandler {
@@ -141,7 +183,15 @@ impl PacketHandler for VideoHandler {
 }
 
 impl VideoHandler {
+    /// La fenêtre a changé de taille (sa nouvelle taille est déjà dans
+    /// `Shared`) : le fil de l'image redessine sans attendre une image neuve.
+    /// Perdu sans dommage si la file est pleine (des images arrivent).
+    pub fn resized(&self) {
+        let _ = self.tx.try_send(VideoMsg::Resized);
+    }
+
     pub fn stop(&self) {
+        self.stopped.store(true, Ordering::Relaxed);
         let _ = self.tx.try_send(VideoMsg::Stop);
     }
 
@@ -159,74 +209,106 @@ impl VideoHandler {
     }
 }
 
+/// Paquets d'un écran qui n'est plus un écran de ce PC, ou dont la fenêtre
+/// n'a pas pu se créer : jetés.
+pub struct Discard;
+
+impl PacketHandler for Discard {
+    fn packet(&self, _p: Packet<'_>) {}
+}
+
+/// Paquets d'un écran dont la fenêtre n'existe pas encore quand le cœur en
+/// demande le gestionnaire (fil des fenêtres en retard, voir
+/// `window::screens_changed`) : jetés jusqu'à ce qu'elle arrive, puis passés
+/// à son fil de l'image. Le début du flux et ses paramètres, vus avant, lui
+/// sont redonnés ; le fil de l'image redemande une image clé à la première
+/// donnée qui n'en est pas une, comme après une perte.
+#[derive(Default)]
+pub struct LateFeed {
+    state: Mutex<LateState>,
+}
+
+#[derive(Default)]
+struct LateState {
+    target: Option<Arc<VideoHandler>>,
+    codec: Option<u32>,
+    config: Option<Vec<u8>>,
+}
+
+impl PacketHandler for LateFeed {
+    fn packet(&self, p: Packet<'_>) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(target) = st.target.clone() {
+            drop(st);
+            target.packet(p);
+            return;
+        }
+        match p {
+            Packet::Codec { codec } => {
+                st.codec = Some(codec);
+                st.config = None;
+            }
+            Packet::Media { is_config: true, data, .. } => st.config = Some(data.to_vec()),
+            _ => {}
+        }
+    }
+}
+
+impl LateFeed {
+    /// La fenêtre de l'écran est là : ses paquets vont désormais à son fil de l'image.
+    pub fn attach(&self, target: Arc<VideoHandler>) {
+        let mut st = self.state.lock().unwrap();
+        if let Some(codec) = st.codec.take() {
+            target.packet(Packet::Codec { codec });
+        }
+        if let Some(data) = st.config.take() {
+            target.packet(Packet::Media { is_config: true, is_key: false, pts: 0, data: &data });
+        }
+        st.target = Some(target);
+    }
+}
+
 pub struct VideoOptions {
     pub hardware: bool,
-    pub vsync: bool,
     /// Format demandé pour la session (`media::FOURCC_*`) : il sert si le
     /// paquet qui annonce le format du flux s'est perdu.
     pub codec: u32,
 }
 
-/// Démarre le fil de l'image, une fois l'appareil Direct3D et la chaîne
-/// d'échange prêts.
-pub fn spawn(hwnd: isize, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc<VideoHandler>, String> {
+/// Démarre le fil de l'image d'un écran, avec son rendu : la chaîne
+/// d'échange est déjà créée, sur le fil de la fenêtre (DXGI parle alors à la
+/// fenêtre depuis son propre fil).
+pub fn spawn(renderer: Renderer, hwnd: isize, gpu: Arc<Gpu>, opts: VideoOptions, shared: Arc<Shared>) -> Result<Arc<VideoHandler>, String> {
     let (tx, rx) = mpsc::sync_channel(240);
     let handler = Arc::new(VideoHandler {
         tx,
         thread: Mutex::new(None),
         overflow: AtomicBool::new(false),
         pending: AtomicUsize::new(0),
+        stopped: AtomicBool::new(false),
     });
-    let (ptx, prx) = mpsc::channel();
     let h = handler.clone();
     let thread = std::thread::Builder::new()
         .name("kybernow-video".into())
-        .spawn(move || run(hwnd, opts, shared, h, rx, ptx))
+        .spawn(move || run(renderer, hwnd, gpu, opts, shared, h, rx))
         .map_err(|e| e.to_string())?;
     *handler.thread.lock().unwrap() = Some(thread);
-    // La fenêtre est créée sur ce fil : ses messages doivent passer pendant que
-    // le fil de l'image crée la chaîne d'échange (DXGI peut lui en envoyer).
-    loop {
-        match prx.recv_timeout(std::time::Duration::from_millis(10)) {
-            Ok(r) => break r?,
-            Err(mpsc::RecvTimeoutError::Timeout) => crate::window::pump_messages(),
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Err(crate::i18n::t("errors.video_thread", &[])),
-        }
-    }
     Ok(handler)
 }
 
 fn run(
+    mut renderer: Renderer,
     hwnd: isize,
+    gpu: Arc<Gpu>,
     opts: VideoOptions,
     shared: Arc<Shared>,
     handler: Arc<VideoHandler>,
     rx: Receiver<VideoMsg>,
-    ready_tx: mpsc::Sender<Result<(), String>>,
 ) {
-    let (device, ctx) = match render::create_device() {
-        Ok(d) => d,
-        Err(e) => {
-            let _ = ready_tx.send(Err(format!("Direct3D 11 : {e}")));
-            return;
-        }
-    };
-    let mut renderer = match Renderer::new(
-        device.clone(),
-        ctx,
-        HWND(hwnd as *mut _),
-        shared.client_size(),
-        opts.vsync,
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = ready_tx.send(Err(format!("rendu : {e}")));
-            return;
-        }
-    };
-    let _ = ready_tx.send(Ok(()));
-    renderer.clear();
-
+    // Rien n'est présenté avant la première image (la fenêtre reste cachée
+    // jusque-là) : une présentation sans attendre l'objet d'attente de la
+    // chaîne fausserait son compte (première image retardée, ou une image de
+    // plus en file pour toute la session).
     let mut decoder: Option<Decoder> = None;
     let mut fourcc = 0u32;
     let mut config: Vec<u8> = Vec::new();
@@ -240,7 +322,7 @@ fn run(
     let (mut seen_codec, mut seen_config, mut seen_frame, mut seen_key) = (false, false, false, false);
     let mut dropped: u64 = 0;
     // Format voulu par la session, et s'il a été annoncé depuis son dernier changement.
-    shared.codec.store(opts.codec, Ordering::Relaxed);
+    shared.link.codec.store(opts.codec, Ordering::Relaxed);
     let mut last_wanted = opts.codec;
     let mut codec_announced = false;
     let mut keyframe = |shared: &Shared, force: bool| {
@@ -250,7 +332,7 @@ fn run(
         }
     };
     let open = |fourcc: u32, hw: bool, shared: &Shared| -> Option<Decoder> {
-        match Decoder::new(fourcc, hw.then_some(&device)) {
+        match Decoder::new(fourcc, hw.then_some(&gpu.device), Some(&gpu.lock)) {
             Ok(d) => {
                 let key = if d.hardware { "decoder.hardware" } else { "decoder.software" };
                 let what = |lang: Lang| format!("{} · {}", codec_name(fourcc), crate::i18n::tr(lang, key, &[]));
@@ -267,7 +349,14 @@ fn run(
     };
 
     loop {
-        renderer.resize(shared.client_size());
+        if handler.stopped.load(Ordering::Relaxed) {
+            break;
+        }
+        if renderer.resize(shared.client_size()) {
+            // Plein écran ↔ fenêtre sur un bureau immobile : l'image en place
+            // reprend la nouvelle taille tout de suite, sans attendre la suivante.
+            renderer.redraw(shared.edge_hint.load(Ordering::Relaxed));
+        }
         shared.check_watch();
         let msg = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(m) => m,
@@ -287,6 +376,8 @@ fn run(
         };
         match msg {
             VideoMsg::Stop => break,
+            // Le redessin se fait en haut de la boucle, au tour suivant.
+            VideoMsg::Resized => {}
             VideoMsg::Codec(c) => {
                 codec_announced = true;
                 if !seen_codec {
@@ -326,7 +417,7 @@ fn run(
                 // Le paquet qui annonce le format s'est perdu (transport rapide,
                 // avec pertes) : sans lui, aucun décodeur et un écran noir sans
                 // fin. On ouvre celui du format demandé pour la session.
-                let wanted = shared.codec.load(Ordering::Relaxed);
+                let wanted = shared.link.codec.load(Ordering::Relaxed);
                 if wanted != last_wanted {
                     last_wanted = wanted;
                     codec_announced = false;
@@ -385,12 +476,15 @@ fn run(
                             }
                             match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed)) {
                                 Ok(()) => {
-                                    if let Some(l) = shared.latency.get() {
-                                        l.displayed(pts, now_micros());
+                                    // Les mesures sont celles de l'écran principal.
+                                    if shared.is_primary() {
+                                        if let Some(l) = shared.link.latency.get() {
+                                            l.displayed(pts, now_micros());
+                                        }
                                     }
                                     shared.frames.fetch_add(1, Ordering::Relaxed);
                                     if !shared.first_image.swap(true, Ordering::Relaxed) {
-                                        // La fenêtre se montre à la première image.
+                                        // La fenêtre de cet écran se montre à sa première image.
                                         unsafe {
                                             let _ = PostMessageW(
                                                 Some(HWND(hwnd as *mut _)),

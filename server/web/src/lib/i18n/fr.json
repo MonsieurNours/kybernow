@@ -426,6 +426,7 @@
     "liveTitle": "{name} est sur cet écran",
     "since": "Depuis {duration}",
     "profile": "profil {profile}",
+    "screens": "{count} écrans",
     "medianLatency": "Écart médian",
     "endRequested": "Fin demandée…",
     "endSession": "Mettre fin à la session",

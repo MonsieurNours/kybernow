@@ -23,6 +23,7 @@ For the selected computer, in this order and nothing else:
 | Name | the computer's name | |
 | System | “Windows 11 Pro” (as the Station reports it) | |
 | Display, virtual display on, sized for this device | « Écran de 2560 × 1440 à 120 Hz, à la taille de cet écran » | “2560 × 1440 display at 120 Hz, sized for this screen” |
+| Display, several displays (Mac, Windows, Linux) | « 3 écrans, à la taille de ceux de cet appareil » | “3 displays, sized for this device's screens” |
 | Display, custom | « Écran de 1920 × 1080 à 60 Hz » | “1920 × 1080 display at 60 Hz” |
 | Display, no virtual display | « Les écrans de l'ordinateur, tels quels » | “The computer's own displays, as they are” |
 | Main button, online | « Se connecter » | “Connect” |
@@ -46,7 +47,7 @@ The connection screen shows the steps, nothing else:
 
 | Step | Français | English |
 |---|---|---|
-| 1 | « Préparation de l'écran » | “Preparing the display” |
+| 1 | « Préparation de l'écran » ; avec plusieurs écrans : « Préparation des écrans » | “Preparing the display”; with several displays: “Preparing the displays” |
 | 2 | « Connexion » | “Connecting” |
 | 3 | « Premières images » | “First frames” |
 | Failure | « La connexion a échoué », then the reason in one sentence | “The connection failed”, then the reason |
@@ -55,6 +56,8 @@ The connection screen shows the steps, nothing else:
 If Admin answers but the picture does not arrive despite the session's own repairs (keyframe, restart, lower bitrate, 4:2:0), or the connection to the streaming engine fails, the app restarts the Station, once, without ending another device's session, waits for it to come back (1 min 30 at most) and tries to connect once more. The connection screen says so: « La Station redémarre… » / “The Station is restarting…”, then resumes its steps. If the picture still does not come: “The connection failed”, and the reason.
 
 From the first frame, the picture alone. No arrival capsule, no bar that shows then hides, no figure. The window title (Windows) is “{name} · KyberNow Link” (the command line keeps its measurements in the title, as it has no bar).
+
+**Several displays** (Mac, Windows and Linux apps, see [multi-ecrans.en.md](multi-ecrans.en.md)): the connection screen shows on the device's main display; the others show its background (its colour, without the home screen photo), with no text; each display switches to its picture at its first frame. If the connection fails, the message is on the main display and the other windows close. A display the computer could not create keeps that background, with a single line: « L'ordinateur n'a pas pu créer cet écran. » / “The computer could not create this display.” When the device's displays change during the session, or a profile picked during the session changes their number, the connection starts again at its first step on the main display; if the computer then refuses the new displays, the session ends with the reason, like a failed connection. A display created but left without a picture (never announced, or its encoder did not open) shows the same line as a display not created. With a Station that handles only one display, the other displays' windows do not open, with no message. A single session bar, on the display the pointer is on; the window it opens in becomes the active window; its commands apply to the whole session. The “Displays” setting changed in Settings during a session applies to the next session; the profile picked in the bar or the icon's menu applies at once. “Full screen” is not offered (bar, menu, shortcut): the windows stay full screen; to work in a window, choose “This display”. Every window has the same title.
 
 During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
 
@@ -71,7 +74,7 @@ Title: « Réglages de {nom} » / “Settings for {name}”. At the top: « Prof
 
 | Section | Français | English | Contents |
 |---|---|---|---|
-| 1 | Image | Picture | resolution, refresh rate, virtual display, video format, sharp text (4:4:4), bitrate, frame display, keep the last image |
+| 1 | Image | Picture | resolution, displays, refresh rate, virtual display, video format, sharp text (4:4:4), bitrate, frame display, keep the last image |
 | 2 | Son | Sound | channels, sound on the computer, and what the platform offers (spatial audio, 5.1 Dolby…) |
 | 3 | Commandes | Controls | controller seen by the computer, mouse, keyboard, touch, remote, rumble, shared clipboard |
 | 4 | Réseau | Network | picture transport, reconnect automatically, wake on LAN |
@@ -85,6 +88,7 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 | Français | English | Values (FR / EN) |
 |---|---|---|
 | Définition | Resolution | Comme cet écran / Match this display; Au plus 4K / 4K at most; Sur mesure / Custom |
+| Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; help: « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactive, on « Cet écran », with a custom resolution (help: « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), with a session in a window (same help as the custom resolution, the window setting the display's size) and without a virtual display (setting off, or a Station without a usable virtual display: then with no help, the greyed row on « Cet écran » stands on its own and the virtual display has its own row; with a custom resolution, the custom resolution's help stays). Mac, Windows and Linux apps ([multi-ecrans.en.md](multi-ecrans.en.md)) |
 | Fréquence | Refresh rate | “120 Hz” |
 | Écran virtuel | Virtual display | help: « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
 | Format vidéo | Video format | Auto; HEVC; H.264; AV1 |
@@ -109,11 +113,11 @@ What applies to the whole app (language, iCloud, the app's updates, controller t
 - a ruler in milliseconds, from 0 to 20 ms (more if the measurement goes beyond), with the marks “160 Hz”, “120 Hz” and “60 Hz” at the duration of one frame at those rates (6.25; 8.33; 16.67 ms), and a band from the median to the 95th percentile;
 - “95% of frames under 14.2 ms”;
 - the duration and when: “42 min · yesterday”;
-- what was sent: “2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s”;
+- what was sent: “2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s”; with several displays, their number first, then the main display and the total bitrate: “3 displays · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s”; that number is the displays the computer took (those it could not create are not in it), the same in the session bar, the session statistics and the last session;
 - help: “The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.”
 - with no session: “No session on this computer yet.”
 
-Data kept by the app for each computer, at the end of every session of at least 3 s: median, 95th percentile, duration, date, resolution, refresh rate, format, bitrate.
+Data kept by the app for each computer, at the end of every session of at least 3 s: median, 95th percentile, duration, date, number of displays, resolution and refresh rate of the main display, format, bitrate.
 
 **This computer**: “System”, “Graphics card”, “Address” (Admin's address and port), “Fingerprint” (first four groups).
 
@@ -156,7 +160,7 @@ From top to bottom. During a session, first:
 |---|---|---|
 | Header (inactive) | « En session sur {nom} » | “In session on {name}” |
 | Measurements (inactive, updated while the menu is open) | « 12,4 ms · 60 i/s · 80 Mbit/s »: the latency as in the session bar, to the tenth, frames per second and bitrate; “—” for what is not measured yet; before the first frame, the connection step | “12.4 ms · 60 fps · 80 Mbit/s” |
-| Full screen (checked in full screen) | « Plein écran » | “Full screen” |
+| Full screen (checked in full screen; absent with several displays) | « Plein écran » | “Full screen” |
 | Mouse | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (the settings' order), the computer's mode checked; picking a mode applies it at once and keeps it for that computer | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Live measurements | « Statistiques » (Mac: the measurements panel; Windows: the session bar stays shown until the pointer passes over it, a second click hides it) | “Statistics” |
 | End | « Se déconnecter » | “Disconnect” |

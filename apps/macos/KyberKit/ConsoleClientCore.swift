@@ -29,9 +29,12 @@ public struct HostInfo: Sendable, Equatable {
     public let wake: [WakeTarget]
     /// Le compte de cet appareil a été créé par l'appairage par code.
     public let ownDevice: Bool
+    /// Écrans que la Station sait créer en une session (multi-écrans) ; 1
+    /// avec une Station antérieure.
+    public let maxScreens: Int
 
     public init(hostname: String? = nil, gpu: String? = nil, av1: Bool = false, virtualDisplay: Bool = true, speakers: Bool = true,
-                os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false) {
+                os: String? = nil, adminVersion: String? = nil, station: StationInfo? = nil, wake: [WakeTarget] = [], ownDevice: Bool = false, maxScreens: Int = 1) {
         self.hostname = hostname
         self.gpu = gpu
         self.av1 = av1
@@ -42,6 +45,7 @@ public struct HostInfo: Sendable, Equatable {
         self.station = station
         self.wake = wake
         self.ownDevice = ownDevice
+        self.maxScreens = max(1, maxScreens)
     }
 
     /// Version de la Station : celle de `station`, sinon celle d'Admin.
@@ -256,7 +260,8 @@ public final class ConsoleClient: @unchecked Sendable {
             adminVersion: (json["admin_version"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             station: (json["station"] as? [String: Any]).map(stationInfo),
             wake: wakeTargets(json["wake"]),
-            ownDevice: (json["account"] as? [String: Any])?["own_device"] as? Bool ?? false
+            ownDevice: (json["account"] as? [String: Any])?["own_device"] as? Bool ?? false,
+            maxScreens: vd?["max_screens"] as? Int ?? 1
         )
     }
 

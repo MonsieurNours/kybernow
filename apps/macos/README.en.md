@@ -106,6 +106,22 @@ Kyber normally draws the image and plays the sound with VLC. KyberNow Link decod
 
 Live measurements (session bar): end-to-end latency and its curve, resolution and format. A click on them (or ⌃⌥⌘S) opens the **detailed measurements** at the bottom right (`SessionStats.swift`): the path of a frame as a cascade on a common scale, with the duration of one frame as a dotted line; latency (losses marked under the curve) and bitrate over 30 s; losses over 30 s and since the start; network round trip, image, sound and the sound-image offset. The panel stays open and lets clicks and movements through to the computer, except its close button. In Debug, `KN_STATS_PREVIEW=1` shows it filled with plausible measurements, without a session.
 
+## Several displays
+
+A session can take every display of this Mac (contract: [docs/multi-ecrans.en.md](../../docs/multi-ecrans.en.md); texts and behaviour: [docs/link-ui.en.md](../../docs/link-ui.en.md), “Several displays”). The core decides the number of displays with the same rules as Windows and Linux; the app gives it what decides and shows what it returns.
+
+- **Setting** “Displays” (Picture section, under Resolution): Auto, This display, All displays (`ConnectionSettings.screens`), inactive on “This display” with a custom resolution, a windowed session or without a virtual display (`SessionEngine.screensSettingEnabled`). It does not switch the profile to “Custom”.
+- **This Mac's displays** (`DisplayInfo.deviceScreens`): `NSScreen.screens` without mirrored displays, the first one (with the menu bar) as the primary, frames converted from Cocoa's coordinates (y up) to the contract's (y down), native pixels, refresh rate; “This display” is the window's; with the setting, “Up to 4K”, the custom resolution and the number of displays the Station can create (`HostInfo.maxScreens`, `virtual_display.max_screens` from `info`, 1 with an older Station). Always given to the core (`SessionEngine.Params.screens`): it turns them into a single- or multi-display session, including when the profile changes during the session.
+- **Home**: “3 displays, sized for this device's screens” when the core's plan (`SessionEngine.sessionPlan`, the same calculation as the session) takes several displays.
+- **Windows** (`SessionScreens.swift`): the home window moves to the primary display (it gets its place back at the end) and shows the connection there; every other display taken has its own full-screen window (`ScreenSurface`), with its session view, its Metal renderer, its VideoToolbox decoder (one stream per display, `KnPacket.screen`), its top marker and its bar opening zone; their SwiftUI layer stays hidden while it has nothing to show (direct presentation). Native full screen on each display when displays have separate Spaces (macOS's default), menu bar and Dock hidden; otherwise a borderless window the size of the display. All carry the same title.
+- **Connection**: the steps on the primary display (“Preparing the displays”), the connection background without text on the others (`ScreenBackdrop`), each display switches to its picture at its first frame (`SessionEngine.onScreenImage`). A display the computer could not create, or left without a picture, keeps that background with “The computer could not create this display.”. A single-display Station, only the primary accepted, a session back to one display: the other displays' windows close, without a message (`SessionEngine.onScreens`); a single stream with no display not created only ever goes to the home window, whatever display the core names.
+- **Bar**: a single one, on the display where the gesture happens (the SwiftUI layer moves from one window to another); its commands apply to the whole session. “Full screen” is not offered with several displays (bar, Session menu, ⌃⌥⌘F, menu bar icon menu, gamepad).
+- **Mouse**: with the desktop mouse, each window receives movements even when it is not the key window, and sends its positions to its computer display (`kn_input_mouse_on`); the computer's pointer is drawn in its display's window (one pointer layer per view, `kn_input_set_screens`). With the game mouse, it stays captured in the active window. Auto mouse: the core's rule over every view's layer (`kn_pointer_summary`: hidden only if it is hidden on every display the pointer has already been on); `StreamViewGroup` makes every view re-evaluate when the pointer changes on one of them.
+- **This Mac's displays changing during the session** (plugged, unplugged, layout, mirroring): the updated description goes to the core (`SessionEngine.setScreens`), which redoes the session if the plan changes (the connection resumes at its first step on the primary display); the window of an unplugged display closes at once.
+- **Occlusion and full screen**: each window pauses and resumes its own renderer (a window entering full screen is seen occluded for a moment); the last frame received during the pause is rendered on resume, the picture is redrawn in place when its size changes and when the full-screen transition ends, and a keyframe is asked for that display (`SessionEngine.setScreenOccluded`, `refreshScreen`): a still desktop sends no new frame. Reduced bitrate and the core's “no image” watch on hold only when no window is visible. The log names the display (“fenêtre de l'écran 2 …”, “rien de montré en 2 s (écran 2)”).
+- **Measurements**: latency and frames per second of the primary display; the measurements panel and the last session give the number of displays first (“3 displays · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s”, total bitrate); `Host.lastScreens`.
+- **Trying it** without a multi-display Station: `KN_MAX_SCREENS=4 "/path/KyberNow Link.app/Contents/MacOS/KyberNow Link"` acts as if the Station could create four displays: the home screen announces the Mac's displays, the windows open, then, the current Station creating only one, they close and the session runs on the primary display, without an error.
+
 ## Code layout
 
 ```
@@ -135,6 +151,7 @@ apps/macos/
 │   ├── Discovery          # Bonjour discovery of the Stations
 │   ├── HomeView, HostImagery, AddHostFlow, SettingsView, AppSettingsView
 │   ├── SessionController, SessionChrome, SessionStats, Passage
+│   ├── SessionScreens     # several displays: a surface (view, renderer, connection background) and a window per display
 │   └── Theme, DisplayInfo, Fonts/ (Archivo, Martian Mono, OFL)
 ├── kyber-patches/         # KyberNow patches to libkyclient and libkynput
 ├── scripts/               # vendor-kyber.sh, build-kyclient.sh, embed-kyber.sh, sign-release.sh, check-strings.py, app-icon.py, phosphor-icons.mjs
@@ -182,6 +199,7 @@ Xcode puts the profile in the app (`Contents/embedded.provisionprofile`) and add
 ```bash
 apps/macos/tests/video/run.sh   # HEVC, H.264 and AV1 streams generated by ffmpeg: decoding, timing, rendered colours, recovery after a loss
 apps/macos/tests/screen/run.sh  # window for 2 × 2.5 s: the session surface really shows the frames (presentedTime), commit → screen delay with and without the “one frame in flight” guard
+apps/macos/tests/fullscreen/run.sh  # several displays: another display's window, frames received while it is occluded then a full-screen transition with no new frame: the frame is rendered, redrawn, shown at the full-screen size and whole (`run.sh 5120x2880 444`: a 5K in 4:4:4, `&8v4` frames like a Studio Display)
 ```
 
 Sound, clipboard and inputs are tested in the core (`cargo test -p kybernow-core`, [apps/core/README.en.md](../core/README.en.md)).

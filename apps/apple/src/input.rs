@@ -20,7 +20,7 @@ use std::time::Duration;
 use kybernow_core::input::keymap;
 use kybernow_core::input::{
     Clock, GamepadRumble, InputPipeline, InputPlatform, MonotonicClock, MouseMode, MouseModeRules, Options, PadAxis, PadButton, PadCombo, PadId, PadKey, Pasteboard,
-    PointerLayer,
+    PointerLayer, ScreenTarget,
 };
 use kybernow_core::kynput_rs::MouseButtonType;
 
@@ -173,6 +173,26 @@ pub extern "C" fn kn_mouse_wants_relative(
     };
     let visible_for = Duration::from_secs_f64(visible_for_ms.max(0.0) / 1000.0);
     MouseModeRules { needs_hidden_pointer }.wants_relative(mode, game_fullscreen, remote_hidden, visible_for, relative_active)
+}
+
+/// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto, sur les
+/// couches de tous les écrans de la session (`count` couches) : caché
+/// seulement s'il l'est sur tous les écrans où il est déjà passé (un écran
+/// jamais visité ne compte pas), visible depuis le plus long des délais. À
+/// donner à `kn_mouse_wants_relative`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pointer_summary(layers: *const *const KnPointer, count: usize, hidden: *mut bool, visible_for_ms: *mut f64) {
+    let list: &[*const KnPointer] = if layers.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(layers, count) } };
+    let pointers: Vec<&KnPointer> = list.iter().filter_map(|p| unsafe { p.as_ref() }).collect();
+    let s = PointerLayer::summary(pointers.iter().map(|p| p.layer.as_ref()));
+    unsafe {
+        if !hidden.is_null() {
+            *hidden = s.hidden;
+        }
+        if !visible_for_ms.is_null() {
+            *visible_for_ms = s.visible_for.as_secs_f64() * 1000.0;
+        }
+    }
 }
 
 /// Facteur d'échelle d'un pointeur de `width` × `height` pixels pour tenir
@@ -405,10 +425,53 @@ pub unsafe extern "C" fn kn_input_key(i: *const KnInput, scancode: u16, pressed:
     with(i, |p| p.key(scancode, pressed));
 }
 
-/// Position absolue sur l'écran de l'ordinateur affiché, en pixels.
+/// Position absolue sur l'écran de l'ordinateur affiché, en pixels
+/// (multi-écrans : l'écran principal).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_mouse(i: *const KnInput, x: i16, y: i16) {
     with(i, |p| p.mouse(x, y));
+}
+
+/// Multi-écrans : un écran de la session vu des entrées (`kn_input_set_screens`).
+#[repr(C)]
+pub struct KnInputScreen {
+    /// Index de l'écran de l'appareil (`KnStreamScreen::screen`).
+    pub screen: u32,
+    /// Identifiant d'écran de Kyber (`KnStreamScreen::display.id`).
+    pub display_id: u32,
+    pub host_width: u32,
+    pub host_height: u32,
+    /// Couche de pointeur de la vue de cet écran ; nulle : celle de
+    /// `kn_input_new` (l'écran principal). Retenue par la chaîne.
+    pub pointer: *const KnPointer,
+}
+
+/// Multi-écrans : les écrans de la session, d'après `on_screens` (à donner à
+/// chaque chaîne créée par `input_pipeline`, et de nouveau quand `on_screens`
+/// revient). Le pointeur de l'ordinateur va à la couche de l'écran qu'il
+/// annonce (`on_changed` de cette couche), les positions de
+/// `kn_input_mouse_on` à l'écran de Kyber de leur écran. `count` à 0 : un écran.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_input_set_screens(i: *const KnInput, screens: *const KnInputScreen, count: usize) {
+    let list: &[KnInputScreen] = if screens.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(screens, count) } };
+    let targets: Vec<ScreenTarget> = list
+        .iter()
+        .map(|s| ScreenTarget {
+            screen: s.screen as usize,
+            display_id: s.display_id,
+            host_size: (s.host_width, s.host_height),
+            pointer: unsafe { s.pointer.as_ref() }.map(|p| p.layer.clone()),
+        })
+        .collect();
+    with(i, |p| p.set_screens(targets));
+}
+
+/// Multi-écrans : position absolue sur l'écran `screen` de l'appareil, en
+/// pixels de l'écran de l'ordinateur qui lui correspond (écran inconnu :
+/// l'écran principal).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_input_mouse_on(i: *const KnInput, screen: u32, x: i16, y: i16) {
+    with(i, |p| p.mouse_on(screen as usize, x, y));
 }
 
 #[unsafe(no_mangle)]

@@ -88,6 +88,16 @@ enum LinkText {
             : String(localized: "Écran de \(dims) à \(refresh) Hz")
     }
 
+    /// Plusieurs écrans (Mac, Windows, Linux) : « 3 écrans, à la taille de
+    /// ceux de cet appareil » ; le nombre vient du plan du cœur.
+    static func screens(_ count: Int) -> String {
+        String(localized: "\(count) écrans, à la taille de ceux de cet appareil")
+    }
+
+    /// Plusieurs écrans : la fenêtre d'un écran que l'ordinateur n'a pas pu
+    /// créer, ou resté sans image.
+    static var screenNotCreated: String { String(localized: "L'ordinateur n'a pas pu créer cet écran.") }
+
     /// Erreur sous le nom de l'ordinateur.
     static func problem(_ p: HostProblem) -> String {
         switch p {
@@ -165,6 +175,16 @@ enum SettingsText {
         String(localized: "L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin.")
     }
 
+    /// Rubrique Image, sous Définition : « Écrans » (Mac, Windows, Linux).
+    static var screensTitle: String { String(localized: "Écrans") }
+    static var screensHelp: String {
+        String(localized: "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon.")
+    }
+    /// Réglage inactif, sur « Cet écran », avec une définition sur mesure.
+    static var screensCustomHelp: String {
+        String(localized: "Avec une définition sur mesure, la session prend un seul écran.")
+    }
+
     /// Rubrique Réseau : « Réveil par le réseau ».
     static var wakeTitle: String { String(localized: "Réveil par le réseau") }
     static var wakeReady: String { String(localized: "Prêt") }
@@ -223,6 +243,8 @@ struct LastSessionSummary {
     let refresh: Int?
     let codec: VideoCodec?
     let mbps: Int?
+    /// Nombre d'écrans (nil : un).
+    let screens: Int?
 
     /// Nil : pas encore de session (ou d'avant les mesures).
     init?(_ host: Host) {
@@ -236,6 +258,7 @@ struct LastSessionSummary {
         refresh = host.lastRefresh
         codec = host.lastCodec
         mbps = host.lastMbps
+        screens = host.lastScreens
     }
 
     /// « 42 min · hier ».
@@ -243,9 +266,12 @@ struct LastSessionSummary {
         [duration.map(LinkFormat.duration), date.map { LinkFormat.day($0) }].compactMap { $0 }.joined(separator: " · ")
     }
 
-    /// « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » (ce qui est connu).
+    /// « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » (ce qui est connu) ; avec
+    /// plusieurs écrans, leur nombre d'abord, puis l'écran principal et le
+    /// débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s ».
     var transmitted: String {
         var parts: [String] = []
+        if let screens, screens > 1 { parts.append(String(localized: "\(screens) écrans")) }
         if let width, let height { parts.append(LinkFormat.dims(width, height)) }
         if let refresh { parts.append("\(refresh) Hz") }
         if let codec { parts.append(LinkFormat.codec(codec)) }
@@ -488,7 +514,7 @@ extension HostStore {
                 if let info = status[host.id]?.info {
                     setDemoStatus(HostStatus(online: true, info: HostInfo(hostname: info.hostname, gpu: info.gpu, av1: info.av1, virtualDisplay: info.virtualDisplay,
                                                                            speakers: info.speakers, os: info.os, adminVersion: v,
-                                                                           station: StationInfo(version: v))), for: host.id)
+                                                                           station: StationInfo(version: v), maxScreens: info.maxScreens)), for: host.id)
                 }
                 stationTasks[host.id] = .done(StationText.installed(v))
             default: break

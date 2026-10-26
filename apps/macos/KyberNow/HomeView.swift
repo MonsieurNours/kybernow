@@ -256,6 +256,10 @@ enum HomeScreen {
         let s = host.settings
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let virtual = s.display != .physical && (info?.virtualDisplay ?? true)
+        // Plusieurs écrans : le nombre que prendra la session, calculé par le cœur.
+        if let count = HomeScreen.screenCount(for: host, info: info) {
+            return LinkText.screens(count)
+        }
         switch s.display {
         case .custom:
             return LinkText.screen(width: s.customWidth, height: s.customHeight, refresh: s.customRefresh, virtual: virtual, sizedForThisScreen: false)
@@ -271,6 +275,18 @@ enum HomeScreen {
             let m = DisplayInfo.mode(for: screen, codec: s.codec, limit4K: s.limit4K)
             return LinkText.screen(width: m.width, height: m.height, refresh: m.refresh, virtual: virtual, sizedForThisScreen: !s.limit4K || m.width == DisplayInfo.mode(for: screen, codec: s.codec).width)
         }
+    }
+}
+
+extension HomeScreen {
+    /// Écrans que prendra la session (au moins deux), nil pour un : le plan
+    /// du cœur, le même que celui de la session (docs/multi-ecrans.md).
+    static func screenCount(for host: Host, info: HostInfo?) -> Int? {
+        let s = host.settings
+        let current = (NSApp.keyWindow ?? NSApp.mainWindow)?.screen ?? NSScreen.main
+        // L'écran virtuel utilisable sur la Station est dans `request` : le cœur décide.
+        let request = DisplayInfo.deviceScreens(current: current, settings: s, info: info).request
+        return SessionEngine.sessionPlan(request, profile: s.profile?.rawValue, virtualDisplay: s.display != .physical, codec: s.codec)?.count
     }
 }
 

@@ -118,7 +118,8 @@ enum Msg {
     Stop,
 }
 
-/// Un flux d'image (un par démarrage de l'image).
+/// Un flux d'image (un par démarrage de l'image, et par écran de l'appareil
+/// en multi-écrans : un décodeur et une file d'images chacun).
 pub struct VideoSink {
     tx: Mutex<Sender<Msg>>,
     thread: Mutex<Option<JoinHandle<()>>>,
@@ -126,10 +127,11 @@ pub struct VideoSink {
 }
 
 impl VideoSink {
-    pub fn new(shared: Arc<Shared>) -> Arc<Self> {
+    pub fn new(shared: Arc<Shared>, screen: usize) -> Arc<Self> {
         let (tx, rx) = channel();
         let s = shared.clone();
-        let thread = std::thread::Builder::new().name("kybernow-image".into()).spawn(move || Decoder::new(s).run(rx)).ok();
+        let latest = shared.fresh_latest(screen);
+        let thread = std::thread::Builder::new().name("kybernow-image".into()).spawn(move || Decoder::new(s, latest).run(rx)).ok();
         Arc::new(Self { tx: Mutex::new(tx), thread: Mutex::new(thread), shared })
     }
 
@@ -170,6 +172,8 @@ impl Drop for VideoSink {
 
 struct Decoder {
     shared: Arc<Shared>,
+    /// L'image la plus récente de cet écran, pour le fil principal.
+    latest: Arc<Latest>,
     /// 0 H.264, 1 HEVC, 2 AV1.
     codec: c_int,
     config: Vec<u8>,
@@ -186,10 +190,11 @@ struct Decoder {
 }
 
 impl Decoder {
-    fn new(shared: Arc<Shared>) -> Self {
+    fn new(shared: Arc<Shared>, latest: Arc<Latest>) -> Self {
         unsafe { kn_log_quiet() };
         Self {
             shared,
+            latest,
             codec: 1,
             config: Vec::new(),
             in_config: false,
@@ -244,7 +249,9 @@ impl Decoder {
     }
 
     fn open(&mut self) -> Result<(), String> {
-        let threads = std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4) as c_int;
+        // Le processeur se partage entre les flux (multi-écrans : un décodeur par écran).
+        let streams = self.shared.screens().streams.len().max(1);
+        let threads = (std::thread::available_parallelism().map(|n| n.get().min(8)).unwrap_or(4) / streams).max(if streams > 1 { 2 } else { 1 }) as c_int;
         let mut err = [0 as c_char; 256];
         // 0 : processeur ; 1 : VA-API ; 2 : V4L2 (décodeurs du Raspberry Pi).
         let hw = if !self.software && self.shared.hw_for(self.codec) { self.shared.hw_backend } else { 0 };
@@ -343,7 +350,7 @@ impl Decoder {
         }
         let decoded = latency::now_micros();
         let out = self.copy(&f, pts, received, decoded);
-        self.shared.latest.put(out);
+        self.latest.put(out);
         wake_main();
     }
 
@@ -370,7 +377,7 @@ impl Decoder {
             3 => Format::Bgra,
             _ => Format::I420,
         };
-        let mut out = self.shared.latest.buffer().unwrap_or_else(|| Frame {
+        let mut out = self.latest.buffer().unwrap_or_else(|| Frame {
             width: 0,
             height: 0,
             format,

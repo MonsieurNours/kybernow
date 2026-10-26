@@ -276,6 +276,7 @@ private struct SettingsContent: View {
             }
             .disabled(!virtual)
             .opacity(virtual ? 1 : 0.45)
+            screensRow
             refreshRow
                 .disabled(!virtual)
                 .opacity(virtual ? 1 : 0.45)
@@ -284,6 +285,31 @@ private struct SettingsContent: View {
                     .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    /// « Écrans » (docs/link-ui.md) : Auto, Cet écran, Tous les écrans ;
+    /// inactif, sur « Cet écran », avec une définition sur mesure (ou une
+    /// session fenêtrée) et sans écran virtuel. Ne rend pas le profil
+    /// « Personnalisé ».
+    private var screensRow: some View {
+        let custom = s.display == .custom || s.display == .window
+        // Écran virtuel demandé et utilisable sur la Station : la même règle que le cœur.
+        let enabled = SessionEngine.screensSettingEnabled(customResolution: custom, virtualDisplay: s.display != .physical && info?.virtualDisplay != false)
+        let shown: ScreensChoice = enabled ? s.screens : .this
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(SettingsText.screensTitle).font(Theme.sans(13, .semibold)).foregroundStyle(Theme.text2)
+            Segmented(options: ScreensChoice.allCases.map { ($0, $0.label) },
+                      selection: Binding(get: { shown }, set: { choice in
+                          if let choice, enabled { update { $0.screens = choice } }
+                      }),
+                      height: 30, fill: true)
+            if enabled || custom {
+                Text(enabled ? SettingsText.screensHelp : SettingsText.screensCustomHelp)
+                    .font(Theme.sans(12)).foregroundStyle(Theme.muted).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
     }
 
     private func option(_ title: String, _ sub: String, prose: Bool = false, on: Bool, pick: @escaping () -> Void) -> some View {

@@ -19,9 +19,11 @@
   let label = $state('')
   let profile = $state('')
   let menu = $state<'profile' | 'keys' | null>(null)
+  /** Plusieurs écrans : « Plein écran » n'est pas proposé, les fenêtres y restent. */
+  let multi = $state(false)
 
-  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle. */
-  type Shown = { label: string; profile: string; pinned?: boolean }
+  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle. `multi` : plusieurs écrans. */
+  type Shown = { label: string; profile: string; pinned?: boolean; multi?: boolean }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -47,6 +49,7 @@
     const off = [
       listen<Stats>('stats', (s) => {
         stats = s
+        multi = s.screens > 1
         if (s.latency_ms != null) history = [...history, s.latency_ms].slice(-40)
         reportWidth()
       }),
@@ -58,6 +61,7 @@
       listen<Shown>('bar-shown', (s) => {
         label = s.label
         profile = s.profile
+        multi = !!s.multi
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
         // Ouverte par le pointeur, immobile contre le bord haut : il est sur
@@ -92,6 +96,12 @@
       sentWidth = width
       invoke('bar_width', { width })
     }
+  }
+
+  /** « 3840 × 2160 · 160 i/s · HEVC » ; avec plusieurs écrans, leur nombre d'abord (les mesures sont celles de l'écran principal). */
+  const infoLine = (s: Stats) => {
+    const line = t('bar.info', { width: s.width, height: s.height, fps: s.fps, decoder: s.decoder })
+    return s.screens > 1 ? `${t('stats.screens', { count: s.screens })} · ${line}` : line
   }
 
   const spark = $derived.by(() => {
@@ -187,7 +197,7 @@
       <svg width="70" height="20" viewBox="0 0 70 20" aria-hidden="true"><polyline points={spark} fill="none" stroke="#9A8CFF" stroke-width="1.5" /></svg>
     </div>
     <span class="sep"></span>
-    <span class="mono info">{stats ? t('bar.info', { width: stats.width, height: stats.height, fps: stats.fps, decoder: stats.decoder }) : '—'}</span>
+    <span class="mono info">{stats ? infoLine(stats) : '—'}</span>
   </div>
   <span class="sep"></span>
   <div class="anchor">
@@ -222,9 +232,11 @@
   <button class="icon" class:on={stats?.relative} aria-label={(stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')) + t('bar.mouse_shortcut')} title={stats?.relative ? t('bar.mouse_game') : t('bar.mouse_desktop')} onclick={() => command('mouse')}>
     <Icon name="mouse" size={20} stroke={1.6} />
   </button>
-  <button class="icon" aria-label={t('bar.fullscreen') + t('bar.fullscreen_shortcut')} title={t('bar.fullscreen')} onclick={() => command('fullscreen')}>
-    <Icon name="fullscreen" size={20} stroke={1.6} />
-  </button>
+  {#if !multi}
+    <button class="icon" aria-label={t('bar.fullscreen') + t('bar.fullscreen_shortcut')} title={t('bar.fullscreen')} onclick={() => command('fullscreen')}>
+      <Icon name="fullscreen" size={20} stroke={1.6} />
+    </button>
+  {/if}
   <span class="sep"></span>
   <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
 </div>

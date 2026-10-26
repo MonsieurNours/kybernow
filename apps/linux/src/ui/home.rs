@@ -61,13 +61,22 @@ fn status(app: &App, h: &Host) -> (&'static str, Rgba, bool) {
 }
 
 /// L'écran que la session demandera (même calcul qu'elle) : l'écran virtuel
-/// à la taille de cet appareil, sur mesure, ou ceux de l'ordinateur tels
+/// à la taille de cet appareil (ou plusieurs, au bureau : le nombre d'écrans
+/// que la session prendra), sur mesure, ou ceux de l'ordinateur tels
 /// quels (réglage coupé, ou Station sans écran virtuel). Les chiffres en
 /// Martian Mono.
 fn display_parts(app: &App, h: &Host) -> Vec<(String, bool)> {
-    let vd = h.settings.virtual_display && app.live.get(&h.id).and_then(|l| l.virtual_display) != Some(false);
-    if !vd {
+    if !app.virtual_display_usable(h) {
         return vec![(tr("Les écrans de l'ordinateur, tels quels", "The computer's own displays, as they are").into(), false)];
+    }
+    // Plusieurs écrans (bureau) : « 3 écrans, à la taille de ceux de cet appareil », le même calcul que la session.
+    if app.multi_screens() && app.screens_plan.count >= 2 {
+        let n = app.screens_plan.count.to_string();
+        return if english() {
+            vec![(n, true), (" displays, sized for this device's screens".into(), false)]
+        } else {
+            vec![(n, true), (" écrans, à la taille de ceux de cet appareil".into(), false)]
+        };
     }
     let (w, hh, fps) = app.session_mode(h);
     let custom = h.settings.resolution != 0 || h.settings.fps != 0;

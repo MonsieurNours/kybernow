@@ -99,6 +99,31 @@ pub struct HostLive {
     /// Le compte de cet appareil a été créé par l'appairage par code (Admin
     /// 0.5.0 et suivantes ; `None` : Admin ne le dit pas).
     pub own_device: Option<bool>,
+    /// Écrans que la Station sait créer (`virtual_display.max_screens` de
+    /// `GET /api/stream/info`, multi-écrans) ; `None` : pas encore su, ou une
+    /// Station antérieure, qui n'en crée qu'un.
+    pub max_screens: Option<usize>,
+}
+
+/// Multi-écrans (docs/multi-ecrans.md) : ce que la session prendra pour
+/// l'ordinateur choisi, calculé par la couche appareil avec le cœur (le même
+/// calcul que la session : réglage « Écrans », profil, définition sur mesure,
+/// écran virtuel, écrans de l'appareil et ce que la Station sait créer).
+/// L'accueil et la ligne « Écrans » des réglages le lisent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScreensPlan {
+    /// Écrans pris : 1 (« Cet écran »), ou au moins 2.
+    pub count: usize,
+    /// Le réglage « Écrans » se change ; sinon il est inactif, sur « Cet écran ».
+    pub enabled: bool,
+    /// La valeur que les réglages montrent : 0 Auto, 1 Cet écran, 2 Tous les écrans.
+    pub shown: usize,
+}
+
+impl Default for ScreensPlan {
+    fn default() -> Self {
+        Self { count: 1, enabled: true, shown: 0 }
+    }
 }
 
 /// La Station d'un ordinateur, d'après `GET /api/stream/info` (cœur :
@@ -491,6 +516,24 @@ pub struct SessionUi {
     /// La première image : l'image seule à partir d'elle ; sans elle, une
     /// fin sur erreur est un échec de la connexion.
     pub opened_at: Option<Instant>,
+    /// Écrans pris par la session (multi-écrans), tels que le cœur les a
+    /// annoncés : 1 tant qu'il ne l'a pas fait. Le même compte partout : les
+    /// statistiques de la barre, la dernière session (docs/link-ui.md,
+    /// « Statistiques »), comme `screenCount` sur Mac ; les écrans que
+    /// l'ordinateur n'a pas pu créer n'y sont pas.
+    pub screens: usize,
+    /// Écrans attendus : ceux du plan du cœur au départ, au changement de
+    /// profil ou d'écrans de l'appareil, puis ceux que le cœur annonce (pris et
+    /// non créés : une fenêtre chacun). « Préparation des écrans » en dépend.
+    pub expected_screens: usize,
+}
+
+impl SessionUi {
+    /// La session est à plusieurs écrans (une fenêtre plein écran chacun) : pas de « Plein
+    /// écran ». Comme `multiScreen` sur Mac.
+    pub fn multi(&self) -> bool {
+        self.screens >= 2 || self.expected_screens >= 2
+    }
 }
 
 /// Étapes de l'ajout d'un ordinateur.
@@ -527,6 +570,8 @@ pub struct AddState {
 pub enum Setting {
     Profile,
     Resolution,
+    /// Écrans pris par la session : Auto, Cet écran, Tous les écrans (bureau seulement).
+    Displays,
     Fps,
     Codec,
     Yuv444,
@@ -1012,9 +1057,31 @@ pub struct App {
     /// Le réveil envoyé à un ordinateur, et quand : l'accueil dit « Réveil de
     /// l'ordinateur… » et l'app le sonde toutes les 2 s, 2 min au plus.
     pub waking: Option<(String, Instant)>,
+    /// Multi-écrans : ce que la session prendra pour l'ordinateur choisi
+    /// (rempli par la couche appareil à chaque tour de boucle).
+    pub screens_plan: ScreensPlan,
 }
 
 impl App {
+    /// L'app prend tous les écrans de l'appareil : interface de bureau, hors
+    /// KyberNow Link OS (le Steam Deck, le salon et l'OS restent sur un écran).
+    pub fn multi_screens(&self) -> bool {
+        self.layout == Layout::Desktop && !self.is_os()
+    }
+
+    /// L'écran virtuel de la Station de cet ordinateur est utilisable : pilote en
+    /// place, déclenchement actif (`virtual_display.available` de `GET
+    /// /api/stream/info`) ; inconnu tant qu'elle n'a pas répondu : oui.
+    pub fn virtual_display_available(&self, h: &Host) -> bool {
+        self.live.get(&h.id).and_then(|l| l.virtual_display) != Some(false)
+    }
+
+    /// L'écran virtuel compte pour cette session : demandé (réglage de l'ordinateur)
+    /// **et** utilisable sur la Station, la règle du cœur (`Screens::choice`).
+    pub fn virtual_display_usable(&self, h: &Host) -> bool {
+        h.settings.virtual_display && self.virtual_display_available(h)
+    }
+
     pub fn new(store: Store, layout: Layout) -> Self {
         Self {
             store,
@@ -1065,6 +1132,7 @@ impl App {
             confirm: None,
             station_op: None,
             waking: None,
+            screens_plan: ScreensPlan::default(),
         }
     }
 
@@ -2281,6 +2349,10 @@ impl App {
                         vec![false, false, false, m.vrr == Some(false) || pi.is_some()],
                     ),
                 ];
+                // Écrans, sous Définition (multi-écrans : le bureau seulement).
+                if self.multi_screens() {
+                    rows.insert(1, self.displays_row(h));
+                }
                 if m.battery.is_some() {
                     rows.push(toggle(Setting::BatteryLight, tr("Alléger sur batterie", "Lighter on battery"), tr("Sur batterie : 60 images par seconde au plus, débit réduit.", "On battery: 60 frames per second at most, lower bitrate.").into(), st.battery_light));
                 }
@@ -2394,6 +2466,40 @@ impl App {
                 rows
             }
             _ => Vec::new(),
+        }
+    }
+
+    /// La ligne « Écrans » de la rubrique Image (docs/link-ui.md) : Auto, Cet
+    /// écran, Tous les écrans ; inactive, sur « Cet écran », avec une définition
+    /// sur mesure ou sans écran virtuel (`screens_plan`, du cœur). L'aide : celle
+    /// d'Auto quand la ligne est active, celle de la définition sur mesure quand
+    /// elle l'est ; sans écran virtuel, la ligne grisée n'a pas d'aide (comme sur
+    /// Mac : elle se suffit, l'écran virtuel a sa propre ligne).
+    fn displays_row(&self, h: &Host) -> Row {
+        let plan = &self.screens_plan;
+        let hint = if h.settings.resolution != 0 {
+            tr("Avec une définition sur mesure, la session prend un seul écran.", "With a custom resolution, the session takes a single display.")
+        } else if plan.enabled {
+            tr(
+                "Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon.",
+                "Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.",
+            )
+        } else {
+            ""
+        };
+        Row {
+            setting: Setting::Displays,
+            label: tr("Écrans", "Displays").into(),
+            hint: hint.into(),
+            kind: RowKind::Choice {
+                options: vec!["Auto".into(), tr("Cet écran", "This display").into(), tr("Tous les écrans", "All displays").into()],
+                current: plan.shown.min(2),
+                // Inactive : la valeur montrée, « Cet écran », ne se change pas ; les autres sont barrées.
+                disabled: (0..3).map(|i| !plan.enabled && i != plan.shown.min(2)).collect(),
+                tags: Vec::new(),
+            },
+            enabled: plan.enabled,
+            tag: None,
         }
     }
 
@@ -2631,11 +2737,15 @@ impl App {
             }
             _ => {}
         }
+        let enabled = self.screens_plan.enabled;
         let Some(h) = self.store.host_mut(&id) else { return Vec::new() };
         let st = &mut h.settings;
         let pick = |opts: &[&str], i: usize| opts[i.min(opts.len() - 1)].to_string();
         match s {
             Setting::Resolution => st.resolution = [0u32, 2160, 1440, 1080, 800, 720][i.min(5)],
+            // Inactif (définition sur mesure, sans écran virtuel) : rien à changer.
+            // Ne rend pas le profil « Personnalisé » : `custom()` ne le regarde pas.
+            Setting::Displays if enabled => st.displays = pick(&["auto", "this", "all"], i),
             Setting::Fps => st.fps = [0u32, 30, 60, 90, 120, 144][i.min(5)],
             Setting::Codec => st.codec = pick(&["auto", "hevc", "h264", "av1"], i),
             Setting::Display => st.display = pick(&["auto", "vsync", "immediate", "vrr"], i),
@@ -3082,7 +3192,91 @@ mod tests {
             started: Instant::now(),
             ending_since: None,
             opened_at: None,
+            screens: 1,
+            expected_screens: 1,
         });
         assert_eq!(app.session_back(), vec![Action::CancelConnect]);
+    }
+
+    /// Les lignes de la rubrique Image : « Écrans » juste sous « Définition »,
+    /// au bureau seulement (le Deck, le salon et l'OS restent sur un écran).
+    #[test]
+    fn displays_row_follows_the_core() {
+        let labels = |app: &App| app.rows(Section::Picture).iter().map(|r| r.label.clone()).collect::<Vec<_>>();
+        let mut app = App::new(Store::default(), Layout::Desktop);
+        app.store.hosts.push(host());
+        crate::i18n::force_english(false);
+        let l = labels(&app);
+        assert_eq!(&l[..3], ["Définition", "Écrans", "Fréquence"], "{l:?}");
+        // Actif : les trois valeurs, Auto d'abord ; Auto par défaut.
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert!(row.enabled);
+        let RowKind::Choice { options, current, disabled, .. } = &row.kind else { panic!("pas des valeurs au choix") };
+        assert_eq!(options, &["Auto", "Cet écran", "Tous les écrans"]);
+        assert_eq!((*current, disabled.iter().any(|d| *d)), (0, false));
+        assert!(row.hint.starts_with("Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé."), "{}", row.hint);
+        // Choisir une valeur la garde, sans rendre le profil « Personnalisé ».
+        app.activate(Target::Choice(Setting::Displays, 2));
+        assert_eq!(app.selected().unwrap().settings.displays, "all");
+        assert!(!app.selected().unwrap().settings.custom());
+        app.activate(Target::Choice(Setting::Displays, 1));
+        assert_eq!(app.selected().unwrap().settings.displays, "this");
+        // Inactif (le cœur le dit : définition sur mesure, sans écran virtuel) : la valeur montrée, rien à changer.
+        app.screens_plan = ScreensPlan { count: 1, enabled: false, shown: 1 };
+        app.store.hosts[0].settings.resolution = 1080;
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert!(!row.enabled);
+        assert_eq!(row.hint, "Avec une définition sur mesure, la session prend un seul écran.");
+        let RowKind::Choice { current, disabled, .. } = &row.kind else { panic!() };
+        assert_eq!((*current, disabled.clone()), (1, vec![true, false, true]));
+        // Inactif faute d'écran virtuel (réglage coupé, Station sans pilote) : la ligne grisée sur
+        // « Cet écran », sans aide (pas celle d'Auto, qui ne vaut pas), comme sur Mac.
+        app.store.hosts[0].settings.resolution = 0;
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert!(!row.enabled);
+        assert_eq!(row.hint, "", "pas d'aide quand la ligne est inactive sans écran virtuel");
+        let RowKind::Choice { current, disabled, .. } = &row.kind else { panic!() };
+        assert_eq!((*current, disabled.clone()), (1, vec![true, false, true]));
+        // Une définition sur mesure garde son aide, écran virtuel ou non.
+        app.store.hosts[0].settings.resolution = 1080;
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert_eq!(row.hint, "Avec une définition sur mesure, la session prend un seul écran.");
+        app.store.hosts[0].settings.resolution = 0;
+        // Actif de nouveau : l'aide d'Auto.
+        app.screens_plan = ScreensPlan::default();
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert!(row.enabled && row.hint.starts_with("Auto : tous les écrans"));
+        app.screens_plan = ScreensPlan { count: 1, enabled: false, shown: 1 };
+        app.store.hosts[0].settings.resolution = 1080;
+        app.store.hosts[0].settings.displays = "all".into();
+        app.activate(Target::Choice(Setting::Displays, 0));
+        assert_eq!(app.selected().unwrap().settings.displays, "all", "inactif : le réglage ne bouge pas");
+        // Anglais.
+        crate::i18n::force_english(true);
+        let row = app.rows(Section::Picture).into_iter().find(|r| r.setting == Setting::Displays).unwrap();
+        assert_eq!((row.label.as_str(), row.hint.as_str()), ("Displays", "With a custom resolution, the session takes a single display."));
+        crate::i18n::force_english(false);
+        // Les autres interfaces n'ont pas la ligne.
+        for layout in [Layout::Handheld, Layout::Tv] {
+            let mut app = App::new(Store::default(), layout);
+            app.store.hosts.push(host());
+            assert!(!app.rows(Section::Picture).iter().any(|r| r.setting == Setting::Displays));
+        }
+    }
+
+    #[test]
+    fn last_session_with_several_displays() {
+        crate::i18n::force_english(false);
+        let one = crate::model::LastSession { mode: "3840 × 2160".into(), hz: 160, codec: "HEVC".into(), mbps: 120.0, screens: 1, ..Default::default() };
+        assert_eq!(one.transmitted(), "3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s");
+        let three = crate::model::LastSession { screens: 3, ..one.clone() };
+        assert_eq!(three.transmitted(), "3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s");
+        crate::i18n::force_english(true);
+        assert_eq!(three.transmitted(), "3 displays · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s");
+        crate::i18n::force_english(false);
+        // Un fichier d'avant le multi-écrans : un seul écran.
+        let old: crate::model::LastSession = serde_json::from_str(r#"{"median":6.8,"p95":9.4,"seconds":4320,"mode":"1920 × 1200","hz":120,"codec":"HEVC","mbps":38.0,"at":1}"#).unwrap();
+        assert_eq!(old.screens, 0);
+        assert_eq!(old.transmitted(), "1920 × 1200 · 120 Hz · HEVC · 38 Mbit/s");
     }
 }

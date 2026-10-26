@@ -23,6 +23,10 @@ pub const SDL_WINDOW_INPUT_FOCUS: u32 = 0x200;
 pub const SDL_WINDOW_FULLSCREEN_DESKTOP: u32 = 0x1001;
 pub const SDL_WINDOW_ALLOW_HIGHDPI: u32 = 0x2000;
 pub const SDL_WINDOWPOS_CENTERED: c_int = 0x2FFF0000;
+/// Centrée sur l'écran `n` (multi-écrans : une fenêtre plein écran par écran).
+pub const fn windowpos_centered_display(n: i32) -> c_int {
+    0x2FFF0000 | n
+}
 pub const SDL_RENDERER_ACCELERATED: u32 = 0x2;
 pub const SDL_RENDERER_PRESENTVSYNC: u32 = 0x4;
 /// Octets R, G, B, A en mémoire (comme tiny-skia).
@@ -40,6 +44,7 @@ pub const SDL_YUV_CONVERSION_BT709: c_int = 2;
 
 pub const SDL_QUIT: u32 = 0x100;
 pub const SDL_APP_WILLENTERBACKGROUND: u32 = 0x103;
+pub const SDL_DISPLAYEVENT: u32 = 0x150;
 pub const SDL_WINDOWEVENT: u32 = 0x200;
 pub const SDL_KEYDOWN: u32 = 0x300;
 pub const SDL_KEYUP: u32 = 0x301;
@@ -63,9 +68,11 @@ pub const SDL_USEREVENT: u32 = 0x8000;
 pub const SDL_WINDOWEVENT_SIZE_CHANGED: u8 = 6;
 pub const SDL_WINDOWEVENT_MAXIMIZED: u8 = 8;
 pub const SDL_WINDOWEVENT_RESTORED: u8 = 9;
+pub const SDL_WINDOWEVENT_ENTER: u8 = 10;
 pub const SDL_WINDOWEVENT_LEAVE: u8 = 11;
 pub const SDL_WINDOWEVENT_FOCUS_GAINED: u8 = 12;
 pub const SDL_WINDOWEVENT_FOCUS_LOST: u8 = 13;
+pub const SDL_WINDOWEVENT_CLOSE: u8 = 14;
 pub const SDL_WINDOWEVENT_DISPLAY_CHANGED: u8 = 16;
 
 /// Modificateurs (`SDL_Keymod`).
@@ -162,6 +169,10 @@ impl SDL_Event {
     pub fn kind(&self) -> u32 {
         self.u32(0)
     }
+    /// La fenêtre de l'événement (fenêtre, clavier, texte, souris, molette).
+    pub fn window_id(&self) -> u32 {
+        self.u32(8)
+    }
     pub fn u32(&self, at: usize) -> u32 {
         u32::from_ne_bytes(self.raw[at..at + 4].try_into().unwrap())
     }
@@ -251,6 +262,15 @@ unsafe extern "C" {
     pub fn SDL_GetCurrentAudioDriver() -> *const c_char;
     pub fn SDL_CreateWindow(title: *const c_char, x: c_int, y: c_int, w: c_int, h: c_int, flags: u32) -> *mut SDL_Window;
     pub fn SDL_GetWindowSize(w: *mut SDL_Window, width: *mut c_int, height: *mut c_int);
+    pub fn SDL_SetWindowSize(w: *mut SDL_Window, width: c_int, height: c_int);
+    pub fn SDL_GetWindowPosition(w: *mut SDL_Window, x: *mut c_int, y: *mut c_int);
+    pub fn SDL_SetWindowPosition(w: *mut SDL_Window, x: c_int, y: c_int);
+    pub fn SDL_GetWindowID(w: *mut SDL_Window) -> u32;
+    pub fn SDL_DestroyWindow(w: *mut SDL_Window);
+    pub fn SDL_DestroyRenderer(r: *mut SDL_Renderer);
+    pub fn SDL_GetKeyboardFocus() -> *mut SDL_Window;
+    pub fn SDL_GetNumVideoDisplays() -> c_int;
+    pub fn SDL_GetDisplayBounds(index: c_int, rect: *mut SDL_Rect) -> c_int;
     pub fn SDL_SetWindowMinimumSize(w: *mut SDL_Window, width: c_int, height: c_int);
     pub fn SDL_GetWindowFlags(w: *mut SDL_Window) -> u32;
     pub fn SDL_SetWindowFullscreen(w: *mut SDL_Window, flags: u32) -> c_int;

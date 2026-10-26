@@ -28,7 +28,7 @@ KyberNow réunit trois produits :
 | `server/kyber-patches/`, `apps/macos/kyber-patches/` | Correctifs de Kyber, décrits dans [docs/kyber-changes.md](docs/kyber-changes.md) |
 | `site/` | Site www.kybernow.app (statique, sans npm), voir [son README](site/README.md) |
 | `brand/v2/` | Identité visuelle : charte, symbole, logos, jetons, voir [son README](brand/v2/README.md) ; `brand/` garde le logo précédent, inutilisé |
-| `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [ton des textes](docs/ton-du-site.md) |
+| `docs/` | [Changements de Kyber](docs/kyber-changes.md), [notes de compilation](docs/build-notes.md), [publication des versions](docs/releases.md), [cœur Rust des apps Apple](docs/coeur-apple.md), [langues et règles d'écriture](docs/i18n.md), [écrans et textes communs des apps Link](docs/link-ui.md), [multi-écrans](docs/multi-ecrans.md), [ton des textes](docs/ton-du-site.md) |
 | `docs/archives/` | Relevés datés, qui ne décrivent pas l'état actuel : prototype de référence et ses résultats (19 octobre 2026), audit et mesures demandées (20 octobre 2026), propositions HDR, latence Apple TV et app au démarrage (22 octobre 2026) |
 | `tools/latency/` | Mesure de latence |
 

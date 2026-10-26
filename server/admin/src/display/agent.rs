@@ -80,6 +80,100 @@ fn user_token() -> Result<HANDLE> {
     Ok(token)
 }
 
+/// SID du compte de `token` (« S-1-5-21-… »).
+fn token_sid(token: HANDLE) -> Result<String> {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_USER, TokenUser};
+    unsafe {
+        let mut needed = 0u32;
+        GetTokenInformation(token, TokenUser, null_mut(), 0, &mut needed);
+        if needed == 0 {
+            bail!("compte du jeton : {}", std::io::Error::last_os_error());
+        }
+        let mut buf = vec![0u64; (needed as usize).div_ceil(8)];
+        if GetTokenInformation(token, TokenUser, buf.as_mut_ptr() as *mut _, needed, &mut needed) == 0 {
+            bail!("compte du jeton : {}", std::io::Error::last_os_error());
+        }
+        let user = &*(buf.as_ptr() as *const TOKEN_USER);
+        let mut text: *mut u16 = null_mut();
+        if ConvertSidToStringSidW(user.User.Sid, &mut text) == 0 {
+            bail!("SID du compte : {}", std::io::Error::last_os_error());
+        }
+        let len = (0..).take_while(|&i| *text.add(i) != 0).count();
+        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(text, len));
+        LocalFree(text as *mut _);
+        Ok(sid)
+    }
+}
+
+/// SID du compte de ce processus (l'agent lancé avec le compte de l'utilisateur).
+pub fn own_sid() -> Result<String> {
+    use windows_sys::Win32::Security::TOKEN_QUERY;
+    unsafe {
+        let mut token: HANDLE = null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            bail!("jeton du processus : {}", std::io::Error::last_os_error());
+        }
+        let sid = token_sid(token);
+        CloseHandle(token);
+        sid
+    }
+}
+
+/// Le compte connecté à la session console, pour agir en son nom. Admin
+/// (SYSTEM) ne touche aux fichiers du profil de l'utilisateur qu'avec son
+/// identité : une jonction ou un lien posé dans ce dossier ne mène alors
+/// qu'où l'utilisateur peut déjà écrire.
+pub struct ConsoleUser {
+    token: HANDLE,
+}
+
+// Le jeton n'est qu'un handle du noyau, utilisable depuis n'importe quel fil.
+unsafe impl Send for ConsoleUser {}
+unsafe impl Sync for ConsoleUser {}
+
+impl ConsoleUser {
+    pub fn open() -> Result<Self> {
+        Ok(Self { token: user_token()? })
+    }
+
+    /// SID du compte (« S-1-5-21-… »).
+    pub fn sid(&self) -> Result<String> {
+        token_sid(self.token)
+    }
+
+    /// Exécute `f` avec l'identité de l'utilisateur sur ce fil, puis revient à
+    /// celle du service (même si `f` panique).
+    pub fn act<T>(&self, f: impl FnOnce() -> T) -> Result<T> {
+        use windows_sys::Win32::Security::{ImpersonateLoggedOnUser, RevertToSelf};
+        struct Revert;
+        impl Drop for Revert {
+            fn drop(&mut self) {
+                unsafe { RevertToSelf() };
+            }
+        }
+        if unsafe { ImpersonateLoggedOnUser(self.token) } == 0 {
+            bail!("identité de l'utilisateur : {}", std::io::Error::last_os_error());
+        }
+        let _revert = Revert;
+        Ok(f())
+    }
+
+    /// `AppData\Local\KyberNow\agent` de son profil, créé en son nom.
+    pub fn agent_dir(&self) -> Result<PathBuf> {
+        let dir = profile_dir(self.token)?.join("AppData").join("Local").join("KyberNow").join("agent");
+        self.act(|| std::fs::create_dir_all(&dir))?.with_context(|| format!("création de {}", dir.display()))?;
+        Ok(dir)
+    }
+}
+
+impl Drop for ConsoleUser {
+    fn drop(&mut self) {
+        unsafe { CloseHandle(self.token) };
+    }
+}
+
 /// Dossier du profil du compte de `token`.
 fn profile_dir(token: HANDLE) -> Result<PathBuf> {
     use windows_sys::Win32::UI::Shell::GetUserProfileDirectoryW;
@@ -126,18 +220,8 @@ pub fn launch_as_user(exe: &Path) -> Result<()> {
 pub fn run_as_user(args: &[String], timeout_ms: u32) -> Result<Value> {
     use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
     let exe = std::env::current_exe()?;
-    let token = user_token()?;
-    let dir = match profile_dir(token) {
-        Ok(p) => p.join("AppData").join("Local").join("KyberNow").join("agent"),
-        Err(e) => {
-            unsafe { CloseHandle(token) };
-            return Err(e);
-        }
-    };
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        unsafe { CloseHandle(token) };
-        return Err(e).with_context(|| format!("création de {}", dir.display()));
-    }
+    let user = ConsoleUser::open()?;
+    let dir = user.agent_dir()?;
     let out: PathBuf = dir.join(format!("agent-{}.json", rand::random::<u32>()));
     let mut full: Vec<String> = vec!["display-agent".into()];
     full.extend(args.iter().cloned());
@@ -146,21 +230,46 @@ pub fn run_as_user(args: &[String], timeout_ms: u32) -> Result<Value> {
     let cmdline = command_line(&exe, &full);
     let code = unsafe {
         let mut env: *mut std::ffi::c_void = null_mut();
-        CreateEnvironmentBlock(&mut env, token, 0);
-        let result = spawn_with_token(token, env, &cmdline, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, Some(timeout_ms), "l'agent utilisateur");
+        CreateEnvironmentBlock(&mut env, user.token, 0);
+        let result =
+            spawn_with_token(user.token, env, &cmdline, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, Some(timeout_ms), "l'agent utilisateur");
         if !env.is_null() {
             DestroyEnvironmentBlock(env);
         }
-        CloseHandle(token);
         result?
     };
-    let text = std::fs::read_to_string(&out).with_context(|| format!("l'agent utilisateur n'a rien renvoyé (code {code})"));
-    let _ = std::fs::remove_file(&out);
-    let value: Value = serde_json::from_str(&text?)?;
+    // Le résultat est dans le profil de l'utilisateur : lu et retiré en son nom.
+    let text = user
+        .act(|| {
+            let text = std::fs::read_to_string(&out);
+            let _ = std::fs::remove_file(&out);
+            text
+        })?
+        .with_context(|| format!("l'agent utilisateur n'a rien renvoyé (code {code})"))?;
+    let value: Value = serde_json::from_str(&text)?;
     if let Some(err) = value.get("error").and_then(Value::as_str) {
         bail!("{err}");
     }
     Ok(value)
+}
+
+/// Lance `display-agent args` avec le compte de l'utilisateur de la session
+/// console, sans l'attendre (capture WGC, qui tourne le temps de la session).
+pub fn spawn_as_user(user: &ConsoleUser, args: &[String]) -> Result<()> {
+    use windows_sys::Win32::System::Environment::{CreateEnvironmentBlock, DestroyEnvironmentBlock};
+    let exe = std::env::current_exe()?;
+    let mut full: Vec<String> = vec!["display-agent".into()];
+    full.extend(args.iter().cloned());
+    let cmdline = command_line(&exe, &full);
+    unsafe {
+        let mut env: *mut std::ffi::c_void = null_mut();
+        CreateEnvironmentBlock(&mut env, user.token, 0);
+        let result = spawn_with_token(user.token, env, &cmdline, CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, None, "la capture WGC");
+        if !env.is_null() {
+            DestroyEnvironmentBlock(env);
+        }
+        result.map(|_| ())
+    }
 }
 
 /// `"exe" arg1 "arg 2" …`

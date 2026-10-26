@@ -3,8 +3,8 @@
 //! Le service vit dans la session 0, qui ne voit pas les écrans : un agent
 //! (`kyber-admin display-agent watch`) tourne dans la session de l'écran le
 //! temps de la session et écrit chaque seconde dans `display-watch/state.json`
-//! le mode courant de l'écran virtuel (`EnumDisplaySettingsW`) et les écrans
-//! actifs (`QueryDisplayConfig`). Il s'arrête de lui-même quand
+//! le mode courant de chaque écran virtuel (`EnumDisplaySettingsW`) et les
+//! écrans actifs (`QueryDisplayConfig`). Il s'arrête de lui-même quand
 //! `display-watch/run` disparaît, n'est plus rafraîchi (la console le touche
 //! à chaque lecture) ou porte le jeton d'une autre session (une session qui
 //! recommence dans la seconde n'a jamais deux agents), et au bout de 24 h
@@ -31,8 +31,9 @@ fn age(path: &Path) -> Option<Duration> {
 
 pub struct Watch {
     dir: PathBuf,
-    /// Écran surveillé, jeton de la session et dernier lancement de l'agent.
-    target: Mutex<Option<(Created, String, Instant)>>,
+    /// Écrans surveillés (le principal en premier), jeton de la session et
+    /// dernier lancement de l'agent.
+    target: Mutex<Option<(Vec<Created>, String, Instant)>>,
 }
 
 impl Watch {
@@ -40,10 +41,11 @@ impl Watch {
         Self { dir: data_dir.join("display-watch"), target: Mutex::new(None) }
     }
 
-    fn launch(&self, data_dir: &Path, c: Created, token: &str) {
+    fn launch(&self, data_dir: &Path, created: &[Created], token: &str) {
+        let Some(c) = created.first() else { return };
         let _ = std::fs::create_dir_all(&self.dir);
         let _ = std::fs::write(self.dir.join("run"), token);
-        let args = [
+        let mut args = vec![
             "watch".to_string(),
             "--dir".into(), self.dir.display().to_string(),
             "--token".into(), token.to_string(),
@@ -51,17 +53,22 @@ impl Watch {
             "--luid-high".into(), c.luid_high.to_string(),
             "--target".into(), c.target.to_string(),
         ];
+        // Les autres écrans d'une session multi-écrans.
+        for other in &created[1..] {
+            args.push("--extra".into());
+            args.push(other.to_arg());
+        }
         if let Err(e) = agent::launch(data_dir, &args) {
             tracing::warn!("veille de l'écran virtuel : {e:#}");
         }
     }
 
-    /// Début de session : l'agent part sur l'écran créé.
-    pub fn start(&self, data_dir: &Path, c: Created) {
+    /// Début de session : l'agent part sur les écrans créés.
+    pub fn start(&self, data_dir: &Path, created: &[Created]) {
         let _ = std::fs::remove_file(self.dir.join("state.json"));
         let token = format!("{:016x}", rand::random::<u64>());
-        self.launch(data_dir, c, &token);
-        *self.target.lock().unwrap() = Some((c, token, Instant::now()));
+        self.launch(data_dir, created, &token);
+        *self.target.lock().unwrap() = Some((created.to_vec(), token, Instant::now()));
     }
 
     /// Fin de session : l'agent s'arrête à son prochain tour.
@@ -81,7 +88,7 @@ impl Watch {
         if !age(&state).is_some_and(|a| a < FRESH) {
             if launched.elapsed() > RELAUNCH {
                 tracing::info!("veille de l'écran virtuel muette : relance");
-                self.launch(data_dir, created, &token);
+                self.launch(data_dir, &created, &token);
                 *target = Some((created, token, Instant::now()));
             }
             return None;
@@ -90,18 +97,17 @@ impl Watch {
         if v.get("error").is_some() {
             return None;
         }
-        let n = |k: &str| v[k].as_u64().unwrap_or(0) as u32;
-        Some(Observed {
-            mode: Mode { width: n("width"), height: n("height"), refresh: n("refresh") },
-            gdi_name: v["gdi_name"].as_str().unwrap_or("").to_string(),
-            displays: n("displays"),
-            others: n("others"),
-        })
+        let n = |v: &Value, k: &str| v[k].as_u64().unwrap_or(0) as u32;
+        let mode = |v: &Value| Mode { width: n(v, "width"), height: n(v, "height"), refresh: n(v, "refresh") };
+        let name = |v: &Value| v["gdi_name"].as_str().unwrap_or("").to_string();
+        let extra = v["extra"].as_array().map(|list| list.iter().map(|e| (mode(e), name(e))).collect()).unwrap_or_default();
+        Some(Observed { mode: mode(&v), gdi_name: name(&v), displays: n(&v, "displays"), others: n(&v, "others"), extra })
     }
 }
 
-/// Agent : boucle de veille, dans la session de l'écran.
-pub fn run_agent(dir: &Path, token: &str, luid_low: u32, luid_high: i32, target: u32) -> anyhow::Result<()> {
+/// Agent : boucle de veille, dans la session de l'écran. `targets` : les
+/// écrans virtuels de la session, le principal en premier.
+pub fn run_agent(dir: &Path, token: &str, targets: &[Created]) -> anyhow::Result<()> {
     let run = dir.join("run");
     let state = dir.join("state.json");
     let tmp = dir.join("state.tmp");
@@ -118,7 +124,7 @@ pub fn run_agent(dir: &Path, token: &str, luid_low: u32, luid_high: i32, target:
             let _ = std::fs::remove_file(&state);
             return Ok(());
         }
-        let value = match topology::observe(luid_low, luid_high, target) {
+        let value = match topology::observe(targets) {
             Ok(seen) => serde_json::to_value(seen)?,
             Err(e) => json!({ "error": format!("{e:#}") }),
         };

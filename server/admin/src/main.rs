@@ -142,6 +142,14 @@ enum AgentAction {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Multi-écrans : ne garde actifs que ces écrans virtuels, le principal
+    /// en premier (`luid_low,luid_high,target,width,height,refresh,x,y`).
+    IsolateMany {
+        #[arg(long = "screen", allow_hyphen_values = true, required = true)]
+        screens: Vec<String>,
+        #[arg(long)]
+        out: PathBuf,
+    },
     Restore {
         #[arg(long)]
         out: PathBuf,
@@ -179,11 +187,56 @@ enum AgentAction {
         luid_high: i32,
         #[arg(long)]
         target: u32,
+        /// Les autres écrans d'une session multi-écrans
+        /// (`luid_low,luid_high,target`, l'un après l'autre).
+        #[arg(long = "extra", allow_hyphen_values = true)]
+        extra: Vec<String>,
     },
     /// Veille de l'app au premier plan (plein écran, jeu) pendant une session.
     Foreground {
         #[arg(long)]
         dir: PathBuf,
+    },
+    /// Pointeur de Windows agrandi au cran `step` (base `base` px), avec le
+    /// compte de l'utilisateur (session à plusieurs écrans, voir display/cursor.rs).
+    PointerSize {
+        #[arg(long)]
+        step: u32,
+        #[arg(long)]
+        base: u32,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Taille du pointeur en ce moment et SID du compte (avant de l'agrandir).
+    PointerRead {
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Taille du pointeur d'avant la session (valeur absente si non donnée),
+    /// pour le compte `sid` seulement.
+    PointerRestore {
+        #[arg(long)]
+        sid: Option<String>,
+        #[arg(long)]
+        base: Option<u32>,
+        #[arg(long)]
+        size: Option<u32>,
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Capture WGC d'un écran secondaire (session à plusieurs écrans), avec
+    /// le compte de l'utilisateur ; voir display/wgc.rs.
+    WgcCapture {
+        #[arg(long)]
+        gdi_name: String,
+        #[arg(long)]
+        run_file: PathBuf,
+        #[arg(long)]
+        token: String,
+        #[arg(long)]
+        status: PathBuf,
+        #[arg(long, default_value_t = 60)]
+        refresh: u32,
     },
     /// Copie le jeton des routes locales dans le profil de l'utilisateur de la session.
     LocalToken {
@@ -266,12 +319,27 @@ fn display_agent(action: AgentAction) -> Result<()> {
     if let AgentAction::Foreground { dir } = &action {
         return foreground::run_agent(dir);
     }
-    if let AgentAction::Watch { dir, token, luid_low, luid_high, target } = &action {
+    // Capture WGC : tourne jusqu'à ce qu'Admin n'en veuille plus.
+    if let AgentAction::WgcCapture { gdi_name, run_file, token, status, refresh } = &action {
         #[cfg(windows)]
-        return display::watch::run_agent(dir, token, *luid_low, *luid_high, *target);
+        return display::wgc::run_agent(gdi_name, run_file, token, status, *refresh);
         #[cfg(not(windows))]
         {
-            let _ = (dir, token, luid_low, luid_high, target);
+            let _ = (gdi_name, run_file, token, status, refresh);
+            anyhow::bail!("réservé à Windows");
+        }
+    }
+    if let AgentAction::Watch { dir, token, luid_low, luid_high, target, extra } = &action {
+        let primary = display::Created { luid_low: *luid_low, luid_high: *luid_high, target: *target };
+        let mut targets = vec![primary];
+        for arg in extra {
+            targets.push(display::Created::parse(arg)?);
+        }
+        #[cfg(windows)]
+        return display::watch::run_agent(dir, token, &targets);
+        #[cfg(not(windows))]
+        {
+            let _ = (dir, token, targets);
             anyhow::bail!("réservé à Windows");
         }
     }
@@ -281,6 +349,15 @@ fn display_agent(action: AgentAction) -> Result<()> {
             display::pointer::begin(agent_dir(&out));
             let r = display::topology::isolate(luid_low, luid_high, target, width, height, refresh)
                 .and_then(|a| Ok(serde_json::to_value(a)?));
+            (out, r)
+        }
+        AgentAction::IsolateMany { screens, out } => {
+            display::pointer::begin(agent_dir(&out));
+            let r = screens
+                .iter()
+                .map(|s| display::Placement::parse(s))
+                .collect::<Result<Vec<_>>>()
+                .and_then(|placed| display::topology::isolate_many(&placed));
             (out, r)
         }
         AgentAction::Restore { out } => {
@@ -303,16 +380,23 @@ fn display_agent(action: AgentAction) -> Result<()> {
         }
         AgentAction::Preview { width, jpeg, out } => (out, preview::capture_to(&jpeg, width).map(|_| serde_json::json!({ "ok": true }))),
         AgentAction::LocalToken { dir, out } => (out, local_token::hand_over(&dir)),
+        AgentAction::PointerSize { step, base, out } => (out, display::cursor::enlarge(step, base)),
+        AgentAction::PointerRead { out } => (out, display::cursor::read()),
+        AgentAction::PointerRestore { sid, base, size, out } => (out, display::cursor::restore(sid.as_deref(), base, size)),
         AgentAction::Apps { icons, out } => (out, launch::agent_apps(&icons)),
         AgentAction::Launch { kind, target, exe, out } => {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
         }
         AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
-        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } | AgentAction::WgcCapture { .. } => unreachable!(),
     };
     #[cfg(not(windows))]
     let (out, result): (PathBuf, Result<serde_json::Value>) = match action {
         AgentAction::Isolate { out, .. }
+        | AgentAction::IsolateMany { out, .. }
+        | AgentAction::PointerSize { out, .. }
+        | AgentAction::PointerRead { out }
+        | AgentAction::PointerRestore { out, .. }
         | AgentAction::Restore { out }
         | AgentAction::SetMode { out, .. }
         | AgentAction::AudioRoute { out, .. }
@@ -324,7 +408,7 @@ fn display_agent(action: AgentAction) -> Result<()> {
             (out, launch_kind(&kind).and_then(|k| launch::agent_launch(k, &target, exe.as_deref())))
         }
         AgentAction::Close { uri, pid, exe, out } => (out, launch::agent_close(uri.as_deref(), pid, exe.as_deref())),
-        AgentAction::Foreground { .. } | AgentAction::Watch { .. } => unreachable!(),
+        AgentAction::Foreground { .. } | AgentAction::Watch { .. } | AgentAction::WgcCapture { .. } => unreachable!(),
     };
     let value = match result {
         Ok(v) => v,

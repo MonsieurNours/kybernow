@@ -35,6 +35,6 @@ pub use clock::{Clock, ManualClock, MonotonicClock};
 pub use packet::{OwnedPacket, PacketSink};
 pub use packet_queue::PacketQueue;
 pub use pad_combo::{PadAxis, PadButton, PadCombo, PadId, PadKey};
-pub use pipeline::{GamepadRumble, InputPipeline, InputPlatform, Options};
-pub use pointer_layer::{MouseMode, MouseModeRules, PointerLayer, RemoteCursor, Shape};
+pub use pipeline::{GamepadRumble, InputPipeline, InputPlatform, Options, ScreenTarget};
+pub use pointer_layer::{MouseMode, MouseModeRules, PointerLayer, PointerSummary, RemoteCursor, Shape};
 pub use release_all::ReleaseAll;

@@ -46,6 +46,7 @@
     "screens_as_is": "The computer's own displays, as they are",
     "screen_match": "{width} × {height} display at {refresh} Hz, sized for this screen",
     "screen": "{width} × {height} display at {refresh} Hz",
+    "screens_many": "{count} displays, sized for this device's screens",
     "connect": "Connect",
     "retry": "Try again",
     "wake": "Wake the computer",
@@ -126,6 +127,11 @@
     "height": "Height",
     "refresh": "Refresh rate",
     "refresh_help": "Match this display: this display's resolution and refresh rate. 4K at most: brought down to 3840 × 2160 if this display is larger.",
+    "displays": "Displays",
+    "displays_this": "This display",
+    "displays_all": "All displays",
+    "displays_help": "Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.",
+    "displays_custom_help": "With a custom resolution, the session takes a single display.",
     "custom_help": "The computer's virtual display takes this size, whether the picture is larger or smaller than this display (it is scaled). Up to 7680 × 4320 (4096 wide in H.264, reduced if needed).",
     "virtual": "Virtual display",
     "virtual_help": "The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.",
@@ -170,6 +176,7 @@
     "last_session": "Last session",
     "median": "median",
     "p95": "95% of frames under {ms} ms",
+    "screens": "{count} displays",
     "help": "The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.",
     "none": "No session on this computer yet.",
     "this_computer": "This computer",
@@ -244,6 +251,7 @@
   },
   "passage": {
     "preparing": "Preparing the display",
+    "preparing_many": "Preparing the displays",
     "connecting": "Connecting",
     "first_images": "First frames",
     "slow": "{name} is connected but not sending a picture. Its log often says why: in Admin, System › Logs."
@@ -271,6 +279,9 @@
     "fullscreen_shortcut": " (Ctrl+Alt+Shift+F)",
     "disconnect": "Disconnect",
     "disconnect_shortcut": " (Ctrl+Alt+Shift+D)"
+  },
+  "fond": {
+    "not_created": "The computer could not create this display."
   },
   "mock": {
     "not_a_link": "this is not a kybernow:// link",

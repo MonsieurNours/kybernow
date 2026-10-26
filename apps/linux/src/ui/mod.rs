@@ -52,8 +52,37 @@ impl Frame {
 
 }
 
+/// Ce que montre une fenêtre de la session. Une session à plusieurs écrans a
+/// une fenêtre plein écran par écran de l'appareil (docs/multi-ecrans.md) :
+/// l'écran principal porte la connexion, les capsules et la fin sur erreur,
+/// les autres le même fond sans texte ; la barre de session n'est que dans
+/// la fenêtre où le geste a lieu, le trait du haut dans toutes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct View {
+    /// La fenêtre de l'interface : celle de l'écran principal.
+    pub main: bool,
+    /// La barre de session s'ouvre dans cette fenêtre.
+    pub bar: bool,
+    /// L'ordinateur n'a pas pu créer l'écran de cette fenêtre : le fond de la
+    /// connexion, avec une seule ligne.
+    pub missing: bool,
+    /// La fenêtre a reçu l'image de son écran ; sinon, tant que la connexion
+    /// n'est pas finie, elle garde le fond de la connexion.
+    pub has_frame: bool,
+}
+
+impl View {
+    /// Une seule fenêtre (accueil, session à un écran) : elle montre tout.
+    pub const SINGLE: View = View { main: true, bar: true, missing: false, has_frame: true };
+}
+
 /// Dessine l'écran courant ; rend les éléments choisissables.
 pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
+    draw_view(app, cv, View::SINGLE)
+}
+
+/// Dessine l'écran courant dans une fenêtre de la session (voir [`View`]).
+pub fn draw_view(app: &App, cv: &mut Canvas, view: View) -> Vec<(Target, Rect)> {
     let mut f = Frame { hits: Vec::new(), focus: app.focus, show_focus: app.keyboard_focus || app.layout.console(), pointer: app.pointer };
     match app.screen {
         Screen::Launch => launch::draw(app, cv),
@@ -61,12 +90,13 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
         Screen::Add => pair::draw(app, cv, &mut f),
         Screen::Settings => settings::draw(app, cv, &mut f),
         Screen::Gamepads => pads::draw(app, cv, &mut f),
-        Screen::Session => session::draw(app, cv, &mut f),
+        Screen::Session => session::draw(app, cv, &mut f, view),
         Screen::Setup => setup::draw(app, cv, &mut f),
         Screen::Device => device::draw(app, cv, &mut f),
         Screen::Standby => cv.clear(INK),
     }
-    if let Some((msg, at)) = &app.toast
+    if view.main
+        && let Some((msg, at)) = &app.toast
         && at.elapsed().as_secs_f32() < 4.0
     {
         toast(app, cv, msg, at);
@@ -77,23 +107,44 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
 /// L'interface se voit-elle pendant la session (connexion, menu, barre,
 /// statistiques, capsule, trait de la barre) ; sinon l'image seule.
 pub fn session_overlay_visible(app: &App) -> bool {
-    session_overlay_busy(app) || session::bar_hint(app)
+    overlay_visible(app, View::SINGLE)
+}
+
+/// Comme [`session_overlay_visible`], pour une fenêtre de la session.
+pub fn overlay_visible(app: &App, view: View) -> bool {
+    session_overlay_busy(app, view) || window_hint(app, view)
 }
 
 /// Seul le trait de la barre se voit : il ne bouge pas, l'interface n'est
 /// redessinée ni renvoyée à chaque seconde, et seul son bandeau (`HINT_STRIP`
 /// points en haut) se pose sur l'image.
 pub fn session_hint_only(app: &App) -> bool {
-    !session_overlay_busy(app) && session::bar_hint(app)
+    hint_only(app, View::SINGLE)
+}
+
+/// Comme [`session_hint_only`], pour une fenêtre de la session.
+pub fn hint_only(app: &App, view: View) -> bool {
+    !session_overlay_busy(app, view) && window_hint(app, view)
+}
+
+/// Le trait de la barre se voit dans cette fenêtre : le geste est possible
+/// (`session::bar_hint`) et la fenêtre montre son image.
+fn window_hint(app: &App, view: View) -> bool {
+    session::bar_hint(app) && (view.main || view.has_frame)
 }
 
 /// Autre chose que le trait : connexion, menu, barre, statistiques, capsule.
-fn session_overlay_busy(app: &App) -> bool {
+fn session_overlay_busy(app: &App, view: View) -> bool {
     let Some(s) = &app.session else { return false };
     if !matches!(s.phase, Phase::Streaming) {
         return true;
     }
-    s.menu || s.keys || s.show_stats || s.bar || s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2)
+    // Une fenêtre qui n'a pas encore son image garde le fond de la connexion.
+    if !view.main && !view.has_frame {
+        return true;
+    }
+    let capsule = view.main && (s.notice.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2) || app.toast.as_ref().is_some_and(|(_, t)| t.elapsed().as_secs_f32() < 4.2));
+    s.menu || s.keys || (view.main && s.show_stats) || (s.bar && view.bar) || capsule
 }
 
 /// L'échelle des éléments d'une interface par rapport aux maquettes du Deck

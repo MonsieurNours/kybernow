@@ -7,7 +7,7 @@
   import Settings from './Settings.svelte'
   import Passage from './Passage.svelte'
   import AppSheet from './AppSheet.svelte'
-  import type { Action, AppInfo, Battery, Candidate, Computer, Found, Phase, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
+  import type { Action, AppInfo, Battery, Candidate, Computer, ConnectInfo, Found, Phase, ScreensEvent, Snapshot, StationRestarting, Summary, ThisPc, Update } from './lib/api'
   import { invoke, listen } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
@@ -19,8 +19,8 @@
   /** Rubrique des réglages ouverte par une notification ou le menu de l'icône (`station`). */
   let settingsRubric = $state<string | null>(null)
   let adding = $state<{ found: Found | null } | null>(null)
-  /** `restarting` : dernier recours de la connexion, la Station redémarre. */
-  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean } | null>(null)
+  /** `restarting` : dernier recours de la connexion, la Station redémarre ; `many` : plusieurs écrans. */
+  let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean; many: boolean } | null>(null)
   let error = $state<string | null>(null)
   let appSheet = $state(false)
   /** Réglages de l'app ouverts par « Rechercher des mises à jour » (menu de l'icône). */
@@ -73,6 +73,20 @@
       }),
       listen<StationRestarting>('session-station-restarting', ({ id }) => {
         if (passage && passage.id === id) passage.restarting = true
+      }),
+      // Les écrans de la session : « Préparation des écrans » avec plusieurs.
+      listen<ScreensEvent>('session-screens', ({ id, screens }) => {
+        if (passage && passage.id === id) passage.many = screens > 1
+      }),
+      // La connexion reprend en session (écrans de ce PC ou profil changés) : ses étapes
+      // reviennent sur l'écran principal, l'accueil les montre de nouveau.
+      listen<ScreensEvent>('session-replan', ({ id, screens }) => {
+        if (!passage || passage.id !== id) return
+        passage.restarting = false
+        passage.closing = false
+        passage.opening = false
+        passage.phase = 'preparing'
+        passage.many = screens > 1
       }),
       listen<string>('session-shown', (id) => {
         if (passage && passage.id === id) passage.opening = true
@@ -155,9 +169,10 @@
 
   async function connect(id: string) {
     error = null
-    passage = { id, phase: 'preparing', opening: false, closing: false, restarting: false }
+    passage = { id, phase: 'preparing', opening: false, closing: false, restarting: false, many: false }
     try {
-      await invoke('connect', { id })
+      const started = await invoke<ConnectInfo>('connect', { id })
+      if (passage && passage.id === id) passage.many = started.screens > 1
     } catch (e) {
       passage = null
       error = t('app.connect_failed', { error: String(e) })
@@ -276,6 +291,7 @@
     opening={passage.opening}
     closing={passage.closing}
     restarting={passage.restarting}
+    many={passage.many}
     oncancel={() => invoke('session_command', { command: 'disconnect' })}
   />
 {/if}

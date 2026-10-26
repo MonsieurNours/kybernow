@@ -32,6 +32,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
                     gpu: info.gpu.clone(),
                     av1: info.av1,
                     virtual_display: Some(info.virtual_display.available),
+                    max_screens: Some(info.virtual_display.max_screens()),
                     station: Some(station),
                     wake: wake_cards(&info),
                     own_device: info.station.is_some().then_some(info.account.own_device),
@@ -45,7 +46,7 @@ pub fn poll(host: Host, want_preview: bool, tx: Sender<Event>) {
             }
             Err(e) => {
                 log::info!("{} : hors ligne ({e})", host.name);
-                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false, virtual_display: None, station: None, wake: Vec::new(), own_device: None });
+                let _ = tx.send(Event::HostInfo { id: host.id.clone(), online: false, os: None, gpu: None, av1: false, virtual_display: None, max_screens: None, station: None, wake: Vec::new(), own_device: None });
             }
         }
     });

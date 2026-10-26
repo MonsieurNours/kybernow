@@ -23,6 +23,7 @@ Pour l'ordinateur choisi, dans cet ordre et rien d'autre :
 | Nom | le nom de l'ordinateur | |
 | Système | « Windows 11 Pro » (tel que la Station le donne) | |
 | Écran, écran virtuel actif, à la taille de cet appareil | « Écran de 2560 × 1440 à 120 Hz, à la taille de cet écran » | “2560 × 1440 display at 120 Hz, sized for this screen” |
+| Écran, plusieurs écrans (Mac, Windows, Linux) | « 3 écrans, à la taille de ceux de cet appareil » | “3 displays, sized for this device's screens” |
 | Écran, sur mesure | « Écran de 1920 × 1080 à 60 Hz » | “1920 × 1080 display at 60 Hz” |
 | Écran, sans écran virtuel | « Les écrans de l'ordinateur, tels quels » | “The computer's own displays, as they are” |
 | Bouton principal, en ligne | « Se connecter » | “Connect” |
@@ -46,7 +47,7 @@ L'écran de connexion montre les étapes, rien d'autre :
 
 | Étape | Français | English |
 |---|---|---|
-| 1 | « Préparation de l'écran » | “Preparing the display” |
+| 1 | « Préparation de l'écran » ; avec plusieurs écrans : « Préparation des écrans » | “Preparing the display”; with several displays: “Preparing the displays” |
 | 2 | « Connexion » | “Connecting” |
 | 3 | « Premières images » | “First frames” |
 | Échec | « La connexion a échoué », puis la raison en une phrase | “The connection failed”, then the reason |
@@ -55,6 +56,8 @@ L'écran de connexion montre les étapes, rien d'autre :
 Si Admin répond mais que l'image n'arrive pas malgré les réparations de la session (image clé, relance, débit réduit, 4:2:0), ou que la connexion au moteur de streaming échoue, l'app redémarre la Station, une fois, sans couper la session d'un autre appareil, attend son retour (1 min 30 au plus) et retente la connexion une fois. L'écran de connexion le dit : « La Station redémarre… » / “The Station is restarting…”, puis reprend ses étapes. Si l'image ne vient toujours pas : « La connexion a échoué », et la raison.
 
 Dès la première image, l'image seule. Pas de capsule d'arrivée, pas de barre qui s'affiche puis se cache, pas de chiffre. Le titre de fenêtre (Windows) est « {nom} · KyberNow Link » (la ligne de commande garde ses mesures dans le titre, faute de barre).
+
+**Plusieurs écrans** (apps Mac, Windows et Linux, voir [multi-ecrans.md](multi-ecrans.md)) : l'écran de connexion s'affiche sur l'écran principal de l'appareil ; les autres montrent son fond (sa couleur, sans la photo de l'accueil), sans texte ; chaque écran passe à son image dès sa première image. Si la connexion échoue, le message est sur l'écran principal et les autres fenêtres se ferment. Un écran que l'ordinateur n'a pas pu créer garde ce fond, avec une seule ligne : « L'ordinateur n'a pas pu créer cet écran. » / “The computer could not create this display.” Quand les écrans de l'appareil changent en session, ou qu'un profil choisi en session change leur nombre, la connexion reprend à sa première étape sur l'écran principal ; si l'ordinateur refuse alors les nouveaux écrans, la session se termine avec la raison, comme un échec de la connexion. Un écran créé mais resté sans image (jamais annoncé, ou son encodeur ne s'est pas ouvert) affiche la même ligne qu'un écran non créé. Avec une Station qui ne gère qu'un écran, les fenêtres des autres écrans ne s'ouvrent pas, sans message. Une seule barre de session, sur l'écran où se trouve le pointeur ; la fenêtre où elle s'ouvre devient la fenêtre active ; ses commandes valent pour toute la session. Le réglage « Écrans » changé dans les Réglages pendant une session vaut pour la session suivante ; le profil choisi dans la barre ou le menu de l'icône s'applique tout de suite. « Plein écran » n'est pas proposé (barre, menu, raccourci) : les fenêtres restent en plein écran ; pour travailler dans une fenêtre, on choisit « Cet écran ». Toutes les fenêtres portent le même titre.
 
 En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), « Statistiques » / “Statistics” pour les mesures en direct, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
 
@@ -71,7 +74,7 @@ Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Prof
 
 | Rubrique | Français | English | Contenu |
 |---|---|---|---|
-| 1 | Image | Picture | définition, fréquence, écran virtuel, format vidéo, texte net (4:4:4), débit, affichage des images, garder la dernière image |
+| 1 | Image | Picture | définition, écrans, fréquence, écran virtuel, format vidéo, texte net (4:4:4), débit, affichage des images, garder la dernière image |
 | 2 | Son | Sound | voies, son sur l'ordinateur, et ce que la plateforme propose (audio spatial, 5.1 Dolby…) |
 | 3 | Commandes | Controls | manette vue par l'ordinateur, souris, clavier, toucher, télécommande, vibrations, presse-papiers partagé |
 | 4 | Réseau | Network | transport de l'image, reconnexion automatique, réveil par le réseau |
@@ -85,6 +88,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Français | English | Valeurs (FR / EN) |
 |---|---|---|
 | Définition | Resolution | Comme cet écran / Match this display ; Au plus 4K / 4K at most ; Sur mesure / Custom |
+| Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays ; aide : « Auto : tous les écrans de cet appareil en Bureau et Max, un seul en Jeu et en Personnalisé. Chaque écran reçoit un écran de l'ordinateur, placé de la même façon. » / “Auto: all of this device's displays in Desktop and Max, one in Game and Custom. Each display gets a display on the computer, laid out the same way.” Inactif, sur « Cet écran », avec une définition sur mesure (aide : « Avec une définition sur mesure, la session prend un seul écran. » / “With a custom resolution, the session takes a single display.”), avec une session dans une fenêtre (même aide que la définition sur mesure, la fenêtre fixant la taille de l'écran) et sans écran virtuel (réglage coupé, ou Station sans écran virtuel utilisable : alors sans aide, la ligne grisée sur « Cet écran » se suffit et l'écran virtuel a la sienne ; avec une définition sur mesure, l'aide de la définition sur mesure reste). Apps Mac, Windows et Linux ([multi-ecrans.md](multi-ecrans.md)) |
 | Fréquence | Refresh rate | « 120 Hz » |
 | Écran virtuel | Virtual display | aide : « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
 | Format vidéo | Video format | Auto ; HEVC ; H.264 ; AV1 |
@@ -109,11 +113,11 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 - une règle en millisecondes, de 0 à 20 ms (plus si la mesure dépasse), avec les repères « 160 Hz », « 120 Hz » et « 60 Hz » à la durée d'une image à ces fréquences (6,25 ; 8,33 ; 16,67 ms), et une bande de la médiane au 95e centile ;
 - « 95 % des images sous 14,2 ms » / “95% of frames under 14.2 ms” ;
 - la durée et le moment : « 42 min · hier » / “42 min · yesterday” ;
-- ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ;
+- ce qui a été transmis : « 2560 × 1440 · 120 Hz · HEVC · 80 Mbit/s » ; avec plusieurs écrans, leur nombre d'abord, puis l'écran principal et le débit total : « 3 écrans · 3840 × 2160 · 160 Hz · HEVC · 120 Mbit/s » ; ce nombre est celui des écrans que l'ordinateur a pris (ceux qu'il n'a pas pu créer n'y sont pas), le même dans la barre de session, les statistiques de session et la dernière session ;
 - aide : « Le délai entre l'ordinateur et cet écran. Sous un repère, l'image arrive avant l'image suivante à cette fréquence. » / “The delay between the computer and this screen. Below a mark, the picture arrives before the next frame at that refresh rate.”
 - sans session : « Pas encore de session sur cet ordinateur. » / “No session on this computer yet.”
 
-Données gardées par l'app pour chaque ordinateur, à la fin de chaque session d'au moins 3 s : médiane, 95e centile, durée, date, définition, fréquence, format, débit.
+Données gardées par l'app pour chaque ordinateur, à la fin de chaque session d'au moins 3 s : médiane, 95e centile, durée, date, nombre d'écrans, définition et fréquence de l'écran principal, format, débit.
 
 **Cet ordinateur** / “This computer” : « Système » / “System”, « Carte graphique » / “Graphics card”, « Adresse » / “Address” (adresse et port d'Admin), « Empreinte » / “Fingerprint” (quatre premiers groupes).
 
@@ -156,7 +160,7 @@ De haut en bas. Pendant une session, d'abord :
 |---|---|---|
 | En-tête (inactif) | « En session sur {nom} » | “In session on {name}” |
 | Mesures (inactif, mis à jour menu ouvert) | « 12,4 ms · 60 i/s · 80 Mbit/s » : la latence comme dans la barre de session, au dixième, les images par seconde et le débit ; « — » pour ce qui n'est pas encore mesuré ; avant la première image, l'étape de la connexion | “12.4 ms · 60 fps · 80 Mbit/s” |
-| Plein écran (coché en plein écran) | « Plein écran » | “Full screen” |
+| Plein écran (coché en plein écran ; absent avec plusieurs écrans) | « Plein écran » | “Full screen” |
 | Souris | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (l'ordre des réglages), le mode de l'ordinateur coché ; choisir un mode l'applique tout de suite et le garde pour cet ordinateur | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Mesures en direct | « Statistiques » (Mac : le panneau des mesures ; Windows : la barre de session reste affichée jusqu'au passage du pointeur, un second clic la cache) | “Statistics” |
 | Fin | « Se déconnecter » | “Disconnect” |

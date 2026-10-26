@@ -28,6 +28,8 @@ export type Settings = {
   max_4k: boolean
   /** Écran virtuel sur mesure ; sinon comme cet écran. */
   custom: { width: number; height: number; refresh: number } | null
+  /** Écrans de ce PC pris par la session : Auto (tous en Bureau et Max, un seul en Jeu et en Personnalisé), Cet écran, Tous les écrans. */
+  displays: 'auto' | 'this' | 'all'
   vsync: boolean
   mouse: 'auto' | 'bureau' | 'jeu'
   gamepad: 'xbox360' | 'fidele'
@@ -83,7 +85,8 @@ export type Info = {
   av1: boolean
   /** Version d'Admin, donnée aussi par les Stations d'avant `station`. */
   admin_version?: string | null
-  virtual_display: { available: boolean }
+  /** `max_screens` : écrans que la Station sait créer (absent : un seul, Station antérieure). */
+  virtual_display: { available: boolean; max_screens?: number }
   station: StationInfo | null
   wake?: WakeTarget[]
   /** `own_device` : un compte créé pour cet appareil par l'appairage par code (Station 0.5.0 et suivantes). */
@@ -103,6 +106,8 @@ export type LastSession = {
   width?: number | null
   height?: number | null
   refresh?: number | null
+  /** Écrans de la session (absent : un seul) ; `width` à `refresh` sont ceux de l'écran principal, `mbps` le débit total. */
+  screens?: number | null
   codec?: string | null
   mbps?: number | null
   /** « Bureau · HEVC 4:4:4 », en français (0.4.x). */
@@ -215,7 +220,38 @@ export type StationRestarting = { id: string }
 
 export type Summary = { error: string | null; median_ms: number | null; p95_ms: number | null; seconds: number }
 
-export type Stats = { latency_ms: number | null; fps: number; width: number; height: number; decoder: string; relative: boolean; rtt_ms: number | null; audio_ms: number | null; audio_gaps: number | null }
+export type Stats = {
+  latency_ms: number | null
+  fps: number
+  /** Définition de l'écran principal. */
+  width: number
+  height: number
+  decoder: string
+  relative: boolean
+  rtt_ms: number | null
+  audio_ms: number | null
+  audio_gaps: number | null
+  /** Écrans de la session. */
+  screens: number
+}
+
+/**
+ * Réponse de `displays_info` : le réglage « Écrans » tel que le cœur le décide (`enabled` : il se
+ * change, sinon il est inactif sur « Cet écran » ; `shown` : sa valeur montrée), le nombre
+ * d'écrans que la session prendra (1 : un seul) et si l'écran virtuel servira (`virtual_display` :
+ * demandé et utilisable sur la Station ; sinon « Les écrans de l'ordinateur, tels quels »). Le
+ * même calcul que la session.
+ */
+export type DisplaysInfo = { enabled: boolean; shown: Settings['displays']; count: number; virtual_display: boolean }
+
+/** Réponse de `connect` : les écrans que la session prend (« Préparation des écrans »). */
+export type ConnectInfo = { screens: number }
+
+/** Événements `session-screens` (écrans de la session) et `session-replan` (la connexion reprend en session, avec ce nombre d'écrans). */
+export type ScreensEvent = { id: string; screens: number }
+
+/** `fond_state` et événement `fond-state` : ce que montre le fond de la connexion d'un écran (la ligne d'un écran que l'ordinateur n'a pas pu créer). */
+export type FondState = { not_created: boolean }
 
 /** « 8,9 » en français, « 8.9 » en anglais. */
 export const ms = (v: number | null | undefined, digits = 1) => {

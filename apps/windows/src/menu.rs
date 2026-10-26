@@ -110,6 +110,9 @@ pub struct Session {
     /// Débit demandé à l'ordinateur.
     pub mbps: Option<u32>,
     pub fullscreen: bool,
+    /// Plusieurs écrans : les fenêtres restent en plein écran, « Plein écran »
+    /// n'est pas proposé.
+    pub multi: bool,
     /// Mode de la souris de l'ordinateur : `auto`, `bureau` ou `jeu`.
     pub mouse: String,
 }
@@ -166,13 +169,15 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
     if let Some(session) = &s.session {
         out.push(Item::inactive(tr("tray.in_session", &[("name", &session.name)])));
         out.push(Item::inactive(measures(session, tr)));
-        out.push(Item::Line {
-            text: tr("tray.fullscreen", &[]),
-            cmd: Some(Cmd::Fullscreen),
-            enabled: true,
-            mark: if session.fullscreen { Mark::Check } else { Mark::None },
-            default: false,
-        });
+        if !session.multi {
+            out.push(Item::Line {
+                text: tr("tray.fullscreen", &[]),
+                cmd: Some(Cmd::Fullscreen),
+                enabled: true,
+                mark: if session.fullscreen { Mark::Check } else { Mark::None },
+                default: false,
+            });
+        }
         let modes = MOUSE_MODES
             .iter()
             .map(|m| Item::Line {
@@ -448,7 +453,7 @@ mod tests {
     #[test]
     fn en_session() {
         let s = State {
-            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, mouse: "jeu".into() }),
+            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, multi: false, mouse: "jeu".into() }),
             computers: vec![atelier(), Computer { online: Some(true), ..salon() }],
             ..Default::default()
         };
@@ -492,6 +497,25 @@ mod tests {
         assert_eq!(tooltip(&s, &tr(Lang::Fr)), "KyberNow Link · en session sur Atelier");
         assert_eq!(tooltip(&s, &tr(Lang::En)), "KyberNow Link · in session on Atelier");
         assert_eq!(tooltip(&State::default(), &tr(Lang::Fr)), "KyberNow Link");
+    }
+
+    #[test]
+    fn plusieurs_ecrans_sans_plein_ecran() {
+        // « Plein écran » n'est pas proposé : les fenêtres restent en plein écran.
+        let s = State {
+            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(120), fullscreen: true, multi: true, mouse: "auto".into() }),
+            computers: vec![atelier()],
+            ..Default::default()
+        };
+        let fr = lines(&s, Lang::Fr);
+        assert_eq!(fr[..4], ["~En session sur Atelier", "~11,6 ms · 60 i/s · 120 Mbit/s", "Souris >", "  (o) Auto"]);
+        assert!(!fr.iter().any(|l| l.contains("Plein écran")));
+        let en = lines(&s, Lang::En);
+        assert!(!en.iter().any(|l| l.contains("Full screen")));
+        // Un seul écran : comme avant.
+        let mut one = s.clone();
+        one.session.as_mut().unwrap().multi = false;
+        assert!(lines(&one, Lang::Fr).iter().any(|l| l == "[x] Plein écran"));
     }
 
     #[test]

@@ -7,7 +7,10 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use windows::Win32::Foundation::RECT;
-use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW};
+use windows::Win32::Foundation::HWND;
+use windows::Win32::Graphics::Gdi::{
+    DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow,
+};
 use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
 use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -167,13 +170,44 @@ pub fn error_box(text: &str) {
     }
 }
 
-/// Définition et fréquence de l'écran principal, en pixels réels.
+/// La fenêtre de l'accueil (HWND), posée au démarrage de l'interface : son
+/// écran est « Cet écran » (docs/multi-ecrans.md), comme sur Mac et Linux.
+static HOME_WINDOW: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+pub fn set_home_window(hwnd: isize) {
+    HOME_WINDOW.store(hwnd, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// « Cet écran » : le nom de périphérique (`\\.\DISPLAY2`) de l'écran où se
+/// trouve la fenêtre de l'accueil ; `None` sans elle (ligne de commande) :
+/// l'écran principal.
+pub fn home_monitor_key() -> Option<String> {
+    let hwnd = HOME_WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if hwnd == 0 {
+        return None;
+    }
+    unsafe {
+        let monitor = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFOEXW::default();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if !GetMonitorInfoW(monitor, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool() {
+            return None;
+        }
+        let len = info.szDevice.iter().position(|&c| c == 0).unwrap_or(info.szDevice.len());
+        Some(String::from_utf16_lossy(&info.szDevice[..len]))
+    }
+}
+
+/// Définition et fréquence de « Cet écran » (l'écran de la fenêtre de
+/// l'accueil, sinon l'écran principal), en pixels réels.
 pub fn screen_mode() -> Mode {
     let mut dm = DEVMODEW {
         dmSize: std::mem::size_of::<DEVMODEW>() as u16,
         ..Default::default()
     };
-    let ok = unsafe { EnumDisplaySettingsW(PCWSTR::null(), ENUM_CURRENT_SETTINGS, &mut dm) }.as_bool();
+    let device: Option<Vec<u16>> = home_monitor_key().map(|k| k.encode_utf16().chain(Some(0)).collect());
+    let name = device.as_ref().map_or(PCWSTR::null(), |d| PCWSTR(d.as_ptr()));
+    let ok = unsafe { EnumDisplaySettingsW(name, ENUM_CURRENT_SETTINGS, &mut dm) }.as_bool();
     if !ok || dm.dmPelsWidth == 0 {
         return Mode { width: 1920, height: 1080, refresh: 60 };
     }
@@ -290,6 +324,20 @@ pub fn probe_only() -> Result<(), String> {
     println!("AV1        : {}", if p.caps.av1 { "carte graphique" } else { "non (pas de décodage AV1 par le processeur)" });
     let m = screen_mode();
     println!("Écran      : {} × {} à {} Hz", m.width, m.height, m.refresh);
+    // Les écrans de ce PC, tels que le cœur les reçoit pour le multi-écrans.
+    for (i, d) in crate::displays::enumerate().iter().enumerate() {
+        println!(
+            "Écran {}    : {} × {} à {} Hz en ({}, {}), échelle {} %{}",
+            i + 1,
+            d.width,
+            d.height,
+            d.refresh,
+            d.x,
+            d.y,
+            d.dpi * 100 / 96,
+            if d.primary { ", principal" } else { "" }
+        );
+    }
     println!("Son        : {} voies", crate::audio::default_output_channels());
     println!("Système    : {}", os_version());
     Ok(())

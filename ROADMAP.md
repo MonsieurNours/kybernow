@@ -13,10 +13,12 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 - **Téléviseurs LG** : latence sur la G2 en 4K à 120 Hz, 1440p et 1080p, à 30, 60 et 120 i/s ; écart son-image et latence ajoutée du 5.1 Dolby ; Magic Remote en souris : mouvements envoyés quand le pointeur du téléviseur est caché.
 - **Station** : le mode « Pour toute connexion » (écran virtuel créé en cours de flux) ; sur un vrai PC Windows, le redémarrage et la mise à jour de la Station depuis une app, le dernier recours de la connexion, les cartes réseau listées pour le réveil et un vrai réveil depuis la veille et après un arrêt complet.
 - **Icône près de l'horloge** : sur Mac, les notifications du système (et leur demande d'autorisation), l'inscription à l'ouverture de session et un vrai lancement à l'ouverture de session, la fenêtre fermée en plein écran pendant une session ; sur un vrai PC Windows, le haut du menu en session et l'icône allumée, les échelles 100 % et 200 %, les bannières de notification, « ne répond toujours pas » après 2 min de réveil.
+- **Multi-écrans** : sur un PC Windows et sur un Linux à plusieurs écrans (validé sur Mac le 26/10/2026) ; une session à plusieurs écrans juste après l'installation ou le redémarrage de la Station.
 - **Mesures de l'audit** décrites dans [docs/archives/mesures.md](docs/archives/mesures.md) : latence d'affichage de l'app Mac, droits Windows, Wi-Fi saturé, modes de l'écran virtuel SudoVDA.
 
 ## KyberNow Station et Admin
 
+- **Écran virtuel sans contournement** : un pilote qui gère vraiment plusieurs écrans (SudoVDA corrigé et recompilé, ou Kidd), pour retirer l'agrandissement du pointeur et la capture des écrans secondaires par Windows Graphics Capture (voir `server/README.md`).
 - **HDR** : capture en FP16 et conversion HDR10 dans Kyber (étude chiffrée : [docs/archives/propositions-2026-10-22.md](docs/archives/propositions-2026-10-22.md)).
 - **Écran virtuel Kidd** quand Kyber le publiera, derrière l'interface déjà en place.
 - **Pilote audio signé KyberNow** (certificat EV + Partner Center), si les haut-parleurs de Steam ne suffisent plus.
@@ -27,8 +29,7 @@ Ce qui est prévu ou à essayer, et seulement ici : les autres documents décriv
 
 ## KyberNow Link
 
-- **Multi-écrans** (en cours) : un écran virtuel de l'ordinateur par écran de l'appareil, placés comme eux, chacun dans une fenêtre plein écran, dans les apps Mac, Windows et Linux. L'écran principal garde sa fréquence, les autres passent à 60 Hz. Réglage par ordinateur « Écrans » : Auto (tous les écrans en Bureau et Max, un seul en Jeu), Cet écran, Tous les écrans. Correctif Kyber : débit réparti selon les pixels par seconde de chaque écran, au lieu de parts égales.
-- **Plusieurs ordinateurs à la fois** (après le multi-écrans) : une fenêtre de session par ordinateur dans les apps Mac et Windows ; les manettes lues par l'app et envoyées à la fenêtre active (la SDL de kynput ne s'ouvre qu'une fois par app) ; le son des sessions mélangé.
+- **Plusieurs ordinateurs à la fois** : une fenêtre de session par ordinateur dans les apps Mac et Windows ; les manettes lues par l'app et envoyées à la fenêtre active (la SDL de kynput ne s'ouvre qu'une fois par app) ; le son des sessions mélangé.
 - **Android** : mise en page des pliables ; écran externe en pupitre (image sur l'écran branché, appareil en pupitre) ; Play Store en test interne.
 - **Android TV + Station** : envoi des ordinateurs du téléphone au téléviseur (code affiché au téléviseur, relais par Admin).
 - **iPhone et iPad** : Apple Pencil ; TestFlight pour testeurs internes (profil App Store, archive Release, `xcodebuild -exportArchive`), puis l'App Store.

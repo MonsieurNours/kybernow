@@ -9,8 +9,9 @@
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { Battery, Computer, Found, Settings, ThisPc } from './lib/api'
-  import { hue, isCustom, sessionPlan } from './lib/api'
+  import { onMount } from 'svelte'
+  import type { Battery, Computer, DisplaysInfo, Found, Settings, ThisPc } from './lib/api'
+  import { hue, invoke, isCustom, listen, sessionPlan } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -70,11 +71,45 @@
     return selected.online ? { text: t('home.online'), tone: 'ok' } : { text: t('home.offline'), tone: 'off' }
   })
 
-  /** L'écran que la session demandera (même calcul que plan.rs : au plus 4K, H.264, sur batterie). */
+  // Les écrans que la session prendra : le calcul du cœur, le même que la session (réglage « Écrans »,
+  // profil, Station, écrans de ce PC). Revu quand l'ordinateur, ses réglages ou les écrans de ce PC changent.
+  let screens = $state(1)
+  // L'écran virtuel servira (demandé et utilisable sur la Station), d'après le cœur.
+  let virtualDisplay = $state(true)
+  let screensEpoch = $state(0)
+  let asked = 0
+  $effect(() => {
+    void screensEpoch
+    void battery
+    void thisPc
+    if (!selected) {
+      screens = 1
+      return
+    }
+    const id = selected.id
+    const settings = $state.snapshot(selected.settings)
+    void selected.info?.virtual_display?.max_screens
+    void selected.info?.virtual_display?.available
+    const n = ++asked
+    invoke<DisplaysInfo>('displays_info', { id, settings })
+      .then((i) => {
+        if (n !== asked) return
+        screens = i.count
+        virtualDisplay = i.virtual_display
+      })
+      .catch(() => {})
+  })
+  onMount(() => {
+    const off = listen<null>('displays', () => screensEpoch++)
+    return () => off.then((f) => f())
+  })
+
+  /** L'écran que la session demandera (même calcul que plan.rs : au plus 4K, H.264, sur batterie), ou le nombre d'écrans. */
   const screen = $derived.by(() => {
     if (!selected || !thisPc) return null
     const s = selected.settings
-    if (!s.virtual_display || selected.info?.virtual_display.available === false) return t('home.screens_as_is')
+    if (!virtualDisplay) return t('home.screens_as_is')
+    if (screens > 1) return t('home.screens_many', { count: screens })
     const p = sessionPlan(s, thisPc, battery)
     if (!p) return null
     const params = { width: p.width, height: p.height, refresh: p.refresh }
