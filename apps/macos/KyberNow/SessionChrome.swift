@@ -34,19 +34,20 @@ final class ChromeHostingView: NSHostingView<SessionChrome> {
 
 struct SessionChrome: View {
     @ObservedObject var session: SessionController
-    /// Espace de coordonnées de la couche (origine en haut à gauche).
-    static let space = "chrome"
+    /// Repère de tous les rectangles mesurés (barre, fermeture des
+    /// statistiques, capsule « adapter ») : la vue de session, origine en haut
+    /// à gauche, comme le test de `ChromeHostingView.hitTest` et la position du
+    /// pointeur. L'espace global de SwiftUI, pas un espace nommé sur la
+    /// composition : celui-ci commence sous les zones de sécurité (barre de
+    /// titre masquée en fenêtre, encoche en plein écran) et décalerait tout.
+    static let space = CoordinateSpace.global
 
     private var streaming: Bool { session.phase == .streaming }
 
     var body: some View {
         ZStack(alignment: .top) {
-            // Zone du bord haut : la barre vit là.
-            if streaming, !session.barVisible {
-                Capsule().fill(Color.white.opacity(0.35)).frame(width: 220, height: 3)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
+            // Le trait de repère du bord haut n'est pas ici : il est tracé dans
+            // l'image même (VideoRenderer), pour se voir sans couche SwiftUI.
             if !session.barVisible {
                 VStack(spacing: 10) {
                     if let hint = session.hint {
@@ -57,7 +58,7 @@ struct SessionChrome: View {
                     if streaming, session.screenOfferShown, let offer = session.screenOffer {
                         ScreenOfferToast(offer: offer, adapt: session.adaptToScreen, later: session.dismissScreenOffer)
                             .background(GeometryReader { g in
-                                Color.clear.preference(key: ScreenOfferRectKey.self, value: g.frame(in: .named(Self.space)))
+                                Color.clear.preference(key: ScreenOfferRectKey.self, value: g.frame(in: Self.space))
                             })
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -84,8 +85,12 @@ struct SessionChrome: View {
         // session laisse passer les clics), la capsule en bas, les mesures
         // en bas à droite.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .coordinateSpace(name: Self.space)
         .onPreferenceChange(StatsCloseRectKey.self) { rect in session.statsCloseRect = rect }
+        .onPreferenceChange(SessionBarRectKey.self) { rect in
+            // Sans barre, la valeur retombe à zéro : la dernière mesure reste.
+            if rect != .zero { session.barRect = rect }
+        }
+        .onPreferenceChange(GlassMenuOpenKey.self) { open in session.barMenuOpen = open }
         .onPreferenceChange(ScreenOfferRectKey.self) { rect in session.screenOfferRect = rect }
         .animation(Theme.easeOut, value: session.screenOfferShown)
         .animation(Theme.easeOut, value: session.barVisible)
@@ -233,7 +238,7 @@ struct LitNumber: View {
 
 // MARK: - Écran de ce Mac changé
 
-/// Capsule « L'écran a changé », dans l'espace « chrome » de la session.
+/// Capsule « L'écran a changé », dans le repère de la vue de session.
 private struct ScreenOfferRectKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
@@ -324,6 +329,17 @@ struct Keycap: View {
 }
 
 // MARK: - Barre de session
+
+/// Rectangle de la barre, dans le repère de la vue de session : la zone
+/// d'ouverture a sa largeur, et la barre se referme quand le pointeur quitte
+/// ce rectangle.
+private struct SessionBarRectKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
 
 private struct SessionBar: View {
     @ObservedObject var session: SessionController
@@ -462,6 +478,9 @@ private struct SessionBar: View {
             .padding(.trailing, 8)
             .frame(height: 52)
             .glass(14, tint: 0.62)
+            .background(GeometryReader { g in
+                Color.clear.preference(key: SessionBarRectKey.self, value: g.frame(in: SessionChrome.space))
+            })
             .shadow(color: .black.opacity(0.55), radius: 25, y: 14)
 
             if session.padMode {

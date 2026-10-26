@@ -62,6 +62,7 @@ final class MetalSurface: NSView {
         guard let renderer else { return }
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         metal.contentsScale = scale
+        renderer.markerScale = scale
         renderer.setDrawableSize(CGSize(width: bounds.width * scale, height: bounds.height * scale))
     }
 }

@@ -58,6 +58,8 @@ From the first frame, the picture alone. No arrival capsule, no bar that shows t
 
 During a session: « Se déconnecter » / “Disconnect” (bar, menu, shortcut), « Statistiques » / “Statistics” for live measurements, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
 
+**Session bar from the pointer** (Mac and Windows apps, Linux app in Desktop mode, web client): it opens when the pointer stays a quarter of a second against the top edge of the picture (2 points at most), in a centred zone as wide as the bar, and only if the app is in the foreground, the pointer is on the session window and the mouse is in desktop mode. Passing quickly does not open it; nor does a pointer on another display or another app, or a mouse button held down (a window on the computer dragged to the top). With the game mouse, the pointer is captured: the bar comes through the app's other means (the icon's menu, the controller). A short line (220 points), centred at the top of the picture, marks the spot, only when the gesture is possible (app in the foreground, desktop mouse, bar closed); the web client also makes it tappable. The bar closes 0.4 s after the pointer has left it, never while one of its menus is open. With several displays, it opens on the display where the gesture happens.
+
 With touch (iPhone, iPad, Android outside the TV):
 
 - **Keyboard**: it opens from the bar; a touch on the picture folds it away (that touch does not click on the computer).

@@ -24,6 +24,9 @@ use std::time::Instant;
 pub use home::{gbit as gbit_label, profile_label};
 #[allow(unused_imports)]
 pub use launch::{TOTAL as LAUNCH, TOTAL_REDUCED as LAUNCH_REDUCED};
+// Le geste du pointeur sur la barre du bureau (app de bureau seulement).
+#[allow(unused_imports)]
+pub use session::{at_bar_edge, over_bar, HINT_STRIP};
 
 use crate::app::{App, Layout, Phase, Rect, Screen, Target};
 use canvas::{Align, Canvas, Font, Rgba, Text};
@@ -72,8 +75,20 @@ pub fn draw(app: &App, cv: &mut Canvas) -> Vec<(Target, Rect)> {
 }
 
 /// L'interface se voit-elle pendant la session (connexion, menu, barre,
-/// statistiques, capsule) ; sinon l'image seule.
+/// statistiques, capsule, trait de la barre) ; sinon l'image seule.
 pub fn session_overlay_visible(app: &App) -> bool {
+    session_overlay_busy(app) || session::bar_hint(app)
+}
+
+/// Seul le trait de la barre se voit : il ne bouge pas, l'interface n'est
+/// redessinée ni renvoyée à chaque seconde, et seul son bandeau (`HINT_STRIP`
+/// points en haut) se pose sur l'image.
+pub fn session_hint_only(app: &App) -> bool {
+    !session_overlay_busy(app) && session::bar_hint(app)
+}
+
+/// Autre chose que le trait : connexion, menu, barre, statistiques, capsule.
+fn session_overlay_busy(app: &App) -> bool {
     let Some(s) = &app.session else { return false };
     if !matches!(s.phase, Phase::Streaming) {
         return true;

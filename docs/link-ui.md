@@ -58,6 +58,8 @@ Dès la première image, l'image seule. Pas de capsule d'arrivée, pas de barre 
 
 En session : « Se déconnecter » / “Disconnect” (barre, menu, raccourci), « Statistiques » / “Statistics” pour les mesures en direct, « Touches » / “Keys”, « Plein écran » / “Full screen”, « Clavier » / “Keyboard”.
 
+**Barre de session au pointeur** (apps Mac et Windows, app Linux en mode Bureau, client web) : elle s'ouvre quand le pointeur reste un quart de seconde contre le bord haut de l'image (à 2 points au plus), dans une zone centrée de la largeur de la barre, et seulement si l'app est au premier plan, le pointeur sur la fenêtre de la session et la souris en mode bureau. Un passage rapide ne l'ouvre pas ; un pointeur sur un autre écran ou sur une autre app non plus, ni un bouton de la souris tenu (une fenêtre de l'ordinateur glissée vers le haut). En souris des jeux, le pointeur est capturé : la barre vient par les autres moyens de l'app (menu de l'icône, manette). Un trait court (220 points), centré en haut de l'image, signale l'endroit, seulement quand le geste est possible (app au premier plan, souris du bureau, barre fermée) ; le client web le rend aussi touchable. La barre se referme 0,4 s après que le pointeur l'a quittée, jamais pendant qu'un de ses menus est ouvert. Avec plusieurs écrans, elle s'ouvre sur l'écran où le geste a lieu.
+
 Au toucher (iPhone, iPad, Android hors téléviseur) :
 
 - **Clavier** : il s'ouvre depuis la barre ; un toucher sur l'image le replie (ce toucher ne clique pas sur l'ordinateur).

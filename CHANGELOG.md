@@ -5,6 +5,12 @@
 Chaque section devient les notes de la version publiée sur GitHub : la
 console de l'ordinateur et l'app Mac les affichent avant d'installer.
 
+## 0.5.4
+
+- **Barre de session au pointeur, sur Mac, Windows, Linux et dans le client web** : elle s'ouvre quand le pointeur reste un quart de seconde contre le haut de l'image, au milieu, sur la largeur de la barre, et seulement quand l'app est au premier plan et la souris en mode bureau. Elle ne s'ouvre plus en passant, ni quand le pointeur est sur un autre écran que celui de la session (Mac), ni pendant qu'une fenêtre de l'ordinateur est glissée vers le haut. Elle se referme 0,4 s après que le pointeur l'a quittée, jamais pendant qu'un de ses menus est ouvert. Un petit trait en haut de l'image montre l'endroit quand le geste est possible, maintenant aussi sur Windows et Linux.
+- Windows : en fenêtre, la barre se place en haut de l'image de la session.
+- Mac : en fenêtre, le bouton de fermeture des statistiques, la proposition d'adapter l'écran et le bas de la barre prennent les clics au bon endroit.
+
 ## 0.5.3
 
 - **KyberNow Link près de l'horloge, sur Mac et Windows** : une icône dans la barre des menus (Mac) ou la zone de notification (Windows) donne vos ordinateurs, chacun avec un point de couleur et son état (vert en ligne, rouge hors ligne, ambre pendant un réveil ou un redémarrage), et pour chacun : se connecter avec son profil, le réveiller, changer de profil, ses réglages, Admin, redémarrer ou mettre à jour la Station. En session, les mesures en direct, le plein écran, le mode de la souris (Auto, du bureau, des jeux), les statistiques et « Se déconnecter ». Fermer la fenêtre ne quitte plus l'app : elle continue dans l'icône (sur Mac, l'icône du Dock n'est là que tant qu'une fenêtre est ouverte), et « Quitter KyberNow Link » termine d'abord une session en cours. Sur Windows, un double clic sur l'icône ouvre la fenêtre.

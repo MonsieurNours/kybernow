@@ -9,7 +9,7 @@
 //! Un seul fil possède l'appareil Direct3D, le décodeur et la chaîne
 //! d'échange : rien n'attend ailleurs.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -50,6 +50,10 @@ pub struct Shared {
     /// Format demandé pour la session (`media::FOURCC_*`), suivi en cas de
     /// changement de profil : il sert si le paquet de format se perd.
     pub codec: std::sync::atomic::AtomicU32,
+    /// Trait du bord haut (qui signale la barre de session) : l'échelle de
+    /// l'écran en centièmes (100 : 100 %), 0 quand il n'a pas lieu d'être.
+    /// Posé par la fenêtre, lu à chaque image.
+    pub edge_hint: AtomicU32,
 }
 
 impl Shared {
@@ -268,6 +272,9 @@ fn run(
         let msg = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(m) => m,
             Err(RecvTimeoutError::Timeout) => {
+                // Le trait du bord haut a changé sans image neuve (écran fixe) :
+                // l'image en place est redessinée, avec ou sans le trait.
+                renderer.repaint(shared.edge_hint.load(Ordering::Relaxed));
                 // Comme sur Mac : une image clé se demande après une perte,
                 // pas avant les premières données (l'encodeur commence par
                 // une image clé ; le harceler pendant qu'il démarre le bloque).
@@ -376,7 +383,7 @@ fn run(
                             if newer_waiting {
                                 continue;
                             }
-                            match renderer.draw(frame) {
+                            match renderer.draw(frame, shared.edge_hint.load(Ordering::Relaxed)) {
                                 Ok(()) => {
                                     if let Some(l) = shared.latency.get() {
                                         l.displayed(pts, now_micros());

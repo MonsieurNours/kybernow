@@ -60,7 +60,9 @@ pub trait HostEvents: Send + Sync {
     /// La fenêtre de session vient de se montrer (première image) ;
     /// `foreground` : elle a obtenu le premier plan.
     fn visible(&self, _foreground: bool) {}
-    /// Pointeur contre le haut de l'écran de la session.
+    /// Le pointeur est resté 0,25 s contre le bord haut de la session, dans la
+    /// zone de la barre (fenêtre au premier plan, souris du bureau) : la barre
+    /// de session s'ouvre.
     fn top_edge(&self, _hwnd: isize) {}
     /// Tout est arrêté, fenêtre fermée, console prévenue.
     fn ended(&self, _summary: &Summary) {}

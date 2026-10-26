@@ -147,6 +147,7 @@ public final class SessionEngine: @unchecked Sendable {
     private var padCaptured = false
     private var occluded = false
     private var vsync = true
+    private var topMarker = false
     private var volume: Float = 1
     private var ended = false
 
@@ -311,6 +312,16 @@ public final class SessionEngine: @unchecked Sendable {
         let renderers = videos.values.map(\.renderer)
         lock.unlock()
         renderers.forEach { $0.vsync = on }
+    }
+
+    /// Trait de repère de la barre, tracé dans l'image (Mac) : allumé quand le
+    /// geste qui ouvre la barre est possible. Repris par chaque flux d'image.
+    public func setTopMarker(_ on: Bool) {
+        lock.lock()
+        topMarker = on
+        let renderers = videos.values.map(\.renderer)
+        lock.unlock()
+        renderers.forEach { $0.topMarker = on }
     }
 
     /// Fenêtre occultée ou réduite : plus de rendu (le décodeur continue).
@@ -507,6 +518,7 @@ public final class SessionEngine: @unchecked Sendable {
         }
         pipeline.renderer.vsync = vsync
         pipeline.renderer.paused = occluded
+        pipeline.renderer.topMarker = topMarker
         pipeline.renderer.latency = self
         pipeline.renderer.onStats = { [weak self] stats in self?.videoStats(stats) }
         #if !os(macOS)

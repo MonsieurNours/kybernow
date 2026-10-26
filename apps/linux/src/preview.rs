@@ -386,6 +386,15 @@ pub fn run(dir: &Path, lang: &str) {
         let overlay = ui::session_overlay_visible(&app);
         assert!(!overlay, "l'image seule dès la première image");
         shot(&mut app, &mut cv, Some(&video), dir, &p("10c-image-seule"));
+        // Au bureau, souris du bureau : le trait qui signale la barre, seul par-dessus l'image.
+        if layout == Layout::Desktop {
+            let mut s = session(&app);
+            s.menu = false;
+            s.relative = false;
+            app.session = Some(s);
+            assert!(ui::session_hint_only(&app));
+            shot(&mut app, &mut cv, Some(&video), dir, &p("10d-image-trait-barre"));
+        }
 
         let mut s = session(&app);
         if layout == Layout::Desktop {
@@ -645,6 +654,83 @@ mod tests {
         assert!(!ui::session_overlay_visible(&app));
         ui::draw(&app, &mut cv);
         assert_eq!(cv.pix.pixel(200, 400).unwrap().alpha(), 0);
+    }
+
+    /// Une session à l'image : barre fermée, menus fermés, souris du bureau.
+    fn streaming(layout: Layout) -> (App, Canvas) {
+        let mut app = demo(false, layout);
+        let mut cv = Canvas::new();
+        cv.resize(1280, 800, 1.0);
+        let mut s = session(&app);
+        s.menu = false;
+        s.relative = false;
+        s.opened_at = Some(Instant::now() - Duration::from_secs(30));
+        app.session = Some(s);
+        app.screen = Screen::Session;
+        (app, cv)
+    }
+
+    /// Au bureau, à la souris du bureau, barre fermée : un trait de 220 × 3 points,
+    /// centré contre le bord haut, seul par-dessus l'image (un bandeau, rien à
+    /// chaque seconde). Ni en souris des jeux, ni au Deck, ni au salon, ni barre ouverte.
+    #[test]
+    fn bar_hint_only_on_desktop_mouse() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        assert!(ui::session_overlay_visible(&app) && ui::session_hint_only(&app));
+        app.hits = ui::draw(&app, &mut cv);
+        assert!(app.hits.is_empty());
+        let alpha = |cv: &Canvas, x: u32, y: u32| cv.pix.pixel(x, y).unwrap().alpha();
+        assert!((80..=95).contains(&alpha(&cv, 640, 1)), "capsule blanche à 35 %");
+        assert_eq!(alpha(&cv, 640 - 112, 1), 0);
+        assert_eq!(alpha(&cv, 640 + 112, 1), 0);
+        assert_eq!(alpha(&cv, 640, 4), 0);
+        assert_eq!(alpha(&cv, 200, 400), 0);
+
+        // Barre ouverte : la barre à la place du trait, l'interface entière.
+        app.session.as_mut().unwrap().bar = true;
+        assert!(ui::session_overlay_visible(&app) && !ui::session_hint_only(&app));
+        app.hits = ui::draw(&app, &mut cv);
+        assert!(!app.hits.is_empty());
+        // Souris des jeux : le pointeur est capturé, ni trait ni barre.
+        app.session.as_mut().unwrap().bar = false;
+        app.session.as_mut().unwrap().relative = true;
+        assert!(!ui::session_overlay_visible(&app) && !ui::session_hint_only(&app));
+        // Un réglage ouvert depuis la session : l'écran n'est plus la session.
+        app.session.as_mut().unwrap().relative = false;
+        app.screen = Screen::Settings;
+        assert!(!ui::session_hint_only(&app));
+        for layout in [Layout::Handheld, Layout::Tv] {
+            let (app, _) = streaming(layout);
+            assert!(!ui::session_overlay_visible(&app), "salon et console : rien ne change");
+        }
+    }
+
+    /// La zone d'ouverture est celle de la barre : sa largeur réelle, centrée, à 2
+    /// points du bord haut ; la barre reste ouverte sur son rectangle (petite marge).
+    #[test]
+    fn bar_zone_is_bar_width() {
+        let (mut app, mut cv) = streaming(Layout::Desktop);
+        app.session.as_mut().unwrap().bar = true;
+        app.hits = ui::draw(&app, &mut cv);
+        // Où la barre est dessinée : première et dernière colonne peintes sur une ligne de la barre.
+        let painted: Vec<u32> = (0..cv.pix.width()).filter(|x| cv.pix.pixel(*x, 30).unwrap().alpha() > 0).collect();
+        let (left, right) = (*painted.first().unwrap() as f32, *painted.last().unwrap() as f32 + 1.0);
+        assert!(left > 100.0 && right < 1180.0 && ((left + right) / 2.0 - 640.0).abs() < 1.0, "centrée, plus étroite que la fenêtre");
+        let s = app.session.clone().unwrap();
+        for y in [0.0, 1.0, 2.0] {
+            assert!(ui::at_bar_edge(&mut cv, &s, left + 2.0, y) && ui::at_bar_edge(&mut cv, &s, right - 2.0, y));
+            assert!(!ui::at_bar_edge(&mut cv, &s, left - 2.0, y) && !ui::at_bar_edge(&mut cv, &s, right + 2.0, y));
+        }
+        assert!(!ui::at_bar_edge(&mut cv, &s, 640.0, 2.5), "au-delà de 2 points : pas contre le bord");
+        // Rester ouverte : sur la barre (même hors de ses boutons) et 8 points autour, pas plus loin.
+        let none: Vec<(Target, crate::app::Rect)> = Vec::new();
+        assert!(ui::over_bar(&mut cv, &s, &none, 640.0, 30.0));
+        assert!(ui::over_bar(&mut cv, &s, &none, right + 7.0, 20.0));
+        assert!(!ui::over_bar(&mut cv, &s, &none, right + 9.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &s, &none, left - 7.0, 20.0));
+        assert!(ui::over_bar(&mut cv, &s, &none, 640.0, 46.0 + 7.0));
+        assert!(!ui::over_bar(&mut cv, &s, &none, 640.0, 46.0 + 9.0), "plus de bande de 58 points");
+        assert!(!ui::over_bar(&mut cv, &s, &none, 100.0, 20.0), "pas sur toute la largeur");
     }
 
     /// Les sept rubriques des réglages de l'ordinateur se dessinent aux trois

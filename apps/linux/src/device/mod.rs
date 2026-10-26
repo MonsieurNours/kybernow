@@ -124,6 +124,8 @@ struct Win {
     renderer: *mut sdl::SDL_Renderer,
     ui: *mut sdl::SDL_Texture,
     ui_size: (u32, u32),
+    /// La texture ne porte que le trait de la barre, pour cette taille et cette échelle.
+    hint_key: Option<(u32, u32, u32)>,
     /// Le pointeur de l'ordinateur dessiné par l'app (souris des jeux, console).
     cursor: *mut sdl::SDL_Texture,
     cursor_size: (u32, u32, u32, u32),
@@ -155,6 +157,11 @@ impl Win {
     /// Pixels réels par coordonnée de la fenêtre (écrans HiDPI).
     fn density(&self) -> f32 {
         self.out_size.0 as f32 / self.win_size.0 as f32
+    }
+
+    /// La fenêtre a le clavier (focus d'entrée de SDL).
+    fn focused(&self) -> bool {
+        unsafe { sdl::SDL_GetWindowFlags(self.window) & sdl::SDL_WINDOW_INPUT_FOCUS != 0 }
     }
 
     fn set_vsync(&mut self, on: bool) {
@@ -189,6 +196,8 @@ struct Live {
     escape_down: Option<Instant>,
     /// La barre du bureau doit se cacher à cet instant.
     bar_hide: Option<Instant>,
+    /// Le pointeur est contre le bord haut : la barre du bureau s'ouvre à cet instant s'il y reste.
+    bar_arm: Option<Instant>,
     decoded: Option<(u32, u32)>,
     last_frame: Option<Instant>,
     /// Image clé de la dernière image montrée (latence).
@@ -314,6 +323,7 @@ pub fn run(args: &[String]) {
         renderer,
         ui: std::ptr::null_mut(),
         ui_size: (0, 0),
+        hint_key: None,
         cursor: std::ptr::null_mut(),
         cursor_size: (0, 0, 0, 0),
         cursor_pixels: Vec::new(),
@@ -405,7 +415,7 @@ pub fn run(args: &[String]) {
         let mut actions: Vec<Action> = Vec::new();
         if unsafe { sdl::SDL_WaitEventTimeout(&mut ev, timeout) } != 0 {
             loop {
-                handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut win, &cv, &mut actions, &mut dirty, &mut present, &mut quit, &mut start_down);
+                handle_sdl(&ev, &mut app, &mut pads, live.as_mut(), &mut win, &mut cv, &mut actions, &mut dirty, &mut present, &mut quit, &mut start_down);
                 if unsafe { sdl::SDL_PollEvent(&mut ev) } == 0 {
                     break;
                 }
@@ -471,7 +481,7 @@ pub fn run(args: &[String]) {
         }
 
         if let Some(l) = live.as_mut() {
-            session_tick(&mut app, l, &mut win, &mut dirty, &mut present);
+            session_tick(&mut app, l, &mut win, &mut cv, &mut dirty, &mut present);
             // Presse-papiers : le texte du système, et ce que l'ordinateur envoie.
             if let Some(c) = &l.handle.shared.clipboard {
                 if let Some(t) = c.outgoing.lock().unwrap().take() {
@@ -550,14 +560,25 @@ pub fn run(args: &[String]) {
             dirty = true;
         }
         let show_ui = app.screen != Screen::Session || ui::session_overlay_visible(&app);
+        // Le trait de la barre seul : il ne change pas, on ne le redessine ni ne le renvoie
+        // à chaque seconde, et seul son bandeau se pose sur l'image.
+        let hint_only = ui::session_hint_only(&app);
+        // La texture porte autre chose (une capsule qui vient de passer…) : le trait y revient.
+        if hint_only && win.hint_key.is_none() {
+            dirty = true;
+        }
         if dirty {
             win.sizes();
             let k = ui_scale(app.layout, win.out_size, win.density());
             cv.resize(win.out_size.0 as u32, win.out_size.1 as u32, k);
             if show_ui {
-                app.pads = pads.infos();
-                app.hits = ui::draw(&app, &mut cv);
-                upload_ui(&mut win, &cv);
+                let key = (cv.pix.width(), cv.pix.height(), cv.k.to_bits());
+                if !(hint_only && win.hint_key == Some(key) && win.ui_size == (key.0, key.1)) {
+                    app.pads = pads.infos();
+                    app.hits = ui::draw(&app, &mut cv);
+                    upload_ui(&mut win, &cv);
+                    win.hint_key = hint_only.then_some(key);
+                }
             } else {
                 app.hits.clear();
             }
@@ -566,7 +587,8 @@ pub fn run(args: &[String]) {
             present = true;
         }
         if present {
-            draw_frame(&mut win, show_ui, live.as_ref(), &app);
+            let strip = hint_only.then(|| (ui::HINT_STRIP * cv.k).ceil() as c_int);
+            draw_frame(&mut win, show_ui, strip, live.as_ref(), &app);
             present = false;
             if let (Some((pts, received, decoded)), Some(l)) = (new_frame, live.as_mut()) {
                 let at = latency::now_micros();
@@ -635,15 +657,25 @@ impl App {
 }
 
 /// Compose la fenêtre : l'image de l'ordinateur pendant la session,
-/// l'interface si elle est montrée, le pointeur de l'ordinateur.
-fn draw_frame(win: &mut Win, show_ui: bool, live: Option<&Live>, app: &App) {
+/// l'interface si elle est montrée (`strip` : seulement ce bandeau du haut,
+/// en pixels), le pointeur de l'ordinateur.
+fn draw_frame(win: &mut Win, show_ui: bool, strip: Option<c_int>, live: Option<&Live>, app: &App) {
     unsafe {
         sdl::SDL_SetRenderDrawColor(win.renderer, 0, 0, 0, 255);
         sdl::SDL_RenderClear(win.renderer);
         let in_session = app.screen == Screen::Session && app.session.as_ref().is_some_and(|s| matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. } | Phase::Ending));
         win.video_rect = if in_session { win.screen.draw(win.renderer, win.out_size) } else { None };
         if show_ui && !win.ui.is_null() {
-            sdl::SDL_RenderCopy(win.renderer, win.ui, std::ptr::null(), std::ptr::null());
+            match strip {
+                // La texture a la taille de la sortie : le bandeau se pose où il est.
+                Some(h) => {
+                    let r = sdl::SDL_Rect { x: 0, y: 0, w: win.ui_size.0 as c_int, h: h.min(win.ui_size.1 as c_int) };
+                    sdl::SDL_RenderCopy(win.renderer, win.ui, &r, &r);
+                }
+                None => {
+                    sdl::SDL_RenderCopy(win.renderer, win.ui, std::ptr::null(), std::ptr::null());
+                }
+            }
         }
         // Le pointeur de l'ordinateur, dessiné par l'app : souris des jeux
         // (menus d'un jeu), console (pavés tactiles, manette en souris).
@@ -672,7 +704,7 @@ fn draw_frame(win: &mut Win, show_ui: bool, live: Option<&Live>, app: &App) {
 
 /// Ce qui se règle à chaque tour pendant la session : souris des jeux ou du
 /// bureau, barre du bureau, curseur du système, image absente.
-fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, dirty: &mut bool, present: &mut bool) {
+fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, cv: &mut Canvas, dirty: &mut bool, present: &mut bool) {
     let Some(s) = app.session.as_mut() else { return };
     let streaming = matches!(s.phase, Phase::Streaming);
     // Souris : Auto suit le jeu en plein écran et le pointeur caché.
@@ -691,6 +723,10 @@ fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, dirty: &mut bool, pr
         }
         unsafe { sdl::SDL_SetRelativeMouseMode(wanted as c_int) };
         log::info!("souris : {}", if wanted { "jeu (relative)" } else { "bureau" });
+        // En souris des jeux, le pointeur est capturé : la barre ne vient plus à lui.
+        if wanted {
+            l.bar_arm = None;
+        }
         // Pas à l'arrivée de l'image (rien par-dessus elle) : seulement quand le jeu change de mode ensuite.
         if wanted && app.layout == Layout::Desktop && s.opened_at.is_some_and(|t| t.elapsed() > Duration::from_secs(3)) {
             s.notice = Some((tr("Souris des jeux · Échap longtemps ou Ctrl+Alt+Maj+M pour rendre la souris", "Game mouse · hold Esc or Ctrl+Alt+Shift+M to release the mouse").into(), Instant::now()));
@@ -711,7 +747,27 @@ fn session_tick(app: &mut App, l: &mut Live, win: &mut Win, dirty: &mut bool, pr
             sdl::SDL_SetCursor(sdl::SDL_GetDefaultCursor());
         }
     }
-    // Barre du bureau : cachée quand le pointeur l'a quittée depuis 400 ms.
+    // Barre du bureau, ouverture : le pointeur est resté un quart de seconde
+    // contre le bord haut, dans la zone de sa largeur ; la fenêtre a toujours le
+    // clavier, la souris est celle du bureau, aucun bouton n'est tenu (une fenêtre
+    // de l'ordinateur glissée vers le haut) ; un passage rapide n'ouvre rien.
+    if let Some(at) = l.bar_arm
+        && Instant::now() >= at
+    {
+        l.bar_arm = None;
+        let here = app.pointer.is_some_and(|(ux, uy)| ui::at_bar_edge(cv, s, ux, uy));
+        if app.layout == Layout::Desktop && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. }) && !s.menu && !s.keys && !s.bar && !s.relative && here && win.focused() && !sdl::mouse_held() {
+            s.bar = true;
+            l.bar_hide = None;
+            *dirty = true;
+        }
+    }
+    // Fermeture : 400 ms après que le pointeur a quitté la barre, jamais pendant
+    // un de ses menus. Un menu qui se ferme pointeur dehors, ou un pointeur sorti
+    // de la fenêtre sans mouvement, arment le même délai.
+    if s.bar && s.bar_menu.is_none() && l.bar_hide.is_none() && !app.pointer.is_some_and(|(ux, uy)| ui::over_bar(cv, s, &app.hits, ux, uy)) {
+        l.bar_hide = Some(Instant::now() + Duration::from_millis(400));
+    }
     if let Some(at) = l.bar_hide
         && Instant::now() >= at
     {
@@ -745,7 +801,7 @@ fn host_point(win: &Win, l: &Live, x: i32, y: i32) -> Option<(i16, i16)> {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, win: &mut Win, cv: &Canvas, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool, start_down: &mut Option<Instant>) {
+fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: Option<&mut Live>, win: &mut Win, cv: &mut Canvas, actions: &mut Vec<Action>, dirty: &mut bool, present: &mut bool, quit: &mut bool, start_down: &mut Option<Instant>) {
     let kind = ev.kind();
     if kind == video::FRAME_EVENT.load(Ordering::Relaxed) {
         return;
@@ -766,10 +822,20 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                     if let Some(p) = &input {
                         p.release_all();
                     }
+                    if let Some(l) = live {
+                        l.bar_arm = None;
+                    }
                 }
                 sdl::SDL_WINDOWEVENT_LEAVE => {
                     if app.layout == Layout::Desktop {
                         app.pointer = None;
+                        // Le pointeur quitte la fenêtre : plus d'ouverture de la barre ; ouverte, elle se referme.
+                        if let Some(l) = live {
+                            l.bar_arm = None;
+                            if app.session.as_ref().is_some_and(|s| s.bar) {
+                                l.bar_hide.get_or_insert(Instant::now() + Duration::from_millis(400));
+                            }
+                        }
                     }
                 }
                 sdl::SDL_WINDOWEVENT_MAXIMIZED => app.maximized = true,
@@ -878,24 +944,30 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, live: O
                     }
                     return;
                 }
-                // Barre du bureau : le pointeur touche le haut de la fenêtre.
+                // Barre du bureau. Fermée : elle s'ouvre quand le pointeur reste un quart de
+                // seconde contre le bord haut, dans la zone de sa largeur (`session_tick`
+                // mesure le délai : un pointeur immobile n'envoie plus d'événements) ;
+                // le quitter annule. Ouverte : elle reste sur elle, ou pendant un menu.
                 if app.layout == Layout::Desktop {
                     let (ux, uy) = to_ui(win, cv, x, y);
-                    if uy < 6.0 && !s.bar {
-                        s.bar = true;
-                        l.bar_hide = None;
-                        *dirty = true;
-                    }
                     if s.bar {
-                        let over = app.hits.iter().any(|(_, r)| r.contains(ux, uy)) || uy < 58.0 || s.bar_menu.is_some();
-                        if over {
+                        if s.bar_menu.is_some() || ui::over_bar(cv, s, &app.hits, ux, uy) {
                             l.bar_hide = None;
                             if app.pointer_moved(ux, uy) {
                                 *dirty = true;
                             }
                             return;
-                        } else if l.bar_hide.is_none() {
+                        }
+                        app.pointer = Some((ux, uy));
+                        if l.bar_hide.is_none() {
                             l.bar_hide = Some(Instant::now() + Duration::from_millis(400));
+                        }
+                    } else {
+                        app.pointer = Some((ux, uy));
+                        if ui::at_bar_edge(cv, s, ux, uy) && win.focused() && !sdl::mouse_held() {
+                            l.bar_arm.get_or_insert(Instant::now() + Duration::from_millis(250));
+                        } else {
+                            l.bar_arm = None;
                         }
                     }
                 }
@@ -1595,6 +1667,7 @@ fn perform(a: Action, app: &mut App, pads: &mut pads::Pads, live: &mut Option<Li
                 typing: false,
                 escape_down: None,
                 bar_hide: None,
+                bar_arm: None,
                 decoded: None,
                 last_frame: None,
                 shown: None,

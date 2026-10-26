@@ -4,6 +4,12 @@ English · [Français](CHANGELOG.md)
 
 English translation of `CHANGELOG.md`. The release notes published on GitHub, and shown by the computer's console and the Mac app before installing, come from the French file; add each new section to both files.
 
+## 0.5.4
+
+- **Session bar from the pointer, on Mac, Windows, Linux and in the web client**: it opens when the pointer stays a quarter of a second against the top of the picture, in the middle, across the bar's width, and only when the app is in the foreground and the mouse in desktop mode. It no longer opens in passing, nor when the pointer is on a display other than the session's (Mac), nor while a window on the computer is being dragged to the top. It closes 0.4 s after the pointer has left it, never while one of its menus is open. A short line at the top of the picture marks the spot when the gesture is possible, now on Windows and Linux too.
+- Windows: in a window, the bar sits at the top of the session's picture.
+- Mac: in a window, the statistics close button, the offer to adapt the display and the bottom of the bar take clicks in the right place.
+
 ## 0.5.3
 
 - **KyberNow Link next to the clock, on Mac and Windows**: an icon in the menu bar (Mac) or the notification area (Windows) lists your computers, each with a coloured dot and its state (green online, red offline, amber while waking or restarting), and for each one: connect with its profile, wake it, switch profile, its settings, Admin, restart or update the Station. In a session, the live measurements, full screen, the mouse mode (Auto, desktop, game), statistics and “Disconnect”. Closing the window no longer quits the app: it keeps running in the icon (on the Mac, the Dock icon is only there while a window is open), and “Quit KyberNow Link” ends a session in progress first. On Windows, a double click on the icon opens the window.
