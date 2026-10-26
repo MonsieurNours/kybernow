@@ -1600,6 +1600,23 @@ impl HostEvents for UiEvents {
         let _ = self.app.run_on_main_thread(move || show_bar(&app, &id, hwnd, false));
     }
 
+    /// « Afficher », « Se connecter » sur cet ordinateur ou Ctrl+Alt+Maj+O
+    /// pendant qu'il se connecte : sa fenêtre de connexion passe devant (pour
+    /// la première session, l'accueil et son passage).
+    fn connexion_front(&self) {
+        // La première session se connecte sur l'accueil (son passage).
+        let label = if self.first { Some("main".to_string()) } else { self.connexion.label.lock().unwrap().clone() };
+        let Some(label) = label else { return };
+        let app = self.app.clone();
+        let _ = self.app.run_on_main_thread(move || {
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        });
+    }
+
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
         let remaining = {
@@ -1689,32 +1706,34 @@ impl HostEvents for UiEvents {
             }
         } else {
             // Session suivante : sa fenêtre de connexion part, sauf un échec
-            // avant la première image, qu'elle montre jusqu'à « Fermer ».
-            let failed = !s.shown && s.error.is_some() && !quitting;
+            // pendant qu'elle est ouverte (avant la première image, ou quand
+            // la connexion a repris en session), qu'elle montre jusqu'à « Fermer ».
+            let open = self.connexion.label.lock().unwrap().is_some();
+            let failed = open && s.error.is_some() && !quitting;
             if failed {
                 self.connexion.view.lock().unwrap().error = s.error.clone();
             } else {
                 close_connexion(&self.app, &self.connexion, Duration::ZERO);
             }
         }
-        // La dernière session fermée ramène l'accueil, comme avant ; s'il en
-        // reste, l'accueil ne leur prend pas le premier plan, et si celle-ci
-        // était devant, la session active reprend la place.
+        // La dernière session fermée ramène l'accueil, comme avant, s'il ne
+        // reste ni connexion qui se lance ni fenêtre de connexion ouverte
+        // (l'accueil ne passe pas devant elles) ; s'il reste des sessions,
+        // l'accueil ne leur prend pas le premier plan, et si celle-ci était
+        // devant, la session active reprend la place.
         if remaining == 0 {
-            if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            show_home_if_idle(&self.app);
         } else if (s.was_front || served) && !quitting && let Some(next) = state.active_id() {
             // Sa fenêtre (ou sa barre : « Se déconnecter ») était devant.
             state.with_session(&next, |r| r.host.focus(0));
         }
-        // Personne ne regardait (autre app devant, ou une autre session était
-        // la session active) : une notification. Pas pour une fin demandée
-        // (« Se déconnecter », fenêtre fermée), ni pour l'échec d'une session
-        // suivante, que sa fenêtre de connexion montre. Un clic dessus ouvre
-        // l'accueil sur cet ordinateur.
-        let unseen = !shell::app_in_front() || (remaining > 0 && !s.was_active);
+        // Une fin non demandée (pas « Se déconnecter », ni la fenêtre fermée) :
+        // une notification si personne ne regardait (autre app devant), et
+        // toujours quand d'autres sessions continuent, même app au premier
+        // plan et même si c'était la session active (docs/link-ui.md). Pas
+        // pour l'échec de la connexion d'une session suivante, que sa fenêtre
+        // de connexion montre. Un clic dessus ouvre l'accueil sur cet ordinateur.
+        let unseen = !shell::app_in_front() || remaining > 0;
         let notify = unseen && !quitting && !s.requested && (self.first || s.shown);
         if notify {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
@@ -1739,9 +1758,9 @@ impl HostEvents for UiEvents {
         emit_sessions(&self.app);
         emit_computers(&self.app);
         // L'app se fermait : la console est prévenue, on peut partir quand la
-        // dernière session est finie.
-        if quitting && remaining == 0 {
-            self.app.exit(0);
+        // dernière session est finie et qu'aucune connexion ne se lance.
+        if quitting {
+            exit_when_idle(&self.app);
         }
     }
 }
@@ -2040,6 +2059,51 @@ fn connexion_closed(app: &AppHandle, label: &str) {
     let cancelled = state.with_session(&id, |r| r.host.command(Command::Disconnect)).is_some();
     if !cancelled {
         close_connexion(app, &conn, Duration::ZERO);
+        // L'échec d'une session suivante refermé alors que plus rien ne
+        // tourne : l'accueil revient.
+        show_home_if_idle(app);
+    }
+}
+
+/// Une fenêtre de connexion passe au premier plan : sa session devient la
+/// session active du registre du cœur.
+fn connexion_focused(app: &AppHandle, label: &str) {
+    let state = app.state::<UiState>();
+    let id = state.connexions.lock().unwrap().get(label).map(|c| c.view.lock().unwrap().id.clone());
+    if let Some(id) = id {
+        state.with_session(&id, |r| r.host.activate());
+    }
+}
+
+/// Plus rien ne tourne : ni session, ni connexion qui se lance, ni fenêtre de
+/// connexion ouverte (l'échec d'une session suivante).
+fn idle(state: &UiState) -> bool {
+    state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty() && state.connexions.lock().unwrap().is_empty()
+}
+
+/// La dernière session finie (ou la fenêtre d'un échec refermée) ramène
+/// l'accueil, sauf si une connexion se lance ou qu'une fenêtre de connexion
+/// est encore ouverte : il ne passe pas devant elles.
+fn show_home_if_idle(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    if state.quitting.load(Ordering::Relaxed) || !idle(&state) {
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// « Quitter » : l'app part quand la dernière session est finie et qu'aucune
+/// connexion ne se lance (une fenêtre de connexion restée sur un échec part
+/// avec elle).
+fn exit_when_idle(app: &AppHandle) {
+    let state = app.state::<UiState>();
+    let done = state.sessions.lock().unwrap().is_empty() && state.launching.lock().unwrap().is_empty();
+    if done {
+        log::info!("quitter");
+        app.exit(0);
     }
 }
 
@@ -2075,14 +2139,24 @@ struct Follow {
 }
 
 /// Une connexion qui se lance : sa place (une des quatre) est rendue en
-/// sortant de `connect`, session inscrite ou connexion refusée.
-struct Launching<'a>(&'a Mutex<Vec<String>>, String);
+/// sortant de `connect`, session inscrite ou connexion refusée ; si l'app se
+/// fermait pendant ce temps, elle part alors (s'il ne reste rien).
+struct Launching<'a> {
+    app: &'a AppHandle,
+    id: String,
+}
 
 impl Drop for Launching<'_> {
     fn drop(&mut self) {
-        let mut launching = self.0.lock().unwrap();
-        if let Some(i) = launching.iter().position(|x| *x == self.1) {
-            launching.remove(i);
+        let state = self.app.state::<UiState>();
+        {
+            let mut launching = state.launching.lock().unwrap();
+            if let Some(i) = launching.iter().position(|x| *x == self.id) {
+                launching.remove(i);
+            }
+        }
+        if state.quitting.load(Ordering::Relaxed) {
+            exit_when_idle(self.app);
         }
     }
 }
@@ -2105,6 +2179,10 @@ fn show_session(state: tauri::State<'_, UiState>, id: String) -> Result<(), Stri
 #[tauri::command(async)]
 fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let state = app.state::<UiState>();
+    // L'app se ferme : rien de nouveau ne démarre.
+    if state.quitting.load(Ordering::Relaxed) {
+        return Ok(ConnectInfo { screens: 0, windowed: true });
+    }
     // Une place parmi les quatre, jamais deux connexions vers le même
     // ordinateur, et tous les contrôles avant de rien montrer (fonds des
     // autres écrans, accueil passé sur l'écran principal, fenêtre de
@@ -2130,7 +2208,7 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         launching.push(id.clone());
         first
     };
-    let _launching = Launching(&state.launching, id.clone());
+    let _launching = Launching { app: &app, id: id.clone() };
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
@@ -2281,9 +2359,14 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    running.push(Running { id, host, bar, sent, stats });
+    running.push(Running { id: id.clone(), host, bar, sent, stats });
     drop(running);
     drop(_launching);
+    // « Quitter » pendant le lancement : elle s'arrête tout de suite (Admin
+    // prévenue), l'app part à sa fin.
+    if state.quitting.load(Ordering::Relaxed) {
+        state.with_session(&id, |r| r.host.command(Command::Disconnect));
+    }
     emit_sessions(&app);
     Ok(ConnectInfo { screens, windowed: !first })
 }
@@ -2619,18 +2702,20 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
 /// à la fin de la dernière.
 pub fn quit(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let sessions = state.sessions.lock().unwrap();
-    if sessions.is_empty() {
-        drop(sessions);
-        log::info!("quitter");
-        app.exit(0);
-        return;
+    // D'abord : une connexion qui se lance voit qu'il faut s'arrêter.
+    state.quitting.store(true, Ordering::Relaxed);
+    {
+        let sessions = state.sessions.lock().unwrap();
+        if !sessions.is_empty() {
+            log::info!("quitter : fin des {} session(s) d'abord", sessions.len());
+        }
+        for r in sessions.iter() {
+            r.host.command(Command::Disconnect);
+        }
     }
-    log::info!("quitter : fin des {} session(s) d'abord", sessions.len());
-    state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
-    for r in sessions.iter() {
-        r.host.command(Command::Disconnect);
-    }
+    // Rien en cours : tout de suite. Sinon à la fin de la dernière session,
+    // ou de la connexion qui se lance (`ended`, `Launching`).
+    exit_when_idle(app);
 }
 
 /// La première fermeture de l'accueil : une notification dit où l'app
@@ -2806,6 +2891,14 @@ pub fn run(args: Vec<String>) {
             if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
                 if window.label() == "main" {
                     home_moved(window.app_handle());
+                }
+                return;
+            }
+            // La fenêtre de connexion d'une session suivante passe devant :
+            // sa session devient la session active (plusieurs ordinateurs).
+            if let tauri::WindowEvent::Focused(true) = event {
+                if window.label().starts_with("connexion-") {
+                    connexion_focused(window.app_handle(), window.label());
                 }
                 return;
             }
