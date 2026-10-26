@@ -59,6 +59,11 @@
     ].map(([id, k]) => ({ id, name: t(`bar.${k}`), hint: t(`bar.${k}_hint`) })),
   )
   let history = $state<number[]>([])
+  /**
+   * Les dernières mesures et la courbe de latence de chaque session, gardées même barre cachée :
+   * la barre les montre dès son ouverture, sur la session qu'elle sert.
+   */
+  const seen = new Map<string, { stats: Stats; history: number[] }>()
   let hideTimer: ReturnType<typeof setTimeout> | null = null
   let bar = $state<HTMLElement | null>(null)
   /** Le pointeur est sur la barre, ou dans la bande au-dessus d'elle, contre le bord haut (là où il l'a ouverte). */
@@ -71,11 +76,14 @@
   onMount(() => {
     const off = [
       listen<SessionStats>('stats', (s) => {
-        // Les mesures de la session servie seulement (chaque session envoie les siennes).
+        // Chaque session envoie les siennes : gardées par session, montrées pour celle servie.
+        const before = seen.get(s.id)?.history ?? []
+        const entry = { stats: s as Stats, history: s.latency_ms != null ? [...before, s.latency_ms].slice(-40) : before }
+        seen.set(s.id, entry)
         if (s.id !== id) return
-        stats = s
+        stats = entry.stats
+        history = entry.history
         multi = s.screens > 1
-        if (s.latency_ms != null) history = [...history, s.latency_ms].slice(-40)
         reportWidth()
       }),
       listen<Shown>('bar-label', (s) => {
@@ -93,13 +101,16 @@
       }),
       listen<string[]>('sessions', (s) => {
         sessionCount = s.length
+        // Les mesures des sessions finies s'oublient.
+        for (const k of [...seen.keys()]) if (!s.includes(k)) seen.delete(k)
         reportWidth()
       }),
       listen<Shown>('bar-shown', (s) => {
-        // Une autre session : ses mesures repartent de zéro.
+        // Les mesures et la courbe de cette session, déjà reçues barre cachée.
         if (s.id !== id) {
-          stats = null
-          history = []
+          const kept = seen.get(s.id)
+          stats = kept?.stats ?? null
+          history = kept?.history ?? []
         }
         id = s.id
         label = s.label

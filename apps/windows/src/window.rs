@@ -489,9 +489,6 @@ pub struct App {
     /// Fin demandée par l'utilisateur (« Se déconnecter », fermeture d'une
     /// fenêtre, Ctrl+Alt+Maj+D) : pas de notification de fin.
     user_ended: AtomicBool,
-    /// C'était la session active quand elle s'est arrêtée (sinon, la
-    /// notification de fin vient même app au premier plan).
-    was_active: AtomicBool,
     /// La fenêtre de l'écran principal s'est montrée (première image).
     ever_shown: AtomicBool,
     /// Une de ses fenêtres était au premier plan quand elle s'est arrêtée :
@@ -545,6 +542,12 @@ fn foreground_app() -> Option<(Arc<App>, Arc<ScreenWin>)> {
     if fg.0.is_null() { None } else { app_of(fg.0 as isize) }
 }
 
+/// L'inscription au registre du cœur de la session dont une fenêtre est au
+/// premier plan (plusieurs ordinateurs).
+pub fn foreground_focus_id() -> Option<FocusId> {
+    foreground_app().and_then(|(a, _)| a.focus_id())
+}
+
 /// Une session a une fenêtre au premier plan (la souris des jeux peut y être retenue).
 fn any_in_front() -> bool {
     foreground_app().is_some()
@@ -589,7 +592,6 @@ impl App {
             last_active: AtomicIsize::new(0),
             grabbed: Mutex::new(Vec::new()),
             user_ended: AtomicBool::new(false),
-            was_active: AtomicBool::new(false),
             ever_shown: AtomicBool::new(false),
             was_front: AtomicBool::new(false),
             windows: Mutex::new(Vec::new()),
@@ -634,10 +636,6 @@ impl App {
     /// Fin demandée par l'utilisateur.
     pub fn user_ended(&self) -> bool {
         self.user_ended.load(Ordering::Relaxed)
-    }
-
-    pub fn was_active(&self) -> bool {
-        self.was_active.load(Ordering::Relaxed)
     }
 
     /// Sa fenêtre principale s'est montrée au moins une fois.
@@ -1580,7 +1578,6 @@ fn request_close(app: &Arc<App>) {
 /// Toutes les fenêtres ferment, la boucle de messages s'arrête.
 fn quit(app: &Arc<App>) {
     // Avant que ses fenêtres partent (une autre session prendrait la place).
-    app.was_active.store(app.focus_id().is_some() && focus::active() == app.focus_id(), Ordering::Relaxed);
     app.was_front.store(app.in_front(), Ordering::Relaxed);
     app.forget_raw_target();
     if app.relative() && app.foreground().is_some() {
@@ -1988,13 +1985,18 @@ fn command(app: &Arc<App>, c: usize, arg: isize) {
         x if x == Command::Focus as usize => {
             let last = app.last_active.load(Ordering::Relaxed);
             let target = app.window(arg).or_else(|| app.window(last)).or_else(|| app.primary_window());
-            if let Some(w) = target.filter(|w| w.shown.load(Ordering::Relaxed)) {
-                unsafe {
-                    if IsIconic(w.hwnd()).as_bool() {
-                        let _ = ShowWindow(w.hwnd(), SW_RESTORE);
+            match target.filter(|w| w.shown.load(Ordering::Relaxed)) {
+                Some(w) => {
+                    unsafe {
+                        if IsIconic(w.hwnd()).as_bool() {
+                            let _ = ShowWindow(w.hwnd(), SW_RESTORE);
+                        }
                     }
+                    bring_to_front(w.hwnd());
                 }
-                bring_to_front(w.hwnd());
+                // Pas encore montrée (la session se connecte) : sa fenêtre de
+                // connexion passe devant (plusieurs ordinateurs).
+                None => app.events.connexion_front(),
             }
         }
         x if x == Command::CtrlAltDel as usize => send_combo(app, &[sc::CTRL, sc::ALT, sc::DEL]),
@@ -2127,6 +2129,17 @@ unsafe extern "system" fn screen_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpar
                     }
                     if app.window(RAW_TARGET.load(Ordering::Relaxed)).is_none() {
                         register_raw_input(hwnd);
+                    }
+                    // Le clic qui l'a fait passer devant va à son ordinateur
+                    // (le bouton arrive après l'activation) : à l'endroit du
+                    // pointeur, dont les mouvements sur une fenêtre inactive
+                    // ne partaient pas.
+                    if !app.relative() {
+                        let mut p = POINT::default();
+                        if GetCursorPos(&mut p).is_ok() && WindowFromPoint(p) == hwnd {
+                            let _ = ScreenToClient(hwnd, &mut p);
+                            mouse_position(&app, &win, LPARAM(((p.y as u16 as isize) << 16) | (p.x as u16 as isize)));
+                        }
                     }
                 } else {
                     edge_cancel(&win);
