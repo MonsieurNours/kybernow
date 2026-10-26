@@ -1601,9 +1601,12 @@ impl HostEvents for UiEvents {
     }
 
     /// « Afficher », « Se connecter » sur cet ordinateur ou Ctrl+Alt+Maj+O
-    /// pendant qu'il se connecte : sa fenêtre de connexion passe devant.
+    /// pendant qu'il se connecte : sa fenêtre de connexion passe devant (pour
+    /// la première session, l'accueil et son passage).
     fn connexion_front(&self) {
-        let Some(label) = self.connexion.label.lock().unwrap().clone() else { return };
+        // La première session se connecte sur l'accueil (son passage).
+        let label = if self.first { Some("main".to_string()) } else { self.connexion.label.lock().unwrap().clone() };
+        let Some(label) = label else { return };
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             if let Some(w) = app.get_webview_window(&label) {
