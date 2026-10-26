@@ -93,7 +93,10 @@ enum MenuContent {
         if let session {
             out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
             out.append(MenuEntry(title: metrics(session), enabled: false))
-            out.append(MenuEntry(title: String(localized: "Plein écran"), checked: app.homeWindow?.styleMask.contains(.fullScreen) == true, action: .fullScreen))
+            // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
+            if session.canToggleFullScreen {
+                out.append(MenuEntry(title: String(localized: "Plein écran"), checked: app.homeWindow?.styleMask.contains(.fullScreen) == true, action: .fullScreen))
+            }
             // Les trois modes, comme le menu Souris de la barre de session ; gardé pour l'ordinateur.
             let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse($0)) }
             out.append(MenuEntry(title: String(localized: "Souris"), children: mice))

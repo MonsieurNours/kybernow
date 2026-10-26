@@ -1728,10 +1728,8 @@ impl Worker {
         }
         let plan = self.wanted_plan(&screens);
         if plan == self.plan {
-            // Même plan ; à un écran, « Cet écran » peut avoir changé : l'image le suit.
-            if plan.is_empty() && old.current() != screens.current() && self.streaming.is_some() {
-                self.restart_streaming(Duration::from_millis(300));
-            }
+            // Même plan (à un écran, la fenêtre a pu changer d'écran : l'image
+            // continue, la plateforme la montre toujours dans sa fenêtre).
             return;
         }
         info!("écrans de l'appareil changés : la session se refait");

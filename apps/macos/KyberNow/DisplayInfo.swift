@@ -35,6 +35,48 @@ enum DisplayInfo {
         return (native.pixelWidth, native.pixelHeight)
     }
 
+    /// Identifiant Core Graphics d'un écran.
+    static func displayID(_ screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
+    /// Écrans que la Station sait créer (`virtual_display.max_screens`, 1
+    /// avant le multi-écrans). `KN_MAX_SCREENS=4` le force (essai des
+    /// fenêtres et du repli sur un écran avec une Station qui n'en crée qu'un).
+    static func maxScreens(_ info: HostInfo?) -> Int {
+        if let forced = ProcessInfo.processInfo.environment["KN_MAX_SCREENS"].flatMap(Int.init), forced > 0 { return forced }
+        return info?.maxScreens ?? 1
+    }
+
+    /// Multi-écrans (docs/multi-ecrans.md) : les écrans de ce Mac, des écrans
+    /// en recopie comptant pour un, dans l'ordre de `NSScreen.screens` (le
+    /// premier, celui de la barre des menus, est l'écran principal), et leur
+    /// description pour le cœur : cadre en points converti du repère de Cocoa
+    /// (origine en bas à gauche de l'écran principal, y vers le haut) vers
+    /// celui du contrat (y vers le bas), pixels natifs, fréquence ; « Cet
+    /// écran » (`current`), réglages de l'ordinateur et écrans que la Station
+    /// sait créer.
+    static func deviceScreens(current: NSScreen?, settings: ConnectionSettings, maxScreens: Int) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
+        let all = NSScreen.screens.filter { screen in
+            guard let id = displayID(screen) else { return true }
+            return CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay
+        }
+        let top = all.first?.frame.maxY ?? 0
+        let list = all.enumerated().map { i, screen in
+            let native = nativePixels(screen)
+            return SessionEngine.DeviceScreens.Screen(
+                x: screen.frame.minX, y: top - screen.frame.maxY, width: screen.frame.width, height: screen.frame.height,
+                pixelWidth: native.width, pixelHeight: native.height, refresh: max(30, screen.maximumFramesPerSecond), primary: i == 0)
+        }
+        let currentID = current.flatMap(displayID)
+        let index = all.firstIndex { displayID($0) == currentID } ?? 0
+        let request = SessionEngine.DeviceScreens(
+            list: list, current: index, limit4K: settings.limit4K,
+            customResolution: settings.display == .custom || settings.display == .window,
+            setting: settings.screens.rawValue, maxScreens: maxScreens)
+        return (all, request)
+    }
+
     /// « 3008 × 1692 » si macOS agrandit l'affichage (mode « plus d'espace »), nil sinon.
     static func scaledLooksLike(_ screen: NSScreen) -> String? {
         let native = nativePixels(screen)

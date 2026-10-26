@@ -730,7 +730,7 @@ enum DemoRemote {
             }
             app.store.setDemoStatus(HostStatus(online: app.store.status[h.id]?.online ?? true,
                                                info: HostInfo(hostname: info.hostname, gpu: info.gpu, av1: info.av1, virtualDisplay: info.virtualDisplay,
-                                                              speakers: info.speakers, os: info.os, adminVersion: station.version, station: station)), for: h.id)
+                                                              speakers: info.speakers, os: info.os, adminVersion: station.version, station: station, maxScreens: info.maxScreens)), for: h.id)
         case "respond":
             // respond:<genre>:<ordinateur>:<bouton|default>
             let h = parts.count > 2 ? host(parts[2]) : nil

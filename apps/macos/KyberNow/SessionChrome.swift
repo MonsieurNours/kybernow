@@ -75,7 +75,7 @@ struct SessionChrome: View {
                 .padding(.bottom, 92)
             if streaming, session.statsPanel {
                 StatsPanel(stats: session.stats, history: session.statsHistory, audio: session.audioStats,
-                           sessionLosses: session.sessionLosses, close: session.toggleStatsPanel)
+                           sessionLosses: session.sessionLosses, close: session.toggleStatsPanel, screens: session.screenCount)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .transition(.opacity.combined(with: .offset(x: 24)))
@@ -110,7 +110,8 @@ private struct PassageCapsule: View {
 
     private var mode: Mode {
         switch session.phase {
-        case .preparing, .connecting, .starting: return session.revealedAt == nil ? .waiting : .hidden
+        // La connexion reprise en session (écrans ou profil changés) montre ses étapes.
+        case .preparing, .connecting, .starting: return session.revealedAt == nil || session.replanning ? .waiting : .hidden
         case .reconnecting: return .reconnecting
         case .streaming: return .hidden
         case .failed: return .failed
@@ -148,7 +149,7 @@ private struct PassageCapsule: View {
                     .accessibilityElement(children: .combine)
                 } else {
                     VStack(alignment: .leading, spacing: 7) {
-                        step(0, String(localized: "Préparation de l'écran"))
+                        step(0, session.expectedScreens > 1 ? String(localized: "Préparation des écrans") : String(localized: "Préparation de l'écran"))
                         step(1, String(localized: "Connexion"))
                         step(2, String(localized: "Premières images"))
                     }
@@ -447,16 +448,19 @@ private struct SessionBar: View {
                     .help("L'ordinateur a changé de définition : remettre celle de ce Mac")
                 }
                 divider
-                Button { session.toggleFullScreen() } label: {
-                    Icon("corners-out", size: 16, bold: true)
-                        .foregroundStyle(Theme.text2)
-                        .frame(width: 38, height: 34)
-                        .contentShape(Rectangle())
+                // Plusieurs écrans : les fenêtres restent en plein écran, pas de « Plein écran ».
+                if session.canToggleFullScreen {
+                    Button { session.toggleFullScreen() } label: {
+                        Icon("corners-out", size: 16, bold: true)
+                            .foregroundStyle(Theme.text2)
+                            .frame(width: 38, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Plein écran (⌃⌥⌘F)")
+                    .accessibilityLabel("Plein écran")
+                    .overlay(ring(2))
                 }
-                .buttonStyle(.plain)
-                .help("Plein écran (⌃⌥⌘F)")
-                .accessibilityLabel("Plein écran")
-                .overlay(ring(2))
                 Button { session.end() } label: {
                     HStack(spacing: 8) {
                         Icon("power", size: 15, bold: true)
@@ -472,7 +476,7 @@ private struct SessionBar: View {
                 }
                 .buttonStyle(.plain)
                 .help("Se déconnecter (⌃⌥⌘D)")
-                .overlay(ring(3))
+                .overlay(ring(session.padItems - 1))
             }
             .padding(.leading, 14)
             .padding(.trailing, 8)

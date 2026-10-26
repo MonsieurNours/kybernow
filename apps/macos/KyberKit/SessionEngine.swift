@@ -55,6 +55,102 @@ public final class SessionEngine: @unchecked Sendable {
         }
     }
 
+    /// Multi-écrans (docs/multi-ecrans.md) : les écrans de cet appareil et
+    /// ce qui décide de leur nombre ; le cœur en tire le nombre d'écrans de
+    /// la session, au départ et quand le profil change.
+    public struct DeviceScreens: Equatable, Sendable {
+        public struct Screen: Equatable, Sendable {
+            /// Cadre dans le repère logique de l'appareil (points), y vers le bas.
+            public var x: Double
+            public var y: Double
+            public var width: Double
+            public var height: Double
+            /// Définition native en pixels (avant « Au plus 4K »).
+            public var pixelWidth: Int
+            public var pixelHeight: Int
+            public var refresh: Int
+            public var primary: Bool
+            public init(x: Double, y: Double, width: Double, height: Double, pixelWidth: Int, pixelHeight: Int, refresh: Int, primary: Bool) {
+                (self.x, self.y, self.width, self.height) = (x, y, width, height)
+                (self.pixelWidth, self.pixelHeight, self.refresh, self.primary) = (pixelWidth, pixelHeight, refresh, primary)
+            }
+        }
+
+        public var list: [Screen]
+        /// « Cet écran » : l'écran de la fenêtre de l'app (index dans `list`).
+        public var current: Int
+        public var limit4K: Bool
+        /// Définition sur mesure (ou session fenêtrée) : un seul écran.
+        public var customResolution: Bool
+        /// Réglage « Écrans » : `auto`, `this`, `all`.
+        public var setting: String
+        /// Écrans que la Station sait créer (1 : Station antérieure).
+        public var maxScreens: Int
+
+        public init(list: [Screen], current: Int, limit4K: Bool, customResolution: Bool, setting: String, maxScreens: Int) {
+            self.list = list
+            self.current = current
+            self.limit4K = limit4K
+            self.customResolution = customResolution
+            self.setting = setting
+            self.maxScreens = maxScreens
+        }
+
+        var json: [String: Any] {
+            [
+                "list": list.map { s in
+                    ["x": s.x, "y": s.y, "width": s.width, "height": s.height, "pixel_width": s.pixelWidth,
+                     "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary] as [String: Any]
+                },
+                "current": current, "limit_4k": limit4K, "custom_resolution": customResolution,
+                "setting": setting, "max_screens": maxScreens,
+            ]
+        }
+
+        var text: String {
+            (try? JSONSerialization.data(withJSONObject: json)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        }
+    }
+
+    /// Un écran virtuel que la session demandera (`sessionPlan`).
+    public struct PlannedScreen: Equatable, Sendable {
+        /// Index de l'écran de cet appareil.
+        public let device: Int
+        public let width: Int
+        public let height: Int
+        public let refresh: Int
+        public let primary: Bool
+    }
+
+    /// Un écran de l'ordinateur pris par la session, et l'écran de cet
+    /// appareil qui le montre.
+    public struct StreamScreen: Equatable, Sendable {
+        /// Index de l'écran de cet appareil.
+        public let index: Int
+        /// L'écran de l'ordinateur (taille en pixels : repère des entrées).
+        public let display: KyberDisplay
+        public let refresh: Int
+        public let primary: Bool
+    }
+
+    /// Les écrans que prendra la session, ou nil pour un écran : la ligne de
+    /// l'accueil et les fenêtres à ouvrir, avec le même calcul que la session.
+    public static func sessionPlan(_ screens: DeviceScreens, profile: String?, virtualDisplay: Bool, codec: VideoCodec) -> [PlannedScreen]? {
+        guard let out = kn_screens_session_plan(screens.text, profile ?? "", virtualDisplay, codec.rawValue),
+              let text = Core.take(out), let data = text.data(using: .utf8),
+              let list = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return nil }
+        let plan = list.map { e in
+            PlannedScreen(device: e["device"] as? Int ?? 0, width: e["width"] as? Int ?? 0, height: e["height"] as? Int ?? 0,
+                          refresh: e["refresh"] as? Int ?? 0, primary: e["primary"] as? Bool ?? false)
+        }
+        return plan.count >= 2 ? plan : nil
+    }
+
+    /// Le réglage « Écrans » se change ; sinon inactif, sur « Cet écran ».
+    public static func screensSettingEnabled(customResolution: Bool, virtualDisplay: Bool) -> Bool {
+        kn_screens_setting_enabled(customResolution, virtualDisplay)
+    }
+
     public struct Params: Sendable {
         public var host: String
         public var consolePort: UInt16
@@ -73,6 +169,9 @@ public final class SessionEngine: @unchecked Sendable {
         public var fallbackBitrate: UInt32? = 250_000_000
         /// Synchro verticale du rendu.
         public var vsync = true
+        /// Multi-écrans : les écrans de cet appareil (Mac) ; nil : une session
+        /// à un écran, comme avant.
+        public var screens: DeviceScreens?
 
         public init(host: String, consolePort: UInt16, username: String, password: String, consoleFingerprint: String?, mode: Mode, audioChannels: Int, virtualDisplay: Bool, settings: Settings) {
             self.host = host
@@ -128,8 +227,15 @@ public final class SessionEngine: @unchecked Sendable {
     /// L1 + R1 + START + SELECT : la manette passe de l'ordinateur à l'app, ou revient.
     public var onGamepadCombo: (() -> Void)?
     public var onGamepadNavigate: ((PadKey) -> Void)?
-    /// Un jeu est en plein écran sur l'ordinateur (la vue en est déjà prévenue).
+    /// Un jeu est en plein écran sur l'ordinateur (les vues en sont déjà prévenues).
     public var onGameFullscreen: ((Bool) -> Void)?
+    /// Multi-écrans : les écrans pris par la session (principal en premier)
+    /// et ceux que l'ordinateur n'a pas pu créer, à chaque démarrage de
+    /// l'image ; avant que leurs images arrivent. Les vues de ces écrans
+    /// doivent être enregistrées (`register`) dans ce rappel.
+    public var onScreens: (([StreamScreen], [Int]) -> Void)?
+    /// Multi-écrans : la première image d'un écran est décodée.
+    public var onScreenImage: ((Int) -> Void)?
 
     public let view: StreamView
     private let lock = NSLock()
@@ -141,6 +247,13 @@ public final class SessionEngine: @unchecked Sendable {
     private var videos: [UInt64: VideoPipeline] = [:]
     private var audios: [UInt64: AudioPlayer] = [:]
     private var shownStream: UInt64?
+    /// Multi-écrans : la vue de chaque écran de cet appareil, l'écran de
+    /// chaque flux, l'écran principal (nil : session sans `screens`), les
+    /// écrans pris par la session.
+    private var screenViews: [Int: StreamView] = [:]
+    private var streamScreens: [UInt64: Int] = [:]
+    private var primaryScreen: Int?
+    private var takenScreens: [StreamScreen] = []
     private var input: InputPipeline?
     private var lastDisplay: KyberDisplay?
     private var lastSecond: LatencySecond?
@@ -173,6 +286,7 @@ public final class SessionEngine: @unchecked Sendable {
             "auto_reconnect": p.autoReconnect, "gamepad_xbox360": p.gamepadAsXbox360, "clipboard": p.clipboard,
         ]
         if let fp = p.consoleFingerprint { json["console_fingerprint"] = fp }
+        if let screens = p.screens { json["screens"] = screens.json }
         var recovery: [String: Any] = ["watch_image": true]
         if let cap = p.fallbackBitrate { recovery["fallback_bitrate"] = Int(cap) }
         json["recovery"] = recovery
@@ -214,7 +328,7 @@ public final class SessionEngine: @unchecked Sendable {
             DispatchQueue.main.async {
                 KyberLog.app.notice("entrées reliées à l'ordinateur")
                 me.currentInput?.networkConnected()
-                me.view.inputConnected()
+                me.allViews.forEach { $0.inputConnected() }
             }
         }
         platform.on_second = { ud, second in
@@ -224,13 +338,21 @@ public final class SessionEngine: @unchecked Sendable {
         platform.on_game_fullscreen = { ud, game in
             let me = SessionEngine.from(ud)
             DispatchQueue.main.async {
-                me.view.pcGameFullscreen = game
+                me.allViews.forEach { $0.pcGameFullscreen = game }
                 me.onGameFullscreen?(game)
             }
         }
         platform.on_notice = { ud, notice in
             guard let notice else { return }
             SessionEngine.from(ud).notice(notice.pointee)
+        }
+        platform.on_screens = { ud, list, count, missing, missingCount in
+            let screens = (0..<Int(count)).map { i -> StreamScreen in
+                let s = list![i]
+                return StreamScreen(index: Int(s.screen), display: KyberDisplay(s.display), refresh: Int(s.refresh), primary: s.primary)
+            }
+            let notCreated = (0..<Int(missingCount)).map { Int(missing![$0]) }
+            SessionEngine.from(ud).screensTaken(screens, notCreated)
         }
 
         var error: UnsafeMutablePointer<CChar>?
@@ -279,6 +401,60 @@ public final class SessionEngine: @unchecked Sendable {
     /// Plafond de débit (fenêtre occultée) ; nil le retire.
     public func setBitrateCap(_ cap: UInt32?) {
         if let s = live { kn_session_set_bitrate_cap(s, cap ?? 0) }
+    }
+
+    /// Multi-écrans : la vue qui montre l'écran `screen` de cet appareil
+    /// (fil principal). Celle donnée à `init` sert aux écrans sans vue.
+    public func register(_ view: StreamView, screen: Int) {
+        lock.lock()
+        screenViews[screen] = view
+        lock.unlock()
+    }
+
+    /// Multi-écrans : toutes les vues d'un coup, par écran de cet appareil
+    /// (fil principal) ; les vues qui n'y sont plus sont détachées.
+    public func setScreenViews(_ views: [Int: StreamView]) {
+        lock.lock()
+        let old = Array(screenViews.values)
+        screenViews = views
+        lock.unlock()
+        for v in old where v !== view && !views.values.contains(where: { $0 === v }) {
+            v.detach()
+            v.surface.show(nil)
+        }
+    }
+
+    /// Multi-écrans : plus aucune vue pour cet écran (fenêtre fermée).
+    public func unregister(screen: Int) {
+        lock.lock()
+        let old = screenViews.removeValue(forKey: screen)
+        lock.unlock()
+        if let old, old !== view {
+            old.detach()
+            old.surface.show(nil)
+        }
+    }
+
+    /// Multi-écrans : les écrans de cet appareil ont changé ; la session se
+    /// refait avec eux si le nombre ou la disposition change.
+    public func setScreens(_ screens: DeviceScreens) {
+        if let s = live { kn_session_set_screens(s, screens.text) }
+    }
+
+    /// La vue de l'écran `screen` (celle de `init` sans multi-écrans).
+    private func view(for screen: Int?) -> StreamView {
+        lock.lock()
+        defer { lock.unlock() }
+        return screen.flatMap { screenViews[$0] } ?? view
+    }
+
+    /// Toutes les vues de la session.
+    private var allViews: [StreamView] {
+        lock.lock()
+        defer { lock.unlock() }
+        var views = [view]
+        for v in screenViews.values where !views.contains(where: { $0 === v }) { views.append(v) }
+        return views
     }
 
     /// Sans écran virtuel : afficher un autre écran de l'ordinateur.
@@ -400,9 +576,13 @@ public final class SessionEngine: @unchecked Sendable {
         let input = self.input
         self.input = nil
         let ud = platform.userdata
+        var views = [view]
+        for v in screenViews.values where !views.contains(where: { $0 === v }) { views.append(v) }
         lock.unlock()
-        view.detach()
-        view.surface.show(nil)
+        for v in views {
+            v.detach()
+            v.surface.show(nil)
+        }
         input?.stop()
         input?.shutdown()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -420,10 +600,39 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         lastDisplay = display
         let attached = input != nil
+        // Multi-écrans : les tailles passent par `on_screens`, qui suit.
+        let multi = primaryScreen != nil
         lock.unlock()
         DispatchQueue.main.async { [self] in
-            if attached { view.setHostSize(CGSize(width: display.width, height: display.height)) }
+            if attached, !multi { view.setHostSize(CGSize(width: display.width, height: display.height)) }
             onShownDisplay?(display)
+        }
+    }
+
+    /// Multi-écrans : les écrans pris par la session (fil de session du
+    /// cœur, avant `input_pipeline` et les premières images).
+    private func screensTaken(_ screens: [StreamScreen], _ notCreated: [Int]) {
+        lock.lock()
+        takenScreens = screens
+        primaryScreen = screens.first(where: \.primary)?.index ?? screens.first?.index
+        let attached = input
+        lock.unlock()
+        KyberLog.app.notice("écrans de la session : \(screens.map { "\($0.index) → \($0.display.id) \($0.display.width)×\($0.display.height)" }.joined(separator: ", "), privacy: .public)\(notCreated.isEmpty ? "" : " ; non créés : \(notCreated)", privacy: .public)")
+        DispatchQueue.main.async { [self] in
+            onScreens?(screens, notCreated)
+            // Taille d'un écran changée en cours de session.
+            if let attached {
+                for s in screens { view(for: s.index).setHostSize(CGSize(width: s.display.width, height: s.display.height)) }
+                attached.setScreens(inputScreens(screens))
+            }
+        }
+    }
+
+    /// Les écrans pour la chaîne d'entrées, avec la couche de pointeur de leur vue.
+    private func inputScreens(_ screens: [StreamScreen]) -> [InputPipeline.Screen] {
+        screens.map { s in
+            InputPipeline.Screen(index: s.index, displayID: s.display.id, hostSize: CGSize(width: s.display.width, height: s.display.height),
+                                 pointer: view(for: s.index).pointer)
         }
     }
 
@@ -434,8 +643,11 @@ public final class SessionEngine: @unchecked Sendable {
         let clipboard = params?.clipboard ?? true
         let captured = padCaptured
         let old = input
+        let screens = primaryScreen != nil ? takenScreens : []
+        let primaryView = primaryScreen.flatMap { screenViews[$0] } ?? view
         lock.unlock()
-        let input = InputPipeline(displayID: display.id, hostSize: CGSize(width: display.width, height: display.height), pointer: view.pointer, clipboard: clipboard)
+        let input = InputPipeline(displayID: display.id, hostSize: CGSize(width: display.width, height: display.height), pointer: primaryView.pointer, clipboard: clipboard)
+        if !screens.isEmpty { input.setScreens(inputScreens(screens)) }
         input.gamepad.onCombo = { [weak self] in DispatchQueue.main.async { self?.onGamepadCombo?() } }
         input.gamepad.onNavigate = { [weak self] key in DispatchQueue.main.async { self?.onGamepadNavigate?(key) } }
         // Une seule image à la fois : deux chaînes d'entrées se disputeraient
@@ -446,7 +658,22 @@ public final class SessionEngine: @unchecked Sendable {
         lock.lock()
         self.input = input
         lock.unlock()
-        DispatchQueue.main.async { [self] in view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height)) }
+        DispatchQueue.main.async { [self] in
+            guard !screens.isEmpty else {
+                view.attach(input: input, hostSize: CGSize(width: display.width, height: display.height))
+                return
+            }
+            // Multi-écrans : chaque vue sur son écran de l'ordinateur ; les
+            // fenêtres ouvertes par `onScreens` ont maintenant leur vue.
+            for s in screens {
+                let v = view(for: s.index)
+                #if os(macOS)
+                v.screenIndex = s.index
+                #endif
+                v.attach(input: input, hostSize: CGSize(width: s.display.width, height: s.display.height))
+            }
+            input.setScreens(inputScreens(screens))
+        }
         return input.kynputRef()
     }
 
@@ -505,12 +732,14 @@ public final class SessionEngine: @unchecked Sendable {
 
     // MARK: - Paquets (fil réseau de Kyber)
 
-    private func videoPipeline(for stream: UInt64) -> VideoPipeline? {
+    private func videoPipeline(for stream: UInt64, screen: Int) -> VideoPipeline? {
         lock.lock()
         if let p = videos[stream] {
             lock.unlock()
             return p
         }
+        // Multi-écrans : latence, taille décodée et mesures viennent de l'écran principal.
+        let primary = primaryScreen.map { $0 == screen } ?? true
         guard let pipeline = VideoPipeline() else {
             lock.unlock()
             KyberLog.video.error("rendu Metal indisponible : image ignorée")
@@ -519,8 +748,13 @@ public final class SessionEngine: @unchecked Sendable {
         pipeline.renderer.vsync = vsync
         pipeline.renderer.paused = occluded
         pipeline.renderer.topMarker = topMarker
-        pipeline.renderer.latency = self
-        pipeline.renderer.onStats = { [weak self] stats in self?.videoStats(stats) }
+        if primary {
+            pipeline.renderer.latency = self
+            pipeline.renderer.onStats = { [weak self] stats in self?.videoStats(stats) }
+        }
+        if primaryScreen != nil {
+            pipeline.onFirstFrame = { [weak self] in DispatchQueue.main.async { self?.onScreenImage?(screen) } }
+        }
         #if !os(macOS)
         pipeline.renderer.onStuck = { [weak self] in
             DispatchQueue.main.async { self?.view.surface.heal() }
@@ -533,10 +767,23 @@ public final class SessionEngine: @unchecked Sendable {
             if let s = self?.live { kn_session_keyframe_recovered(s) }
         }
         videos[stream] = pipeline
-        shownStream = stream
+        streamScreens[stream] = screen
+        if primary { shownStream = stream }
+        let multi = primaryScreen != nil
         lock.unlock()
-        KyberLog.video.notice("image décodée par l'app (VideoToolbox, Metal), flux \(stream)")
-        DispatchQueue.main.async { [self] in view.surface.show(pipeline.renderer) }
+        KyberLog.video.notice("image décodée par l'app (VideoToolbox, Metal), flux \(stream)\(multi ? ", écran \(screen)" : "", privacy: .public)")
+        DispatchQueue.main.async { [self] in
+            guard multi else {
+                view.surface.show(pipeline.renderer)
+                return
+            }
+            // Un écran sans vue (fenêtre fermée entre-temps) : l'image n'est
+            // montrée nulle part, jamais à la place d'un autre écran.
+            lock.lock()
+            let target = screenViews[screen] ?? (screen == primaryScreen ? view : nil)
+            lock.unlock()
+            if let target { target.surface.show(pipeline.renderer) } else { KyberLog.video.notice("écran \(screen) sans fenêtre : image ignorée") }
+        }
         return pipeline
     }
 
@@ -546,18 +793,19 @@ public final class SessionEngine: @unchecked Sendable {
             // Plus aucun paquet ne viendra : le pipeline peut être arrêté.
             lock.lock()
             let pipeline = videos.removeValue(forKey: p.stream)
+            streamScreens.removeValue(forKey: p.stream)
             lock.unlock()
             pipeline?.stop()
         case KN_PACKET_CODEC:
-            videoPipeline(for: p.stream)?.decoder.setCodec(p.codec)
+            videoPipeline(for: p.stream, screen: Int(p.screen))?.decoder.setCodec(p.codec)
         case KN_PACKET_MEDIA:
-            guard let data = p.data, p.len > 0, let pipeline = videoPipeline(for: p.stream) else { return }
+            guard let data = p.data, p.len > 0, let pipeline = videoPipeline(for: p.stream, screen: Int(p.screen)) else { return }
             if let s = live { kn_session_bytes_received(s, p.len) }
             pipeline.decoder.decode(UnsafeBufferPointer(start: data, count: Int(p.len)), isConfig: p.is_config, isKey: p.is_key, pts: p.pts)
         case KN_PACKET_HOLE:
             // Données perdues : l'image suivante n'a plus sa référence.
             if let s = live { kn_session_hole(s) }
-            videoPipeline(for: p.stream)?.decoder.dataLost()
+            videoPipeline(for: p.stream, screen: Int(p.screen))?.decoder.dataLost()
         default:
             break
         }

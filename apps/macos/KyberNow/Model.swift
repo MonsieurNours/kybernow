@@ -60,6 +60,22 @@ enum Transport: String, Codable, CaseIterable {
 }
 
 /// Souris pendant la session.
+/// Réglage « Écrans » (apps Mac, Windows et Linux, docs/multi-ecrans.md) :
+/// Auto (tous les écrans en Bureau et Max, un seul en Jeu et en
+/// Personnalisé), Cet écran, Tous les écrans. Le cœur décide avec les mêmes
+/// règles partout ; changer ce réglage ne rend pas le profil « Personnalisé ».
+enum ScreensChoice: String, Codable, CaseIterable {
+    case auto, this, all
+
+    var label: String {
+        switch self {
+        case .auto: return String(localized: "Auto")
+        case .this: return String(localized: "Cet écran")
+        case .all: return String(localized: "Tous les écrans")
+        }
+    }
+}
+
 enum MouseChoice: String, Codable, CaseIterable {
     /// Mode jeu quand un jeu est en plein écran sur l'ordinateur.
     case auto
@@ -191,6 +207,8 @@ struct ConnectionSettings: Codable, Hashable {
     var vsync = true
     /// « Comme cet écran » ramené à la 4K au plus (écrans 5K, 6K).
     var limit4K = false
+    /// Écrans de la session (Mac) : Auto, Cet écran, Tous les écrans.
+    var screens: ScreensChoice = .auto
     /// Souris : Auto (jeu en plein écran), Bureau ou Jeu.
     var mouse: MouseChoice = .auto
     /// Presse-papiers partagé avec l'ordinateur (texte).
@@ -302,7 +320,7 @@ extension ConnectionSettings {
     // sa valeur par défaut au lieu de faire perdre les ordinateurs enregistrés.
     private enum Keys: String, CodingKey {
         case profile, display, customWidth, customHeight, customRefresh, codec, yuv444, bitrateMbps, transport
-        case autoReconnect, commandAsControl, audio, vsync, limit4K, mouse, clipboard, keepLastImage, gamepad
+        case autoReconnect, commandAsControl, audio, vsync, limit4K, screens, mouse, clipboard, keepLastImage, gamepad
         case screenPad, screenPadLayout, screenPadSize, screenPadOpacity, screenPadHaptics
     }
 
@@ -323,6 +341,7 @@ extension ConnectionSettings {
         audio = (try? c.decodeIfPresent(AudioChoice.self, forKey: .audio)) ?? audio
         vsync = (try? c.decodeIfPresent(Bool.self, forKey: .vsync)) ?? vsync
         limit4K = (try? c.decodeIfPresent(Bool.self, forKey: .limit4K)) ?? limit4K
+        screens = (try? c.decodeIfPresent(ScreensChoice.self, forKey: .screens)) ?? screens
         mouse = (try? c.decodeIfPresent(MouseChoice.self, forKey: .mouse)) ?? mouse
         clipboard = (try? c.decodeIfPresent(Bool.self, forKey: .clipboard)) ?? clipboard
         keepLastImage = (try? c.decodeIfPresent(Bool.self, forKey: .keepLastImage)) ?? keepLastImage
@@ -359,6 +378,8 @@ struct Host: Codable, Identifiable, Hashable {
     var lastRefresh: Int?
     var lastCodec: VideoCodec?
     var lastMbps: Int?
+    /// Nombre d'écrans de la dernière session (absent : un).
+    var lastScreens: Int?
     /// Ajouté par code à six chiffres : un compte propre à cet appareil,
     /// créé par Admin à l'accord.
     var pairedByCode: Bool?
@@ -375,7 +396,7 @@ struct Host: Codable, Identifiable, Hashable {
 
     /// Fin d'une session commencée à `start` (l'image arrivée) : une session
     /// de moins de 3 s ne remplace pas la précédente dans les Statistiques.
-    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int) {
+    mutating func recordSession(start: Date, latency: (median: Double, p95: Double)?, width: Int, height: Int, refresh: Int, codec: VideoCodec, mbps: Int, screens: Int = 1) {
         let duration = Date().timeIntervalSince(start)
         guard duration >= 3 else { return }
         lastSession = start
@@ -387,13 +408,14 @@ struct Host: Codable, Identifiable, Hashable {
         lastRefresh = refresh > 0 ? refresh : nil
         lastCodec = codec
         lastMbps = mbps > 0 ? mbps : nil
+        lastScreens = screens > 1 ? screens : nil
     }
 
     // Lecture tolérante : les ordinateurs enregistrés par les versions
     // précédentes n'avaient qu'un profil, ni le détail de la dernière session.
     private enum CodingKeys: String, CodingKey {
         case id, name, address, consolePort, username, streamPort, consoleFingerprint, settings, lastSession, lastLatencyMs, lastLatencyP95Ms, lastDuration, profile
-        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, pairedByCode, wake
+        case lastWidth, lastHeight, lastRefresh, lastCodec, lastMbps, lastScreens, pairedByCode, wake
     }
 
     init(from decoder: Decoder) throws {
@@ -414,6 +436,7 @@ struct Host: Codable, Identifiable, Hashable {
         lastRefresh = try? c.decodeIfPresent(Int.self, forKey: .lastRefresh)
         lastCodec = try? c.decodeIfPresent(VideoCodec.self, forKey: .lastCodec)
         lastMbps = try? c.decodeIfPresent(Int.self, forKey: .lastMbps)
+        lastScreens = try? c.decodeIfPresent(Int.self, forKey: .lastScreens)
         pairedByCode = try? c.decodeIfPresent(Bool.self, forKey: .pairedByCode)
         wake = try? c.decodeIfPresent([WakeTarget].self, forKey: .wake)
         if let s = try c.decodeIfPresent(ConnectionSettings.self, forKey: .settings) {
@@ -442,6 +465,7 @@ struct Host: Codable, Identifiable, Hashable {
         try c.encodeIfPresent(lastRefresh, forKey: .lastRefresh)
         try c.encodeIfPresent(lastCodec, forKey: .lastCodec)
         try c.encodeIfPresent(lastMbps, forKey: .lastMbps)
+        try c.encodeIfPresent(lastScreens, forKey: .lastScreens)
         try c.encodeIfPresent(pairedByCode, forKey: .pairedByCode)
         try c.encodeIfPresent(wake, forKey: .wake)
     }
