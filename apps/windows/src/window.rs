@@ -610,24 +610,13 @@ impl App {
     }
 
     /// L'ordinateur cache-t-il son pointeur, et depuis combien de temps le
-    /// montre-t-il : sur tous les écrans qui l'ont vu (un pointeur qui quitte
-    /// un écran y est annoncé caché, il n'est caché que s'il l'est partout),
-    /// et depuis le plus long des écrans où il est visible.
+    /// montre-t-il, sur tous les écrans : la règle du cœur
+    /// (`PointerLayer::summary`, docs/multi-ecrans.md : un écran où le
+    /// pointeur n'est jamais passé ne compte pas).
     fn pointer_summary(&self) -> (bool, Duration) {
-        let now = self.clock.now();
-        let mut seen = false;
-        let mut all_hidden = true;
-        let mut longest = Duration::ZERO;
-        for w in self.windows() {
-            let state = w.pointer.state();
-            if state.remote_position.is_none() {
-                continue;
-            }
-            seen = true;
-            all_hidden &= state.remote_hidden;
-            longest = longest.max(state.visible_for(now));
-        }
-        if seen { (all_hidden, longest) } else { (false, now) }
+        let windows = self.windows();
+        let s = PointerLayer::summary(windows.iter().map(|w| w.pointer.as_ref()));
+        (s.hidden, s.visible_for)
     }
 
     /// Les écrans de la session et leur position pour les entrées.

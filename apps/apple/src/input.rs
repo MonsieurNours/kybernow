@@ -175,6 +175,26 @@ pub extern "C" fn kn_mouse_wants_relative(
     MouseModeRules { needs_hidden_pointer }.wants_relative(mode, game_fullscreen, remote_hidden, visible_for, relative_active)
 }
 
+/// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto, sur les
+/// couches de tous les écrans de la session (`count` couches) : caché
+/// seulement s'il l'est sur tous les écrans où il est déjà passé (un écran
+/// jamais visité ne compte pas), visible depuis le plus long des délais. À
+/// donner à `kn_mouse_wants_relative`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_pointer_summary(layers: *const *const KnPointer, count: usize, hidden: *mut bool, visible_for_ms: *mut f64) {
+    let list: &[*const KnPointer] = if layers.is_null() || count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(layers, count) } };
+    let pointers: Vec<&KnPointer> = list.iter().filter_map(|p| unsafe { p.as_ref() }).collect();
+    let s = PointerLayer::summary(pointers.iter().map(|p| p.layer.as_ref()));
+    unsafe {
+        if !hidden.is_null() {
+            *hidden = s.hidden;
+        }
+        if !visible_for_ms.is_null() {
+            *visible_for_ms = s.visible_for.as_secs_f64() * 1000.0;
+        }
+    }
+}
+
 /// Facteur d'échelle d'un pointeur de `width` × `height` pixels pour tenir
 /// dans une case de `box_` points, au plus `max_factor`.
 #[unsafe(no_mangle)]

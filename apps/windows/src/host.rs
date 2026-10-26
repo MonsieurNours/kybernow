@@ -360,13 +360,17 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
     control_out.store(app.control_hwnd(), Ordering::Relaxed);
 
     // La fenêtre de l'écran principal, avant le cœur (cachée jusqu'à sa
-    // première image). Plusieurs écrans : posée sur le sien ; un seul : où
-    // Windows la met, comme toujours.
-    let multi = session_plan(&screens, params.settings.profile, params.virtual_display, params.settings.codec).is_some();
-    let primary = layout.monitors.get(screens.current);
-    let (key, at, size) = match primary {
-        Some(m) if multi => (m.key.clone(), Some((m.x + 60, m.y + 60)), (((m.width as f32) * 0.8) as i32, ((m.height as f32) * 0.8) as i32)),
-        Some(m) => (m.key.clone(), None, opts.window_size),
+    // première image). Plusieurs écrans : posée sur l'écran principal ; un
+    // seul : sur « Cet écran », celui de la fenêtre de l'accueil.
+    let plan = session_plan(&screens, params.settings.profile, params.virtual_display, params.settings.codec);
+    let index = plan.as_ref().and_then(|p| p.first()).map_or(screens.current, |p| p.device);
+    let (key, at, size) = match layout.monitors.get(index) {
+        Some(m) if plan.is_some() => (m.key.clone(), Some((m.x + 60, m.y + 60)), (((m.width as f32) * 0.8) as i32, ((m.height as f32) * 0.8) as i32)),
+        Some(m) => {
+            // Centrée sur « Cet écran » (les autres écrans ne prennent pas cette fenêtre).
+            let (w, h) = opts.window_size;
+            (m.key.clone(), Some((m.x + (m.width - w).max(0) / 2, m.y + (m.height - h).max(0) / 2)), opts.window_size)
+        }
         None => (String::new(), None, opts.window_size),
     };
     if let Err(e) = window::create_screen(&app, &key, true, at, size) {

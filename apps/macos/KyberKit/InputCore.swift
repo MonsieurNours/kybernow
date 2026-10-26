@@ -284,6 +284,16 @@ final class PointerLayer: @unchecked Sendable {
         )
     }
 
+    /// Multi-écrans : le pointeur de l'ordinateur pour la souris Auto sur
+    /// toutes ces couches (règle du cœur : caché seulement s'il l'est sur
+    /// tous les écrans où il est déjà passé, visible depuis le plus long).
+    static func summary(_ layers: [PointerLayer]) -> (hidden: Bool, visibleFor: TimeInterval) {
+        let cores: [OpaquePointer?] = layers.map(\.core)
+        var hidden = false, ms = 0.0
+        cores.withUnsafeBufferPointer { kn_pointer_summary($0.baseAddress, UInt($0.count), &hidden, &ms) }
+        return (hidden, ms / 1000)
+    }
+
     /// L'écran de l'ordinateur a changé de taille en cours de session.
     func setHostSize(_ size: CGSize) {
         kn_pointer_set_host_size(core, size.width, size.height)

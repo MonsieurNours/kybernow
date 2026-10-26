@@ -19,9 +19,8 @@ import AppKit
 @_implementationOnly import CKyber
 
 /// Multi-écrans : les vues de session d'une même session, une par écran de
-/// ce Mac. La règle Auto de la souris les regarde ensemble : le pointeur de
-/// l'ordinateur ne compte comme caché que s'il l'est sur tous les écrans
-/// (il est annoncé caché sur l'écran qu'il quitte).
+/// ce Mac. La règle Auto de la souris (celle du cœur) les regarde ensemble,
+/// et un changement du pointeur sur l'une les fait toutes réévaluer.
 public final class StreamViewGroup {
     private var members: [WeakView] = []
     private struct WeakView { weak var view: StreamView? }
@@ -339,11 +338,15 @@ public final class StreamView: NSView {
         }
     }
 
-    /// Le pointeur de l'ordinateur pour la règle Auto : caché seulement s'il
-    /// l'est sur tous les écrans de la session, visible depuis le plus long.
+    /// Le pointeur de l'ordinateur pour la règle Auto : celui de cette vue,
+    /// ou, avec plusieurs écrans, la règle du cœur sur toutes les vues de la
+    /// session (`kn_pointer_summary` : un écran jamais visité ne compte pas).
     private var ruleState: (hidden: Bool, visibleFor: TimeInterval) {
-        let states = (group?.views ?? [self]).map(\.pointer.state)
-        return (states.allSatisfy(\.remoteHidden), states.map(\.visibleFor).max() ?? 0)
+        guard let group else {
+            let state = pointer.state
+            return (state.remoteHidden, state.visibleFor)
+        }
+        return PointerLayer.summary(group.views.map(\.pointer))
     }
 
     private func evaluateRelative() {

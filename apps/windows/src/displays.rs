@@ -6,7 +6,9 @@
 //! écrans en recopie n'y comptent que pour un) ; l'app est « per-monitor
 //! DPI aware » : les cadres sont en pixels réels du bureau, sans mise à
 //! l'échelle (le cœur s'en sert tels quels, sa disposition ne dépend que des
-//! bords partagés). L'écran principal de Windows est celui de la session.
+//! bords partagés). L'écran principal de Windows est l'écran principal de la
+//! session ; « Cet écran » (session à un écran) est celui de la fenêtre de
+//! l'accueil, comme sur Mac et Linux.
 
 use kybernow_core::screens::{DeviceScreen, DisplaysSetting, Screens};
 
@@ -79,8 +81,9 @@ impl Layout {
 }
 
 /// Les écrans de l'appareil tels que le cœur les attend. « Cet écran » est
-/// l'écran principal de Windows : c'est de lui que la session à un écran prend
-/// son mode (`system::screen_mode`) et où sa fenêtre se montre.
+/// l'écran de la fenêtre de l'accueil (`current`) : c'est de lui que la
+/// session à un écran prend son mode (`system::screen_mode`) et où sa fenêtre
+/// se montre.
 pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
     Screens {
         list: monitors
@@ -96,7 +99,7 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
                 primary: m.primary,
             })
             .collect(),
-        current: primary(monitors),
+        current: current(monitors),
         limit_4k: spec.limit_4k,
         custom_resolution: spec.custom_resolution,
         setting: spec.setting,
@@ -110,6 +113,17 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
 /// `KN_MAX_SCREENS`) : l'app fait comme si la Station en créait autant.
 pub fn max_screens(station: usize) -> usize {
     std::env::var("KYBERNOW_MAX_SCREENS").ok().and_then(|v| v.trim().parse::<usize>().ok()).map_or(station, |n| n.clamp(1, 4))
+}
+
+/// « Cet écran » : l'écran de la fenêtre de l'accueil, sinon l'écran principal.
+pub fn current(monitors: &[Monitor]) -> usize {
+    #[cfg(windows)]
+    if let Some(key) = crate::system::home_monitor_key()
+        && let Some(i) = monitors.iter().position(|m| m.key.eq_ignore_ascii_case(&key))
+    {
+        return i;
+    }
+    primary(monitors)
 }
 
 /// Index de l'écran principal de Windows (le premier à défaut).
