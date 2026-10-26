@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
         if hidden { app.startInBackground() }
         LoginItem.shared.applyDefault()
+        // Le lecteur de manettes unique du cœur, sur son fil SDL, pour toutes les sessions.
+        let pads = SessionEngine.startGamepads()
+        KyberLog.app.notice("lecteur de manettes du cœur : \(pads ? "démarré" : "indisponible", privacy: .public)")
         menuBar = MenuBarController(app: app)
         app.watchStationConfirmations()
         // Icône du Dock et sondage : à chaque fenêtre qui s'ouvre, se ferme, se réduit.
@@ -682,6 +685,7 @@ enum DemoRemote {
                 "premier plan \(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")",
                 "sondage \(Int(app.store.pollInterval)) s",
                 "sessions \(app.sessions.all.isEmpty ? "aucune" : app.sessions.all.map { "\($0.host.name) \($0.phase)\($0.focusActive ? " active" : "")\($0.keepSound ? " son gardé" : "")\($0.isFullScreen ? " plein écran" : "")" }.joined(separator: ", "))",
+                "registre \(SessionEngine.focusCount)/\(SessionEngine.focusMax) active \(SessionEngine.focusActiveID ?? -1) : \(app.sessions.all.map { "\($0.host.name) \($0.focusID ?? -1)" }.joined(separator: ", "))",
                 "fenêtres des sessions \(app.sessions.all.flatMap(\.windows).map { "\($0.title) \(Int($0.frame.width))x\(Int($0.frame.height)) \($0.isOnActiveSpace ? "espace actif" : "autre espace") \($0.occlusionState.contains(.visible) ? "visible" : "cachée") \($0.isKeyWindow ? "clé" : "")" })",
                 "icône \(Int(frame.minX)),\(Int(top)) \(Int(frame.width))x\(Int(frame.height))",
                 "ouverture de session \(LoginItem.shared.enabled)",

@@ -15,7 +15,8 @@
 # lui-même (libkybernow.dylib, apps/apple/scripts/build-apple.sh).
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
-# sans toucher à Vendor/. Refuse de tourner pendant que l'app est ouverte.
+# sans toucher à Vendor/. Refuse de tourner pendant que l'app est ouverte
+# (dans un worktree git : KYBERNOW_IGNORE_RUNNING=1, voir app_closed).
 # Versions vérifiées : scripts/kyber-toolchain.sh (une autre est signalée).
 set -euo pipefail
 
@@ -32,10 +33,21 @@ OUT="$HERE/Vendor"
 [ -d "$OUT/Frameworks" ] || { echo "Lancez d'abord scripts/vendor-kyber.sh" >&2; exit 1; }
 
 # Remplacer les bibliothèques sous l'app ouverte fait planter VLC à la
-# session suivante (docs/build-notes.md).
+# session suivante (docs/build-notes.md). Dans un worktree git, dont le
+# Vendor/ n'est pas celui du dépôt principal, KYBERNOW_IGNORE_RUNNING=1 laisse
+# tourner le script app ouverte ; sans effet dans le dépôt principal.
+other_checkout() {
+    local dir common
+    dir="$(git -C "$ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || return 1
+    common="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+    [ "$dir" != "$common" ]
+}
 app_closed() {
+    if [ "${KYBERNOW_IGNORE_RUNNING:-0}" = 1 ] && other_checkout; then
+        return
+    fi
     if pgrep -x "KyberNow( Link)?" >/dev/null; then
-        echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/)." >&2
+        echo "KyberNow est ouvert : quittez l'app avant de remplacer ses bibliothèques (Vendor/ ; dans un worktree : KYBERNOW_IGNORE_RUNNING=1)." >&2
         exit 1
     fi
 }

@@ -413,10 +413,6 @@ final class InputPipeline: @unchecked Sendable {
         var connected: (() -> Void)?
         #if os(macOS)
         let pasteboard = NSPasteboard.general
-        /// Plusieurs ordinateurs : presse-papiers en pause (session inactive),
-        /// et le compteur de changements figé à la mise en pause.
-        var clipboardPaused = false
-        var frozenChangeCount = 0
         #endif
     }
 
@@ -486,24 +482,20 @@ final class InputPipeline: @unchecked Sendable {
     }
 
     #if os(macOS)
-    // En pause (`setClipboardActive(false)`) : le compteur reste figé, aucun
-    // texte n'est lu ni écrit sur ce Mac.
     private static let pasteboardChangeCount: (@convention(c) (UnsafeMutableRawPointer?) -> UInt64)? = { ud in
         guard let ud else { return 0 }
         let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-        let frozen = box.lock.withLock { box.clipboardPaused ? box.frozenChangeCount : nil }
-        return UInt64(max(0, frozen ?? box.pasteboard.changeCount))
+        return UInt64(max(0, box.pasteboard.changeCount))
     }
     private static let pasteboardText: (@convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>?)? = { ud in
         guard let ud else { return nil }
         let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-        guard !box.lock.withLock({ box.clipboardPaused }), let text = box.pasteboard.string(forType: .string) else { return nil }
+        guard let text = box.pasteboard.string(forType: .string) else { return nil }
         return strdup(text)
     }
     private static let pasteboardSetText: (@convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?) -> Void)? = { ud, text in
         guard let ud, let text else { return }
         let box = Unmanaged<Callbacks>.fromOpaque(ud).takeUnretainedValue()
-        guard !box.lock.withLock({ box.clipboardPaused }) else { return }
         box.pasteboard.clearContents()
         box.pasteboard.setString(String(cString: text), forType: .string)
     }
@@ -629,20 +621,6 @@ final class InputPipeline: @unchecked Sendable {
 
     /// Une fois la chaîne branchée au réseau.
     func startClipboard() { kn_input_start_clipboard(core) }
-
-    /// Plusieurs ordinateurs (Mac) : presse-papiers en pause tant que la
-    /// session n'est pas active. Rien n'est lu sur ce Mac (le compteur de
-    /// changements reste celui de la mise en pause, l'ordinateur qui demande
-    /// le texte n'en reçoit pas) et rien n'y est écrit ; revenue active, un
-    /// texte copié entre-temps part vers l'ordinateur. Sans effet ailleurs.
-    func setClipboardActive(_ active: Bool) {
-        #if os(macOS)
-        box.lock.withLock {
-            if !active, !box.clipboardPaused { box.frozenChangeCount = box.pasteboard.changeCount }
-            box.clipboardPaused = !active
-        }
-        #endif
-    }
     /// Les entrées rejoignent l'ordinateur (début de session, reconnexion).
     func networkConnected() { kn_input_network_connected(core) }
     /// Fin de l'image : plus rien ne part, l'ordinateur relâche tout.
