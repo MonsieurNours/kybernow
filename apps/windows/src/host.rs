@@ -17,7 +17,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 use kybernow_core::audio::AudioStats;
-use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, PointerLayer};
+use kybernow_core::input::{Clock, InputPipeline, InputPlatform, MonotonicClock, MouseMode, Options, Pasteboard, PointerLayer};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::media::PacketHandler;
 use kybernow_core::screens::session_plan_for;
@@ -175,7 +175,8 @@ impl SessionHost {
 }
 
 /// Rappels du module d'entrées : rien à faire sous Windows (manettes lues et
-/// vibrations jouées par kynput, pas de combinaison de manette).
+/// vibrations jouées par le lecteur du cœur, `kybernow_core::gamepads`, pas
+/// de combinaison de manette).
 struct WinInputs;
 
 impl InputPlatform for WinInputs {}
@@ -198,6 +199,8 @@ struct WinPlatform {
     last_frames: Mutex<u64>,
     events: Arc<dyn HostEvents>,
     session: Mutex<Option<Arc<Session>>>,
+    /// Presse-papiers partagé (réglage de l'ordinateur).
+    clipboard: bool,
 }
 
 impl Platform for WinPlatform {
@@ -231,8 +234,10 @@ impl Platform for WinPlatform {
             Options {
                 display_id,
                 host_size,
-                // Presse-papiers : celui de kynput sous Windows (voir README).
-                clipboard: None,
+                // Presse-papiers : le pont du cœur sur celui de Windows, un par
+                // chaîne (kynput.dll du client construite sans le sien).
+                clipboard: self.clipboard.then(|| Arc::new(crate::pasteboard::WinPasteboard) as Arc<dyn Pasteboard>),
+                // Manettes : le lecteur du cœur (kynput.dll sans le sien).
                 gamepads_from_app: false,
             },
             pointer,
@@ -390,6 +395,7 @@ fn run(host_name: String, params: SessionParams, opts: HostOptions, events: Arc<
         last_frames: Mutex::new(0),
         events: events.clone(),
         session: Mutex::new(None),
+        clipboard: params.clipboard,
     });
     let session = Session::start_with_screens(params, screens, platform.clone());
     *platform.session.lock().unwrap() = Some(session.clone());

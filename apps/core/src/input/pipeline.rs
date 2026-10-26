@@ -26,8 +26,18 @@
 //! et part avec l'identifiant d'écran de Kyber correspondant ; le pointeur
 //! annoncé par l'ordinateur va à la couche de pointeur de l'écran dont il
 //! porte l'identifiant. Clavier, souris relative et manettes ne changent pas.
+//!
+//! Plusieurs ordinateurs à la fois ([`InputPipeline::set_active`],
+//! docs/plusieurs-ordinateurs.md) : la chaîne d'une session qui n'est pas
+//! active ne laisse rien partir de l'appareil (clavier, souris, texte,
+//! touches et axes des manettes), relâche ce qu'elle tenait, met son
+//! presse-papiers en pause et ignore les vibrations ; les branchements de
+//! manettes, les relâchements et les retours au repos passent toujours. Les
+//! manettes de Mac et de Windows sont lues par le lecteur unique du cœur
+//! ([`crate::gamepads`]) quand libkynput est construite sans le sien.
 
-use std::collections::{HashMap, VecDeque};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
@@ -48,6 +58,7 @@ use super::gamepad_gate::{GamepadGate, GateHook};
 use super::pad_combo::{PadAxis, PadButton, PadCombo, PadId, PadKey};
 use super::pointer_layer::{PointerLayer, RemoteCursor, Shape};
 use super::release_all::{Release, ReleaseAll};
+use crate::journal::{self, Label};
 
 /// Vibration demandée par le jeu pour une manette (moteurs de 0 à 65535,
 /// durée en millisecondes, -1 : jusqu'à nouvel ordre).
@@ -89,7 +100,9 @@ pub struct Options {
     pub clipboard: Option<Arc<dyn Pasteboard>>,
     /// Manettes produites par l'app (Apple TV, iPhone, iPad : GameController ;
     /// Android, Linux, webOS) : types annoncés à kynput, vibrations reçues.
-    /// `false` : kynput les lit via SDL (Mac, Windows) et joue les vibrations.
+    /// `false` (Mac, Windows) : kynput les lit via SDL et joue les
+    /// vibrations ; ou, avec une libkynput construite sans son lecteur SDL,
+    /// le lecteur unique du cœur ([`crate::gamepads`], démarré au besoin).
     pub gamepads_from_app: bool,
 }
 
@@ -143,10 +156,39 @@ pub struct InputPipeline {
     gate: OnceLock<GamepadGate>,
     /// Multi-écrans : les écrans de la session (vide : un écran, `display_id`).
     screens: Mutex<Vec<ScreenTarget>>,
+    /// Plusieurs ordinateurs : la session est active (par défaut, oui).
+    active: AtomicBool,
+    /// Souris relative demandée par l'app ([`Self::set_relative`]) ; elle ne
+    /// joue que pendant que la session est active.
+    relative_wanted: AtomicBool,
+    /// Manettes lues par le fil SDL du cœur (Mac, Windows avec une libkynput
+    /// sans lecteur SDL).
+    core_pads: bool,
+    /// Chaîne servie par le lecteur de manettes du cœur (celle d'une session).
+    reader_attached: AtomicBool,
+    /// Le nom de l'ordinateur au début des lignes du journal.
+    label: Arc<Label>,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
 pub const AXIS_SLICE: Duration = Duration::from_millis(4);
+
+thread_local! {
+    /// Chaînes créées pendant [`created_during`] sur ce fil.
+    static CREATED: RefCell<Option<Vec<Weak<InputPipeline>>>> = const { RefCell::new(None) };
+}
+
+/// Appelle `f` et rend la dernière chaîne d'entrées créée sur ce fil pendant
+/// l'appel : celle que la plateforme crée dans `Platform::input_pipeline`
+/// (toutes les apps la créent là, sur le fil de session) et dont elle ne
+/// rend que la chaîne kynput.
+pub(crate) fn created_during<R>(f: impl FnOnce() -> R) -> (R, Option<Arc<InputPipeline>>) {
+    let before = CREATED.with(|c| c.borrow_mut().replace(Vec::new()));
+    let result = f();
+    let created = CREATED.with(|c| std::mem::replace(&mut *c.borrow_mut(), before));
+    let last = created.unwrap_or_default().iter().rev().find_map(Weak::upgrade);
+    (result, last)
+}
 
 impl InputPipeline {
     /// `pointer` : la couche de pointeur de la vue de session, qui reçoit les
@@ -165,24 +207,35 @@ impl InputPipeline {
     }
 
     fn build(kynput: Pipeline, sink: Arc<dyn PacketSink>, options: Options, pointer: Arc<PointerLayer>, platform: Arc<dyn InputPlatform>, clock: Arc<dyn Clock>) -> Arc<Self> {
+        // Créée sur le fil de session (`Platform::input_pipeline`) : ses lignes
+        // portent le nom de l'ordinateur de la session.
+        let label = journal::current().unwrap_or_default();
         let packets = PacketQueue::new(sink, clock.clone());
+        let (l1, l2) = (label.clone(), label.clone());
         packets.set_hooks(Hooks {
-            on_first: Some(Box::new(|kind, sent| log::info!("entrées : premier envoi {kind} ({})", if sent { "parti" } else { "refusé" }))),
-            on_dropped: Some(Box::new(|kind, final_, total| {
+            on_first: Some(Box::new(move |kind, sent| log::info!("{}entrées : premier envoi {kind} ({})", l1.prefix(), if sent { "parti" } else { "refusé" }))),
+            on_dropped: Some(Box::new(move |kind, final_, total| {
                 if final_ {
-                    log::error!("entrées : {kind} perdu après 200 ms de réessais ({total} perdus)");
+                    log::error!("{}entrées : {kind} perdu après 200 ms de réessais ({total} perdus)", l2.prefix());
                 } else {
-                    log::info!("entrées : {kind} refusé par la file d'envoi ({total} perdus)");
+                    log::info!("{}entrées : {kind} refusé par la file d'envoi ({total} perdus)", l2.prefix());
                 }
             })),
         });
+        // Mac, Windows : libkynput sans son lecteur SDL, les manettes sont lues
+        // par celui du cœur (un seul pour toutes les sessions de l'app).
+        let core_pads = !options.gamepads_from_app && crate::gamepads::sdl_compiled() && !kynput.produces_type(InputType::GamepadEvent);
+        if core_pads {
+            crate::gamepads::start_sdl_for_chain();
+        }
+        let app_pads = options.gamepads_from_app || core_pads;
         let clipboard = options.clipboard.map(|board| ClipboardBridge::new(board, clock.clone()));
         let combo = PadCombo::new(clock.clone());
         let this = Arc::new_cyclic(|weak: &Weak<Self>| {
             let w = weak.clone();
             combo.set_on_formed(move |id| {
                 if let Some(p) = w.upgrade() {
-                    log::info!("combinaison L1 + R1 + Start + Select (manette {id})");
+                    log::info!("{}combinaison L1 + R1 + Start + Select (manette {id})", p.label.prefix());
                     p.platform.combo_formed(id);
                 }
             });
@@ -207,9 +260,19 @@ impl InputPipeline {
                 }),
                 gate: OnceLock::new(),
                 screens: Mutex::new(Vec::new()),
+                active: AtomicBool::new(true),
+                relative_wanted: AtomicBool::new(false),
+                core_pads,
+                reader_attached: AtomicBool::new(false),
+                label,
             }
         });
         let weak = Arc::downgrade(&this);
+        CREATED.with(|c| {
+            if let Some(list) = c.borrow_mut().as_mut() {
+                list.push(weak.clone());
+            }
+        });
 
         // Pointeur de l'ordinateur.
         this.plug(kynput_rs::create_handler_consumer_instance(Arc::new(CursorHandler {
@@ -222,23 +285,29 @@ impl InputPipeline {
             this.plug(kynput_rs::create_handler_consumer_instance(Arc::new(ClipboardHandler { pipeline: weak.clone() })));
         }
 
-        // Vibrations : l'ordinateur les envoie, la plateforme les joue.
-        if options.gamepads_from_app {
+        // Vibrations : l'ordinateur les envoie, la plateforme (ou le fil SDL
+        // du cœur) les joue.
+        if app_pads {
             this.plug(kynput_rs::create_handler_consumer_instance(Arc::new(RumbleHandler { pipeline: weak.clone() })));
         }
 
         // Entrées que la chaîne ne produit pas elle-même : déclarées ici,
-        // envoyées par l'app.
+        // envoyées par l'app (ou par le lecteur de manettes du cœur).
         let mut wanted = vec![InputType::Keyboard, InputType::MousePosition, InputType::MouseMove, InputType::MouseButton, InputType::MouseWheel];
+        if app_pads {
+            wanted.extend([InputType::GamepadControl, InputType::GamepadEvent]);
+        }
         if options.gamepads_from_app {
-            wanted.extend([InputType::GamepadControl, InputType::GamepadEvent, InputType::Unicode]);
+            wanted.push(InputType::Unicode);
         }
         let missing: Vec<InputType> = wanted.iter().copied().filter(|t| !this.kynput.produces_type(*t)).collect();
         log::info!(
-            "entrées : {} types produits par kynput, {} par l'app (écran {})",
+            "{}entrées : {} types produits par kynput, {} par l'app (écran {}){}",
+            this.label.prefix(),
             wanted.len() - missing.len(),
             missing.len(),
-            options.display_id
+            options.display_id,
+            if core_pads { ", manettes lues par le cœur" } else { "" }
         );
         if !missing.is_empty() {
             this.plug(kynput_rs::create_handler_instance(Arc::new(Producer { types: missing })));
@@ -259,7 +328,7 @@ impl InputPipeline {
 
     fn plug(&self, handler: kynput_rs::Handler) {
         if let Err(e) = self.kynput.plug_handler(handler) {
-            log::warn!("kynput : gestionnaire refusé ({e:?})");
+            log::warn!("{}kynput : gestionnaire refusé ({e:?})", self.label.prefix());
         }
     }
 
@@ -302,7 +371,8 @@ impl InputPipeline {
             });
         }
         log::info!(
-            "entrées : {} écran(s) ({})",
+            "{}entrées : {} écran(s) ({})",
+            self.label.prefix(),
             screens.len().max(1),
             screens.iter().map(|s| format!("{} → {}", s.screen, s.display_id)).collect::<Vec<_>>().join(", ")
         );
@@ -371,7 +441,7 @@ impl InputPipeline {
             pipeline: Arc::downgrade(self),
         };
         if let Err(e) = self.kynput.set_hook(Box::new(hook)) {
-            log::warn!("kynput : hook des manettes refusé ({e:?})");
+            log::warn!("{}kynput : hook des manettes refusé ({e:?})", self.label.prefix());
         }
     }
 
@@ -404,17 +474,113 @@ impl InputPipeline {
         }
     }
 
-    /// Souris relative (jeux) : seuls les déplacements partent.
+    /// Souris relative (jeux) : seuls les déplacements partent. Session pas
+    /// active : retenue, elle reprendra quand la session redeviendra active.
     pub fn set_relative(&self, on: bool) {
+        self.relative_wanted.store(on, Ordering::Relaxed);
+        self.apply_relative();
+    }
+
+    fn apply_relative(&self) {
+        let on = self.relative_wanted.load(Ordering::Relaxed) && self.is_active();
         self.relative.store(on, Ordering::Relaxed);
         let _ = self.kynput.set_type_processing_state(InputType::MouseMove, RouterProcessingState::from_boolean(on));
     }
 
     /// Souris relative active : lisible de n'importe quel fil (Apple TV : la
     /// souris Bluetooth envoie ses déplacements bruts depuis la file des
-    /// entrées, sans passer par le fil principal).
+    /// entrées, sans passer par le fil principal). Faux pendant que la
+    /// session n'est pas active.
     pub fn is_relative(&self) -> bool {
         self.relative.load(Ordering::Relaxed)
+    }
+
+    // Plusieurs ordinateurs à la fois.
+
+    /// La session de cette chaîne devient active (`true`) ou passe derrière
+    /// une autre (`false`), docs/plusieurs-ordinateurs.md. Pas active : plus
+    /// rien ne part de l'appareil (clavier, souris, molette, texte, touches et
+    /// axes des manettes ; branchements, relâchements et retours au repos
+    /// passent toujours), touches et clics tenus relâchés, manettes au repos
+    /// (touches relâchées, axes au centre, gâchettes relâchées), souris
+    /// relative coupée (reprise au retour), presse-papiers en pause (rien lu
+    /// sur l'appareil, rien écrit dessus), vibrations ignorées. De nouveau
+    /// active : le contenu du presse-papiers de l'appareil est annoncé à
+    /// l'ordinateur. Par défaut, une chaîne est active. La session la tient
+    /// d'un démarrage de l'image à l'autre ([`crate::session::Session::set_active`]).
+    pub fn set_active(&self, active: bool) {
+        if self.active.swap(active, Ordering::SeqCst) == active {
+            return;
+        }
+        log::debug!("{}entrées : session {}", self.label.prefix(), if active { "active" } else { "en arrière-plan" });
+        if active {
+            self.apply_relative();
+            if let Some(c) = &self.clipboard {
+                c.set_paused(false);
+                self.wake();
+            }
+            return;
+        }
+        if let Some(c) = &self.clipboard {
+            c.set_paused(true);
+        }
+        self.apply_relative();
+        self.release_all();
+        self.rest_gamepads();
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    /// Toutes les manettes connues au repos : touches tenues relâchées, six
+    /// axes au centre.
+    fn rest_gamepads(&self) {
+        let mut pads: HashSet<PadId> = self.combo.pads().into_iter().collect();
+        pads.extend(self.axes.lock().unwrap().last.keys().copied());
+        let mut pads: Vec<PadId> = pads.into_iter().collect();
+        pads.sort_unstable();
+        for id in pads {
+            let mut held: Vec<PadButton> = self.combo.pressed(id).into_iter().collect();
+            held.sort_by_key(|b| b.to_u32());
+            for button in held {
+                self.combo.button(id, button, false);
+                self.reliably(Self::button_packet(id, button, false), "manette");
+            }
+            self.gamepad_axes_rest(id);
+        }
+    }
+
+    /// Chaîne servie par le lecteur de manettes du cœur ([`crate::gamepads`]).
+    pub(crate) fn set_reader_attached(&self, on: bool) {
+        self.reader_attached.store(on, Ordering::Relaxed);
+    }
+
+    pub(crate) fn reader_attached(&self) -> bool {
+        self.reader_attached.load(Ordering::Relaxed)
+    }
+
+    /// Manettes lues par le fil SDL du cœur pour cette chaîne (Mac, Windows).
+    pub fn core_reads_gamepads(&self) -> bool {
+        self.core_pads
+    }
+
+    /// Le nom de l'ordinateur au début des lignes du journal de cette chaîne.
+    pub(crate) fn label(&self) -> &Arc<Label> {
+        &self.label
+    }
+
+    /// Vibration reçue de l'ordinateur : ignorée si la session n'est pas
+    /// active ; jouée par le fil SDL du cœur s'il tourne, et donnée à la
+    /// plateforme.
+    pub(crate) fn rumble_received(&self, r: GamepadRumble) {
+        if !self.is_active() {
+            return;
+        }
+        if self.reader_attached() || self.core_pads {
+            crate::gamepads::rumble(r);
+        }
+        self.platform.rumble(r);
     }
 
     /// Paquets refusés par kynput, jamais arrivés.
@@ -434,7 +600,7 @@ impl InputPipeline {
         }
         let dropped = self.packets.stop();
         if dropped > 0 {
-            log::info!("entrées : {dropped} paquets perdus pendant la session (file d'envoi pleine ou réseau absent)");
+            log::info!("{}entrées : {dropped} paquets perdus pendant la session (file d'envoi pleine ou réseau absent)", self.label.prefix());
         }
         let _ = self.kynput.flush_keys();
         self.stopped.store(true, Ordering::Relaxed);
@@ -466,7 +632,12 @@ impl InputPipeline {
     /// Appelé quand les entrées rejoignent l'ordinateur (début de session,
     /// reconnexion).
     pub fn network_connected(&self) {
-        log::info!("entrées reliées à l'ordinateur");
+        log::info!("{}entrées reliées à l'ordinateur", self.label.prefix());
+        // Les manettes du lecteur du cœur y sont branchées (l'app qui produit
+        // les siennes les réannonce dans `connected`).
+        if self.reader_attached() {
+            crate::gamepads::global().connected(self);
+        }
         self.platform.connected();
     }
 
@@ -492,12 +663,18 @@ impl InputPipeline {
     }
 
     pub fn mouse_move(&self, dx: i16, dy: i16) {
+        if !self.is_active() {
+            return;
+        }
         self.once(OwnedPacket::from_packet(MouseMove { dx, dy }.to_packet(InputTarget::Host)), "déplacement relatif");
     }
 
     /// Touche par son scancode (Windows : tel quel ; Apple : `keymap::scancode`).
     /// Notée dans [`Self::held`] pour « tout relâcher ».
     pub fn key(&self, scancode: u16, pressed: bool) {
+        if pressed && !self.is_active() {
+            return;
+        }
         self.held.lock().unwrap().key(scancode, pressed);
         self.reliably(OwnedPacket::from_packet(KeyboardKey { pressed, scancode }.to_packet(InputTarget::Host)), "touche");
     }
@@ -517,15 +694,24 @@ impl InputPipeline {
     }
 
     fn mouse_at(&self, display_id: u32, x: i16, y: i16) {
+        if !self.is_active() {
+            return;
+        }
         self.once(OwnedPacket::from_packet(MousePosition { display_id, x, y }.to_packet(InputTarget::Host)), "position");
     }
 
     pub fn mouse_button(&self, button: MouseButtonType, pressed: bool) {
+        if pressed && !self.is_active() {
+            return;
+        }
         self.held.lock().unwrap().mouse_button(button, pressed);
         self.reliably(OwnedPacket::from_packet(MouseButton { button, pressed }.to_packet(InputTarget::Host)), "clic");
     }
 
     pub fn wheel(&self, dx: f32, dy: f32) {
+        if !self.is_active() {
+            return;
+        }
         self.once(OwnedPacket::from_packet(MouseWheel { dx, dy }.to_packet(InputTarget::Host)), "molette");
     }
 
@@ -551,6 +737,9 @@ impl InputPipeline {
 
     /// Texte tapé (clavier de l'écran, de l'iPhone) : un caractère à la fois.
     pub fn type_text(&self, text: &str) {
+        if !self.is_active() {
+            return;
+        }
         for character in text.chars() {
             let packet = Unicode { character }.to_packet(InputTarget::Host).and_then(OwnedPacket::from_packet);
             self.reliably(packet, "texte");
@@ -578,6 +767,9 @@ impl InputPipeline {
 
     /// Touche de manette : envoyée tout de suite, et passée à la combinaison.
     pub fn gamepad_button(&self, id: PadId, button: PadButton, pressed: bool) {
+        if pressed && !self.is_active() {
+            return;
+        }
         self.combo.button(id, button, pressed);
         if self.combo.next_deadline().is_some() {
             self.wake();
@@ -624,6 +816,9 @@ impl InputPipeline {
 
     /// Valeur d'un axe produit par l'app : filtrée, regroupée, envoyée (voir ci-dessus).
     pub fn gamepad_axis(&self, id: PadId, axis: PadAxis, value: i16) {
+        if value != 0 && !self.is_active() {
+            return;
+        }
         let mut axes = self.axes.lock().unwrap();
         let last = axes.last.get(&id).and_then(|m| m.get(&axis)).copied();
         if !Self::axis_moved(last, value) {
@@ -739,7 +934,9 @@ impl InputPipeline {
     pub fn spawn_driver(self: &Arc<Self>) -> std::io::Result<JoinHandle<()>> {
         let weak = Arc::downgrade(self);
         let driver = self.driver.clone();
+        let label = self.label.clone();
         std::thread::Builder::new().name("kybernow-entrees".into()).spawn(move || {
+            journal::enter(label);
             loop {
                 let Some(p) = weak.upgrade() else { break };
                 if p.is_stopped() {
@@ -912,7 +1109,7 @@ impl ConsumerInterface for RumbleHandler {
             return;
         }
         let Some(pipeline) = self.pipeline.upgrade() else { return };
-        pipeline.platform.rumble(GamepadRumble {
+        pipeline.rumble_received(GamepadRumble {
             id: r.id,
             large_motor: r.large_motor,
             small_motor: r.small_motor,

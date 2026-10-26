@@ -21,6 +21,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use serde::Deserialize;
 
 use kybernow_core::console::{Console, ConsoleError, DeviceInfo, Mode, PairStatus, StationError};
+use kybernow_core::focus::{self, FocusId};
+use kybernow_core::gamepads;
 use kybernow_core::i18n::{self, Lang};
 use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
@@ -1266,6 +1268,132 @@ pub unsafe extern "C" fn kn_session_bytes_received(s: *const KnSession, bytes: u
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_session_hole(s: *const KnSession) {
     with(s, |s| s.latency().hole());
+}
+
+// MARK: - Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md)
+
+/// La session devient active (vrai) ou passe derrière une autre : pas
+/// active, rien ne part de l'appareil vers son ordinateur (clavier, souris,
+/// texte, touches et axes des manettes), ce qu'elle tenait est relâché, ses
+/// manettes sont au repos, la souris relative est coupée, le presse-papiers
+/// est en pause et les vibrations sont ignorées ; de nouveau active, le
+/// contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur. Tenu
+/// d'une image à l'autre. Active par défaut ; le registre (`kn_focus_*`)
+/// s'en charge pour les sessions inscrites.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_active(s: *const KnSession, active: bool) {
+    with(s, |s| s.set_active(active));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_is_active(s: *const KnSession) -> bool {
+    with(s, |s| s.is_active()).unwrap_or(true)
+}
+
+/// Son de la session coupé (vrai) ou rendu, fondu de 20 ms, sur chaque
+/// `KnAudio` donné par `kn_session_attach_audio`. Tenu d'une image à
+/// l'autre. Pas coupé par défaut ; le registre s'en charge pour les
+/// sessions inscrites (sauf « Garder le son »).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_set_muted(s: *const KnSession, muted: bool) {
+    with(s, |s| s.set_muted(muted));
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_is_muted(s: *const KnSession) -> bool {
+    with(s, |s| s.is_muted()).unwrap_or(false)
+}
+
+/// Le moteur de son de la session (le son va à Swift, qui le donne à son
+/// `KnAudio` : le cœur ne le voit pas passer). À appeler pour chaque
+/// `KnAudio` de la session, dès sa création : il prend tout de suite l'état
+/// « son coupé » de la session, puis le suit. Le `KnAudio` peut être libéré
+/// sans prévenir.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_session_attach_audio(s: *const KnSession, audio: *const audio::KnAudio) {
+    let Some(a) = (unsafe { audio.as_ref() }) else { return };
+    with(s, |s| s.attach_audio(&a.0));
+}
+
+/// Inscrit la session dans le registre des sessions de l'app, `name` : le
+/// nom de son ordinateur (au début des lignes de son journal). Elle devient
+/// active ; les autres passent derrière, leur son coupé (sauf « Garder le
+/// son »). Rend son identifiant (positif), le même si elle est déjà
+/// inscrite ; -1 au-delà de quatre sessions (`kn_focus_max`) ou sans session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_focus_register(s: *const KnSession, name: *const c_char) -> i64 {
+    let name = text(name);
+    with(s, |s| focus::global().register(s, &name).map_or(-1, |id| id.as_u64() as i64)).unwrap_or(-1)
+}
+
+fn focus_id(id: i64) -> Option<FocusId> {
+    (id > 0).then(|| FocusId::from_u64(id as u64))
+}
+
+/// Désinscrit une session (fenêtre fermée, « Se déconnecter », fin de la
+/// session) : elle passe derrière, son son est coupé ; si elle avait la main,
+/// la session qui l'avait juste avant la reprend.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_unregister(id: i64) {
+    if let Some(id) = focus_id(id) {
+        focus::global().unregister(id);
+    }
+}
+
+/// La fenêtre de cette session passe au premier plan : elle devient active.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_activate(id: i64) {
+    if let Some(id) = focus_id(id) {
+        focus::global().activate(id);
+    }
+}
+
+/// « Garder le son » : la session reste audible sans être active.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_set_keep_sound(id: i64, keep: bool) {
+    if let Some(id) = focus_id(id) {
+        focus::global().set_keep_sound(id, keep);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_keep_sound(id: i64) -> bool {
+    focus_id(id).is_some_and(|id| focus::global().keep_sound(id))
+}
+
+/// La session active (-1 : aucune).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_active() -> i64 {
+    focus::global().active().map_or(-1, |id| id.as_u64() as i64)
+}
+
+/// « Ordinateur suivant » : la session ouverte après l'active, dans l'ordre
+/// d'ouverture (-1 : aucune). À l'app de faire passer sa fenêtre devant.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_next() -> i64 {
+    focus::global().next().map_or(-1, |id| id.as_u64() as i64)
+}
+
+/// Sessions inscrites.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_count() -> u32 {
+    focus::global().count() as u32
+}
+
+/// Sessions au plus (4).
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_focus_max() -> u32 {
+    focus::MAX_SESSIONS as u32
+}
+
+/// Mac : le lecteur de manettes du cœur, sur son fil SDL, pour toutes les
+/// sessions (au lancement de l'app ; il démarre aussi tout seul à la
+/// première chaîne d'entrées). Faux sur l'Apple TV, l'iPhone et l'iPad (pas
+/// de SDL : leurs manettes passent par GameController dans l'app), ou si SDL
+/// n'a pas pu s'ouvrir.
+#[unsafe(no_mangle)]
+pub extern "C" fn kn_gamepads_start_sdl() -> bool {
+    gamepads::start_sdl()
 }
 
 /// Latence de la session : médiane des secondes et 95e centile (ms). Faux

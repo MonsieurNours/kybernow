@@ -23,5 +23,12 @@ ureq = { version = "2.12", default-features = false, features = ["json", "tls"] 
 getrandom = "0.2"
 minisign-verify = "0.3"
 
+[features]
+# Lecteur de manettes par SDL dans le cœur (`gamepads::start_sdl`) : apps Mac
+# (pont apps/apple sur macOS) et Windows, dont libkynput est construite sans
+# son propre lecteur SDL. SDL2 est trouvée par pkg-config (build.rs), sinon
+# l'exécutable final la lie lui-même.
+sdl = []
+
 [build-dependencies]
 pkg-config = "0.3"

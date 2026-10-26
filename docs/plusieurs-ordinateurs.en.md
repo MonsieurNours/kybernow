@@ -23,19 +23,23 @@ This work has no screens of its own: it reuses the home screen, the connection, 
 
 ## Rust core
 
-- **Several `Session`s in one process**: already possible (no global state besides the language and the log). Log lines carry the computer's name.
-- **A session registry** (`focus`), the single source for “which one is active”:
-  - `register(session) → id`, `unregister(id)`, `activate(id)`, `set_keep_sound(id, bool)`;
-  - on every change, it applies to all sessions: inputs active or not, sound muted or not (except “Keep sound”), clipboard, controllers;
+The exact API and what each app plugs into it: [apps/core/README.en.md](../apps/core/README.en.md#several-computers-at-once-srcfocusrs-srcgamepads-srcjournalrs) (Rust) and [coeur-apple.en.md](coeur-apple.en.md) (C bridge).
+
+- **Several `Session`s in one process**: already possible (no global state besides the language and the log). Log lines carry the computer's name (`Session::set_name`, given by the registry).
+- **Each session's state**: `Session::set_active(bool)` and `Session::set_muted(bool)`, kept from one image start to the next (every image's input chain and sound engine take them). A single session is active and audible: nothing changes for an app that does not use them.
+  - Not active: nothing leaves the device (keyboard, mouse, text, controller buttons and axes), keys and buttons released, controllers at rest (sticks centred, triggers released), relative mouse off, clipboard paused (nothing read from the device, nothing written to it), rumble ignored. Active again: the device's clipboard content is sent to the computer again. No cut of kynput's input processing as a safety net: it would also cut the pointer received by the windows behind and the releases; everything that leaves comes from the app or the core's reader and is stopped at the chain's entrance (`InputPipeline::set_active`).
+  - Muted: 20 ms fade (`AudioEngine::set_muted`); sound keeps being decoded and drained: it comes back without drift.
+- **A session registry** (`kybernow_core::focus`, `focus::global()`), the single source for “which one is active”:
+  - `register(&session, name) → Result<id, Full>` (the registered session becomes active), `unregister(id)`, `activate(id)`, `set_keep_sound(id, bool)`, `keep_sound(id)`, `active()`, `count()`, `next()` (“Next computer”), `MAX_SESSIONS`;
+  - on every change, it applies to all sessions: inputs active or not, sound muted or not (except “Keep sound”), clipboard, controllers; those losing the hand first;
   - the apps only tell it which window comes to the foreground.
-- **`InputPipeline::set_active(bool)`**. Inactive: keys and buttons released, controllers at rest (sticks centred, triggers released), relative mouse off, clipboard paused (nothing read from the device, nothing written to it), rumble ignored; as a safety net, kynput's input processing off. Active: the device's clipboard content is sent to the computer again.
-- **`AudioEngine::set_muted(bool)`**, with a short fade (about twenty milliseconds) to avoid clicks. Sound keeps being decoded and drained: it comes back without drift.
-- **Controllers: a single reader per app**, in the core, taken from the Linux app's (`apps/linux/src/device/pads.rs`, SDL). SDL opens only once per process: a session can no longer read the controllers by itself.
+- **Controllers: a single reader per app** (`kybernow_core::gamepads`), in the core, taken from the Linux app's (`apps/linux/src/device/pads.rs`, SDL). SDL opens only once per process: a session can no longer read the controllers by itself.
   - Controllers are plugged into every session (the Station keeps its virtual controller, a game does not lose it); buttons and axes only go to the active session; on deactivation, the rest state is sent once.
   - Rumble only goes back to the controller from the active session.
-  - The Mac and Windows switch to `gamepads_from_app`; libkynput is built there without its SDL reader, as on Linux and Android. An app with a single session behaves as before.
-- **Displays**: a session opened while another one runs takes “This display” in a window, whatever the “Displays” setting (two sessions never take the same displays). Only the first one can take every display.
-- **C bridge**: `kn_focus_*`, `kn_input_set_active`, `kn_audio_set_muted`. Nothing on the JNI side (Android stays on one computer).
+  - Mac and Windows: libkynput is built there without its SDL reader; the core reads the controllers on its own SDL thread (`gamepads::start_sdl()`, which also starts by itself with the first input chain). These apps keep `gamepads_from_app: false` (the Mac's controller hook sees these packets as before). Linux feeds the reader from its SDL loop (`gamepads::plug`, `unplug`, `button`, `axis`). An app with a single session behaves as before.
+- **Clipboard on Windows**: the client's kynput.dll is built without kynput's (its hidden window only exists once per process); the app gives the core the Windows clipboard, one per session.
+- **Displays**: a session opened while another one runs takes “This display” in a window, whatever the “Displays” setting (two sessions never take the same displays): `screens::screens_for_extra_session` and `screens::extra_session_window` (two thirds of the display, 16:9, centred). Only the first one can take every display.
+- **C bridge**: `kn_focus_register`, `kn_focus_unregister`, `kn_focus_activate`, `kn_focus_set_keep_sound`, `kn_focus_keep_sound`, `kn_focus_active`, `kn_focus_next`, `kn_focus_count`, `kn_focus_max`, `kn_session_set_active`, `kn_session_set_muted`, `kn_session_attach_audio`, `kn_gamepads_start_sdl`; for a single chain or engine, `kn_input_set_active` and `kn_audio_set_muted`. Nothing on the JNI side (Android stays on one computer).
 - **Limit**: four sessions per app.
 
 ## Apps

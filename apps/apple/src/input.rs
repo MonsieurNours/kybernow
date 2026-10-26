@@ -386,6 +386,10 @@ pub unsafe extern "C" fn kn_input_new(options: KnInputOptions, pointer: *const K
         platform,
         clock,
     );
+    // Manettes SDL (Mac) : celles de kynput, ou celles du lecteur du cœur
+    // quand libkynput est construite sans le sien (`gamepads_from_app` faux
+    // dans les deux cas) ; le hook voit leurs paquets dans les deux cas
+    // (combinaison, manette prise par la barre).
     if !options.gamepads_from_app {
         pipeline.install_gamepad_gate();
     }
@@ -600,6 +604,21 @@ pub unsafe extern "C" fn kn_input_network_connected(i: *const KnInput) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn kn_input_set_gamepad_captured(i: *const KnInput, captured: bool) {
     with(i, |p| p.set_gamepad_captured(captured));
+}
+
+/// Plusieurs ordinateurs à la fois : la chaîne de cette image active ou non
+/// (voir `kn_session_set_active`, qui la tient d'une image à l'autre et que
+/// le registre `kn_focus_*` appelle). D'ordinaire, rien à appeler ici : la
+/// session retrouve la chaîne créée dans `input_pipeline`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_input_set_active(i: *const KnInput, active: bool) {
+    with(i, |p| p.set_active(active));
+}
+
+/// La chaîne de cette image est active (vrai par défaut).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_input_is_active(i: *const KnInput) -> bool {
+    unsafe { i.as_ref() }.is_none_or(|i| i.pipeline.is_active())
 }
 
 /// Fin de l'image : plus rien ne part, l'ordinateur relâche tout.

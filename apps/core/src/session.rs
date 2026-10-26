@@ -7,14 +7,18 @@
 //! recours, la Station redémarrée pendant la connexion (voir
 //! [`Recovery::restart_station`]). Multi-écrans
 //! ([`Session::start_with_screens`], docs/multi-ecrans.md) : un écran
-//! virtuel par écran de l'appareil, une entrée vidéo par écran.
+//! virtuel par écran de l'appareil, une entrée vidéo par écran. Plusieurs
+//! ordinateurs à la fois ([`Session::set_active`], [`Session::set_muted`],
+//! [`crate::focus`], docs/plusieurs-ordinateurs.md) : la session tient son
+//! état « active » et « son coupé » d'un démarrage de l'image à l'autre et
+//! l'applique à chaque chaîne d'entrées et moteur de son de la plateforme.
 //!
 //! Tout se décide sur un fil dédié ; les événements de Kyber, le signal de vie
 //! et les demandes de l'app lui arrivent par un canal.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -26,7 +30,10 @@ use kyclient::{
 };
 use kynput_rs::{ControlEvent, InputTarget, Pipeline};
 use kyvlcplayer::WindowHandle;
-use log::{info, warn};
+
+use crate::audio::AudioEngine;
+use crate::input::InputPipeline;
+use crate::journal::{self, Label, jinfo as info, jwarn as warn};
 
 use crate::console::{
     Console, ConsoleError, DeviceInfo, Heartbeat, HeartbeatReply, Mode, PrepareRequest, Prepared,
@@ -527,12 +534,100 @@ fn wanted_plan(screens: &Screens, params: &SessionParams, excluded: &[usize]) ->
     screens::plan_excluding(screens, params.settings.codec, excluded)
 }
 
+/// Plusieurs ordinateurs à la fois : ce que la session tient d'un démarrage
+/// de l'image à l'autre (active ou non, son coupé ou non, le nom de
+/// l'ordinateur au journal) et ce à quoi elle l'applique : la chaîne
+/// d'entrées de l'image en cours (créée par la plateforme dans
+/// [`Platform::input_pipeline`], retrouvée par le cœur) et les moteurs de son
+/// (celui que rend [`Platform::audio_handler`], ou donnés par
+/// [`Session::attach_audio`]).
+pub(crate) struct FocusState {
+    active: AtomicBool,
+    muted: AtomicBool,
+    label: Arc<Label>,
+    input: Mutex<Weak<InputPipeline>>,
+    audio: Mutex<Vec<Weak<AudioEngine>>>,
+}
+
+impl FocusState {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            active: AtomicBool::new(true),
+            muted: AtomicBool::new(false),
+            label: Label::new(),
+            input: Mutex::new(Weak::new()),
+            audio: Mutex::new(Vec::new()),
+        })
+    }
+
+    pub(crate) fn set_active(&self, active: bool) {
+        // Sous le verrou de la chaîne : une chaîne qui arrive en même temps
+        // reçoit la nouvelle valeur.
+        let input = self.input.lock().unwrap();
+        if self.active.swap(active, Ordering::SeqCst) != active {
+            log::info!("{}session {}", self.label.prefix(), if active { "active" } else { "en arrière-plan" });
+        }
+        if let Some(i) = input.upgrade() {
+            i.set_active(active);
+        }
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_muted(&self, muted: bool) {
+        let mut audio = self.audio.lock().unwrap();
+        if self.muted.swap(muted, Ordering::SeqCst) != muted {
+            log::info!("{}son {}", self.label.prefix(), if muted { "coupé" } else { "rendu" });
+        }
+        audio.retain(|w| w.strong_count() > 0);
+        for engine in audio.iter().filter_map(Weak::upgrade) {
+            engine.set_muted(muted);
+        }
+    }
+
+    pub(crate) fn is_muted(&self) -> bool {
+        self.muted.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn label(&self) -> &Arc<Label> {
+        &self.label
+    }
+
+    /// La chaîne d'entrées d'un démarrage de l'image : elle prend l'état de
+    /// la session, reçoit les manettes du lecteur du cœur, et ses lignes du
+    /// journal portent le nom de l'ordinateur.
+    pub(crate) fn attach_input(&self, input: &Arc<InputPipeline>) {
+        if !Arc::ptr_eq(input.label(), &self.label) && input.label().name().is_empty() {
+            input.label().set(&self.label.name());
+        }
+        {
+            let mut slot = self.input.lock().unwrap();
+            input.set_active(self.is_active());
+            *slot = Arc::downgrade(input);
+        }
+        crate::gamepads::global().attach(input);
+    }
+
+    /// Un moteur de son de la session : il prend l'état « son coupé ».
+    pub(crate) fn attach_audio(&self, engine: &Arc<AudioEngine>) {
+        let mut audio = self.audio.lock().unwrap();
+        engine.set_muted(self.is_muted());
+        audio.retain(|w| w.strong_count() > 0);
+        if !audio.iter().any(|w| w.as_ptr() == Arc::as_ptr(engine)) {
+            audio.push(Arc::downgrade(engine));
+        }
+    }
+}
+
 pub struct Session {
     tx: Mutex<Sender<Msg>>,
     latency: Arc<LatencyTracker>,
     has_image: Arc<AtomicBool>,
     hidden: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
+    focus: Arc<FocusState>,
 }
 
 impl Session {
@@ -560,11 +655,15 @@ impl Session {
         let latency = Arc::new(LatencyTracker::new());
         let has_image = Arc::new(AtomicBool::new(false));
         let hidden = Arc::new(AtomicBool::new(false));
-        let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone());
+        let focus = FocusState::new();
+        let worker = Worker::new(params, screens, platform, tx.clone(), rx, latency.clone(), has_image.clone(), hidden.clone(), focus.clone());
         let guard_platform = worker.platform.clone();
+        let label = focus.label().clone();
         let thread = std::thread::Builder::new()
             .name("kybernow-session".into())
             .spawn(move || {
+                // Les lignes du journal de la session portent le nom de son ordinateur.
+                journal::enter(label);
                 // Une panique ne doit pas laisser l'app attendre une fin qui
                 // ne viendrait jamais.
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| worker.run())).is_err() {
@@ -581,7 +680,65 @@ impl Session {
             has_image,
             hidden,
             thread: Mutex::new(Some(thread)),
+            focus,
         })
+    }
+
+    // Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md). Le
+    // registre `crate::focus` s'en sert ; une app à une session n'a rien à
+    // appeler : elle est active, son son n'est pas coupé.
+
+    /// La session devient active (`true`) ou passe derrière une autre. Pas
+    /// active : rien ne part de l'appareil vers son ordinateur (clavier,
+    /// souris, texte, touches et axes des manettes), ce qu'elle tenait est
+    /// relâché, ses manettes sont mises au repos, la souris relative est
+    /// coupée, le presse-papiers est en pause (rien lu sur l'appareil, rien
+    /// écrit dessus) et les vibrations sont ignorées. De nouveau active : le
+    /// contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur.
+    /// Valable pour toute la session : la chaîne d'entrées de chaque
+    /// démarrage de l'image prend cet état. Active par défaut.
+    pub fn set_active(&self, active: bool) {
+        self.focus.set_active(active);
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.focus.is_active()
+    }
+
+    /// Son de la session coupé (`true`) ou rendu, avec un fondu de 20 ms ; il
+    /// continue d'être décodé et revient sans décalage. Valable pour toute la
+    /// session : chaque moteur de son (celui que rend
+    /// [`Platform::audio_handler`] quand c'est un [`AudioEngine`], ou un
+    /// gestionnaire qui le rend par `PacketHandler::audio_engine`, ou celui
+    /// donné à [`Self::attach_audio`]) prend cet état. Pas coupé par défaut.
+    pub fn set_muted(&self, muted: bool) {
+        self.focus.set_muted(muted);
+    }
+
+    pub fn is_muted(&self) -> bool {
+        self.focus.is_muted()
+    }
+
+    /// Un moteur de son de la session que le cœur ne voit pas passer (le pont
+    /// Apple : le son va à Swift, qui le donne à son `KnAudio`) : il suivra
+    /// [`Self::set_muted`]. Sans effet s'il est déjà connu.
+    pub fn attach_audio(&self, engine: &Arc<AudioEngine>) {
+        self.focus.attach_audio(engine);
+    }
+
+    /// Le nom de l'ordinateur, au début des lignes du journal de la session
+    /// (« [PC-ATELIER] … ») ; vide : rien, comme avant. [`crate::focus`] le
+    /// donne à l'inscription.
+    pub fn set_name(&self, name: &str) {
+        self.focus.label().set(name);
+    }
+
+    pub fn name(&self) -> String {
+        self.focus.label().name()
+    }
+
+    pub(crate) fn focus_state(&self) -> Arc<FocusState> {
+        self.focus.clone()
     }
 
     fn send(&self, msg: Msg) {
@@ -798,6 +955,8 @@ struct Worker {
     reconnect_after_prepare: bool,
     /// Quand regarder si un écran secondaire est resté muet.
     mute_check_at: Option<Instant>,
+    /// Plusieurs ordinateurs : état « active » et « son coupé » de la session.
+    focus: Arc<FocusState>,
 }
 
 /// Raison d'une fin de session, dans la langue de l'app (montrée à l'utilisateur).
@@ -820,6 +979,7 @@ impl Worker {
         latency: Arc<LatencyTracker>,
         has_image: Arc<AtomicBool>,
         hidden: Arc<AtomicBool>,
+        focus: Arc<FocusState>,
     ) -> Self {
         let profile_label = Arc::new(Mutex::new((params.settings.label().to_string(), params.settings.mode_policy().to_string())));
         let plan = screens.as_ref().map(|s| wanted_plan(s, &params, &[])).unwrap_or_default();
@@ -892,6 +1052,7 @@ impl Worker {
             primary_only_tried: false,
             reconnect_after_prepare: false,
             mute_check_at: None,
+            focus,
         }
     }
 
@@ -1009,6 +1170,7 @@ impl Worker {
             self.latency.clone(),
             self.has_image.clone(),
             self.hidden.clone(),
+            self.focus.clone(),
         );
         next.bitrate_cap = self.bitrate_cap;
         next.station_restarted = true;
@@ -1194,9 +1356,11 @@ impl Worker {
         let latency = self.last_latency.clone();
         let profile = self.profile_label.clone();
         let alive = self.alive.clone();
+        let label = journal::current();
         std::thread::Builder::new()
             .name("kybernow-heartbeat".into())
             .spawn(move || {
+                journal::resume(label);
                 loop {
                     std::thread::sleep(Duration::from_secs(seconds));
                     if !alive.load(Ordering::Relaxed) {
@@ -1231,9 +1395,11 @@ impl Worker {
         let console = self.console.clone().expect("console");
         let platform = self.platform.clone();
         let alive = self.alive.clone();
+        let label = journal::current();
         std::thread::Builder::new()
             .name("kybernow-foreground".into())
             .spawn(move || {
+                journal::resume(label);
                 let mut last = None;
                 loop {
                     std::thread::sleep(Duration::from_secs(1));
@@ -1885,9 +2051,11 @@ impl Worker {
         info!("mode de l'ordinateur : retour à {}×{} demandé", r.width, r.height);
         let req = self.prepare_request(r, Some("restore"));
         let tx = self.tx.clone();
+        let label = journal::current();
         std::thread::Builder::new()
             .name("kybernow-prepare".into())
             .spawn(move || {
+                journal::resume(label);
                 if let Err(e) = console.prepare(&req) {
                     warn!("mode de l'ordinateur pas remis : {}", e.text(Lang::Fr));
                 }
@@ -2179,9 +2347,16 @@ impl Worker {
         let audio_wanted = self.prepared.as_ref().and_then(|p| p.audio_channels).unwrap_or(0) > 0
             || self.params.audio_channels > 0;
         let audio = if audio_wanted {
-            self.platform.audio_handler().map(|h| AudioSessionConfig {
-                audio_buffer: None,
-                packet_sink: Some(packet_sink(h)),
+            self.platform.audio_handler().map(|h| {
+                // Son coupé ou non (plusieurs ordinateurs) : le moteur derrière
+                // le gestionnaire prend l'état de la session.
+                if let Some(engine) = h.clone().audio_engine() {
+                    self.focus.attach_audio(&engine);
+                }
+                AudioSessionConfig {
+                    audio_buffer: None,
+                    packet_sink: Some(packet_sink(h)),
+                }
             })
         } else {
             None
@@ -2191,7 +2366,13 @@ impl Worker {
         if multi {
             self.announce_screens();
         }
-        let pipeline = self.platform.input_pipeline();
+        // La plateforme crée sa chaîne d'entrées ici (sur ce fil) et n'en rend
+        // que la chaîne kynput : le cœur la retrouve pour lui donner l'état de
+        // la session (active ou non) et les manettes de son lecteur.
+        let (pipeline, input) = crate::input::pipeline::created_during(|| self.platform.input_pipeline());
+        if let Some(input) = &input {
+            self.focus.attach_input(input);
+        }
         let window_handle = self.platform.window_handle();
         let video: Vec<VideoSessionConfig> = self
             .streams
@@ -2695,8 +2876,69 @@ mod tests {
         };
         let recorder = Arc::new(Recorder::default());
         let (tx, rx) = mpsc::channel();
-        let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    // Plusieurs ordinateurs : l'état de la session suit les chaînes d'entrées
+    // et les moteurs de son d'un démarrage de l'image à l'autre.
+
+    struct Quiet;
+    impl crate::input::InputPlatform for Quiet {}
+
+    /// Une chaîne d'entrées comme la crée la plateforme dans `input_pipeline`.
+    fn input_chain() -> (Arc<InputPipeline>, Arc<crate::input::packet_queue::tests::Host>) {
+        use crate::input::{ManualClock, Options, PointerLayer};
+        let clock = Arc::new(ManualClock::new());
+        let host = Arc::new(crate::input::packet_queue::tests::Host::default());
+        let input = InputPipeline::new_with_sink(
+            Options { display_id: 1, host_size: (1920, 1080), clipboard: None, gamepads_from_app: true },
+            Arc::new(PointerLayer::new(clock.clone(), true)),
+            Arc::new(Quiet),
+            clock,
+            host.clone(),
+        );
+        (input, host)
+    }
+
+    #[test]
+    fn active_et_son_coupe_d_une_image_a_l_autre() {
+        let focus = FocusState::new();
+        assert!(focus.is_active() && !focus.is_muted(), "seule, une session est active et s'entend");
+        // La chaîne créée pendant `input_pipeline` est retrouvée par le cœur.
+        let (kynput, created) = crate::input::pipeline::created_during(|| {
+            let (input, host) = input_chain();
+            (input.kynput(), input, host)
+        });
+        let (_kynput, first, host) = kynput;
+        assert!(Arc::ptr_eq(created.as_ref().unwrap(), &first), "la chaîne de la plateforme");
+        focus.attach_input(&first);
+        assert!(first.is_active());
+        focus.set_active(false);
+        assert!(!first.is_active(), "appliqué à la chaîne en cours");
+        first.key(0x1E, true);
+        assert!(host.received().is_empty(), "rien ne part en arrière-plan");
+        // Image relancée : la chaîne neuve prend l'état de la session.
+        let (second, _) = input_chain();
+        assert!(second.is_active(), "une chaîne neuve est active");
+        focus.attach_input(&second);
+        assert!(!second.is_active(), "et prend l'état de la session");
+        focus.set_active(true);
+        assert!(second.is_active() && !first.is_active(), "seule la chaîne en cours suit");
+        // Le son : chaque moteur prend l'état, même arrivé après.
+        let clock = Arc::new(crate::audio::ManualClock::new());
+        let engine = Arc::new(AudioEngine::new(clock.clone()));
+        focus.attach_audio(&engine);
+        focus.set_muted(true);
+        assert!(engine.is_muted());
+        let later = Arc::new(AudioEngine::new(clock));
+        focus.attach_audio(&later);
+        assert!(later.is_muted(), "un moteur neuf prend l'état de la session");
+        focus.set_muted(false);
+        assert!(!engine.is_muted() && !later.is_muted());
+        // Hors d'`input_pipeline`, rien n'est retrouvé.
+        let (_, none) = crate::input::pipeline::created_during(|| ());
+        assert!(none.is_none());
     }
 
     fn prepared_as(virtual_display: bool, screens: Option<Vec<Option<ScreenMode>>>) -> Prepared {

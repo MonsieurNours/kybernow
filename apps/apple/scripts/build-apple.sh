@@ -8,10 +8,12 @@
 #                                                 par scripts/embed-kyber.sh comme les autres
 #
 # Le pont lie libkynput et libvlc du SDK Kyber (chaîne d'entrées, lecteur
-# jamais appelé) : lancer d'abord apps/macos/scripts/vendor-kyber.sh et
-# apps/macos/scripts/build-kyclient.sh. S'arrête à la première erreur sans
-# toucher à Vendor/. Refuse de tourner pendant que l'app est ouverte (une
-# bibliothèque réécrite sous l'app la fait planter, docs/build-notes.md).
+# jamais appelé), et libSDL2 (le lecteur de manettes du cœur, à la place de
+# celui de libkynput : plusieurs ordinateurs à la fois) : lancer d'abord
+# apps/macos/scripts/vendor-kyber.sh et apps/macos/scripts/build-kyclient.sh.
+# S'arrête à la première erreur sans toucher à Vendor/. Refuse de tourner
+# pendant que l'app est ouverte (une bibliothèque réécrite sous l'app la fait
+# planter, docs/build-notes.md).
 # Versions vérifiées : scripts/kyber-toolchain.sh.
 set -euo pipefail
 

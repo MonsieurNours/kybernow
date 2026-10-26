@@ -23,19 +23,23 @@ Ce chantier n'a pas d'écrans à lui : il reprend l'accueil, la connexion, la ba
 
 ## Cœur Rust
 
-- **Plusieurs `Session` dans un processus** : c'est déjà possible (aucun état global hors la langue et le journal). Les lignes du journal portent le nom de l'ordinateur.
-- **Un registre des sessions** (`focus`), une seule source pour « qui est active » :
-  - `register(session) → id`, `unregister(id)`, `activate(id)`, `set_keep_sound(id, bool)` ;
-  - à chaque changement, il applique à toutes les sessions : entrées actives ou non, son coupé ou non (sauf « Garder le son »), presse-papiers, manettes ;
+L'API exacte et ce que chaque app y branche : [apps/core/README.md](../apps/core/README.md#plusieurs-ordinateurs-à-la-fois-srcfocusrs-srcgamepads-srcjournalrs) (Rust) et [coeur-apple.md](coeur-apple.md) (pont C).
+
+- **Plusieurs `Session` dans un processus** : c'est déjà possible (aucun état global hors la langue et le journal). Les lignes du journal portent le nom de l'ordinateur (`Session::set_name`, donné par le registre).
+- **L'état de chaque session** : `Session::set_active(bool)` et `Session::set_muted(bool)`, tenus d'un démarrage de l'image à l'autre (la chaîne d'entrées et le moteur de son de chaque image les prennent). Une session seule est active et s'entend : rien ne change pour une app qui ne s'en sert pas.
+  - Pas active : rien ne part de l'appareil (clavier, souris, texte, touches et axes des manettes), touches et boutons relâchés, manettes au repos (axes au centre, gâchettes relâchées), souris relative coupée, presse-papiers en pause (rien lu sur l'appareil, rien écrit dessus), vibrations ignorées. De nouveau active : le contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur. Pas de coupure du traitement des entrées de kynput en filet : elle couperait aussi le pointeur reçu par les fenêtres derrière et les relâchements ; tout ce qui part vient de l'app ou du lecteur du cœur, arrêté à l'entrée de la chaîne (`InputPipeline::set_active`).
+  - Son coupé : fondu de 20 ms (`AudioEngine::set_muted`) ; le son continue d'être décodé et vidé : il revient sans décalage.
+- **Un registre des sessions** (`kybernow_core::focus`, `focus::global()`), une seule source pour « qui est active » :
+  - `register(&session, nom) → Result<id, Full>` (la session inscrite devient active), `unregister(id)`, `activate(id)`, `set_keep_sound(id, bool)`, `keep_sound(id)`, `active()`, `count()`, `next()` (« Ordinateur suivant »), `MAX_SESSIONS` ;
+  - à chaque changement, il applique à toutes les sessions : entrées actives ou non, son coupé ou non (sauf « Garder le son »), presse-papiers, manettes ; celles qui perdent la main d'abord ;
   - les apps lui disent seulement quelle fenêtre passe au premier plan.
-- **`InputPipeline::set_active(bool)`**. Inactive : touches et boutons relâchés, manettes au repos (axes au centre, gâchettes relâchées), souris relative coupée, presse-papiers en pause (rien lu sur l'appareil, rien écrit dessus), vibrations ignorées ; en filet, le traitement des entrées de kynput coupé. Active : le contenu du presse-papiers de l'appareil est renvoyé à l'ordinateur.
-- **`AudioEngine::set_muted(bool)`**, avec un fondu court (une vingtaine de millisecondes) pour ne pas claquer. Le son continue d'être décodé et vidé : il revient sans décalage.
-- **Les manettes : un seul lecteur par app**, dans le cœur, repris de celui de l'app Linux (`apps/linux/src/device/pads.rs`, SDL). SDL ne s'ouvre qu'une fois par processus : chaque session ne peut plus lire les manettes elle-même.
+- **Les manettes : un seul lecteur par app** (`kybernow_core::gamepads`), dans le cœur, repris de celui de l'app Linux (`apps/linux/src/device/pads.rs`, SDL). SDL ne s'ouvre qu'une fois par processus : chaque session ne peut plus lire les manettes elle-même.
   - Les manettes sont branchées sur chaque session (la Station garde sa manette virtuelle, un jeu ne la perd pas) ; boutons et axes ne vont qu'à la session active ; à la désactivation, l'état au repos part une fois.
   - Les vibrations ne reviennent à la manette que depuis la session active.
-  - Mac et Windows passent à `gamepads_from_app` ; libkynput y est construite sans son lecteur SDL, comme sur Linux et Android. Une app avec une seule session se comporte comme avant.
-- **Écrans** : une session ouverte pendant qu'une autre tourne prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » (deux sessions ne prennent jamais les mêmes écrans). Seule la première peut prendre tous les écrans.
-- **Pont C** : `kn_focus_*`, `kn_input_set_active`, `kn_audio_set_muted`. Rien côté JNI (Android reste sur un ordinateur).
+  - Mac et Windows : libkynput y est construite sans son lecteur SDL ; le cœur lit les manettes sur son propre fil SDL (`gamepads::start_sdl()`, qui démarre aussi tout seul à la première chaîne d'entrées). Ces apps gardent `gamepads_from_app: false` (le hook des manettes du Mac voit ces paquets comme avant). Linux nourrit le lecteur depuis sa boucle SDL (`gamepads::plug`, `unplug`, `button`, `axis`). Une app avec une seule session se comporte comme avant.
+- **Presse-papiers sous Windows** : la kynput.dll du client est construite sans celui de kynput (sa fenêtre cachée n'existe qu'une fois par processus) ; l'app donne au cœur celui de Windows, un par session.
+- **Écrans** : une session ouverte pendant qu'une autre tourne prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » (deux sessions ne prennent jamais les mêmes écrans) : `screens::screens_for_extra_session` et `screens::extra_session_window` (deux tiers de l'écran, 16:9, centrée). Seule la première peut prendre tous les écrans.
+- **Pont C** : `kn_focus_register`, `kn_focus_unregister`, `kn_focus_activate`, `kn_focus_set_keep_sound`, `kn_focus_keep_sound`, `kn_focus_active`, `kn_focus_next`, `kn_focus_count`, `kn_focus_max`, `kn_session_set_active`, `kn_session_set_muted`, `kn_session_attach_audio`, `kn_gamepads_start_sdl` ; pour une chaîne ou un moteur seuls, `kn_input_set_active` et `kn_audio_set_muted`. Rien côté JNI (Android reste sur un ordinateur).
 - **Limite** : quatre sessions par app.
 
 ## Apps

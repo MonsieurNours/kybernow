@@ -8,11 +8,18 @@
 #
 # Prérequis (docs/build-notes.md) : third_party/ en place, les correctifs
 # client appliqués par ce script ; pour x64, third_party/rootfs-win64 (FFmpeg,
-# libopus) et third_party/rootfs-win64-kynput (kynput.dll) produits par
-# server/kyber-patches/build.sh ; pour ARM64, third_party/rootfs-winarm64
-# produit par scripts/build-arm64-deps.sh (llvm-mingw). VLC n'est pas lié :
-# l'app décode elle-même, ses fonctions sont remplacées par des fonctions vides
-# (comme sur l'Apple TV).
+# libopus) produit par server/kyber-patches/build.sh et la SDL2.dll de Kyber
+# 0.29 (third_party/payload) ; pour ARM64, third_party/rootfs-winarm64 (FFmpeg,
+# libopus, SDL2) produit par scripts/build-arm64-deps.sh (llvm-mingw). VLC
+# n'est pas lié : l'app décode elle-même, ses fonctions sont remplacées par des
+# fonctions vides (comme sur l'Apple TV).
+#
+# kynput.dll est celle du client, construite ici (pas celle du serveur) : sans
+# le lecteur de manettes SDL de kynput ni son presse-papiers Windows (cfg
+# kybernow_app_clipboard, correctif 0004). Plusieurs ordinateurs à la fois :
+# le cœur lit les manettes une seule fois pour toutes les sessions
+# (apps/core/src/gamepads, lié à SDL2.dll) et tient un presse-papiers par
+# session (apps/core/src/input/clipboard.rs, sur celui de l'app).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -41,9 +48,13 @@ case "$ARCH" in
         TRIPLE=x86_64-w64-mingw32
         MINGW=/opt/homebrew/opt/mingw-w64/toolchain-x86_64/$TRIPLE
         ROOTFS="$THIRD_PARTY/rootfs-win64"
-        KYNPUT_ROOTFS="$THIRD_PARTY/rootfs-win64-kynput"
+        # pkg-config : rien d'autre à lire dans le rootfs du serveur.
+        ROOTFS_PC=""
         SDL2_DLL="$THIRD_PARTY/payload/kyber-0.29.0/SDL2.dll"
+        # Lien vers SDL2 : l'éditeur de liens de MinGW lie la DLL elle-même.
+        SDL2_LINK="$SDL2_DLL"
         CC="$TRIPLE-gcc"; AR="$TRIPLE-ar"; OBJDUMP="$TRIPLE-objdump"; STRIP="$TRIPLE-strip"
+        DLLTOOL="$TRIPLE-dlltool"
         RUNTIME_DIRS=("$MINGW/bin" "/opt/homebrew/opt/mingw-w64/toolchain-x86_64/lib/gcc/$TRIPLE/$KYBER_MINGW_GCC" "$MINGW/lib")
         DEPS_HINT="server/kyber-patches/build.sh"
         export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
@@ -54,9 +65,12 @@ case "$ARCH" in
         LLVM_MINGW="$THIRD_PARTY/toolchains/llvm-mingw-$KYBER_LLVM_MINGW-ucrt-macos-universal"
         MINGW="$LLVM_MINGW/$TRIPLE"
         ROOTFS="$THIRD_PARTY/rootfs-winarm64"
-        KYNPUT_ROOTFS="$ROOTFS"
+        ROOTFS_PC="$ROOTFS/lib/pkgconfig"
         SDL2_DLL="$ROOTFS/bin/SDL2.dll"
+        # lld ne lie pas une DLL : sa bibliothèque d'import.
+        SDL2_LINK="$ROOTFS/lib/libSDL2.dll.a"
         CC="$TRIPLE-clang"; AR=llvm-ar; OBJDUMP=llvm-objdump; STRIP=llvm-strip
+        DLLTOOL=llvm-dlltool
         RUNTIME_DIRS=("$MINGW/bin")
         DEPS_HINT="apps/windows/scripts/build-arm64-deps.sh"
         [ -x "$LLVM_MINGW/bin/$CC" ] || { echo "llvm-mingw $KYBER_LLVM_MINGW absent de third_party/toolchains (docs/build-notes.md)" >&2; exit 1; }
@@ -67,11 +81,11 @@ esac
 STUBS="$THIRD_PARTY/windows-client-$ARCH"
 DIST="$HERE/dist/$ARCH"
 
-for f in "$ROOTFS/lib/libavcodec.a" "$ROOTFS/lib/libopus.a" "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$VLC_IMPORT"; do
+for f in "$ROOTFS/lib/libavcodec.a" "$ROOTFS/lib/libopus.a" "$SDL2_DLL" "$SDL2_LINK" "$VLC_IMPORT"; do
     [ -f "$f" ] || { echo "$f introuvable : lancez d'abord $DEPS_HINT" >&2; exit 1; }
 done
 
-kyber_toolchain_check rustc
+kyber_toolchain_check rustc cargo-c
 [ "$ARCH" = x64 ] && kyber_toolchain_check mingw
 
 # Correctifs client de KyberNow (paquets vers l'app, presse-papiers, tampon de
@@ -104,8 +118,19 @@ if [ ! -f "$STUBS/libvlc.a" ] || [ "$VLC_IMPORT" -nt "$STUBS/libvlc.a" ]; then
 fi
 printf 'Name: libvlc\nDescription: fonctions vides (KyberNow)\nVersion: 3.0.0\nLibs: -L%s -lvlc\nCflags:\n' "$STUBS" > "$STUBS/pkgconfig/libvlc.pc"
 
+# SDL2 pour le lecteur de manettes du cœur (apps/core/build.rs, feature sdl),
+# dans un dossier qui ne contient qu'elle (celui de Kyber contient aussi
+# libvlc.dll, qui prendrait la place des fonctions vides).
+mkdir -p "$STUBS/sdl2"
+rm -f "$STUBS/sdl2"/*
+ln -s "$SDL2_LINK" "$STUBS/sdl2/"
+printf 'Name: sdl2\nDescription: SDL2 (manettes, lecteur du cœur)\nVersion: 2.0.0\nLibs: -L%s -lSDL2\nCflags:\n' "$STUBS/sdl2" > "$STUBS/pkgconfig/sdl2.pc"
+
+# kynput.dll du client et son kynput.pc (lu par kynput-sys).
+CLIENT_KYNPUT="$STUBS/kynput"
+
 export PKG_CONFIG_ALLOW_CROSS=1
-export PKG_CONFIG_LIBDIR="$STUBS/pkgconfig:$KYNPUT_ROOTFS/lib/pkgconfig"
+export PKG_CONFIG_LIBDIR="$STUBS/pkgconfig:$CLIENT_KYNPUT/lib/pkgconfig${ROOTFS_PC:+:$ROOTFS_PC}"
 export LIBCLANG_PATH="${LIBCLANG_PATH:-/Library/Developer/CommandLineTools/usr/lib}"
 export BINDGEN_EXTRA_CLANG_ARGS="--target=$TARGET --sysroot=$MINGW -I$MINGW/include"
 TARGET_ENV=$(echo "$TARGET" | tr 'a-z-' 'A-Z_')
@@ -127,6 +152,17 @@ export KYBERNOW_NATIVE_LIB="$NATIVE_LIB"
 # Rien d'un build précédent ne doit survivre à un échec de celui-ci.
 rm -rf "$DIST"
 
+# kynput.dll du client : sans le lecteur de manettes SDL de kynput (feature
+# sdl2 absente) ni son presse-papiers Windows (--cfg kybernow_app_clipboard),
+# dans son propre dossier de compilation (celui de kysdk/kynput sert au
+# serveur, avec d'autres options).
+echo "==> kynput.dll du client ($ARCH, sans manettes SDL ni presse-papiers de kynput)"
+rm -f "$CLIENT_KYNPUT/bin/kynput.dll"
+(cd "$KYSDK/kynput" && env "CARGO_TARGET_${TARGET_ENV}_RUSTFLAGS=--cfg kybernow_app_clipboard" CARGO_PROFILE_RELEASE_STRIP=false \
+    cargo cinstall -p kynput --target "$TARGET" --release --library-type cdylib --dlltool "$DLLTOOL" \
+    --prefix="$CLIENT_KYNPUT" --target-dir "$STUBS/kynput-build" 2>&1 | { grep -Ev '^ +(Compiling|Checking|Fresh|Downloaded|Downloading|Locking|Adding|Updating|Installing) ' || true; })
+[ -f "$CLIENT_KYNPUT/bin/kynput.dll" ] || { echo "kynput.dll n'a pas été produite" >&2; exit 1; }
+
 # Interface (Svelte), embarquée dans l'exécutable par Tauri.
 echo "==> Interface (ui/)"
 (cd "$HERE/ui" && npm ci --silent && npm run build --silent)
@@ -142,7 +178,7 @@ EXE="$APPS/target/$TARGET/$PROFILE/kybernow.exe"
 echo "==> $DIST"
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$KYNPUT_ROOTFS/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
+cp "$CLIENT_KYNPUT/bin/kynput.dll" "$SDL2_DLL" "$DIST/"
 # Icône des notifications de Windows (inscrite par l'app au lancement).
 cp "$HERE/resources/kybernow.png" "$DIST/"
 # Chargeur de WebView2 (l'interface), celui de la version de webview2-com-sys

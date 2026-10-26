@@ -6,6 +6,13 @@
 # 0001-kyclient : les paquets audio et vidéo vont à l'app au lieu de VLC.
 # 0002-kynput   : paquets de presse-papiers lisibles et fabriqués depuis l'app.
 # 0003-kynet    : grande mémoire de réception UDP (rafales d'une image 4K).
+# 0004-kynput   : client Windows sans le presse-papiers de kynput (cfg, sans
+#                 effet ici).
+#
+# libkynput est construite sans son lecteur de manettes SDL : les manettes
+# sont lues une seule fois pour toutes les sessions de l'app par le cœur
+# (apps/core/src/gamepads, plusieurs ordinateurs à la fois), qui lie SDL
+# lui-même (libkybernow.dylib, apps/apple/scripts/build-apple.sh).
 #
 # S'arrête à la première erreur (correctif inapplicable, compilation ratée)
 # sans toucher à Vendor/. Refuse de tourner pendant que l'app est ouverte.
@@ -70,9 +77,9 @@ kyber_toolchain_check rustc cargo-c
 # celles d'un build précédent pour ne copier que ce que ce build a installé.
 rm -f "$ROOTFS"/lib/libkynput.0.1.0.dylib "$ROOTFS"/lib/libkyclient.0.1.0.dylib
 
-echo "==> libkynput"
+echo "==> libkynput (sans lecteur de manettes SDL)"
 (cd "$KYSDK/kynput" && cargo_quiet cargo cinstall -p kynput --target aarch64-apple-darwin --release \
-    --prefix="$ROOTFS" --features sdl2)
+    --prefix="$ROOTFS")
 echo "==> libkyclient"
 (cd "$KYSDK/kyctl" && cargo_quiet cargo cinstall -p kyclient --target aarch64-apple-darwin --release \
     --prefix="$ROOTFS" --features=kymux,rtp)
