@@ -23,10 +23,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 use windows_sys::Win32::Devices::Display::{
     DISPLAYCONFIG_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_ADAPTER_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
-    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE, DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE,
+    DISPLAYCONFIG_MODE_INFO_TYPE_TARGET,
     DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME, DisplayConfigGetDeviceInfo,
     GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
-    QDC_ONLY_ACTIVE_PATHS, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
+    QDC_ONLY_ACTIVE_PATHS, QDC_VIRTUAL_MODE_AWARE, QUERY_DISPLAY_CONFIG_FLAGS, QueryDisplayConfig, SDC_ALLOW_CHANGES,
     SDC_ALLOW_PATH_ORDER_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE, SDC_TOPOLOGY_EXTEND, SDC_TOPOLOGY_SUPPLIED,
     SDC_USE_DATABASE_CURRENT, SDC_USE_SUPPLIED_DISPLAY_CONFIG, SetDisplayConfig,
 };
@@ -582,6 +583,7 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
             let ccd = ccd_position(name).map_or("?".to_string(), |(cx, cy)| format!("({cx}, {cy})"));
             let rect = monitor_rect(x, y).map_or("?".to_string(), |(l, t, r, b)| format!("({l}, {t})-({r}, {b})"));
             facts.push(format!("{name} : {width} × {height} à {refresh} Hz en ({x}, {y}), source CCD {ccd}, moniteur {rect}, échelle {scale}"));
+            facts.push(format!("{name} : {}", desktop_image(name)));
             json!({ "gdi_name": name, "width": width, "height": height, "refresh": refresh, "x": x, "y": y })
         })
         .collect();
@@ -597,6 +599,49 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "facts": facts,
         "scales": scales,
     }))
+}
+
+/// Ce que la configuration active, lue avec les modes virtuels
+/// (`QDC_VIRTUAL_MODE_AWARE`), donne pour l'écran `name` : source, cible et
+/// image du bureau (taille de la source, région, découpe). Une région qui ne
+/// part pas de (0, 0) décalerait l'image de l'écran dans sa propre surface.
+fn desktop_image(name: &str) -> String {
+    let Ok((paths, modes)) = query(QDC_ONLY_ACTIVE_PATHS | QDC_VIRTUAL_MODE_AWARE) else {
+        return "configuration avec modes virtuels illisible".to_string();
+    };
+    let Some(path) = paths.iter().find(|p| gdi_name(p).as_deref() == Some(name)) else {
+        return "chemin introuvable dans la configuration avec modes virtuels".to_string();
+    };
+    // DISPLAYCONFIG_PATH_SUPPORT_VIRTUAL_MODE : index découpés en deux moitiés.
+    let virtual_mode = path.flags & 0x8 != 0;
+    let (source_raw, target_raw) = unsafe { (path.sourceInfo.Anonymous.modeInfoIdx, path.targetInfo.Anonymous.modeInfoIdx) };
+    let (source_idx, target_idx, desktop_idx) = if virtual_mode {
+        (source_raw >> 16, target_raw >> 16, Some(target_raw & 0xFFFF))
+    } else {
+        (source_raw, target_raw, None)
+    };
+    let mode = |idx: u32| modes.get(idx as usize).filter(|_| idx != 0xFFFF && idx != u32::MAX);
+    let mut out = format!("chemin {} mode virtuel", if virtual_mode { "avec" } else { "sans" });
+    if let Some(m) = mode(source_idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE) {
+        let sm = unsafe { m.Anonymous.sourceMode };
+        out += &format!(", source {} × {} en ({}, {})", sm.width, sm.height, sm.position.x, sm.position.y);
+    }
+    if let Some(m) = mode(target_idx).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET) {
+        let tm = unsafe { m.Anonymous.targetMode.targetVideoSignalInfo };
+        out += &format!(", cible {} × {}", tm.activeSize.cx, tm.activeSize.cy);
+    }
+    match desktop_idx.and_then(mode).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_DESKTOP_IMAGE) {
+        Some(m) => {
+            let d = unsafe { m.Anonymous.desktopImageInfo };
+            let (r, c) = (d.DesktopImageRegion, d.DesktopImageClip);
+            out += &format!(
+                ", image du bureau : taille de la source {} × {}, région ({}, {})-({}, {}), découpe ({}, {})-({}, {})",
+                d.PathSourceSize.x, d.PathSourceSize.y, r.left, r.top, r.right, r.bottom, c.left, c.top, c.right, c.bottom
+            );
+        }
+        None => out += ", pas d'image du bureau",
+    }
+    out
 }
 
 /// Position de la source de l'écran `name` (nom GDI) dans la configuration CCD active.
