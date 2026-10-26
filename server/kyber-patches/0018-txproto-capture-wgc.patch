@@ -78,11 +78,10 @@
  } DxgiCapture;
  
  static uint32_t gen_identifier(const char *s)
-@@ -870,7 +873,628 @@
-         if (err < 0) {
+@@ -871,11 +874,687 @@
              sp_log(ctx, SP_LOG_ERROR, "allocate_texture_pool() failed: %d\n", err);
              return err;
-+        }
+         }
 +    }
 +
 +    return 0;
@@ -101,15 +100,19 @@
 + * signed-in user's account (`kyber-admin display-agent wgc-capture`). Each
 + * agent copies the frames into a ring of shared D3D11 textures on the
 + * display's adapter; this code opens that ring and copies the newest frame
-+ * into the usual texture pool, on the GPU. No ring (single-display session,
-+ * nobody signed in, agent failure): desktop duplication as before.
++ * into the usual texture pool, on the GPU. The display at (0, 0) is never
++ * captured through WGC, and an output is only looked for when Admin's
++ * session marker lists it; otherwise (single-display session, nobody signed
++ * in, agent failure) desktop duplication as before.
 + *
-+ * Shared objects for output "\\.\DISPLAY6" (id "DISPLAY6"), in the session
-+ * namespace:
-+ *   KyberNowWGC_DISPLAY6               file mapping, KnWgcHeader
-+ *   KyberNowWGC_DISPLAY6_frame         auto-reset event, set on each frame
-+ *   KyberNowWGC_DISPLAY6_<gen>_<slot>  shared texture (NT handle, keyed
-+ *                                       mutex, key 0), BGRA 8 bits
++ * Session marker (global namespace, SYSTEM only): KyberNowWGC_session,
++ * KnWgcSession (token T and the listed ids). Shared objects for output
++ * "\\.\DISPLAY6" (id "DISPLAY6"), in the session namespace, open to SYSTEM
++ * and to the user's account only:
++ *   KyberNowWGC_T_DISPLAY6               file mapping, KnWgcHeader
++ *   KyberNowWGC_T_DISPLAY6_frame         auto-reset event, set on each frame
++ *   KyberNowWGC_T_DISPLAY6_<gen>_<slot>  shared texture (NT handle, keyed
++ *                                         mutex, key 0), BGRA 8 bits
 + * Same layout as server/admin/src/display/wgc_shared.rs.
 + *
 + * The pointer is left out of the WGC picture; it is read with
@@ -142,9 +145,28 @@
 +_Static_assert(sizeof(KnWgcHeader) == 88, "KnWgcHeader size");
 +
 +#define KN_WGC_MAGIC 0x47574E4Bu /* "KNWG" */
-+#define KN_WGC_VERSION 1
++#define KN_WGC_VERSION 2
 +#define KN_WGC_SLOTS 3
 +#define KN_WGC_STATE_RUNNING 1
++/* Session marker published by KyberNow Admin (global namespace, SYSTEM
++ * only): the session token and the displays captured through WGC. Same
++ * layout as `SessionHeader` in server/admin/src/display/wgc_shared.rs. */
++typedef struct KnWgcSession {
++    uint32_t magic;
++    uint32_t version;
++    uint32_t count;
++    uint32_t reserved;
++    char token[24];
++    char ids[4][32];
++} KnWgcSession;
++
++_Static_assert(offsetof(KnWgcSession, ids) == 40, "KnWgcSession layout");
++_Static_assert(sizeof(KnWgcSession) == 168, "KnWgcSession size");
++
++#define KN_WGC_SESSION_NAME "Global\\KyberNowWGC_session"
++#define KN_WGC_SESSION_MAGIC 0x53574E4Bu /* "KNWS" */
++#define KN_WGC_SESSION_VERSION 1
++
 +/* No heartbeat from the agent for this long: back to desktop duplication. */
 +#define KN_WGC_STALE_100NS (3LL * 10000000LL)
 +/* Capture latency is logged over this period. */
@@ -256,10 +278,10 @@
 +            ID3D11Texture2D_Release(w->textures[i]);
 +        w->mutexes[i] = NULL;
 +        w->textures[i] = NULL;
-+    }
+     }
 +    w->generation = 0;
 +}
-+
+ 
 +static void kn_wgc_close(DxgiCapture *priv)
 +{
 +    KnWgc *w = priv->wgc;
@@ -308,35 +330,67 @@
 +    }
 +    ID3D11Device1_Release(device1);
 +    w->generation = generation;
-+    return 0;
+     return 0;
+ }
+ 
++/* Ring id ("<token>_<id>") of output `id` if the current session marker
++ * lists it; 0 otherwise. */
++static int kn_wgc_session_ring(const char *id, char *ring, size_t size)
++{
++    int found = 0;
++    HANDLE marker = OpenFileMappingA(FILE_MAP_READ, FALSE, KN_WGC_SESSION_NAME);
++    if (!marker)
++        return 0;
++    const KnWgcSession *s = MapViewOfFile(marker, FILE_MAP_READ, 0, 0, sizeof(KnWgcSession));
++    if (s) {
++        if (s->magic == KN_WGC_SESSION_MAGIC && s->version == KN_WGC_SESSION_VERSION) {
++            char token[sizeof(s->token) + 1], listed[sizeof(s->ids[0]) + 1];
++            memcpy(token, s->token, sizeof(s->token));
++            token[sizeof(s->token)] = 0;
++            for (uint32_t i = 0; i < s->count && i < 4 && !found; i++) {
++                memcpy(listed, s->ids[i], sizeof(s->ids[i]));
++                listed[sizeof(s->ids[i])] = 0;
++                if (!strcmp(listed, id) && token[0]) {
++                    snprintf(ring, size, "%s_%s", token, id);
++                    found = 1;
++                }
++            }
++        }
++        UnmapViewOfFile(s);
++    }
++    CloseHandle(marker);
++    return found;
 +}
 +
-+/* Opens the WGC ring of this output, if KyberNow Admin started one. */
++/* Opens the WGC ring of this output, if KyberNow Admin started one for it
++ * in the current session. */
 +static int kn_wgc_open(IOSysEntry *entry, DxgiCapture *priv, DxgiCtx *ctx)
 +{
-+    char id[64], name[128];
++    char id[32], ring[64], name[128];
 +    DXGI_ADAPTER_DESC1 adapter_desc;
 +    KnWgc *w;
 +
++    /* The main display (at (0, 0): sign-in screen, UAC) is never captured
++     * through WGC. */
++    if (!entry->x && !entry->y)
++        return AVERROR(ENOENT);
++    /* Only displays listed by Admin for this session; otherwise desktop
++     * duplication straight away, as without KyberNow. */
 +    kn_screen_id(sp_class_get_name(entry), id, sizeof(id));
-+    snprintf(name, sizeof(name), "KyberNowWGC_%s", id);
++    if (!kn_wgc_session_ring(id, ring, sizeof(ring)))
++        return AVERROR(ENOENT);
++    snprintf(name, sizeof(name), "KyberNowWGC_%s", ring);
 +
-+    /* A secondary display (not at (0, 0)) may have a capture agent still
-+     * starting: it is looked for during 1.5 s. The main display, never
-+     * captured through WGC, is not kept waiting. */
-+    const int secondary = entry->x || entry->y;
++    /* Its capture agent may still be starting: looked for during 1.5 s. */
 +    const int64_t looked_at = av_gettime_relative();
-+    const int64_t deadline = looked_at + (secondary ? 1500000 : 0);
-+    if (secondary)
-+        sp_log(entry, SP_LOG_INFO, "WGC: looking for the capture agent of %s\n", id);
++    const int64_t deadline = looked_at + 1500000;
++    sp_log(entry, SP_LOG_INFO, "WGC: looking for the capture agent of %s\n", id);
 +    HANDLE mapping;
 +    while (!(mapping = OpenFileMappingA(FILE_MAP_READ, FALSE, name)) &&
 +           av_gettime_relative() < deadline && !atomic_load(&priv->quit))
 +        av_usleep(100000);
 +    if (!mapping) {
-+        /* No WGC for this output. Worth a line for a secondary display. */
-+        if (secondary)
-+            sp_log(entry, SP_LOG_INFO, "WGC: no capture agent for %s (%lu): desktop duplication\n", id, GetLastError());
++        sp_log(entry, SP_LOG_INFO, "WGC: no capture agent for %s (%lu): desktop duplication\n", id, GetLastError());
 +        return AVERROR(ENOENT);
 +    }
 +
@@ -346,7 +400,7 @@
 +        return AVERROR(ENOMEM);
 +    }
 +    priv->wgc = w;
-+    snprintf(w->id, sizeof(w->id), "%s", id);
++    snprintf(w->id, sizeof(w->id), "%s", ring);
 +    w->mapping = mapping;
 +    w->header = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, sizeof(KnWgcHeader));
 +    if (!w->header) {
@@ -374,7 +428,7 @@
 +        sp_log(entry, SP_LOG_WARN, "WGC: capture of %s runs on another adapter\n", id);
 +        goto fail;
 +    }
-+    snprintf(name, sizeof(name), "KyberNowWGC_%s_frame", id);
++    snprintf(name, sizeof(name), "KyberNowWGC_%s_frame", ring);
 +    w->event = OpenEventA(SYNCHRONIZE, FALSE, name);
 +    if (!w->event) {
 +        sp_log(entry, SP_LOG_WARN, "WGC: cannot open %s: %lu\n", name, GetLastError());
@@ -584,7 +638,7 @@
 +            kn_now_100ns() - w->header->heartbeat_time > KN_WGC_STALE_100NS) {
 +            sp_log(entry, SP_LOG_WARN, "WGC: capture agent stopped\n");
 +            return AVERROR_EXTERNAL;
-         }
++        }
 +
 +        kn_wgc_poll_cursor(entry, priv, w);
 +
@@ -704,10 +758,15 @@
 +            *fatal = err; /* same as desktop duplication: stop */
 +            return 0;
 +        }
-     }
- 
-     return 0;
-@@ -885,6 +1509,7 @@
++    }
++
++    return 0;
++}
++
+ static void *dxgi_capture_thread(void *s)
+ {
+     IOSysEntry *entry = s;
+@@ -885,6 +1564,7 @@
      AVFrame* frame = NULL;
      HRESULT hr;
      int err = 0;
@@ -715,12 +774,10 @@
  
      sp_set_thread_name_self(sp_class_get_name(entry));
      sp_eventlist_dispatch(entry, entry->events, SP_EVENT_ON_CONFIG | SP_EVENT_ON_INIT, NULL);
-@@ -901,6 +1526,24 @@
-     if (err < 0) {
-         sp_log(ctx, SP_LOG_ERROR, "sp_dxgi_cursor_handler_init() failed: %d\n", err);
+@@ -903,6 +1583,24 @@
          goto fail;
-+    }
-+
+     }
+ 
 +    /* KyberNow (0018): secondary displays of a multi-display session are
 +     * captured through Windows Graphics Capture when KyberNow Admin started
 +     * a capture agent for them; desktop duplication otherwise, or if it stops. */
@@ -737,10 +794,12 @@
 +        sp_log(entry, SP_LOG_WARN, "WGC: back to desktop duplication\n");
 +        stop_capture(priv);
 +        priv->got_first_frame = 0;
-     }
- 
++    }
++
      while (!atomic_load(&priv->quit)) {
-@@ -943,10 +1586,21 @@
+         /* Capture may be restarted multiple time during a session in some cases:
+          * - Fullscreen switch
+@@ -943,10 +1641,21 @@
          }
  
          if (!priv->got_first_frame) {

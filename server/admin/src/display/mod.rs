@@ -488,36 +488,6 @@ fn mode_param(m: Mode) -> Value {
     Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value()
 }
 
-/// Fabricant (identifiant PCI) de la carte qui fait tourner l'encodeur de
-/// Kyber (`video.encoder`) ; aucun pour l'encodage par le processeur.
-pub fn encoder_vendor(encoder: &str) -> Option<u16> {
-    match encoder {
-        "nvenc" => Some(0x10DE),
-        "amf" => Some(0x1002),
-        "qsv" => Some(0x8086),
-        _ => None,
-    }
-}
-
-/// Fabricant d'une carte d'après le chemin de son périphérique
-/// (`\\?\PCI#VEN_10DE&DEV_2208…`).
-fn path_vendor(path: &str) -> Option<u16> {
-    let upper = path.to_ascii_uppercase();
-    let at = upper.find("VEN_")? + 4;
-    u16::from_str_radix(upper.get(at..at + 4)?, 16).ok()
-}
-
-/// Carte à donner au pilote pour rendre les écrans virtuels : la première
-/// du fabricant de l'encodeur parmi celles que liste l'agent (`adapters`).
-fn pick_adapter(adapters: &Value, vendor: u16) -> Option<(u32, i32, String)> {
-    adapters["adapters"].as_array()?.iter().find_map(|a| {
-        let path = a["path"].as_str()?;
-        (path_vendor(path) == Some(vendor)).then(|| {
-            (a["luid_low"].as_u64().unwrap_or(0) as u32, a["luid_high"].as_i64().unwrap_or(0) as i32, path.to_string())
-        })
-    })
-}
-
 /// Autres serveurs de streaming, d'après le nom de leur exécutable : ils
 /// pilotent eux aussi les écrans (disposition, écrans virtuels ; Apollo parle
 /// au même pilote SudoVDA que la Station).
@@ -552,6 +522,25 @@ fn shown_label(v: &Value) -> String {
 struct PointerRecord {
     previous_base: Option<u32>,
     previous_size: Option<u32>,
+}
+
+/// Fichier `pointer-size-session.json` : la taille à rendre, par compte
+/// Windows (SID). Clé vide : fiche d'avant la 0.6.0, sans compte, rendue
+/// au compte connecté.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct PointerRecords {
+    users: std::collections::BTreeMap<String, PointerRecord>,
+}
+
+impl PointerRecords {
+    fn parse(text: &str) -> Option<Self> {
+        let v: Value = serde_json::from_str(text).ok()?;
+        if v.get("users").is_some() {
+            return serde_json::from_value(v).ok();
+        }
+        let legacy: PointerRecord = serde_json::from_value(v).ok()?;
+        Some(Self { users: [(String::new(), legacy)].into() })
+    }
 }
 
 /// Une remise du mode d'un écran (politique `restore`).
@@ -667,17 +656,19 @@ impl Record {
 
 trait Backend: Send + Sync {
     fn driver(&self) -> Result<Value>;
-    /// Fait rendre les écrans du pilote par la carte du fabricant `vendor`
-    /// (celle de l'encodeur) ; rend le chemin de la carte choisie, `None` si
-    /// aucune ne correspond.
-    fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>>;
     /// Exécutables en marche sur l'ordinateur (pour repérer un autre serveur de streaming).
     fn process_names(&self) -> Vec<String>;
+    /// SID du compte connecté à la session console (`None` : personne).
+    fn console_user(&self) -> Option<String>;
+    /// Taille du pointeur en ce moment (profil de l'utilisateur de la
+    /// console), avec le SID de son compte ; voir `cursor::read`.
+    fn read_pointer(&self) -> Result<(String, PointerRecord)>;
     /// Agrandit le pointeur de Windows au cran `step` s'il est plus petit
     /// (profil de l'utilisateur de la session) ; voir `cursor::enlarge`.
     fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value>;
-    /// Remet la taille du pointeur d'avant la session.
-    fn restore_pointer(&self, record: PointerRecord) -> Result<Value>;
+    /// Remet la taille du pointeur d'avant la session, pour le compte `sid`
+    /// seulement (l'agent refuse s'il tourne avec un autre compte).
+    fn restore_pointer(&self, sid: &str, record: PointerRecord) -> Result<Value>;
     /// Capture WGC des écrans secondaires (nom GDI, fréquence) : un agent par
     /// écran, avec le compte de l'utilisateur, attendu jusqu'à ce qu'il soit
     /// prêt (`wgc.rs`). Rend, pour chaque écran, ce qu'il a annoncé ou l'échec.
@@ -711,10 +702,14 @@ pub struct Manager {
     last_error: Mutex<Option<String>>,
     /// Un écran virtuel existe : le fil des signaux de vie doit pinguer le pilote.
     alive: AtomicBool,
+    /// Sérialise l'agrandissement et la remise du pointeur.
+    pointer: Mutex<()>,
+    /// Pointeur agrandi pour la session en cours : pas de remise au repos.
+    pointer_in_use: AtomicBool,
+    /// Remise au repos manquée : pas de nouvel essai avant cet instant.
+    pointer_retry_after: Mutex<Option<Instant>>,
     pub settings: Mutex<VdSettings>,
     events: Mutex<Option<EventSink>>,
-    /// Fabricant de la carte de l'encodeur de Kyber (`set_render_vendor`).
-    render_vendor: Mutex<Option<u16>>,
 }
 
 pub fn now_secs() -> u64 {
@@ -738,16 +733,12 @@ impl Manager {
             ops: Mutex::new(()),
             last_error: Mutex::new(None),
             alive: AtomicBool::new(false),
+            pointer: Mutex::new(()),
+            pointer_in_use: AtomicBool::new(false),
+            pointer_retry_after: Mutex::new(None),
             settings: Mutex::new(settings),
             events: Mutex::new(None),
-            render_vendor: Mutex::new(None),
         })
-    }
-
-    /// Carte de l'encodeur de Kyber (`encoder_vendor`), qui rendra les écrans
-    /// virtuels d'une session à plusieurs écrans.
-    pub fn set_render_vendor(&self, vendor: Option<u16>) {
-        *self.render_vendor.lock().unwrap() = vendor;
     }
 
     /// Branche le fil des événements (vue d'ensemble de la console).
@@ -783,33 +774,63 @@ impl Manager {
         self.data_dir.join("pointer-size-session.json")
     }
 
+    fn read_pointer_records(&self) -> PointerRecords {
+        std::fs::read_to_string(self.pointer_path()).ok().and_then(|t| PointerRecords::parse(&t)).unwrap_or_default()
+    }
+
+    /// Écrit les fiches (fichier retiré quand il n'en reste aucune).
+    fn write_pointer_records(&self, records: &PointerRecords) {
+        if records.users.is_empty() {
+            let _ = std::fs::remove_file(self.pointer_path());
+        } else if let Ok(bytes) = serde_json::to_vec(records) {
+            let _ = std::fs::write(self.pointer_path(), bytes);
+        }
+    }
+
     /// Session à plusieurs écrans : pointeur agrandi juste assez pour que
     /// Windows le dessine lui-même sur chaque écran virtuel (voir
-    /// `cursor.rs`). La taille d'origine est notée avant, une seule fois.
+    /// `cursor.rs`). La taille d'origine est lue et notée pour ce compte
+    /// avant tout changement (une fiche restée d'une session interrompue
+    /// garde la vraie taille d'origine).
     fn enlarge_pointer(&self, min_scale: u32) {
+        let _pointer = self.pointer.lock().unwrap();
+        self.pointer_in_use.store(true, Ordering::SeqCst);
         let (step, base) = pointer_step(min_scale);
+        let mut records = self.read_pointer_records();
+        let (sid, noted) = match self.backend.read_pointer() {
+            Ok((sid, record)) => {
+                let noted = !records.users.contains_key(&sid);
+                if noted {
+                    records.users.insert(sid.clone(), record);
+                    self.write_pointer_records(&records);
+                }
+                (sid, noted)
+            }
+            Err(e) => {
+                tracing::warn!("pointeur de Windows non agrandi : taille d'origine illisible ({e:#})");
+                return;
+            }
+        };
         match self.backend.enlarge_pointer(step, base) {
             Ok(v) if v["changed"].as_bool() == Some(true) => {
-                let record = PointerRecord {
-                    previous_base: v["previous_base"].as_u64().map(|n| n as u32),
-                    previous_size: v["previous_size"].as_u64().map(|n| n as u32),
-                };
-                // Un fichier resté d'une session interrompue garde la vraie taille d'origine.
-                if !self.pointer_path().exists() {
-                    if let Ok(bytes) = serde_json::to_vec(&record) {
-                        let _ = std::fs::write(self.pointer_path(), bytes);
-                    }
-                }
                 tracing::info!(
                     "pointeur de Windows agrandi pour les écrans virtuels : cran {step} (base {base} px, échelle la plus petite {min_scale} %), par {}, base relue {} ; flèche dessinée avant : {}, après : {} ; avant : base {} px",
                     v["method"],
                     v["registry_base"],
                     shown_label(&v["shown_before"]),
                     shown_label(&v["shown_after"]),
-                    record.previous_base.unwrap_or(32)
+                    records.users.get(&sid).and_then(|r| r.previous_base).unwrap_or(32)
                 );
             }
-            Ok(v) => tracing::info!("pointeur de Windows déjà assez grand pour les écrans virtuels (base {} px)", v["base"]),
+            Ok(v) => {
+                // Rien changé : rien à rendre.
+                if noted {
+                    records.users.remove(&sid);
+                    self.write_pointer_records(&records);
+                }
+                tracing::info!("pointeur de Windows déjà assez grand pour les écrans virtuels (base {} px)", v["base"]);
+            }
+            // La fiche reste : l'agent a pu changer la taille avant d'échouer.
             Err(e) => tracing::warn!("pointeur de Windows non agrandi : {e:#}"),
         }
     }
@@ -838,18 +859,29 @@ impl Manager {
         }
     }
 
-    /// Remet la taille du pointeur notée par `enlarge_pointer`, s'il y en a
-    /// une : fin de session, reprise après plantage, début de la session
-    /// suivante. Le fichier reste tant que ce n'est pas fait.
+    /// Remet la taille du pointeur notée par `enlarge_pointer` pour le
+    /// compte connecté à la console, s'il y en a une : fin de session,
+    /// reprise après plantage, et au repos tant qu'elle n'est pas rendue
+    /// (`retry_pointer`). La fiche d'un autre compte attend qu'il se connecte.
     fn restore_pointer(&self) {
-        let Ok(text) = std::fs::read_to_string(self.pointer_path()) else { return };
-        let Ok(record) = serde_json::from_str::<PointerRecord>(&text) else {
+        let _pointer = self.pointer.lock().unwrap();
+        self.restore_pointer_locked();
+    }
+
+    fn restore_pointer_locked(&self) {
+        let mut records = self.read_pointer_records();
+        if records.users.is_empty() {
             let _ = std::fs::remove_file(self.pointer_path());
             return;
-        };
-        match self.backend.restore_pointer(record) {
+        }
+        let Some(sid) = self.backend.console_user() else { return };
+        let key = if records.users.contains_key(&sid) { sid.clone() } else { String::new() };
+        let Some(record) = records.users.get(&key).copied() else { return };
+        match self.backend.restore_pointer(&sid, record) {
             Ok(v) => {
-                let _ = std::fs::remove_file(self.pointer_path());
+                records.users.remove(&key);
+                self.write_pointer_records(&records);
+                *self.pointer_retry_after.lock().unwrap() = None;
                 tracing::info!(
                     "taille du pointeur de Windows rendue : base {} px, par {}, base relue {}, flèche dessinée : {}",
                     v["base"],
@@ -861,7 +893,26 @@ impl Manager {
                     tracing::warn!("la flèche reste dessinée plus grande que la base rendue (jeu de pointeurs personnalisé, ou taille pas encore rechargée par Windows)");
                 }
             }
-            Err(e) => tracing::warn!("taille du pointeur de Windows pas encore rendue : {e:#}"),
+            Err(e) => {
+                *self.pointer_retry_after.lock().unwrap() = Some(Instant::now() + Duration::from_secs(60));
+                tracing::warn!("taille du pointeur de Windows pas encore rendue : {e:#}");
+            }
+        }
+    }
+
+    /// Au repos (fil à part, toutes les 10 s) : une taille de pointeur restée
+    /// à rendre l'est dès que son compte est connecté, sans retarder les
+    /// sessions ; jamais pendant une session à plusieurs écrans.
+    pub fn retry_pointer(&self) {
+        if !self.pointer_path().exists() || self.pointer_in_use.load(Ordering::SeqCst) {
+            return;
+        }
+        if self.pointer_retry_after.lock().unwrap().is_some_and(|t| Instant::now() < t) {
+            return;
+        }
+        let _pointer = self.pointer.lock().unwrap();
+        if !self.pointer_in_use.load(Ordering::SeqCst) {
+            self.restore_pointer_locked();
         }
     }
 
@@ -991,10 +1042,9 @@ impl Manager {
             return Ok(started);
         }
         // Autres écrans (un autre appareil prend la main) : on repart de zéro.
+        // (Une taille de pointeur restée d'une session interrompue est rendue
+        // au repos, par `retry_pointer`, sans retarder celle-ci.)
         self.stop_locked("remplacée par une nouvelle session");
-        // Taille du pointeur restée d'une session interrompue (personne n'était
-        // connecté à Windows quand Admin a redémarré) : rendue maintenant.
-        self.restore_pointer();
 
         // Identifiants fixes : Windows retrouve la disposition de session
         // enregistrée pour ces écrans (voir topology.rs).
@@ -1016,14 +1066,6 @@ impl Manager {
                 );
             }
         }
-        let vendor = *self.render_vendor.lock().unwrap();
-        if let Some(vendor) = vendor.filter(|_| layout.len() > 1) {
-            match self.backend.pin_render_adapter(vendor) {
-                Ok(Some(path)) => tracing::info!("écrans virtuels rendus par la carte {path}"),
-                Ok(None) => tracing::warn!("aucune carte du fabricant {vendor:04X} pour rendre les écrans virtuels : Windows choisit"),
-                Err(e) => tracing::warn!("carte de rendu des écrans virtuels : {e:#}"),
-            }
-        }
         // Rang de chaque écran (0 : le principal), créés dans cet ordre.
         let order = slot_order(&layout);
         let mut created_slots: Vec<(usize, usize, [u8; 16], Created)> = Vec::new();
@@ -1040,14 +1082,8 @@ impl Manager {
                     self.write_record(&created_slots.iter().map(|p| p.2).collect::<Vec<_>>());
                 }
                 Err(e) if slot == 0 => {
+                    // Le principal, créé le premier, est indispensable.
                     self.fail(&e);
-                    // Principal créé en dernier : les secondaires sont déjà là.
-                    if !created_slots.is_empty() {
-                        for (_, _, guid, _) in &created_slots {
-                            let _ = self.backend.remove(*guid);
-                        }
-                        self.alive.store(false, Ordering::SeqCst);
-                    }
                     let _ = std::fs::remove_file(self.record_path());
                     return Err(e);
                 }
@@ -1225,6 +1261,7 @@ impl Manager {
             }
         }
         self.alive.store(false, Ordering::SeqCst);
+        self.pointer_in_use.store(false, Ordering::SeqCst);
         self.restore_pointer();
         std::thread::sleep(Duration::from_millis(500));
         match self.backend.restore() {
@@ -1446,6 +1483,14 @@ impl Manager {
             }
         });
 
+        // Taille du pointeur restée à rendre : un fil à part, l'agent pouvant
+        // prendre jusqu'à 15 s.
+        let pointer = self.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(10));
+            pointer.retry_pointer();
+        });
+
         std::thread::spawn(move || {
             let mut idle_since: Option<Instant> = None;
             loop {
@@ -1534,8 +1579,6 @@ struct SimScreen {
     last_isolate: Vec<(u32, i32, i32)>,
     /// Windows refuse les remises de mode (il garde le mode en place).
     refuse_modes: bool,
-    /// Fabricant de la carte fixée pour le rendu.
-    render_vendor: Option<u16>,
     /// Exécutables en marche.
     processes: Vec<String>,
     /// Rangs des écrans dans l'ordre de leur création.
@@ -1546,6 +1589,8 @@ struct SimScreen {
     /// d'y toucher (pas de session ouverte).
     pointer_base: Option<u32>,
     pointer_fails: bool,
+    /// Compte connecté à la console, s'il n'est pas celui par défaut.
+    console_sid: Option<String>,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1559,6 +1604,10 @@ impl SimScreen {
         usize::from(self.mode.is_some()) + self.extra.iter().flatten().count()
     }
 }
+
+/// Compte simulé connecté à la console.
+#[cfg(not(windows))]
+const SIM_SID: &str = "S-1-5-21-0-0-0-1001";
 
 #[cfg(not(windows))]
 fn sim_gdi_name(slot: u32) -> String {
@@ -1584,6 +1633,18 @@ impl Backend for Simulated {
     fn stop_wgc(&self) {
         self.screen.lock().unwrap().wgc.clear();
     }
+    fn console_user(&self) -> Option<String> {
+        let screen = self.screen.lock().unwrap();
+        (!screen.pointer_fails).then(|| screen.console_sid.clone().unwrap_or_else(|| SIM_SID.to_string()))
+    }
+    fn read_pointer(&self) -> Result<(String, PointerRecord)> {
+        let screen = self.screen.lock().unwrap();
+        if screen.pointer_fails {
+            bail!("(simulé) aucune session Windows ouverte");
+        }
+        let sid = screen.console_sid.clone().unwrap_or_else(|| SIM_SID.to_string());
+        Ok((sid, PointerRecord { previous_base: screen.pointer_base, previous_size: None }))
+    }
     fn enlarge_pointer(&self, step: u32, base: u32) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
         if screen.pointer_fails {
@@ -1597,18 +1658,17 @@ impl Backend for Simulated {
         let shown = |logical: u32| json!({ "px": logical * 3 / 2, "scale": 150, "logical": logical });
         Ok(json!({ "changed": true, "base": base, "step": step, "method": "simulé", "previous_base": previous, "previous_size": null, "registry_base": base, "shown_before": shown(previous.unwrap_or(32)), "shown_after": shown(base) }))
     }
-    fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
+    fn restore_pointer(&self, sid: &str, record: PointerRecord) -> Result<Value> {
         let mut screen = self.screen.lock().unwrap();
         if screen.pointer_fails {
             bail!("(simulé) aucune session Windows ouverte");
         }
+        if sid != screen.console_sid.as_deref().unwrap_or(SIM_SID) {
+            bail!("(simulé) autre compte");
+        }
         screen.pointer_base = record.previous_base;
         let base = record.previous_base.unwrap_or(32);
         Ok(json!({ "base": base, "method": "simulé", "registry_base": record.previous_base, "shown_after": { "px": base * 3 / 2, "scale": 150, "logical": base } }))
-    }
-    fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
-        self.screen.lock().unwrap().render_vendor = Some(vendor);
-        Ok(Some(format!("(simulée) VEN_{vendor:04X}")))
     }
     fn create(&self, _: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
         let mut screen = self.screen.lock().unwrap();
@@ -1702,9 +1762,96 @@ mod windows {
         data_dir: PathBuf,
         device: Mutex<Option<sudovda::Device>>,
         watch: watch::Watch,
-        /// Captures WGC en cours : fichier `run` (dossier de l'agent de
-        /// l'utilisateur) et son jeton, rafraîchi à chaque tour de veille.
-        wgc: Mutex<Option<(PathBuf, String)>>,
+        /// Captures WGC en cours (voir `WgcRun`).
+        wgc: Mutex<Option<WgcRun>>,
+    }
+
+    /// Captures WGC d'une session : le repère lu par txproto, et le fichier
+    /// `run` du dossier de l'agent de l'utilisateur, rafraîchi chaque seconde
+    /// par un fil à lui (ni la veille ni une opération longue ne le
+    /// retardent). Les fichiers de ce dossier ne sont touchés qu'au nom de
+    /// l'utilisateur.
+    struct WgcRun {
+        user: Arc<agent::ConsoleUser>,
+        run_file: PathBuf,
+        /// Vrai une fois la session finie : le fil ne réécrit plus `run`.
+        stopped: Arc<Mutex<bool>>,
+        _marker: SessionMarker,
+    }
+
+    /// Repère de session (`wgc_shared::SESSION_NAME`) : mémoire partagée de
+    /// l'espace global, accès SYSTEM seul, retirée quand Admin la ferme.
+    struct SessionMarker {
+        mapping: windows_sys::Win32::Foundation::HANDLE,
+        view: windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS,
+    }
+
+    // Handles du noyau, utilisables depuis n'importe quel fil.
+    unsafe impl Send for SessionMarker {}
+    unsafe impl Sync for SessionMarker {}
+
+    impl SessionMarker {
+        fn create(token: &str, ids: &[String]) -> Result<Self> {
+            use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, LocalFree};
+            use windows_sys::Win32::Security::Authorization::{
+                ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+            };
+            use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+            use windows_sys::Win32::System::Memory::{CreateFileMappingW, FILE_MAP_ALL_ACCESS, MapViewOfFile, PAGE_READWRITE};
+            let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+            let sddl = wide("D:P(A;;GA;;;SY)");
+            let name = wide(wgc_shared::SESSION_NAME);
+            unsafe {
+                let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+                if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) == 0 {
+                    bail!("repère de session : {}", std::io::Error::last_os_error());
+                }
+                let attrs = SECURITY_ATTRIBUTES {
+                    nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                    lpSecurityDescriptor: descriptor,
+                    bInheritHandle: 0,
+                };
+                let size = wgc_shared::SESSION_SIZE as u32;
+                let mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, &attrs, PAGE_READWRITE, 0, size, name.as_ptr());
+                let error = std::io::Error::last_os_error();
+                LocalFree(descriptor);
+                if mapping.is_null() {
+                    bail!("repère de session : {error}");
+                }
+                let view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, wgc_shared::SESSION_SIZE);
+                if view.Value.is_null() {
+                    let error = std::io::Error::last_os_error();
+                    CloseHandle(mapping);
+                    bail!("repère de session : {error}");
+                }
+                // Seul SYSTEM peut le créer dans l'espace global : un repère
+                // resté d'une session précédente est réécrit.
+                (view.Value as *mut wgc_shared::SessionHeader).write_volatile(wgc_shared::SessionHeader::new(token, ids));
+                Ok(Self { mapping, view })
+            }
+        }
+    }
+
+    impl Drop for SessionMarker {
+        fn drop(&mut self) {
+            unsafe {
+                windows_sys::Win32::System::Memory::UnmapViewOfFile(self.view);
+                windows_sys::Win32::Foundation::CloseHandle(self.mapping);
+            }
+        }
+    }
+
+    /// Écrit `token` dans `run_file` sans jamais le laisser vide : fichier
+    /// temporaire puis renommage, au nom de l'utilisateur.
+    fn write_run(user: &agent::ConsoleUser, run_file: &std::path::Path, token: &str) -> Result<()> {
+        user.act(|| {
+            let tmp = run_file.with_file_name(format!("wgc-run.{:08x}.tmp", rand::random::<u32>()));
+            std::fs::write(&tmp, token)?;
+            std::fs::rename(&tmp, run_file).inspect_err(|_| {
+                let _ = std::fs::remove_file(&tmp);
+            })
+        })?
+        .map_err(Into::into)
     }
 
     impl WinBackend {
@@ -1737,8 +1884,17 @@ mod windows {
             let args = ["pointer-size".to_string(), "--step".into(), step.to_string(), "--base".into(), base.to_string()];
             agent::run_as_user(&args, 15_000)
         }
-        fn restore_pointer(&self, record: PointerRecord) -> Result<Value> {
-            let mut args = vec!["pointer-restore".to_string()];
+        fn console_user(&self) -> Option<String> {
+            agent::ConsoleUser::open().and_then(|u| u.sid()).ok()
+        }
+        fn read_pointer(&self) -> Result<(String, PointerRecord)> {
+            let v = agent::run_as_user(&["pointer-read".to_string()], 10_000)?;
+            let sid = v["sid"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| anyhow::anyhow!("compte de l'agent inconnu"))?;
+            let n = |k: &str| v[k].as_u64().map(|n| n as u32);
+            Ok((sid.to_string(), PointerRecord { previous_base: n("previous_base"), previous_size: n("previous_size") }))
+        }
+        fn restore_pointer(&self, sid: &str, record: PointerRecord) -> Result<Value> {
+            let mut args = vec!["pointer-restore".to_string(), "--sid".into(), sid.to_string()];
             if let Some(base) = record.previous_base {
                 args.extend(["--base".to_string(), base.to_string()]);
             }
@@ -1750,22 +1906,50 @@ mod windows {
         fn start_wgc(&self, screens: &[(String, u32)]) -> Vec<(String, Result<Value>)> {
             self.stop_wgc();
             let all_failed = |e: &anyhow::Error| screens.iter().map(|(g, _)| (g.clone(), Err(anyhow::anyhow!("{e:#}")))).collect();
-            let dir = match agent::user_agent_dir() {
+            // Personne n'est connecté à Windows : la duplication reste.
+            let user = match agent::ConsoleUser::open() {
+                Ok(user) => Arc::new(user),
+                Err(e) => return all_failed(&e),
+            };
+            let dir = match user.agent_dir() {
                 Ok(dir) => dir,
-                // Personne n'est connecté à Windows : la duplication reste.
                 Err(e) => return all_failed(&e),
             };
             let token = format!("{:016x}", rand::random::<u64>());
+            // Repère d'abord : txproto ne cherche un agent que pour ces écrans.
+            let ids: Vec<String> = screens.iter().map(|(g, _)| wgc_shared::screen_id(g)).collect();
+            let marker = match SessionMarker::create(&token, &ids) {
+                Ok(marker) => marker,
+                Err(e) => return all_failed(&e),
+            };
             let run_file = dir.join("wgc-run");
-            if let Err(e) = std::fs::write(&run_file, &token) {
-                return all_failed(&e.into());
+            if let Err(e) = write_run(&user, &run_file, &token) {
+                return all_failed(&e);
             }
-            *self.wgc.lock().unwrap() = Some((run_file.clone(), token.clone()));
+            let stopped = Arc::new(Mutex::new(false));
+            {
+                let (user, run_file, token, stopped) = (user.clone(), run_file.clone(), token.clone(), stopped.clone());
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(Duration::from_secs(1));
+                    let stopped = stopped.lock().unwrap();
+                    if *stopped {
+                        break;
+                    }
+                    if let Err(e) = write_run(&user, &run_file, &token) {
+                        tracing::debug!("capture WGC : fichier run non rafraîchi ({e:#})");
+                    }
+                });
+            }
+            *self.wgc.lock().unwrap() = Some(WgcRun { user: user.clone(), run_file: run_file.clone(), stopped, _marker: marker });
+            let read_status = |path: &std::path::Path| -> Option<Value> {
+                let text = user.act(|| std::fs::read_to_string(path)).ok()?.ok()?;
+                serde_json::from_str::<Value>(&text).ok()
+            };
             let mut results = Vec::new();
             let mut waiting = Vec::new();
             for (gdi_name, refresh) in screens {
                 let status = dir.join(format!("wgc-{}.json", wgc_shared::screen_id(gdi_name)));
-                let _ = std::fs::remove_file(&status);
+                let _ = user.act(|| std::fs::remove_file(&status));
                 let args = [
                     "wgc-capture".to_string(),
                     "--gdi-name".into(), gdi_name.clone(),
@@ -1774,7 +1958,7 @@ mod windows {
                     "--status".into(), status.display().to_string(),
                     "--refresh".into(), refresh.to_string(),
                 ];
-                match agent::spawn_as_user(&args) {
+                match agent::spawn_as_user(&user, &args) {
                     Ok(()) => waiting.push((gdi_name.clone(), status)),
                     Err(e) => results.push((gdi_name.clone(), Err(e))),
                 }
@@ -1783,8 +1967,7 @@ mod windows {
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
             while !waiting.is_empty() {
                 waiting.retain(|(gdi_name, status)| {
-                    let Ok(text) = std::fs::read_to_string(status) else { return true };
-                    let Ok(v) = serde_json::from_str::<Value>(&text) else { return true };
+                    let Some(v) = read_status(status) else { return true };
                     match v["state"].as_str() {
                         Some("ready") => results.push((gdi_name.clone(), Ok(v))),
                         Some("failed") => results.push((gdi_name.clone(), Err(anyhow::anyhow!("{}", v["error"].as_str().unwrap_or("échec"))))),
@@ -1808,7 +1991,7 @@ mod windows {
                 let status = dir.join(format!("wgc-{}.json", wgc_shared::screen_id(gdi_name)));
                 while v["first_frame"].as_bool() != Some(true) && std::time::Instant::now() < first_deadline {
                     std::thread::sleep(Duration::from_millis(100));
-                    if let Some(next) = std::fs::read_to_string(&status).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) {
+                    if let Some(next) = read_status(&status) {
                         if next["state"] == "ready" {
                             *v = next;
                         }
@@ -1818,9 +2001,11 @@ mod windows {
             results
         }
         fn stop_wgc(&self) {
-            if let Some((run_file, _)) = self.wgc.lock().unwrap().take() {
-                let _ = std::fs::remove_file(run_file);
-            }
+            let Some(run) = self.wgc.lock().unwrap().take() else { return };
+            // Le fil ne réécrit plus `run` ; les agents s'arrêtent dès qu'ils
+            // le voient absent (1,5 s). Le repère disparaît avec `run`.
+            *run.stopped.lock().unwrap() = true;
+            let _ = run.user.act(|| std::fs::remove_file(&run.run_file));
         }
         fn process_names(&self) -> Vec<String> {
             use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -1843,12 +2028,6 @@ mod windows {
                 CloseHandle(snap);
             }
             names
-        }
-        fn pin_render_adapter(&self, vendor: u16) -> Result<Option<String>> {
-            let adapters = agent::run_with_timeout(&self.data_dir, &["adapters".to_string()], 10_000)?;
-            let Some((low, high, path)) = pick_adapter(&adapters, vendor) else { return Ok(None) };
-            self.with_device(|d| d.set_render_adapter(low, high))?;
-            Ok(Some(path))
         }
         fn create(&self, guid: [u8; 16], slot: usize, mode: Mode) -> Result<Created> {
             let c = self.with_device(|d| d.add(guid, slot, mode.width, mode.height, mode.refresh))?;
@@ -1891,10 +2070,6 @@ mod windows {
             self.watch.stop();
         }
         fn observe(&self) -> Option<Observed> {
-            // Les captures WGC continuent tant que leur fichier `run` est rafraîchi.
-            if let Some((run_file, token)) = self.wgc.lock().unwrap().as_ref() {
-                let _ = std::fs::write(run_file, token);
-            }
             self.watch.observe(&self.data_dir)
         }
         fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
@@ -2318,29 +2493,6 @@ mod tests {
     }
 
     #[test]
-    fn carte_de_rendu_des_ecrans() {
-        assert_eq!(encoder_vendor("nvenc"), Some(0x10DE));
-        assert_eq!(encoder_vendor("x264"), None);
-        assert_eq!(path_vendor(r"\\?\PCI#VEN_10DE&DEV_2208&SUBSYS_38971462&REV_A1#4&1a2b#{5b45201d}"), Some(0x10DE));
-        assert_eq!(path_vendor(r"\\?\root#display#0000#{5b45201d}"), None);
-        let adapters = json!({ "adapters": [
-            { "luid_low": 70000, "luid_high": 0, "path": r"\\?\ROOT#DISPLAY#0000#{x}" },
-            { "luid_low": 1234, "luid_high": 0, "path": r"\\?\PCI#VEN_8086&DEV_4680#{x}" },
-            { "luid_low": 5678, "luid_high": 1, "path": r"\\?\PCI#VEN_10DE&DEV_2208#{x}" },
-        ] });
-        assert_eq!(pick_adapter(&adapters, 0x10DE).map(|(l, h, _)| (l, h)), Some((5678, 1)));
-        assert_eq!(pick_adapter(&adapters, 0x1002), None);
-
-        // Fixée seulement pour une session à plusieurs écrans.
-        let (m, sim, _) = simulated(VdSettings::default());
-        m.set_render_vendor(Some(0x10DE));
-        m.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
-        assert_eq!(sim.screen.lock().unwrap().render_vendor, None);
-        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
-        assert_eq!(sim.screen.lock().unwrap().render_vendor, Some(0x10DE));
-    }
-
-    #[test]
     fn autre_serveur_de_streaming() {
         assert_eq!(other_streamer("sunshine.exe"), Some("Sunshine ou Apollo"));
         assert_eq!(other_streamer("SunshineSvc.exe"), Some("Sunshine ou Apollo"));
@@ -2404,21 +2556,56 @@ mod tests {
         sim.screen.lock().unwrap().pointer_base = Some(32);
         m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
         assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        // Notée pour ce compte avant l'agrandissement.
+        assert_eq!(m.read_pointer_records().users[SIM_SID].previous_base, Some(32));
         // Admin s'arrête net ; au redémarrage, personne n'est encore connecté à Windows.
         sim.screen.lock().unwrap().pointer_fails = true;
         let again = Manager::with_backend(m.data_dir.clone(), VdSettings::default(), Box::new(sim.clone()));
         again.recover();
         assert!(again.pointer_path().exists());
         assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
-        // La session suivante (même à un écran) la rend d'abord.
+        again.retry_pointer();
+        assert!(again.pointer_path().exists());
+        // L'utilisateur se connecte : une session à un écran n'y touche pas,
+        // la remise au repos la rend.
         sim.screen.lock().unwrap().pointer_fails = false;
         again.start(Origin::App, TV, None, Some("tv".into()), None, None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        again.retry_pointer();
         assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(32));
         assert!(!again.pointer_path().exists());
-        // La taille notée est celle d'avant l'agrandissement.
+        again.stop("fin du test");
+        // Pendant une session à plusieurs écrans, la remise au repos attend.
         again.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
-        let record: PointerRecord = serde_json::from_slice(&std::fs::read(again.pointer_path()).unwrap()).unwrap();
-        assert_eq!(record.previous_base, Some(32));
+        again.retry_pointer();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        again.stop("fin du test");
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(32));
+    }
+
+    #[test]
+    fn taille_du_pointeur_rendue_a_son_seul_compte() {
+        let (m, sim, _) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), None).unwrap();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        // Un autre compte est à la console à la fin : la fiche attend le sien.
+        sim.screen.lock().unwrap().console_sid = Some("S-1-5-21-0-0-0-1002".into());
+        m.stop("fin du test");
+        m.retry_pointer();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(48));
+        assert!(m.read_pointer_records().users.contains_key(SIM_SID));
+        // Le compte revient : rendue au repos.
+        sim.screen.lock().unwrap().console_sid = None;
+        *m.pointer_retry_after.lock().unwrap() = None;
+        m.retry_pointer();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, None);
+        assert!(!m.pointer_path().exists());
+        // Fiche d'avant la 0.6.0, sans compte : rendue au compte connecté.
+        std::fs::write(m.pointer_path(), br#"{"previous_base":32,"previous_size":null}"#).unwrap();
+        sim.screen.lock().unwrap().pointer_base = Some(48);
+        m.retry_pointer();
+        assert_eq!(sim.screen.lock().unwrap().pointer_base, Some(32));
+        assert!(!m.pointer_path().exists());
     }
 
     #[test]
