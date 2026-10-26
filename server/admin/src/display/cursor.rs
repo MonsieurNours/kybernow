@@ -70,38 +70,70 @@ fn write_dword(key: &str, name: &str, value: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-/// Largeur du pointeur affiché en ce moment, en pixels réels (bitmap du
-/// curseur courant, lu dans un contexte DPI par écran), si elle se lit.
-fn shown_width() -> Option<u32> {
+/// Taille de la flèche du système telle qu'elle est dessinée en ce moment :
+/// largeur de son image en pixels réels, échelle (en %) de l'écran où se
+/// trouve le pointeur, et la taille logique qui en découle (pixels réels ×
+/// 100 / échelle, à comparer à la base : 32, 48…).
+fn shown() -> Option<(u32, u32, u32)> {
+    use windows_sys::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
+    use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IDC_ARROW, LoadCursorW};
     unsafe {
         let previous = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let mut result = None;
+        let arrow = LoadCursorW(null_mut(), IDC_ARROW);
         let mut info = CURSORINFO { cbSize: size_of::<CURSORINFO>() as u32, ..Default::default() };
-        let mut width = None;
-        if GetCursorInfo(&mut info) != 0 && !info.hCursor.is_null() {
-            let mut icon: ICONINFO = std::mem::zeroed();
-            if GetIconInfo(info.hCursor, &mut icon) != 0 {
-                let bitmap = if icon.hbmColor.is_null() { icon.hbmMask } else { icon.hbmColor };
-                let mut bm: BITMAP = std::mem::zeroed();
-                if GetObjectW(bitmap, size_of::<BITMAP>() as i32, &mut bm as *mut BITMAP as *mut _) != 0 {
-                    width = Some(bm.bmWidth.max(0) as u32);
-                }
-                if !icon.hbmColor.is_null() {
-                    DeleteObject(icon.hbmColor);
-                }
-                if !icon.hbmMask.is_null() {
-                    DeleteObject(icon.hbmMask);
-                }
+        let mut icon: ICONINFO = std::mem::zeroed();
+        if !arrow.is_null() && GetCursorInfo(&mut info) != 0 && GetIconInfo(arrow, &mut icon) != 0 {
+            let bitmap = if icon.hbmColor.is_null() { icon.hbmMask } else { icon.hbmColor };
+            let mut bm: BITMAP = std::mem::zeroed();
+            let width = (GetObjectW(bitmap, size_of::<BITMAP>() as i32, &mut bm as *mut BITMAP as *mut _) != 0)
+                .then_some(bm.bmWidth.max(0) as u32);
+            let monitor = MonitorFromPoint(info.ptScreenPos, MONITOR_DEFAULTTONEAREST);
+            let (mut dx, mut dy) = (0u32, 0u32);
+            let scale = (GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) >= 0 && dx > 0).then(|| dx * 100 / 96);
+            if let (Some(width), Some(scale)) = (width, scale) {
+                result = Some((width, scale, width * 100 / scale));
+            }
+            if !icon.hbmColor.is_null() {
+                DeleteObject(icon.hbmColor);
+            }
+            if !icon.hbmMask.is_null() {
+                DeleteObject(icon.hbmMask);
             }
         }
         if !previous.is_null() {
             SetThreadDpiAwarenessContext(previous);
         }
-        width
+        result
     }
 }
 
-/// Met le pointeur à `base` px en direct : action 0x2029 d'abord, puis, si
-/// elle est refusée, le registre et `SPI_SETCURSORS`. Rend la méthode suivie.
+/// `shown()` en JSON pour le journal d'Admin.
+fn shown_value(s: Option<(u32, u32, u32)>) -> Value {
+    match s {
+        Some((px, scale, logical)) => json!({ "px": px, "scale": scale, "logical": logical }),
+        None => Value::Null,
+    }
+}
+
+/// Attend (1 s au plus) que la flèche dessinée ait la taille logique `base`.
+fn wait_shown(base: u32) -> Option<(u32, u32, u32)> {
+    let mut last = shown();
+    for _ in 0..10 {
+        if last.is_some_and(|(_, _, logical)| logical.abs_diff(base) <= 2) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        last = shown();
+    }
+    last
+}
+
+/// Met le pointeur à `base` px en direct : action 0x2029 (taille en pixels,
+/// écrite aussi dans le profil ; validée sur l'ordinateur d'essai) ; si elle
+/// est refusée, la base dans le registre puis `SPI_SETCURSORS`. Rend la
+/// méthode suivie.
 fn apply(base: u32) -> Result<&'static str> {
     let flags = SPIF_UPDATEINIFILE | SPIF_SENDCHANGE;
     if unsafe { SystemParametersInfoW(SPI_SETCURSORBASESIZE, 0, base as usize as *mut _, flags) } != 0 {
@@ -124,25 +156,39 @@ pub fn enlarge(step: u32, base: u32) -> Result<Value> {
     if current >= base {
         return Ok(json!({ "changed": false, "base": current, "previous_base": previous_base, "previous_size": previous_size }));
     }
-    let before = shown_width();
+    let before = shown();
     let method = apply(base)?;
     write_dword(ACCESSIBILITY, "CursorSize", Some(step))?;
     Ok(json!({
         "changed": true, "base": base, "step": step, "method": method,
         "previous_base": previous_base, "previous_size": previous_size,
         "registry_base": read_dword(CURSORS, "CursorBaseSize"),
-        "shown_before": before, "shown_after": shown_width(),
+        "shown_before": shown_value(before), "shown_after": shown_value(wait_shown(base)),
     }))
 }
 
 /// Remet la taille d'avant la session (en direct, puis les valeurs du
 /// profil telles qu'elles étaient, absentes comprises).
+///
+/// Échoue (et Admin garde la taille à rendre pour réessayer) si le profil
+/// n'a pas repris ses valeurs. Une flèche dessinée encore plus grande que la
+/// base (après un second rechargement) est signalée (`shown_ok` faux) : un
+/// jeu de pointeurs personnalisé peut avoir une flèche plus grande.
 pub fn restore(previous_base: Option<u32>, previous_size: Option<u32>) -> Result<Value> {
-    let method = apply(previous_base.unwrap_or(32))?;
+    let base = previous_base.unwrap_or(32);
+    let method = apply(base)?;
     write_dword(CURSORS, "CursorBaseSize", previous_base)?;
     write_dword(ACCESSIBILITY, "CursorSize", previous_size)?;
-    Ok(json!({
-        "base": previous_base.unwrap_or(32), "method": method,
-        "registry_base": read_dword(CURSORS, "CursorBaseSize"), "shown_after": shown_width(),
-    }))
+    let registry_base = read_dword(CURSORS, "CursorBaseSize");
+    if registry_base != previous_base || read_dword(ACCESSIBILITY, "CursorSize") != previous_size {
+        bail!("profil non remis : base {registry_base:?} au lieu de {previous_base:?}");
+    }
+    let mut after = wait_shown(base);
+    if after.is_some_and(|(_, _, logical)| logical > base + 2) {
+        // Encore grand : un second rechargement des pointeurs.
+        unsafe { SystemParametersInfoW(SPI_SETCURSORS, 0, null_mut(), SPIF_SENDCHANGE) };
+        after = wait_shown(base);
+    }
+    let shown_ok = !after.is_some_and(|(_, _, logical)| logical > base + 2);
+    Ok(json!({ "base": base, "method": method, "registry_base": registry_base, "shown_after": shown_value(after), "shown_ok": shown_ok }))
 }
