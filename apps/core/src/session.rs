@@ -521,11 +521,10 @@ fn not_created(plan: &[PlannedScreen], targets: &[(usize, ScreenMode)], streams:
 /// écrans retirés : vide quand la session ne prend qu'un écran
 /// ([`screens::session_plan`]).
 fn wanted_plan(screens: &Screens, params: &SessionParams, excluded: &[usize]) -> Vec<PlannedScreen> {
-    let codec = params.settings.codec;
-    if screens::session_plan(screens, params.settings.profile, params.virtual_display, codec).is_none() {
+    if screens::session_plan_for(screens, &params.settings, params.virtual_display).is_none() {
         return Vec::new();
     }
-    screens::plan_excluding(screens, codec, excluded)
+    screens::plan_excluding(screens, params.settings.codec, excluded)
 }
 
 pub struct Session {
@@ -781,6 +780,14 @@ struct Worker {
     /// Mode d'une session à un écran (« Cet écran ») : `params.mode`, puis
     /// celui d'une adaptation ; repris quand le plan revient à un écran.
     single_mode: Mode,
+    /// La Station a préparé la session sans écran virtuel, ou sans `screens`
+    /// (Station à un écran) : un seul écran, « Cet écran », pour toute la
+    /// session (le plan reste vide, même si le profil ou les écrans changent).
+    station_single: bool,
+    /// Une session refaite demandée pendant une préparation en cours
+    /// (adaptation ou autre session refaite) : lancée à sa fin ; et si Kyber
+    /// devra être reconnecté.
+    pending_replan: Option<bool>,
     /// Écrans de l'appareil retirés en session : muets (ils restent « non
     /// créés » pour la plateforme), ou refusés par Kyber au démarrage.
     excluded: Vec<usize>,
@@ -878,6 +885,8 @@ impl Worker {
             keyframe_held_logged: false,
             pending_screens: None,
             single_mode,
+            station_single: false,
+            pending_replan: None,
             excluded: Vec::new(),
             muted: Vec::new(),
             primary_only_tried: false,
@@ -1060,10 +1069,21 @@ impl Worker {
             self.stream_mode = self.requested;
         }
         self.platform.on_mode(self.stream_mode, prepared.virtual_display);
+        // Préparée sans écran virtuel (pilote absent, déclenchement coupé) ou
+        // sans `screens` (Station à un écran) : un seul écran, « Cet écran »,
+        // comme une session à un écran, pour le reste de la session.
+        if !self.plan.is_empty() && (!prepared.virtual_display || prepared.screens.is_none()) {
+            info!(
+                "la Station a préparé {} : session sur un écran",
+                if prepared.virtual_display { "un seul écran" } else { "sans écran virtuel" }
+            );
+            self.station_single = true;
+            self.plan.clear();
+        }
         self.targets = targets(&self.plan, &prepared);
         if !self.plan.is_empty() {
             match &prepared.screens {
-                None => info!("la Station ne gère qu'un écran : session sur l'écran principal"),
+                None => {}
                 Some(_) if self.targets.is_empty() => warn!("la Station n'a pas créé l'écran principal : session à un écran"),
                 Some(list) => info!("écrans en place : {} sur {} ({:?})", self.targets.len(), list.len(), self.targets),
             }
@@ -1097,6 +1117,9 @@ impl Worker {
     /// Le plan voulu pour ces écrans de l'appareil, avec le profil de la
     /// session et sans les écrans retirés.
     fn wanted_plan(&self, screens: &Screens) -> Vec<PlannedScreen> {
+        if self.station_single {
+            return Vec::new();
+        }
         wanted_plan(screens, &self.params, &self.excluded)
     }
 
@@ -1728,8 +1751,15 @@ impl Worker {
         }
         let plan = self.wanted_plan(&screens);
         if plan == self.plan {
-            // Même plan (à un écran, la fenêtre a pu changer d'écran : l'image
-            // continue, la plateforme la montre toujours dans sa fenêtre).
+            // Même plan. À un écran, la fenêtre a pu changer d'écran : l'image
+            // continue dans sa fenêtre, et l'écran du flux suit « Cet écran »
+            // (sans quoi une réannonce, une taille changée par exemple,
+            // nommerait l'ancien écran et l'app y ouvrirait une fenêtre).
+            if plan.is_empty() && self.streams.len() == 1 && self.streams[0].screen != screens.current() {
+                info!("l'image suit la fenêtre sur l'écran {} de l'appareil", screens.current());
+                self.streams[0].screen = screens.current();
+                self.announce_screens();
+            }
             return;
         }
         info!("écrans de l'appareil changés : la session se refait");
@@ -1743,6 +1773,12 @@ impl Worker {
     /// `reconnect` : Kyber s'est déconnecté (refus au démarrage), il est
     /// reconnecté une fois la Station prête.
     fn replan(&mut self, reconnect: bool) {
+        // Une préparation est en cours (adaptation, autre session refaite) :
+        // celle-ci attend sa fin, jamais deux à la fois.
+        if self.adapting {
+            self.pending_replan = Some(self.pending_replan.unwrap_or(false) || reconnect);
+            return;
+        }
         let Some(screens) = self.screens.clone() else { return };
         let Some(console) = self.console.clone() else { return };
         let plan = self.wanted_plan(&screens);
@@ -1827,6 +1863,11 @@ impl Worker {
         self.choose_display(false);
         if let Some(next) = self.pending_screens.take() {
             self.change_screens(next);
+        }
+        if let Some(reconnect) = self.pending_replan.take()
+            && (reconnect || self.wanted_plan(&self.screens.clone().unwrap_or_default()) != self.plan)
+        {
+            self.replan(reconnect);
         }
     }
 
@@ -2595,6 +2636,126 @@ mod tests {
         sink.packet_from(4, Packet::Media { is_config: true, is_key: false, pts: 0, data: &[0, 0, 1] });
         assert!(flag.load(Ordering::SeqCst));
         assert_eq!(inner.0.load(Ordering::SeqCst), 2, "tout passe à la plateforme");
+    }
+
+    // Une session sans réseau : un Worker avec une fausse plateforme, pour
+    // les décisions du multi-écrans qui ne demandent ni Admin ni Kyber.
+
+    #[derive(Default)]
+    struct Recorder {
+        screens: Mutex<Vec<(Vec<usize>, Vec<usize>)>>,
+    }
+
+    impl Platform for Recorder {
+        fn window_handle(&self) -> WindowHandle {
+            unreachable!("pas d'image dans ces tests")
+        }
+        fn video_handler(&self) -> Arc<dyn PacketHandler> {
+            unreachable!("pas d'image dans ces tests")
+        }
+        fn audio_handler(&self) -> Option<Arc<dyn PacketHandler>> {
+            None
+        }
+        fn input_pipeline(&self) -> Pipeline {
+            unreachable!("pas d'image dans ces tests")
+        }
+        fn on_status(&self, _: &Status) {}
+        fn on_display(&self, _: &Display) {}
+        fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
+            self.screens.lock().unwrap().push((screens.iter().map(|s| s.screen).collect(), not_created.to_vec()));
+        }
+    }
+
+    fn device_screen(x: f64, primary: bool) -> crate::screens::DeviceScreen {
+        crate::screens::DeviceScreen { x, y: 0.0, width: 1920.0, height: 1080.0, pixel_width: 1920, pixel_height: 1080, refresh: 60, primary }
+    }
+
+    /// Deux écrans côte à côte, « Cet écran » = `current`, Station à quatre écrans.
+    fn two_screens(current: usize) -> Screens {
+        Screens { list: vec![device_screen(0.0, true), device_screen(1920.0, false)], current, max_screens: 4, ..Screens::default() }
+    }
+
+    fn worker(profile: crate::profile::Profile, screens: Screens) -> (Worker, Arc<Recorder>) {
+        let caps = crate::profile::Capabilities { hevc: true, hevc444: true, av1: false };
+        let params = SessionParams {
+            console_host: "192.0.2.1".into(),
+            console_port: 9443,
+            user: "u".into(),
+            password: "p".into(),
+            console_fingerprint: None,
+            device: DeviceInfo { id: "mac".into(), name: "Mac".into(), kind: "mac".into(), os: "macOS".into(), app: "test".into() },
+            mode: Mode { width: 1920, height: 1080, refresh: 60 },
+            audio_channels: 0,
+            virtual_display: true,
+            settings: StreamSettings::for_profile(profile, caps),
+            auto_reconnect: true,
+            gamepad_xbox360: true,
+            clipboard: false,
+            recovery: Recovery::default(),
+        };
+        let recorder = Arc::new(Recorder::default());
+        let (tx, rx) = mpsc::channel();
+        let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+        (w, recorder)
+    }
+
+    fn prepared_as(virtual_display: bool, screens: Option<Vec<Option<ScreenMode>>>) -> Prepared {
+        Prepared { virtual_display, ..prepared(screens) }
+    }
+
+    #[test]
+    fn station_sans_ecran_virtuel_un_seul_ecran() {
+        // Bureau, deux écrans, accueil sur l'écran secondaire : le plan prend les deux.
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(1));
+        assert_eq!(w.plan.len(), 2);
+        let applied: Vec<Option<ScreenMode>> = w.plan.iter().map(|p| Some(p.request())).collect();
+        // La Station prépare sans écran virtuel (pilote absent) : un écran, « Cet écran ».
+        w.apply_prepared(prepared_as(false, Some(applied.clone())));
+        assert!(w.plan.is_empty() && w.targets.is_empty() && w.station_single);
+        assert_eq!(w.primary_screen(), 1, "l'image va dans la fenêtre de l'accueil, sur son écran");
+        // Le profil ou les écrans changent ensuite : toujours un seul écran.
+        assert!(w.wanted_plan(&two_screens(1)).is_empty());
+        // Même chose avec une Station qui répond sans `screens`.
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(1));
+        w.apply_prepared(prepared_as(true, None));
+        assert!(w.plan.is_empty() && w.station_single && w.primary_screen() == 1);
+        // Une Station multi-écrans qui les crée : le plan reste.
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(1));
+        w.apply_prepared(prepared_as(true, Some(applied)));
+        assert!(!w.station_single && w.plan.len() == 2 && w.targets.len() == 2);
+    }
+
+    #[test]
+    fn ecran_virtuel_indisponible_dans_le_plan() {
+        // L'info de la Station dit l'écran virtuel inutilisable : le plan n'en prend qu'un dès le départ.
+        let screens = Screens { virtual_display_available: false, ..two_screens(0) };
+        let (w, _) = worker(crate::profile::Profile::Bureau, screens);
+        assert!(w.plan.is_empty());
+    }
+
+    #[test]
+    fn session_a_un_ecran_suit_la_fenetre() {
+        // Profil Jeu : un seul écran, celui de la fenêtre (écran 0).
+        let (mut w, recorder) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        assert!(w.plan.is_empty());
+        w.streams = vec![StreamScreen { screen: 0, display: display(1, 0, 0, 1920, 1080), refresh: 60, primary: true }];
+        // La fenêtre passe sur l'écran 1 : l'image continue, l'écran du flux suit.
+        w.change_screens(two_screens(1));
+        assert_eq!(w.streams[0].screen, 1);
+        assert_eq!(*recorder.screens.lock().unwrap(), [(vec![1], vec![])], "réannoncé sur le nouvel écran, rien d'autre");
+        // Rien ne change : rien n'est réannoncé.
+        w.change_screens(two_screens(1));
+        assert_eq!(recorder.screens.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn session_refaite_attend_la_preparation_en_cours() {
+        let (mut w, _) = worker(crate::profile::Profile::Bureau, two_screens(0));
+        w.adapting = true;
+        w.replan(false);
+        assert_eq!(w.pending_replan, Some(false), "attend la fin de la préparation en cours");
+        w.replan(true);
+        assert_eq!(w.pending_replan, Some(true), "une reconnexion demandée n'est pas oubliée");
     }
 
     #[test]

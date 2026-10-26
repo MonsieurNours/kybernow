@@ -56,7 +56,7 @@ enum DisplayInfo {
     /// celui du contrat (y vers le bas), pixels natifs, fréquence ; « Cet
     /// écran » (`current`), réglages de l'ordinateur et écrans que la Station
     /// sait créer.
-    static func deviceScreens(current: NSScreen?, settings: ConnectionSettings, maxScreens: Int) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
+    static func deviceScreens(current: NSScreen?, settings: ConnectionSettings, info: HostInfo?) -> (screens: [NSScreen], request: SessionEngine.DeviceScreens) {
         let all = NSScreen.screens.filter { screen in
             guard let id = displayID(screen) else { return true }
             return CGDisplayMirrorsDisplay(id) == kCGNullDirectDisplay
@@ -73,7 +73,9 @@ enum DisplayInfo {
         let request = SessionEngine.DeviceScreens(
             list: list, current: index, limit4K: settings.limit4K,
             customResolution: settings.display == .custom || settings.display == .window,
-            setting: settings.screens.rawValue, maxScreens: maxScreens)
+            setting: settings.screens.rawValue, maxScreens: maxScreens(info),
+            // L'écran virtuel utilisable sur la Station (inconnu tant qu'elle n'a pas répondu : oui).
+            virtualDisplayAvailable: info?.virtualDisplay ?? true)
         return (all, request)
     }
 

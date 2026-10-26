@@ -504,10 +504,13 @@ final class VideoRenderer {
               draw(last.buffer, layout: last.layout, into: drawable.texture, commands: commands,
                    color: conversion(last.buffer, layout: last.layout), marker: currentMarkerScale())
         else { return }
+        #if !targetEnvironment(simulator)
+        // Le simulateur ne dit pas quand l'image est montrée.
         drawable.addPresentedHandler { [weak self] d in
             guard d.presentedTime > 0 else { return }
             self?.renderQueue.async { self?.redrawnShown += 1 }
         }
+        #endif
         commands.present(drawable)
         commands.commit()
     }

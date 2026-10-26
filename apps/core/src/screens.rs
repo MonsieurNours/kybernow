@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::console::{Mode, ScreenMode};
-use crate::profile::{Codec, Profile};
+use crate::profile::{Capabilities, Codec, Profile, StreamSettings};
 
 /// Quatre écrans au plus par session.
 pub const MAX_SCREENS: usize = 4;
@@ -62,7 +62,7 @@ pub struct DeviceScreen {
 /// tire seul le nombre d'écrans de la session, au départ et quand le profil
 /// change en session ([`session_plan`]). Le profil et l'écran virtuel sont
 /// ceux de la session.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screens {
     pub list: Vec<DeviceScreen>,
     /// « Cet écran » : l'écran de la fenêtre de l'app (index dans `list`),
@@ -82,12 +82,48 @@ pub struct Screens {
     /// `GET /api/stream/info`) ; 0 ou absent : 1 (Station antérieure).
     #[serde(default)]
     pub max_screens: usize,
+    /// L'écran virtuel de la Station est utilisable (`virtual_display.available`
+    /// de `GET /api/stream/info` : pilote en place, déclenchement actif) ;
+    /// absent : oui. Sans lui, la session ne prend qu'un écran.
+    #[serde(default = "yes")]
+    pub virtual_display_available: bool,
+    /// Ce que l'appareil décode, pour la règle « Personnalisé » du nombre
+    /// d'écrans ([`screens_profile`]) ; absent : seul un profil absent est
+    /// « Personnalisé ».
+    #[serde(default)]
+    pub capabilities: Option<Capabilities>,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Screens {
+    fn default() -> Self {
+        Self {
+            list: Vec::new(),
+            current: 0,
+            limit_4k: false,
+            custom_resolution: false,
+            setting: DisplaysSetting::Auto,
+            max_screens: 0,
+            virtual_display_available: true,
+            capabilities: None,
+        }
+    }
 }
 
 impl Screens {
-    /// Le réglage « Écrans » pour ce profil et cet écran virtuel.
+    /// Le réglage « Écrans » pour ce profil et cet écran virtuel demandé :
+    /// l'écran virtuel compte s'il est demandé **et** utilisable sur la
+    /// Station (une seule règle pour le réglage, l'accueil et la session).
     pub fn choice(&self, profile: Option<Profile>, virtual_display: bool) -> DisplaysChoice {
-        DisplaysChoice { setting: self.setting, profile, custom_resolution: self.custom_resolution, virtual_display }
+        DisplaysChoice {
+            setting: self.setting,
+            profile,
+            custom_resolution: self.custom_resolution,
+            virtual_display: virtual_display && self.virtual_display_available,
+        }
     }
 
     /// Écrans au plus que la session demandera (Station, et quatre au plus).
@@ -164,6 +200,28 @@ impl DisplaysChoice {
             DisplaysSetting::Auto => matches!(self.profile, Some(Profile::Bureau | Profile::Max)),
         }
     }
+}
+
+/// Le profil qui compte pour le nombre d'écrans : `None` (« Personnalisé » :
+/// en Auto, un seul écran) quand la session n'a pas de profil, ou quand ses
+/// réglages s'écartent de ceux du profil pour cet appareil (format, 4:4:4,
+/// débit, transport ; `StreamSettings::for_profile` avec ses capacités).
+/// Sans capacités connues, seul un profil absent est « Personnalisé ». Le
+/// profil envoyé à la Station (libellé, politique de mode) ne change pas :
+/// une app peut garder le profil de base et laisser le cœur dire « Personnalisé ».
+pub fn screens_profile(settings: &StreamSettings, capabilities: Option<Capabilities>) -> Option<Profile> {
+    let profile = settings.profile?;
+    let Some(caps) = capabilities else { return Some(profile) };
+    let base = StreamSettings::for_profile(profile, caps);
+    let same = base.codec == settings.codec && base.yuv444 == settings.yuv444 && base.mbps == settings.mbps && base.reliable == settings.reliable;
+    same.then_some(profile)
+}
+
+/// [`session_plan`] pour ces réglages de session : le profil qui compte est
+/// celui de [`screens_profile`] (capacités de `screens`). C'est le calcul de
+/// la session ; l'accueil et le réglage des apps doivent passer par lui.
+pub fn session_plan_for(screens: &Screens, settings: &StreamSettings, virtual_display: bool) -> Option<Vec<PlannedScreen>> {
+    session_plan(screens, screens_profile(settings, screens.capabilities), virtual_display, settings.codec)
 }
 
 /// Les écrans virtuels que la session demandera avec ce profil et cet écran
@@ -627,6 +685,40 @@ mod tests {
         assert_eq!((s.setting, s.max(), s.current, s.limit_4k), (DisplaysSetting::All, 4, 0, false));
         let s: Screens = serde_json::from_str(r#"{"list": []}"#).unwrap();
         assert_eq!((s.setting, s.max()), (DisplaysSetting::Auto, 1));
+    }
+
+    #[test]
+    fn personnalise_pour_le_nombre_d_ecrans() {
+        use crate::profile::{Capabilities, Codec as C};
+        let caps = Capabilities { hevc: true, hevc444: true, av1: false };
+        let bureau = StreamSettings::for_profile(Profile::Bureau, caps);
+        // Les réglages du profil : le profil compte.
+        assert_eq!(screens_profile(&bureau, Some(caps)), Some(Profile::Bureau));
+        assert_eq!(screens_profile(&bureau, None), Some(Profile::Bureau));
+        // Un réglage retouché (débit, format, 4:4:4, transport) : « Personnalisé », profil envoyé inchangé.
+        for changed in [
+            StreamSettings { mbps: 150, ..bureau.clone() },
+            StreamSettings { codec: C::H264, ..bureau.clone() },
+            StreamSettings { yuv444: false, ..bureau.clone() },
+            StreamSettings { reliable: false, ..bureau.clone() },
+        ] {
+            assert_eq!(screens_profile(&changed, Some(caps)), None, "{changed:?}");
+            assert_eq!(changed.profile, Some(Profile::Bureau));
+            // Sans capacités connues (Mac : il met déjà le profil à « Personnalisé »), le profil compte.
+            assert_eq!(screens_profile(&changed, None), Some(Profile::Bureau));
+        }
+        // Pas de profil : « Personnalisé ».
+        assert_eq!(screens_profile(&StreamSettings { profile: None, ..bureau.clone() }, Some(caps)), None);
+        // Le plan de la session : deux écrans en Bureau, un seul une fois retouché.
+        let s = Screens { capabilities: Some(caps), ..auteur() };
+        assert_eq!(session_plan_for(&s, &bureau, true).map(|p| p.len()), Some(3));
+        assert_eq!(session_plan_for(&s, &StreamSettings { mbps: 150, ..bureau.clone() }, true), None);
+        // L'écran virtuel inutilisable sur la Station : un seul écran, réglage inactif.
+        let off = Screens { virtual_display_available: false, ..auteur() };
+        assert_eq!(session_plan_for(&off, &bureau, true), None);
+        assert!(!off.choice(Some(Profile::Bureau), true).setting_enabled());
+        let json: Screens = serde_json::from_str(r#"{"list": []}"#).unwrap();
+        assert!(json.virtual_display_available && json.capabilities.is_none(), "absents : comme avant");
     }
 
     #[test]

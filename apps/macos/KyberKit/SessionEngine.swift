@@ -86,14 +86,17 @@ public final class SessionEngine: @unchecked Sendable {
         public var setting: String
         /// Écrans que la Station sait créer (1 : Station antérieure).
         public var maxScreens: Int
+        /// L'écran virtuel de la Station est utilisable (`virtual_display.available`).
+        public var virtualDisplayAvailable: Bool
 
-        public init(list: [Screen], current: Int, limit4K: Bool, customResolution: Bool, setting: String, maxScreens: Int) {
+        public init(list: [Screen], current: Int, limit4K: Bool, customResolution: Bool, setting: String, maxScreens: Int, virtualDisplayAvailable: Bool = true) {
             self.list = list
             self.current = current
             self.limit4K = limit4K
             self.customResolution = customResolution
             self.setting = setting
             self.maxScreens = maxScreens
+            self.virtualDisplayAvailable = virtualDisplayAvailable
         }
 
         var json: [String: Any] {
@@ -103,7 +106,7 @@ public final class SessionEngine: @unchecked Sendable {
                      "pixel_height": s.pixelHeight, "refresh": s.refresh, "primary": s.primary] as [String: Any]
                 },
                 "current": current, "limit_4k": limit4K, "custom_resolution": customResolution,
-                "setting": setting, "max_screens": maxScreens,
+                "setting": setting, "max_screens": maxScreens, "virtual_display_available": virtualDisplayAvailable,
             ]
         }
 

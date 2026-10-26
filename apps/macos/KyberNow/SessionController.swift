@@ -494,6 +494,19 @@ final class SessionController: NSObject, ObservableObject {
     /// écran), un écran que l'ordinateur n'a pas pu créer garde le fond avec
     /// sa ligne (docs/link-ui.md).
     private func screensTaken(_ streams: [SessionEngine.StreamScreen], _ notCreated: [Int]) {
+        // Un seul flux, sans écran non créé : une session à un écran (ou le
+        // principal seul accepté). Jamais de fenêtre de plus : l'image va dans
+        // la fenêtre de l'accueil, quel que soit l'écran que le cœur nomme.
+        if streams.count == 1, notCreated.isEmpty, let only = streams.first, let main = mainSurface {
+            extraSurfaces.forEach(closeSurface)
+            engine?.setScreenViews([only.index: main.streamView])
+            main.backdrop.message = nil
+            screenCount = 1
+            expectedScreens = 1
+            main.streamView.tracksInActiveApp = false
+            if phase != .streaming || replanning { moveChrome(to: main) }
+            return
+        }
         let wanted = Set(streams.map(\.index) + notCreated)
         for i in wanted.sorted() where i < deviceScreens.count && surface(forDevice: i) == nil {
             addSurface(for: deviceScreens[i]).backdrop.isHidden = false
@@ -543,7 +556,7 @@ final class SessionController: NSObject, ObservableObject {
     /// débranchés se ferment tout de suite. Rend la nouvelle description si
     /// elle a changé.
     private func refreshDeviceScreens() -> SessionEngine.DeviceScreens? {
-        let devices = DisplayInfo.deviceScreens(current: window?.screen, settings: host.settings, maxScreens: DisplayInfo.maxScreens(store.status[host.id]?.info))
+        let devices = DisplayInfo.deviceScreens(current: window?.screen, settings: host.settings, info: store.status[host.id]?.info)
         let ids = Set(devices.screens.compactMap(DisplayInfo.displayID))
         for extra in extraSurfaces where !(extra.screenID.map(ids.contains) ?? false) { closeSurface(extra) }
         deviceScreens = devices.screens
@@ -556,9 +569,8 @@ final class SessionController: NSObject, ObservableObject {
     /// Écrans attendus d'après le plan du cœur (étape « Préparation des écrans »).
     private func updateExpectedScreens() {
         guard let request = screensRequest else { return }
-        let info = store.status[host.id]?.info
         let plan = SessionEngine.sessionPlan(request, profile: host.settings.profile?.rawValue,
-                                             virtualDisplay: virtualDisplay && (info?.virtualDisplay ?? true), codec: host.settings.codec)
+                                             virtualDisplay: virtualDisplay, codec: host.settings.codec)
         expectedScreens = plan?.count ?? 1
     }
 
@@ -768,10 +780,10 @@ final class SessionController: NSObject, ObservableObject {
         // Station) ; plusieurs, la fenêtre passe sur l'écran principal, et
         // chaque autre écran pris a sa fenêtre.
         let info = store.status[host.id]?.info
-        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, maxScreens: DisplayInfo.maxScreens(info))
+        let devices = DisplayInfo.deviceScreens(current: current, settings: settings, info: info)
         var request = devices.request
         let plan = SessionEngine.sessionPlan(request, profile: settings.profile?.rawValue,
-                                             virtualDisplay: settings.display != .physical && (info?.virtualDisplay ?? true), codec: settings.codec)
+                                             virtualDisplay: settings.display != .physical, codec: settings.codec)
         let primary = plan != nil ? devices.screens.first : nil
         deviceScreens = devices.screens
         expectedScreens = plan?.count ?? 1
@@ -838,7 +850,8 @@ final class SessionController: NSObject, ObservableObject {
         engine.onScreens = { [weak self] in self?.screensTaken($0, $1) }
         engine.onScreenImage = { [weak self] index in
             guard let self else { return }
-            self.surface(forDevice: index)?.backdrop.isHidden = true
+            // Une seule fenêtre : celle de l'accueil, quel que soit l'écran nommé.
+            (self.extraSurfaces.isEmpty ? self.mainSurface : self.surface(forDevice: index))?.backdrop.isHidden = true
         }
         engine.onGameFullscreen = { [weak self] game in
             guard let self, game != self.pcGame else { return }
@@ -1153,9 +1166,8 @@ final class SessionController: NSObject, ObservableObject {
         guard screenCount > 1, let request = screensRequest else {
             return host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh)
         }
-        let info = store.status[host.id]?.info
         let plan = SessionEngine.sessionPlan(request, profile: host.settings.profile?.rawValue,
-                                             virtualDisplay: virtualDisplay && (info?.virtualDisplay ?? true), codec: host.settings.codec) ?? []
+                                             virtualDisplay: virtualDisplay, codec: host.settings.codec) ?? []
         let rate = plan.reduce(0.0) { $0 + Double($1.width * $1.height * $1.refresh) }
         guard rate > 0, host.settings.profile != nil else { return host.settings.bitrate(width: m.width, height: m.height, refresh: m.refresh) }
         let scale = pow(rate / ConnectionSettings.referencePixelRate, 0.75)

@@ -104,6 +104,7 @@ pub fn screens(monitors: &[Monitor], spec: Spec) -> Screens {
         custom_resolution: spec.custom_resolution,
         setting: spec.setting,
         max_screens: spec.max_screens,
+        ..Screens::default()
     }
 }
 
