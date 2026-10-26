@@ -131,15 +131,19 @@ fn wait_shown(base: u32) -> Option<(u32, u32, u32)> {
 }
 
 /// Met le pointeur à `base` px en direct : action 0x2029 (taille en pixels,
-/// écrite aussi dans le profil), puis la base dans le registre et
-/// `SPI_SETCURSORS`, qui recharge les pointeurs à cette taille. Rend la
+/// écrite aussi dans le profil ; validée sur l'ordinateur d'essai) ; si elle
+/// est refusée, la base dans le registre puis `SPI_SETCURSORS`. Rend la
 /// méthode suivie.
 fn apply(base: u32) -> Result<&'static str> {
     let flags = SPIF_UPDATEINIFILE | SPIF_SENDCHANGE;
-    let accepted = unsafe { SystemParametersInfoW(SPI_SETCURSORBASESIZE, 0, base as usize as *mut _, flags) } != 0;
+    if unsafe { SystemParametersInfoW(SPI_SETCURSORBASESIZE, 0, base as usize as *mut _, flags) } != 0 {
+        // L'action écrit elle-même CursorBaseSize ; on s'en assure.
+        write_dword(CURSORS, "CursorBaseSize", Some(base))?;
+        return Ok("0x2029");
+    }
     write_dword(CURSORS, "CursorBaseSize", Some(base))?;
     unsafe { SystemParametersInfoW(SPI_SETCURSORS, 0, null_mut(), SPIF_SENDCHANGE) };
-    Ok(if accepted { "0x2029 puis SPI_SETCURSORS" } else { "registre puis SPI_SETCURSORS (0x2029 refusée)" })
+    Ok("registre et SPI_SETCURSORS (0x2029 refusée)")
 }
 
 /// Agrandit le pointeur au cran `step` (base `base` px) s'il est plus petit ;
