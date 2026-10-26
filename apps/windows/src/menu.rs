@@ -11,7 +11,8 @@ pub type Tr<'a> = &'a dyn Fn(&str, &[(&str, &str)]) -> String;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cmd {
     Fullscreen,
-    Mouse,
+    /// Mode de la souris de la session (`auto`, `bureau`, `jeu`), gardé pour l'ordinateur.
+    Mouse(&'static str),
     Statistics,
     Disconnect,
     Connect(String),
@@ -34,7 +35,7 @@ pub enum Cmd {
 pub enum Mark {
     None,
     Check,
-    /// Coche ronde : un choix parmi plusieurs (profil).
+    /// Coche ronde : un choix parmi plusieurs (profil, souris).
     Radio,
 }
 
@@ -109,6 +110,8 @@ pub struct Session {
     /// Débit demandé à l'ordinateur.
     pub mbps: Option<u32>,
     pub fullscreen: bool,
+    /// Mode de la souris de l'ordinateur : `auto`, `bureau` ou `jeu`.
+    pub mouse: String,
 }
 
 /// Redémarrage ou mise à jour de la Station en cours.
@@ -154,6 +157,8 @@ pub struct State {
 }
 
 const PROFILES: [&str; 3] = ["jeu", "bureau", "max"];
+/// Dans l'ordre des réglages de l'ordinateur.
+const MOUSE_MODES: [&str; 3] = ["auto", "bureau", "jeu"];
 
 /// Le menu, de haut en bas.
 pub fn build(s: &State, tr: Tr) -> Vec<Item> {
@@ -168,7 +173,17 @@ pub fn build(s: &State, tr: Tr) -> Vec<Item> {
             mark: if session.fullscreen { Mark::Check } else { Mark::None },
             default: false,
         });
-        out.push(Item::line(tr("tray.mouse", &[]), Some(Cmd::Mouse)));
+        let modes = MOUSE_MODES
+            .iter()
+            .map(|m| Item::Line {
+                text: tr(&format!("tray.mouse_modes.{m}"), &[]),
+                cmd: Some(Cmd::Mouse(m)),
+                enabled: true,
+                mark: if session.mouse == *m { Mark::Radio } else { Mark::None },
+                default: false,
+            })
+            .collect();
+        out.push(Item::Sub { text: tr("tray.mouse", &[]), key: None, checked: false, dot: None, items: modes });
         out.push(Item::line(tr("tray.statistics", &[]), Some(Cmd::Statistics)));
         out.push(Item::line(tr("tray.disconnect", &[]), Some(Cmd::Disconnect)));
         out.push(Item::Separator);
@@ -433,22 +448,40 @@ mod tests {
     #[test]
     fn en_session() {
         let s = State {
-            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true }),
+            session: Some(Session { id: "a".into(), name: "Atelier".into(), latency_ms: Some(11.6), fps: Some(60), mbps: Some(80), fullscreen: true, mouse: "jeu".into() }),
             computers: vec![atelier(), Computer { online: Some(true), ..salon() }],
             ..Default::default()
         };
         let l = lines(&s, Lang::Fr);
         assert_eq!(
-            l[..7],
-            ["~En session sur Atelier", "~11,6 ms · 60 i/s · 80 Mbit/s", "[x] Plein écran", "Souris des jeux ou du bureau", "Statistiques", "Se déconnecter", "---"]
+            l[..10],
+            [
+                "~En session sur Atelier",
+                "~11,6 ms · 60 i/s · 80 Mbit/s",
+                "[x] Plein écran",
+                "Souris >",
+                "  Auto",
+                "  Souris du bureau",
+                "  (o) Souris des jeux",
+                "Statistiques",
+                "Se déconnecter",
+                "---"
+            ]
         );
         // L'ordinateur de la session est coché, son sous-menu se déconnecte ;
         // l'autre ne se connecte pas (une session à la fois).
-        assert_eq!(l[7..9], ["[x] {vert} Atelier — En ligne >", "  Se déconnecter"]);
+        assert_eq!(l[10..12], ["[x] {vert} Atelier — En ligne >", "  Se déconnecter"]);
         let other = l.iter().position(|x| x == "{vert} Bureau-Salon — En ligne >").unwrap();
         assert_eq!(l[other + 1], "  ~Se connecter (Bureau)");
         let en = lines(&s, Lang::En);
-        assert_eq!(en[..6], ["~In session on Atelier", "~11.6 ms · 60 fps · 80 Mbit/s", "[x] Full screen", "Game or desktop mouse", "Statistics", "Disconnect"]);
+        assert_eq!(
+            en[..9],
+            ["~In session on Atelier", "~11.6 ms · 60 fps · 80 Mbit/s", "[x] Full screen", "Mouse >", "  Auto", "  Desktop mouse", "  (o) Game mouse", "Statistics", "Disconnect"]
+        );
+        // Choisir un mode : la commande porte le mode.
+        let menu = build(&s, &tr(Lang::Fr));
+        let Item::Sub { items, .. } = &menu[3] else { panic!("sous-menu Souris") };
+        assert!(matches!(&items[0], Item::Line { cmd: Some(Cmd::Mouse("auto")), .. }));
         // Mesures pas encore arrivées.
         let mut early = s.clone();
         early.session.as_mut().unwrap().latency_ms = None;

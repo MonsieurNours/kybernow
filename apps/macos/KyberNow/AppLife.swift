@@ -294,9 +294,9 @@ extension AppModel {
         case .fullScreen:
             showWindow()
             session?.toggleFullScreen()
-        case .mouse:
+        case let .mouse(choice):
             showWindow()
-            session?.toggleMouseCapture()
+            session?.setMouse(choice)
         case .statistics:
             showWindow()
             session?.toggleStatsPanel()

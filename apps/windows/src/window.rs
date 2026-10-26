@@ -57,6 +57,10 @@ pub enum Command {
     Fullscreen = 2,
     MouseToggle = 3,
     Focus = 4,
+    // Mode de la souris choisi dans le menu de l'icône.
+    MouseAuto = 5,
+    MouseDesktop = 6,
+    MouseGame = 7,
     // Menu Touches de la barre : combinaisons que ce PC garderait pour lui.
     CtrlAltDel = 10,
     WinKey = 11,
@@ -752,6 +756,14 @@ fn toggle_mouse(hwnd: HWND) {
     }
 }
 
+/// Menu de l'icône : Auto, souris du bureau ou des jeux.
+fn set_mouse(hwnd: HWND, mode: MouseMode) {
+    if let Some(a) = app() {
+        *a.mouse_mode.lock().unwrap() = mode;
+        apply_mouse_mode(hwnd);
+    }
+}
+
 fn shortcut_held() -> bool {
     unsafe {
         GetKeyState(VK_CONTROL.0 as i32) < 0 && GetKeyState(VK_MENU.0 as i32) < 0 && GetKeyState(VK_SHIFT.0 as i32) < 0
@@ -930,6 +942,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         set_fullscreen(hwnd, !full);
                     }
                     x if x == Command::MouseToggle as usize => toggle_mouse(hwnd),
+                    x if x == Command::MouseAuto as usize => set_mouse(hwnd, MouseMode::Auto),
+                    x if x == Command::MouseDesktop as usize => set_mouse(hwnd, MouseMode::Desktop),
+                    x if x == Command::MouseGame as usize => set_mouse(hwnd, MouseMode::Game),
                     x if x == Command::Focus as usize => {
                         let _ = SetForegroundWindow(hwnd);
                     }

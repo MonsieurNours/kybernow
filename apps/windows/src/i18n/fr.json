@@ -71,7 +71,12 @@
     "measures": "{latency} ms · {fps} i/s · {mbps} Mbit/s",
     "decimal": ",",
     "fullscreen": "Plein écran",
-    "mouse": "Souris des jeux ou du bureau",
+    "mouse": "Souris",
+    "mouse_modes": {
+      "auto": "Auto",
+      "bureau": "Souris du bureau",
+      "jeu": "Souris des jeux"
+    },
     "statistics": "Statistiques",
     "disconnect": "Se déconnecter",
     "computer": "{name} — {state}",

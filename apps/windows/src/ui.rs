@@ -1516,6 +1516,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
             fps: stats.as_ref().map(|s| s.fps),
             mbps: Some(sent.settings.bitrate(m.width, m.height, m.refresh) / 1_000_000),
             fullscreen: window::fullscreen_now(),
+            mouse: computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
         }
     });
     let live = state.live.lock().unwrap();
@@ -1571,8 +1572,23 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                 session(Command::Fullscreen);
                 session(Command::Focus);
             }
-            Cmd::Mouse => {
-                session(Command::MouseToggle);
+            Cmd::Mouse(mode) => {
+                // Gardé pour l'ordinateur de la session, comme dans ses réglages.
+                let id = state.session.lock().unwrap().as_ref().map(|r| r.id.clone());
+                if let Some(id) = id {
+                    state.with_store(|s| {
+                        if let Some(c) = s.get_mut(&id) {
+                            c.settings.mouse = mode.into();
+                            s.save();
+                        }
+                    });
+                    emit_computers(&app);
+                }
+                session(match mode {
+                    "jeu" => Command::MouseGame,
+                    "bureau" => Command::MouseDesktop,
+                    _ => Command::MouseAuto,
+                });
                 session(Command::Focus);
             }
             Cmd::Statistics => toggle_stats(&app),

@@ -155,7 +155,7 @@ De haut en bas. Pendant une session, d'abord :
 | En-tête (inactif) | « En session sur {nom} » | “In session on {name}” |
 | Mesures (inactif, mis à jour menu ouvert) | « 12,4 ms · 60 i/s · 80 Mbit/s » : la latence comme dans la barre de session, au dixième, les images par seconde et le débit ; « — » pour ce qui n'est pas encore mesuré ; avant la première image, l'étape de la connexion | “12.4 ms · 60 fps · 80 Mbit/s” |
 | Plein écran (coché en plein écran) | « Plein écran » | “Full screen” |
-| Souris | « Souris des jeux ou du bureau » | “Game or desktop mouse” |
+| Souris | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (l'ordre des réglages), le mode de l'ordinateur coché ; choisir un mode l'applique tout de suite et le garde pour cet ordinateur | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Mesures en direct | « Statistiques » (Mac : le panneau des mesures ; Windows : la barre de session reste affichée jusqu'au passage du pointeur, un second clic la cache) | “Statistics” |
 | Fin | « Se déconnecter » | “Disconnect” |
 

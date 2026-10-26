@@ -155,7 +155,7 @@ From top to bottom. During a session, first:
 | Header (inactive) | « En session sur {nom} » | “In session on {name}” |
 | Measurements (inactive, updated while the menu is open) | « 12,4 ms · 60 i/s · 80 Mbit/s »: the latency as in the session bar, to the tenth, frames per second and bitrate; “—” for what is not measured yet; before the first frame, the connection step | “12.4 ms · 60 fps · 80 Mbit/s” |
 | Full screen (checked in full screen) | « Plein écran » | “Full screen” |
-| Mouse | « Souris des jeux ou du bureau » | “Game or desktop mouse” |
+| Mouse | « Souris » ▸ « Auto », « Souris du bureau », « Souris des jeux » (the settings' order), the computer's mode checked; picking a mode applies it at once and keeps it for that computer | “Mouse” ▸ “Auto”, “Desktop mouse”, “Game mouse” |
 | Live measurements | « Statistiques » (Mac: the measurements panel; Windows: the session bar stays shown until the pointer passes over it, a second click hides it) | “Statistics” |
 | End | « Se déconnecter » | “Disconnect” |
 

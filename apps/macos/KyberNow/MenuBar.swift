@@ -17,7 +17,8 @@ import SwiftUI
 
 /// Ce que fait une ligne du menu (AppModel.perform, AppLife.swift).
 enum MenuAction: Equatable {
-    case disconnect, fullScreen, mouse, statistics
+    case disconnect, fullScreen, statistics
+    case mouse(MouseChoice)
     case connect(UUID), wake(UUID), retry(UUID), profile(UUID, Profile), settings(UUID), admin(UUID), restart(UUID), update(UUID)
     case open, add, appSettings, checkForUpdates, quit
 }
@@ -93,7 +94,9 @@ enum MenuContent {
             out.append(MenuEntry(title: String(localized: "En session sur \(session.host.name)"), enabled: false))
             out.append(MenuEntry(title: metrics(session), enabled: false))
             out.append(MenuEntry(title: String(localized: "Plein écran"), checked: app.homeWindow?.styleMask.contains(.fullScreen) == true, action: .fullScreen))
-            out.append(MenuEntry(title: String(localized: "Souris des jeux ou du bureau"), action: .mouse))
+            // Les trois modes, comme le menu Souris de la barre de session ; gardé pour l'ordinateur.
+            let mice = MouseChoice.allCases.map { MenuEntry(title: $0.label, checked: $0 == session.host.settings.mouse, action: .mouse($0)) }
+            out.append(MenuEntry(title: String(localized: "Souris"), children: mice))
             out.append(MenuEntry(title: String(localized: "Statistiques"), action: .statistics))
             out.append(MenuEntry(title: String(localized: "Se déconnecter"), action: .disconnect))
             out.append(.line)
