@@ -69,7 +69,7 @@ Titre : « Réglages de {nom} » / “Settings for {name}”. En tête : « Prof
 
 | Rubrique | Français | English | Contenu |
 |---|---|---|---|
-| 1 | Image | Picture | définition, fréquence, écran virtuel, format vidéo, texte net (4:4:4), débit, affichage des images, garder la dernière image |
+| 1 | Image | Picture | définition, écrans, fréquence, écran virtuel, format vidéo, texte net (4:4:4), débit, affichage des images, garder la dernière image |
 | 2 | Son | Sound | voies, son sur l'ordinateur, et ce que la plateforme propose (audio spatial, 5.1 Dolby…) |
 | 3 | Commandes | Controls | manette vue par l'ordinateur, souris, clavier, toucher, télécommande, vibrations, presse-papiers partagé |
 | 4 | Réseau | Network | transport de l'image, reconnexion automatique, réveil par le réseau |
@@ -83,6 +83,7 @@ Ce qui vaut pour toute l'app (langue, iCloud, mises à jour de l'app, test des m
 | Français | English | Valeurs (FR / EN) |
 |---|---|---|
 | Définition | Resolution | Comme cet écran / Match this display ; Au plus 4K / 4K at most ; Sur mesure / Custom |
+| Écrans | Displays | Auto ; Cet écran / This display ; Tous les écrans / All displays (apps Mac, Windows et Linux, voir [multi-ecrans.md](multi-ecrans.md)) |
 | Fréquence | Refresh rate | « 120 Hz » |
 | Écran virtuel | Virtual display | aide : « L'ordinateur crée un écran à la taille de cet appareil pendant la session ; les siens s'éteignent, puis reviennent à la fin. » / “The computer creates a display sized for this device during the session; its own displays switch off, then come back at the end.” |
 | Format vidéo | Video format | Auto ; HEVC ; H.264 ; AV1 |
