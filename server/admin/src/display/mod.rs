@@ -267,16 +267,18 @@ fn slot_order(screens: &[Screen]) -> Vec<usize> {
 const VIRTUAL_DISPLAY_GUID: [u8; 16] = *b"KyberNow-Display";
 
 /// Identifiant stable du moniteur de rang `slot` (0 : le principal) :
-/// `KyberNow-Display`, puis `KyberNow-Disp-02` à `-04`. Windows retrouve
+/// `KyberNow-Display`, puis `02-KyberNow-Disp` à `04-…`. Windows retrouve
 /// ainsi les réglages de chaque écran (échelle) d'une session à l'autre.
+/// SudoVDA fait des 4 premiers octets le numéro de série de l'EDID : ils
+/// diffèrent d'un écran à l'autre, pour que Windows ne les confonde pas.
 pub fn slot_guid(slot: usize) -> [u8; 16] {
     if slot == 0 {
         return VIRTUAL_DISPLAY_GUID;
     }
-    let mut guid = *b"KyberNow-Disp-00";
+    let mut guid = *b"00-KyberNow-Disp";
     let n = (slot + 1) as u8;
-    guid[14] = b'0' + n / 10;
-    guid[15] = b'0' + n % 10;
+    guid[0] = b'0' + n / 10;
+    guid[1] = b'0' + n % 10;
     guid
 }
 
@@ -336,6 +338,17 @@ impl Placement {
     /// `luid_low,luid_high,target,width,height,refresh,x,y`
     pub fn to_arg(&self) -> String {
         format!("{},{},{},{},{},{}", self.created.to_arg(), self.mode.width, self.mode.height, self.mode.refresh, self.x, self.y)
+    }
+
+    /// Place d'un écran que Windows a mis à `width` × `height` au lieu du mode
+    /// demandé : collé du même côté que demandé (un écran à gauche du
+    /// principal garde son bord droit, un écran au-dessus son bord bas).
+    pub fn anchored(&self, width: u32, height: u32) -> (i32, i32) {
+        let right = i64::from(self.x) + i64::from(self.mode.width);
+        let bottom = i64::from(self.y) + i64::from(self.mode.height);
+        let x = if right <= 0 { right - i64::from(width) } else { i64::from(self.x) };
+        let y = if bottom <= 0 { bottom - i64::from(height) } else { i64::from(self.y) };
+        (x as i32, y as i32)
     }
 
     pub fn parse(arg: &str) -> Result<Self> {
@@ -442,6 +455,16 @@ fn placed_screens(applied: &Value, asked: &[Screen]) -> Vec<Option<Screen>> {
         .collect()
 }
 
+/// Ce que l'agent d'affichage a noté en plaçant les écrans (mode refusé,
+/// proposé ou non par Windows…) : il n'a pas de journal, Admin l'écrit dans
+/// le sien et le retire du résultat.
+fn log_notes(applied: &mut Value) {
+    let Some(notes) = applied.as_object_mut().and_then(|o| o.remove("notes")) else { return };
+    for note in notes.as_array().into_iter().flatten().filter_map(Value::as_str) {
+        tracing::warn!("écrans virtuels : {note}");
+    }
+}
+
 /// « 1920 × 1080 à 60 Hz » (journaux).
 fn label(m: Mode) -> String {
     format!("{} × {} à {} Hz", m.width, m.height, m.refresh)
@@ -450,6 +473,16 @@ fn label(m: Mode) -> String {
 /// Le même, en paramètre d'un événement : écrit dans la langue de qui lit.
 fn mode_param(m: Mode) -> Value {
     Msg::new("fmt.mode").with("width", m.width).with("height", m.height).with("refresh", m.refresh).to_value()
+}
+
+/// Une remise du mode d'un écran (politique `restore`).
+struct Fix {
+    /// Rang de l'écran dans la session.
+    slot: usize,
+    gdi_name: String,
+    /// Mode vu sur l'ordinateur, et celui à remettre.
+    from: Mode,
+    target: Mode,
 }
 
 /// Un écran virtuel de la session.
@@ -710,7 +743,7 @@ impl Manager {
         policy: Option<PolicyChoice>,
     ) -> Result<Started> {
         let default_policy = self.settings.lock().unwrap().on_mode_change;
-        let mut fixes: Vec<(String, Mode)> = Vec::new();
+        let mut fixes: Vec<Fix> = Vec::new();
         let kept = {
             let mut session = self.session.lock().unwrap();
             match session.as_mut() {
@@ -739,7 +772,7 @@ impl Manager {
                             for (i, slot) in s.slots.iter().enumerate() {
                                 if let Some((mode, gdi)) = o.slot(i) {
                                     if mode.width > 0 && !same_mode(mode, slot.target()) {
-                                        fixes.push((gdi.to_string(), slot.target()));
+                                        fixes.push(Fix { slot: i, gdi_name: gdi.to_string(), from: mode, target: slot.target() });
                                     }
                                 }
                             }
@@ -758,8 +791,8 @@ impl Manager {
         };
         if let Some(started) = kept {
             let now = Instant::now();
-            for (gdi_name, target) in fixes {
-                self.fix_mode(&gdi_name, target, now);
+            for fix in fixes {
+                self.fix_mode(fix, now);
             }
             return Ok(started);
         }
@@ -806,6 +839,7 @@ impl Manager {
         let placed = placed_screens(&applied, &asked.iter().map(|(_, s)| *s).collect::<Vec<_>>());
         // `applied` reste le mode du principal ; les écrans vont dans `screens` de la réponse.
         let mut applied = applied;
+        log_notes(&mut applied);
         if let Some(o) = applied.as_object_mut() {
             o.remove("screens");
         }
@@ -888,13 +922,30 @@ impl Manager {
     }
 
     /// Remet le mode de la session sur un écran virtuel (politique `restore`).
-    fn fix_mode(&self, gdi_name: &str, target: Mode, now: Instant) {
+    /// Si Windows garde un autre mode, celui-ci devient la référence de
+    /// l'écran pour le reste de la session : une remise au plus, jamais de
+    /// boucle (chaque changement de mode coupe la capture de l'écran).
+    fn fix_mode(&self, fix: Fix, now: Instant) {
         if let Some(s) = self.session.lock().unwrap().as_mut() {
             s.last_mode_fix = Some(now);
         }
-        match self.backend.set_mode(gdi_name, target) {
-            Ok(got) if same_mode(got, target) => tracing::info!("mode de l'écran virtuel remis en {}", label(target)),
-            Ok(got) => tracing::warn!("mode de l'écran virtuel : {} demandé, {} obtenu", label(target), label(got)),
+        tracing::info!("écran virtuel {} : remise du mode, {} → {}", fix.gdi_name, label(fix.from), label(fix.target));
+        match self.backend.set_mode(&fix.gdi_name, fix.target) {
+            Ok(got) if same_mode(got, fix.target) => tracing::info!("écran virtuel {} : remis en {}", fix.gdi_name, label(fix.target)),
+            Ok(got) => {
+                tracing::warn!(
+                    "écran virtuel {} : Windows garde {} au lieu de {}, accepté pour le reste de la session",
+                    fix.gdi_name,
+                    label(got),
+                    label(fix.target)
+                );
+                if got.width > 0 {
+                    if let Some(slot) = self.session.lock().unwrap().as_mut().and_then(|s| s.slots.get_mut(fix.slot)) {
+                        slot.placed = slot.placed.at(got, slot.placed.x, slot.placed.y);
+                        slot.announced = None;
+                    }
+                }
+            }
             Err(e) => self.fail(&e),
         }
     }
@@ -989,7 +1040,7 @@ impl Manager {
         let observed = self.backend.observe();
         let mut notes: Vec<(&str, Msg)> = Vec::new();
         let mut reisolate: Option<(Vec<(Created, Screen)>, u32)> = None;
-        let mut fixes: Vec<(String, Mode)> = Vec::new();
+        let mut fixes: Vec<Fix> = Vec::new();
         let default_policy = self.settings.lock().unwrap().on_mode_change;
         {
             let mut guard = self.session.lock().unwrap();
@@ -1029,7 +1080,7 @@ impl Manager {
             }
 
             // Mode changé sur l'ordinateur (jeu, réglage de Windows), écran par écran.
-            let mut changed: Vec<(String, Mode, Mode)> = Vec::new();
+            let mut changed: Vec<Fix> = Vec::new();
             for (i, slot) in s.slots.iter_mut().enumerate() {
                 let Some((mode, gdi_name)) = o.slot(i) else { continue };
                 let target = slot.target();
@@ -1045,7 +1096,7 @@ impl Manager {
                         };
                         notes.push(("info", Msg::new(key).with("mode", mode_param(mode)).with("target", mode_param(target))));
                     }
-                    changed.push((gdi_name.to_string(), target, mode));
+                    changed.push(Fix { slot: i, gdi_name: gdi_name.to_string(), from: mode, target });
                 } else if same_mode(mode, target) {
                     slot.announced = None;
                 }
@@ -1057,22 +1108,27 @@ impl Manager {
                     // Le jeu remet sa définition après chaque remise : on
                     // arrête la ronde (et les relances d'image qu'elle coûte).
                     s.restore_gave_up = true;
-                    notes.push(("warn", Msg::new("events.displayModeGaveUp").with("mode", mode_param(changed[0].2))));
+                    notes.push(("warn", Msg::new("events.displayModeGaveUp").with("mode", mode_param(changed[0].from))));
                 } else {
                     s.mode_fixes.push(now);
-                    fixes = changed.into_iter().map(|(gdi_name, target, _)| (gdi_name, target)).collect();
+                    fixes = changed;
                 }
             }
         }
         for (kind, msg) in notes {
             self.event(kind, msg);
         }
-        for (gdi_name, target) in fixes {
-            self.fix_mode(&gdi_name, target, now);
+        for fix in fixes {
+            self.fix_mode(fix, now);
         }
         if let Some((asked, others)) = reisolate {
+            tracing::info!(
+                "{others} écran(s) physique(s) rallumé(s) : nouvel isolement des écrans virtuels ({})",
+                asked.iter().map(|(_, s)| format!("{} en ({}, {})", label(s.mode()), s.x, s.y)).collect::<Vec<_>>().join(", ")
+            );
             match self.backend.isolate(&asked) {
-                Ok(applied) => {
+                Ok(mut applied) => {
+                    log_notes(&mut applied);
                     if let Some(s) = self.session.lock().unwrap().as_mut() {
                         s.applied = applied;
                         s.last_reisolate = Some(now);
@@ -1220,6 +1276,8 @@ struct SimScreen {
     inactive: Vec<u32>,
     /// Écrans (rang, place) donnés au dernier isolement.
     last_isolate: Vec<(u32, i32, i32)>,
+    /// Windows refuse les remises de mode (il garde le mode en place).
+    refuse_modes: bool,
     /// Pings reçus, et écrans existants à chaque ping.
     pings: u32,
 }
@@ -1305,8 +1363,11 @@ impl Backend for Simulated {
     fn set_mode(&self, gdi_name: &str, mode: Mode) -> Result<Mode> {
         let mut screen = self.screen.lock().unwrap();
         let slot = (0..MAX_SCREENS as u32).find(|i| sim_gdi_name(*i) == gdi_name).unwrap_or(0);
-        *screen.slot_mut(slot as usize) = Some(mode);
         screen.mode_fixes += 1;
+        if screen.refuse_modes {
+            return Ok(screen.slot_mut(slot as usize).unwrap_or(Mode { width: 0, height: 0, refresh: 0 }));
+        }
+        *screen.slot_mut(slot as usize) = Some(mode);
         Ok(mode)
     }
     fn observe(&self) -> Option<Observed> {
@@ -1809,13 +1870,29 @@ mod tests {
     }
 
     #[test]
+    fn ecran_impose_reste_colle() {
+        let created = Created { luid_low: 0, luid_high: 0, target: 0 };
+        let at = |w, h, x, y| Placement { created, mode: Mode { width: w, height: h, refresh: 60 }, x, y };
+        // MacBook à gauche, mis en 3840 × 2160 par Windows : bord droit gardé.
+        assert_eq!(at(3456, 2234, -3456, 322).anchored(3840, 2160), (-3840, 322));
+        // À droite : bord gauche gardé, rien ne bouge.
+        assert_eq!(at(5120, 2880, 3840, 0).anchored(3840, 2160), (3840, 0));
+        // Au-dessus : bord bas gardé.
+        assert_eq!(at(2560, 1440, 0, -1440).anchored(1920, 1080), (0, -1080));
+        // En dessous, à gauche du bord : seul x suit.
+        assert_eq!(at(1920, 1080, -1920, 2160).anchored(1280, 720), (-1280, 2160));
+    }
+
+    #[test]
     fn identifiants_des_ecrans() {
         assert_eq!(&slot_guid(0), b"KyberNow-Display");
-        assert_eq!(&slot_guid(1), b"KyberNow-Disp-02");
-        assert_eq!(&slot_guid(3), b"KyberNow-Disp-04");
+        assert_eq!(&slot_guid(1), b"02-KyberNow-Disp");
+        assert_eq!(&slot_guid(3), b"04-KyberNow-Disp");
         let all: Vec<_> = (0..MAX_SCREENS).map(slot_guid).collect();
         for (i, g) in all.iter().enumerate() {
             assert!(!all[i + 1..].contains(g));
+            // Numéro de série de l'EDID (4 premiers octets) propre à chaque écran.
+            assert!(!all[i + 1..].iter().any(|o| o[..4] == g[..4]));
         }
     }
 
@@ -1954,6 +2031,30 @@ mod tests {
         m.watch_tick(t0 + Duration::from_secs(7));
         assert_eq!(sim.screen.lock().unwrap().mode_fixes, 3);
         assert_eq!(m.session.lock().unwrap().as_ref().unwrap().mode_fixes.len(), 2);
+    }
+
+    #[test]
+    fn politique_restore_une_remise_au_plus_si_windows_garde_son_mode() {
+        let (m, sim, events) = simulated(VdSettings::default());
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), Some(PolicyChoice::Restore)).unwrap();
+        // Windows passe le 5K en 3840 × 2160 à 59 Hz et refuse d'y revenir.
+        let kept = Mode { width: 3840, height: 2160, refresh: 59 };
+        sim.screen.lock().unwrap().extra[0] = Some(kept);
+        sim.screen.lock().unwrap().refuse_modes = true;
+        let t0 = Instant::now();
+        for i in 0..120u64 {
+            m.watch_tick(t0 + Duration::from_secs(i));
+        }
+        // Une seule remise ; le mode gardé par Windows devient la référence.
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 1);
+        assert_eq!(m.status()["session"]["screens"][1]["width"], 3840);
+        assert_eq!(events.lock().unwrap().len(), 1, "{:?}", events.lock().unwrap());
+        // Un prepare au même mode (« Remettre ») ne relance rien : la référence est le mode gardé.
+        m.start_screens(Origin::App, trois_ecrans(), None, Some("mac".into()), Some(PolicyChoice::Restore)).unwrap();
+        for i in 120..180u64 {
+            m.watch_tick(t0 + Duration::from_secs(i));
+        }
+        assert_eq!(sim.screen.lock().unwrap().mode_fixes, 1);
     }
 
     #[test]

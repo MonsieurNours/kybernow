@@ -473,38 +473,74 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
     }
 
     // 4. Modes et places demandés, appliqués d'un coup (Windows vérifie la
-    //    disposition entière) ; le principal en (0, 0) devient l'écran principal.
+    //    disposition entière) ; le principal en (0, 0) devient l'écran
+    //    principal. Ce qui ne passe pas est noté (`notes`) : l'agent n'a pas
+    //    de journal, Admin écrit ces notes dans le sien.
+    let mut notes: Vec<String> = Vec::new();
     let (paths, _) = active_config()?;
     let names: Vec<Option<String>> = screens
         .iter()
         .map(|p| paths.iter().find(|q| is_placed(q, p)).and_then(gdi_name).filter(|n| !n.is_empty()))
         .collect();
-    let mut staged = 0;
+    let same = |name: &str, p: &Placement| {
+        let (w, h, hz) = current_mode(name);
+        (w, h) == (p.mode.width, p.mode.height) && hz.abs_diff(p.mode.refresh) <= 1
+    };
+    let mut changed = false;
     for (i, (p, name)) in screens.iter().zip(&names).enumerate() {
         let Some(name) = name else { continue };
-        let (w, h, hz) = current_mode(name);
-        let placed = (w, h) == (p.mode.width, p.mode.height) && hz.abs_diff(p.mode.refresh) <= 1 && current_position(name) == (p.x, p.y);
-        if !placed {
-            stage(name, p, i == 0);
-            staged += 1;
+        if !same(name, p) || current_position(name) != (p.x, p.y) {
+            let r = stage(name, p, i == 0);
+            if r != DISP_CHANGE_SUCCESSFUL {
+                notes.push(format!("{name} : {} en ({}, {}) refusé (code {r})", label(p), p.x, p.y));
+            }
+            changed = true;
         }
     }
-    if staged > 0 {
+    if changed {
         let r = unsafe { ChangeDisplaySettingsExW(null(), null(), null_mut(), 0, null()) };
         if r != DISP_CHANGE_SUCCESSFUL {
-            tracing::warn!("disposition des écrans virtuels refusée ({r}) : modes seuls");
+            notes.push(format!("disposition des écrans virtuels refusée (code {r}) : modes un par un"));
         }
-        // Disposition refusée : au moins les modes, Windows place les écrans.
+        // Mode refusé dans la disposition : on le réessaie seul.
         for (p, name) in screens.iter().zip(&names) {
             let Some(name) = name else { continue };
-            let (w, h, hz) = current_mode(name);
-            if (w, h) != (p.mode.width, p.mode.height) || hz.abs_diff(p.mode.refresh) > 1 {
+            if !same(name, p) {
                 set_mode(name, p.mode.width, p.mode.height, p.mode.refresh);
             }
         }
+    }
 
-        // 5. La disposition finale remplace la provisoire dans la base : un
-        //    écran qui se « rebranche » retrouve les bonnes places.
+    // 5. Un écran resté à un autre mode (Windows l'impose) : on dit pourquoi,
+    //    et il reste collé à son voisin, du côté demandé (un écran à gauche
+    //    du principal garde son bord droit, un écran au-dessus son bord bas).
+    let mut glued = false;
+    for (p, name) in screens.iter().zip(&names) {
+        let Some(name) = name else { continue };
+        if same(name, p) {
+            continue;
+        }
+        let (w, h, hz) = current_mode(name);
+        notes.push(format!("{name} : {} demandé, {w} × {h} à {hz} Hz obtenu ; {}", label(p), offered(name, p)));
+        let at = p.anchored(w, h);
+        if current_position(name) != at {
+            let r = stage_position(name, at);
+            if r != DISP_CHANGE_SUCCESSFUL {
+                notes.push(format!("{name} : place ({}, {}) refusée (code {r})", at.0, at.1));
+            }
+            glued = true;
+        }
+    }
+    if glued {
+        let r = unsafe { ChangeDisplaySettingsExW(null(), null(), null_mut(), 0, null()) };
+        if r != DISP_CHANGE_SUCCESSFUL {
+            notes.push(format!("écrans virtuels recollés : refusé (code {r})"));
+        }
+    }
+
+    // 6. La disposition finale remplace la provisoire dans la base : un écran
+    //    qui se « rebranche » retrouve les bonnes places.
+    if changed || glued {
         if let Ok((paths, modes)) = active_config() {
             let err = unsafe {
                 SetDisplayConfig(
@@ -516,12 +552,12 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
                 )
             };
             if err != 0 {
-                tracing::warn!("enregistrement de la disposition des écrans virtuels (code {err})");
+                notes.push(format!("enregistrement de la disposition des écrans virtuels (code {err})"));
             }
         }
     }
 
-    // 6. Comme `isolate` : laisser l'énumérateur d'écrans de Kyber voir la
+    // 7. Comme `isolate` : laisser l'énumérateur d'écrans de Kyber voir la
     //    nouvelle disposition avant de répondre.
     std::thread::sleep(Duration::from_millis(1500));
     let list: Vec<Value> = names
@@ -544,11 +580,48 @@ pub fn isolate_many(screens: &[Placement]) -> Result<Value> {
         "refresh": first["refresh"],
         "disabled_others": disabled_others,
         "screens": list,
+        "notes": notes,
     }))
 }
 
-/// Prépare (sans l'appliquer) le mode et la place d'un écran.
-fn stage(name: &str, p: &Placement, primary: bool) {
+/// « 3456 × 2234 à 60 Hz » (notes).
+fn label(p: &Placement) -> String {
+    format!("{} × {} à {} Hz", p.mode.width, p.mode.height, p.mode.refresh)
+}
+
+/// Le mode demandé figure-t-il parmi ceux que Windows propose pour l'écran ?
+/// (Pour les notes : pilote qui ne l'offre pas, ou Windows qui le refuse.)
+fn offered(name: &str, p: &Placement) -> String {
+    let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut count = 0u32;
+    let mut found = false;
+    let mut largest = (0u32, 0u32, 0u32);
+    unsafe {
+        loop {
+            let mut mode: DEVMODEW = std::mem::zeroed();
+            mode.dmSize = size_of::<DEVMODEW>() as u16;
+            if EnumDisplaySettingsW(wname.as_ptr(), count, &mut mode) == 0 || count > 2000 {
+                break;
+            }
+            count += 1;
+            let m = (mode.dmPelsWidth, mode.dmPelsHeight, mode.dmDisplayFrequency);
+            if (m.0, m.1) == (p.mode.width, p.mode.height) && m.2.abs_diff(p.mode.refresh) <= 1 {
+                found = true;
+            }
+            if u64::from(m.0) * u64::from(m.1) > u64::from(largest.0) * u64::from(largest.1) {
+                largest = m;
+            }
+        }
+    }
+    if found {
+        format!("le mode est proposé par Windows ({count} modes) mais n'a pas été appliqué")
+    } else {
+        format!("le mode n'est pas proposé ({count} modes, le plus grand : {} × {} à {} Hz)", largest.0, largest.1, largest.2)
+    }
+}
+
+/// Prépare (sans l'appliquer) le mode et la place d'un écran ; rend le code de Windows.
+fn stage(name: &str, p: &Placement, primary: bool) -> i32 {
     let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let mut mode: DEVMODEW = std::mem::zeroed();
@@ -559,10 +632,19 @@ fn stage(name: &str, p: &Placement, primary: bool) {
         mode.Anonymous1.Anonymous2.dmPosition = POINTL { x: p.x, y: p.y };
         mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY | DM_POSITION;
         let flags = CDS_UPDATEREGISTRY | CDS_NORESET | if primary { CDS_SET_PRIMARY } else { 0 };
-        let r = ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), flags, null());
-        if r != DISP_CHANGE_SUCCESSFUL {
-            tracing::warn!("mode et place de {name} refusés ({r})");
-        }
+        ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), flags, null())
+    }
+}
+
+/// Prépare (sans l'appliquer) la seule place d'un écran.
+fn stage_position(name: &str, (x, y): (i32, i32)) -> i32 {
+    let wname: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let mut mode: DEVMODEW = std::mem::zeroed();
+        mode.dmSize = size_of::<DEVMODEW>() as u16;
+        mode.Anonymous1.Anonymous2.dmPosition = POINTL { x, y };
+        mode.dmFields = DM_POSITION;
+        ChangeDisplaySettingsExW(wname.as_ptr(), &mode, null_mut(), CDS_UPDATEREGISTRY | CDS_NORESET, null())
     }
 }
 
