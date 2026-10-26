@@ -24,11 +24,11 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Authenticode signing** of the installer, the Windows app and the manual update package (SignPath targeted; prerequisite: Windows binaries built in CI).
 - **Wake on LAN on iPhone, iPad and Apple TV**: ask Apple for the multicast entitlement (`com.apple.developer.networking.multicast`), so the packet goes out by broadcast and not only directly.
 - **Controller API**: list what `kycontroller` exposes over HTTP (session state, metrics).
-- **Open question**: several simultaneous users on the same computer?
 
 ## KyberNow Link
 
-- **Windows**: a session across several of the PC's displays.
+- **Multiple displays** (in progress): one virtual display on the computer per display of the device, laid out like them, each in a full-screen window, in the Mac, Windows and Linux apps. The main display keeps its refresh rate, the others run at 60 Hz. Per-computer “Displays” setting: Auto (all displays in Desktop and Max, one in Game), This display, All displays. Kyber patch: bitrate shared out by each display's pixels per second instead of in equal parts.
+- **Several computers at once** (after multiple displays): one session window per computer in the Mac and Windows apps; controllers read by the app and sent to the active window (kynput's SDL opens only once per app); the sessions' sound mixed.
 - **Android**: foldable layouts; external display as a desk (image on the attached display, device as the desk); Play Store internal testing.
 - **Android TV + Station**: send the phone's computers to the TV (code shown on the TV, relayed by Admin).
 - **iPhone and iPad**: Apple Pencil; TestFlight for internal testers (App Store profile, Release archive, `xcodebuild -exportArchive`), then the App Store.
@@ -37,6 +37,17 @@ What is planned or still to try, and only here: the other documents describe wha
 - **Linux**: zero-copy DMA-BUF import of VA-API frames (4K at 120 Hz); NVDEC decoding for NVIDIA cards; a Flatpak repository or Flathub, so updates install by themselves.
 - **Raspberry Pi**: publish the apt repository (GPG key, hosting, called from `release.sh`); zero-copy path (SAND frames on a DRM plane).
 - **KyberNow Link OS**: install the update during standby; a composed soundtrack for the ignition, instead of `chime.rs`'s synthesis.
+
+## KyberNow Share
+
+Everything that lets someone else onto your computer. Name chosen on 26/10/2026; logo signed SHARE, like STATION, ADMIN and LINK.
+
+- **Shared session**: a spectator (image and sound) or a second player (their controllers become Windows' next controller; keyboard and mouse only if the host hands them over), invited with a code, in the Link app or the browser. Kyber already accepts several devices on the same image (`multi_client`); Admin moves from a single device in session to participants who each have a role.
+- **Rights enforced by the Station**: a Kyber patch to refuse a spectator's inputs and keep only a second player's controllers (today only the device decides to send nothing).
+- **Separate encode for a remote guest**: the host keeps their quality, the guest gets an image that fits their connection (Kyber patch: a stream of its own beside the shared one, so the slowest device no longer slows the others down).
+- **Relay**: a layer-4 relay (TCP and UDP) that does not see the image (end-to-end encryption, Kyber's certificate pinned by its fingerprint); the Station opens the connection, nothing to open on the router. A public relay run by Les Lignes Claires by default, replaceable by your own (Docker image). Next, access from outside the home without a VPN through the same relay, with a capped bitrate on the public relay. Web client: WebTransport through the relay (not in Safari).
+- **Lending the computer**, in turns (Windows has only one session open on screen): a dedicated Windows account with no rights and no access to your files; the desktop replaced by a launcher that restarts the program when it closes, no File Explorer; a list of apps chosen by the host, the Station's service closes the rest. The friend plays with their own Steam account (your games: Steam Families). Three ways in: a friend access you switch on (taken back with notice), a code for one sitting, time slots. Tricky part: opening the dedicated account's session without typing its password.
+- **Lead**: lending the computer while you use it, through a virtual machine that shares the graphics card (Hyper-V); needs Windows Pro and a second licence, runs into anti-cheat, encoder to be checked.
 
 ## Sony controllers in “Faithful” mode
 
@@ -52,4 +63,4 @@ The computer sees a DualShock 4 (ViGEmBus driver): buttons, sticks, triggers and
 - **CI**: build the Mac app (with a `KyberSDK-macOS.zip`) and the Windows binaries.
 - **Kyber**: send the `strip` fix upstream (cargo-c, Xcode 27's linker).
 - **Website**: remove the “beta” markers at 1.0; revisit the Apple TV, iPhone and iPad cards once those apps go through TestFlight or the App Store.
-- **Brand**: confirm the KyberNow name (and Station / Admin / Link) with the Kyber team; the `fr.leslignesclaires.kybernow` identifier does not change.
+- **Brand**: confirm the KyberNow name (and Station / Admin / Link / Share) with the Kyber team; draw the logo signed SHARE in `brand/v2/`; the `fr.leslignesclaires.kybernow` identifier does not change.
