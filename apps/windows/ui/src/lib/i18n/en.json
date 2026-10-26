@@ -4,7 +4,8 @@
     "cancel": "Cancel",
     "continue": "Continue",
     "searching": "Searching…",
-    "ok": "OK"
+    "ok": "OK",
+    "four_at_most": "Four computers at most at the same time."
   },
   "profiles": {
     "jeu": "Game",
@@ -48,6 +49,7 @@
     "screen": "{width} × {height} display at {refresh} Hz",
     "screens_many": "{count} displays, sized for this device's screens",
     "connect": "Connect",
+    "show_session": "Show session",
     "retry": "Try again",
     "wake": "Wake the computer",
     "waking": "Waking the computer…",
@@ -278,7 +280,11 @@
     "fullscreen": "Full screen",
     "fullscreen_shortcut": " (Ctrl+Alt+Shift+F)",
     "disconnect": "Disconnect",
-    "disconnect_shortcut": " (Ctrl+Alt+Shift+D)"
+    "disconnect_shortcut": " (Ctrl+Alt+Shift+D)",
+    "computers": "Computers",
+    "computer": "{name} — {state}",
+    "show": "Show",
+    "keep_sound": "Keep sound"
   },
   "fond": {
     "not_created": "The computer could not create this display."
@@ -288,6 +294,8 @@
     "from_link": "From the link",
     "bad_account": "Admin: wrong account or password (401)",
     "hardware": "graphics card",
+    "no_session": "no session",
+    "connect_refused": "Kyber is not answering on the computer",
     "station_in_session": "A device is connected (Apple TV du salon): restarting will end its session"
   }
 }

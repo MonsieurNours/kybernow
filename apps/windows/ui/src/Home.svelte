@@ -3,15 +3,17 @@
   sinon sa signature) avec, dans l'ordre, son état, son nom, son système,
   l'écran que la session demandera, le bouton principal (hors ligne :
   « Réveiller l'ordinateur » quand ses cartes réseau sont connues, sinon
-  « Réessayer »), le profil et l'accès à ses réglages ; en bas les autres ordinateurs (nom et état), ceux annoncés
-  sur le réseau et l'ajout.
+  « Réessayer » ; déjà en session : « Afficher la session » ; quatre
+  ordinateurs en session : « Se connecter » inactif, avec la raison), le
+  profil et l'accès à ses réglages ; en bas les autres ordinateurs (nom et
+  état), ceux annoncés sur le réseau et l'ajout.
 -->
 <script lang="ts">
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
   import { onMount } from 'svelte'
   import type { Battery, Computer, DisplaysInfo, Found, Settings, ThisPc } from './lib/api'
-  import { hue, invoke, isCustom, listen, sessionPlan } from './lib/api'
+  import { MAX_SESSIONS, hue, invoke, isCustom, listen, sessionPlan } from './lib/api'
   import { t } from './lib/i18n/index.svelte'
 
   let {
@@ -20,11 +22,13 @@
     thisPc,
     battery,
     selected,
+    sessions = [],
     busy,
     retrying,
     error,
     onselect,
     onconnect,
+    onshow,
     onretry,
     onwake,
     onsettings,
@@ -36,12 +40,17 @@
     thisPc: ThisPc | null
     battery: Battery
     selected: Computer | null
+    /** Les ordinateurs en session (plusieurs ordinateurs, quatre au plus). */
+    sessions?: string[]
+    /** La connexion de la première session se fait (passage). */
     busy: boolean
     /** « Réessayer » en cours pour cet ordinateur. */
     retrying: boolean
     error: string | null
     onselect: (id: string) => void
     onconnect: (id: string) => void
+    /** « Afficher la session » : sa fenêtre passe devant. */
+    onshow: (id: string) => void
     onretry: (id: string) => void
     onwake: (id: string) => void
     onsettings: (id: string) => void
@@ -61,6 +70,10 @@
           : t('home.offline')
 
   const waking = $derived(!!selected?.waking && !selected.online)
+  /** L'ordinateur choisi est en session : « Afficher la session ». */
+  const inSession = $derived(!!selected && sessions.includes(selected.id))
+  /** Quatre ordinateurs sont déjà en session : « Se connecter » inactif, avec la raison. */
+  const full = $derived(sessions.length >= MAX_SESSIONS)
   /** Hors ligne, l'app sait le réveiller : ses cartes réseau, apprises de la Station. */
   const canWake = $derived(!!selected && (selected.wake?.length ?? 0) > 0)
 
@@ -150,7 +163,11 @@
         <div class="chip"><Icon name="monitor" size={20} /><span>{screen}</span></div>
       {/if}
       <div class="actions">
-        {#if selected.online === false && canWake}
+        {#if inSession}
+          <button class="primary" onclick={() => onshow(selected!.id)}>
+            <Icon name="monitor" size={18} />{t('home.show_session')}
+          </button>
+        {:else if selected.online === false && canWake}
           <button class="primary" disabled={busy || waking} onclick={() => onwake(selected!.id)}>
             <Icon name="power" size={18} />{waking ? t('home.waking') : t('home.wake')}
           </button>
@@ -159,7 +176,7 @@
             <Icon name="restart" size={18} />{t('home.retry')}
           </button>
         {:else}
-          <button class="primary" disabled={busy} onclick={() => onconnect(selected!.id)}>
+          <button class="primary" disabled={busy || full} aria-describedby={full ? 'four-at-most' : undefined} onclick={() => onconnect(selected!.id)}>
             <Icon name="play" size={18} />{t('home.connect')}
           </button>
         {/if}
@@ -174,6 +191,9 @@
           <Icon name="gear" size={18} stroke={1.6} />{t('home.settings')}
         </button>
       </div>
+      {#if full && !inSession && selected.online !== false}
+        <p class="sentence limit" id="four-at-most">{t('common.four_at_most')}</p>
+      {/if}
       <p class="sentence">{sentence}</p>
     {:else}
       <div class="eyebrow">{t('home.welcome')}</div>
@@ -440,6 +460,11 @@
     margin: 0;
     font-size: 14px;
     color: var(--muted);
+  }
+
+  /* « Quatre ordinateurs au plus en même temps. » : la raison de « Se connecter » inactif. */
+  .sentence.limit {
+    color: var(--warn);
   }
 
   .row {

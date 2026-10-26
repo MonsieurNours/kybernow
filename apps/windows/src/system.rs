@@ -218,6 +218,100 @@ pub fn screen_mode() -> Mode {
     }
 }
 
+/// Où s'ouvre la fenêtre d'une session ouverte pendant qu'une autre tourne
+/// (plusieurs ordinateurs, docs/plusieurs-ordinateurs.md).
+#[derive(Debug, Clone)]
+pub struct FollowWindow {
+    /// L'écran (nom du périphérique) : « Cet écran » de cette session.
+    pub monitor: String,
+    /// Coin haut gauche du cadre de la fenêtre, en pixels du bureau.
+    pub at: (i32, i32),
+    /// Zone cliente : la taille de l'écran de l'ordinateur pour cette session.
+    pub client: (i32, i32),
+    /// Fréquence de l'écran.
+    pub refresh: u32,
+}
+
+/// Une fenêtre qu'on voit (pas une fenêtre cachée ou minuscule, comme celle
+/// de l'icône près de l'horloge, à qui Windows rend parfois le premier plan).
+fn seen(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, IsIconic, IsWindowVisible};
+    let mut r = RECT::default();
+    unsafe {
+        !hwnd.0.is_null()
+            && IsWindowVisible(hwnd).as_bool()
+            && !IsIconic(hwnd).as_bool()
+            && GetWindowRect(hwnd, &mut r).is_ok()
+            && r.right - r.left > 100
+            && r.bottom - r.top > 60
+    }
+}
+
+/// Taille du cadre d'une fenêtre de session (`WS_OVERLAPPEDWINDOW`) autour
+/// de cette zone cliente, à l'échelle de l'écran où elle se pose (`at` : un
+/// point de cet écran).
+pub fn session_frame(client: (i32, i32), at: (i32, i32)) -> (i32, i32) {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromPoint};
+    use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+    use windows::Win32::UI::WindowsAndMessaging::{WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW};
+    unsafe {
+        let monitor = MonitorFromPoint(POINT { x: at.0, y: at.1 }, MONITOR_DEFAULTTONEAREST);
+        let (mut dx, mut dy) = (96u32, 96u32);
+        let _ = GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dx, &mut dy);
+        let mut r = RECT { left: 0, top: 0, right: client.0, bottom: client.1 };
+        let _ = AdjustWindowRectExForDpi(&mut r, WS_OVERLAPPEDWINDOW, false, WINDOW_EX_STYLE(0), dx.max(48));
+        (r.right - r.left, r.bottom - r.top)
+    }
+}
+
+/// La fenêtre d'une session suivante : sur l'écran de la fenêtre active
+/// (une fenêtre de l'app au premier plan : une session, l'accueil ; sinon
+/// `fallback`, la dernière fenêtre de la session active ; sinon l'accueil),
+/// centrée dans son espace de travail, aux deux tiers en 16:9.
+pub fn follow_window(fallback: isize) -> FollowWindow {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    let fg = unsafe { GetForegroundWindow() };
+    let mut pid = 0u32;
+    unsafe {
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+    }
+    let ours = pid == unsafe { GetCurrentProcessId() } && seen(fg);
+    let fallback = HWND(fallback as *mut _);
+    let home = HWND(HOME_WINDOW.load(std::sync::atomic::Ordering::Relaxed) as *mut _);
+    let anchor = if ours {
+        fg
+    } else if seen(fallback) {
+        fallback
+    } else {
+        home
+    };
+    let mut info = MONITORINFOEXW::default();
+    info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+    let ok = unsafe {
+        let monitor = MonitorFromWindow(anchor, MONITOR_DEFAULTTONEAREST);
+        GetMonitorInfoW(monitor, &mut info as *mut MONITORINFOEXW as *mut MONITORINFO).as_bool()
+    };
+    let (work, monitor) = if ok {
+        let r = info.monitorInfo.rcWork;
+        let len = info.szDevice.iter().position(|&c| c == 0).unwrap_or(info.szDevice.len());
+        ((r.left, r.top, r.right - r.left, r.bottom - r.top), String::from_utf16_lossy(&info.szDevice[..len]))
+    } else {
+        ((0, 0, 1920, 1040), String::new())
+    };
+    let client = crate::displays::follow_size(work.2, work.3);
+    let outer = session_frame(client, (work.0 + work.2 / 2, work.1 + work.3 / 2));
+    let at = crate::displays::centered(work, outer);
+    let mut dm = DEVMODEW { dmSize: std::mem::size_of::<DEVMODEW>() as u16, ..Default::default() };
+    let refresh = if ok && unsafe { EnumDisplaySettingsW(PCWSTR(info.szDevice.as_ptr()), ENUM_CURRENT_SETTINGS, &mut dm) }.as_bool() && dm.dmDisplayFrequency > 1 {
+        dm.dmDisplayFrequency.max(30)
+    } else {
+        60
+    };
+    FollowWindow { monitor, at, client, refresh }
+}
+
 /// Fenêtre aux proportions de l'image, à 80 % de l'espace de travail.
 pub fn initial_window_size(mode: Mode) -> (i32, i32) {
     let mut r = RECT::default();

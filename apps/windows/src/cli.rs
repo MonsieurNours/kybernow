@@ -336,6 +336,7 @@ pub fn main() -> i32 {
             fullscreen: !args.window,
             mouse: None,
             window_size: system::initial_window_size(mode),
+            at: None,
             title_stats: true,
             layout,
         },

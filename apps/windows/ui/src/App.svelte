@@ -19,8 +19,15 @@
   /** Rubrique des réglages ouverte par une notification ou le menu de l'icône (`station`). */
   let settingsRubric = $state<string | null>(null)
   let adding = $state<{ found: Found | null } | null>(null)
-  /** `restarting` : dernier recours de la connexion, la Station redémarre ; `many` : plusieurs écrans. */
+  /**
+   * Le passage de la première session (l'accueil coupé en deux), gardé ouvert pendant toute la
+   * session. `restarting` : dernier recours de la connexion, la Station redémarre ; `many` :
+   * plusieurs écrans. Les sessions suivantes (plusieurs ordinateurs) ont leur propre fenêtre de
+   * connexion, sans passage sur l'accueil.
+   */
   let passage = $state<{ id: string; phase: Phase['phase']; opening: boolean; closing: boolean; restarting: boolean; many: boolean } | null>(null)
+  /** Les ordinateurs en session, dans l'ordre d'ouverture (plusieurs ordinateurs, quatre au plus). */
+  let sessions = $state<string[]>([])
   let error = $state<string | null>(null)
   let appSheet = $state(false)
   /** Réglages de l'app ouverts par « Rechercher des mises à jour » (menu de l'icône). */
@@ -61,6 +68,7 @@
       // Demande d'une autre ouverture, gardée par l'app jusqu'à ce qu'on la prenne.
       listen<null>('action-ready', () => invoke<Action | null>('take_action').then((a) => a && handle(a))),
       listen<Update | null>('update', (u) => (update = u)),
+      listen<string[]>('sessions', (s) => (sessions = s)),
       listen<string>('lang', setLang),
       listen<number>('update-progress', (p) => (progress = p)),
       listen<Phase>('session-status', (p) => {
@@ -91,14 +99,18 @@
       listen<string>('session-shown', (id) => {
         if (passage && passage.id === id) passage.opening = true
       }),
-      listen<{ id: string; summary: Summary }>('session-ended', ({ summary }) => {
+      listen<{ id: string; summary: Summary }>('session-ended', ({ id, summary }) => {
+        // Seulement la session du passage : une session suivante montre son échec dans
+        // sa propre fenêtre de connexion, ou par une notification.
+        if (!passage || passage.id !== id) return
         // Avant la première image, c'est la connexion qui a échoué.
-        const failed = passage != null && !passage.opening
+        const failed = !passage.opening
         error = summary.error ? t(failed ? 'app.connect_failed' : 'app.session_stopped', { error: summary.error }) : null
-        if (!passage) return
         passage.opening = false
         passage.closing = true
-        setTimeout(() => (passage = null), 750)
+        setTimeout(() => {
+          if (passage?.id === id && passage.closing) passage = null
+        }, 750)
       }),
     ]
     // L'état complet une fois les écoutes en place (rien ne passe entre deux).
@@ -107,6 +119,7 @@
         computers = s.computers
         discovered = s.discovered
         thisPc = s.this_pc ?? thisPc
+        sessions = s.sessions ?? []
       })
         .then(() =>
           invoke<AppInfo>('app_info').then((i) => {
@@ -139,7 +152,6 @@
       appCheck = a.check
       appSheet = true
     } else if (a.kind === 'connect') {
-      if (passage) return
       if (!computers.some((c) => c.id === a.id)) return
       select(a.id)
       connect(a.id)
@@ -169,13 +181,32 @@
 
   async function connect(id: string) {
     error = null
-    passage = { id, phase: 'preparing', opening: false, closing: false, restarting: false, many: false }
+    // Pendant une session, l'ordinateur s'ouvre dans sa propre fenêtre (plusieurs ordinateurs) :
+    // pas de passage sur l'accueil. L'app tranche (`windowed`).
+    const following = sessions.length > 0 || passage !== null
+    const fresh = () => ({ id, phase: 'preparing' as const, opening: false, closing: false, restarting: false, many: false })
+    if (!following) passage = fresh()
     try {
       const started = await invoke<ConnectInfo>('connect', { id })
-      if (passage && passage.id === id) passage.many = started.screens > 1
+      if (started.windowed) {
+        if (passage?.id === id && !passage.opening) passage = null
+      } else if (passage?.id === id) {
+        passage.many = started.screens > 1
+      } else if (!passage) {
+        passage = { ...fresh(), many: started.screens > 1 }
+      }
     } catch (e) {
-      passage = null
+      if (passage?.id === id && !passage.opening) passage = null
       error = t('app.connect_failed', { error: String(e) })
+    }
+  }
+
+  /** « Afficher la session » : la fenêtre de cet ordinateur passe devant (plusieurs ordinateurs). */
+  async function show(id: string) {
+    try {
+      await invoke('show_session', { id })
+    } catch (e) {
+      error = String(e)
     }
   }
 
@@ -256,11 +287,13 @@
     {thisPc}
     {battery}
     {selected}
-    busy={passage !== null}
+    {sessions}
+    busy={passage !== null && !passage.opening}
     retrying={retrying !== null && retrying === selected?.id}
     {error}
     onselect={select}
     onconnect={connect}
+    onshow={show}
     onretry={retry}
     onwake={wake}
     onsettings={(id) => (settingsId = id)}
@@ -292,7 +325,7 @@
     closing={passage.closing}
     restarting={passage.restarting}
     many={passage.many}
-    oncancel={() => invoke('session_command', { command: 'disconnect' })}
+    oncancel={() => passage && invoke('session_command', { id: passage.id, command: 'disconnect' })}
   />
 {/if}
 
