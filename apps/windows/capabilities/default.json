@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Fenêtres de l'app : accueil, barre de session et fonds de la connexion (autres écrans)",
-  "windows": ["main", "bar", "fond-*"],
+  "description": "Fenêtres de l'app : accueil, barre de session, fonds de la connexion (autres écrans) et connexion des sessions suivantes (plusieurs ordinateurs)",
+  "windows": ["main", "bar", "fond-*", "connexion-*"],
   "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-minimize", "core:window:allow-toggle-maximize", "core:window:allow-close"]
 }

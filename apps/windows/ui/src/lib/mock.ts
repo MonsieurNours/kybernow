@@ -4,7 +4,7 @@
 // réglage Langue de l'app (comme dans l'app, sans recharger).
 
 import { i18n, langFromTag, t } from './i18n/index.svelte'
-import type { Computer, ConnectInfo, DisplaysInfo, FondState, Info, LastSession, ScreensEvent, Settings, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
+import type { BarComputer, Computer, ConnectInfo, ConnexionView, DisplaysInfo, FondState, Info, KeepSound, LastSession, ScreensEvent, Settings, StationInfo, StationOutcome, StationRestarting, WakeTarget } from './api'
 
 const listeners = new Map<string, ((e: { payload: unknown }) => void)[]>()
 const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((cb) => cb({ payload }))
@@ -17,9 +17,16 @@ const emit = (name: string, payload: unknown) => listeners.get(name)?.forEach((c
 // ligne de l'accueil, la connexion et la barre au pluriel ; la Station de Bureau-Salon en crée quatre),
 // `?reprise` (en session, la connexion reprend : écrans changés), `/fond.html` (le fond de la connexion
 // d'un autre écran) avec `?sanscreation` (l'ordinateur n'a pas pu créer l'écran : sa ligne).
+// Plusieurs ordinateurs : `?ordinateurs=2` (les deux premiers ordinateurs sont en session : sur
+// l'accueil, « Afficher la session » ; à 4, « Se connecter » inactif avec la raison ; dans
+// `/bar.html`, la barre sert le premier, le menu « Ordinateurs » coche les autres en session, et
+// « Garder le son »), `/connexion.html?id=c3` (la fenêtre de connexion d'une session suivante,
+// jusqu'à la première image) avec `?echec` (la connexion échoue : la raison et « OK »).
 const flags = new URLSearchParams(location.search)
 /** Écrans de ce PC imité. */
 const deviceScreens = Math.max(1, Number(flags.get('ecrans') ?? 1) || 1)
+/** Ordinateurs en session au départ (plusieurs ordinateurs). */
+const sessionCount = Math.max(0, Math.min(4, Number(flags.get('ordinateurs') ?? 0) || 0))
 
 const settings = {
   profile: 'bureau',
@@ -200,9 +207,57 @@ let computers = [
   },
 ]
 if (flags.has('vide')) computers = []
+// Plusieurs ordinateurs : un cinquième, pour voir la limite de quatre.
+if (flags.has('ordinateurs') && !flags.has('vide')) {
+  computers.push({
+    ...computers[2],
+    id: 'e5',
+    name: 'Salle-de-jeux',
+    host: '192.168.1.60',
+    fingerprint: fp('salle-de-jeux'),
+    settings: { ...settings, profile: 'jeu' },
+    last: null,
+    info: computers[2].info && { ...computers[2].info, hostname: 'SALLE-DE-JEUX' },
+  })
+}
+
+/** Les ordinateurs en session, dans l'ordre d'ouverture (`?ordinateurs=N` : les N premiers, en ligne). */
+let sessions: string[] = computers.slice(0, sessionCount).map((c) => c.id)
+for (const c of computers) if (sessions.includes(c.id)) c.online = true
+const emitSessions = () => {
+  emit('sessions', [...sessions])
+  emit('bar-computers', barComputers())
+}
+/** « Garder le son » des sessions imitées. */
+const keepSound = new Set<string>()
+
+/** Le menu « Ordinateurs » de la barre, comme `bar_computer_list` de l'app (`menu::pick`). */
+const barComputers = (): BarComputer[] =>
+  computers.map((c) => {
+    const busy = !!c.station_pending
+    const pick: BarComputer['pick'] = sessions.includes(c.id)
+      ? 'show'
+      : c.online === false && busy
+        ? 'busy'
+        : c.online === false && c.waking
+          ? 'waking'
+          : c.online === false && c.wake.length > 0
+            ? 'wake'
+            : c.online === false
+              ? 'retry'
+              : sessions.length >= 4
+                ? 'full'
+                : 'connect'
+    const state: BarComputer['state'] = c.online === true ? 'online' : c.online === false ? 'offline' : 'searching'
+    const dot: BarComputer['dot'] = c.online === true ? 'ok' : c.online === false ? (c.waking || busy ? 'warn' : 'bad') : 'faint'
+    return { id: c.id, name: c.name, state, dot, pick }
+  })
 
 /** L'accueil reçoit une copie (comme de l'app, qui envoie du JSON). */
-const emitComputers = () => emit('computers', structuredClone(computers))
+const emitComputers = () => {
+  emit('computers', structuredClone(computers))
+  emit('bar-computers', barComputers())
+}
 
 const thisPc = {
   name: 'PORTABLE-BUREAU',
@@ -261,7 +316,7 @@ const screensFor = (id: string) => {
 }
 
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
-  snapshot: () => ({ computers: structuredClone(computers), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, session: null, version: 'dev' }),
+  snapshot: () => ({ computers: structuredClone(computers), discovered: flags.has('vide') ? [] : discovered, this_pc: thisPc, sessions: [...sessions], version: 'dev' }),
   poll_now: async () => {
     await sleep(700)
     emitComputers()
@@ -291,9 +346,21 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   },
   rename_computer: () => null,
   remove_computer: () => null,
-  // Rend tout de suite, comme l'app : la session se déroule ensuite (événements).
+  // Rend tout de suite, comme l'app : la session se déroule ensuite (événements). Pendant une
+  // session, une session de plus (plusieurs ordinateurs) : en fenêtre, sa connexion dans sa propre
+  // fenêtre (imitée seule : `/connexion.html?id=…`), quatre au plus.
   connect: (a) => {
-    const screens = screensFor(a.id as string)
+    const id = a.id as string
+    if (sessions.includes(id)) return { screens: 0, windowed: true } satisfies ConnectInfo
+    if (sessions.length >= 4) throw t('common.four_at_most')
+    if (sessions.length > 0) {
+      sessions = [...sessions, id]
+      emitSessions()
+      return { screens: 1, windowed: true } satisfies ConnectInfo
+    }
+    sessions = [id]
+    emitSessions()
+    const screens = screensFor(id)
     void (async () => {
       for (const phase of ['preparing', 'connecting', 'first_images']) {
         emit('session-status', { id: a.id, phase, detail: null })
@@ -325,10 +392,50 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
         }
         emit('session-shown', a.id)
       }
+      // ?ordinateurs : la session reste ouverte (l'accueil s'essaie pendant elle).
+      if (flags.has('ordinateurs')) return
       await sleep(1500)
+      sessions = sessions.filter((s) => s !== id)
       emit('session-ended', { id: a.id, summary: { error: null, median_ms: 9.1, p95_ms: 13, seconds: 60 } })
+      emitSessions()
     })()
-    return { screens } satisfies ConnectInfo
+    return { screens, windowed: false } satisfies ConnectInfo
+  },
+  show_session: (a) => {
+    if (!sessions.includes(a.id as string)) throw t('mock.no_session')
+    console.info(`show_session : la fenêtre de ${a.id} passe devant`)
+    return null
+  },
+  session_keep_sound: (a) => {
+    if (a.on) keepSound.add(a.id as string)
+    else keepSound.delete(a.id as string)
+    emit('session-keep-sound', { id: a.id as string, on: Boolean(a.on) } satisfies KeepSound)
+    return null
+  },
+  bar_computers: () => barComputers(),
+  // La fenêtre de connexion d'une session suivante (`/connexion.html?id=c3`) : ses étapes, puis la
+  // première image (le passage s'ouvre), ou ?echec : la raison.
+  connexion_state: () => {
+    const id = new URLSearchParams(location.search).get('id') ?? 'c3'
+    void (async () => {
+      await sleep(400)
+      for (const phase of ['connecting', 'first_images']) {
+        emit('session-status', { id, phase, detail: null })
+        await sleep(1400)
+      }
+      if (flags.has('echec')) {
+        emit('session-ended', { id, summary: { error: t('mock.connect_refused'), median_ms: null, p95_ms: null, seconds: 4 } })
+        return
+      }
+      emit('session-status', { id, phase: 'streaming', detail: null })
+      await sleep(600)
+      emit('session-shown', id)
+    })()
+    return { id, phase: 'preparing', restarting: false, error: null } satisfies ConnexionView
+  },
+  connexion_close: () => {
+    console.info('connexion_close : Annuler, ou OK sous un échec')
+    return null
   },
   // Le cœur décide (`Screens::choice`) : inactif, sur « Cet écran », avec une définition sur mesure ou sans
   // écran virtuel (pas demandé, ou pas utilisable sur la Station) ; Auto prend tous les écrans en Bureau
@@ -375,7 +482,7 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   session_profile: async (a) => {
     // L'app écrit le profil en français, l'interface le traduit (localLabel).
     const names: Record<string, string> = { jeu: 'Jeu', bureau: 'Bureau', max: 'Max' }
-    emit('bar-label', { label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
+    emit('bar-label', { id: a.id, label: `${names[a.profile as string]} · HEVC`, profile: a.profile })
   },
   // La Station : un appareil est « en session » (le premier appel demande de forcer) ;
   // elle redémarre (Admin ne répond plus 5 s), sa mise à jour s'installe (8 s).
@@ -461,9 +568,11 @@ export function mockTauri() {
     event: {
       listen: async (name: string, cb: (e: { payload: unknown }) => void) => {
         listeners.set(name, [...(listeners.get(name) ?? []), cb])
-        if (name === 'bar-shown') setTimeout(() => cb({ payload: { label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1 } }), 300)
+        // La barre sert la première session (`a1` sans `?ordinateurs`).
+        const served = sessions[0] ?? 'a1'
+        if (name === 'bar-shown') setTimeout(() => cb({ payload: { id: served, label: 'Jeu · HEVC', profile: 'jeu', multi: deviceScreens > 1, keep_sound: keepSound.has(served) } }), 300)
         if (name === 'stats') {
-          const timer = setInterval(() => cb({ payload: { latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens } }), 1000)
+          const timer = setInterval(() => cb({ payload: { id: served, latency_ms: 8 + Math.random() * 3, fps: 60, width: 1920, height: 1200, decoder: `HEVC · ${t('mock.hardware')}`, relative: false, rtt_ms: 2.1, audio_ms: 18 + Math.random() * 4, audio_gaps: 0, screens: deviceScreens } }), 1000)
           return () => clearInterval(timer)
         }
         return () => {}

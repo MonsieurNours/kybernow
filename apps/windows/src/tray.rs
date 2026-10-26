@@ -212,7 +212,7 @@ fn data(hwnd: HWND) -> NOTIFYICONDATAW {
 fn update(hwnd: HWND) {
     let Some(app) = APP.get() else { return };
     let state = crate::ui::tray_state(app);
-    let look = if state.session.is_some() { Look::Lit } else { Look::Idle };
+    let look = if state.sessions.is_empty() { Look::Idle } else { Look::Lit };
     let tip = menu::tooltip(&state, &tr);
     let key = (look, light_taskbar(), icon_size(hwnd));
     TRAY.with_borrow_mut(|tray| {

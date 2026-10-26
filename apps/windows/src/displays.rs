@@ -161,6 +161,26 @@ pub fn primary(monitors: &[Monitor]) -> usize {
     monitors.iter().position(|m| m.primary).unwrap_or(0)
 }
 
+/// La fenêtre d'une session ouverte pendant qu'une autre tourne
+/// (docs/plusieurs-ordinateurs.md) : aux deux tiers de l'espace de travail de
+/// son écran, en 16:9 (dans 2/3 × 2/3), dimensions paires. C'est aussi la
+/// taille de l'écran de l'ordinateur pour cette session : celle de la zone
+/// cliente de la fenêtre, comme toute session en fenêtre.
+pub fn follow_size(work_width: i32, work_height: i32) -> (i32, i32) {
+    let (w, h) = (work_width.max(0) as i64 * 2 / 3, work_height.max(0) as i64 * 2 / 3);
+    let width = w.min(h * 16 / 9).max(640);
+    let width = (width & !1) as i32;
+    let height = ((width as i64 * 9 / 16) as i32) & !1;
+    (width, height)
+}
+
+/// Où poser une fenêtre de `outer` (taille extérieure) au centre de l'espace
+/// de travail (x, y, largeur, hauteur) : jamais au-dessus ni à gauche de lui.
+pub fn centered(work: (i32, i32, i32, i32), outer: (i32, i32)) -> (i32, i32) {
+    let (x, y, w, h) = work;
+    (x + ((w - outer.0) / 2).max(0), y + ((h - outer.1) / 2).max(0))
+}
+
 /// L'écran qui contient le point (bureau de Windows), sinon le plus proche.
 pub fn at(monitors: &[Monitor], x: i32, y: i32) -> Option<usize> {
     if let Some(i) = monitors.iter().position(|m| m.contains(x, y)) {
@@ -356,6 +376,21 @@ mod tests {
         // Station qui ne crée qu'un écran.
         let old = screens(&m, Spec { max_screens: 1, ..spec() });
         assert!(kybernow_core::screens::session_plan(&old, Some(kybernow_core::profile::Profile::Bureau), true, kybernow_core::profile::Codec::Hevc).is_none());
+    }
+
+    #[test]
+    fn fenetre_des_sessions_suivantes() {
+        // 4K moins la barre des tâches : la largeur limitée par la hauteur (16:9).
+        assert_eq!(follow_size(3840, 2088), (2474, 1390));
+        // 1920 × 1200 (16:10) : la largeur limitée par la largeur.
+        assert_eq!(follow_size(1920, 1152), (1280, 720));
+        // Ultra-large : la hauteur décide.
+        assert_eq!(follow_size(3440, 1392), (1648, 926));
+        // Tout petit écran : 640 de large au moins.
+        assert_eq!(follow_size(800, 560), (640, 360));
+        // Centrée dans l'espace de travail, jamais au-dessus ni à gauche.
+        assert_eq!(centered((0, 0, 1920, 1152), (1296, 759)), (312, 196));
+        assert_eq!(centered((-2560, 400, 2560, 1552), (3000, 2000)), (-2560, 400));
     }
 
     #[test]

@@ -12,13 +12,23 @@
 //! L'app vit aussi dans l'icône près de l'horloge (`tray.rs`) : fermer
 //! l'accueil le cache, « Quitter KyberNow Link » la quitte. Ouverte à
 //! l'ouverture de session (`--background`), elle démarre sans fenêtre.
+//!
+//! Plusieurs ordinateurs à la fois (docs/plusieurs-ordinateurs.md) : une
+//! table des sessions (quatre au plus), chacune repérée par son ordinateur
+//! dans chaque événement et chaque commande. La première s'ouvre comme
+//! d'habitude (passage de l'accueil, plein écran, fonds des autres écrans) ;
+//! chaque suivante s'ouvre dans une fenêtre, sur l'écran de la fenêtre active,
+//! et sa connexion se montre dans une fenêtre à sa place (`connexion-N`,
+//! `connexion.html`), sans passer par l'accueil.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde::{Deserialize, Serialize};
+use tauri::window::Color;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
@@ -39,7 +49,7 @@ use crate::pc::{self, ThisPc};
 use crate::i18n::t;
 use crate::follow::{self, Kind};
 use crate::menu::{self, Cmd};
-use crate::{audio, i18n, instance, login, shell, snapshot, system, tray, window};
+use crate::{audio, focus, i18n, instance, login, shell, snapshot, system, tray, window};
 use kybernow_core::update::{self, Available, Channel};
 
 #[derive(Debug, Clone, Default)]
@@ -88,6 +98,7 @@ struct Pairing {
     id: String,
 }
 
+/// Une session en cours (une par ordinateur).
 struct Running {
     id: String,
     host: SessionHost,
@@ -96,6 +107,30 @@ struct Running {
     /// Dernières mesures de la barre (menu de l'icône).
     stats: Arc<Mutex<Option<Stats>>>,
 }
+
+/// La connexion d'une session ouverte pendant qu'une autre tourne (plusieurs
+/// ordinateurs) : une fenêtre à la place de celle de la session
+/// (`connexion.html`, le même passage que l'accueil), jusqu'à la première
+/// image ; un échec y reste, avec sa raison, jusqu'à « OK ».
+#[derive(Default)]
+struct Connexion {
+    /// Sa fenêtre Tauri quand elle est ouverte.
+    label: Mutex<Option<String>>,
+    /// Ce qu'elle montre (lu par la page à son ouverture, puis les événements).
+    view: Mutex<ConnexionView>,
+}
+
+#[derive(Clone, Serialize, Default)]
+struct ConnexionView {
+    id: String,
+    phase: &'static str,
+    restarting: bool,
+    /// La session s'est terminée avant sa première image : la raison.
+    error: Option<String>,
+}
+
+/// Numéro des fenêtres de connexion (`connexion-N`).
+static CONNEXION_SEQ: AtomicU32 = AtomicU32::new(0);
 
 /// Ce que la session transmet (rubrique Statistiques à sa fin) : réglages du
 /// flux, suivis quand le profil change depuis la barre, et mode de l'image,
@@ -159,11 +194,19 @@ pub struct UiState {
     discovery: OnceLock<Arc<Discovery>>,
     this_pc: Mutex<Option<ThisPc>>,
     pairing: Mutex<Option<Pairing>>,
-    session: Mutex<Option<Running>>,
-    /// Une connexion se lance (`connect`, jusqu'à l'inscription de sa session).
-    launching: std::sync::atomic::AtomicBool,
-    /// Fermeture demandée pendant une session : quitter à sa fin.
+    /// Les sessions en cours, dans l'ordre d'ouverture (plusieurs ordinateurs,
+    /// quatre au plus).
+    sessions: Mutex<Vec<Running>>,
+    /// Les ordinateurs dont la connexion se lance (`connect`, jusqu'à
+    /// l'inscription de leur session) : ils comptent dans les quatre.
+    launching: Mutex<Vec<String>>,
+    /// Fermeture demandée pendant des sessions : quitter à la fin de la dernière.
     quitting: std::sync::atomic::AtomicBool,
+    /// L'ordinateur de la session que sert la barre (une seule barre).
+    bar_session: Mutex<Option<String>>,
+    /// Les fenêtres de connexion ouvertes (libellé → connexion), y compris
+    /// celles qui montrent un échec après la fin de leur session.
+    connexions: Mutex<HashMap<String, Arc<Connexion>>>,
     /// Demande du lancement (lien, barre des tâches…), lue par l'interface.
     action: Mutex<Option<Action>>,
     prefs: Mutex<Prefs>,
@@ -307,6 +350,33 @@ impl UiState {
             })
             .collect()
     }
+
+    /// Les ordinateurs en session, dans l'ordre d'ouverture.
+    fn session_ids(&self) -> Vec<String> {
+        self.sessions.lock().unwrap().iter().map(|r| r.id.clone()).collect()
+    }
+
+    fn in_session(&self, id: &str) -> bool {
+        self.sessions.lock().unwrap().iter().any(|r| r.id == id)
+    }
+
+    /// `f` sur la session de cet ordinateur, s'il est en session.
+    fn with_session<T>(&self, id: &str, f: impl FnOnce(&Running) -> T) -> Option<T> {
+        self.sessions.lock().unwrap().iter().find(|r| r.id == id).map(f)
+    }
+
+    /// La session active (celle de la dernière fenêtre de session au premier
+    /// plan), sinon la première.
+    fn active_id(&self) -> Option<String> {
+        let sessions = self.sessions.lock().unwrap();
+        sessions.iter().find(|r| r.host.is_active()).or_else(|| sessions.first()).map(|r| r.id.clone())
+    }
+
+    /// Quatre ordinateurs sont en session ou s'y connectent.
+    fn full(&self) -> bool {
+        let sessions = self.sessions.lock().unwrap();
+        sessions.len() + self.launching.lock().unwrap().len() >= focus::MAX_SESSIONS
+    }
 }
 
 #[derive(Serialize)]
@@ -314,7 +384,8 @@ pub struct Snapshot {
     computers: Vec<ComputerView>,
     discovered: Vec<Found>,
     this_pc: Option<ThisPc>,
-    session: Option<String>,
+    /// Les ordinateurs en session, dans l'ordre d'ouverture.
+    sessions: Vec<String>,
     version: String,
 }
 
@@ -323,7 +394,68 @@ fn emit_computers(app: &AppHandle) {
     let views = state.views();
     shell::update_jump_list(views.iter().map(|v| (v.computer.id.clone(), v.computer.name.clone())).collect());
     let _ = app.emit_to("main", "computers", views);
+    emit_bar_computers(app);
     tray::refresh();
+}
+
+/// Les sessions ont changé (une de plus, une de moins) : l'accueil (« Afficher
+/// la session », quatre au plus), la barre (menu « Ordinateurs ») et l'icône.
+fn emit_sessions(app: &AppHandle) {
+    let ids = app.state::<UiState>().session_ids();
+    let _ = app.emit("sessions", &ids);
+    emit_bar_computers(app);
+    tray::refresh();
+}
+
+/// Un ordinateur du menu « Ordinateurs » de la barre (plusieurs ordinateurs) :
+/// son état et son point de couleur comme dans le menu de l'icône, et ce que
+/// fait un clic (`menu::Pick`).
+#[derive(Clone, Serialize)]
+struct BarComputer {
+    id: String,
+    name: String,
+    /// `online`, `offline`, `searching`.
+    state: &'static str,
+    /// `ok`, `bad`, `warn`, `faint`.
+    dot: &'static str,
+    /// `show`, `connect`, `full`, `wake`, `waking`, `retry`, `busy`.
+    pick: &'static str,
+}
+
+fn bar_computer_list(app: &AppHandle) -> Vec<BarComputer> {
+    let s = tray_state(app);
+    s.computers
+        .iter()
+        .map(|c| {
+            let (seen, dot) = menu::status(c);
+            BarComputer {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                state: seen.code(),
+                dot: match dot {
+                    menu::Dot::Ok => "ok",
+                    menu::Dot::Bad => "bad",
+                    menu::Dot::Warn => "warn",
+                    menu::Dot::Faint => "faint",
+                },
+                pick: menu::pick(&s, c).code(),
+            }
+        })
+        .collect()
+}
+
+/// La liste du menu « Ordinateurs » à la barre (qui écarte l'ordinateur de sa
+/// session), seulement quand elle est affichée.
+fn emit_bar_computers(app: &AppHandle) {
+    if app.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false) {
+        let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
+    }
+}
+
+/// Le menu « Ordinateurs » de la barre s'ouvre.
+#[tauri::command(async)]
+fn bar_computers(app: AppHandle) -> Vec<BarComputer> {
+    bar_computer_list(&app)
 }
 
 /// Une autre ouverture (raccourci, lien, barre des tâches, notification) :
@@ -347,23 +479,34 @@ fn handle_args(app: &AppHandle, args: Vec<String>) {
 }
 
 /// L'accueil revient devant et reçoit `action` (gardée aussi pour
-/// l'interface, si elle n'écoute pas encore). Pendant une session, il reste
-/// caché pour une connexion (une session à la fois) et se montre pour le
-/// reste (réglages, ajout, menu de l'icône).
+/// l'interface, si elle n'écoute pas encore). Une connexion pendant une
+/// session (`--connect`, liste de la barre des tâches, notification, menu de
+/// l'icône) ouvre une session de plus sans passer par l'accueil : sa connexion
+/// se montre dans sa propre fenêtre (plusieurs ordinateurs) ; un ordinateur
+/// déjà en session montre sa fenêtre.
 fn show_action(app: &AppHandle, action: Action) {
-    let connect = matches!(action, Action::Connect { .. });
+    if let Action::Connect { id } = &action {
+        let state = app.state::<UiState>();
+        let busy = !state.sessions.lock().unwrap().is_empty() || !state.launching.lock().unwrap().is_empty();
+        if busy {
+            let (a, id) = (app.clone(), id.clone());
+            std::thread::spawn(move || {
+                if let Err(e) = connect(a, id) {
+                    tray::alert(&e);
+                }
+            });
+            return;
+        }
+    }
     if !matches!(action, Action::Open) {
         *app.state::<UiState>().action.lock().unwrap() = Some(action);
     }
     let a = app.clone();
     let _ = app.run_on_main_thread(move || {
         if let Some(w) = a.get_webview_window("main") {
-            let in_session = a.state::<UiState>().session.lock().unwrap().is_some();
-            if !in_session || !connect {
-                let _ = w.unminimize();
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
+            let _ = w.unminimize();
+            let _ = w.show();
+            let _ = w.set_focus();
         }
         // L'interface la reprend par take_action (une seule fois).
         let _ = a.emit_to("main", "action-ready", ());
@@ -506,7 +649,7 @@ fn set_language(app: AppHandle, language: String) -> &'static str {
 fn install_update(app: AppHandle) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
     let state = app.state::<UiState>();
-    if state.session.lock().unwrap().is_some() {
+    if !state.sessions.lock().unwrap().is_empty() {
         return Err(t("errors.session_open_install_later", &[]));
     }
     let u = state.update.lock().unwrap().clone().ok_or_else(|| t("errors.no_update", &[]))?;
@@ -631,17 +774,17 @@ fn station_news(app: &AppHandle, c: &Computer, info: &Info) {
     });
 }
 
-/// Chaque ordinateur, sauf celui de la session : toutes les 8 s quand
+/// Chaque ordinateur, sauf ceux en session : toutes les 8 s quand
 /// l'accueil est affiché, toutes les 30 s sans lui (l'app dans l'icône), et
 /// tout de suite à l'ouverture du menu de l'icône (`poll_soon`).
 fn poll(app: AppHandle) {
     loop {
         let state = app.state::<UiState>();
-        let in_session = state.session.lock().unwrap().as_ref().map(|r| r.id.clone());
+        let in_session = state.session_ids();
         let computers = state.with_store(|s| s.computers.clone());
         let mut changed = false;
         for c in computers {
-            if in_session.as_deref() == Some(c.id.as_str()) {
+            if in_session.contains(&c.id) {
                 continue;
             }
             changed |= refresh(&app, &c);
@@ -671,7 +814,7 @@ fn follow_loop(app: AppHandle) {
     loop {
         std::thread::sleep(follow::POLL);
         let state = app.state::<UiState>();
-        let in_session = state.session.lock().unwrap().as_ref().map(|r| r.id.clone());
+        let in_session = state.session_ids();
         let waking: Vec<(String, Instant)> = state.waking.lock().unwrap().iter().map(|(k, v)| (k.clone(), *v)).collect();
         let following: Vec<String> = state.following.lock().unwrap().keys().cloned().collect();
         if waking.is_empty() && following.is_empty() {
@@ -682,7 +825,7 @@ fn follow_loop(app: AppHandle) {
         ids.sort();
         ids.dedup();
         for id in ids {
-            if in_session.as_deref() == Some(id.as_str()) {
+            if in_session.contains(id) {
                 continue;
             }
             let Some(c) = state.with_store(|s| s.get(id).cloned()) else {
@@ -765,7 +908,7 @@ fn follow_loop(app: AppHandle) {
 #[tauri::command(async)]
 fn poll_now(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<UiState>();
-    if state.session.lock().unwrap().as_ref().is_some_and(|r| r.id == id) {
+    if state.in_session(&id) {
         return Ok(());
     }
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
@@ -803,7 +946,7 @@ fn displays_info(app: AppHandle, id: String, settings: Settings) -> Result<Displ
     c.settings = settings;
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_default();
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (stream, _, _) = session_plan(&c, &pc, lighten);
+    let (stream, _, _) = session_plan(&c, &pc, lighten, system::screen_mode());
     let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
     let screens = Layout::now(displays_spec(&c.settings, info.as_ref(), lighten, &pc)).screens();
     let choice = screens.choice(screens::screens_profile(&stream, screens.capabilities), c.settings.virtual_display);
@@ -869,7 +1012,7 @@ fn snapshot(state: tauri::State<'_, UiState>) -> Snapshot {
         computers: state.views(),
         discovered: state.discovery.get().map(|d| d.list()).unwrap_or_default(),
         this_pc: state.this_pc.lock().unwrap().clone(),
-        session: state.session.lock().unwrap().as_ref().map(|r| r.id.clone()),
+        sessions: state.session_ids(),
         version: env!("CARGO_PKG_VERSION").into(),
     }
 }
@@ -1222,25 +1365,54 @@ fn remove_computer(app: AppHandle, id: String) {
 struct UiEvents {
     app: AppHandle,
     id: String,
-    /// Profil et format montrés dans la barre (le profil peut changer en session).
-    label: Arc<Mutex<BarLabel>>,
     sent: Arc<Mutex<Sent>>,
     stats: Arc<Mutex<Option<Stats>>>,
     spec: Spec,
     /// « Cet écran » au lancement de la session (`Layout::this_screen`).
     this_screen: Option<String>,
     spot: Arc<Mutex<Spot>>,
+    /// La première session (plusieurs ordinateurs) : passage de l'accueil,
+    /// fonds des autres écrans. Les suivantes : leur fenêtre de connexion.
+    first: bool,
+    connexion: Arc<Connexion>,
 }
 
-/// `bar-shown` : la barre se montre ; `pinned` : demandée par « Statistiques »
-/// (menu de l'icône), elle ne repart pas d'elle-même tant que le pointeur n'y
-/// est pas passé ; `multi` : plusieurs écrans (pas de « Plein écran »).
+/// `bar-shown` : la barre se montre pour la session `id` (une seule barre,
+/// elle sert la session de la fenêtre où elle s'ouvre) ; `pinned` : demandée
+/// par « Statistiques » (menu de l'icône), elle ne repart pas d'elle-même
+/// tant que le pointeur n'y est pas passé ; `multi` : plusieurs écrans (pas
+/// de « Plein écran ») ; `keep_sound` : « Garder le son » de cette session.
 #[derive(Clone, Serialize)]
 struct BarShown {
+    id: String,
     #[serde(flatten)]
     label: BarLabel,
     pinned: bool,
     multi: bool,
+    keep_sound: bool,
+}
+
+/// `bar-label` : le profil de la session `id` a changé.
+#[derive(Clone, Serialize)]
+struct BarLabelEvent {
+    id: String,
+    #[serde(flatten)]
+    label: BarLabel,
+}
+
+/// `stats` : les mesures de la seconde écoulée de la session `id`.
+#[derive(Clone, Serialize)]
+struct StatsEvent<'a> {
+    id: &'a str,
+    #[serde(flatten)]
+    stats: &'a Stats,
+}
+
+/// `session-keep-sound` : « Garder le son » de la session `id`.
+#[derive(Clone, Serialize)]
+struct KeepSoundEvent {
+    id: String,
+    on: bool,
 }
 
 /// `session-replan` : la connexion reprend en session (écrans de ce PC ou
@@ -1283,6 +1455,12 @@ impl HostEvents for UiEvents {
             Status::Ending => ("ending", None),
             Status::Ended { error, .. } => ("ended", error.clone()),
         };
+        {
+            // Ce que montre la fenêtre de connexion d'une session suivante.
+            let mut view = self.connexion.view.lock().unwrap();
+            view.phase = phase;
+            view.restarting = matches!(s, Status::StationRestarting);
+        }
         let _ = self.app.emit("session-status", Phase { id: self.id.clone(), phase, detail });
         if matches!(s, Status::StationRestarting) {
             // Dernier recours de la connexion : « La Station redémarre… »
@@ -1305,21 +1483,27 @@ impl HostEvents for UiEvents {
             sent.mode.width = s.width;
             sent.mode.height = s.height;
         }
-        let _ = self.app.emit_to("bar", "stats", s);
+        let _ = self.app.emit_to("bar", "stats", StatsEvent { id: &self.id, stats: s });
         *self.stats.lock().unwrap() = Some(s.clone());
         tray::refresh();
     }
 
     /// Première image à l'écran : l'accueil laisse la place à la session,
     /// même si Windows a refusé le premier plan à celle-ci (l'accueil,
-    /// resté devant, montrait le passage ouvert sur du noir).
+    /// resté devant, montrait le passage ouvert sur du noir). Une session
+    /// suivante (plusieurs ordinateurs) : sa fenêtre de connexion s'ouvre et
+    /// part, l'accueil ne bouge pas.
     fn visible(&self, foreground: bool) {
         if !foreground {
-            log::info!("session hors du premier plan : accueil caché quand même");
+            log::info!("session hors du premier plan : {}", if self.first { "accueil caché quand même" } else { "elle attend dans la barre des tâches" });
         }
         self.spot.lock().unwrap().shown = true;
         // Le passage s'ouvre à la première image montrée, pas à la connexion.
-        let _ = self.app.emit_to("main", "session-shown", &self.id);
+        let _ = self.app.emit("session-shown", &self.id);
+        if !self.first {
+            close_connexion(&self.app, &self.connexion, Duration::from_millis(900));
+            return;
+        }
         if let Some(w) = self.app.get_webview_window("main") {
             let _ = w.hide();
         }
@@ -1368,6 +1552,13 @@ impl HostEvents for UiEvents {
             // Sans image encore (connexion, ou reprise), un fond sans texte.
             others.into_iter().filter(|t| !spot.visible.contains(&t.key)).collect()
         };
+        let _ = self.app.emit("session-screens", ScreensEvent { id: self.id.clone(), screens: count.max(1) as usize });
+        tray::refresh();
+        // Les fonds de la connexion : seulement pour la première session (les
+        // suivantes prennent un écran, en fenêtre).
+        if !self.first {
+            return;
+        }
         let Some(fonds) = self.app.state::<UiState>().fonds.get().cloned() else { return };
         let keep: Vec<String> = waiting.iter().chain(&not_created).map(|t| t.key.clone()).collect();
         fonds.keep_only(&keep);
@@ -1375,8 +1566,6 @@ impl HostEvents for UiEvents {
         for t in &not_created {
             fonds.not_created(t);
         }
-        let _ = self.app.emit("session-screens", ScreensEvent { id: self.id.clone(), screens: count.max(1) as usize });
-        tray::refresh();
     }
 
     /// Un écran montre son image : son fond de connexion s'efface ; pour
@@ -1390,7 +1579,9 @@ impl HostEvents for UiEvents {
             }
             (spot.replanning.is_some(), spot.primary.as_ref().is_some_and(|p| p.key == key))
         };
-        if let Some(fonds) = self.app.state::<UiState>().fonds.get() {
+        if self.first
+            && let Some(fonds) = self.app.state::<UiState>().fonds.get()
+        {
             fonds.hide(key);
         }
         if replanning && primary {
@@ -1400,14 +1591,18 @@ impl HostEvents for UiEvents {
 
     fn top_edge(&self, hwnd: isize) {
         let app = self.app.clone();
-        let label = self.label.lock().unwrap().clone();
+        let id = self.id.clone();
         // Sur le fil de Tauri : la fenêtre de la session ne doit pas attendre.
-        let _ = self.app.run_on_main_thread(move || show_bar(&app, hwnd, label, false));
+        let _ = self.app.run_on_main_thread(move || show_bar(&app, &id, hwnd, false));
     }
 
     fn ended(&self, s: &Summary) {
         let state = self.app.state::<UiState>();
-        *state.session.lock().unwrap() = None;
+        let remaining = {
+            let mut sessions = state.sessions.lock().unwrap();
+            sessions.retain(|r| r.id != self.id);
+            sessions.len()
+        };
         // Dernière image : le fond de cet ordinateur sur l'accueil.
         let keep = state.with_store(|st| st.get(&self.id).map(|c| c.settings.keep_last_image)).unwrap_or(false);
         if let (true, Some(jpeg)) = (keep, &s.last_image) {
@@ -1445,14 +1640,17 @@ impl HostEvents for UiEvents {
                 }
             });
         }
-        if let Some(bar) = self.app.get_webview_window("bar") {
+        // La barre servait cette session : elle part.
+        let served = {
+            let mut bar = state.bar_session.lock().unwrap();
+            let served = bar.as_deref() == Some(self.id.as_str());
+            if served {
+                *bar = None;
+            }
+            served
+        };
+        if served && let Some(bar) = self.app.get_webview_window("bar") {
             let _ = bar.hide();
-        }
-        // Plusieurs écrans : les fonds de la connexion partent (un échec se lit
-        // sur l'écran principal, seul), l'accueil reprend sa place s'il avait
-        // changé d'écran.
-        if let Some(fonds) = state.fonds.get() {
-            fonds.close_all();
         }
         let (before, replan) = {
             let mut spot = self.spot.lock().unwrap();
@@ -1461,29 +1659,60 @@ impl HostEvents for UiEvents {
             *spot = Spot::default();
             (before, replan)
         };
-        tray::refresh();
         let quitting = state.quitting.load(std::sync::atomic::Ordering::Relaxed);
-        if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
-            // Reprise de la connexion interrompue : l'accueil quitte l'écran principal.
-            if let Some(r) = replan {
-                let _ = w.set_always_on_top(false);
-                if let Some(size) = r.size {
-                    let _ = w.set_size(size);
+        if self.first {
+            // Plusieurs écrans : les fonds de la connexion partent (un échec se
+            // lit sur l'écran principal, seul), l'accueil reprend sa place s'il
+            // avait changé d'écran.
+            if let Some(fonds) = state.fonds.get() {
+                fonds.close_all();
+            }
+            if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
+                // Reprise de la connexion interrompue : l'accueil quitte l'écran principal.
+                if let Some(r) = replan {
+                    let _ = w.set_always_on_top(false);
+                    if let Some(size) = r.size {
+                        let _ = w.set_size(size);
+                    }
+                    if let Some(at) = r.position {
+                        let _ = w.set_position(at);
+                    }
                 }
-                if let Some(at) = r.position {
+                // Revenu où il était, sauf après une erreur : elle se lit sur l'écran principal.
+                if let (None, Some(at)) = (&s.error, before) {
                     let _ = w.set_position(at);
                 }
             }
-            // Revenu où il était, sauf après une erreur : elle se lit sur l'écran principal.
-            if let (None, Some(at)) = (&s.error, before) {
-                let _ = w.set_position(at);
+        } else {
+            // Session suivante : sa fenêtre de connexion part, sauf un échec
+            // avant la première image, qu'elle montre jusqu'à « OK ».
+            let failed = !s.shown && s.error.is_some() && !quitting;
+            if failed {
+                self.connexion.view.lock().unwrap().error = s.error.clone();
+            } else {
+                close_connexion(&self.app, &self.connexion, Duration::ZERO);
             }
-            let _ = w.show();
-            let _ = w.set_focus();
         }
-        // Personne ne regardait (autre app devant) : une notification. Un clic
-        // dessus ouvre l'accueil sur cet ordinateur.
-        if !shell::app_in_front() && !quitting {
+        // La dernière session fermée ramène l'accueil, comme avant ; s'il en
+        // reste, l'accueil ne leur prend pas le premier plan, et si celle-ci
+        // était devant, la session active reprend la place.
+        if remaining == 0 {
+            if let Some(w) = self.app.get_webview_window("main").filter(|_| !quitting) {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        } else if (s.was_front || served) && !quitting && let Some(next) = state.active_id() {
+            // Sa fenêtre (ou sa barre : « Se déconnecter ») était devant.
+            state.with_session(&next, |r| r.host.focus(0));
+        }
+        // Personne ne regardait (autre app devant, ou une autre session était
+        // la session active) : une notification. Pas pour une fin demandée
+        // (« Se déconnecter », fenêtre fermée), ni pour l'échec d'une session
+        // suivante, que sa fenêtre de connexion montre. Un clic dessus ouvre
+        // l'accueil sur cet ordinateur.
+        let unseen = !shell::app_in_front() || (remaining > 0 && !s.was_active);
+        let notify = unseen && !quitting && !s.requested && (self.first || s.shown);
+        if notify {
             let name = state.with_store(|st| st.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
             let home = format!("kybernow://open?id={}", self.id);
             let again = format!("kybernow://connect?id={}", self.id);
@@ -1502,10 +1731,12 @@ impl HostEvents for UiEvents {
             id: &'a str,
             summary: &'a Summary,
         }
-        let _ = self.app.emit_to("main", "session-ended", Ended { id: &self.id, summary: s });
+        let _ = self.app.emit("session-ended", Ended { id: &self.id, summary: s });
+        emit_sessions(&self.app);
         emit_computers(&self.app);
-        // L'app se fermait : la console est prévenue, on peut partir.
-        if quitting {
+        // L'app se fermait : la console est prévenue, on peut partir quand la
+        // dernière session est finie.
+        if quitting && remaining == 0 {
             self.app.exit(0);
         }
     }
@@ -1528,10 +1759,51 @@ fn expected_screens(spec: Spec, this_screen: Option<String>, settings: &kybernow
 }
 
 impl UiEvents {
+    /// La barre servait cette session : elle se referme.
+    fn hide_bar_if_mine(&self) {
+        let state = self.app.state::<UiState>();
+        let mut bar = state.bar_session.lock().unwrap();
+        if bar.as_deref() != Some(self.id.as_str()) {
+            return;
+        }
+        *bar = None;
+        drop(bar);
+        let app = self.app.clone();
+        let _ = self.app.run_on_main_thread(move || {
+            window::set_bar_session(None);
+            if let Some(bar) = app.get_webview_window("bar") {
+                let _ = bar.hide();
+            }
+        });
+    }
+
     /// La connexion reprend en session : l'accueil couvre l'écran principal
     /// avec ses étapes (le passage), les autres écrans reprennent le fond de
-    /// la connexion, chacun jusqu'à sa première image.
+    /// la connexion, chacun jusqu'à sa première image. Une session suivante
+    /// (plusieurs ordinateurs) : sa fenêtre de connexion revient par-dessus la
+    /// sienne.
     fn begin_replan(&self) {
+        if !self.first {
+            let fresh = {
+                let mut spot = self.spot.lock().unwrap();
+                let fresh = spot.replanning.is_none();
+                spot.replanning = Some(Replan { visible: false, position: None, size: None });
+                fresh
+            };
+            if !fresh {
+                return;
+            }
+            log::info!("la connexion de {} reprend en session, dans sa fenêtre", self.id);
+            let _ = self.app.emit("session-replan", ReplanEvent { id: self.id.clone(), screens: 1 });
+            self.hide_bar_if_mine();
+            let state = self.app.state::<UiState>();
+            let hwnd = state.with_session(&self.id, |r| r.host.primary_window()).unwrap_or(0);
+            let title = state.with_store(|s| s.get(&self.id).map(|c| c.name.clone())).unwrap_or_default();
+            if let Some((at, client)) = window::window_frame(hwnd) {
+                open_connexion(&self.app, &self.connexion, at, client, &title);
+            }
+            return;
+        }
         let (primary, others) = {
             let mut spot = self.spot.lock().unwrap();
             if spot.replanning.is_some() {
@@ -1547,14 +1819,11 @@ impl UiEvents {
         };
         log::info!("la connexion reprend en session : {screens} écran(s)");
         let _ = self.app.emit("session-replan", ReplanEvent { id: self.id.clone(), screens });
+        // La barre se referme.
+        self.hide_bar_if_mine();
         let app = self.app.clone();
         let spot = self.spot.clone();
         let _ = self.app.run_on_main_thread(move || {
-            // La barre se referme.
-            window::set_bar_visible(false);
-            if let Some(bar) = app.get_webview_window("bar") {
-                let _ = bar.hide();
-            }
             let Some(main) = app.get_webview_window("main") else { return };
             let before = Replan { visible: main.is_visible().unwrap_or(false), position: main.outer_position().ok(), size: main.outer_size().ok() };
             if let Some(r) = spot.lock().unwrap().replanning.as_mut() {
@@ -1576,7 +1845,11 @@ impl UiEvents {
     /// l'accueil rend la place à la session.
     fn end_replan(&self) {
         let Some(r) = self.spot.lock().unwrap().replanning.take() else { return };
-        let _ = self.app.emit_to("main", "session-shown", &self.id);
+        let _ = self.app.emit("session-shown", &self.id);
+        if !self.first {
+            close_connexion(&self.app, &self.connexion, Duration::from_millis(900));
+            return;
+        }
         let app = self.app.clone();
         let _ = self.app.run_on_main_thread(move || {
             let Some(main) = app.get_webview_window("main") else { return };
@@ -1596,8 +1869,10 @@ impl UiEvents {
 
 /// Réglages de la session et mode de l'écran pour un ordinateur, d'après ses
 /// réglages, ce que ce PC sait décoder et « Sur batterie » des réglages de
-/// l'app (`lighten` : alléger, et ce PC est sur batterie).
-fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
+/// l'app (`lighten` : alléger, et ce PC est sur batterie). `screen` : le mode
+/// de « Cet écran » (`system::screen_mode`), ou la zone cliente de la fenêtre
+/// d'une session suivante (plusieurs ordinateurs).
+fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool, screen: kybernow_core::console::Mode) -> (kybernow_core::profile::StreamSettings, kybernow_core::console::Mode, String) {
     let s = &c.settings;
     let choices = Choices {
         profile: Profile::parse(&s.profile),
@@ -1609,7 +1884,7 @@ fn session_plan(c: &Computer, pc: &ThisPc, lighten: bool) -> (kybernow_core::pro
         size: custom_mode(s),
         lighten,
     };
-    let (settings, mode) = plan(&choices, capabilities(pc), system::screen_mode());
+    let (settings, mode) = plan(&choices, capabilities(pc), screen);
     let label = format!(
         "{} · {}{}",
         settings.label(),
@@ -1647,10 +1922,114 @@ fn capabilities(pc: &ThisPc) -> kybernow_core::profile::Capabilities {
 }
 
 /// Réponse de `connect` : les écrans que la session prend (l'étape « Préparation
-/// des écrans » de la connexion).
+/// des écrans » de la connexion) ; `windowed` : une session suivante
+/// (plusieurs ordinateurs), qui s'ouvre dans sa fenêtre sans passer par
+/// l'accueil, ou un ordinateur déjà en session, dont la fenêtre passe devant.
 #[derive(Serialize)]
 struct ConnectInfo {
     screens: usize,
+    windowed: bool,
+}
+
+/// La fenêtre de connexion d'une session suivante (plusieurs ordinateurs) :
+/// le cadre `at` (pixels du bureau) et la zone cliente `client` de la fenêtre
+/// de la session qui va s'y montrer, titrée du nom de l'ordinateur comme
+/// elle. Rouverte quand la connexion reprend en session.
+fn open_connexion(app: &AppHandle, conn: &Arc<Connexion>, at: (i32, i32), client: (u32, u32), name: &str) {
+    if conn.label.lock().unwrap().is_some() {
+        return;
+    }
+    let label = format!("connexion-{}", CONNEXION_SEQ.fetch_add(1, Ordering::Relaxed) + 1);
+    *conn.label.lock().unwrap() = Some(label.clone());
+    let id = conn.view.lock().unwrap().id.clone();
+    app.state::<UiState>().connexions.lock().unwrap().insert(label.clone(), conn.clone());
+    let title = format!("{name} · {}", shell::DISPLAY_NAME);
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let script = format!(
+            "window.__KN_LANG = '{}'; window.__KN_SESSION = {};",
+            i18n::lang().code(),
+            serde_json::to_string(&id).unwrap_or_else(|_| "''".into())
+        );
+        let built = WebviewWindowBuilder::new(&a, &label, WebviewUrl::App("connexion.html".into()))
+            .initialization_script(&script)
+            .title(&title)
+            .inner_size(960.0, 540.0)
+            .theme(Some(tauri::Theme::Dark))
+            // Le fond de l'écran de connexion, avant même que la page soit là.
+            .background_color(Color(5, 7, 10, 255))
+            .visible(false)
+            .build();
+        let w = match built {
+            Ok(w) => w,
+            Err(e) => {
+                log::warn!("fenêtre de connexion de {id} : {e}");
+                return;
+            }
+        };
+        let place = move |w: &tauri::WebviewWindow| {
+            let _ = w.set_size(tauri::PhysicalSize::new(client.0.max(320), client.1.max(180)));
+            let _ = w.set_position(tauri::PhysicalPosition::new(at.0, at.1));
+        };
+        place(&w);
+        let _ = w.show();
+        let _ = w.set_focus();
+        log::info!("fenêtre de connexion de {id} : {}×{} en ({}, {})", client.0, client.1, at.0, at.1);
+        // Windows règle la taille d'une fenêtre à l'échelle de l'écran où elle
+        // arrive : une seconde fois, une fois posée.
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            place(&w);
+        });
+    });
+}
+
+/// La fenêtre de connexion part (après `delay` : le passage s'ouvre sur la
+/// fenêtre de la session, montrée par-dessus).
+fn close_connexion(app: &AppHandle, conn: &Arc<Connexion>, delay: Duration) {
+    let Some(label) = conn.label.lock().unwrap().take() else { return };
+    app.state::<UiState>().connexions.lock().unwrap().remove(&label);
+    let a = app.clone();
+    std::thread::spawn(move || {
+        if !delay.is_zero() {
+            std::thread::sleep(delay);
+        }
+        let b = a.clone();
+        let _ = a.run_on_main_thread(move || {
+            if let Some(w) = b.get_webview_window(&label) {
+                let _ = w.destroy();
+            }
+        });
+    });
+}
+
+/// Ce que montre la fenêtre de connexion qui le demande (à son ouverture).
+#[tauri::command]
+fn connexion_state(window: tauri::WebviewWindow, state: tauri::State<'_, UiState>) -> Option<ConnexionView> {
+    state.connexions.lock().unwrap().get(window.label()).map(|c| c.view.lock().unwrap().clone())
+}
+
+/// « OK » sous un échec, ou la fenêtre de connexion fermée : « Annuler » si
+/// la connexion se fait encore, sinon elle part.
+#[tauri::command(async)]
+fn connexion_close(app: AppHandle, window: tauri::WebviewWindow) {
+    connexion_closed(&app, window.label());
+}
+
+fn connexion_closed(app: &AppHandle, label: &str) {
+    let state = app.state::<UiState>();
+    let conn = state.connexions.lock().unwrap().get(label).cloned();
+    let Some(conn) = conn else {
+        if let Some(w) = app.get_webview_window(label) {
+            let _ = w.destroy();
+        }
+        return;
+    };
+    let id = conn.view.lock().unwrap().id.clone();
+    let cancelled = state.with_session(&id, |r| r.host.command(Command::Disconnect)).is_some();
+    if !cancelled {
+        close_connexion(app, &conn, Duration::ZERO);
+    }
 }
 
 /// L'accueil passe sur l'écran principal de ce PC, où la connexion se lit
@@ -1674,30 +2053,61 @@ fn home_to_primary(app: &AppHandle, monitors: &[displays::Monitor]) -> Option<ta
     Some(pos)
 }
 
-/// Une connexion qui se lance : la place est rendue en sortant de `connect`,
-/// session inscrite ou connexion refusée.
-struct Launching<'a>(&'a std::sync::atomic::AtomicBool);
+/// Une connexion qui se lance : sa place (une des quatre) est rendue en
+/// sortant de `connect`, session inscrite ou connexion refusée.
+struct Launching<'a>(&'a Mutex<Vec<String>>, String);
 
 impl Drop for Launching<'_> {
     fn drop(&mut self) {
-        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut launching = self.0.lock().unwrap();
+        if let Some(i) = launching.iter().position(|x| *x == self.1) {
+            launching.remove(i);
+        }
     }
 }
 
-/// Lance la session vers un ordinateur avec ses réglages.
+/// Un ordinateur déjà en session : sa fenêtre passe devant (« Afficher »).
+fn show_session_of(state: &UiState, id: &str) -> bool {
+    state.with_session(id, |r| r.host.focus(0)).is_some()
+}
+
+/// « Afficher la session » de l'accueil, « Afficher » de la barre et du menu
+/// de l'icône (plusieurs ordinateurs).
+#[tauri::command(async)]
+fn show_session(state: tauri::State<'_, UiState>, id: String) -> Result<(), String> {
+    if show_session_of(&state, &id) { Ok(()) } else { Err(t("errors.no_session", &[])) }
+}
+
+/// Lance la session vers un ordinateur avec ses réglages. Pendant une autre
+/// session (plusieurs ordinateurs, quatre au plus), elle s'ouvre dans une
+/// fenêtre ; un ordinateur déjà en session montre la sienne.
 #[tauri::command(async)]
 fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     let state = app.state::<UiState>();
-    // Une connexion à la fois, et tous les contrôles avant de rien montrer
-    // (fonds des autres écrans, accueil passé sur l'écran principal) : une
-    // connexion refusée ne laisse rien derrière elle.
-    if state.launching.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err(t("errors.session_already_open", &[]));
-    }
-    let _launching = Launching(&state.launching);
-    if state.session.lock().unwrap().is_some() {
-        return Err(t("errors.session_already_open", &[]));
-    }
+    // Une place parmi les quatre, jamais deux connexions vers le même
+    // ordinateur, et tous les contrôles avant de rien montrer (fonds des
+    // autres écrans, accueil passé sur l'écran principal, fenêtre de
+    // connexion) : une connexion refusée ne laisse rien derrière elle.
+    let first = {
+        let sessions = state.sessions.lock().unwrap();
+        let mut launching = state.launching.lock().unwrap();
+        if sessions.iter().any(|r| r.id == id) {
+            drop(launching);
+            drop(sessions);
+            show_session_of(&state, &id);
+            return Ok(ConnectInfo { screens: 0, windowed: true });
+        }
+        if launching.contains(&id) {
+            return Err(t("errors.session_already_open", &[]));
+        }
+        if sessions.len() + launching.len() >= focus::MAX_SESSIONS {
+            return Err(t("errors.four_at_most", &[]));
+        }
+        let first = sessions.is_empty() && launching.is_empty();
+        launching.push(id.clone());
+        first
+    };
+    let _launching = Launching(&state.launching, id.clone());
     let c = state.with_store(|s| s.get(&id).cloned()).ok_or_else(|| t("errors.unknown_computer", &[]))?;
     // Sur lui-même, l'écran virtuel éteindrait les écrans où l'app s'affiche.
     let me = std::env::var("COMPUTERNAME").unwrap_or_default();
@@ -1721,13 +2131,30 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     };
     let s = &c.settings;
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (settings, mode, label) = session_plan(&c, &pc, lighten);
+    // Plusieurs ordinateurs : une session ouverte pendant qu'une autre tourne
+    // prend « Cet écran » en fenêtre, quel que soit le réglage « Écrans » :
+    // l'écran de la fenêtre active, une fenêtre centrée aux deux tiers en
+    // 16:9, dont la zone cliente est la taille de l'écran de l'ordinateur.
+    let follow = (!first).then(|| system::follow_window(state.active_id().and_then(|a| state.with_session(&a, |r| r.host.bar_window())).unwrap_or(0)));
+    let screen = match &follow {
+        Some(f) => kybernow_core::console::Mode { width: f.client.0 as u32, height: f.client.1 as u32, refresh: f.refresh },
+        None => system::screen_mode(),
+    };
+    let (settings, mode, label) = session_plan(&c, &pc, lighten, screen);
     // Les écrans de ce PC et ce que la Station sait créer : le cœur en fait une
     // session à un ou plusieurs écrans (le même calcul que la ligne de
     // l'accueil). « Cet écran » est relevé ici, avant que l'accueil passe sur
     // l'écran principal : la session le garde (comme la définition, ci-dessus).
     let info = state.live.lock().unwrap().get(&id).and_then(|l| l.info.clone());
-    let layout = Layout::now(displays_spec(s, info.as_ref(), lighten, &pc));
+    let mut spec = displays_spec(s, info.as_ref(), lighten, &pc);
+    let layout = match &follow {
+        Some(f) => {
+            // En fenêtre, un seul écran (comme la ligne de commande avec `--window`).
+            spec.custom_resolution = true;
+            Layout { monitors: displays::enumerate(), spec, this_screen: Some(f.monitor.clone()).filter(|m| !m.is_empty()) }
+        }
+        None => Layout::now(spec),
+    };
     let plan = screens::session_plan_for(&layout.screens(), &settings, s.virtual_display);
     let audio_channels = match s.audio.as_str() {
         "auto" => audio::default_output_channels(),
@@ -1788,43 +2215,57 @@ fn connect(app: AppHandle, id: String) -> Result<ConnectInfo, String> {
     }
     let spec = layout.spec;
     let this_screen = layout.this_screen.clone();
+    // Session suivante : sa connexion se montre tout de suite dans une
+    // fenêtre, là où la sienne va s'ouvrir.
+    let connexion = Arc::new(Connexion::default());
+    connexion.view.lock().unwrap().id = id.clone();
+    connexion.view.lock().unwrap().phase = "preparing";
+    if let Some(f) = &follow {
+        log::info!("session suivante : fenêtre de {}×{} sur {} (plusieurs ordinateurs)", f.client.0, f.client.1, f.monitor);
+        open_connexion(&app, &connexion, f.at, (f.client.0 as u32, f.client.1 as u32), &c.name);
+    }
     // Tenu jusqu'à l'inscription de la session : une fin très rapide (dans
-    // `ended`) ne peut pas passer avant. Aucune autre session n'a pu s'inscrire
-    // depuis le contrôle du début (une connexion à la fois).
-    let mut running = state.session.lock().unwrap();
-    debug_assert!(running.is_none());
+    // `ended`) ne peut pas passer avant.
+    let mut running = state.sessions.lock().unwrap();
     let host = SessionHost::start(
         c.name.clone(),
         params,
         HostOptions {
             vsync: s.vsync,
             hardware: true,
-            fullscreen: true,
+            fullscreen: first,
             mouse,
-            window_size: system::initial_window_size(mode),
+            window_size: match &follow {
+                Some(f) => f.client,
+                None => system::initial_window_size(mode),
+            },
+            at: follow.as_ref().map(|f| f.at),
             title_stats: false,
             layout,
         },
         Arc::new(UiEvents {
             app: app.clone(),
             id: id.clone(),
-            label: bar.clone(),
             sent: sent.clone(),
             stats: stats.clone(),
             spec,
             this_screen,
             spot: spot.clone(),
+            first,
+            connexion: connexion.clone(),
         }),
     );
     let screens = plan.as_ref().map_or(1, |p| p.len());
-    *running = Some(Running { id, host, bar, sent, stats });
+    running.push(Running { id, host, bar, sent, stats });
     drop(running);
-    tray::refresh();
-    Ok(ConnectInfo { screens })
+    drop(_launching);
+    emit_sessions(&app);
+    Ok(ConnectInfo { screens, windowed: !first })
 }
 
+/// Un ordre de la barre (ou du passage, « Annuler ») à la session de cet ordinateur.
 #[tauri::command(async)]
-fn session_command(state: tauri::State<'_, UiState>, command: String) {
+fn session_command(state: tauri::State<'_, UiState>, id: String, command: String) {
     let c = match command.as_str() {
         "disconnect" => Command::Disconnect,
         "fullscreen" => Command::Fullscreen,
@@ -1835,17 +2276,29 @@ fn session_command(state: tauri::State<'_, UiState>, command: String) {
         "keys:print" => Command::PrintScreen,
         _ => return,
     };
-    if let Some(r) = state.session.lock().unwrap().as_ref() {
-        r.host.command(c);
+    state.with_session(&id, |r| r.host.command(c));
+}
+
+/// « Garder le son » de la barre (bouton du haut-parleur) ou du menu de
+/// l'icône, pour la session de cet ordinateur.
+#[tauri::command(async)]
+fn session_keep_sound(app: AppHandle, id: String, on: bool) {
+    set_keep_sound(&app, &id, on);
+}
+
+fn set_keep_sound(app: &AppHandle, id: &str, on: bool) {
+    if app.state::<UiState>().with_session(id, |r| r.host.set_keep_sound(on)).is_some() {
+        let _ = app.emit("session-keep-sound", KeepSoundEvent { id: id.to_string(), on });
+        tray::refresh();
     }
 }
 
 /// Autre profil depuis la barre : enregistré pour cet ordinateur (comme
-/// depuis l'accueil) et appliqué tout de suite à la session.
+/// depuis l'accueil) et appliqué tout de suite à sa session.
 #[tauri::command(async)]
-fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
+fn session_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
     let state = app.state::<UiState>();
-    let Some((id, bar, sent)) = state.session.lock().unwrap().as_ref().map(|r| (r.id.clone(), r.bar.clone(), r.sent.clone())) else {
+    let Some((bar, sent)) = state.with_session(&id, |r| (r.bar.clone(), r.sent.clone())) else {
         return Err(t("errors.no_session", &[]));
     };
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
@@ -1853,14 +2306,14 @@ fn session_profile(app: AppHandle, profile: String) -> Result<(), String> {
     emit_computers(&app);
     let pc = state.this_pc.lock().unwrap().clone().unwrap_or_else(pc::this_pc);
     let lighten = battery_choice(&state) == "alleger" && pc::on_battery();
-    let (settings, _, label) = session_plan(&c, &pc, lighten);
+    // Les réglages du profil seulement : la taille de l'écran ne change pas.
+    let (settings, _, label) = session_plan(&c, &pc, lighten, system::screen_mode());
     sent.lock().unwrap().settings = settings.clone();
     let shown = BarLabel { label, profile };
     *bar.lock().unwrap() = shown.clone();
-    let _ = app.emit_to("bar", "bar-label", &shown);
-    window::set_session_codec(settings.codec.fourcc());
-    window::current_session().ok_or_else(|| t("errors.session_not_ready", &[]))?.set_settings(settings);
-    Ok(())
+    let _ = app.emit_to("bar", "bar-label", BarLabelEvent { id: id.clone(), label: shown });
+    let applied = state.with_session(&id, |r| r.host.set_settings(settings)).unwrap_or(false);
+    if applied { Ok(()) } else { Err(t("errors.session_not_ready", &[])) }
 }
 
 /// Le profil d'un ordinateur, retouches effacées (comme l'accueil).
@@ -1885,8 +2338,8 @@ fn save_profile(state: &UiState, id: &str, profile: &str) -> Result<Computer, St
 fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String> {
     Profile::parse(&profile).ok_or_else(|| t("errors.unknown_profile", &[]))?;
     let state = app.state::<UiState>();
-    if state.session.lock().unwrap().as_ref().is_some_and(|r| r.id == id) {
-        return session_profile(app.clone(), profile);
+    if state.in_session(&id) {
+        return session_profile(app.clone(), id, profile);
     }
     save_profile(&state, &id, &profile)?;
     emit_computers(&app);
@@ -1895,12 +2348,20 @@ fn set_profile(app: AppHandle, id: String, profile: String) -> Result<(), String
 
 /// Largeur de la fenêtre de la barre de session, en points (la barre
 /// elle-même, centrée dedans, est plus étroite : `bar_width`).
-const BAR_WINDOW_WIDTH: f64 = 1040.0;
+const BAR_WINDOW_WIDTH: f64 = 1240.0;
 
 /// La barre de session au bord haut de la zone cliente de la session (en
 /// plein écran, le haut de l'écran), centrée sur elle : là où le trait la
-/// signale et où le pointeur l'ouvre. À sa taille sans menu.
-fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
+/// signale et où le pointeur l'ouvre. À sa taille sans menu. Une seule barre :
+/// elle sert la session de l'ordinateur `id`, celle de la fenêtre `hwnd`.
+fn show_bar(app: &AppHandle, id: &str, hwnd: isize, pinned: bool) {
+    let state = app.state::<UiState>();
+    let Some((label, multi, keep_sound, session)) =
+        state.with_session(id, |r| (r.bar.lock().unwrap().clone(), r.host.stream_count() > 1, r.host.keep_sound(), r.host.id()))
+    else {
+        return;
+    };
+    *state.bar_session.lock().unwrap() = Some(id.to_string());
     let mut mi = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
     unsafe {
         let m = MonitorFromWindow(HWND(hwnd as *mut _), MONITOR_DEFAULTTONEAREST);
@@ -1908,7 +2369,7 @@ fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
     }
     let r = mi.rcMonitor;
     // Toujours à sa taille sans menu en se montrant.
-    bar_menu(app.clone(), false);
+    bar_menu(app.clone(), false, None);
     let Some(bar) = app.get_webview_window("bar") else { return };
     // Session réduite ou sans fenêtre : le haut de l'écran.
     let (center, top, scale) =
@@ -1919,40 +2380,42 @@ fn show_bar(app: &AppHandle, hwnd: isize, label: BarLabel, pinned: bool) {
     let _ = bar.set_position(tauri::PhysicalPosition::new(x, top.max(r.top)));
     let _ = bar.set_always_on_top(true);
     let _ = bar.show();
-    window::set_bar_visible(true);
-    let _ = app.emit_to("bar", "bar-shown", BarShown { label, pinned, multi: window::stream_count() > 1 });
+    window::set_bar_session(Some(session));
+    let _ = app.emit_to("bar", "bar-shown", BarShown { id: id.to_string(), label, pinned, multi, keep_sound });
+    let _ = app.emit_to("bar", "bar-computers", bar_computer_list(app));
 }
 
-/// « Statistiques » du menu de l'icône : la barre et ses mesures en direct,
-/// ou cachée si elle est déjà là ; le clavier reste à la session.
-fn toggle_stats(app: &AppHandle) {
+/// « Statistiques » du menu de l'icône : la barre et ses mesures en direct
+/// pour la session de cet ordinateur (la session active), ou cachée si elle
+/// est déjà là ; le clavier reste à la session.
+fn toggle_stats(app: &AppHandle, id: &str) {
     let state = app.state::<UiState>();
-    // Sur la fenêtre de la session où est le pointeur (une seule barre).
-    let Some((hwnd, label)) = state.session.lock().unwrap().as_ref().map(|r| (r.host.bar_window(), r.bar.lock().unwrap().clone())) else {
+    // Sur la fenêtre de cette session où est le pointeur (une seule barre).
+    let Some(hwnd) = state.with_session(id, |r| r.host.bar_window()) else {
         return;
     };
-    let a = app.clone();
+    let (a, id) = (app.clone(), id.to_string());
     let _ = app.run_on_main_thread(move || {
         let shown = a.get_webview_window("bar").and_then(|b| b.is_visible().ok()).unwrap_or(false);
-        if shown {
-            bar_hide(a.clone());
+        let same = a.state::<UiState>().bar_session.lock().unwrap().as_deref() == Some(id.as_str());
+        if shown && same {
+            bar_hide(a.clone(), Some(id), None);
             return;
         }
-        show_bar(&a, hwnd, label, true);
+        show_bar(&a, &id, hwnd, true);
         // La fenêtre où la barre s'ouvre devient la fenêtre active.
-        if let Some(r) = a.state::<UiState>().session.lock().unwrap().as_ref() {
-            r.host.focus(hwnd);
-        }
+        a.state::<UiState>().with_session(&id, |r| r.host.focus(hwnd));
     });
 }
 
 /// Un menu de la barre s'ouvre : la fenêtre grandit vers le bas le temps du
-/// menu (transparente, elle ne doit pas cacher la session le reste du temps).
+/// menu (transparente, elle ne doit pas cacher la session le reste du temps),
+/// de `height` points quand le menu le dit (« Ordinateurs », selon leur nombre).
 #[tauri::command(async)]
-fn bar_menu(app: AppHandle, open: bool) {
+fn bar_menu(app: AppHandle, open: bool, height: Option<f64>) {
     if let Some(bar) = app.get_webview_window("bar") {
         let scale = bar.scale_factor().unwrap_or(1.0);
-        let h = if open { 300.0 } else { 76.0 };
+        let h = if open { height.filter(|h| h.is_finite()).unwrap_or(300.0).clamp(300.0, 900.0) } else { 76.0 };
         let _ = bar.set_size(tauri::Size::Physical(tauri::PhysicalSize::new((BAR_WINDOW_WIDTH * scale) as u32, (h * scale) as u32)));
     }
 }
@@ -1965,17 +2428,24 @@ fn bar_width(width: f64) {
     window::set_bar_width(width);
 }
 
-/// La barre se cache : le clavier revient à la session.
+/// La barre se cache : le clavier revient à la session qu'elle servait
+/// (`id`, sinon celle qu'elle sert pour l'app), sauf `focus: false` (une
+/// session de plus ouverte depuis la barre : sa fenêtre de connexion le garde).
 #[tauri::command(async)]
-fn bar_hide(app: AppHandle) {
+fn bar_hide(app: AppHandle, id: Option<String>, focus: Option<bool>) {
     if let Some(bar) = app.get_webview_window("bar") {
         let _ = bar.hide();
     }
-    window::set_bar_visible(false);
+    window::set_bar_session(None);
     // Un menu ouvert laissait la fenêtre agrandie pour la fois suivante.
-    bar_menu(app.clone(), false);
-    if let Some(r) = app.state::<UiState>().session.lock().unwrap().as_ref() {
-        r.host.command(Command::Focus);
+    bar_menu(app.clone(), false, None);
+    let state = app.state::<UiState>();
+    let served = state.bar_session.lock().unwrap().take();
+    if focus == Some(false) {
+        return;
+    }
+    if let Some(id) = id.or(served) {
+        state.with_session(&id, |r| r.host.command(Command::Focus));
     }
 }
 
@@ -1994,20 +2464,29 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
     let computers = state.with_store(|s| s.computers.clone());
     let waking: Vec<String> = state.waking.lock().unwrap().keys().cloned().collect();
     let following: HashMap<String, Kind> = state.following.lock().unwrap().iter().map(|(k, (p, _))| (k.clone(), p.kind)).collect();
-    let session = state.session.lock().unwrap().as_ref().map(|r| {
-        let stats = r.stats.lock().unwrap().clone();
-        let sent = r.sent.lock().unwrap();
-        menu::Session {
-            id: r.id.clone(),
-            name: computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
-            latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
-            fps: stats.as_ref().map(|s| s.fps),
-            mbps: Some(sent.mbps()),
-            fullscreen: window::fullscreen_now(),
-            multi: window::stream_count() > 1,
-            mouse: computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
-        }
-    });
+    let sessions: Vec<menu::Session> = state
+        .sessions
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            let stats = r.stats.lock().unwrap().clone();
+            let sent = r.sent.lock().unwrap();
+            menu::Session {
+                id: r.id.clone(),
+                name: computers.iter().find(|c| c.id == r.id).map(|c| c.name.clone()).unwrap_or_default(),
+                latency_ms: stats.as_ref().and_then(|s| s.latency_ms),
+                fps: stats.as_ref().map(|s| s.fps),
+                mbps: Some(sent.mbps()),
+                fullscreen: r.host.fullscreen_now(),
+                multi: r.host.stream_count() > 1,
+                mouse: computers.iter().find(|c| c.id == r.id).map(|c| c.settings.mouse.clone()).unwrap_or_default(),
+                keep_sound: r.host.keep_sound(),
+            }
+        })
+        .collect();
+    let active = state.active_id();
+    let full = state.full();
     let live = state.live.lock().unwrap();
     let computers = computers
         .iter()
@@ -2035,7 +2514,7 @@ pub fn tray_state(app: &AppHandle) -> menu::State {
             }
         })
         .collect();
-    menu::State { session, computers, app_update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()) }
+    menu::State { sessions, active, full, computers, app_update: state.update.lock().unwrap().as_ref().map(|u| u.version.clone()) }
 }
 
 /// Ce qui est choisi dans le menu de l'icône, sur son propre fil (les appels
@@ -2045,10 +2524,9 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
     let app = app.clone();
     std::thread::spawn(move || {
         let state = app.state::<UiState>();
-        let session = |c: Command| {
-            if let Some(r) = state.session.lock().unwrap().as_ref() {
-                r.host.command(c);
-            }
+        // Les commandes d'une session portent son ordinateur.
+        let session = |id: &str, c: Command| {
+            state.with_session(id, |r| r.host.command(c));
         };
         let fail = |r: Result<(), String>| {
             if let Err(e) = r {
@@ -2057,14 +2535,13 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
         };
         match cmd {
             // Le clavier revient ensuite à la session (le menu l'avait pris).
-            Cmd::Fullscreen => {
-                session(Command::Fullscreen);
-                session(Command::Focus);
+            Cmd::Fullscreen(id) => {
+                session(&id, Command::Fullscreen);
+                session(&id, Command::Focus);
             }
-            Cmd::Mouse(mode) => {
+            Cmd::Mouse(id, mode) => {
                 // Gardé pour l'ordinateur de la session, comme dans ses réglages.
-                let id = state.session.lock().unwrap().as_ref().map(|r| r.id.clone());
-                if let Some(id) = id {
+                if state.in_session(&id) {
                     state.with_store(|s| {
                         if let Some(c) = s.get_mut(&id) {
                             c.settings.mouse = mode.into();
@@ -2073,15 +2550,25 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
                     });
                     emit_computers(&app);
                 }
-                session(match mode {
-                    "jeu" => Command::MouseGame,
-                    "bureau" => Command::MouseDesktop,
-                    _ => Command::MouseAuto,
-                });
-                session(Command::Focus);
+                session(
+                    &id,
+                    match mode {
+                        "jeu" => Command::MouseGame,
+                        "bureau" => Command::MouseDesktop,
+                        _ => Command::MouseAuto,
+                    },
+                );
+                session(&id, Command::Focus);
             }
-            Cmd::Statistics => toggle_stats(&app),
-            Cmd::Disconnect => session(Command::Disconnect),
+            Cmd::Statistics(id) => toggle_stats(&app, &id),
+            Cmd::Disconnect(id) => session(&id, Command::Disconnect),
+            Cmd::Show(id) => {
+                show_session_of(&state, &id);
+            }
+            Cmd::KeepSound(id) => {
+                let on = state.with_session(&id, |r| r.host.keep_sound()).unwrap_or(false);
+                set_keep_sound(&app, &id, !on);
+            }
             Cmd::Connect(id) => show_action(&app, Action::Connect { id }),
             Cmd::Wake(id) => fail(wake(app.clone(), id).map(|_| ())),
             Cmd::Retry(id) => {
@@ -2101,19 +2588,22 @@ pub fn tray_command(app: &AppHandle, cmd: Cmd) {
     });
 }
 
-/// « Quitter KyberNow Link » : une session en cours se termine d'abord
-/// (Admin prévenue, écrans rendus), puis l'app se ferme.
+/// « Quitter KyberNow Link » : les sessions en cours se terminent d'abord
+/// (Admin de chaque ordinateur prévenue, écrans rendus), puis l'app se ferme
+/// à la fin de la dernière.
 pub fn quit(app: &AppHandle) {
     let state = app.state::<UiState>();
-    let session = state.session.lock().unwrap();
-    if let Some(r) = session.as_ref() {
-        log::info!("quitter : fin de la session d'abord");
-        state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
-        r.host.command(Command::Disconnect);
-    } else {
-        drop(session);
+    let sessions = state.sessions.lock().unwrap();
+    if sessions.is_empty() {
+        drop(sessions);
         log::info!("quitter");
         app.exit(0);
+        return;
+    }
+    log::info!("quitter : fin des {} session(s) d'abord", sessions.len());
+    state.quitting.store(true, std::sync::atomic::Ordering::Relaxed);
+    for r in sessions.iter() {
+        r.host.command(Command::Disconnect);
     }
 }
 
@@ -2180,10 +2670,15 @@ pub fn run(args: Vec<String>) {
             rename_computer,
             remove_computer,
             connect,
+            show_session,
             session_command,
+            session_keep_sound,
             bar_hide,
             bar_menu,
             bar_width,
+            bar_computers,
+            connexion_state,
+            connexion_close,
             session_profile,
             take_action,
             app_info,
@@ -2237,6 +2732,10 @@ pub fn run(args: Vec<String>) {
 
             log::info!("app : fenêtres créées{}", if background { " (ouverture de session : accueil caché)" } else { "" });
             let _ = handle.state::<UiState>().fonds.set(Fonds::new(handle.clone()));
+            // La session active ou « Garder le son » change (plusieurs
+            // ordinateurs) : le menu de l'icône suit (son haut est pour la
+            // session active).
+            focus::on_change(tray::refresh);
             shell::register();
             open_at_login_default(&handle.state::<UiState>());
             tray::start(handle.clone());
@@ -2295,13 +2794,18 @@ pub fn run(args: Vec<String>) {
                     let _ = window.hide();
                     first_close(app);
                 }
-                // La barre ne se ferme pas (Alt+F4) : elle se cache.
+                // Fenêtre de connexion d'une session suivante (plusieurs
+                // ordinateurs) : la fermer, c'est « Annuler » (ou « OK » sous
+                // un échec).
+                label if label.starts_with("connexion-") => {
+                    api.prevent_close();
+                    connexion_closed(app, label);
+                }
+                // La barre ne se ferme pas (Alt+F4) : elle se cache, le
+                // clavier revient à la session qu'elle servait.
                 _ => {
                     api.prevent_close();
-                    let _ = window.hide();
-                    if let Some(r) = app.state::<UiState>().session.lock().unwrap().as_ref() {
-                        r.host.command(Command::Focus);
-                    }
+                    bar_hide(app.clone(), None, None);
                 }
             }
         })

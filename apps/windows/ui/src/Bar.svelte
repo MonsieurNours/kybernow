@@ -3,27 +3,47 @@
   quand le pointeur reste contre le bord haut (l'app décide : src/window.rs),
   cachée 0,4 s après qu'il l'a quittée, jamais pendant qu'un de ses menus est
   ouvert (le clavier revient alors à la session). Statistiques en direct,
-  profil, touches, souris, plein écran, « Se déconnecter ». Un menu ouvert
-  fait grandir la fenêtre vers le bas le temps de son affichage. Elle dit sa
-  largeur à l'app, qui en fait la zone du bord haut où le pointeur l'ouvre.
+  profil, touches, souris, plein écran, « Ordinateurs », « Garder le son »,
+  « Se déconnecter ». Un menu ouvert fait grandir la fenêtre vers le bas le
+  temps de son affichage. Elle dit sa largeur à l'app, qui en fait la zone du
+  bord haut où le pointeur l'ouvre.
+
+  Plusieurs ordinateurs (docs/plusieurs-ordinateurs.md) : une seule barre, qui
+  sert la session de la fenêtre où elle s'ouvre (`id`) ; ses commandes et ses
+  mesures sont celles de cette session. Le menu « Ordinateurs » liste les
+  autres ordinateurs : un clic ouvre une session de plus (dans sa fenêtre),
+  réveille un ordinateur hors ligne, ou montre la fenêtre d'un ordinateur déjà
+  en session (coché, « Afficher »).
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte'
   import Icon from './lib/Icon.svelte'
   import Mark from './lib/Mark.svelte'
-  import type { AppInfo, Stats } from './lib/api'
+  import type { AppInfo, BarComputer, KeepSound, SessionStats, Stats } from './lib/api'
   import { invoke, listen, localLabel, ms } from './lib/api'
   import { setLang, t } from './lib/i18n/index.svelte'
 
+  /** L'ordinateur de la session que la barre sert. */
+  let id = $state('')
   let stats = $state<Stats | null>(null)
   let label = $state('')
   let profile = $state('')
-  let menu = $state<'profile' | 'keys' | null>(null)
+  let menu = $state<'profile' | 'keys' | 'computers' | null>(null)
   /** Plusieurs écrans : « Plein écran » n'est pas proposé, les fenêtres y restent. */
   let multi = $state(false)
+  /** « Garder le son » de cette session. */
+  let keepSound = $state(false)
+  /** Le menu « Ordinateurs » : tous les ordinateurs (celui de la session est écarté à l'affichage). */
+  let computers = $state<BarComputer[]>([])
+  /** Un refus d'ouvrir une session (menu « Ordinateurs »), montré dans le menu. */
+  let refusal = $state<string | null>(null)
 
-  /** `pinned` : demandée par « Statistiques » (menu de l'icône), elle reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle. `multi` : plusieurs écrans. */
-  type Shown = { label: string; profile: string; pinned?: boolean; multi?: boolean }
+  /**
+   * `id` : la session servie. `pinned` : demandée par « Statistiques » (menu de l'icône), elle
+   * reste jusqu'au passage du pointeur ; sinon, ouverte par le pointeur, qui est sur elle.
+   * `multi` : plusieurs écrans. `keep_sound` : « Garder le son ».
+   */
+  type Shown = { id: string; label: string; profile: string; pinned?: boolean; multi?: boolean; keep_sound?: boolean }
   const profiles = $derived(
     ['jeu', 'bureau', 'max'].map((id) => ({ id, name: t(`profiles.${id}`), hint: t(`profiles.${id}_sub`) })),
   )
@@ -47,21 +67,36 @@
 
   onMount(() => {
     const off = [
-      listen<Stats>('stats', (s) => {
+      listen<SessionStats>('stats', (s) => {
+        // Les mesures de la session servie seulement (chaque session envoie les siennes).
+        if (s.id !== id) return
         stats = s
         multi = s.screens > 1
         if (s.latency_ms != null) history = [...history, s.latency_ms].slice(-40)
         reportWidth()
       }),
       listen<Shown>('bar-label', (s) => {
+        if (s.id !== id) return
         label = s.label
         profile = s.profile
         reportWidth()
       }),
+      listen<KeepSound>('session-keep-sound', (k) => {
+        if (k.id === id) keepSound = k.on
+      }),
+      listen<BarComputer[]>('bar-computers', (c) => (computers = c)),
       listen<Shown>('bar-shown', (s) => {
+        // Une autre session : ses mesures repartent de zéro.
+        if (s.id !== id) {
+          stats = null
+          history = []
+        }
+        id = s.id
         label = s.label
         profile = s.profile
         multi = !!s.multi
+        keepSound = !!s.keep_sound
+        refusal = null
         // Montrée de nouveau : aucun menu d'une fois précédente.
         menu = null
         // Ouverte par le pointeur, immobile contre le bord haut : il est sur
@@ -121,7 +156,7 @@
     if (menu || held) return
     hideTimer = setTimeout(() => {
       hideTimer = null
-      invoke('bar_hide')
+      invoke('bar_hide', { id })
     }, delay)
   }
 
@@ -149,33 +184,83 @@
     if (!inside) scheduleHide()
   }
 
-  async function toggle(which: 'profile' | 'keys') {
+  async function toggle(which: 'profile' | 'keys' | 'computers') {
     const next = menu === which ? null : which
+    refusal = null
+    if (next === 'computers') computers = await invoke<BarComputer[]>('bar_computers')
     if (next && !menu) await invoke('bar_menu', { open: true })
     menu = next
-    if (!next) await invoke('bar_menu', { open: false })
+    if (next) await growForMenu()
+    else await invoke('bar_menu', { open: false })
+  }
+
+  /** La fenêtre grandit jusqu'au bas du menu ouvert (« Ordinateurs » : selon leur nombre). */
+  async function growForMenu() {
+    await tick()
+    const bottom = bar?.querySelector('.menu')?.getBoundingClientRect().bottom ?? 0
+    if (bottom > 0) await invoke('bar_menu', { open: true, height: Math.ceil(bottom + 24) })
   }
 
   async function closeMenu() {
     menu = null
+    refusal = null
     await invoke('bar_menu', { open: false })
   }
 
-  async function pickProfile(id: string) {
+  async function pickProfile(p: string) {
     await closeMenu()
     afterMenu()
     // Même profil : remis tel quel (utile après des réglages personnalisés).
-    await invoke('session_profile', { profile: id })
+    await invoke('session_profile', { id, profile: p })
   }
 
-  async function pickKeys(id: string) {
+  async function pickKeys(k: string) {
     await closeMenu()
-    await command(`keys:${id}`)
+    await command(`keys:${k}`)
     // Le clavier revient à la session (et la barre s'en va).
-    invoke('bar_hide')
+    invoke('bar_hide', { id })
   }
 
-  const command = (c: string) => invoke('session_command', { command: c })
+  /** Les autres ordinateurs, dans l'ordre de l'accueil. */
+  const others = $derived(computers.filter((c) => c.id !== id))
+  const stateText = (c: BarComputer) => (c.state === 'online' ? t('home.online') : c.state === 'offline' ? t('home.offline') : t('common.searching'))
+  /** Ce que dit la ligne à droite : « Afficher », « Réveiller l'ordinateur »… */
+  const hintOf = (c: BarComputer) =>
+    ({ show: t('bar.show'), wake: t('home.wake'), waking: t('home.waking'), retry: t('home.retry') })[c.pick as string] ?? ''
+  const full = $derived(others.some((c) => c.pick === 'full'))
+
+  /** Un ordinateur du menu « Ordinateurs » : comme l'accueil et le menu de l'icône. */
+  async function pickComputer(c: BarComputer) {
+    refusal = null
+    try {
+      if (c.pick === 'show') {
+        await closeMenu()
+        await invoke('show_session', { id: c.id })
+        invoke('bar_hide', { id: c.id })
+      } else if (c.pick === 'connect') {
+        // Une session de plus, dans sa fenêtre ; sa connexion s'y montre (elle garde le clavier).
+        await invoke('connect', { id: c.id })
+        await closeMenu()
+        invoke('bar_hide', { id, focus: false })
+      } else if (c.pick === 'wake') {
+        await invoke('wake', { id: c.id })
+        computers = await invoke<BarComputer[]>('bar_computers')
+      } else if (c.pick === 'retry') {
+        await invoke('poll_now', { id: c.id })
+        computers = await invoke<BarComputer[]>('bar_computers')
+      }
+    } catch (e) {
+      refusal = String(e)
+      await growForMenu()
+    }
+  }
+
+  async function toggleKeepSound() {
+    keepSound = !keepSound
+    await invoke('session_keep_sound', { id, on: keepSound })
+  }
+
+  const command = (c: string) => invoke('session_command', { id, command: c })
 </script>
 
 <!-- Clic ailleurs (la session) : le menu se referme. -->
@@ -237,6 +322,34 @@
       <Icon name="fullscreen" size={20} stroke={1.6} />
     </button>
   {/if}
+  <button class="icon" class:on={keepSound} aria-pressed={keepSound} aria-label={t('bar.keep_sound')} title={t('bar.keep_sound')} onclick={toggleKeepSound}>
+    <Icon name="speaker" size={20} stroke={1.6} />
+  </button>
+  <div class="anchor">
+    <button class="icon" class:on={menu === 'computers'} aria-haspopup="menu" aria-expanded={menu === 'computers'} aria-label={t('bar.computers')} title={t('bar.computers')} onclick={() => toggle('computers')}>
+      <Icon name="overview" size={20} stroke={1.6} />
+    </button>
+    {#if menu === 'computers'}
+      <div class="menu computers" role="menu" aria-label={t('bar.computers')}>
+        {#each others as c (c.id)}
+          {@const inert = c.pick === 'full' || c.pick === 'waking' || c.pick === 'busy'}
+          <button
+            role="menuitemcheckbox"
+            aria-checked={c.pick === 'show'}
+            aria-disabled={inert}
+            class:inert
+            onclick={() => !inert && pickComputer(c)}
+          >
+            <span class="tick">{#if c.pick === 'show'}<Icon name="check" size={14} stroke={2.2} />{/if}</span>
+            <span class="name"><span class="dot {c.dot}" aria-hidden="true"></span>{t('bar.computer', { name: c.name, state: stateText(c) })}</span>
+            <span class="hint">{hintOf(c)}</span>
+          </button>
+        {/each}
+        {#if full}<p class="note" role="note">{t('common.four_at_most')}</p>{/if}
+        {#if refusal}<p class="note refusal" role="alert">{refusal}</p>{/if}
+      </div>
+    {/if}
+  </div>
   <span class="sep"></span>
   <button class="quit" title={t('bar.disconnect') + t('bar.disconnect_shortcut')} onclick={() => command('disconnect')}>{t('bar.disconnect')}</button>
 </div>
@@ -399,6 +512,67 @@
   .menu.keys .hint {
     font-family: var(--mono);
     font-size: 11px;
+  }
+
+  /* Ordinateurs : à droite de la barre, le menu s'aligne sur son bouton. */
+  .menu.computers {
+    left: auto;
+    right: -8px;
+    transform: none;
+    width: max-content;
+    min-width: 300px;
+    max-width: 480px;
+  }
+
+  .menu.computers .name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .menu button.inert {
+    color: var(--ghost);
+    cursor: default;
+  }
+
+  .menu button.inert:hover {
+    background: none;
+  }
+
+  /* Point de couleur de l'état, comme dans le menu de l'icône (couleurs d'état de brand/v2). */
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--ghost);
+  }
+
+  .dot.ok {
+    background: var(--ok);
+  }
+
+  .dot.bad {
+    background: var(--bad);
+  }
+
+  .dot.warn {
+    background: var(--warn);
+  }
+
+  .note {
+    margin: 4px 10px 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--warn);
+    white-space: normal;
+  }
+
+  .note.refusal {
+    color: var(--bad-text);
   }
 
   .quit {

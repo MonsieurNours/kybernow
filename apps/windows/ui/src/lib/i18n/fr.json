@@ -4,7 +4,8 @@
     "cancel": "Annuler",
     "continue": "Continuer",
     "searching": "Recherche…",
-    "ok": "OK"
+    "ok": "OK",
+    "four_at_most": "Quatre ordinateurs au plus en même temps."
   },
   "profiles": {
     "jeu": "Jeu",
@@ -48,6 +49,7 @@
     "screen": "Écran de {width} × {height} à {refresh} Hz",
     "screens_many": "{count} écrans, à la taille de ceux de cet appareil",
     "connect": "Se connecter",
+    "show_session": "Afficher la session",
     "retry": "Réessayer",
     "wake": "Réveiller l'ordinateur",
     "waking": "Réveil de l'ordinateur…",
@@ -278,7 +280,11 @@
     "fullscreen": "Plein écran",
     "fullscreen_shortcut": " (Ctrl+Alt+Maj+F)",
     "disconnect": "Se déconnecter",
-    "disconnect_shortcut": " (Ctrl+Alt+Maj+D)"
+    "disconnect_shortcut": " (Ctrl+Alt+Maj+D)",
+    "computers": "Ordinateurs",
+    "computer": "{name} — {state}",
+    "show": "Afficher",
+    "keep_sound": "Garder le son"
   },
   "fond": {
     "not_created": "L'ordinateur n'a pas pu créer cet écran."
@@ -288,6 +294,8 @@
     "from_link": "Depuis le lien",
     "bad_account": "Admin : compte ou mot de passe incorrect (401)",
     "hardware": "carte graphique",
+    "no_session": "aucune session",
+    "connect_refused": "Kyber ne répond pas sur l'ordinateur",
     "station_in_session": "Un appareil est connecté (Apple TV du salon) : le redémarrage coupera sa session"
   }
 }
