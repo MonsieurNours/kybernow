@@ -567,9 +567,9 @@ mod tests {
         a.begin_screens(Some(mac.clone()), "matthieu", Some(screens[0]), screens, None);
         assert_eq!(a.live().unwrap().screens.len(), 3);
         let fr = a.events(1, Lang::Fr)[0].text.clone();
-        assert_eq!(fr, "Mac Studio s'est connecté avec 3 écrans : 3840 × 2160 à 160 Hz, 5120 × 2880 à 60 Hz et 3456 × 2234 à 60 Hz");
+        assert_eq!(fr, "Mac Studio s'est connecté, 3 écrans : 3840 × 2160 à 160 Hz, 5120 × 2880 à 60 Hz et 3456 × 2234 à 60 Hz");
         let en = a.events(1, Lang::En)[0].text.clone();
-        assert!(en.starts_with("Mac Studio connected with 3 displays: "), "{en}");
+        assert_eq!(en, "Mac Studio connected, 3 displays: 3840 × 2160 at 160 Hz, 5120 × 2880 at 60 Hz and 3456 × 2234 at 60 Hz");
         assert!(a.end("matthieu", Some("abc"), None));
         // Un seul écran : le message de toujours, pas de liste.
         a.begin_screens(Some(mac), "matthieu", Some(m(3840, 2160, 160)), vec![m(3840, 2160, 160)], None);

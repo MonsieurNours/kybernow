@@ -403,7 +403,6 @@
       "off": "Désactivé",
       "offSub": "Les écrans de l’ordinateur sont envoyés",
       "active": "Actif",
-      "activeScreens": "{count} écrans actifs",
       "noDriver": "Pilote absent",
       "seeImageSound": "Voir Image et son",
       "ready": "Prêt",

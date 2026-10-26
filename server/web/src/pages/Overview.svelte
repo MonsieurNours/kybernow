@@ -125,7 +125,7 @@
     if (display.settings.trigger === 'off') return { ok: true, off: true, title: t('overview.display.off'), sub: t('overview.display.offSub') }
     const screens = display.session?.screens ?? []
     if (display.session && screens.length > 1)
-      return { ok: true, title: t('overview.display.activeScreens', { count: screens.length }), sub: '', lines: screens.map(mode) }
+      return { ok: true, title: t('overview.display.active'), sub: '', lines: screens.map(mode) }
     if (display.session) return { ok: true, title: t('overview.display.active'), sub: mode(display.session.mode) }
     if (!display.driver.available) return { ok: false, title: t('overview.display.noDriver'), sub: t('overview.display.seeImageSound') }
     return { ok: true, title: t('overview.display.ready'), sub: t('overview.display.readySub') }

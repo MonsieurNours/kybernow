@@ -828,8 +828,7 @@ impl Manager {
         );
         let missing = layout.len() - slots.len();
         if missing > 0 {
-            let msg = if missing > 1 { Msg::new("events.screensMissing") } else { Msg::new("events.screenMissing") };
-            self.event("warn", msg.with("count", missing).with("requested", layout.len()));
+            self.event("warn", Msg::new("events.screensMissing").with("count", missing).with("requested", layout.len()));
         }
         *self.last_error.lock().unwrap() = None;
         self.backend.watch(&slots.iter().map(|s| s.created).collect::<Vec<_>>());

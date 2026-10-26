@@ -114,7 +114,7 @@
   "events": {
     "connected": "{name} connected",
     "connectedMode": "{name} connected, {width} × {height} display at {refresh} Hz",
-    "connectedScreens": "{name} connected with {count} displays: {modes}",
+    "connectedScreens": "{name} connected, {count} displays: {modes}",
     "takeover": "{newcomer} is taking over: asked {previous} to end its session",
     "disconnected": "{name} disconnected after {duration}{latency}{takeover}",
     "latencySuffix": ", median latency {ms}",
@@ -163,7 +163,6 @@
     "launchKept": "{app} stays open: {next} is taking over with the same app",
     "launchSet": "At the start of {name}'s sessions: {app}",
     "launchCleared": "No app opened at the start of {name}'s sessions any more",
-    "screenMissing": "{count} of the {requested} requested displays could not be created on the computer: the session goes on without it",
-    "screensMissing": "{count} of the {requested} requested displays could not be created on the computer: the session goes on without them"
+    "screensMissing": "The computer could not create {count} of the {requested} requested displays: the session goes on with the others"
   }
 }

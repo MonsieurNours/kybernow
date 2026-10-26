@@ -114,7 +114,7 @@
   "events": {
     "connected": "{name} s'est connecté",
     "connectedMode": "{name} s'est connecté, écran de {width} × {height} à {refresh} Hz",
-    "connectedScreens": "{name} s'est connecté avec {count} écrans : {modes}",
+    "connectedScreens": "{name} s'est connecté, {count} écrans : {modes}",
     "takeover": "{newcomer} prend la main : fin de la session de {previous} demandée",
     "disconnected": "{name} s'est déconnecté après {duration}{latency}{takeover}",
     "latencySuffix": ", écart médian {ms}",
@@ -163,7 +163,6 @@
     "launchKept": "{app} reste ouvert : {next} prend la main avec la même app",
     "launchSet": "Au début des sessions de {name} : {app}",
     "launchCleared": "Plus d'app ouverte au début des sessions de {name}",
-    "screenMissing": "{count} des {requested} écrans demandés n'a pas pu être créé sur l'ordinateur : la session continue sans lui",
-    "screensMissing": "{count} des {requested} écrans demandés n'ont pas pu être créés sur l'ordinateur : la session continue sans eux"
+    "screensMissing": "L'ordinateur n'a pas pu créer {count} des {requested} écrans demandés : la session continue sur les autres"
   }
 }
