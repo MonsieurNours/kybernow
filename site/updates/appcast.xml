@@ -3,6 +3,22 @@
     <channel>
         <title>KyberNow</title>
         <item>
+            <title>0.5.3</title>
+            <pubDate>Mon, 26 Oct 2026 13:45:24 +0100</pubDate>
+            <sparkle:version>202610261326</sparkle:version>
+            <sparkle:shortVersionString>0.5.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[
+- **KyberNow Link next to the clock, on Mac and Windows**: an icon in the menu bar (Mac) or the notification area (Windows) lists your computers, each with a coloured dot and its state (green online, red offline, amber while waking or restarting), and for each one: connect with its profile, wake it, switch profile, its settings, Admin, restart or update the Station. In a session, the live measurements, full screen, the mouse mode (Auto, desktop, game), statistics and “Disconnect”. Closing the window no longer quits the app: it keeps running in the icon (on the Mac, the Dock icon is only there while a window is open), and “Quit KyberNow Link” ends a session in progress first. On Windows, a double click on the icon opens the window.
+- New app setting, “Open at login”, on by default: the app starts with the computer, without a window, in the icon.
+- Notifications, on Mac and Windows: a Station update is ready (with “Update”), a woken computer is online (with “Connect”) or is still not responding, a restart or update started from the menu has finished; and, on the Mac as already on Windows, a session stops without you (with “Resume”).
+- Windows: the “Resume” and “Take back control” buttons of notifications do restart the session (Windows added a slash to the link, which then opened adding a computer).
+]]></description>
+            <sparkle:releaseNotesLink xml:lang="fr">https://www.kybernow.app/updates/notes/0.5.3/KyberNow-Link-macOS.fr.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/MonsieurNours/kybernow/releases/download/v0.5.3/KyberNow-Link-macOS.zip" length="47417383" type="application/octet-stream" sparkle:edSignature="xuZxbIOT/ZRjIJkjR8/T8n5gwGt+nuqHwSn2raA63vbLxfHQPUOyfXEl9wrMOyKKBMWqylk39YCnyGzpn/JEBg=="/>
+        </item>
+        <item>
             <title>0.5.2</title>
             <pubDate>Sun, 25 Oct 2026 20:34:57 +0100</pubDate>
             <sparkle:version>202610252016</sparkle:version>
