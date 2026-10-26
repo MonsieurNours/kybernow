@@ -199,7 +199,7 @@ Xcode met le profil dans l'app (`Contents/embedded.provisionprofile`) et y ajout
 ```bash
 apps/macos/tests/video/run.sh   # flux HEVC, H.264 et AV1 générés par ffmpeg : décodage, temps, couleurs rendues, reprise après une perte
 apps/macos/tests/screen/run.sh  # fenêtre de 2 × 2,5 s : la surface de session montre vraiment les images (presentedTime), délai commit → écran avec et sans la garde « une image en vol »
-apps/macos/tests/fullscreen/run.sh  # multi-écrans : fenêtre d'un autre écran, images reçues pendant qu'elle est occultée puis passage en plein écran sans nouvelle image : l'image est rendue, redessinée et montrée à la taille du plein écran
+apps/macos/tests/fullscreen/run.sh  # multi-écrans : fenêtre d'un autre écran, images reçues pendant qu'elle est occultée puis passage en plein écran sans nouvelle image : l'image est rendue, redessinée, montrée à la taille du plein écran et entière (`run.sh 5120x2880 444` : un 5K en 4:4:4, images `&8v4` comme un Studio Display)
 ```
 
 Le son, le presse-papiers et les entrées sont testés dans le cœur (`cargo test -p kybernow-core`, [apps/core/README.md](../core/README.md)).

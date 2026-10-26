@@ -53,7 +53,25 @@ surface.show(renderer)
 window.orderFrontRegardless()
 let decoder = VideoDecoder()
 decoder.setCodec(0x68323635)
-decoder.onFrame = { renderer.submit($0) }
+var format = "?", frameSize = "?"
+decoder.onFrame = { frame in
+    let f = CVPixelBufferGetPixelFormatType(frame.buffer)
+    format = String(bytes: [24, 16, 8, 0].map { UInt8((f >> $0) & 0xFF) }, encoding: .ascii) ?? "?"
+    frameSize = "\(CVPixelBufferGetWidth(frame.buffer))×\(CVPixelBufferGetHeight(frame.buffer))"
+    renderer.submit(frame)
+}
+
+/// Part des pixels non noirs d'une image.
+func litRatio(_ image: CGImage) -> Double? {
+    let w = image.width, h = image.height
+    var pixels = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    var lit = 0
+    for i in stride(from: 0, to: pixels.count, by: 4) where Int(pixels[i]) + Int(pixels[i + 1]) + Int(pixels[i + 2]) > 24 { lit += 1 }
+    return Double(lit) / Double(w * h)
+}
 for (i, au) in aus.enumerated() {
     au.withUnsafeBufferPointer { decoder.decode($0, isConfig: false, isKey: i == 0, pts: UInt64(i)) }
 }
@@ -90,6 +108,10 @@ DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
         guard abs(have.width - want.width) < 2, abs(have.height - want.height) < 2 else { fail("l'image n'a pas la taille du plein écran") }
         guard rendered >= 1 else { fail("l'image arrivée pendant la pause n'a pas été rendue à la reprise") }
         guard redrawn >= 1 else { fail("aucune image redessinée montrée après le passage en plein écran") }
+        // L'image rendue est entière : presque aucun pixel noir (la mire couvre toute l'image).
+        guard let shot = renderer.snapshot(maxWidth: 800), let lit = litRatio(shot) else { fail("image rendue illisible") }
+        print("image \(format) \(frameSize) : \(Int(lit * 100)) % de pixels non noirs")
+        guard lit > 0.9 else { fail("image rendue incomplète") }
         print("ok    l'image arrivée pendant la pause est rendue, puis redessinée et montrée à la taille du plein écran")
         exit(0)
     }
