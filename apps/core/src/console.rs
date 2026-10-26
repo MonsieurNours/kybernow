@@ -308,6 +308,17 @@ fn station_refusal(status: u16, body: &serde_json::Value, retry_after: Option<u6
 pub struct VirtualDisplayInfo {
     #[serde(default)]
     pub available: bool,
+    /// Écrans que la Station sait créer en une session (multi-écrans) ;
+    /// absent chez une Station antérieure : 1 ([`Self::max_screens`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_screens: Option<usize>,
+}
+
+impl VirtualDisplayInfo {
+    /// Pour [`crate::screens::Screens::max_screens`].
+    pub fn max_screens(&self) -> usize {
+        self.max_screens.unwrap_or(1).max(1)
+    }
 }
 
 /// Son de l'ordinateur, vu par la console.
@@ -766,6 +777,15 @@ mod tests {
             mode_policy: None,
             screens,
         }
+    }
+
+    #[test]
+    fn ecrans_que_la_station_sait_creer() {
+        let info: Info = serde_json::from_str(r#"{"virtual_display": {"available": true, "max_screens": 4}}"#).unwrap();
+        assert_eq!(info.virtual_display.max_screens(), 4);
+        let old: Info = serde_json::from_str(r#"{"virtual_display": {"available": true}}"#).unwrap();
+        assert_eq!(old.virtual_display.max_screens(), 1, "Station antérieure : un écran");
+        assert!(serde_json::to_value(&old).unwrap()["virtual_display"].get("max_screens").is_none());
     }
 
     #[test]
