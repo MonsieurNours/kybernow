@@ -1929,14 +1929,21 @@ mod windows {
             let stopped = Arc::new(Mutex::new(false));
             {
                 let (user, run_file, token, stopped) = (user.clone(), run_file.clone(), token.clone(), stopped.clone());
-                std::thread::spawn(move || loop {
-                    std::thread::sleep(Duration::from_secs(1));
-                    let stopped = stopped.lock().unwrap();
-                    if *stopped {
-                        break;
-                    }
-                    if let Err(e) = write_run(&user, &run_file, &token) {
-                        tracing::debug!("capture WGC : fichier run non rafraîchi ({e:#})");
+                std::thread::spawn(move || {
+                    let mut warned = false;
+                    loop {
+                        std::thread::sleep(Duration::from_secs(1));
+                        let stopped = stopped.lock().unwrap();
+                        if *stopped {
+                            break;
+                        }
+                        // Une fois par session : au-delà de 15 s sans rafraîchissement, les agents s'arrêtent.
+                        if let Err(e) = write_run(&user, &run_file, &token) {
+                            if !warned {
+                                warned = true;
+                                tracing::warn!("capture WGC : fichier run non rafraîchi au nom de l'utilisateur ({e:#})");
+                            }
+                        }
                     }
                 });
             }
