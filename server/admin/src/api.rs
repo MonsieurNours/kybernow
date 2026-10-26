@@ -762,6 +762,8 @@ async fn stream_info(State(s): State<AppState>, headers: HeaderMap) -> ApiResult
             "available": display["driver"]["available"].as_bool().unwrap_or(false),
             "trigger": display["settings"]["trigger"],
             "active": !display["session"].is_null(),
+            // Écrans que cette Station sait créer pour une session (multi-écrans).
+            "max_screens": crate::display::MAX_SCREENS,
         },
         "audio": {
             "speakers": !audio["devices"]["speakers"].is_null(),
@@ -1918,6 +1920,13 @@ mod tests {
         assert_eq!(info["version"], crate::update::current());
         assert_eq!(info["restarting"], false);
         assert_eq!(info["update"], json!({ "available": false, "version": null, "installable": false, "requires_setup": false, "installing": false }));
+    }
+
+    #[tokio::test]
+    async fn info_says_how_many_displays_the_station_can_create() {
+        let c = console_with_account();
+        let Json(info) = stream_info(State(c.s.clone()), basic("mac", "mot-de-passe-mac")).await.ok().unwrap();
+        assert_eq!(info["virtual_display"]["max_screens"], 4);
     }
 
     #[tokio::test]
