@@ -9,22 +9,26 @@
 //! - **ses manettes** : quatre au plus, numérotées dans l'ordre d'arrivée
 //!   (0 à 3, l'identifiant donné à kynput), avec leurs touches tenues et
 //!   leurs axes ;
-//! - **deux façons de le nourrir** : son propre fil SDL ([`start_sdl`], Mac et
-//!   Windows, où rien d'autre n'ouvre SDL ; il démarre aussi tout seul à la
-//!   première chaîne d'entrées d'une app dont la libkynput n'a pas de lecteur
-//!   SDL), ou les événements de l'app ([`plug`], [`unplug`], [`button`],
-//!   [`axis`] : Linux, dont la boucle SDL lit déjà manettes et fenêtres dans
-//!   la même file, et où un second lecteur volerait ses événements) ;
+//! - **deux façons de le nourrir** : son propre fil SDL (Mac et Windows, où
+//!   rien d'autre n'ouvre SDL : il démarre tout seul avec la première chaîne
+//!   d'entrées d'une app dont la libkynput n'a pas de lecteur SDL, et se
+//!   ferme 5 s après la dernière, manettes rendues ; [`start_sdl`] le garde
+//!   pour toute la vie de l'app), ou les événements de l'app ([`plug`],
+//!   [`unplug`], [`button`], [`axis`] : Linux, dont la boucle SDL lit déjà
+//!   manettes et fenêtres dans la même file, et où un second lecteur volerait
+//!   ses événements) ;
 //! - **le routage** : chaque manette est branchée sur la chaîne d'entrées de
 //!   chaque session (la Station garde sa manette virtuelle, un jeu ne la perd
 //!   pas quand on change d'ordinateur), réannoncée quand une chaîne rejoint
-//!   son ordinateur ; boutons et axes ne vont qu'aux chaînes actives
+//!   son ordinateur ; appuis et axes ne vont qu'aux chaînes actives
 //!   ([`crate::session::Session::set_active`], que le registre
-//!   [`crate::focus`] tient pour une seule session) ; une chaîne qui devient
-//!   inactive remet elle-même ses manettes au repos (touches relâchées, axes
-//!   au centre, gâchettes relâchées) ;
+//!   [`crate::focus`] tient pour une seule session), les relâchements à
+//!   toutes (un appui parti juste avant un changement de session ne reste
+//!   pas tenu) ; une chaîne qui devient inactive remet elle-même ses manettes
+//!   au repos (touches relâchées, axes au centre, gâchettes relâchées) ;
 //! - **les vibrations** : seulement depuis la session active (une chaîne
-//!   inactive les ignore) ; jouées ici avec le fil SDL, par l'app sinon
+//!   inactive les ignore, et arrête en passant derrière celles qu'elle avait
+//!   lancées) ; jouées ici avec le fil SDL, par l'app sinon
 //!   (`InputPlatform::rumble`, comme avant).
 //!
 //! Une app à une session se comporte comme avant : sa session est active.
@@ -131,7 +135,8 @@ impl Gamepads {
         }
     }
 
-    /// Une touche : à la session active.
+    /// Une touche : un appui à la session active, un relâchement à toutes
+    /// (une chaîne qui n'avait rien reçu l'ignore côté ordinateur).
     pub fn button(&self, id: PadId, button: PadButton, pressed: bool) {
         {
             let mut state = self.state.lock().unwrap();
@@ -142,9 +147,16 @@ impl Gamepads {
                 pad.pressed.remove(&button);
             }
         }
-        for t in self.targets().into_iter().filter(|t| t.is_active()) {
+        for t in self.targets().into_iter().filter(|t| !pressed || t.is_active()) {
             t.gamepad_button(id, button, pressed);
         }
+    }
+
+    /// Le fil SDL se ferme : ses manettes sont oubliées (sans les débrancher
+    /// des sessions : il n'y en a plus).
+    #[cfg_attr(not(feature = "sdl"), allow(dead_code))]
+    pub(crate) fn forget_all(&self) {
+        self.state.lock().unwrap().pads.clear();
     }
 
     /// Un axe : à la session active (filtré et regroupé par sa chaîne).
@@ -183,15 +195,18 @@ pub fn global() -> &'static Gamepads {
     GLOBAL.get_or_init(Gamepads::new)
 }
 
-/// Le fil SDL du lecteur (Mac, Windows) : les manettes sont lues par SDL
-/// (GameController) sur un fil du cœur, `kybernow-manettes`, et routées vers
-/// les sessions ; les vibrations de la session active y sont jouées. Une
-/// fois par processus (les appels suivants ne font rien) ; à n'appeler que
-/// si rien d'autre n'ouvre SDL dans l'app (pas sous Linux) et avec une
-/// libkynput construite sans son lecteur SDL. `false` : cœur construit sans
-/// SDL (feature `sdl`), libkynput qui a encore son lecteur SDL (les deux se
-/// voleraient leurs événements : ses manettes restent alors celles de
-/// kynput), ou SDL n'a pas pu s'ouvrir.
+/// Le fil SDL du lecteur (Mac, Windows), gardé pour toute la vie de l'app :
+/// les manettes sont lues par SDL (GameController) sur un fil du cœur,
+/// `kybernow-manettes`, et routées vers les sessions ; les vibrations de la
+/// session active y sont jouées. Inutile d'ordinaire : le fil démarre tout
+/// seul avec la première chaîne d'entrées et se ferme 5 s après la dernière
+/// (SDL garde les manettes qu'il a ouvertes : diode de joueur, mode HIDAPI
+/// des manettes Sony et Nintendo) ; ne l'appeler que pour lire les manettes
+/// hors session. Seulement si rien d'autre n'ouvre SDL dans l'app (pas sous
+/// Linux) et avec une libkynput construite sans son lecteur SDL. `false` :
+/// cœur construit sans SDL (feature `sdl`), libkynput qui a encore son
+/// lecteur SDL (les deux se voleraient leurs événements : ses manettes
+/// restent alors celles de kynput), ou SDL n'a pas pu s'ouvrir.
 pub fn start_sdl() -> bool {
     #[cfg(feature = "sdl")]
     {
@@ -201,7 +216,7 @@ pub fn start_sdl() -> bool {
             return false;
         }
         drop(probe);
-        sdl::start()
+        sdl::start(true)
     }
     #[cfg(not(feature = "sdl"))]
     {
@@ -210,11 +225,17 @@ pub fn start_sdl() -> bool {
     }
 }
 
-/// Le fil SDL, quand la chaîne d'entrées qui le demande a déjà vu que
-/// libkynput n'a pas de lecteur SDL.
-pub(crate) fn start_sdl_for_chain() {
+/// Une chaîne d'entrées lit ses manettes par le fil SDL (elle a vu que
+/// libkynput n'a pas de lecteur SDL) : il démarre s'il ne tourne pas.
+pub(crate) fn hold_sdl() {
     #[cfg(feature = "sdl")]
-    sdl::start();
+    sdl::acquire();
+}
+
+/// Cette chaîne s'arrête : sans plus aucune, le fil SDL se ferme 5 s après.
+pub(crate) fn release_sdl() {
+    #[cfg(feature = "sdl")]
+    sdl::release();
 }
 
 /// Le cœur sait lire les manettes par SDL (feature `sdl` : Mac, Windows).
@@ -414,9 +435,39 @@ mod tests {
             Arc::new(Host::default()),
         );
         let r = GamepadRumble { id: 0, large_motor: 40_000, small_motor: 0, duration_ms: 100 };
+        let quiet = GamepadRumble { id: 1, large_motor: 0, small_motor: 0, duration_ms: 0 };
         p.rumble_received(r);
+        p.rumble_received(quiet);
         p.set_active(false);
+        let stop = GamepadRumble { id: 0, large_motor: 0, small_motor: 0, duration_ms: 0 };
+        assert_eq!(*rumbles.0.lock().unwrap(), [r, quiet, stop], "en passant derrière, la vibration lancée par cette session s'arrête");
         p.rumble_received(r);
-        assert_eq!(rumbles.0.lock().unwrap().len(), 1, "ignorée en arrière-plan");
+        p.rumble_received(stop);
+        assert_eq!(rumbles.0.lock().unwrap().len(), 3, "puis ses vibrations sont ignorées, arrêt du jeu compris");
+        p.set_active(true);
+        p.set_active(false);
+        assert_eq!(rumbles.0.lock().unwrap().len(), 3, "rien ne vibrait : rien à arrêter");
+    }
+
+    #[test]
+    fn relachement_a_toutes_les_sessions() {
+        let clock = Arc::new(ManualClock::new());
+        let pads = Gamepads::new();
+        let (a, host_a) = chain(&clock);
+        let (b, host_b) = chain(&clock);
+        pads.attach(&a);
+        pads.attach(&b);
+        b.set_active(false);
+        pads.plug(0, None, None);
+        pads.button(0, PadButton::A, true);
+        a.set_active(false);
+        b.set_active(true);
+        host_a.clear();
+        host_b.clear();
+        pads.button(0, PadButton::A, false);
+        assert_eq!(host_a.received(), ["manette 0 A relâchée"], "un relâchement va aussi aux sessions derrière : rien ne reste tenu");
+        assert_eq!(host_b.received(), ["manette 0 A relâchée"]);
+        pads.button(0, PadButton::B, true);
+        assert_eq!(host_a.received().len(), 1, "un appui, à l'active seule");
     }
 }

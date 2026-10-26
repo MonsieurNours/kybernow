@@ -190,6 +190,14 @@ pub trait Platform: Send + Sync {
     /// Un jeu est en plein écran sur l'ordinateur (souris Auto).
     fn on_game_fullscreen(&self, _game: bool) {}
     fn on_notice(&self, _notice: &Notice) {}
+    /// Juste avant [`Status::Ending`] : la raison de la fin quand elle
+    /// n'était pas voulue (la même que celle de [`Status::Ended`], qui suit
+    /// après la fin dite à Admin), `None` sinon. Une app y voit tout de suite
+    /// que c'est un échec (plusieurs ordinateurs : la fenêtre d'une session
+    /// suivante montre « Fermer ») ; sans rien ici, rien ne change.
+    /// `Status::Ending` reste sans champ, pour ne pas casser les apps qui le
+    /// filtrent par son nom.
+    fn on_ending(&self, _error: Option<&str>) {}
 
     // Multi-écrans ([`Session::start_with_screens`]) : rien à faire pour une
     // app qui n'ouvre que des sessions à un écran.
@@ -2472,6 +2480,9 @@ impl Worker {
     fn finish(&mut self, error: Option<String>) {
         self.ending = true;
         self.alive.store(false, Ordering::Relaxed);
+        // La raison d'un échec dès l'état « fin en cours » : Admin peut mettre
+        // quelques secondes à répondre avant `Ended`.
+        self.platform.on_ending(error.as_deref());
         self.status(Status::Ending);
         let report = match self.end_report.take() {
             // Déjà dite à Admin avant le redémarrage de la Station.
@@ -2825,6 +2836,8 @@ mod tests {
     #[derive(Default)]
     struct Recorder {
         screens: Mutex<Vec<(Vec<usize>, Vec<usize>)>>,
+        /// États et raisons de fin reçus, dans l'ordre.
+        events: Mutex<Vec<String>>,
     }
 
     impl Platform for Recorder {
@@ -2840,7 +2853,17 @@ mod tests {
         fn input_pipeline(&self) -> Pipeline {
             unreachable!("pas d'image dans ces tests")
         }
-        fn on_status(&self, _: &Status) {}
+        fn on_status(&self, s: &Status) {
+            let line = match s {
+                Status::Ending => "fin en cours".to_string(),
+                Status::Ended { error, .. } => format!("terminée {error:?}"),
+                other => format!("{other:?}"),
+            };
+            self.events.lock().unwrap().push(line);
+        }
+        fn on_ending(&self, error: Option<&str>) {
+            self.events.lock().unwrap().push(format!("raison {error:?}"));
+        }
         fn on_display(&self, _: &Display) {}
         fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
             self.screens.lock().unwrap().push((screens.iter().map(|s| s.screen).collect(), not_created.to_vec()));
@@ -2878,6 +2901,20 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let w = Worker::new(params, Some(screens), recorder.clone(), tx, rx, Arc::new(LatencyTracker::new()), Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)), FocusState::new());
         (w, recorder)
+    }
+
+    #[test]
+    fn raison_d_un_echec_des_la_fin_en_cours() {
+        let (mut w, rec) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.finish(Some("Admin ne répond pas".into()));
+        assert_eq!(
+            *rec.events.lock().unwrap(),
+            ["raison Some(\"Admin ne répond pas\")", "fin en cours", "terminée Some(\"Admin ne répond pas\")"],
+            "la raison arrive juste avant « fin en cours », la même qu'à la fin"
+        );
+        let (mut w, rec) = worker(crate::profile::Profile::Jeu, two_screens(0));
+        w.finish(None);
+        assert_eq!(*rec.events.lock().unwrap(), ["raison None", "fin en cours", "terminée None"], "fin voulue : pas de raison");
     }
 
     // Plusieurs ordinateurs : l'état de la session suit les chaînes d'entrées
