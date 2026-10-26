@@ -43,6 +43,10 @@
 #   0016  débit par écran (kycontroller) : le débit d'une session à plusieurs
 #         écrans se répartit selon les pixels par seconde de chaque écran
 #         (parts égales si un mode est inconnu), au démarrage et à /set_bitrate
+#   0017  diagnostic de la capture (txproto) : à la première image des trois
+#         premières captures d'un écran, taille et format de la texture DXGI,
+#         mode et position de l'écran, premières et dernières colonnes non
+#         noires de la ligne du milieu (image décalée dans la texture ?)
 #
 # Prérequis (Homebrew) : mingw-w64 meson ninja nasm cmake bison lua@5.4
 # binaryen, wasm-bindgen-cli (cargo install), rustup target
