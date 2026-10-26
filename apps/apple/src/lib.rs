@@ -584,9 +584,12 @@ pub const KN_STATUS_RECONNECTING: u32 = 4;
 pub const KN_STATUS_ENDING: u32 = 5;
 pub const KN_STATUS_ENDED: u32 = 6;
 
-/// État de la session. Terminée : `error` dit pourquoi si la fin n'était
-/// pas voulue ; `has_report` et les champs suivants, ce que la console a
-/// confirmé (écrans et son rétablis, ou son erreur).
+/// État de la session. Fin en cours (`KN_STATUS_ENDING`) et terminée
+/// (`KN_STATUS_ENDED`) : `error` dit pourquoi si la fin n'était pas voulue
+/// (la même raison les deux fois ; dès `KN_STATUS_ENDING`, l'app sait que
+/// c'est un échec sans attendre la réponse d'Admin) ; nul sinon, et pour les
+/// autres états. Terminée : `has_report` et les champs suivants, ce que la
+/// console a confirmé (écrans et son rétablis, ou son erreur).
 #[repr(C)]
 pub struct KnStatus {
     pub kind: u32,
@@ -725,6 +728,8 @@ pub struct KnPlatform {
 struct ApplePlatform {
     cb: KnPlatform,
     streams: AtomicU64,
+    /// Raison d'un échec, donnée juste avant `Status::Ending` (`on_ending`).
+    ending_error: Mutex<Option<String>>,
 }
 
 unsafe impl Send for ApplePlatform {}
@@ -800,6 +805,7 @@ impl Platform for ApplePlatform {
         };
         let (error, report): (Option<String>, Option<EndReport>) = match status {
             Status::Ended { error, report } => (error.clone(), report.clone()),
+            Status::Ending => (self.ending_error.lock().unwrap().take(), None),
             _ => (None, None),
         };
         let error_c = error.map(|e| CString::new(e.replace('\0', " ")).unwrap_or_default());
@@ -883,6 +889,11 @@ impl Platform for ApplePlatform {
         if let Some(f) = self.cb.on_game_fullscreen {
             unsafe { f(self.cb.userdata, game) };
         }
+    }
+
+    /// Gardée pour `KN_STATUS_ENDING`, qui suit tout de suite.
+    fn on_ending(&self, error: Option<&str>) {
+        *self.ending_error.lock().unwrap() = error.map(str::to_string);
     }
 
     fn on_notice(&self, notice: &Notice) {
@@ -1079,7 +1090,7 @@ pub unsafe extern "C" fn kn_session_start(
             restart_station: wire.recovery.restart_station,
         },
     };
-    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0) });
+    let platform = Arc::new(ApplePlatform { cb: *cb, streams: AtomicU64::new(0), ending_error: Mutex::new(None) });
     let session = match wire.screens {
         Some(screens) => Session::start_with_screens(params, screens, platform),
         None => Session::start(params, platform),
@@ -1428,11 +1439,13 @@ pub extern "C" fn kn_focus_max() -> u32 {
     focus::MAX_SESSIONS as u32
 }
 
-/// Mac : le lecteur de manettes du cœur, sur son fil SDL, pour toutes les
-/// sessions (au lancement de l'app ; il démarre aussi tout seul à la
-/// première chaîne d'entrées). Faux sur l'Apple TV, l'iPhone et l'iPad (pas
-/// de SDL : leurs manettes passent par GameController dans l'app), ou si SDL
-/// n'a pas pu s'ouvrir.
+/// Mac : le lecteur de manettes du cœur, sur son fil SDL, gardé pour toute
+/// la vie de l'app, manettes ouvertes dès l'appel (diode de joueur, mode
+/// HIDAPI). Inutile d'ordinaire : le lecteur démarre avec la première chaîne
+/// d'entrées et se ferme 5 s après la dernière ; seulement pour lire les
+/// manettes hors session. Faux sur l'Apple TV, l'iPhone et l'iPad (pas de
+/// SDL : leurs manettes passent par GameController dans l'app), si libkynput
+/// a encore son lecteur SDL, ou si SDL n'a pas pu s'ouvrir.
 #[unsafe(no_mangle)]
 pub extern "C" fn kn_gamepads_start_sdl() -> bool {
     gamepads::start_sdl()

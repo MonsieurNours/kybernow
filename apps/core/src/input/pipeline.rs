@@ -168,6 +168,15 @@ pub struct InputPipeline {
     reader_attached: AtomicBool,
     /// Le nom de l'ordinateur au début des lignes du journal.
     label: Arc<Label>,
+    /// Passage d'active à inactive, et appuis (touches, clics, manettes) et
+    /// axes de l'app : jamais en même temps. Un appui qui a vu la chaîne
+    /// active part avant la mise au repos, jamais après.
+    switch: Mutex<()>,
+    /// La chaîne tient le fil SDL du cœur (à rendre à l'arrêt).
+    sdl_held: AtomicBool,
+    /// Manettes que l'ordinateur fait vibrer par cette chaîne (arrêtées
+    /// quand elle passe derrière).
+    rumbling: Mutex<HashSet<PadId>>,
 }
 
 /// Les axes d'une tranche de 4 ms partent ensemble.
@@ -226,7 +235,7 @@ impl InputPipeline {
         // par celui du cœur (un seul pour toutes les sessions de l'app).
         let core_pads = !options.gamepads_from_app && crate::gamepads::sdl_compiled() && !kynput.produces_type(InputType::GamepadEvent);
         if core_pads {
-            crate::gamepads::start_sdl_for_chain();
+            crate::gamepads::hold_sdl();
         }
         let app_pads = options.gamepads_from_app || core_pads;
         let clipboard = options.clipboard.map(|board| ClipboardBridge::new(board, clock.clone()));
@@ -265,6 +274,9 @@ impl InputPipeline {
                 core_pads,
                 reader_attached: AtomicBool::new(false),
                 label,
+                switch: Mutex::new(()),
+                sdl_held: AtomicBool::new(core_pads),
+                rumbling: Mutex::new(HashSet::new()),
             }
         });
         let weak = Arc::downgrade(&this);
@@ -504,11 +516,16 @@ impl InputPipeline {
     /// passent toujours), touches et clics tenus relâchés, manettes au repos
     /// (touches relâchées, axes au centre, gâchettes relâchées), souris
     /// relative coupée (reprise au retour), presse-papiers en pause (rien lu
-    /// sur l'appareil, rien écrit dessus), vibrations ignorées. De nouveau
-    /// active : le contenu du presse-papiers de l'appareil est annoncé à
-    /// l'ordinateur. Par défaut, une chaîne est active. La session la tient
-    /// d'un démarrage de l'image à l'autre ([`crate::session::Session::set_active`]).
+    /// sur l'appareil, rien écrit dessus), vibrations en cours arrêtées puis
+    /// ignorées (l'arrêt envoyé ensuite par le jeu le serait aussi). De
+    /// nouveau active : le contenu du presse-papiers de l'appareil est
+    /// annoncé à l'ordinateur. Par défaut, une chaîne est active. La session
+    /// la tient d'un démarrage de l'image à l'autre
+    /// ([`crate::session::Session::set_active`]).
     pub fn set_active(&self, active: bool) {
+        // Aucun appui ni axe de l'app pendant le passage : ce qui a vu la
+        // chaîne active est parti avant la mise au repos.
+        let _switch = self.switch.lock().unwrap();
         if self.active.swap(active, Ordering::SeqCst) == active {
             return;
         }
@@ -527,6 +544,7 @@ impl InputPipeline {
         self.apply_relative();
         self.release_all();
         self.rest_gamepads();
+        self.stop_rumble();
     }
 
     pub fn is_active(&self) -> bool {
@@ -572,15 +590,40 @@ impl InputPipeline {
 
     /// Vibration reçue de l'ordinateur : ignorée si la session n'est pas
     /// active ; jouée par le fil SDL du cœur s'il tourne, et donnée à la
-    /// plateforme.
+    /// plateforme. Sur le fil réseau de kynput, sous le verrou de son routeur :
+    /// pas le verrou du passage (`switch`, pris par `set_active` avant
+    /// d'envoyer), celui des vibrations, que `set_active` prend après avoir
+    /// basculé.
     pub(crate) fn rumble_received(&self, r: GamepadRumble) {
+        let mut rumbling = self.rumbling.lock().unwrap();
         if !self.is_active() {
             return;
         }
+        if r.large_motor != 0 || r.small_motor != 0 {
+            rumbling.insert(r.id);
+        } else {
+            rumbling.remove(&r.id);
+        }
+        self.play_rumble(r);
+    }
+
+    fn play_rumble(&self, r: GamepadRumble) {
         if self.reader_attached() || self.core_pads {
             crate::gamepads::rumble(r);
         }
         self.platform.rumble(r);
+    }
+
+    /// La chaîne passe derrière : les manettes qu'elle faisait vibrer
+    /// s'arrêtent (vibration nulle) ; leurs vibrations suivantes, arrêt du
+    /// jeu compris, sont ignorées.
+    fn stop_rumble(&self) {
+        let mut rumbling = self.rumbling.lock().unwrap();
+        let mut pads: Vec<PadId> = rumbling.drain().collect();
+        pads.sort_unstable();
+        for id in pads {
+            self.play_rumble(GamepadRumble { id, large_motor: 0, small_motor: 0, duration_ms: 0 });
+        }
     }
 
     /// Paquets refusés par kynput, jamais arrivés.
@@ -604,7 +647,15 @@ impl InputPipeline {
         }
         let _ = self.kynput.flush_keys();
         self.stopped.store(true, Ordering::Relaxed);
+        self.release_sdl();
         self.wake();
+    }
+
+    /// Le fil SDL du cœur n'est plus tenu par cette chaîne (une fois).
+    fn release_sdl(&self) {
+        if self.sdl_held.swap(false, Ordering::SeqCst) {
+            crate::gamepads::release_sdl();
+        }
     }
 
     pub fn is_stopped(&self) -> bool {
@@ -672,6 +723,7 @@ impl InputPipeline {
     /// Touche par son scancode (Windows : tel quel ; Apple : `keymap::scancode`).
     /// Notée dans [`Self::held`] pour « tout relâcher ».
     pub fn key(&self, scancode: u16, pressed: bool) {
+        let _switch = self.switch.lock().unwrap();
         if pressed && !self.is_active() {
             return;
         }
@@ -701,6 +753,7 @@ impl InputPipeline {
     }
 
     pub fn mouse_button(&self, button: MouseButtonType, pressed: bool) {
+        let _switch = self.switch.lock().unwrap();
         if pressed && !self.is_active() {
             return;
         }
@@ -767,6 +820,7 @@ impl InputPipeline {
 
     /// Touche de manette : envoyée tout de suite, et passée à la combinaison.
     pub fn gamepad_button(&self, id: PadId, button: PadButton, pressed: bool) {
+        let _switch = self.switch.lock().unwrap();
         if pressed && !self.is_active() {
             return;
         }
@@ -816,6 +870,7 @@ impl InputPipeline {
 
     /// Valeur d'un axe produit par l'app : filtrée, regroupée, envoyée (voir ci-dessus).
     pub fn gamepad_axis(&self, id: PadId, axis: PadAxis, value: i16) {
+        let _switch = self.switch.lock().unwrap();
         if value != 0 && !self.is_active() {
             return;
         }
@@ -850,6 +905,7 @@ impl InputPipeline {
     }
 
     fn flush_axes(&self) {
+        let _switch = self.switch.lock().unwrap();
         let mut axes = self.axes.lock().unwrap();
         let Some(at) = axes.flush_at else { return };
         let now = self.clock.now();
@@ -858,6 +914,12 @@ impl InputPipeline {
         }
         axes.flush_at = None;
         let mut pending = std::mem::take(&mut axes.pending);
+        if !self.is_active() {
+            // Passée derrière depuis : seuls les retours au repos partent.
+            for values in pending.values_mut() {
+                values.retain(|_, value| *value == 0);
+            }
+        }
         for (id, values) in pending.iter_mut() {
             values.retain(|axis, value| !self.send_axis(*id, *axis, *value));
         }
@@ -960,6 +1022,7 @@ impl InputPipeline {
 
 impl Drop for InputPipeline {
     fn drop(&mut self) {
+        self.release_sdl();
         self.stopped.store(true, Ordering::Relaxed);
         *self.driver.woken.lock().unwrap() = true;
         self.driver.cvar.notify_all();
@@ -1277,6 +1340,60 @@ mod tests {
         // l'ordinateur (sans écran virtuel) va à la couche principale, comme avant.
         b.pipeline.set_screens(vec![ScreenTarget { screen: 0, display_id: 1, host_size: (1920, 1080), pointer: None }]);
         assert!(Arc::ptr_eq(&b.pipeline.pointer_for(5).unwrap(), b.pipeline.pointer()));
+    }
+
+    #[test]
+    fn axes_en_attente_jetes_derriere() {
+        let b = Bench::new();
+        b.pipeline.set_active(false);
+        b.host.clear();
+        // Un axe arrivé juste avant le passage, encore en attente de sa tranche.
+        {
+            let mut axes = b.pipeline.axes.lock().unwrap();
+            axes.pending.entry(4).or_default().insert(PadAxis::LeftX, 9000);
+            axes.pending.entry(4).or_default().insert(PadAxis::LeftY, 0);
+            axes.flush_at = Some(b.clock.now() + AXIS_SLICE);
+        }
+        b.elapse(4);
+        assert_eq!(b.host.received(), [format!("axe 4 {} 0", PadAxis::LeftY.to_u32())], "seul le retour au repos part");
+        b.pipeline.gamepad_axis(4, PadAxis::LeftX, 12_000);
+        b.elapse(4);
+        assert_eq!(b.host.received().len(), 1, "et rien de neuf en arrière-plan");
+    }
+
+    /// Un fil appuie et relâche sans arrêt pendant que la session passe
+    /// derrière : une fois `set_active(false)` revenu, plus aucun appui ne
+    /// part (ce qui avait vu la chaîne active est parti avant la mise au repos).
+    #[test]
+    fn aucun_appui_apres_le_passage_derriere() {
+        for _ in 0..20 {
+            let b = Bench::new();
+            b.pipeline.gamepad_plug(0, None, None);
+            let p = b.pipeline.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let s = stop.clone();
+            let presser = std::thread::spawn(move || {
+                let mut i = 0u32;
+                while !s.load(Ordering::Relaxed) {
+                    p.gamepad_button(0, PadButton::A, true);
+                    p.key(0x1E, true);
+                    p.gamepad_axis(0, PadAxis::LeftX, 1000 + (i % 30) as i16 * 512);
+                    p.gamepad_button(0, PadButton::A, false);
+                    p.key(0x1E, false);
+                    i += 1;
+                }
+            });
+            std::thread::sleep(Duration::from_millis(2));
+            b.pipeline.set_active(false);
+            let after = b.host.received().len();
+            std::thread::sleep(Duration::from_millis(2));
+            stop.store(true, Ordering::Relaxed);
+            presser.join().unwrap();
+            b.elapse(8);
+            let late: Vec<String> = b.host.received()[after..].to_vec();
+            let pressed_or_moved = |r: &String| r.ends_with("appuyée") || (r.starts_with("axe ") && !r.ends_with(" 0"));
+            assert!(!late.iter().any(pressed_or_moved), "après le passage : {late:?}");
+        }
     }
 
     #[test]
