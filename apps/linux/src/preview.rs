@@ -818,6 +818,9 @@ mod tests {
 
     /// Une session à l'image : barre fermée, menus fermés, souris du bureau.
     fn streaming(layout: Layout) -> (App, Canvas) {
+        // Les captures en anglais des autres tests changent la langue de tous les fils : celui de cet essai reste en
+        // français (les largeurs de la barre en dépendent).
+        crate::i18n::force_english(false);
         let mut app = demo(false, layout);
         let mut cv = Canvas::new();
         cv.resize(1280, 800, 1.0);

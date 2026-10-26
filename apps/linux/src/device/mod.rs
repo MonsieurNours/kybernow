@@ -1107,16 +1107,46 @@ pub fn run(args: &[String]) {
         present = false;
     }
 
-    // Quitter l'app termine toutes les sessions.
-    for l in lives.iter() {
-        l.handle.session.stop();
-    }
+    // Quitter l'app termine toutes les sessions, et attend que chaque ordinateur soit prévenu.
+    stop_all(&lives, &wins);
     for c in pairing.drain(..) {
         c.store(true, Ordering::Relaxed);
     }
     app.store.save();
     unsafe { sdl::SDL_Quit() };
     log::info!("KyberNow Link s'arrête");
+}
+
+/// Combien de temps l'app attend, au plus, que les ordinateurs soient prévenus quand elle se ferme.
+const QUIT_WAIT: Duration = Duration::from_secs(8);
+
+/// Quitter l'app : chaque session est arrêtée puis attendue (`Session::stop`, `Session::wait` : la Station est
+/// prévenue, ses écrans, son son et ses manettes reviennent), les sessions en parallèle et au plus `QUIT_WAIT`
+/// en tout, comme l'app Windows. Les fenêtres se cachent pendant l'attente : l'app a l'air fermée.
+fn stop_all(lives: &Lives, wins: &Wins) {
+    if lives.is_empty() {
+        return;
+    }
+    for w in &wins.list {
+        unsafe { sdl::SDL_HideWindow(w.window) };
+    }
+    let started = Instant::now();
+    let (done_tx, done_rx) = channel::<()>();
+    for l in lives.iter() {
+        l.handle.session.stop();
+        let (session, done) = (l.handle.session.clone(), done_tx.clone());
+        std::thread::spawn(move || {
+            session.wait();
+            let _ = done.send(());
+        });
+    }
+    for _ in 0..lives.0.len() {
+        if done_rx.recv_timeout(QUIT_WAIT.saturating_sub(started.elapsed())).is_err() {
+            log::warn!("fin de l'app : un ordinateur n'a pas répondu en {} s, l'app se ferme quand même", QUIT_WAIT.as_secs());
+            return;
+        }
+    }
+    log::info!("fin de l'app : {} session(s) terminée(s) en {} ms", lives.0.len(), started.elapsed().as_millis());
 }
 
 /// La fenêtre de la session active passe devant quand l'activation ne vient pas d'elle : « Afficher »,
@@ -1645,6 +1675,35 @@ fn host_point(win: &Win, l: &Live, x: i32, y: i32) -> Option<(i16, i16)> {
     Some((hx as i16, hy as i16))
 }
 
+/// Le bouton de la souris de SDL (1 gauche, 2 milieu, 3 droit, 4 et 5 latéraux) pour kynput.
+fn mouse_button(b: u8) -> MouseButtonType {
+    match b {
+        3 => MouseButtonType::Right,
+        2 => MouseButtonType::Middle,
+        4 => MouseButtonType::Side,
+        5 => MouseButtonType::Extra,
+        _ => MouseButtonType::Left,
+    }
+}
+
+/// Le clic qui vient de rendre la session `id` active (sa fenêtre n'avait pas le focus) part aussi à son
+/// ordinateur, au pointeur : il suit le chemin d'un clic ordinaire (position, puis bouton), quand la session est à
+/// l'image et que sa souris est celle du bureau ; en souris des jeux, seul le bouton part. Le relâchement, lui,
+/// arrive à une session déjà active et suit le chemin ordinaire.
+#[allow(clippy::too_many_arguments)]
+fn forward_click(app: &App, lives: &Lives, wins: &Wins, wi: usize, id: SessionId, b: u8, x: i32, y: i32) {
+    let Some(s) = app.session_by(id) else { return };
+    let streaming = s.running() && app.screen == Screen::Session && !s.menu && !s.keys && matches!(s.phase, Phase::Streaming | Phase::Reconnecting { .. });
+    let Some(l) = lives.get(id).filter(|_| streaming) else { return };
+    let Some(p) = l.handle.shared.current_input() else { return };
+    if !s.relative
+        && let Some((hx, hy)) = host_point(&wins.list[wi], l, x, y)
+    {
+        p.mouse_on(wins.list[wi].screen, hx, hy);
+    }
+    p.mouse_button(mouse_button(b), true);
+}
+
 /// Un clic ou un survol dans une fenêtre s'adresse aux éléments de cette fenêtre (son dernier dessin),
 /// pas à ceux de la fenêtre de la session active : `App` les lit dans `hits`.
 fn in_window<R>(app: &mut App, win: &mut Win, f: impl FnOnce(&mut App) -> R) -> R {
@@ -1698,18 +1757,21 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                 app.pointer = Some(to_ui(&wins.list[wi], app.layout, x, y));
                 *dirty = true;
             }
-            // Un clic rend la session de la fenêtre active, et agit sur ses éléments (Annuler, Retour…) s'il en touche un.
+            // Le clic qui fait passer la fenêtre devant rend sa session active, puis suit son chemin : sur un
+            // élément de la fenêtre (Annuler, Fermer…) il agit sur lui, sinon il va aussi à son ordinateur, comme avec
+            // une seule session, que le gestionnaire de fenêtres ait envoyé le focus avant le clic ou après (le
+            // clic est gardé ici, la session est active, puis il part : une fois).
             sdl::SDL_MOUSEBUTTONDOWN => {
                 let (b, x, y, _) = ev.button();
-                if b == 1
-                    && let Some(id) = ws
-                {
+                if let Some(id) = ws {
                     let (ux, uy) = to_ui(&wins.list[wi], app.layout, x, y);
-                    let on_ui = wins.list[wi].hits.iter().any(|(_, r)| r.contains(ux, uy));
+                    let on_ui = b == 1 && wins.list[wi].hits.iter().any(|(_, r)| r.contains(ux, uy));
                     focus::activate(app, lives, id);
                     if on_ui {
                         app.pointer = Some((ux, uy));
                         actions.extend(in_window(app, &mut wins.list[wi], |app| app.pointer_click(ux, uy)));
+                    } else {
+                        forward_click(app, lives, wins, wi, id, b, x, y);
                     }
                     *dirty = true;
                 }
@@ -1987,14 +2049,7 @@ fn handle_sdl(ev: &sdl::SDL_Event, app: &mut App, pads: &mut pads::Pads, lives: 
                     {
                         p.mouse_on(wins.list[wi].screen, hx, hy);
                     }
-                    let button = match b {
-                        3 => MouseButtonType::Right,
-                        2 => MouseButtonType::Middle,
-                        4 => MouseButtonType::Side,
-                        5 => MouseButtonType::Extra,
-                        _ => MouseButtonType::Left,
-                    };
-                    p.mouse_button(button, down);
+                    p.mouse_button(mouse_button(b), down);
                 }
                 return;
             }
@@ -2353,6 +2408,21 @@ fn session_event(id: SessionId, e: SessionEvent, app: &mut App, pads: &mut pads:
             }
             let finished = matches!(s.phase, Phase::Ended { error: None });
             let failed = matches!(s.phase, Phase::Ended { .. }) && !finished;
+            // Une session finie n'a plus la souris des jeux (la carte d'erreur est une carte de l'interface) ; si
+            // elle était l'active, le pointeur est rendu et visible tout de suite (l'état de SDL suit ensuite
+            // d'après les sessions qui restent : `focus::sync`).
+            if finished || failed {
+                s.relative = false;
+                s.bar = false;
+                s.bar_menu = None;
+                if is_active {
+                    unsafe {
+                        sdl::SDL_SetRelativeMouseMode(0);
+                        sdl::SDL_ShowCursor(1);
+                        sdl::SDL_SetCursor(sdl::SDL_GetDefaultCursor());
+                    }
+                }
+            }
             if finished {
                 // Fin sans erreur : la session sort de la liste, sa fenêtre se ferme ; la dernière ramène l'accueil.
                 app.close_session(id);
@@ -2814,7 +2884,14 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
         screens::core_screens(&devices, window_screen, &h, station_screens(app, &h), capabilities, app.machine.on_battery())
     });
     let mut base = if first { all } else { all.map(|a| kybernow_core::screens::screens_for_extra_session(&a)) };
-    let extra_window = if first { None } else { base.as_ref().and_then(|b| b.list.get(b.current)).map(kybernow_core::screens::extra_session_window) };
+    // Une session de plus a toujours sa propre fenêtre, jamais celle de l'app : sur l'écran de la fenêtre active, à
+    // défaut sur le premier écran que le cœur connaît ; sans aucun écran, elle ne démarre pas.
+    let extra_window = if first {
+        None
+    } else {
+        let Some(w) = base.as_ref().and_then(|b| b.list.get(b.current).or_else(|| b.list.first())).map(kybernow_core::screens::extra_session_window) else { return };
+        Some(w)
+    };
     // Le mode : celui de l'écran de la fenêtre, ou, pour une session de plus, la surface de sa fenêtre.
     let surface = extra_window.map(|w| ((w.mode.width, w.mode.height), w.mode.refresh));
     let first_mode = match surface {
@@ -2918,18 +2995,18 @@ fn connect(app: &mut App, lives: &mut Lives, wins: &mut Wins, tx: &Sender<Event>
         changed: None,
     };
     let vsync = if first { wants_vsync(app, &h) } else { false };
-    match own_window {
-        // Une session de plus : sa fenêtre, par-dessus.
-        Some(w) => wins.list.push(w),
+    if first {
         // La première : la fenêtre de l'app, qui porte son titre.
-        None => {
-            let w = wins.app();
-            w.session = Some(id);
-            w.extra = false;
-            sdl::set_title(w.window, &title);
-            w.screen = current;
-            w.set_vsync(vsync);
-        }
+        let w = wins.app();
+        w.session = Some(id);
+        w.extra = false;
+        sdl::set_title(w.window, &title);
+        w.screen = current;
+        w.set_vsync(vsync);
+    } else if let Some(w) = own_window {
+        // Une session de plus : sa fenêtre, par-dessus. Jamais celle de la première : `own_window` existe
+        // forcément ici (sans fenêtre, la session n'a pas démarré).
+        wins.list.push(w);
     }
     app.open_session(ui);
     app.screen = Screen::Session;
@@ -3359,16 +3436,58 @@ mod tests {
         assert_eq!((app.active_id(), active_of(&lives), focus::next(&lives)), (Some(2), Some(2), Some(1)));
         connect(&mut app, &mut lives, &mut wins, &tx, "inconnu", jeu);
         assert_eq!(app.sessions.len(), 2);
+        // Le clic qui fait passer une fenêtre devant rend sa session active (cœur et interface), que le focus
+        // arrive avant ou après le clic ; il n'est pas perdu (la session des essais n'est pas à l'image : seule
+        // l'activation se voit ici, `forward_click` n'envoie rien tant qu'il n'y a pas d'image ni de chaîne d'entrées).
+        focus::activate(&mut app, &lives, 1);
+        let second_window = wins.list[wins.main_of(2).unwrap()].id;
+        let (mut actions, mut dirty, mut quit, mut start_down) = (Vec::new(), false, false, None);
+        let mut ev = sdl::SDL_Event::default();
+        ev.raw[0..4].copy_from_slice(&sdl::SDL_MOUSEBUTTONDOWN.to_ne_bytes());
+        ev.raw[8..12].copy_from_slice(&second_window.to_ne_bytes());
+        ev.raw[16] = 1;
+        ev.raw[20..24].copy_from_slice(&10i32.to_ne_bytes());
+        ev.raw[24..28].copy_from_slice(&10i32.to_ne_bytes());
+        assert_eq!((app.active_id(), active_of(&lives)), (Some(1), Some(1)));
+        handle_sdl(&ev, &mut app, &mut pads, &mut lives, &mut wins, &mut actions, &mut dirty, &mut quit, &mut start_down);
+        assert_eq!((app.active_id(), active_of(&lives), dirty), (Some(2), Some(2), true), "le clic active la session de la fenêtre");
         // Quatre au plus : les deux suivantes s'ouvrent, la cinquième est refusée (interface et cœur).
         connect(&mut app, &mut lives, &mut wins, &tx, "c", jeu);
         connect(&mut app, &mut lives, &mut wins, &tx, "d", jeu);
         assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (4, 4, 4));
         connect(&mut app, &mut lives, &mut wins, &tx, "e", jeu);
         assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (4, 4, 4));
-        for id in [4, 3] {
+        // Une session s'arrête sans « Se déconnecter » (le cœur dit pourquoi), pendant qu'elle est active et en
+        // souris des jeux : son message reste dans sa fenêtre, la souris est rendue, le cœur l'a désinscrite et elle
+        // ne compte plus (quatre au plus, « Garder le son », « Afficher »).
+        focus::activate(&mut app, &lives, 4);
+        app.session_by_mut(4).unwrap().relative = true;
+        session_event(4, SessionEvent::Status(Status::Ended { error: Some("Un autre appareil a pris la main".into()), report: None }), &mut app, &mut pads, &mut lives, &mut wins, &mut actions);
+        {
+            let s = app.session_by(4).unwrap();
+            assert!(matches!(s.phase, Phase::Ended { error: Some(_) }) && !s.relative && !s.running(), "la souris des jeux est rendue");
+        }
+        assert!(reap(&mut app, &mut lives, &mut wins));
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
+        assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), lives.0.len(), wins.list.len()), (4, 3, 3, 3, 4), "le message et sa fenêtre restent");
+        assert_eq!(app.active_id(), Some(4), "la carte d'erreur reste la session active de l'interface tant que sa fenêtre a le clavier");
+        assert!(!app.sessions_full() && app.session_of_host("d").is_none(), "une session finie ne compte plus : on peut s'y reconnecter");
+        // Une session de plus s'ouvre à sa place (la finie attend « Fermer ») : quatre en cours, cinq fenêtres.
+        connect(&mut app, &mut lives, &mut wins, &tx, "e", jeu);
+        assert_eq!((app.sessions.len(), app.running_sessions(), core.count(), wins.list.len()), (5, 4, 4, 5));
+        assert!(app.sessions_full());
+        // « Fermer » : la fenêtre de la session finie se ferme, les autres continuent.
+        app.activate_session(4);
+        assert!(app.session_back().is_empty());
+        assert!(reap(&mut app, &mut lives, &mut wins));
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
+        assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (4, 4, 4));
+        assert_eq!(app.active_id(), active_of(&lives), "la session que le cœur dit active est l'active de l'interface");
+        for id in [5, 3] {
             app.close_session(id);
             reap(&mut app, &mut lives, &mut wins);
         }
+        focus::sync(&mut app, &lives, &mut pads, &mut applied);
         assert_eq!((app.sessions.len(), core.count(), wins.list.len()), (2, 2, 2));
 
         // La session active se termine : celle qui l'était juste avant reprend la main, pour le cœur aussi.
@@ -3393,6 +3512,13 @@ mod tests {
         assert_eq!((app.active_id(), lives.0.len(), wins.list.len(), core.count()), (None, 0, 1, 0));
         assert!(!wins.list[0].hidden && wins.list[0].session.is_none());
         assert!(focus::sync(&mut app, &lives, &mut pads, &mut applied), "plus de session : l'état global de SDL est rendu");
+        // Quitter attend les sessions : chacune est arrêtée puis attendue, sans dépasser le délai.
+        connect(&mut app, &mut lives, &mut wins, &tx, "a", jeu);
+        connect(&mut app, &mut lives, &mut wins, &tx, "b", jeu);
+        assert_eq!(lives.0.len(), 2);
+        let started = Instant::now();
+        stop_all(&lives, &wins);
+        assert!(started.elapsed() < QUIT_WAIT, "les sessions ont fini avant le délai : {:?}", started.elapsed());
         let main = wins.list.pop().unwrap();
         main.destroy();
         unsafe { sdl::SDL_Quit() };

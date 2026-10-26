@@ -250,6 +250,22 @@ impl Pads {
         p.motors_until = Instant::now() + Duration::from_millis(ms as u64);
     }
 
+    /// Les moteurs s'arrêtent : la session qui faisait vibrer les manettes n'est plus l'active. Une
+    /// vibration jouée par SDL dure jusqu'à son terme (5 s au plus quand l'ordinateur n'en donne pas) :
+    /// le cœur n'envoie plus celles d'une session en arrière-plan, mais ne rattrape pas celle en cours.
+    pub fn stop_rumble(&mut self) {
+        for p in &mut self.pads {
+            unsafe {
+                sdl::SDL_GameControllerRumble(p.ctrl, 0, 0, 0);
+                if p.triggers {
+                    sdl::SDL_GameControllerRumbleTriggers(p.ctrl, 0, 0, 0);
+                }
+            }
+            p.motors = (0.0, 0.0);
+            p.motors_until = Instant::now();
+        }
+    }
+
     /// Vibration d'essai (écran des manettes).
     pub fn test_rumble(&mut self, slot: usize, low: u16, high: u16, triggers: bool) {
         let Some(p) = self.pads.iter_mut().find(|p| p.slot == slot) else { return };

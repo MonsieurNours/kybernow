@@ -28,7 +28,7 @@ use crate::app::{App, SessionId};
 // Les deux comptes de quatre (l'interface et le registre) sont les mêmes.
 const _: () = assert!(crate::app::MAX_SESSIONS == focus::MAX_SESSIONS);
 
-/// Ce que `sync` a déjà appliqué à SDL : la session active et le nombre de sessions.
+/// Ce que `sync` a déjà appliqué à SDL : la session active et le nombre de sessions en cours.
 #[derive(Default)]
 pub struct Applied {
     active: Option<SessionId>,
@@ -106,7 +106,9 @@ pub fn sync(app: &mut App, lives: &Lives, pads: &mut Pads, applied: &mut Applied
     {
         app.activate_session(c);
     }
-    let now = (app.active_id(), app.sessions.len());
+    // Les sessions qui comptent sont celles en cours : une session finie sur une erreur reste dans la liste, avec
+    // son message, mais ne tient plus la souris, ni l'écran allumé, ni la saisie de texte.
+    let now = (app.active_id(), app.running_sessions());
     if now == (applied.active, applied.sessions) {
         return false;
     }
@@ -116,14 +118,18 @@ pub fn sync(app: &mut App, lives: &Lives, pads: &mut Pads, applied: &mut Applied
 }
 
 /// L'état global de SDL, d'après la session active : souris relative, saisie de texte, manette en
-/// souris ; l'économiseur d'écran est coupé tant qu'une session au moins tourne.
+/// souris ; l'économiseur d'écran est coupé tant qu'une session au moins est en cours. Quand la session
+/// active n'est plus en cours (sa carte d'erreur attend « Fermer »), le pointeur est libre et visible, même
+/// si d'autres sessions continuent.
 fn apply_sdl(app: &App, lives: &Lives, pads: &mut Pads) {
-    let active = app.session();
+    let active = app.session().filter(|s| s.running());
     unsafe {
         sdl::SDL_SetRelativeMouseMode(active.is_some_and(|s| s.relative) as c_int);
-        if app.sessions.is_empty() {
+        if active.is_none() {
             sdl::SDL_ShowCursor(1);
             sdl::SDL_SetCursor(sdl::SDL_GetDefaultCursor());
+        }
+        if app.running_sessions() == 0 {
             sdl::SDL_EnableScreenSaver();
             sdl::SDL_StopTextInput();
         } else {
@@ -136,4 +142,6 @@ fn apply_sdl(app: &App, lives: &Lives, pads: &mut Pads) {
         }
     }
     pads.set_mouse(active.is_some_and(|s| s.pad_mouse));
+    // La vibration en cours, venue de la session qui avait la main, s'arrête avec elle.
+    pads.stop_rumble();
 }
