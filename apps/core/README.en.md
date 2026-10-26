@@ -64,15 +64,17 @@ A session can take all of the device's displays: one virtual display per device 
 - Refresh rate (`screens::refresh`): the primary display keeps its own; the others run at 60 Hz, less if their display does not go that high.
 - Position (`screens::layout`): the primary at (0, 0); the others attached one by one, on the same side, to an already placed neighbour they share an edge with on the device, with the device's offset converted at the neighbour's pixels / logical units scale; at least 64 pixels of shared edge; never any overlap (the display slides along the edge, and among its possible neighbours the core picks the one that makes it slide the least); a display touching nothing attaches to the nearest one, on the side of the largest gap. Beyond four displays, the ones taken are the closest to the primary, step by step.
 
-**The session**: `Session::start_with_screens(params, screens, platform)` instead of `Session::start(params, platform)`. `params.mode` describes the primary display, as for a single-display session (the plan replaces it).
+**The “Displays” setting and the home line** ([docs/link-ui.en.md](../../docs/link-ui.en.md)): `DisplaysChoice { setting, profile, custom_resolution, virtual_display }`, with `DisplaysSetting` (`Auto`, `This`, `All`, stored as `auto`, `this`, `all`). `setting_enabled()`: false with a custom resolution or without a virtual display (the setting is then inactive and shows “This display”, `shown_setting()`). `all_displays()`: All displays; Auto takes every display except in the Game profile (a Custom profile follows Desktop and Max). `screens::session_plan(&screens, &choice, codec)` returns the plan when the session will take at least two displays, otherwise `None`: the same decision for the home screen (“3 displays, sized for this device's screens”: the plan's length), the choice between `Session::start` and `Session::start_with_screens`, and the session itself. The device's primary display (the one showing the connection screen): `screens::primary_index(&list)`.
+
+**The session**: `Session::start_with_screens(params, screens, platform)` instead of `Session::start(params, platform)`, when `session_plan` returns a plan. `params.mode` describes the primary display, as for a single-display session (the plan replaces it).
 
 1. `prepare` carries `screens` from two displays on; `width`, `height` and `refresh` then describe the primary display. The answer says what is in place (`Prepared::screens`, in the request's order, `None` for a display the Station could not create). Without `screens` in the answer (a Station that handles one display only) or without the primary display, the session runs on the primary display, without an error.
 2. Each display in place is found in Kyber's list by its position and size (failing that, by its size alone, if only one free display has it). The core waits for all of them to be announced, 6 s at most as for one display, then starts the image on those that are there; if the primary is missing, on one display as before. A display announced later restarts the image on all of them.
-3. One video entry per display in Kyber's session, the primary first. At each image start, the platform receives `on_display` (the primary display, as always), then `on_screens(&[StreamScreen])`, then `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }`: the device display's index, the computer's display as Kyber announces it (`id` for inputs, size in pixels, position on the desktop), its refresh rate, and whether it is the primary. Each stream's packets go to the handler returned by `screen_video_handler(screen)`: one decoder per display. Even with a single-display Station, a session opened this way goes through `on_screens` and `screen_video_handler` (one display: the device's primary).
+3. One video entry per display in Kyber's session, the primary first. At each image start, the platform receives `on_display` (the primary display, as always), then `on_screens(&[StreamScreen], not_created)`, then `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }`: the device display's index, the computer's display as Kyber announces it (`id` for inputs, size in pixels, position on the desktop), its refresh rate, and whether it is the primary. `not_created`: the plan's device displays the computer could not create (`None` in the Station's answer, or never announced by Kyber); their window keeps the connection background with “The computer could not create this display.”. Each stream's packets go to the handler returned by `screen_video_handler(screen)`: one decoder per display. Even with a single-display Station, a session opened this way goes through `on_screens` and `screen_video_handler`: a single display (the device's primary) and an empty `not_created`; a plan display in neither list therefore means the session runs on the primary display alone. The number of displays in the statistics is the list's length.
 4. Bitrate: the profile's, computed on the sum of the displays' pixels per second (`StreamSettings::bitrate_for_pixel_rate`), with the same caps; the Station splits it between the displays.
 5. Keyframe: `keyframe_lost` and `keyframe_recovered` as for one display, from any decoder. Kyber asks every stream for a keyframe at once, and a request before a stream's first data leaves its encoder silent (a trap already met): the core only asks once every stream has received data (each starts with a keyframe); the watch asks again every 300 ms and restarts the stream at 1.5 s. Restarting the stream restarts every display.
 6. Measurements: `frame_displayed` (latency, first image, “no image” watch) for the primary display only; `bytes_received` for all.
-7. The device's displays change during the session (plugged, unplugged, layout or mirroring changed): `Session::set_screens(screens)`. If the plan changes, the image stops, the Station redoes the displays (notice `Adapting`, then `Adapted` or `AdaptFailed`, as for an adaptation), then the image starts again, without going back home. `set_mode` has no effect on a multi-display session: `set_screens` is the one to use.
+7. The device's displays change during the session (plugged, unplugged, layout or mirroring changed): `Session::set_screens(screens)`. If the plan changes, the connection resumes at its first step (`Status::Preparing`, then `Connecting` and `FirstImages`, without an adaptation capsule): the image stops, the Station redoes the displays, then the image starts again, without going back home. A refusal from Admin ends the session with its reason, as at the start. `set_mode` has no effect on a multi-display session: `set_screens` is the one to use.
 8. The computer changes a display's size: `on_display` for the primary as before, and `on_screens` again; a display gone from Kyber's list restarts the image.
 
 **Inputs**: `InputPipeline::set_screens(Vec<ScreenTarget>)`, to call in `input_pipeline()` after `on_screens` (and again when `on_screens` comes back). `ScreenTarget { screen, display_id, host_size, pointer }`: the device display's index, its computer display's `id`, its size in pixels, and the pointer layer of that display's view (`None`: the one given to `InputPipeline::new`, the primary display). Then:
@@ -84,18 +86,22 @@ A session can take all of the device's displays: one virtual display per device 
 **For a Windows or Linux app**, in order:
 
 ```rust
-use kybernow_core::screens::{DeviceScreen, Screens};
+use kybernow_core::screens::{self, DeviceScreen, DisplaysChoice, Screens};
 use kybernow_core::session::{Platform, Session, StreamScreen};
 use kybernow_core::input::{InputPipeline, Options, ScreenTarget};
 
-// 1. The device's displays (mirrors grouped), the primary marked.
+// 1. The device's displays (mirrors grouped), the primary marked; the setting.
 let screens = Screens { list: vec![DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }, /* … */], limit_4k };
-let session = Session::start_with_screens(params, screens, platform);
+let choice = DisplaysChoice { setting, profile: params.settings.profile, custom_resolution, virtual_display };
+let session = match screens::session_plan(&screens, &choice, params.settings.codec) {
+    Some(_) => Session::start_with_screens(params, screens, platform),  // home: “{n} displays, …”
+    None => Session::start(params, platform),
+};
 
 // 2. The platform (the other methods as for one display).
 impl Platform for App {
     fn on_display(&self, d: &Display) { /* the primary display, as before */ }
-    fn on_screens(&self, s: &[StreamScreen]) { /* window of display s[i].screen ↔ computer display s[i].display */ }
+    fn on_screens(&self, s: &[StreamScreen], not_created: &[usize]) { /* window of display s[i].screen ↔ computer display s[i].display */ }
     fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> { /* decoder of `screen`'s window */ }
     fn input_pipeline(&self) -> Pipeline {
         let p = InputPipeline::new(Options { display_id: primary.id, host_size, clipboard, gamepads_from_app }, primary_pointer, callbacks, clock);

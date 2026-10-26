@@ -26,7 +26,7 @@ use kybernow_core::kynput_rs::Pipeline;
 use kybernow_core::latency::{self, Second};
 use kybernow_core::media::{Packet, PacketHandler};
 use kybernow_core::profile::{Codec, Profile, StreamSettings};
-use kybernow_core::screens::{self, Screens};
+use kybernow_core::screens::{self, DisplaysChoice, DisplaysSetting, Screens};
 use kybernow_core::session::{EndReport, Notice, Platform, Recovery, Session, SessionParams, Status, StreamScreen};
 use kybernow_core::wake;
 use kybernow_core::{Display, WindowHandle};
@@ -710,9 +710,14 @@ pub struct KnPlatform {
     pub on_notice: Option<unsafe extern "C" fn(userdata: *mut c_void, notice: *const KnNotice)>,
     /// Multi-écrans : les écrans pris par la session, principal en premier
     /// (après `on_display`, avant `input_pipeline`, à chaque démarrage de
-    /// l'image ; et quand la taille de l'un d'eux change). Un seul si la
-    /// Station n'en gère qu'un.
-    pub on_screens: Option<unsafe extern "C" fn(userdata: *mut c_void, screens: *const KnStreamScreen, count: usize)>,
+    /// l'image ; et quand la taille de l'un d'eux change), et les écrans de
+    /// l'appareil que l'ordinateur n'a pas pu créer (`not_created`, index
+    /// dans `screens.list` : « L'ordinateur n'a pas pu créer cet écran. »).
+    /// Un écran du plan dans aucune des deux listes : la Station ne gère
+    /// qu'un écran, la session se fait sur l'écran principal seul.
+    pub on_screens: Option<
+        unsafe extern "C" fn(userdata: *mut c_void, screens: *const KnStreamScreen, count: usize, not_created: *const u32, not_created_count: usize),
+    >,
 }
 
 struct ApplePlatform {
@@ -758,10 +763,11 @@ impl Platform for ApplePlatform {
         self.sink(self.cb.video_packet, screen as u32).unwrap_or_else(|| Arc::new(Mute))
     }
 
-    fn on_screens(&self, screens: &[StreamScreen]) {
+    fn on_screens(&self, screens: &[StreamScreen], not_created: &[usize]) {
         if let Some(f) = self.cb.on_screens {
             let list: Vec<KnStreamScreen> = screens.iter().map(KnStreamScreen::from).collect();
-            unsafe { f(self.cb.userdata, list.as_ptr(), list.len()) };
+            let missing: Vec<u32> = not_created.iter().map(|&i| i as u32).collect();
+            unsafe { f(self.cb.userdata, list.as_ptr(), list.len(), missing.as_ptr(), missing.len()) };
         }
     }
 
@@ -1185,16 +1191,46 @@ pub unsafe extern "C" fn kn_session_set_screens(s: *const KnSession, screens_jso
     KN_OK
 }
 
-/// Multi-écrans : ce que la session demandera pour ces écrans de l'appareil
-/// (même JSON que `screens`), pour un format (`h264`, `hevc`, `av1`) : une
-/// liste JSON, principal en premier, de `device` (index dans `list`),
-/// `width`, `height`, `refresh`, `x`, `y`, `primary` ; quatre écrans au plus.
-/// Nul si illisible. À libérer par `kn_string_free`.
+fn displays_choice(setting: *const c_char, profile: *const c_char, custom_resolution: bool, virtual_display: bool) -> DisplaysChoice {
+    DisplaysChoice {
+        setting: DisplaysSetting::parse(&text(setting)).unwrap_or_default(),
+        profile: Profile::parse(&text(profile)),
+        custom_resolution,
+        virtual_display,
+    }
+}
+
+/// Réglage « Écrans » : `setting` (`auto`, `this`, `all` ; inconnu : Auto),
+/// `profile` (`jeu`, `bureau`, `max` ; vide : Personnalisé), définition sur
+/// mesure, écran virtuel. Faux : le réglage est inactif, sur « Cet écran ».
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn kn_screens_plan(screens_json: *const c_char, codec: *const c_char) -> *mut c_char {
+pub extern "C" fn kn_screens_setting_enabled(custom_resolution: bool, virtual_display: bool) -> bool {
+    DisplaysChoice { setting: DisplaysSetting::Auto, profile: None, custom_resolution, virtual_display }.setting_enabled()
+}
+
+/// Les écrans que prendra la session avec ce réglage (mêmes paramètres que
+/// `kn_screens_setting_enabled`) pour ces écrans de l'appareil (même JSON que
+/// `screens` de `kn_session_start`) et ce format (`h264`, `hevc`, `av1`) :
+/// une liste JSON d'au moins deux écrans, principal en premier, de `device`
+/// (index dans `list`), `width`, `height`, `refresh`, `x`, `y`, `primary` ;
+/// quatre au plus. Nul : une session à un écran (réglage, profil Jeu en
+/// Auto, un seul écran, JSON illisible) : `kn_session_start` sans `screens`.
+/// Son nombre d'écrans est celui de la ligne de l'accueil. À libérer par
+/// `kn_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_session_plan(
+    screens_json: *const c_char,
+    setting: *const c_char,
+    profile: *const c_char,
+    custom_resolution: bool,
+    virtual_display: bool,
+    codec: *const c_char,
+) -> *mut c_char {
     let Ok(screens) = serde_json::from_str::<Screens>(&text(screens_json)) else { return std::ptr::null_mut() };
+    let choice = displays_choice(setting, profile, custom_resolution, virtual_display);
     let codec = Codec::parse(&text(codec)).unwrap_or(Codec::Hevc);
-    let list: Vec<serde_json::Value> = screens::plan(&screens, codec)
+    let Some(plan) = screens::session_plan(&screens, &choice, codec) else { return std::ptr::null_mut() };
+    let list: Vec<serde_json::Value> = plan
         .iter()
         .map(|p| {
             serde_json::json!({
@@ -1204,6 +1240,16 @@ pub unsafe extern "C" fn kn_screens_plan(screens_json: *const c_char, codec: *co
         })
         .collect();
     give(serde_json::Value::Array(list).to_string())
+}
+
+/// Index de l'écran principal dans `list` (même JSON que `screens`) : celui
+/// où s'affiche l'écran de connexion. -1 si illisible ou vide.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn kn_screens_primary_index(screens_json: *const c_char) -> i32 {
+    match serde_json::from_str::<Screens>(&text(screens_json)) {
+        Ok(s) if !s.list.is_empty() => screens::primary_index(&s.list) as i32,
+        _ => -1,
+    }
 }
 
 /// Image `pts` reçue, décodée puis montrée (µs, `kn_now_micros`).

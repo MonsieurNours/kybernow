@@ -64,15 +64,17 @@ Une session peut prendre tous les écrans de l'appareil : un écran virtuel par 
 - Fréquence (`screens::refresh`) : l'écran principal garde la sienne ; les autres sont à 60 Hz, moins si leur écran ne va pas jusque-là.
 - Position (`screens::layout`) : le principal en (0, 0) ; les autres collés de proche en proche, du même côté, au voisin déjà placé avec lequel ils partagent un bord sur l'appareil, avec le décalage de l'appareil converti à l'échelle pixels / unités logiques du voisin ; 64 pixels de bord commun au moins ; jamais de chevauchement (l'écran glisse le long du bord, et parmi ses voisins possibles, le cœur prend celui qui le fait le moins glisser) ; un écran qui ne touche rien se colle au plus proche, du côté de l'écart le plus grand. Au-delà de quatre écrans, ceux qui sont pris sont les plus proches du principal, de proche en proche.
 
-**La session** : `Session::start_with_screens(params, screens, platform)` au lieu de `Session::start(params, platform)`. `params.mode` décrit l'écran principal, comme pour une session à un écran (le plan le remplace).
+**Le réglage « Écrans » et la ligne de l'accueil** ([docs/link-ui.md](../../docs/link-ui.md)) : `DisplaysChoice { setting, profile, custom_resolution, virtual_display }`, avec `DisplaysSetting` (`Auto`, `This`, `All`, gardé en `auto`, `this`, `all`). `setting_enabled()` : faux avec une définition sur mesure ou sans écran virtuel (le réglage est alors inactif et montre « Cet écran », `shown_setting()`). `all_displays()` : Tous les écrans ; Auto prend tous les écrans sauf en profil Jeu (un profil Personnalisé suit Bureau et Max). `screens::session_plan(&screens, &choice, codec)` rend le plan quand la session prendra au moins deux écrans, sinon `None` : la même décision pour l'accueil (« 3 écrans, à la taille de ceux de cet appareil » : la longueur du plan), le choix entre `Session::start` et `Session::start_with_screens`, et la session elle-même. L'écran principal de l'appareil (celui de l'écran de connexion) : `screens::primary_index(&list)`.
+
+**La session** : `Session::start_with_screens(params, screens, platform)` au lieu de `Session::start(params, platform)`, quand `session_plan` rend un plan. `params.mode` décrit l'écran principal, comme pour une session à un écran (le plan le remplace).
 
 1. `prepare` porte `screens` à partir de deux écrans ; `width`, `height` et `refresh` y décrivent l'écran principal. La réponse dit ce qui est en place (`Prepared::screens`, dans l'ordre de la demande, `None` pour un écran que la Station n'a pas pu créer). Sans `screens` dans la réponse (Station qui ne gère qu'un écran) ou sans écran principal, la session se fait sur l'écran principal, sans erreur.
 2. Chaque écran en place est retrouvé dans la liste de Kyber par sa position et sa taille (à défaut par sa taille seule, si un seul écran libre l'a). Le cœur attend qu'ils soient tous annoncés, 6 s au plus comme pour un écran, puis démarre l'image sur ceux qui sont là ; si l'écran principal manque, sur un écran comme avant. Un écran annoncé plus tard relance l'image sur tous.
-3. Une entrée vidéo par écran dans la session de Kyber, le principal en premier. La plateforme reçoit, à chaque démarrage de l'image : `on_display` (l'écran principal, comme toujours), puis `on_screens(&[StreamScreen])`, puis `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }` : l'index de l'écran de l'appareil, l'écran de l'ordinateur tel que Kyber l'annonce (`id` pour les entrées, taille en pixels, position sur le bureau), sa fréquence, et s'il est principal. Les paquets de chaque flux vont au gestionnaire rendu par `screen_video_handler(screen)` : un décodeur par écran. Même avec une Station à un écran, une session ouverte ainsi passe par `on_screens` et `screen_video_handler` (un écran : le principal de l'appareil).
+3. Une entrée vidéo par écran dans la session de Kyber, le principal en premier. La plateforme reçoit, à chaque démarrage de l'image : `on_display` (l'écran principal, comme toujours), puis `on_screens(&[StreamScreen], not_created)`, puis `input_pipeline()`. `StreamScreen { screen, display, refresh, primary }` : l'index de l'écran de l'appareil, l'écran de l'ordinateur tel que Kyber l'annonce (`id` pour les entrées, taille en pixels, position sur le bureau), sa fréquence, et s'il est principal. `not_created` : les écrans de l'appareil du plan que l'ordinateur n'a pas pu créer (`None` dans la réponse de la Station, ou jamais annoncés par Kyber) ; leur fenêtre garde le fond de la connexion avec « L'ordinateur n'a pas pu créer cet écran. ». Les paquets de chaque flux vont au gestionnaire rendu par `screen_video_handler(screen)` : un décodeur par écran. Même avec une Station à un écran, une session ouverte ainsi passe par `on_screens` et `screen_video_handler` : un seul écran (le principal de l'appareil) et `not_created` vide ; un écran du plan qui n'est dans aucune des deux listes dit donc que la session se fait sur l'écran principal seul. Le nombre d'écrans des statistiques est la longueur de la liste.
 4. Débit : celui du profil, calculé sur la somme des pixels par seconde des écrans (`StreamSettings::bitrate_for_pixel_rate`), avec les mêmes plafonds ; la Station le répartit entre les écrans.
 5. Image clé : `keyframe_lost` et `keyframe_recovered` comme pour un écran, depuis n'importe quel décodeur. Kyber demande l'image clé à tous les flux à la fois, et une demande avant les premières données d'un flux laisse son encodeur muet (piège déjà vécu) : le cœur ne la demande qu'une fois que chaque flux a reçu des données (chacun commence par une image clé) ; la veille redemande toutes les 300 ms et relance le flux à 1,5 s. Relancer le flux relance tous les écrans.
 6. Mesures : `frame_displayed` (latence, première image, veille « aucune image ») pour l'écran principal seulement ; `bytes_received` pour tous.
-7. Les écrans de l'appareil changent en session (branché, débranché, disposition ou recopie changée) : `Session::set_screens(screens)`. Si le plan change, l'image s'arrête, la Station refait les écrans (avis `Adapting`, puis `Adapted` ou `AdaptFailed`, comme une adaptation), puis l'image repart, sans revenir à l'accueil. `set_mode` est sans effet sur une session multi-écrans : c'est `set_screens` qui sert.
+7. Les écrans de l'appareil changent en session (branché, débranché, disposition ou recopie changée) : `Session::set_screens(screens)`. Si le plan change, la connexion reprend à sa première étape (`Status::Preparing`, puis `Connecting` et `FirstImages`, sans capsule d'adaptation) : l'image s'arrête, la Station refait les écrans, puis l'image repart, sans revenir à l'accueil. Un refus d'Admin met fin à la session avec sa raison, comme au départ. `set_mode` est sans effet sur une session multi-écrans : c'est `set_screens` qui sert.
 8. L'ordinateur change la taille d'un écran : `on_display` pour le principal comme avant, et `on_screens` de nouveau ; un écran disparu de la liste de Kyber relance l'image.
 
 **Les entrées** : `InputPipeline::set_screens(Vec<ScreenTarget>)`, à appeler dans `input_pipeline()` après `on_screens` (et de nouveau quand `on_screens` revient). `ScreenTarget { screen, display_id, host_size, pointer }` : l'index de l'écran de l'appareil, l'`id` de son écran de l'ordinateur, sa taille en pixels, et la couche de pointeur de la vue de cet écran (`None` : celle donnée à `InputPipeline::new`, l'écran principal). Ensuite :
@@ -84,18 +86,22 @@ Une session peut prendre tous les écrans de l'appareil : un écran virtuel par 
 **Pour une app Windows ou Linux**, dans l'ordre :
 
 ```rust
-use kybernow_core::screens::{DeviceScreen, Screens};
+use kybernow_core::screens::{self, DeviceScreen, DisplaysChoice, Screens};
 use kybernow_core::session::{Platform, Session, StreamScreen};
 use kybernow_core::input::{InputPipeline, Options, ScreenTarget};
 
-// 1. Les écrans de l'appareil (recopies regroupées), le principal marqué.
+// 1. Les écrans de l'appareil (recopies regroupées), le principal marqué ; le réglage.
 let screens = Screens { list: vec![DeviceScreen { x, y, width, height, pixel_width, pixel_height, refresh, primary }, /* … */], limit_4k };
-let session = Session::start_with_screens(params, screens, platform);
+let choice = DisplaysChoice { setting, profile: params.settings.profile, custom_resolution, virtual_display };
+let session = match screens::session_plan(&screens, &choice, params.settings.codec) {
+    Some(_) => Session::start_with_screens(params, screens, platform),  // accueil : « {n} écrans, … »
+    None => Session::start(params, platform),
+};
 
 // 2. La plateforme (les autres méthodes comme pour un écran).
 impl Platform for App {
     fn on_display(&self, d: &Display) { /* l'écran principal, comme avant */ }
-    fn on_screens(&self, s: &[StreamScreen]) { /* fenêtre de l'écran s[i].screen ↔ écran de l'ordinateur s[i].display */ }
+    fn on_screens(&self, s: &[StreamScreen], not_created: &[usize]) { /* fenêtre de l'écran s[i].screen ↔ écran de l'ordinateur s[i].display */ }
     fn screen_video_handler(&self, screen: usize) -> Arc<dyn PacketHandler> { /* décodeur de la fenêtre de `screen` */ }
     fn input_pipeline(&self) -> Pipeline {
         let p = InputPipeline::new(Options { display_id: principal.id, host_size, clipboard, gamepads_from_app }, pointeur_principal, rappels, horloge);

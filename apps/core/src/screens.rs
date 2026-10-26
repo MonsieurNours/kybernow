@@ -25,7 +25,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::console::{Mode, ScreenMode};
-use crate::profile::Codec;
+use crate::profile::{Codec, Profile};
 
 /// Quatre écrans au plus par session.
 pub const MAX_SCREENS: usize = 4;
@@ -64,6 +64,86 @@ pub struct Screens {
     /// « Au plus 4K » : chaque écran est ramené à 3840 × 2160 au plus.
     #[serde(default)]
     pub limit_4k: bool,
+}
+
+/// Réglage « Écrans » d'un ordinateur (docs/link-ui.md, rubrique Image) :
+/// Auto, Cet écran, Tous les écrans. Gardé tel quel (`auto`, `this`, `all`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DisplaysSetting {
+    #[default]
+    Auto,
+    This,
+    All,
+}
+
+impl DisplaysSetting {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "this" => Some(Self::This),
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::This => "this",
+            Self::All => "all",
+        }
+    }
+}
+
+/// Ce qui décide du nombre d'écrans d'une session : le réglage « Écrans »,
+/// le profil (`None` : Personnalisé), une définition sur mesure, l'écran
+/// virtuel. Les trois apps passent par ici pour le réglage, la ligne de
+/// l'accueil et la session : mêmes règles partout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplaysChoice {
+    pub setting: DisplaysSetting,
+    pub profile: Option<Profile>,
+    pub custom_resolution: bool,
+    pub virtual_display: bool,
+}
+
+impl DisplaysChoice {
+    /// Le réglage se change ; sinon il est inactif, sur « Cet écran » : avec
+    /// une définition sur mesure, ou sans écran virtuel.
+    pub fn setting_enabled(&self) -> bool {
+        self.virtual_display && !self.custom_resolution
+    }
+
+    /// Le réglage tel que les réglages le montrent.
+    pub fn shown_setting(&self) -> DisplaysSetting {
+        if self.setting_enabled() { self.setting } else { DisplaysSetting::This }
+    }
+
+    /// La session prend tous les écrans de l'appareil. Auto : tous, sauf en
+    /// profil Jeu (un seul) ; un profil Personnalisé suit la règle de Bureau
+    /// et Max.
+    pub fn all_displays(&self) -> bool {
+        match self.shown_setting() {
+            DisplaysSetting::This => false,
+            DisplaysSetting::All => true,
+            DisplaysSetting::Auto => self.profile != Some(Profile::Jeu),
+        }
+    }
+}
+
+/// Les écrans virtuels que la session demandera, ou `None` pour une session
+/// à un écran ([`crate::session::Session::start`]) : le réglage ne prend
+/// qu'un écran, ou l'appareil n'en a qu'un. `Some` : au moins deux écrans,
+/// à donner à [`crate::session::Session::start_with_screens`] ; leur nombre
+/// est celui de la ligne de l'accueil (« 3 écrans, à la taille de ceux de
+/// cet appareil »).
+pub fn session_plan(screens: &Screens, choice: &DisplaysChoice, codec: Codec) -> Option<Vec<PlannedScreen>> {
+    if !choice.all_displays() {
+        return None;
+    }
+    let p = plan(screens, codec);
+    (p.len() >= 2).then_some(p)
 }
 
 /// Un écran virtuel à demander : l'écran de l'appareil auquel il va
@@ -451,6 +531,32 @@ mod tests {
         let p = plan(&auteur(), Codec::H264);
         assert_eq!((p[2].mode.width, p[2].mode.height), (4096, 2304));
         windows_accepts(&rects(&p), 0);
+    }
+
+    #[test]
+    fn reglage_ecrans() {
+        let choice = |setting, profile, custom_resolution, virtual_display| DisplaysChoice { setting, profile, custom_resolution, virtual_display };
+        use DisplaysSetting::*;
+        // Auto : tous en Bureau, Max (et Personnalisé), un seul en Jeu.
+        assert!(choice(Auto, Some(Profile::Bureau), false, true).all_displays());
+        assert!(choice(Auto, Some(Profile::Max), false, true).all_displays());
+        assert!(choice(Auto, None, false, true).all_displays());
+        assert!(!choice(Auto, Some(Profile::Jeu), false, true).all_displays());
+        assert!(choice(All, Some(Profile::Jeu), false, true).all_displays());
+        assert!(!choice(This, Some(Profile::Bureau), false, true).all_displays());
+        // Inactif, sur « Cet écran » : définition sur mesure, ou sans écran virtuel.
+        for c in [choice(All, Some(Profile::Bureau), true, true), choice(All, Some(Profile::Bureau), false, false)] {
+            assert!(!c.setting_enabled() && c.shown_setting() == This && !c.all_displays());
+        }
+        assert_eq!(DisplaysSetting::parse("all"), Some(All));
+        assert_eq!(DisplaysSetting::default().as_str(), "auto");
+        assert_eq!(serde_json::to_string(&This).unwrap(), "\"this\"");
+        // La ligne de l'accueil : le nombre d'écrans de la session, ou un écran.
+        let bureau = choice(Auto, Some(Profile::Bureau), false, true);
+        assert_eq!(session_plan(&auteur(), &bureau, Codec::Hevc).map(|p| p.len()), Some(3));
+        assert_eq!(session_plan(&auteur(), &choice(Auto, Some(Profile::Jeu), false, true), Codec::Hevc), None);
+        let one = Screens { list: vec![auteur().list[1]], limit_4k: false };
+        assert_eq!(session_plan(&one, &bureau, Codec::Hevc), None, "un seul écran : session à un écran");
     }
 
     #[test]

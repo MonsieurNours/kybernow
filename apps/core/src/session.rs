@@ -196,8 +196,13 @@ pub trait Platform: Send + Sync {
     /// écran de l'appareil : à chaque démarrage de l'image (après
     /// [`Self::on_display`], qui donne toujours l'écran principal, et avant
     /// [`Self::input_pipeline`]), et quand la taille de l'un d'eux change.
-    /// Un seul écran si la Station n'en gère qu'un.
-    fn on_screens(&self, _screens: &[StreamScreen]) {}
+    /// `not_created` : les écrans de l'appareil du plan que l'ordinateur n'a
+    /// pas pu créer (refusés par la Station, ou jamais annoncés par Kyber) ;
+    /// leur fenêtre garde le fond de la connexion avec « L'ordinateur n'a pas
+    /// pu créer cet écran. » (docs/link-ui.md). Un écran du plan absent des
+    /// deux listes : la Station ne gère qu'un écran (ou n'a pas créé l'écran
+    /// principal) et la session se fait sur l'écran principal seul.
+    fn on_screens(&self, _screens: &[StreamScreen], _not_created: &[usize]) {}
 }
 
 /// Paquets d'un écran d'une session à plusieurs écrans : note les premières
@@ -481,6 +486,16 @@ fn match_screens(targets: &[(usize, ScreenMode)], displays: &[Display]) -> Vec<S
     let mut out: Vec<StreamScreen> = found.into_iter().flatten().collect();
     out.sort_by_key(|s| !s.primary);
     out
+}
+
+/// Écrans de l'appareil du plan que l'ordinateur n'a pas pu créer : sans
+/// flux alors que la Station gère le multi-écrans (`targets` non vide). Vide
+/// avec une Station à un écran : la session y est sur l'écran principal seul.
+fn not_created(plan: &[PlannedScreen], targets: &[(usize, ScreenMode)], streams: &[StreamScreen]) -> Vec<usize> {
+    if targets.is_empty() {
+        return Vec::new();
+    }
+    plan.iter().map(|p| p.device).filter(|d| !streams.iter().any(|s| s.screen == *d)).collect()
 }
 
 pub struct Session {
@@ -1006,6 +1021,17 @@ impl Worker {
     /// Session ouverte par [`Session::start_with_screens`].
     fn multi(&self) -> bool {
         self.screens.is_some()
+    }
+
+    /// Les écrans du flux à la plateforme, avec ceux que l'ordinateur n'a
+    /// pas pu créer (écrans du plan sans flux, quand la Station gère le
+    /// multi-écrans).
+    fn announce_screens(&self) {
+        let not_created = not_created(&self.plan, &self.targets, &self.streams);
+        if !not_created.is_empty() {
+            info!("écrans que l'ordinateur n'a pas pu créer : {not_created:?}");
+        }
+        self.platform.on_screens(&self.streams, &not_created);
     }
 
     /// L'écran principal de l'appareil (index dans [`Screens::list`]).
@@ -1627,7 +1653,9 @@ impl Worker {
             return;
         }
         info!("écrans de l'appareil changés : {} écran(s), la session se refait", plan.len());
-        self.notice(Notice::Adapting { width: mode.width, height: mode.height });
+        // La connexion reprend à sa première étape sur l'écran principal
+        // (docs/link-ui.md), sans capsule d'adaptation.
+        self.status(Status::Preparing);
         self.stop_streaming();
         self.start_at = None;
         self.adapting = true;
@@ -1647,14 +1675,26 @@ impl Worker {
         self.adapting = false;
         match result {
             Ok(p) => {
+                let screens_changed = screens.is_some();
                 if let Some((s, plan)) = screens {
                     self.screens = Some(s);
                     self.plan = plan;
                 }
                 self.requested = mode;
                 self.apply_prepared(p);
-                let m = self.stream_mode;
-                self.pending_notice = Some(Notice::Adapted { width: m.width, height: m.height });
+                if screens_changed {
+                    self.status(Status::Connecting);
+                } else {
+                    let m = self.stream_mode;
+                    self.pending_notice = Some(Notice::Adapted { width: m.width, height: m.height });
+                }
+            }
+            Err(e) if screens.is_some() => {
+                // La connexion avait repris à sa première étape : comme au
+                // départ, un refus d'Admin met fin à la session avec sa raison.
+                warn!("écrans de l'appareil refusés : {e}");
+                let _ = self.tx.send(Msg::Fail(e.into()));
+                return;
             }
             Err(e) => {
                 // L'ancien mode reste celui à redemander (reconnexion, écran virtuel perdu).
@@ -1771,7 +1811,7 @@ impl Worker {
             if let Some(first) = self.streams.first_mut() {
                 first.display = d;
                 if self.multi() {
-                    self.platform.on_screens(&self.streams);
+                    self.announce_screens();
                 }
             }
         }
@@ -1837,7 +1877,7 @@ impl Worker {
             }
         }
         if changed {
-            self.platform.on_screens(&self.streams);
+            self.announce_screens();
             self.apply_bitrate();
         }
     }
@@ -1988,7 +2028,7 @@ impl Worker {
         self.platform.on_display(&display);
         let multi = self.multi();
         if multi {
-            self.platform.on_screens(&self.streams);
+            self.announce_screens();
         }
         let pipeline = self.platform.input_pipeline();
         let window_handle = self.platform.window_handle();
@@ -2364,6 +2404,12 @@ mod tests {
         // Position différente mais taille unique : retrouvé par la taille.
         let moved = vec![display(3, 0, 0, 3840, 2160), display(5, -3456, 0, 3456, 2234), display(7, 3840, 0, 5120, 2880)];
         assert_eq!(match_screens(&t, &moved).len(), 3);
+        // Ce que la plateforme apprend : l'écran non annoncé n'a pas pu être créé.
+        let shown = match_screens(&t, &kyber[..3]);
+        assert_eq!(not_created(&plan, &t, &shown), [1]);
+        assert!(not_created(&plan, &t, &match_screens(&t, &kyber)).is_empty());
+        // Station à un écran : rien de « non créé », la session est sur l'écran principal seul.
+        assert!(not_created(&plan, &[], &shown[..1]).is_empty());
         // Deux écrans libres de la même taille : pas de devinette.
         let twins = vec![
             planned(0, 1920, 1080, 60, 0, 0, true),
